@@ -31,6 +31,70 @@ Under active development. APIs and workflows may change before the first stable 
 
 ---
 
+## Features
+
+### Built for AI
+| Feature | What it does |
+|---|---|
+| Layered docs | An index (`AI.md`), task recipes, and API pages generated from code comments; an AI reads only what the task needs |
+| `llms.txt` | Standard entry file that AI tools look for, with the reading order |
+| Game state as text | One call turns the whole game state into a short text summary; expand any part on demand |
+| One action API (`engine.ops`) | Player, NPC and AI actions go through the same named operations: check first, run, log, undo, replay |
+| Explains "why not" | When an action can't run, the engine says why and how to fix it (e.g. "the door is locked, needs a key") |
+| Errors with codes and fixes | Every engine error carries a stable code, a suggested fix and a docs link |
+| Drive a running game | CLI and MCP tools let an AI press keys, step time, run actions, inspect and take screenshots (Claude Code, Cursor) |
+| Text-based tests | Scenario tests and state snapshots instead of fragile screenshot comparisons |
+| Generated maps | Engine and game maps list files, content, templates, grids and events, plus what to read for this game |
+| Docs that can't go stale | Checks fail when docs mention names or paths that no longer exist, or grow too large |
+
+### Performance
+| Feature | What it does |
+|---|---|
+| Streaming world | Only the area around the player and camera is loaded; leaving an area unloads visuals but keeps its data |
+| Far-away simplification | Distant objects merge into simple proxies and switch back to detail up close |
+| Automatic batching | Repeated static models are drawn as one batch per cell (3000 props: 43x fewer draw calls in our test) |
+| Worker threads | Terrain generation, pathfinding and far simulation can run off the main thread |
+| World keeps running | Crops grow and NPCs follow schedules out of sight, at a lower cost |
+| Asset compression | One command compresses models and textures (Meshopt, WebP / KTX2) |
+| Pay only for what you use | Systems are installed on demand; unused modules cost nothing |
+| Pauses when hidden | The game pauses when the tab loses focus and does not fast-forward on return |
+
+### Visuals
+| Feature | What it does |
+|---|---|
+| Style packs | Colors, shapes, lighting and post effects live in a swappable style pack |
+| Day, night and sky | Sun movement, sky colors over time, moving cloud shadows |
+| Weather and seasons | Rain and snow; plant colors change with the season |
+| Wind | Grass and trees sway |
+| Water | Waves and reflections, or plug in your own water material |
+| Post effects | Bloom, outlines, ambient occlusion and your own effects, in ordered slots |
+| Skeletal animation | Use animated glTF models exported from Blender and similar tools |
+| Art is replaceable | Characters, plants, ground and water can all use your own models and materials |
+
+### Ready-made systems (the game decides the rules)
+| System | What it gives you |
+|---|---|
+| Saves | Save, load, new game, continue; a failed save never overwrites the old one |
+| Time | Game clock, timed events, skip time (e.g. sleep until morning) |
+| Grid placement | Farming plots, furniture, buildings, with rotation and "can it go here" checks |
+| Editable terrain | Dig, raise, flatten and repaint ground; edits are saved |
+| Object templates | Define a thing once and place it anywhere |
+| Inventory and items | Stackable items or items with their own data |
+| Dialogue and quests | Branching dialogue and quest steps, with explanations when a quest is stuck |
+| NPCs | Schedules and near / far switching |
+| Characters and physics | Movement, collision, rigid bodies, vehicles |
+| Pathfinding | Grid pathfinding and navmesh, optionally in a worker |
+| Input contexts | Menus block movement keys automatically, layer by layer |
+| Multiplayer (experimental) | Basic networked sync |
+
+### Freedom
+| Feature | What it does |
+|---|---|
+| No hard-coded controls | Keys, movement and camera can all be replaced |
+| No hard-coded UI | HUD, dialogue box, menus, inventory and loading screen are defaults you can replace or turn off |
+| Not tied to one genre | Usable for farming, action, exploration and building games |
+| It is three.js | Engine objects are native three.js objects; three.js knowledge and add-ons still apply |
+
 ## Getting started
 
 > **Early preview.** APIs and names will still change, and it is not published to npm yet. Expect breaking changes until v0.1.0. Licensed MIT.
