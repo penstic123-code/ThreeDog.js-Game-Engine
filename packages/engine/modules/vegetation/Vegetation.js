@@ -120,7 +120,14 @@ export class Vegetation {
   rebuild() { this.host.rebuild(); }
   get(name) { return this.species.get(name); }
   list() { return [...this.species.values()]; }
-  /** @internal Set from which chunk ring a vegetation kind stops casting shadows (smaller is cheaper); takes effect immediately */
+  /**
+   * Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default,
+   * larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones
+   * @example engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk
+   * @param {string} name species name given to vegetation.add
+   * @param {number} ring chunk rings, 0 or more
+   * @returns {void}
+   */
   setShadowRing(name, ring) {
     const sp = this.species.get(name);
     if (!sp) { warnMissing('vegetation', name, [...this.species.keys()]); return; }

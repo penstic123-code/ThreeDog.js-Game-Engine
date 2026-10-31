@@ -26,7 +26,7 @@
 // Events: music:change { from, to }, music:stinger { name }
 
 import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
-import { reportError } from '../../core/errors.js';
+import { pickTrack, evaluateRules } from './rules.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
 
@@ -243,31 +243,9 @@ export class Music {
    * Which track the current rules would pick (without switching)
    * @returns {string | null | undefined}
    */
-  pick() {
-    if (!this._rules) return undefined;
-    let best = null;
-    for (const r of this._rules) {
-      let ok = false;
-      try { ok = this.engine.audio.matches(r.when, this); } catch (err) { reportError(this.engine, err, 'music rule when', { soft: true }); }
-      if (ok && (!best || (r.priority ?? 0) > (best.priority ?? 0))) best = r;
-    }
-    return best ? best.track ?? null : undefined;
-  }
+  pick() { return pickTrack(this); }
   /** @internal */
-  _evaluate(immediate = false) {
-    if (this._override !== undefined) return;
-    const want = this.pick();
-    if (want === undefined) return;                       // no rule matches: keep the current state
-    const cur = this.current ?? null;
-    if (want === cur) { this._candidate = undefined; this._candidateT = 0; return; }
-    const hold = this._ruleOpts.hold ?? this.opts.hold;
-    if (want !== this._candidate) { this._candidate = want; this._candidateT = 0; }
-    if (immediate || this._candidateT >= hold) {
-      this._candidate = undefined; this._candidateT = 0;
-      const fade = this._ruleOpts.fade ?? this.opts.fade;
-      want == null ? this.stop(fade) : this.play(want, { fade });
-    }
-  }
+  _evaluate(immediate = false) { return evaluateRules(this, immediate); }
   /**
    * Per-frame update (plays queued tracks, follows intensity, picks tracks by rules; the module calls it every frame)
    * @param {number} dt

@@ -1,5 +1,6 @@
 // Dome shader (gradient + sun + moon + stars + clouds), its uniforms, and neutral fallback keyframes. Look params come from style pack style.sky.
 import * as THREE from 'three';
+import { warnOnce } from '../../core/validate.js';
 import { NOISE_GLSL } from '../../render/effects.js';
 
 // Keyframes: [time 0-1, zenith color, horizon color (= fog color), light color, light intensity, ambient intensity]
@@ -37,9 +38,28 @@ export function makeSkyUniforms(st, engineUniforms) {
   };
 }
 
-export const vert = `varying vec3 vDir;
+/** The sky dome: a back-faced sphere that follows the camera and is scaled to 0.9 of its far plane (drawn first, no depth) */
+export function makeDome(uniforms) {
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
+    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+  dome.frustumCulled = false; dome.renderOrder = -1000; dome.userData.budgetTag = 'sky';
+  dome.onBeforeRender = (r, sc, cam) => {
+    dome.position.copy(cam.position); dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); dome.updateMatrixWorld();
+  };
+  return dome;
+}
+
+/** Panorama skybox (style pack sky.skybox): hides the gradient dome once the texture is wanted, becomes the scene background when loaded */
+export function loadSkybox(sky, name) {
+  const e = sky.engine;
+  sky.dome.visible = false;
+  e.assets.texture(name).then(t => { t.mapping = THREE.EquirectangularReflectionMapping; e.scene.background = t; sky.skybox = t; })
+    .catch(err => warnOnce(err.message));
+}
+
+const vert = `varying vec3 vDir;
 void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
-export const frag = `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
+const frag = `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
 uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
 uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
 varying vec3 vDir;

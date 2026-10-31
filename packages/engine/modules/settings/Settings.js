@@ -31,6 +31,7 @@ import { makeWindow, injectUICSS, uiFocus } from '../../ui/UI.js';
 import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
+import { applySetting } from './apply.js';
 import { checkOptions } from '../../core/validate.js';
 
 // Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
@@ -213,23 +214,7 @@ export class Settings extends SettingsView {
     return 'custom';
   }
   _applyAll() { for (const k in this.values) this._apply(k, this.values[k]); }
-  _apply(key, val) {
-    const e = this.engine;
-    try {
-      switch (key) {
-        case 'pixelRatio': if (e.adaptive) e.adaptive.max = val; if (Math.abs(e.renderer.getPixelRatio() - val) > 0.001) e.setPixelRatio(val); break;
-        case 'shadows': if (e.shadows !== val) e.setShadows(val); break;
-        case 'antialias': case 'bloom': case 'ao': e.post.enable(key, val); break;
-        case 'adaptive': if (e.adaptive) { e.adaptive.on = val; if (!val && e.adaptive.max) e.setPixelRatio(e.adaptive.max); } break;
-        case 'viewChunks': { const H = this.chunkHost(); if (H?.setViewChunks && H.viewChunks !== val) H.setViewChunks(val); break; }
-        case 'density': { const H = this.chunkHost(); if (H?.setDensity && H.density !== val) H.setDensity(val); break; }
-        default:
-          // a saved slider for a bus this build no longer has is skipped, not an error
-          if (key.startsWith('vol.')) { if (key.slice(4) in e.audio.levels) e.audio.setVolume(key.slice(4), val); }
-          else this.custom.get(key)?.apply?.(val, e);
-      }
-    } catch (err) { console.error(`[settings] ${key} failed to apply`, err); }
-  }
+  _apply(key, val) { applySetting(this, key, val); }
   /** Record the default keys of newly seen actions and apply previously saved bindings */
   _syncActions() {
     const inp = this.engine.input, saved = this.saved.bindings || {};

@@ -6,19 +6,15 @@
 // of persist.js.
 // Data must be plain values (putting a three.js object or a function in it throws in dev); position is a plain { x, y, z }. Don't hold on to rec: loading a
 // save swaps in new objects, so keep the id and use world.get(id).
-import { DEV, checkOptionsArg, fmt } from '../../core/validate.js';
+import { DEV, fmt } from '../../core/validate.js';
+import { STRINGS as RECORD_STRINGS, addRecord, restRecord, orphanIds, setRecord, removeRecord, queryRecords } from './records.js';
 import { Views } from './views.js';
 import { Sim } from './sim.js';
-import { saveWorld, loadWorld, checkPlain, renamePending } from './persist.js';
+import { saveWorld, loadWorld, renamePending } from './persist.js';
 import { Cells } from './cells.js';
 import { putPos, centerOf } from './pos.js';
 
 const STRINGS = {
-  noKind: 'world.add() needs a kind (what sort of thing this is), e.g. world.add({ kind: "crate", position: [0, 0, 0] })',
-  dupId: 'world.add(): id "{id}" already exists. Omit id to auto-number; to change an existing record use world.set("{id}", { … })',
-  initialId: 'world.add(def, { initial: true }) needs a stable id (saves match content by id), e.g. world.add({ id: "chest_1", kind: "{kind}", … }, { initial: true })',
-  noId: 'world.{fn}(): no record with id "{id}" (world.query({ kind }) lists what exists)',
-  setKey: 'world.set("{id}", patch): patch must not contain id / kind (they are the identity of the record). To change the kind, remove then add',
   anchor: 'world.anchor must be null, an Object3D, a Vector3 / { x, z } or [x, y, z]; got {got}',
 };
 
@@ -101,26 +97,7 @@ export class World {
    * @param {{ initial?: boolean, save?: boolean }} [opts]
    * @returns {WorldRecord | null}
    */
-  add(def, opts) {
-    DEV && this.engine.ops.guard('world.add');
-    if (!def?.kind) throw new Error(STRINGS.noKind);
-    if (DEV) { checkOptionsArg('world.add(def, opts)', opts, ['initial', 'save']); checkPlain({ ...def, position: undefined }, def.kind); }
-    const { id: given, kind, position, ...rest } = def, initial = !!opts?.initial;
-    if (initial && given == null) throw new Error(fmt(STRINGS.initialId, { kind }));
-    const id = given ?? `${kind}#${++this._seq}`, have = this.records.get(id), p = { x: 0, y: 0, z: 0 };
-    if (position) putPos('world.add()', position, p);
-    const rec = { id, kind, position: p, ...rest };
-    if (initial) {
-      if (!this._base.has(id)) this._base.set(id, structuredClone(rec));
-      if (have) return have;
-      if (this._removed.has(id)) return null;
-      return this._insert(this._fromBase(id, this._base.get(id)), true);
-    }
-    if (have) throw new Error(fmt(STRINGS.dupId, { id }));
-    if (opts?.save === false) this._unsaved.add(id);
-    if (DEV) this._origin.set(id, { spawned: { op: this.engine.ops.running, tick: this.engine.tick } });   // who made it (inspect / pick)
-    return this._insert(rec, true);
-  }
+  add(def, opts) { return addRecord(this, def, opts); }
   /**
    * Where a record comes from (filled in dev and test builds; null in release): { definedAt: 'content/props.js:14' } for a content entry,
    * { level, node } for a level-model node, { template } when it is a template instance, { spawned: { op, tick } } for a record created during play.
@@ -135,13 +112,7 @@ export class World {
    * still where its content put it (within tolerance meters), the content position moves there too, so the record stays out of the save. A record that was
    * moved is left alone.
    */
-  rest(id, position, tolerance = 0) {
-    const rec = this.records.get(id), base = this._base.get(id); if (!rec) return;
-    const a = rec.position, b = base?.position;
-    const same = !!b && Math.abs(a.x - b.x) <= tolerance && Math.abs(a.y - b.y) <= tolerance && Math.abs(a.z - b.z) <= tolerance;
-    putPos(`world.rest("${id}")`, position, rec.position); this._index(rec);
-    if (same) base.position = { ...rec.position };
-  }
+  rest(id, position, tolerance = 0) { restRecord(this, id, position, tolerance); }
   /** @internal Content / level loaders say where an authored record was defined (dev only; merged into what is there) */
   setOrigin(id, info) {
     if (info?.level != null) this._levels.add(info.level);
@@ -163,13 +134,7 @@ export class World {
    * (a reverted content change gets its data back); a `<level>/<node>` id counts only after that level has been shown.
    * @returns {string[]}
    */
-  orphans() {
-    const out = [], known = id => this._base.has(id) || this.records.has(id);
-    const due = id => { const i = id.indexOf('/'); return i < 0 || this._levels.has(id.slice(0, i)); };
-    for (const id of this._pending.keys()) if (!known(id) && due(id)) out.push(id);
-    for (const id of this._removed) if (!known(id) && !this._base.has(id) && due(id)) out.push(id);
-    return out;
-  }
+  orphans() { return orphanIds(this); }
   /**
    * @internal content/renames.js (content.load calls this before it adds placements): saved changes, removals and owed time under an old authored id
    * move to the new id; null drops them. Kept, so a save loaded later is renamed the same way (loadWorld). Returns the old ids that could not move,
@@ -195,17 +160,7 @@ export class World {
    * @param {Record<string, any>} patch
    * @returns {WorldRecord}
    */
-  set(id, patch) {
-    DEV && this.engine.ops.guard('world.set');
-    const rec = this._need(id, 'set');
-    if (DEV) { if ('id' in patch || 'kind' in patch) throw new Error(fmt(STRINGS.setKey, { id })); checkPlain({ ...patch, position: undefined }, id); }
-    const { position, ...rest } = patch;
-    Object.assign(rec, rest);
-    if (position) this.move(id, position);
-    if (this._v.presenters.get(rec.kind)?.show) this._v.dirty = true;
-    this.engine.events.emit('world:change', { id, kind: rec.kind, keys: Object.keys(patch) });
-    return rec;
-  }
+  set(id, patch) { return setRecord(this, id, patch); }
   /**
    * Move a record (no event; use it in simulate for things that move every step); still saved (saves diff against content).
    * The model of a positionFrom 'record' (default) record follows this frame; to do something else with the position in presentation, compare in update
@@ -226,17 +181,7 @@ export class World {
    * @param {string} id
    * @returns {void}
    */
-  remove(id) {
-    DEV && this.engine.ops.guard('world.remove');
-    const rec = this.records.get(id); if (!rec) return;
-    this._v.unview(id);
-    this._cells.delete(rec);
-    this.records.delete(id);
-    this._s.removed(id);
-    this._unsaved.delete(id);
-    if (this._base.has(id)) this._removed.add(id); else this._origin.delete(id);
-    this.engine.events.emit('world:remove', { id, kind: rec.kind });
-  }
+  remove(id) { removeRecord(this, id); }
   /**
    * Query records; returns an array. With near only nearby cells are scanned and results are sorted nearest first (radius defaults to 30 m); where filters
    * further. For neighbor queries every step use forEachNear
@@ -244,17 +189,7 @@ export class World {
    * @param {{ kind?: string, near?: any, radius?: number, where?: (rec: WorldRecord) => boolean, zone?: string | null }} [opts]
    * @returns {WorldRecord[]}
    */
-  query(opts = {}) {
-    const { kind, near, radius = 30, where, zone } = opts, out = [];
-    const ok = r => (!kind || r.kind === kind) && (zone === undefined || (r.zone ?? null) === zone) && (!where || where(r));
-    if (near) {
-      this._cells.forEach(centerOf(near), radius, (r, d2) => { if (ok(r)) out.push([d2, r]); });
-      return out.sort((a, b) => a[0] - b[0]).map(a => a[1]);
-    }
-    if (!kind) return [...this.records.values()].filter(ok);
-    for (const e of this._s.kinds.get(kind)?.set ?? []) if (ok(e.rec)) out.push(e.rec);   // table grouped by kind: no full scan
-    return out;
-  }
+  query(opts = {}) { return queryRecords(this, opts); }
   /**
    * Call fn(rec, d2) for each record within radius meters (horizontal distance) of center; d2 is the squared distance. Unsorted, no allocation: use it for
    * per-step neighbor queries (hundreds of zombies avoiding each other).
@@ -353,7 +288,7 @@ export class World {
   /** @internal */
   _inZone(rec) { return this.zone == null || rec.zone == null || rec.zone === this.zone; }
   /** @internal */
-  _need(id, fn) { const r = this.records.get(id); if (!r) throw new Error(fmt(STRINGS.noId, { fn, id })); return r; }
+  _need(id, fn) { const r = this.records.get(id); if (!r) throw new Error(fmt(RECORD_STRINGS.noId, { fn, id })); return r; }
   /** Copy the original initial record and apply the changes from the save @internal */
   _fromBase(id, base) {
     const rec = structuredClone(base), d = this._pending.get(id);

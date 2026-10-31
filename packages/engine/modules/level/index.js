@@ -60,21 +60,16 @@
 import * as THREE from 'three';
 import { buildHeightfield } from './heightfield.js';
 import { toast } from '../../ui/UI.js';
-import { checkOptions, warnOnce } from '../../core/validate.js';
+import { checkOptions } from '../../core/validate.js';
+import { MARKER_RE, levelNodes } from './nodes.js';
+import { worldTrimeshes, colliderBoxes } from './geometry.js';
 
 const STRINGS = {
   'zh-CN': { 'level.loadFailed': '关卡加载失败：{url}', 'level.noScene': '关卡模块需要 url 或 scene 参数' },
   en: { 'level.loadFailed': 'Failed to load level: {url}', 'level.noScene': 'The level module needs a url or scene option' },
 };
 
-const STRINGS_DEV = {
-  noWorld: '[level] nodes with the custom property template or id become world records: install world() (the openWorld() preset has it); until then they stay in the level as plain scenery (ground, collision, rays like any node)',
-  noContent: 'level node {id} has the custom property template: install content() and define the template in content/templates.js',
-  clash: 'level node id "{id}" is already used by other data (kind {kind}): rename the node in Blender',
-  notLoaded: 'level node {id}: its level is not loaded (a record of another level is built only on that level)',
-};
 const WALK_RE = /ground|floor|road|terrain|stairs?|ramp/i;
-const MARKER_RE = /^(spawn|spawn_.*|npc_.*|trigger_.*|marker_.*)$/i;
 const COL_RE = /^col_/i;
 
 // a name or userData on the node itself or any ancestor counts (in glTF meshes often hang under a same-named empty)
@@ -93,8 +88,7 @@ export function level(opts = {}) {
   let e = null, hf = null, done = false, version = 0, trimeshCache = null, pendingColliders = null;
   let current = typeof url === 'string' && !scene ? url : null;   // current level path/asset name (for saving)
   const walkMeshes = [], removers = [];
-  const taken = [], nodes = new Map();   // record nodes waiting to be placed; record id -> node object (levelNode records)
-  let presented = null;
+  let nodeSet = null;   // level nodes that become world records (nodes.js), created at install
 
   const api = {
     root: null, markers: {}, spawn: new THREE.Vector3(), heightfield: null,
@@ -107,17 +101,7 @@ export function level(opts = {}) {
     /** @internal Triangles of walkable meshes (world space), [{ positions: Float32Array, indices: Uint32Array }], cached */
     staticTrimeshes() {
       if (trimeshCache) return trimeshCache;
-      trimeshCache = walkMeshes.map(m => {
-        const g = m.geometry, pos = g.attributes.position, v = new THREE.Vector3();
-        const positions = new Float32Array(pos.count * 3);
-        for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); positions[i * 3] = v.x; positions[i * 3 + 1] = v.y; positions[i * 3 + 2] = v.z; }
-        let indices;
-        if (g.index) indices = Uint32Array.from(g.index.array);
-        else { indices = new Uint32Array(pos.count); for (let i = 0; i < pos.count; i++) indices[i] = i; }
-        // mirrored scale (negative determinant) flips triangles; swap order to keep them facing up
-        if (m.matrixWorld.determinant() < 0) for (let i = 0; i + 2 < indices.length; i += 3) { const t = indices[i + 1]; indices[i + 1] = indices[i + 2]; indices[i + 2] = t; }
-        return { positions, indices };
-      });
+      trimeshCache = worldTrimeshes(walkMeshes);
       return trimeshCache;
     },
     /** Unload the level: remove from scene, delete colliders, ground reverts to the outside height */
@@ -145,7 +129,7 @@ export function level(opts = {}) {
   function loaded() {
     addColliders();                    // if the collision module is installed after level, add colliders here
     // nodes tagged template / id become world records (loading is setup, not a gameplay action) before anyone (hlod...) sees level:loaded
-    e.ops.allow(placeNodes);
+    e.ops.allow(nodeSet.place);
     done = true;
     e.assets.trim();                   // old level's models have no copies in use: return GPU memory
     e.events.emit('level:loaded', { root: api.root, markers: api.markers, spawn: api.spawn });
@@ -157,7 +141,7 @@ export function level(opts = {}) {
     root.userData.budgetTag ??= 'level';
     if (addToScene && !root.parent) e.add(root);
     root.updateMatrixWorld(true);
-    takeNodes(root);   // record nodes leave the level root first: no ground, collision or ray registration for them, and hlod never bakes them
+    nodeSet.take(root);   // record nodes leave the level root first: no ground, collision or ray registration for them, and hlod never bakes them
     const meshes = [], cols = [], markerObjs = [];
     root.traverse(o => {
       if (MARKER_RE.test(o.name)) { markerObjs.push(o); return; }
@@ -204,93 +188,11 @@ export function level(opts = {}) {
     addColliders();
   }
 
-  /**
-   * Nodes tagged with the custom property template or id (Blender custom property -> glTF extras -> userData): taken out of the level root, world transform
-   * kept
-   */
-  function takeNodes(root) {
-    taken.length = 0;
-    const walk = o => {
-      for (const c of [...o.children]) {
-        if ((c.userData?.template == null && c.userData?.id == null) || MARKER_RE.test(c.name)) { walk(c); continue; }
-        // without world() there is nowhere to put the record: leave the node as part of the level (a game that never uses records still sees its
-        // whole scene) and say how to turn it into a record, instead of removing it and dropping it later
-        if (!e.world) { warnOnce(STRINGS_DEV.noWorld); continue; }
-        const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-        c.matrixWorld.decompose(p, q, s);
-        c.removeFromParent(); c.position.copy(p); c.quaternion.copy(q); c.scale.copy(s);
-        c.userData.hlod = false;   // its model comes and goes with the record: never part of a merged far proxy
-        taken.push(c);
-      }
-    };
-    walk(root);
-  }
-  /** The name in node ids `<level>/<node>`: the level file name without folders and extension; a code-built scene uses its root name */
-  const levelName = () => {
-    if (!current) return api.root?.name || 'level';
-    const f = String(current), base = f.slice(Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\')) + 1), dot = base.lastIndexOf('.');
-    return dot > 0 ? base.slice(0, dot) : base;
-  };
-  const OWN = ['template', 'id', 'name', 'hlod'];   // userData keys that are not record fields (three's glTF loader keeps the node name in userData.name)
-  /** Taken nodes -> authored world records, id `<level>/<node>`: a template instance (custom property template) or the node itself (custom property id) */
-  function placeNodes() {
-    if (!taken.length) return;
-    if (!e.world) return;   // takeNodes took nothing then (the nodes stayed in the level)
-    const level = levelName(), zone = e.world.zone;
-    for (const o of taken.splice(0)) {
-      const id = `${level}/${o.name}`, ud = o.userData, node = o.name, { x, y, z } = o.position;
-      const fields = Object.fromEntries(Object.entries(ud).filter(([k, v]) => !OWN.includes(k) && (v == null || typeof v !== 'object' || Array.isArray(v) || v.constructor === Object)));
-      if (ud.template != null) {
-        if (!e.content) throw new Error(STRINGS_DEV.noContent.replace('{id}', id));
-        const yaw = new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ').y, state = Object.keys(e.content.template(ud.template).state ?? {});
-        const own = Object.fromEntries(Object.entries(fields).filter(([k]) => state.includes(k)));
-        e.content.placeNode({ template: ud.template, id, x, z, floor: y, ...(yaw && { rot: yaw }), ...(o.scale.x !== 1 && { scale: o.scale.x }), ...own }, zone, { level, node });
-      } else {
-        presentNodes();
-        nodes.set(id, o);
-        const rec = e.world.add({ ...fields, id, kind: 'levelNode', position: { x, y, z }, ...(zone != null && { zone }), level, node }, { initial: true });
-        if (rec && rec.kind !== 'levelNode') throw new Error(STRINGS_DEV.clash.replace('{id}', id).replace('{kind}', rec.kind));
-      }
-      e.world.setOrigin(id, { level, node });
-    }
-  }
-  /** How a level node record looks: the node itself (detached while far or on another level, rebuilt from the same object) */
-  function presentNodes() {
-    if (presented) return;
-    presented = e.world.present('levelNode', {
-      build(rec) {
-        const o = nodes.get(rec.id);
-        if (!o) throw new Error(STRINGS_DEV.notLoaded.replace('{id}', rec.id));
-        o.userData.unstatic = e.rays.addStatic(o);
-        return o;
-      },
-      dispose(rec, o) { o.userData.unstatic?.remove(); e.detach(o); },
-    });
-  }
-
   /** Turn collision meshes into rotated boxes in the collision module (best-fit box by the mesh's world orientation) */
   function addColliders() {
     const ph = e.collision;
     if (!ph || !pendingColliders) return;
-    const corner = new THREE.Vector3(), xAxis = new THREE.Vector3();
-    for (const m of pendingColliders) {
-      const g = m.geometry; if (!g) continue;
-      if (!g.boundingBox) g.computeBoundingBox();
-      const bb = g.boundingBox, mw = m.matrixWorld;
-      xAxis.setFromMatrixColumn(mw, 0);
-      const yaw = Math.atan2(-xAxis.z, xAxis.x), c = Math.cos(yaw), s = Math.sin(yaw);
-      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-      for (let i = 0; i < 8; i++) {
-        corner.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(mw);
-        const lx = corner.x * c - corner.z * s, lz = corner.x * s + corner.z * c;   // rotate into the box's own orientation
-        x0 = Math.min(x0, lx); x1 = Math.max(x1, lx); z0 = Math.min(z0, lz); z1 = Math.max(z1, lz);
-        y0 = Math.min(y0, corner.y); y1 = Math.max(y1, corner.y);
-      }
-      const lcx = (x0 + x1) / 2, lcz = (z0 + z1) / 2;
-      const wx = lcx * c + lcz * s, wz = -lcx * s + lcz * c;                        // rotate the center back to world space
-      const h = Math.max(colliderHeight, y1 - y0);
-      removers.push(ph.addBox({ x: wx, z: wz }, { halfWidth: (x1 - x0) / 2 + colliderPad, halfDepth: (z1 - z0) / 2 + colliderPad, rotation: yaw, height: h, y: y0 }));
-    }
+    for (const b of colliderBoxes(pendingColliders, { colliderHeight, colliderPad })) removers.push(ph.addBox(b.at, b.opts));
     pendingColliders = null;
   }
 
@@ -298,6 +200,7 @@ export function level(opts = {}) {
     name: 'level', label: 'Level', stage: 'world', after: ['terrain'], optional: ['world', 'content'],
     install(engine) {
       e = engine;
+      nodeSet = levelNodes(e, () => api.root, () => current);
       checkOptions('level()', opts, ['url', 'scene', 'walkable', 'colliders', 'cellSize', 'outside', 'waterLevel', 'colliderPad', 'colliderHeight', 'sharpEdge', 'hideMarkers', 'addToScene']);
       e.i18n.add(STRINGS);
       // ground API: before the heightfield is built, return the outside height

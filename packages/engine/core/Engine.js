@@ -15,7 +15,7 @@ import { PostFX } from '../render/PostFX.js';
 import { createDefaultLights } from '../render/lights.js';
 import { registerEngine } from '../render/materials.js';
 import { createUniforms } from '../render/effects.js';
-import { bindUniforms } from '../render/patches.js';
+import { bindUniforms } from '../render/engineUniforms.js';
 import { UIParts } from '../ui/Parts.js';
 import { defineCoreParts } from '../ui/defaults.js';
 import { applyUIStyle } from '../ui/theme.js';

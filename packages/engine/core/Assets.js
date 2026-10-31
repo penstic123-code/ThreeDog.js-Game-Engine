@@ -27,23 +27,16 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import { warnMissing, warnOnce, fmt, checkOptions } from './validate.js';
+import { warnMissing, warnOnce, fmt } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { Animator } from './Animator.js';
 import { fetchEntry, freeEntry, preloadEntries } from './assetEntry.js';
+import { registerManifest } from './assetManifest.js';
 
 const STRINGS = {
-  clash: 'assets.manifest(): "{name}" is already registered as a {was} (manifest "{list}"), and now as a {type}; one name is one asset, ' +
-    'so the second would replace the first. Rename one, e.g. {name}_{type}',
-  replaced: 'assets.manifest(): {type} "{name}" from manifest "{was}" is replaced by manifest "{list}" (the later one wins). If both packs mean their own asset, rename one; '
-    + 'if the override is intended (a mod replacing a model), ignore this',
   noFont: 'assets.font(\'{name}\'): no font named {name}{known}. Register the file in an asset pack: engine.assets.manifest({ fonts: { {name}: \'/fonts/{name}.woff2\' } })',
   sameName: 'assets.cached(\'{name}\'): the same name was used with two different generator functions, so the cache would mix them (keyed by name + params). Use a different name per model; if the result depends on outer variables, put them in params',
 };
-/** Keys of a manifest / asset pack: anything else is a typo (checkOptions says "did you mean") */
-const MANIFEST_KEYS = ['name', 'base', 'models', 'textures', 'sounds', 'fonts'];
-/** Keys of one fonts entry: the file, the CSS family it registers (default: the asset name), FontFace descriptors, and the usual asset flags */
-const FONT_KEYS = ['url', 'family', 'weight', 'style', 'stretch', 'unicodeRange', 'display', 'featureSettings', 'variationSettings', 'critical', 'preload'];
 /** Short hash of the source (cache key; tells apart same-name, different-function cases) */
 const srcHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 
@@ -75,26 +68,7 @@ export class Assets {
    * 'rock' } } });
    * @example import forest from 'my-forest-assets'; engine.assets.manifest(forest);   // { name: 'forest', base, models: { oak: 'oak.glb' } }
   */
-  manifest(pack = {}) {
-    checkOptions('assets.manifest()', pack, MANIFEST_KEYS);
-    const { models = {}, textures = {}, sounds = {}, fonts = {}, base = null } = pack, list = pack.name ?? 'manifest#' + (this._lists = (this._lists || 0) + 1);
-    const at = base == null ? null : new URL(String(base).replace(/\/?$/, '/'), location.href);
-    const resolve = u => at && typeof u === 'string' && !u.startsWith('/') && !/^[a-z][a-z\d+.-]*:/i.test(u) ? new URL(u, at).href : u;
-    const add = (type, map) => {
-      for (const [name, v] of Object.entries(map)) {
-        const o0 = typeof v === 'string' ? { url: v } : typeof v === 'function' ? { build: v } : v;
-        if (type === 'font') checkOptions(`assets.manifest() fonts.${name}`, o0, FONT_KEYS);
-        const o = o0.url && at ? { ...o0, url: resolve(o0.url) } : o0;
-        const old = this.entries.get(name);
-        if (old?.named && old.type !== type) throw codedError('asset-name-clash', fmt(STRINGS.clash, { name, was: old.type, list: old.manifest, type }));
-        // same type from another manifest: allowed (a mod overriding a model) but never silent, the two packs may just share a name by accident
-        if (old?.named && old.manifest !== list) warnOnce(fmt(STRINGS.replaced, { type, name, was: old.manifest, list }));
-        this.entries.set(name, { type, name, url: o.url ?? name, opts: o, promise: null, named: true, manifest: list });
-      }
-    };
-    add('model', models); add('texture', textures); add('sound', sounds); add('font', fonts);
-    return this;
-  }
+  manifest(pack = {}) { return registerManifest(this, pack); }
 
   /**
    * The generator function registered under a model name (manifest models: { pine: fn } or { build }), null for a file model or an unknown name.

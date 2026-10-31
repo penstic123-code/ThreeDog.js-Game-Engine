@@ -18,6 +18,7 @@ import { checkOptions, warnOnce, DEV } from '../../core/validate.js';
 import { codedError, coded } from '../../core/errorHints.js';
 import { DEV_STRINGS, STRINGS, validControl } from './playerStrings.js';
 import { footstepSynth, stepSound } from './footsteps.js';
+import { xzOf } from '../../core/math.js';
 export { Character, NPC };
 
 /**

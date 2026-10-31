@@ -5,10 +5,12 @@
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { screenToGround } from '../../core/screenToGround.js';
+import { warnOnce } from '../../core/validate.js';
 
 // tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot); a style pack may override them
 const OK = 0xe0e0e0, BAD = 0x3a3a3a;
 const STRINGS = { 'zh-CN': { 'grid.rotate': '旋转' }, en: { 'grid.rotate': 'Rotate' } };
+const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview cannot be turned by input. Bind it yourself (engine.input.define("{a}", ["KeyR"])), pass rotateKeys: ["KeyR"] / ...presets.keys.gridRotate, or pass rotate: false and call pv.rotate() from your own control';
 
 /** Default look: a flat translucent box over the footprint @internal */
 function boxLook(e) {
@@ -44,9 +46,13 @@ function target(e, from, g) {
 
 /** Create a preview handle @internal */
 export function makePreview(e, grids, opts) {
-  const { grid, item, from = 'pointer', rotate = 'rotate', look } = opts;
+  const { grid, item, from = 'pointer', rotate = 'rotate', rotateKeys, look } = opts;
   const g = grids._must(grid), rule = grids._rule(item);
-  if (rotate && !e.input.actions.has(rotate)) { e.i18n.add(STRINGS); e.input.define(rotate, ['KeyR'], 'grid.rotate'); }
+  // the engine binds no key itself: the rotate action comes from the game (input.define / bindings) or from rotateKeys (e.g. presets.keys.gridRotate)
+  if (rotate && !e.input.actions.has(rotate)) {
+    if (rotateKeys?.length) { e.i18n.add(STRINGS); e.input.define(rotate, rotateKeys, 'grid.rotate'); }
+    else warnOnce(NO_KEY.replaceAll('{a}', rotate));
+  }
   const part = look === false ? null : typeof look === 'function' ? look(e) : boxLook(e);
   const h = {
     /** target cell or null (nothing under the pointer) */ cell: null,
@@ -63,7 +69,7 @@ export function makePreview(e, grids, opts) {
     remove() { grids._previews.delete(h); part?.dispose?.(); },
     /** @internal */
     frame() {
-      if (rotate && e.input.pressed(rotate)) h.rotate(1);
+      if (rotate && e.input.actions.has(rotate) && e.input.pressed(rotate)) h.rotate(1);
       const p = target(e, from, g);
       h.cell = p ? g.toCell(p) : null;
       if (!h.cell) { h.ok = false; h.reason = 'noTarget'; part?.hide?.(); return; }

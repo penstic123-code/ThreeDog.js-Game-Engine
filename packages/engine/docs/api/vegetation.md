@@ -11,6 +11,7 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
 
 ## Methods and properties
 - `vegetation.rebuild()` — Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically
+- `vegetation.setShadowRing(name: string, ring: number)` — Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default, larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones. Example: `engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk`
 - `vegetation.add(name: string, opts: VegetationOptions) → Species` — Register a kind of vegetation
 - `vegetation.removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }) → string` — Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name
 - `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — Restore one

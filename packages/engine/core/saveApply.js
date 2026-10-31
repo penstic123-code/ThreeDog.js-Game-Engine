@@ -4,7 +4,7 @@ import { toast } from '../ui/UI.js';
 import { fmt } from './validate.js';
 import { reportError } from './errors.js';
 import { codedError, coded } from './errorHints.js';
-import { readSave, parseSave, upgradePart } from './saveVersions.js';
+import { FORMAT, readSave, parseSave, upgradePart } from './saveVersions.js';
 
 const DEV_STRINGS = {
   loadThrew: "load() of save part '{k}' threw ({msg}); the game was rolled back to how it was before loading '{slot}'",
@@ -115,4 +115,14 @@ export async function afterLoad(e) {
   if (!hooks.length) return;
   e.freeze('load');
   try { await Promise.all(hooks.map(m => m.afterLoad(e))); } finally { e.unfreeze('load'); }
+}
+
+/** Collect every part: { data, failed: [[key, error]] }. Parts of the loaded save that no module owns are carried along. */
+export function collectParts(s) {
+  const f = s._foreign, failed = [];
+  const data = { format: FORMAT, savedAt: Date.now(), versions: { ...f.versions }, parts: { ...f.parts } };   // wall-clock: real time of the save
+  for (const [k, p] of s.providers) {
+    try { data.parts[k] = p.save(); data.versions[k] = p.version; } catch (e) { failed.push([k, e]); delete data.parts[k]; delete data.versions[k]; }
+  }
+  return { data, failed };
 }

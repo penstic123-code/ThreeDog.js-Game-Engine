@@ -9,7 +9,7 @@
 // i18n.add.
 import * as THREE from 'three';
 import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
-import { rainVert, rainFrag, snowVert, snowFrag } from './shaders.js';
+import { rainVert, rainFrag, snowVert, snowFrag, shaderMat, scatter } from './shaders.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../types/world' */
 
@@ -30,11 +30,6 @@ const ERR = {
   start: "weather({ start }): '{got}' is not one of this game's weather types ({list})",
   pool: "weather({ autoPool }): '{got}' is not one of this game's weather types ({list})",
 };
-
-/** Particle shader material (transparent, no depth write) */
-const shaderMat = (vertexShader, fragmentShader, uniforms) => new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent: true, depthWrite: false });
-/** Initial rain/snow particle positions: presentation only, no effect on gameplay */
-const scatter = (n, size) => { const a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = Math.random() * size; return a; };   // presentation
 
 /** engine.weather */
 export class Weather {

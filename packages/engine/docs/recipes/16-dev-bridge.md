@@ -32,7 +32,7 @@ No browser needs to be open: when the first command arrives, the dev server itse
 | `js "engine.sky.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Put long scripts in a file: `js --file script.js` (path relative to the current directory) | `✓ 0.77` |
 | `snap name` | Screenshot to `.threedog/shots/name.png` | `✓ Screenshot .threedog/shots/t1.png (163 KB)` |
 | `snap-describe save` / `snap-describe diff` + name | Describe snapshot instead of a screenshot: save the gameplay part of `describe()` as a baseline, or print how the running page differs from it (section 7) | `✗ describe "market" differs from the baseline in 1 place:` |
-| `errors` | Page errors added since last time (the full log is in `.threedog/errors.log`). Known error classes get a `-> Possible cause: … Read: recipes/…` line (section 8) | `✗ 1 new errors` / `✓ No new errors` |
+| `errors` | Page errors added since last time (the full log is in `.threedog/errors.log`). Known error classes get a `-> Possible cause: … Read: recipes/…` line (section 8) | `✗ 1 new error` / `✗ 3 new errors` / `✓ No new errors` |
 | `loading` / `loading hero` | What loading waits for, what failed (file, HTTP status, fallback) and whether it blocks the start; answers while `start()` is still running or stuck. With a name: that task with its source manifest and path (`recipes/05-props-bake.md` section 3) | `… waiting: decoding model "hero" (…)` / `✗ Loading finished, 4/5 ok, 1 failed` |
 | `reload` / `resume` | Reload the page / resume real-time running | |
 
@@ -66,7 +66,7 @@ After that `npx threedog describe range` shows it, and `describeText()` includes
 The bridge exists only in the dev server (`apply: 'serve'`); built and preview output contains no bridge code (`npm test -- "dev bridge"` checks this). The command entry point `POST /__threedog/cmd` accepts only local connections, requires the random token in `.threedog/dev.json`, the Host must be localhost, and anything carrying an Origin (sent from a web page) is rejected.
 
 ## 6. Reuse in scenario tests
-The commands run in `node_modules/@threedog/tools/threedog/commands.mjs`: `run(driver, command, args, { dir })`, and the driver only needs `{ evaluate(src, arg), screenshot(), reload?() }`. The dev bridge's driver forwards the three to the dev server; a scenario test implements the same three with Playwright's `page`.
+The bridge commands are built on one small driver, `{ evaluate(src, arg), screenshot(), reload?() }`. The dev bridge's driver forwards the three to the dev server. For your own tests, `import { pageDriver, runScenario } from '@threedog/tools/scenario'` (the public entry; the command runner behind the bridge is internal) gives the same driver for a Playwright `page` and runs a scenario file through it.
 
 ## 7. Describe snapshots instead of screenshots
 A baseline is the gameplay part of `engine.describe()` saved as JSON (`<workspace>/tests/snapshots/<name>.describe.json`, commit it). `perf` and `time.elapsed` are dropped; numbers compare within a tolerance (default 0.5); a list of things with an `id` or `name` is compared by that key, so a reordered `nearby` is not a change. A difference comes out as text, e.g. `player.x: 10 -> 14 (changed 4, tolerance 0.5)` or `nearby[Cow]: added {...}`.

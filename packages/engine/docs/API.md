@@ -47,7 +47,7 @@
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
 - [`engine.terrain`](api/terrain.md) terrain() Procedural terrain: setViewChunks setDensity rebuild edit isReadyAround
-- [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: rebuild add get list isRemoved removeInstance restoreInstance instanceAt
+- [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: rebuild setShadowRing add get list isRemoved removeInstance restoreInstance instanceAt
 - [`engine.sky`](api/sky.md) sky() Sky, day/night, calendar: modify at between daily onSeason setShadow setShadowMapSize
 - [`engine.weather`](api/weather.md) weather() Weather: setAuto set label
 - [`engine.water`](api/water.md) water() Water surface

@@ -6,24 +6,16 @@
 //   stackable ones with equal data share an entry, a stack-1 item is one entry per piece. Keys are unique across containers and kept when moved.
 // Every method that takes an item also takes a key: count('sword') counts all swords, count('sword#3') only that one.
 // Limits are optional: capacity (slots; an entry uses ceil(count / stack) slots) and maxWeight (sum of item weight × count). Locks and prices stay game rules.
-import { toast } from '../../ui/UI.js';
-import { checkOptionsArg, warnOnce, fmt, DEV } from '../../core/validate.js';
+import { checkOptionsArg, fmt, DEV } from '../../core/validate.js';
+import { sig, freeze, canTrade, acceptsFrom, putIn, loadEntries } from './boxOps.js';
 
 // Developer messages (warned once in DEV): add doesn't throw when full, which an AI would hardly notice
 const STRINGS = {
-  full: 'Container {box} has no room for {id} (capacity {cap} slots, maxWeight {mw}): add returns false. Raise capacity / maxWeight, or remove something first',
-  partial: 'Only {fit} of {n} {id} fit in container {box} (stack {stack} per slot, capacity {cap} slots, maxWeight {mw}); add still returns the entry key. Raise capacity / maxWeight or the item\'s stack',
   badData: "{fn}('{id}', …): data must be a plain object of JSON values, e.g. { durability: 80 }; got {got}",
   noKey: "{fn}('{key}'): no entry with that key in container {box} (keys here: {keys}); keys come from add() or list()[i].key",
-  badRow: "container '{box}': dropped a saved entry that is not { id: string, count: whole number > 0, data?: plain object } ({got}); the save was edited by hand or is damaged",
   keyToAdd: "add('{key}'): add takes an item id, not an entry key. Move an existing piece with inventory.transfer(from, to, '{key}')",
 };
 const isKey = x => typeof x === 'string' && x.includes('#');
-// order-independent signature: entries with equal data stack together whatever the key order
-const sig = v => v === undefined ? '' : v && typeof v === 'object'
-  ? (Array.isArray(v) ? `[${v.map(sig)}]` : `{${Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + sig(v[k]))}}`) : JSON.stringify(v);
-// data is frozen: a piece's data only changes through setData (guarded like every other saved write), never by editing the object in place
-const freeze = o => { if (o && typeof o === 'object') { Object.freeze(o); for (const v of Object.values(o)) freeze(v); } return o; };
 /** A frozen copy of the data the caller passed (the caller's object stays editable and unshared) @internal */
 export function copyData(fn, id, data) {
   if (data == null) return undefined;
@@ -177,15 +169,8 @@ export class Container {
   }
 
   // ---------- internal ----------
-  /** Dry run of trade: true, or 'notEnough' / 'full'. Removes A from a copy, then asks that copy whether B fits (the same trick transfer uses) @internal */
-  _canTrade(take, give, takeN, giveN, data) {
-    if (!this.has(take, takeN)) return 'notEnough';
-    const sim = Object.create(this); sim._entries = this._entries.map(x => ({ ...x }));
-    let rest = takeN;
-    for (const en of sim._of(take)) { const k = Math.min(rest, en.count); en.count -= k; if (!(rest -= k)) break; }
-    sim._entries = sim._entries.filter(x => x.count > 0);
-    return sim._room(give, data) < giveN ? 'full' : true;
-  }
+/** Dry run of trade: true, or 'notEnough' / 'full'. Removes A from a copy, then asks that copy whether B fits (the same trick transfer uses) @internal */
+  _canTrade(take, give, takeN, giveN, data) { return canTrade(this, take, give, takeN, giveN, data); }
   /** @internal */ _find(key) { return this._entries.find(e => e.key === key) || null; }
   /** @internal */ _keys() { return this._entries.map(e => e.key).join(', ') || 'none'; }
   /** @internal */ _view(e) { return { key: e.key, id: e.id, count: e.count, data: e.data, def: this.inv.item(e.id) }; }
@@ -203,34 +188,13 @@ export class Container {
     if (def.weight > 0) n = Math.min(n, Math.floor((this.maxWeight - this.weight) / def.weight + 1e-9));
     return Math.max(0, n);
   }
-  /**
+/**
    * How many of item (id or key) from src would really move here, up to n: a dry run on a copy, so entries that share free slots are not counted twice
    * @internal
    */
-  _accepts(src, item, n) {
-    const sim = Object.create(this), inv = this.inv;
-    sim._entries = this._entries.map(x => ({ ...x }));
-    sim.inv = Object.create(inv, { _newKey: { value: id => id + '#?' } });   // a dry run hands out no real keys
-    let moved = 0;
-    for (const en of src._of(item)) {
-      if (moved >= n) break;
-      const k = Math.min(n - moved, en.count, sim._room(en.id, en.data));
-      if (k > 0) sim._place(en.id, k, en.data, en.key, sim._entries.length);
-      moved += k;
-    }
-    return moved;
-  }
-  /** Add without the guard (add and transfer); key = keep this key for a new entry (moved pieces) @internal */
-  _put(id, n, data, key, silent) {
-    const def = this.inv.item(id), say = !silent && this._player, t = (k, p) => this.inv.engine.t(k, p);
-    const fit = Math.min(n, this._room(id, data)), info = { box: this.id, id, n, fit, stack: def.stack, cap: this.capacity, mw: this.maxWeight };
-    if (fit <= 0) { if (say) toast(this.inv.engine, t('inventory.full'), { kind: 'item' }); warnOnce(fmt(STRINGS.full, info)); return false; }
-    if (fit < n) warnOnce(fmt(STRINGS.partial, info));
-    const out = this._place(id, fit, data, key, this._entries.length);
-    if (say) toast(this.inv.engine, t('inventory.got', { icon: def.iconUrl ? '' : (def.icon || ''), name: def.name, n: fit }), { kind: 'item' });
-    this._emit('add', id, fit, out);
-    return out;
-  }
+  _accepts(src, item, n) { return acceptsFrom(this, src, item, n); }
+/** Add without the guard (add and transfer); key = keep this key for a new entry (moved pieces) @internal */
+  _put(id, n, data, key, silent) { return putIn(this, id, n, data, key, silent); }
   /** Put k pieces in at index at, merging with an equal entry where the item stacks; returns the key of the last entry used @internal */
   _place(id, k, data, key, at) {
     const s = sig(data), st = this.inv.item(id).stack;
@@ -258,15 +222,6 @@ export class Container {
   }
   /** Save form: plain { id, count }, with data { id, count, key, data } @internal */
   _save() { return this._entries.map(e => e.data === undefined ? { id: e.id, count: e.count } : { id: e.id, count: e.count, key: e.key, data: e.data }); }
-  /** Read a saved list. Saves can come from a file the player imported, so each row is checked; a bad row is dropped with a warning @internal */
-  _load(list) {
-    const plain = d => d === undefined || (d !== null && typeof d === 'object' && Object.getPrototypeOf(d) === Object.prototype);
-    this._entries = [];
-    for (const r of Array.isArray(list) ? list : []) {
-      const key = r?.key ?? r?.id;
-      if (typeof r?.id !== 'string' || !Number.isInteger(r.count) || r.count <= 0 || typeof key !== 'string' || !plain(r.data)) { warnOnce(fmt(STRINGS.badRow, { box: this.id, got: JSON.stringify(r) })); continue; }
-      this.inv._known(r.id);   // an id the game no longer defines warns like add() does
-      this._entries.push({ key, id: r.id, count: r.count, data: freeze(r.data), sig: sig(r.data) });
-    }
-  }
+/** Read a saved list. Saves can come from a file the player imported, so each row is checked; a bad row is dropped with a warning @internal */
+  _load(list) { loadEntries(this, list); }
 }

@@ -37,7 +37,7 @@ engine.profile(false);
 | Symptom | Fix |
 |---|---|
 | Many draw calls | Use `vegetation` / InstancedMesh for repeated objects; install `hlod()` for a block of buildings; share geometry and materials between copies of a model (`assets.model` shares by default) |
-| Expensive shadows | Style pack `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows |
+| Expensive shadows | Style pack `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
 | Stutter while walking | Put generation work in `engine.jobs.add(function* () { ...; yield; })` or `engine.stream.add`; chunk upload budget `engine.terrain.applyBudgetMs` |
 | Slow start | Look at which is slowest in `engine.startup.modules`; `npm run bake` for large models; preload only the necessary assets |
 | Slow physics | Keep dynamic rigid bodies within a few hundred (the `rigidBodies` budget); `rigid({ terrainRing: 1 })` |
@@ -57,4 +57,4 @@ false = all on the main thread, same results.
 ## 5. Verify (once before and once after, under the same conditions)
 - `npm run perf` (native vs engine vs per-module cost of openWorld), compared with the tables in `../PERF.md`; differences under 10-30% are noise.
 - Compare a specific scenario: `npm run shot -- / --pos x,z --time 12:00 --describe-only` to see draw calls and triangles.
-- Related tests: `npm test -- 性能预算`, `npm test -- 阴影`, `npm test -- 启动耗时`. Attach the before/after numbers when reporting.
+- Related tests: `npm test -- 性能预算`, `npm test -- 阴影`, `npm test -- startup time`. Attach the before/after numbers when reporting.

@@ -24,6 +24,7 @@
 //                  two different GLSL texts throws, since those materials would silently share one program.
 import * as THREE from 'three';
 import { closest } from '../core/validate.js';
+import { sameUniform, resolveUniform } from './engineUniforms.js';
 /** @import { Material } from '../types/common' */
 
 /**
@@ -56,30 +57,6 @@ function missing(m, p) {
   }
   return out;
 }
-
-// ---------- engine uniforms ----------
-// An engine uniform carries its name under this key; at compile time it is swapped for the same-named uniform of the engine
-// that owns the renderer (bindUniforms), and a renderer without an engine keeps the object it was given.
-const ENGINE_UNIFORM = Symbol.for('threedog.engineUniform');
-const BOUND = new WeakMap();   // renderer -> its engine's uniforms
-/**
- * A uniform object { value } tagged as the engine uniform `name` (resolved per renderer at compile time)
- * @internal
- * @param {string} name
- * @param {any} value
- * @returns {{ value: any }}
- */
-export function engineUniform(name, value) { return { value, [ENGINE_UNIFORM]: name }; }
-/**
- * Programs this renderer compiles from now on read these engine uniforms (called once per engine)
- * @internal
- * @param {any} renderer
- * @param {Record<string, { value: any }>} uniforms
- * @returns {void}
- */
-export function bindUniforms(renderer, uniforms) { BOUND.set(renderer, uniforms); }
-const sameUniform = (a, b) => a === b || (!!a[ENGINE_UNIFORM] && a[ENGINE_UNIFORM] === b[ENGINE_UNIFORM]);
-const resolveUniform = (u, renderer) => (u?.[ENGINE_UNIFORM] && renderer && BOUND.get(renderer)?.[u[ENGINE_UNIFORM]]) || u;
 
 // Why a patch cannot join the material's list, or '' (composition rules from the header)
 let deriving = false;   // re-entrancy flag, set and cleared inside one synchronous call (never across a frame)

@@ -13,9 +13,9 @@ import { toast } from '../ui/UI.js';
 import { warnOnce, checkOptions, fmt } from './validate.js';
 import { reportError } from './errors.js';
 import { codedError, coded } from './errorHints.js';
-import { FORMAT, checkPartVersion, readSave } from './saveVersions.js';
+import { checkPartVersion, readSave } from './saveVersions.js';
 import { exportSaveFile, importSaveFile, importText, SAVE_STRINGS } from './saveFiles.js';
-import { applySave, loadSlot, adoptPart, afterLoad } from './saveApply.js';
+import { applySave, loadSlot, adoptPart, afterLoad, collectParts } from './saveApply.js';
 import { autosaveHook } from './session.js';
 
 
@@ -111,14 +111,7 @@ export class Saves {
   flush() { return this._queue; }
 
   /** @internal Collect every part: { data, failed: [[key, error]] }. Parts of the loaded save that no module owns are carried along. */
-  _collect() {
-    const f = this._foreign, failed = [];
-    const data = { format: FORMAT, savedAt: Date.now(), versions: { ...f.versions }, parts: { ...f.parts } };   // wall-clock: real time of the save
-    for (const [k, p] of this.providers) {
-      try { data.parts[k] = p.save(); data.versions[k] = p.version; } catch (e) { failed.push([k, e]); delete data.parts[k]; delete data.versions[k]; }
-    }
-    return { data, failed };
-  }
+  _collect() { return collectParts(this); }
   /**
    * Collect the data of every part (does not write to the browser): { format, savedAt, versions, parts }.
    * A part whose save() throws is left out and reported (engine.error in dev); save() instead refuses to write such a save.

@@ -18,12 +18,13 @@
 //   engine.sky.modifiers is the composite of all layers (read-only)
 // Skybox: style pack sky.skybox = '/textures/sky.jpg' (equirectangular panorama) replaces the gradient sky; brightness follows time
 import * as THREE from 'three';
-import { vert, frag, NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms } from './shader.js';
+import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome, loadSkybox } from './shader.js';
 import { shadowMethods, shadowFor } from './shadow.js';
 import { layerMethods, blankLayer } from './layers.js';
 import { updateSky, watchOwned } from './frame.js';
-import { checkOptions, warnOnce } from '../../core/validate.js';
-import { parseClock, formatClock, inRange } from '../../core/dayTime.js';
+import { parseSeasons, timeCondition, seasonIndexOf, dayOfSeasonOf, seasonProgressOf, advance } from './calendar.js';
+import { checkOptions } from '../../core/validate.js';
+import { parseClock, formatClock } from '../../core/dayTime.js';
 import { Schedule } from './schedule.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Vector3 } from '../../types/common' */
@@ -31,9 +32,7 @@ import { Schedule } from './schedule.js';
 /** @import { Handle } from '../../types/common' */
 /** @import { StyleShadow } from '../../types/style' */
 const STRINGS = {
-  badTime: "audio rule condition time: {got} never matches; use 'day', 'night' or a clock range ['18:00', '06:00'] (or 0-1 times [0.75, 0.25])",
   badDayLength: 'sky({ dayLength }): game seconds per day must be a number > 0 (Infinity = the time of day never moves); got {got}',
-  badSeasons: "sky({ seasons }): a list of names (each daysPerSeason days long) or of { name, days } with days >= 1, [] for none; got {got}",
   noSeason: "sky.onSeason('{name}'): the calendar has no such season (seasons: {list}). Seasons are off by default: sky({ seasons: ['spring', 'summer', 'autumn', 'winter'] })",
 };
 // Options sky() accepts: calendar (time, dayLength, day, seasons, hoursPerDay) + look overrides of style pack style.sky
@@ -61,17 +60,12 @@ export class Sky {
     this.day = day;
     /** Days per season for seasons given by name only @type {number} */
     this.daysPerSeason = daysPerSeason;
-    if (!Array.isArray(seasons)) throw new Error(STRINGS.badSeasons.replace('{got}', JSON.stringify(seasons)));
     /** Season names, [] when the game has no seasons (the default) @type {string[]} */
     this.seasons = [];
     // kept as names plus the day each season ends (cumulative), so seasons of different lengths cost one short loop in the getters
     /** @internal */ this._ends = [];
-    let end = 0;
-    for (const x of seasons) {
-      const name = typeof x === 'string' ? x : x?.name, days = typeof x === 'string' ? daysPerSeason : x?.days;
-      if (typeof name !== 'string' || !(days >= 1)) throw new Error(STRINGS.badSeasons.replace('{got}', JSON.stringify(x)));
-      this.seasons.push(name); this._ends.push(end += days);
-    }
+    const parsed = parseSeasons(seasons, daysPerSeason);
+    this.seasons.push(...parsed.names); this._ends.push(...parsed.ends);
     /** @internal */ this.seasonStyle = engine.style.seasons || null;
     /** @internal */ this._season = this.season;
     /** @internal */ this._sched = new Schedule(this);
@@ -82,20 +76,11 @@ export class Sky {
 
     /** @internal */ this.uniforms = makeSkyUniforms(st, engine.uniforms);
     /** Dome mesh @type {Object3D} */
-    this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
-      new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
-    this.dome.frustumCulled = false; this.dome.renderOrder = -1000; this.dome.userData.budgetTag = 'sky';
-    this.dome.onBeforeRender = (r, s, cam) => {
-      this.dome.position.copy(cam.position); this.dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); this.dome.updateMatrixWorld();
-    };
+    this.dome = makeDome(this.uniforms);
     scene.add(this.dome);
     // Skybox (panorama): replaces the gradient sky when present
     /** @internal */ this.skybox = null;
-    if (st.skybox) {
-      this.dome.visible = false;
-      engine.assets.texture(st.skybox).then(t => { t.mapping = THREE.EquirectangularReflectionMapping; scene.background = t; this.skybox = t; })
-        .catch(err => warnOnce(err.message));
-    }
+    if (st.skybox) loadSkybox(this, st.skybox);
 
     scene.fog = new THREE.Fog(0xcccccc, engine.fogFar * 0.3, engine.fogFar);
     /** Hemisphere ambient light (engine.lights.hemi, driven by the sky) @type {any} */
@@ -112,7 +97,7 @@ export class Sky {
     /**
      * Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }}
      */
-    this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };   // sun orbit: north-south tilt, east-west swing
+    this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };
     // Shadow update policy (default: every frame, center snapped to 0.5 m)
     /**
      * Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead:
@@ -163,20 +148,13 @@ export class Sky {
 
   // ---------- Calendar ----------
   /** Current season index, -1 without seasons */
-  get seasonIndex() {
-    const n = this._ends.length;
-    if (!n) return -1;
-    const d = (this.day - 1) % this._ends[n - 1];
-    let i = 0;
-    while (d >= this._ends[i]) i++;
-    return i;
-  }
+  get seasonIndex() { return seasonIndexOf(this); }
   /** Current season name, e.g. 'spring'; null without seasons @type {string | null} */
   get season() { return this.seasons[this.seasonIndex] ?? null; }
   /** Day within the season (1-based); 0 without seasons */
-  get dayOfSeason() { const i = this.seasonIndex; return i < 0 ? 0 : (this.day - 1) % this._ends[this._ends.length - 1] - (this._ends[i - 1] ?? 0) + 1; }
+  get dayOfSeason() { return dayOfSeasonOf(this); }
   /** Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons */
-  get seasonProgress() { const i = this.seasonIndex; return i < 0 ? 0 : (this.dayOfSeason - 1 + this.timeOfDay) / (this._ends[i] - (this._ends[i - 1] ?? 0)); }
+  get seasonProgress() { return seasonProgressOf(this); }
   /** Total game time in days (fractional), for growth, cooldowns and the like */
   get totalDays() { return this.day - 1 + this.timeOfDay; }
 
@@ -186,15 +164,7 @@ export class Sky {
    * @returns {void}
    * @internal
    */
-  tick(dt) {
-    const t = this.timeOfDay + dt * this.engine.clock.timeScale / this.dayLength;
-    if (t >= 1) {
-      this.timeOfDay = t % 1; this.day += Math.floor(t);
-      this.engine.events.emit('day:start', this.day);
-      if (this.season !== this._season) { this._season = this.season; this.engine.events.emit('season:change', this.season); }
-    } else this.timeOfDay = t;
-    this._sched.tick();
-  }
+  tick(dt) { advance(this, dt); }
 
   // ---------- Clock-time / season timers (read sky time of day; for "after N seconds" use engine.clock.after) ----------
   /**
@@ -284,13 +254,7 @@ export function sky(opts = {}) {
       checkOptions('sky()', opts, SKY_OPTIONS);
       s = new Sky(e, opts);
       // audio rule condition { time: 'day' | 'night' | ['18:00', '06:00'] } for music / ambience rule lists
-      e.audio.condition('time', v => {
-        if (v === 'day') return s.isDay;
-        if (v === 'night') return !s.isDay;
-        // anything else must be a [from, to] range; 'evening' or a lone '18:00' would silently never match, so say which forms work
-        if (!Array.isArray(v) || v.length !== 2) { warnOnce(STRINGS.badTime.replace('{got}', JSON.stringify(v))); return false; }
-        return inRange(s.timeOfDay, v[0], v[1], s.hoursPerDay);
-      });
+      e.audio.condition('time', timeCondition(s));
       e.audio.measure('daylight', () => s.daylight);   // data rules compare it: { daylight: { gt: 0.15 } } (0 at night, about 1 at noon)
       e.saves.register('sky', { save: () => ({ time: s.timeOfDay, day: s.day }),
         load: d => { if (d) { s.timeOfDay = d.time ?? s.timeOfDay; s.day = d.day ?? 1; s._season = s.season; } s._sched.rebase(); } });

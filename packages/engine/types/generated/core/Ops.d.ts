@@ -137,9 +137,9 @@ export class Ops {
     }[];
     /**
      * Dev guard for a module that owns saved gameplay state: call it at the top of every method that writes that state. In development it warns once per call site
-     * when the write happens outside a fixed step, an op or an allow() window (before ready everything is allowed); in production it does nothing (write DEV && ops.guard(...)).
+     * when the write happens outside a fixed step, an op or an allow() window (before ready everything is allowed); in a production build it is a no-op, so just call `engine.ops.guard(...)` (no DEV check needed).
      * @experimental
-     * @example set(k, v) { DEV && this.engine.ops.guard('myStore.set'); this.data[k] = v; }
+     * @example set(k, v) { this.engine.ops.guard('myStore.set'); this.data[k] = v; }
      * @param {string} where label shown in the warning, e.g. 'vars.setFlag'
      * @returns {void}
      */

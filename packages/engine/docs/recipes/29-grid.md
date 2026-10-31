@@ -66,13 +66,14 @@ Cells that exist from the start go in content: `content/grids.js` `farm: { cell:
 
 ## 4. Preview
 ```js
-const pv = engine.grids.preview({ grid: 'farm', item: 'bed' });            // under the pointer; from: 'front' = the cell in front of the player
+engine.input.define('place', ['Mouse0'], 'Place');                          // gameplay reads input actions, not pointer.clicked (recipe 26)
+const pv = engine.grids.preview({ grid: 'farm', item: 'bed', ...presets.keys.gridRotate });   // under the pointer; from: 'front' = the cell in front of the player
 engine.onFrame(() => {
-  if (engine.input.pointer.clicked) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); }
+  if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); }
 });
 pv.remove();                                                                // leave build mode
 ```
-The R key (action `rotate`; pass `rotate: 'myAction'` to read another one, `false` for none) turns it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.reason`
+The engine binds no key: `...presets.keys.gridRotate` (or `rotateKeys: ['KeyR']`) defines the action `rotate` on R, or bind that action yourself with `input.define`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.reason`
 are readable every frame.
 Colors come from `style.grid.ok / bad / previewOpacity`. `look: false` hides the default box; `look: (engine) => ({ update(view), hide(), dispose()
 })` draws your own (`view = { cells, center, size, rotation, ok, reason }`).

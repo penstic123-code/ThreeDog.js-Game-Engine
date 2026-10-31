@@ -1,7 +1,7 @@
 // Built-in shader effects (used by render/materials.js): the engine uniforms they read, the GLSL chunks (also registered as
 // THREE.ShaderChunk.threedog_*), the named patches world / clouds / wind / season, and placeholder textures.
 import * as THREE from 'three';
-import { engineUniform } from './patches.js';
+import { engineUniform } from './engineUniforms.js';
 
 // ---------- engine uniforms ----------
 // Each engine has its own uniforms (engine.uniforms) and style pack. Built-in effects name engine uniforms, which patches.js swaps

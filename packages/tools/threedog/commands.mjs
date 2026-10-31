@@ -289,7 +289,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
           + (h ? `\n  -> Possible cause: ${h.cause} Read: ${h.docs.join(', ')}` : '');
       };
       const more = list.length > 2 ? `\n…${list.length - 2} more, see .threedog/errors.log` : '';
-      return { ok: false, text: `✗ ${list.length} new errors\n` + list.slice(0, 2).map(one).join('\n') + more };
+      return { ok: false, text: `✗ ${list.length} new error${list.length === 1 ? '' : 's'}\n` + list.slice(0, 2).map(one).join('\n') + more };
     }
     case 'reload':
       if (driver.reload) await driver.reload(); else await driver.evaluate('() => { setTimeout(() => location.reload(), 0); return 1; }');

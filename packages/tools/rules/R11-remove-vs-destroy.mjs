@@ -14,8 +14,8 @@ import { ts, parse, visit, engineFiles, lineOf, read, E, P } from './_lib.mjs';
 // Allowlist: [file, removed expression, reason]
 const ALLOW = [
   [E('modules/content/models.js'), 'o', 'unloading a prop or template instance only takes it off: geometry and material are a prototype shared by same-model records and are cloned again on approach (releasing them would break other copies)'],
-  [E('modules/level/index.js'), 'c', 'a tagged level node leaves the level root to become a world record: its model is placed again when the record streams back in (a shared prototype), so it is only taken off'],
-  [E('modules/level/index.js'), 'o', 'a level record node is only taken off when its record streams out: it is re-added from the nodes map on approach, so geometry and material must stay'],
+  [E('modules/level/nodes.js'), 'c', 'a tagged level node leaves the level root to become a world record: its model is placed again when the record streams back in (a shared prototype), so it is only taken off'],
+  [E('modules/level/nodes.js'), 'o', 'a level record node is only taken off when its record streams out: it is re-added from the nodes map on approach, so geometry and material must stay'],
 ];
 const ENGINE_RECV = /^(e|engine|this\.engine|this\.e|[\w.]+\.engine)$/;
 const OBJ_RECV = /(scene|group|Group|parent|object|root)\??$/;

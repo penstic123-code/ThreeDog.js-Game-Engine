@@ -108,6 +108,8 @@ export class NPC {
 }
 
 export class NPCManager {
+  /** @internal Every option add() reads: content npcs (modules/content/loader.js) are checked against the same table, without importing this module */
+  get optionKeys() { return NPC_KEYS; }
   constructor(engine) {
     this.engine = engine;
     /** @internal */ this._handles = new Map();   // id -> NPC handle (just a cache, can be rebuilt any time)

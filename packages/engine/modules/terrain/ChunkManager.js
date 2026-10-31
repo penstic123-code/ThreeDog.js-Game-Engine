@@ -13,6 +13,7 @@ import { terrainMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
 import { chunkRing } from '../../core/streamSources.js';
 import { chunkQueries } from './chunkQueries.js';
+import { mountTerrain } from './mountTerrain.js';
 
 const COLLIDER_LAG = 30;   // base delay before chunk collision takes effect (fixed steps, 30 = 0.5 s), multiplied by (1 + ring)
 const NO_VEG = { baseNames: () => [], nearNames: () => [], list: () => [], get: () => null };
@@ -242,23 +243,7 @@ export class ChunkManager {
     return true;
   }
 
-  _applyTerrain(c, t) {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(t.pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(t.nor, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(t.col, 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(t.uv, 2));
-    const mesh = new THREE.Mesh(g, this.terrainMat);
-    mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false;
-    c.group = new THREE.Group();
-    c.group.userData.budgetTag = 'terrain';
-    c.group.position.set(c.cx * this.T.CHUNK, 0, c.cz * this.T.CHUNK);
-    c.group.add(mesh); c.terrain = mesh;
-    c.group.updateMatrixWorld(true);
-    c.sphere = new THREE.Sphere(new THREE.Vector3(t.sphere[0], t.sphere[1], t.sphere[2]), t.sphere[3]);
-    c.state = 'ready';
-    this.engine.scene.add(c.group);
-  }
+  _applyTerrain(c, t) { mountTerrain(this, c, t); }
 
   // the InstancedMesh of one species in a chunk is built by vegetation (the same code builds its chunks on any other ground)
   _applyVeg(c, name, r) { this.engine.vegetation.mount(c, name, r); }

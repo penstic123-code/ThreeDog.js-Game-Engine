@@ -2,6 +2,8 @@
 // Time arrives already wrapped on the CPU (uFallOff = fall distance mod area size, uSway = time mod 20π, the common period of the snow
 // drift), so drops do not jitter from float32 precision in multi-hour sessions. Colors go through tone mapping and the output color
 // space like three's own materials, so rain looks the same with and without post-processing.
+import * as THREE from 'three';
+
 export const rainVert = `uniform vec3 uCam; uniform float uSize; uniform float uFallOff; uniform vec2 uWindDir; uniform float uLen; attribute float aEnd;
 varying float vA;
 void main(){
@@ -38,3 +40,8 @@ void main(){
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
+
+/** Particle shader material (transparent, no depth write) */
+export const shaderMat = (vertexShader, fragmentShader, uniforms) => new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent: true, depthWrite: false });
+/** Initial rain/snow particle positions: presentation only, no effect on gameplay */
+export const scatter = (n, size) => { const a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = Math.random() * size; return a; };   // presentation

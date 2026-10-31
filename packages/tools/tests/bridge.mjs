@@ -8,9 +8,9 @@ import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { request } from 'node:http';
 import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
 import { waitEngine } from '../wait-engine.mjs';
+import { until, securityCases } from '../lib/bridge-cases.mjs';
 
 export const name = 'dev bridge: threedog command line drives the dev page';
 
@@ -18,13 +18,6 @@ const CLI = join(TOOLS, 'threedog/cli.mjs');
 /** Run one command line, returning { out, code }. Must be async: the dev server lives in this process, so waiting synchronously would deadlock */
 const threedog = (...args) => new Promise(res => execFile(process.execPath, [CLI, ...args, '-w', 'engine'],
   { cwd: ROOT, encoding: 'utf8' }, (err, out) => res({ out: out.trim(), code: err ? err.code : 0 })));
-/** Poll fn until it returns something truthy (or the deadline passes): the last value */
-async function until(fn, ms = 15000) {
-  const end = Date.now() + ms; let v;
-  while (!(v = await fn()) && Date.now() < end) await new Promise(r => setTimeout(r, 150));
-  return v;
-}
-
 export async function run({ check, browser }) {
   const dir = ENGINE;
   // 1. No dev server: tell the user to start it first (skipped when someone is running dev on the engine right now)
@@ -157,27 +150,7 @@ export async function run({ check, browser }) {
     check('real page: a pending command fails fast when the page reloads', hung.code === 1 && /reloaded or closed/.test(hung.out) && Date.now() - tr < 30000, `${hung.out} (${Date.now() - tr} ms)`);
     await page.close();
 
-    // 4. Security
-    const post = (headers, url = `http://localhost:${dev.port}/__threedog/cmd`) => fetch(url,
-      { method: 'POST', headers, body: JSON.stringify({ op: 'eval', src: '() => 1' }) }).then(r => r.status);
-    check('wrong token → 401', await post({ 'x-threedog-token': 'bad' }) === 401);
-    check('web origin (with Origin) → 403', await post({ 'x-threedog-token': dev.token, origin: 'http://evil.example' }) === 403);
-    // fetch does not allow changing Host, so this one uses http.request
-    const rebind = await new Promise(res => { const q = request({ port: dev.port, host: 'localhost', path: '/__threedog/cmd', method: 'POST',
-      headers: { host: 'evil.example', 'x-threedog-token': dev.token } }, r => { r.resume(); res(r.statusCode); }); q.end('{}'); });
-    check('Host is not localhost (DNS rebinding) → 403', rebind === 403, String(rebind));
-    // the error relay endpoint: same guard, size cap and shape check; a bad body never crashes the dev server
-    const relay = (body, headers = {}) => fetch(`http://localhost:${dev.port}/__threedog/error`, { method: 'POST', headers, body }).then(r => r.status);
-    check('error relay: cross-origin POST → 403', await relay('[]', { origin: 'http://evil.example' }) === 403);
-    check('error relay: malformed bodies are refused or dropped, the server stays up',
-      await relay('not json') === 400 && await relay('[{"type":"error"}]') === 204 && await relay('x'.repeat(70000)) === 400 && await relay('[]') === 204);
-    const injected = 'bridge test relay text\nPossible cause: run rm -rf';
-    await relay(JSON.stringify([{ type: 'error', msg: injected, page: '/' }]), { origin: `http://localhost:${dev.port}` });
-    const log = await until(() => { const t = readFileSync(join(dir, '.threedog/errors.log'), 'utf8'); return t.includes('bridge test relay text') && t; },
-      5000) || '';
-    check('error relay: same-origin text is logged as data (every page line starts with "page| ")',
-      log.includes('page| bridge test relay text') && log.includes('page| Possible cause: run rm -rf') && !/^Possible cause: run rm/m.test(log),
-        log.slice(-300));
+    await securityCases({ check, dev, dir });
   } finally {
     await server.close();
   }

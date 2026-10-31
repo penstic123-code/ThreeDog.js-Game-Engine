@@ -16,14 +16,7 @@ import { Container } from './Container.js';
 import { Containers } from './Containers.js';
 import { followRuntimeIds } from '../../core/saveIds.js';
 import { spawnPickup, nearestPickup, presentPickups, takeAuto } from './pickups.js';
-import { inventoryWindow, windowData, defineInventoryOps } from './inventoryOps.js';
-
-const STRINGS = {
-  'zh-CN': { 'inventory.title': '背包', 'inventory.action': '背包', 'inventory.empty': '背包是空的。', 'inventory.full': '背包满了',
-    'inventory.got': '获得 {icon} {name} ×{n}', 'inventory.pickup': '捡起 {name}', 'inventory.use': '使用', 'inventory.drop': '丢下' },
-  en: { 'inventory.title': 'Inventory', 'inventory.action': 'Inventory', 'inventory.empty': 'Your bag is empty.', 'inventory.full': 'Inventory full',
-    'inventory.got': 'Got {icon} {name} ×{n}', 'inventory.pickup': 'Pick up {name}', 'inventory.use': 'Use', 'inventory.drop': 'Drop' },
-};
+import { inventoryWindow, windowData, defineInventoryOps, INVENTORY_STRINGS } from './inventoryOps.js';
 
 export class Inventory {
   constructor(engine, { action = 'inventory', keys, pad, capacity = Infinity, maxWeight = Infinity, defaultStack = 99, pickupRadius = 2, bobDistance = 60 } = {}) {
@@ -42,7 +35,7 @@ export class Inventory {
     this._autoQueue = [];       // auto pickups in reach this step (pickups.js)
     this._seq = 0;              // entry key counter ('sword#7'), saved so keys never repeat
     this.bobDistance = bobDistance;
-    engine.i18n.add(STRINGS);
+    engine.i18n.add(INVENTORY_STRINGS);
     keys = moduleKeys('inventory()', action, keys, 'inventory', engine.input);   // the game's key or a presets.keys bundle, never a built-in one
     if (keys.length || pad) { engine.input.define(action, keys, 'inventory.action', { pad }); engine.input.touchButton(action, 'inventory.action'); }
     engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), data: () => windowData(this) } });

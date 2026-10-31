@@ -9,7 +9,7 @@ import { cachedModel } from './models.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
 import { srcOf, applyRenames, pickupId } from './ids.js';
-import { DEV } from '../../core/validate.js';
+import { DEV, checkOptions } from '../../core/validate.js';
 import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent, list } from './rules.js';
 
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
@@ -113,7 +113,11 @@ export function loadContent(e, api, c, st, ids) {
   each(c.npcs, (id, n) => {   // the key in content is the NPC's stable id (used by saves and quest targets)
     const plan = n.schedule ?? [];
     ids.claim(id, `npcs.${id}`);
-    e.npcs.add({ id, name: n.name, colors: n.colors, talk: n.talk, behavior: n.behavior, mind: n.mind, schedule: plan.map(s => ({ at: parseClock(s.at, hpd), position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
+    // every documented npcs.add option can be written in content (arriveDistance, talkRadius, speed...); the same option table checks the spelling.
+    // The content form owns start / schedule (clock strings, places) and the id (the key), so those are translated below and not passed as written
+    checkOptions(`content npcs.${id}`, n, [...e.npcs.optionKeys.filter(k => !['id', 'position', 'zone', 'initial'].includes(k)), 'start']);
+    const { start: _s, schedule: _p, ...rest } = n;
+    e.npcs.add({ ...rest, id, schedule: plan.map(s => ({ at: parseClock(s.at, hpd), position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
     origin(id, c.npcs, id);
   });
 

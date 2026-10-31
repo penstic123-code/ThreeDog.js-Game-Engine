@@ -20,6 +20,7 @@ export default {
   cat: { name: '猫', start: { place: 'home' }, behavior: 'wander', mind: { radius: 6 } },   // no schedule: write behavior + start, omit schedule
 };
 ```
+A content NPC takes every `npcs.add` option (`speed`, `talkRadius`, `arriveDistance`, `pathStep`, `repath`, `talkLabel`, `model`...) written as a field; a misspelt one errors with the closest name. `start` and `schedule` are the content forms (clock strings, places); the key is the id.
 `content/dialogues.js`:
 ```js
 export default {

@@ -79,6 +79,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - actor.js: Who acts for the local user (part of Engine, mixed into Eng…
 - assetEntry.js: The life of one engine.assets entry, split from Assets.js (…
 - assetLoad.js: File loading for engine.assets, split into the phases engin…
+- assetManifest.js: engine.assets.manifest(pack) (helper of Assets.js): registe…
 - audioRules.js: The data side of audio rules: condition keys, measures (com…
 - audioVoice.js: One playing sound (a "voice") of engine.audio.sfx / play: s…
 - batchGroups.js: InstancedMesh side of engine.batching (core/Batching.js): b…
@@ -133,33 +134,34 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - collision/ Lightweight collision: characters are upright cylinders, trees/rocks are circle… — Collision.js, grid.js
 - content/ Content loader: hands the plain data in the game's content/*.js to the engine (… — ids.js, index.js, loader.js, models.js, packs.js, props.js, rules.js, templates.js
 - debug/ Performance panel + time/weather debugging + stress test — DebugPanel.js
-- entities/ Entities — Entities.js, index.js
+- entities/ Entities — Entities.js, build.js, index.js
 - flow/ Game flow: states (title, playing, paused, game over...) and scene transitions … — index.js
-- gameplay/ Container: inventory, chest, corpse and shelf are all this — Container.js, Containers.js, Dialogue.js, Interactions.js, Inventory.js, Quests.js, dialogueBox.js, interactionPrompt.js, inventoryOps.js, pickups.js, questLog.js, questSave.js
+- gameplay/ Inventory module: define items first, then add/remove — Container.js, Containers.js, Dialogue.js, Interactions.js, Inventory.js, Quests.js, boxOps.js, dialogueBox.js, interactionPrompt.js, inventoryOps.js, pickups.js, questLog.js, questSave.js
 - grid/ grids() module: placement grids for anything placed on cells (furniture, buildi… — Grid.js, Layer.js, index.js, ops.js, preview.js, tiles.js
 - hlod/ HLOD: merge far-away buildings into a few proxy meshes, show originals when nea… — index.js
 - hud/ Objective markers and a simple HUD: world markers (an edge-of-screen arrow when… — index.js, parts.js
-- level/ Level module: load a hand-built scene (glTF/GLB from Blender, or THREE objects … — heightfield.js, index.js
+- level/ Level module: load a hand-built scene (glTF/GLB from Blender, or THREE objects … — geometry.js, heightfield.js, index.js, nodes.js
 - lights/ Light pool: many light sources (torches, street lamps, campfires, muzzle flashe… — index.js
-- music/ Background music module entry — Music.js, index.js
+- music/ Background music module entry — Music.js, index.js, rules.js
 - nav/ Navmesh (Recast): generated after a level loads; engine.characters.findPath swi… — index.js, navPath.js
 - net/ net() module: optional co-op multiplayer, host authority + state sync — Client.js, Host.js, Net.js, index.js, sync.js, transports.js
 - particles/ Particles module: dust, falling leaves, splashes, chimney smoke, sparks.. — Particles.js, effect.js, shaders.js
 - photo/ Photo mode: while taking the shot, temporarily raise resolution and shadow prec… — Photo.js
-- rigid/ Real physics (Rapier): objects that topple, roll, get pushed and float on water — RigidBodies.js, Vehicles.js
-- settings/ Settings menu module entry — Settings.js, index.js, sections.js, strings.js, view.js
+- rigid/ Real physics (Rapier): objects that topple, roll, get pushed and float on water — RigidBodies.js, Vehicles.js, sync.js
+- settings/ Settings menu module entry — Settings.js, apply.js, index.js, sections.js, strings.js, view.js
 - sky/ Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional l… — Sky.js, calendar.js, frame.js, layers.js, schedule.js, shader.js, shadow.js
-- terrain/ Terrain module: chunked, streamed ground built from a height function (or a hei… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, index.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainMesh.js
-- timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js
+- terrain/ Terrain module: chunked, streamed ground built from a height function (or a hei… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, index.js, mountTerrain.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainMesh.js
+- timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zone module: invisible regions in the world that notify you when the pl… — index.js
 - vegetation/ Vegetation module: defines what to plant, where, how far before switching to lo… — Vegetation.js, groundChunks.js
 - water/ Water module: draws the global water plane (sea, big lakes; snaps to a grid fol… — Water.js
 - weather/ Weather: the game's table of weather types (weather({ types })); without one on… — Weather.js, shaders.js
-- world/ world() module: installed as engine.world (world data, see World.js) — World.js, cells.js, index.js, persist.js, pos.js, sim.js, simFar.js, views.js
+- world/ world() module: installed as engine.world (world data, see World.js) — World.js, cells.js, index.js, persist.js, pos.js, records.js, sim.js, simFar.js, views.js
 
 **render/**
 - PostFX.js: Post-processing as an ordered list of named effects in four…
 - effects.js: Built-in shader effects (used by render/materials.js): the …
+- engineUniforms.js: Engine uniforms (helper of patches.js): a patch uniform tha…
 - lights.js: Default lights every engine has (engine.lights, the mechani…
 - materials.js: Materials and shaders: Material factory makeMaterial(role, …
 - patches.js: Named shader patches: one way to add shader code to any thr…
@@ -272,7 +274,8 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | interact (parameter action) | keys | input.interact | gameplay |
 | inventory (parameter action) | keys | inventory.action | gameplay |
 | quests (parameter action) | keys | quests.action | gameplay |
-| rotate (parameter rotate) | ['KeyR'] | grid.rotate | grid |
+| "{a}" | ["KeyR"] | undefined | grid |
+| rotate (parameter rotate) | rotateKeys | grid.rotate | grid |
 | photo | keys | photo.action | photo |
 | menu (parameter action) | ['Escape'] (parameter keys) | settings.action | settings |
 | skip | ['Escape', 'Backspace'] (parameter skipKeys) | timeline.skipAction | timeline |
@@ -288,8 +291,8 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - modules/debug/DebugPanel.js: debug.* (1)
 - modules/entities/Entities.js: entities.* (1)
 - modules/gameplay/Dialogue.js: dialogue.* (2)
-- modules/gameplay/Inventory.js: inventory.* (8)
 - modules/gameplay/Quests.js: quests.* (7)
+- modules/gameplay/inventoryOps.js: inventory.* (8)
 - modules/grid/preview.js: grid.* (1)
 - modules/hud/index.js: hud.* (1)
 - modules/level/index.js: level.* (2)

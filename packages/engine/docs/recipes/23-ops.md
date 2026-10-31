@@ -72,7 +72,7 @@ A thrown `run` freezes gameplay in dev / tests and `engine.error` names `ops.run
 Saved gameplay state (`world.add/set/move/remove`, containers and the inventory, `vars`, quest start / advance) may change only while loading, inside a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `npx threedog js`) prints once per place:
 `[engine] gameplay state changed outside a fixed step or an op: world.set, called at ...`. Fix: turn the write into an op and `engine.ops.run` it, or move simulation into `fixed`. `npm test` lists every place in `.threedog/ops-guard.log`.
 
-A module that owns its own saved state joins the guard (experimental): call `import.meta.env.DEV && engine.ops.guard('store.set')` (a game has no `DEV` import; see `recipes/14-custom-module.md`) at the top of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.
+A module that owns its own saved state joins the guard (experimental): call `engine.ops.guard('store.set')` (a no-op in production builds) at the top of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.
 
 ## 6. Testing
 A test runs the op directly instead of walking, pressing keys and waiting for typing:

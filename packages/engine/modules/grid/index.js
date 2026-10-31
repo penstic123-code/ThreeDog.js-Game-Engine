@@ -111,15 +111,16 @@ export class Grids {
   }
   /**
    * Show where an item would go: the target cell under the pointer ('pointer', default), in front of the player ('front') or from your
-   * function, turned by the input action rotate (default 'rotate', R), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
+   * function, turned by the input action rotate (default name 'rotate'; the game binds it, or pass rotateKeys / ...presets.keys.gridRotate, the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
    * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
-   * @example const pv = engine.grids.preview({ grid: 'farm', item: 'crop' });
-   *   engine.onFrame(() => { if (engine.input.pointer.clicked) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); } });
-   * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotation?: number, look?: false | ((e: any) => any) }} opts
+   * @example engine.input.define('place', ['Mouse0']);   // the game's own binding
+   *   const pv = engine.grids.preview({ grid: 'farm', item: 'crop', ...presets.keys.gridRotate });
+   *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); } });
+   * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotateKeys?: string[], rotation?: number, look?: false | ((e: any) => any) }} opts
    * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, reason: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, reason?: string }, remove(): void }}
    */
   preview(opts) {
-    checkOptions('grids.preview()', opts, ['grid', 'item', 'from', 'rotate', 'rotation', 'look']);
+    checkOptions('grids.preview()', opts, ['grid', 'item', 'from', 'rotate', 'rotateKeys', 'rotation', 'look']);
     return makePreview(this.engine, this, opts);
   }
 

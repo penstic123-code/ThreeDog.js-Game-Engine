@@ -81,6 +81,8 @@ export const presets = Object.freeze({
     quests: Object.freeze({ keys: Object.freeze(['KeyJ']), pad: Object.freeze(['PadSelect']) }),
     /** photo(): P / gamepad RB takes a photo */
     photo: Object.freeze({ keys: Object.freeze(['KeyP']), pad: Object.freeze(['PadRB']) }),
+    /** grids.preview(): R turns the placement preview (spread into the preview options; rotate names the action) */
+    gridRotate: Object.freeze({ rotateKeys: Object.freeze(['KeyR']) }),
     /** characters(): B / gamepad LT brakes while driving */
     brake: Object.freeze({ brakeKeys: Object.freeze(['KeyB']), brakePad: Object.freeze(['PadLT']) }),
   }),

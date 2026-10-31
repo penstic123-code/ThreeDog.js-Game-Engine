@@ -52,6 +52,22 @@ export const specs = [
     },
   },
   {
+    name: 'S1 NPC: content npcs pass every npcs.add option through (arriveDistance, talkRadius) and a misspelt field is reported (city block)',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.content.load({ name: 'npc-opts', npcs: { 'co-npc': { name: 'co', start: { x: 2, z: 2 }, arriveDistance: 2.5, talkRadius: 5, speed: 1.1 } } });
+        const d = engine.npcs.get('co-npc').data;
+        // a misspelt option is reported like npcs.add's own (dev warning with the closest name)
+        let msg = ''; const w = console.warn; console.warn = (...a) => { msg += a.join(' '); };
+        try { engine.content.load({ name: 'npc-typo', npcs: { 'co-typo': { name: 'x', start: { x: 2, z: 2 }, arriveDistanse: 2 } } }); } catch (err) { msg += String(err.message || err); } finally { console.warn = w; }
+        return { arrive: d.arriveDistance, talk: d.talkRadius, speed: d.speed, msg };
+      });
+      check('content npc: arriveDistance / talkRadius / speed reach npcs.add', r.arrive === 2.5 && r.talk === 5 && r.speed === 1.1, JSON.stringify(r));
+      check('[guard] content npc: a misspelt option is reported and names the right one', /arriveDistance/.test(r.msg), r.msg);
+    },
+  },
+  {
     name: 'S1 NPC: switching level only removes the model; switching back keeps the NPC and its state (city block)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {

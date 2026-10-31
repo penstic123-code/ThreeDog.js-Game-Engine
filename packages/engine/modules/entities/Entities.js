@@ -40,6 +40,7 @@
 // Appearance: the engine ships no default models - the game supplies create(), usually from an asset pack (engine.assets.model / cached).
 import { xzOf } from '../../core/math.js';
 import { checkOptions, checkOptionsArg, missingText, warnOnce, freezeDef } from '../../core/validate.js';
+import { buildEntity } from './build.js';
 
 const DEF_KEYS = ['create', 'state', 'stages', 'update', 'interact', 'collider', 'colliderHeight', 'save', 'dispose', 'canGrow'];
 const SPAWN_KEYS = ['id', 'position', 'rotation', 'state', 'extra'];
@@ -176,28 +177,7 @@ export class Entities {
   }
   // ent.object is an empty root (rotation and interactions hang on it; position is set by world each frame); the model ent.visual is its child, so a stage
   // model swap replaces only the child
-  _build(ent) {
-    const e = this.engine, def = ent.def, rec = this.world.get(ent.id), root = new e.THREE.Group();
-    rec.position.y ??= e.surface(rec.position.x, rec.position.z);   // initial world records may omit y (snap to ground); computed when the model is first built
-    root.position.set(rec.position.x, rec.position.y, rec.position.z);
-    root.rotation.y = rec.rotation;
-    root.userData.entity = ent.id;
-    root.userData.budgetTag = 'entities';
-    ent._root = root; ent.visual = null; ent._modelStage = -1; ent._shownStage = -1;
-    this._setVisual(ent, def.create(e, ent));
-    this._refresh(ent);
-    if (def.interact && e.interactions) {
-      const it = def.interact;
-      ent._handles.push(e.interactions.add(root, {
-        id: ent.id,   // the interaction.use op names it the same in every run (an async create would otherwise get a load-order number)
-        label: () => this._label(it.label, ent), radius: it.radius ?? 2.5, action: it.action, height: it.height,
-        enabled: () => !!this.world.get(ent.id) && (it.enabled ? it.enabled(ent, e) : true),
-        onUse: () => it.onUse?.(ent, e),
-      }));
-    }
-    if (def.collider && e.collision) ent._handles.push(e.collision.addCircle({ x: rec.position.x, z: rec.position.z }, { radius: def.collider, height: def.colliderHeight ?? 3 }));
-    return root;
-  }
+  _build(ent) { return buildEntity(this, ent); }
   // going far / removed: interaction, collision and model torn down together (geometry and materials disposed); data untouched
   _unbuild(ent, obj) {
     for (const h of ent._handles) h.remove();

@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { vec3, xzOf } from '../../core/math.js';
 import { checkOptions } from '../../core/validate.js';
 import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
+import { syncTerrain, syncGroundTrees, syncStatics, syncLevel, dropTerrain } from './sync.js';
 // Params of addBox / addBall / addHull
 const BODY_KEYS = ['mass', 'friction', 'restitution', 'damping', 'angularDamping', 'fixed'];
 
@@ -176,11 +177,11 @@ export class RigidBodies {
     const key = src.join(';');
     this._syncT = (this._syncT || 0) + dt;
     if (key !== this._srcKey || this._syncT > 0.5) {
-      if (chunked) this._syncTerrain(src); else this._syncGroundTrees(src, CH);
+      if (chunked) syncTerrain(this, src); else syncGroundTrees(this, src, CH);
       this._srcKey = key; this._syncT = 0;
     }
-    this._syncStatics();
-    this._syncLevel();
+    syncStatics(this);
+    syncLevel(this);
     // player capsule follows the player (the rapier mover computes collision and writes the position itself); turned off while driving to avoid colliding with
     // the car
     if (e.player) this.playerBody.setNextKinematicTranslation({ x: focus.x, y: focus.y, z: focus.z });
@@ -217,77 +218,6 @@ export class RigidBodies {
       if (t.y < -200) this.setPosition(b, [t.x, e.surface(t.x, t.z) + 2, t.z]);   // fallback for falling out of the world
     }
     for (const v of this.vehicles) v._sync();
-  }
-
-  // Chunks around physics stream sources ([cx, cz, rings] each): terrain uses triangle-mesh colliders (identical to what is drawn), vegetation uses cylinders.
-  // Data comes from the ground API ground.chunkCollision
-  _syncTerrain(src) {
-    const e = this.engine, R = this.R, want = new Set();
-    for (const [pcx, pcz, n] of src) for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
-      const cx = pcx + dx, cz = pcz + dz, key = cx + ',' + cz; if (want.has(key)) continue; want.add(key);
-      const have = this.terrain.get(key);
-      const data = e.ground.chunkCollision(cx, cz);
-      if (have?.ready && data && have.token === data.token) continue;
-      if (have) this._dropTerrain(key);
-      if (!data) { this.terrain.set(key, { ready: false, colliders: [] }); continue; }
-      const idx = new Uint32Array(data.positions.length / 3); for (let i = 0; i < idx.length; i++) idx[i] = i;
-      const ground = R.ColliderDesc.trimesh(new Float32Array(data.positions), idx).setTranslation(data.ox, 0, data.oz).setFriction(0.9);
-      const colliders = [this.world.createCollider(ground)], half = this.treeColliderHeight / 2;
-      for (const k of data.circles) for (let i = 0; i < k.length; i += 3) {
-        const h = e.surface(k[i], k[i + 1]);
-        colliders.push(this.world.createCollider(R.ColliderDesc.cylinder(half, k[i + 2]).setTranslation(k[i], h + half, k[i + 1])));
-      }
-      this.terrain.set(key, { ready: true, token: data.token, colliders });
-    }
-    for (const key of [...this.terrain.keys()]) if (!want.has(key)) this._dropTerrain(key);
-  }
-  // Vegetation on a level model or code-built ground has no chunked collision: its trunks reach us only as circles through
-  // ground.forEachCollider (the same source character collision and path planning read). Make them cylinders around the physics sources
-  _syncGroundTrees(src, CH) {
-    const e = this.engine, G = e.ground, R = this.R, half = this.treeColliderHeight / 2, want = new Set();
-    if (G.forEachCollider) for (const [pcx, pcz, n] of src) {
-      G.forEachCollider((pcx + 0.5) * CH, (pcz + 0.5) * CH, (n + 0.5) * CH * Math.SQRT2, (x, z, r) => {
-        const key = x + ',' + z + ',' + r;
-        want.add(key);
-        if (this.groundTrees.has(key)) return;
-        const h = e.surface(x, z);
-        this.groundTrees.set(key, this.world.createCollider(R.ColliderDesc.cylinder(half, r).setTranslation(x, h + half, z)));
-      });
-    }
-    for (const [key, col] of this.groundTrees) if (!want.has(key)) { this.world.removeCollider(col, false); this.groundTrees.delete(key); }
-  }
-  _dropTerrain(key) {
-    const t = this.terrain.get(key);
-    if (t) for (const c of t.colliders) this.world.removeCollider(c, false);
-    this.terrain.delete(key);
-  }
-  // Sync houses and pillars from the collision module into the physics world (only when they are added or removed)
-  _syncStatics() {
-    const ph = this.engine.collision;
-    if (ph.version === this._staticVersion) return;
-    this._staticVersion = ph.version;
-    const R = this.R, seen = new Set();
-    ph.forEachStatic((type, o) => {
-      seen.add(o);
-      if (this.statics.has(o)) return;
-      const g = o.y ?? this.engine.surface(o.x, o.z);
-      if (type === 'box') {
-        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), o.rot);
-        const d = R.ColliderDesc.cuboid(o.hw, o.h / 2, o.hd).setTranslation(o.x, g + o.h / 2, o.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
-        this.statics.set(o, this.world.createCollider(d));
-      } else this.statics.set(o, this.world.createCollider(R.ColliderDesc.cylinder(o.h / 2, o.r).setTranslation(o.x, g + o.h / 2, o.z)));
-    });
-    for (const [o, col] of this.statics) if (!seen.has(o)) { this.world.removeCollider(col, false); this.statics.delete(o); }
-  }
-
-  // Ground of a level (hand-built scene): one static triangle mesh, rebuilt when the level changes
-  _syncLevel() {
-    const G = this.engine.ground; if (!G.staticTrimeshes) return;
-    const v = G.staticVersion?.() ?? 0; if (v === this._levelVersion) return;
-    this._levelVersion = v;
-    for (const c of this._levelColliders || []) this.world.removeCollider(c, false);
-    const desc = t => this.R.ColliderDesc.trimesh(t.positions, t.indices).setFriction(0.9);
-    this._levelColliders = G.staticTrimeshes().map(t => this.world.createCollider(desc(t)));
   }
 
   get stats() {

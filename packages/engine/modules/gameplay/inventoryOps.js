@@ -7,6 +7,14 @@
 import { esc, iconHTML as icon, injectUICSS } from '../../ui/UI.js';
 
 
+/** Texts of the inventory window, the pickup toast and the ops (zh-CN and en) @internal */
+export const INVENTORY_STRINGS = {
+  'zh-CN': { 'inventory.title': '背包', 'inventory.action': '背包', 'inventory.empty': '背包是空的。', 'inventory.full': '背包满了',
+    'inventory.got': '获得 {icon} {name} ×{n}', 'inventory.pickup': '捡起 {name}', 'inventory.use': '使用', 'inventory.drop': '丢下' },
+  en: { 'inventory.title': 'Inventory', 'inventory.action': 'Inventory', 'inventory.empty': 'Your bag is empty.', 'inventory.full': 'Inventory full',
+    'inventory.got': 'Got {icon} {name} ×{n}', 'inventory.pickup': 'Pick up {name}', 'inventory.use': 'Use', 'inventory.drop': 'Drop' },
+};
+
 /** Data the 'inventory' part receives in show / update @internal */
 export function windowData(inv) {
   const e = inv.engine, bag = inv.bag;

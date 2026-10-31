@@ -246,7 +246,7 @@ export const specs = [
     },
   },
   {
-    name: '启动耗时（只报告数字，不设门槛）',
+    name: 'startup time (numbers are only reported, no threshold)',
     url: '/',
     async run({ check, ev, page }) {
       for (const [name, url] of [['open world', '/'], ['city', '/tests/city/index.html']]) {

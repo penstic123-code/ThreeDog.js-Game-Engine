@@ -252,6 +252,12 @@ export interface Vegetation {
    * followed automatically
    */
   rebuild(): void;
+  /**
+   * Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default,
+   * larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones
+   * @example engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk
+   */
+  setShadowRing(name: string, ring: number): void;
   /** Register a kind of vegetation */
   add(name: string, opts: VegetationOptions): Species;
   get(name: string): Species | undefined;
