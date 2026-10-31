@@ -1,9 +1,9 @@
-// Pickups on the ground: plain kind 'pickup' records in engine.world (saved with it); the model is built only near the engine.load sources (unloading never deletes the record).
+// Pickups on the ground: plain kind 'pickup' records in engine.world (saved with it); the model is built only near the engine.stream sources (unloading never deletes the record).
 // Taken by the interact key (radius per pickup, default inventory pickupRadius) or, with auto: true, just by walking into it (bullets, coins, health packs).
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
-import { checkOptionsArg } from '../../core/validate.js';
+import { checkOptionsArg, warnOnce } from '../../core/validate.js';
 import { copyData } from './Container.js';
 
 /** inventory.spawnPickup implementation @internal */
@@ -64,23 +64,27 @@ export function takeAuto(inv) {
   for (const rec of q) if (inv.engine.world.get(rec.id) === rec && rec.until == null) take(inv, rec);
 }
 
-/** Into the player inventory, then off the ground; false (stays on the ground) when it doesn't fit @internal */
+/** Into the player inventory, then off the ground; { ok: false, reason: 'full' } (it stays on the ground) when it doesn't fit, { ok: true } otherwise.
+ *  Pickup onUse returns this, and the interaction.use op passes it on as value, so callers can tell the player why @internal */
 function take(inv, rec) {
   const e = inv.engine, W = e.world;
-  if (!inv.add(rec.item, rec.count, rec.data && { data: rec.data })) return false;
+  if (!inv.add(rec.item, rec.count, rec.data && { data: rec.data })) return { ok: false, reason: 'full' };
   // without respawn the record is deleted; with respawn time it gets until (show tears down the model), saved so the countdown continues after a load
   if (rec.respawn > 0) W.set(rec.id, { until: e.clock.now + rec.respawn });
   else { W.remove(rec.id); inv._meshes.delete(rec.id); }
   e.events.emit('item:pickup', { id: rec.item, x: rec.position.x, z: rec.position.z });
-  return true;
+  return { ok: true };
 }
+const NO_PICKUP = 'pickups: no style pack / model given, so items on the ground are gray boxes (a placeholder). Pass a style pack with '
+  + "style.pickup.model(item, { color, size }), e.g. createEngine({ style: lowpoly }) with lowpoly from '@threedog/style-lowpoly'";
 /** The model (built when near) + interaction for this pickup record @internal */
 function model(inv, rec) {
-  const e = inv.engine, def = inv.def(rec.item), st = e.style.pickup || {};
+  const e = inv.engine, def = inv.item(rec.item), st = e.style.pickup || {};
   let obj = inv._meshes.get(rec.id);
   if (!obj) {
     const color = def.color ?? st.color ?? 0xcccccc, size = st.size ?? 0.25;
     // shape is the style pack's; without one a neutral box
+    if (!st.model) warnOnce(NO_PICKUP);
     const m = st.model ? st.model(def, { color, size }) : new THREE.BoxGeometry(size, size, size);
     obj = m.isObject3D ? m : new THREE.Mesh(m, makeMaterial('pickup', { color }));
   }
@@ -91,7 +95,7 @@ function model(inv, rec) {
     id: rec.id,
     label: () => e.t('inventory.pickup', { name: def.name }), radius: rec.radius ?? inv.pickupRadius,
     enabled: () => e.world.get(rec.id) === rec && rec.until == null,
-    onUse: () => { take(inv, rec); },
+    onUse: () => take(inv, rec),   // { ok, reason? } goes back through interaction.use's value
   });
   return obj;
 }

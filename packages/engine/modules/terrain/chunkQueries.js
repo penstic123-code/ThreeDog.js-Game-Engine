@@ -1,7 +1,7 @@
 // Collision queries on loaded chunks (mixed into ChunkManager.prototype), read by the collision and physics modules through the ground API.
 
 export const chunkQueries = {
-  /** Iterate collision circles near (x,z): fn(cx, cz, r). Only queries loaded chunks near the player */
+  /** @internal Iterate collision circles near (x,z): fn(cx, cz, r). Only queries loaded chunks near the player */
   forEachCollider(x, z, range, fn) {
     const CH = this.T.CHUNK, x0 = Math.floor((x - range) / CH), x1 = Math.floor((x + range) / CH), z0 = Math.floor((z - range) / CH), z1 = Math.floor((z + range) / CH);
     for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
@@ -17,7 +17,7 @@ export const chunkQueries = {
     }
   },
 
-  /** Collision data of a chunk (for the physics module): terrain triangles (chunk-local coordinates) + vegetation collision circles. Returns null if not generated.
+  /** @internal Collision data of a chunk (for the physics module): terrain triangles (chunk-local coordinates) + vegetation collision circles. Returns null if not generated.
    *  token tells whether the chunk was regenerated */
   chunkCollision(cx, cz) {
     const c = this.chunks.get(cx + ',' + cz);

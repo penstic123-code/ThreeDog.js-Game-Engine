@@ -106,6 +106,7 @@ class Lane {
 
 /**
  * engine.threads: worker pool behind createEngine({ threads }). Lanes start their workers lazily; size 0 means everything runs on the main thread.
+ * @experimental
  */
 export class Threads {
   /** @internal */

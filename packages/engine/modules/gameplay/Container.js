@@ -51,9 +51,9 @@ export class Container {
   /** Every entry: [{ key, id, count, data, def }] (data is undefined for plain items; for custom UI). */
   list() { return this._entries.map(e => this._view(e)); }
   /** Slots used (an entry of 150 arrows with stack 99 uses 2). */
-  get slotsUsed() { let n = 0; for (const e of this._entries) n += Math.ceil(e.count / this.inv.def(e.id).stack); return n; }
+  get slotsUsed() { let n = 0; for (const e of this._entries) n += Math.ceil(e.count / this.inv.item(e.id).stack); return n; }
   /** Total weight (item weight × count; items without weight weigh 0). */
-  get weight() { let w = 0; for (const e of this._entries) w += e.count * (this.inv.def(e.id).weight ?? 0); return w; }
+  get weight() { let w = 0; for (const e of this._entries) w += e.count * (this.inv.item(e.id).weight ?? 0); return w; }
 
   /**
    * How many more fit (0 = none, Infinity = no limit): of an item without data, of an item with this data, or of the same kind as an existing entry key.
@@ -80,7 +80,7 @@ export class Container {
    * @returns {string | false}
    */
   add(id, n = 1, opts = {}) {
-    DEV && this.inv.engine.ops._guard(this._player ? 'inventory.add' : 'container.add');
+    DEV && this.inv.engine.ops.guard(this._player ? 'inventory.add' : 'container.add');
     checkOptionsArg(`add('${id}')`, opts, ['data', 'silent']);
     if (isKey(id)) throw new Error(fmt(STRINGS.keyToAdd, { key: id }));
     this.inv._known(id);
@@ -95,11 +95,45 @@ export class Container {
    * @returns {boolean}
    */
   remove(x, n = 1) {
-    DEV && this.inv.engine.ops._guard(this._player ? 'inventory.remove' : 'container.remove');
+    DEV && this.inv.engine.ops.guard(this._player ? 'inventory.remove' : 'container.remove');
     if (!this.has(x, n)) return false;
     let rest = n;
     for (const e of this._of(x)) { const k = Math.min(rest, e.count); this._take(e, k); if (!(rest -= k)) break; }
     return true;
+  }
+
+  /**
+   * Trade: take A out and put B in as ONE all-or-nothing step (swap a key for a better key, replace an item when the bag is full).
+   * It first checks (on a copy) that A is there and that B fits once A is gone; if either fails nothing changes and you get { ok: false, reason }.
+   * reason: 'notEnough' (you do not hold takeN of take) or 'full' (B would not fit even after A is removed).
+   * take is an item id or an entry key ('sword#3'); give is an item id (never a key). Removal goes plain pieces first, like remove().
+   * On success: { ok: true, took: [{ id, count, data? }], gave: entry key of B, giveId, giveN }. engine.ops.undo('inventory.trade', args, value) reverses it.
+   * @example const r = bag.trade('rusty_key', 'gold_key'); if (!r.ok) say(r.reason);   // 'full' / 'notEnough'
+   * @example engine.inventory.container('chest-1').trade('arrow', 'bolt', { takeN: 10, giveN: 10, data: { tip: 'iron' } })
+   * @param {string} take
+   * @param {string} give
+   * @param {{ takeN?: number, giveN?: number, data?: Record<string, any>, silent?: boolean }} [opts]
+   * @returns {{ ok: boolean, reason?: string, took?: { id: string, count: number, data?: any }[], gave?: string, giveId?: string, giveN?: number }}
+   */
+  trade(take, give, opts = {}) {
+    DEV && this.inv.engine.ops.guard(this._player ? 'inventory.trade' : 'container.trade');
+    checkOptionsArg(`trade('${take}', '${give}')`, opts, ['takeN', 'giveN', 'data', 'silent']);
+    const { takeN = 1, giveN = 1 } = opts;
+    if (!(takeN > 0) || !(giveN > 0)) throw new Error(`trade('${take}', '${give}'): takeN and giveN must be positive numbers, got takeN ${takeN}, giveN ${giveN}. Example: bag.trade('rusty_key', 'gold_key', { takeN: 1, giveN: 1 })`);
+    if (isKey(give)) throw new Error(fmt(STRINGS.keyToAdd, { key: give }));
+    this.inv._known(give);
+    const data = copyData('trade', give, opts.data), why = this._canTrade(take, give, takeN, giveN, data);
+    if (why !== true) return { ok: false, reason: why };
+    const took = [];
+    let rest = takeN;
+    for (const en of this._of(take)) {
+      const k = Math.min(rest, en.count);
+      took.push({ id: en.id, count: k, ...(en.data !== undefined && { data: en.data }) });
+      this._take(en, k);
+      if (!(rest -= k)) break;
+    }
+    const gave = this._put(give, giveN, data, null, !!opts.silent);
+    return { ok: true, took, gave, giveId: give, giveN };
   }
 
   /**
@@ -114,7 +148,7 @@ export class Container {
    * @returns {string}
    */
   setData(key, data, n) {
-    DEV && this.inv.engine.ops._guard(this._player ? 'inventory.setData' : 'container.setData');
+    DEV && this.inv.engine.ops.guard(this._player ? 'inventory.setData' : 'container.setData');
     const e = this._find(key);
     if (!e) throw new Error(fmt(STRINGS.noKey, { fn: 'setData', key, box: this.id, keys: this._keys() }));
     const d = copyData('setData', e.id, data), k = Math.min(n ?? e.count, e.count), at = this._entries.indexOf(e);
@@ -139,9 +173,18 @@ export class Container {
   }
 
   // ---------- internal ----------
+  /** Dry run of trade: true, or 'notEnough' / 'full'. Removes A from a copy, then asks that copy whether B fits (the same trick transfer uses) @internal */
+  _canTrade(take, give, takeN, giveN, data) {
+    if (!this.has(take, takeN)) return 'notEnough';
+    const sim = Object.create(this); sim._entries = this._entries.map(x => ({ ...x }));
+    let rest = takeN;
+    for (const en of sim._of(take)) { const k = Math.min(rest, en.count); en.count -= k; if (!(rest -= k)) break; }
+    sim._entries = sim._entries.filter(x => x.count > 0);
+    return sim._room(give, data) < giveN ? 'full' : true;
+  }
   /** @internal */ _find(key) { return this._entries.find(e => e.key === key) || null; }
   /** @internal */ _keys() { return this._entries.map(e => e.key).join(', ') || 'none'; }
-  /** @internal */ _view(e) { return { key: e.key, id: e.id, count: e.count, data: e.data, def: this.inv.def(e.id) }; }
+  /** @internal */ _view(e) { return { key: e.key, id: e.id, count: e.count, data: e.data, def: this.inv.item(e.id) }; }
   /** Entries an item id or key refers to; for an id, plain entries first @internal */
   _of(x) {
     if (isKey(x)) return this._entries.filter(e => e.key === x);
@@ -150,7 +193,7 @@ export class Container {
   }
   /** Room for an item with this (already copied) data @internal */
   _room(id, data) {
-    const def = this.inv.def(id), st = def.stack, s = sig(data);
+    const def = this.inv.item(id), st = def.stack, s = sig(data);
     const into = (data === undefined || st > 1) && this._entries.find(e => e.id === id && e.sig === s);
     let n = (into ? (st - into.count % st) % st : 0) + Math.max(0, this.capacity - this.slotsUsed) * st;
     if (def.weight > 0) n = Math.min(n, Math.floor((this.maxWeight - this.weight) / def.weight + 1e-9));
@@ -172,7 +215,7 @@ export class Container {
   }
   /** Add without the guard (add and transfer); key = keep this key for a new entry (moved pieces) @internal */
   _put(id, n, data, key, silent) {
-    const def = this.inv.def(id), say = !silent && this._player, t = (k, p) => this.inv.engine.t(k, p);
+    const def = this.inv.item(id), say = !silent && this._player, t = (k, p) => this.inv.engine.t(k, p);
     const fit = Math.min(n, this._room(id, data)), info = { box: this.id, id, n, fit, stack: def.stack, cap: this.capacity, mw: this.maxWeight };
     if (fit <= 0) { if (say) toast(this.inv.engine, t('inventory.full'), { kind: 'item' }); warnOnce(fmt(STRINGS.full, info)); return false; }
     if (fit < n) warnOnce(fmt(STRINGS.partial, info));
@@ -183,7 +226,7 @@ export class Container {
   }
   /** Put k pieces in at index at, merging with an equal entry where the item stacks; returns the key of the last entry used @internal */
   _place(id, k, data, key, at) {
-    const s = sig(data), st = this.inv.def(id).stack;
+    const s = sig(data), st = this.inv.item(id).stack;
     if (data === undefined || st > 1) {
       let e = this._entries.find(x => x.id === id && x.sig === s);
       if (!e) this._entries.splice(at, 0, e = { key: data === undefined ? id : key ?? this.inv._newKey(id), id, count: 0, data, sig: s });

@@ -6,7 +6,7 @@
 //   npm run shot                                   the open-world example in its default state (engine package packages/engine)
 //   npm run shot -- -w my-game / --describe-only   another game: -w name (or run npm run shot inside the game directory)
 //   npm run shot -- / --time 18:30 --weather rain --pos 40,-20 --wait 3
-//   npm run shot -- /city.html --time 12:00        the town example
+//   npm run shot -- /tests/city/index.html --time 12:00        the town test page
 //   npm run shot -- / --describe-only              print text only, no screenshot
 //
 // Options:

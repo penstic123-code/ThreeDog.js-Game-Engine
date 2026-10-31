@@ -1,9 +1,9 @@
-// Genericity fixes (docs/plans/genericity-audit.md): interaction picking and actors, quest fail / parallel / optional goals,
+// Genericity: interaction picking and actors, quest fail / parallel / optional goals,
 // game content kinds, content positions with y / floor, item words without an inventory. Same format as specs.mjs; appended at its end.
 export const specs = [
   {
     name: 'genericity: content item words without an inventory say which module is missing',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => ({ inv: !!engine.inventory, msgs: ['has', 'lacks', 'give', 'take'].map(w => {
         try { if (w === 'has' || w === 'lacks') engine.content.test({ [w]: { coin: 1 } }); else engine.content.run({ [w]: { coin: 1 } }); return null; } catch (e) { return e.message; }
@@ -14,7 +14,7 @@ export const specs = [
   },
   {
     name: 'genericity: game content kinds (rules.js kinds) load after the engine data; unknown content names fail with how to register them',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         const got = [], C = engine.content, err = f => { try { f(); return null; } catch (e) { return e.message; } };
@@ -46,7 +46,7 @@ export const specs = [
         };
         C.load({ triggers: { 'g-low': { position: { place: 'g-cellar' }, radius: 1 } } }, { places: { 'g-cellar': { x, y: 0, z } } });
         out.marker = C.where({ place: 'g-cellar', x: 1 }).y;
-        out.trigger = engine.triggers.list.find(t => t.tag === 'g-low')?.y;
+        out.trigger = engine.triggers.list().find(t => t.tag === 'g-low')?.y;
         C.load({ props: [{ id: 'g-shelf', model: 'rock', x: x + 2, z, floor: 0, y: 1 }] });
         const rec = engine.world.get('g-shelf');
         out.prop = rec && `${rec.position.y}/${rec.floor}`;
@@ -75,7 +75,7 @@ export const specs = [
         const notify = Q.notify; Q.notify = m => said.push(m.type);
         const markers = () => engine.hud.markers.filter(m => m.o.label?.startsWith?.('hold')).map(m => m.o.label).sort().join();
         let reward = 0, failed = 0;
-        engine.ops._allowing(() => {
+        engine.ops.allow(() => {
           Q.define('g-defend', { title: 'defend', steps: [
             { text: 'reach camp', done: e => e.vars.flag('gAtCamp') },
             { all: [{ text: 'hold A', done: e => e.vars.flag('gA'), target: A }, { text: 'hold B', done: e => e.vars.flag('gB'), target: B }, { text: 'nobody hurt', done: e => e.vars.flag('gSafe'), optional: true }] },
@@ -129,7 +129,7 @@ export const specs = [
         const front = I.add([p.x, p.y, p.z + 2], { id: 'g-front', label: 'front', onUse: () => used.push('front') });
         const back = I.add([p.x, p.y, p.z - 1], { id: 'g-back', label: 'back', onUse: () => used.push('back') });
         const far = I.add([p.x + 2.8, p.y, p.z], { id: 'g-far', label: 'far' });
-        const out = { radius: I.byId('g-far').radius };
+        const out = { radius: I.get('g-far').radius };
         I.pickMode = 'nearest'; out.nearest = I.pick()?.id;
         I.pickMode = 'facing'; out.facing = I.pick()?.id;
         I.pickMode = 'aim';
@@ -142,7 +142,7 @@ export const specs = [
         I.pickMode = 'nearest';
         // second verb on the same object: its own key, its own pick
         inp.define('g-harvest', ['KeyG'], 'harvest');
-        const harvest = I.add(I.byId('g-back').object, { id: 'g-back-harvest', label: 'harvest', action: 'g-harvest', onUse: () => used.push('harvest') });
+        const harvest = I.add(I.get('g-back').object, { id: 'g-back-harvest', label: 'harvest', action: 'g-harvest', onUse: () => used.push('harvest') });
         engine.step(1 / 30, { render: false });
         inp._keyDown('KeyG', 'keyboard'); engine.step(1 / 30, { render: false }); inp._keyUp('KeyG'); engine.step(1 / 30, { render: false });
         out.keyG = engine.ops.recent('interaction.use').at(-1)?.args.id;
@@ -174,7 +174,7 @@ export const specs = [
         const I = engine.interactions, p = engine.player.position, out = {};
         out.def = engine.actor === 'player' && engine.actorPosition() === engine.player.position;
         const cx = p.x + 30, cz = p.z + 30, cy = engine.surface(cx, cz);
-        engine.ops._allowing(() => engine.world.add({ id: 'g-cart', kind: 'g-cart', position: { x: cx, y: cy, z: cz } }));
+        engine.ops.allow(() => engine.world.add({ id: 'g-cart', kind: 'g-cart', position: { x: cx, y: cy, z: cz } }));
         const atCart = I.add([cx + 1, cy, cz], { id: 'g-at-cart', label: 'cart lever' });
         const atPlayer = I.add([p.x + 1, p.y, p.z], { id: 'g-at-player', label: 'player lever' });
         let entered = 0;
@@ -192,13 +192,130 @@ export const specs = [
         engine.ops.run('g.who'); out.opBack = actor;
         out.back = I.pick()?.id;
         for (const h of [atCart, atPlayer, zone, op]) h.remove();
-        engine.ops._allowing(() => engine.world.remove('g-cart'));
+        engine.ops.allow(() => engine.world.remove('g-cart'));
         engine.resume();
         return out;
       });
       check('default actor is the player', r.def && r.player === 'g-at-player' && r.enteredAsPlayer === 0, JSON.stringify(r));
       check('[guard] engine.actor = a world record: interactions pick around it and trigger zones fire for it', r.cartPos && r.cart === 'g-at-cart' && r.enteredAsCart === 1, JSON.stringify(r));
       check('ops default ctx.actor to engine.actor; interaction.use logs it', r.opActor === 'g-cart' && r.useNear === 'g-cart' && r.opBack === 'player' && r.back === 'g-at-player', JSON.stringify(r));
+    },
+  },
+  {
+    // a calendar the game does not ask for must not appear: a soulslike or a shooter gets no seasons and no season:change, ever
+    name: 'genericity: sky calendar is the game\'s (no seasons by default, seasons of their own length, a time of day that never moves)',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.timeline.skip(); engine.pause();
+        const Sky = engine.sky.constructor, fog = engine.scene.fog, made = [];
+        // a second Sky on the same engine, only to read its calendar: its dome comes off the scene and the real fog goes back
+        const make = o => { const s = new Sky(engine, o); s.dome.removeFromParent(); engine.scene.fog = fog; made.push(s); return s; };
+        const out = {}, changes = [];
+        const off = engine.events.on('season:change', n => changes.push(n));
+        const none = make({ dayLength: 1 });
+        for (let i = 0; i < 100; i++) none.tick(1);
+        out.none = { season: none.season, idx: none.seasonIndex, progress: none.seasonProgress, dayOf: none.dayOfSeason, day: none.day, changes: changes.length };
+        try { none.onSeason('summer', () => {}); } catch (err) { out.noSeasonErr = err.message; }
+        const wd = make({ dayLength: 1, seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }] });
+        const at = d => { wd.day = d; return wd.season + wd.dayOfSeason; };
+        out.lengths = [at(1), at(10), at(11), at(30), at(31)].join(',');
+        wd.day = 1; wd._season = wd.season; changes.length = 0;
+        for (let i = 0; i < 30; i++) wd.tick(1);
+        out.wdChanges = changes.join(',');
+        const still = make({ dayLength: Infinity, time: 0.5 });
+        for (let i = 0; i < 600; i++) still.tick(1);
+        out.still = { t: still.timeOfDay, day: still.day, mark: still.untilMark() };
+        try { make({ seasons: 'spring' }); } catch (err) { out.badSeasons = err.message; }
+        try { make({ dayLength: 0 }); } catch (err) { out.badDay = err.message; }
+        off.remove();
+        for (const s of made) { s.dome.geometry.dispose(); s.dome.material.dispose(); s._sched.dispose(); }
+        return out;
+      });
+      check('[guard] no seasons unless named: 100 days pass, season null, no season:change', r.none.season === null && r.none.idx === -1 && r.none.changes === 0 && r.none.day === 101 && r.none.progress === 0 && r.none.dayOf === 0, JSON.stringify(r.none));
+      check('onSeason on a season the calendar lacks throws with the fix instead of waiting forever', /no such season/.test(r.noSeasonErr), r.noSeasonErr);
+      check('seasons of their own length: wet 10 days then dry 20, then wet again', r.lengths === 'wet1,wet10,dry1,dry20,wet1' && r.wdChanges === 'dry,wet', JSON.stringify(r));
+      check('dayLength Infinity: the time of day never moves, no day passes, no clock mark ahead', r.still.t === 0.5 && r.still.day === 1 && r.still.mark === Infinity, JSON.stringify(r.still));
+      check('bad seasons / dayLength throw with the fix', /a list of names/.test(r.badSeasons) && /must be a number > 0/.test(r.badDay), JSON.stringify([r.badSeasons, r.badDay]));
+    },
+  },
+  {
+    // the game's weather table is the whole list: a type it does not have can never be switched to, and the style pack cannot add one
+    name: 'genericity: weather types are the game\'s table (no built-ins mixed in, own fields blend, no particles without rain or snow)',
+    url: '/',
+    async run({ check, ev }) {
+      const { presets } = await import('../../presets.js');   // node side: the page gets the plain table as an argument
+      const r = await ev(temperate => {
+        engine.timeline.skip(); engine.pause();
+        const Weather = engine.weather.constructor, style = engine.style.weather, out = {};
+        engine.style.weather = { ...(style || {}), types: { storm: { cloud: 0.123 }, clear: { cloud: 0.2 } } };   // the style retunes, never adds
+        try {
+          const w = new Weather(engine, { types: { clear: { cloud: 0.1 }, dust: { fog: 0.3, wind: 2, heat: 1 } } });
+          out.names = Object.keys(w.types).join(',');
+          out.start = w.name; out.pool = w.autoPool.join(',');
+          out.calm = w.types.dust.cloud === 0 && w.types.dust.rain === 0 && w.types.dust.sun === 1;
+          out.gameWins = w.types.clear.cloud === 0.1;
+          out.heatOnClear = w.types.clear.heat;
+          out.noParticles = w.rain === null && w.snow === null;
+          w.set('snow', 1); out.afterSnow = w.name;
+          w.set('dust', 1); for (let i = 0; i < 120; i++) w.tick(1 / 60);
+          out.heat = w.current.heat; out.dust = w.name;
+          // no table: the engine assumes no climate, only a calm clear (no rain particles); the preset is opt-in and the style fills its fields
+          const def = new Weather(engine, {});
+          out.bare = Object.keys(def.types).join(',') + (def.rain ? '+rain' : '');
+          const t = new Weather(engine, { types: { ...temperate, storm: { lightning: 1 } } });
+          out.preset = Object.keys(t.types).length; out.styleFills = t.types.storm.cloud === 0.123 && t.types.clear.cloud === 0.15;
+          t.rain.removeFromParent(); t.snow.removeFromParent();
+          for (const o of [t.rain, t.snow]) { o.geometry.dispose(); o.material.dispose(); }
+          try { new Weather(engine, { types: { dust: {} }, start: 'clear' }); } catch (err) { out.badStart = err.message; }
+          try { new Weather(engine, { types: { dust: { wind: 'strong' } } }); } catch (err) { out.badField = err.message; }
+        } finally { engine.style.weather = style; }
+        return out;
+      }, presets.weather.temperate.types);
+      check('[guard] the table is the whole list: no built-in or style-only type mixed in; switching to a missing type is refused', r.names === 'clear,dust' && r.afterSnow === 'clear', JSON.stringify(r));
+      check('start defaults to clear, autoPool to each type once; left-out fields are calm; the game\'s numbers beat the style\'s', r.start === 'clear' && r.pool === 'clear,dust' && r.calm && r.gameWins, JSON.stringify(r));
+      check('a field of the game\'s own (heat) is 0 on other types and blends to 1', r.heatOnClear === 0 && r.dust === 'dust' && Math.abs(r.heat - 1) < 1e-6, JSON.stringify(r));
+      check('zero cost: a table without rain or snow builds no particle meshes', r.noParticles, JSON.stringify(r));
+      check('[guard] no table: only a calm clear and no rain particles (the engine assumes no climate); the temperate preset is opt-in and the style fills its fields', r.bare === 'clear' && r.preset === 7 && r.styleFills, JSON.stringify(r));
+      check('bad start / non-number field throw with the fix', /not one of this game's weather types/.test(r.badStart) && /must be a number/.test(r.badField), JSON.stringify([r.badStart, r.badField]));
+    },
+  },
+  {
+    // [守] 引擎核心不带玩法按键：Shift 跑 / E 交互 / 空格跳不在核心默认表里，只有游戏（或它挑的预设）给了才有；interactions() 没有默认选法和按键
+    name: 'genericity: no gameplay keys unless the game binds them (no core run / interact / jump), interactions needs pick and keys',
+    url: '/tests/a/',   // createPlayer({ ...presets.player.thirdPerson }) and no interactions module: run / jump come from the preset, interact from nobody
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const inp = engine.input, keys = a => inp.actions.has(a) ? inp.keysOf(a).filter(k => !k.startsWith('Pad')).join('+') : null;
+        const out = { interact: keys('interact'), run: keys('run'), jump: keys('jump'), confirm: keys('confirm'), move: keys('moveForward') };
+        // the 'camera' control with no run key bound never runs, and reading it does not warn about a missing action
+        const warns = [], warn0 = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); };
+        const keep = inp.actions.get('run'); inp.actions.delete('run');
+        engine.characters.moveInput(); out.runWithout = engine.characters.moveInput().run; out.warned = warns.some(w => /action "run"/.test(w));
+        inp.actions.set('run', keep); console.warn = warn0;
+        return out;
+      });
+      check('[guard] interact is not bound when the game gave no key (no core E)', r.interact === null, JSON.stringify(r));
+      check('run / jump exist only because the preset the game picked binds them; move and confirm stay neutral core keys', r.run === 'ShiftLeft+ShiftRight' && r.jump === 'Space' && !!r.confirm && !!r.move, JSON.stringify(r));
+      check('camera control without a run action just walks (no missing-action warning)', r.runWithout === false && !r.warned, JSON.stringify(r));
+    },
+  },
+  {
+    // [守] interactions() 不替游戏选"哪个算在面前"和"按哪个键"
+    name: 'genericity: interactions() has no default pick or key (errors name the preset); the nearest preset gives E',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r2 = await ev(() => {
+        const Ctor = /** @type {any} */ (engine.interactions?.constructor), out = {};
+        // the page of the examples installs interactions with the nearest preset; a second constructor only to read its argument checks (it throws before touching the engine)
+        try { new Ctor(engine, {}); } catch (err) { out.noPick = String(err.message); out.code = err.code; }
+        try { new Ctor(engine, { pick: 'nearest', action: 'genericityNoKeys' }); } catch (err) { out.noKeys = String(err.message); }
+        out.interactKeys = engine.input.keysOf('interact').filter(k => !k.startsWith('Pad'));
+        return out;
+      });
+      check('[guard] interactions() without pick throws interaction-setup and names the preset', r2.code === 'interaction-setup' && /presets\.interactions\.nearest/.test(r2.noPick), JSON.stringify(r2));
+      check('[guard] an action with no keys throws with keys / bindings as the fix', /has no keys/.test(r2.noKeys) && /bindings/.test(r2.noKeys), r2.noKeys);
+      check('with presets.interactions.nearest the game gets E', r2.interactKeys.join() === 'KeyE', JSON.stringify(r2));
     },
   },
 ];

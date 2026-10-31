@@ -13,7 +13,7 @@ const { rel } = P, OUT = P.abs(P.CODEMAP_REL);
 const BUDGET = 22 * 1024;
 const isEngine = r => r === P.INDEX_JS_REL || P.ENGINE_CODE_DIRS_REL.some(d => P.under(r, d));
 const walk = d => walkAll(d, { skip: ['tests', 'vite.config.js'] });
-const files = [P.abs(P.INDEX_JS_REL), ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(P.abs(d))), ...walk(P.abs(P.STYLES_REL))];
+const files = [P.abs(P.INDEX_JS_REL), ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(P.abs(d)))];   // engine package only: style packs are separate packages
 const sp = p => p.slice(P.ENGINE_REL.length + 1);   // package-relative path (core/Input.js)
 /** Who: a module folder name (dialogue), else the package-relative path (core/Events.js) */
 const who = r => { const s = sp(r); return s.startsWith('modules/') ? s.split('/')[1] : s; };
@@ -74,7 +74,7 @@ md.push('## Modules (installed with engine.use)', '',
   '| Module (engine.xxx) | File | Requires | Optional | Stage | Within stage |', '|---|---|---|---|---|---|');
 for (const m of modRows) md.push(`| ${m.alias ? `${m.name} (${m.alias}())` : m.name} | ${sp(m.file)} | ${join_(m.requires)} | ${join_(m.optional)} | ${m.stage} | ${[m.before.length ? 'before ' + m.before.join(', ') : '', m.after.length ? 'after ' + m.after.join(', ') : ''].filter(Boolean).join('; ') || '—'} |`);
 
-// Files: one row per file for index.js, core/, render/, ui/ (opened by name); one row per folder for modules/* and styles/* (summary from its index.js)
+// Files: one row per file for index.js, core/, render/, ui/ (opened by name); one row per folder for modules/* (summary from its index.js)
 md.push('', '## Files', '');
 const groups = new Map();
 for (const f of fileRows) {

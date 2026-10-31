@@ -42,7 +42,7 @@ const STRINGS = {
 export class Triggers {
   constructor(engine, { debug = false, action = 'triggersDebug', keys = DEV ? ['F4'] : [] } = {}) {
     this.engine = engine;
-    this.list = [];
+    this._list = [];
     this.debug = false;
     this.action = action;
     this._one = [null];           // by default "who" is a single position: reuse this array to avoid per-frame allocation
@@ -69,20 +69,22 @@ export class Triggers {
       remove: () => this._remove(t),
       contains: p => this._contains(t, p),
     };
-    this.list.push(t);
+    this._list.push(t);
     if (this.debug) this._addDebugMesh(t);
     return t;
   }
 
   _remove(t) {   // remove only through the handle t.remove(); zones still occupied send exit first (so music areas and content onExit can clean up)
-    const i = this.list.indexOf(t); if (i < 0) return;
+    const i = this._list.indexOf(t); if (i < 0) return;
     if (t.inside) this._exit(t, null);
-    this.list.splice(i, 1);
+    this._list.splice(i, 1);
     t._gone = true;
     if (t._mesh) { t._mesh.parent?.remove(t._mesh); t._mesh.geometry.dispose(); t._mesh = null; }
   }
-  clear() { for (const t of [...this.list]) this._remove(t); }
-  byTag(tag) { return this.list.filter(t => t.tag === tag); }
+  /** All trigger zones (a new array) */
+  list() { return [...this._list]; }
+  clear() { for (const t of [...this._list]) this._remove(t); }
+  byTag(tag) { return this._list.filter(t => t.tag === tag); }
 
   /**
    * Create trigger zones from level markers: each trigger_xxx becomes a zone with tag xxx.
@@ -130,12 +132,12 @@ export class Triggers {
     return this._one;
   }
 
-  /** Fixed step: enter / stay / exit for every zone */
+  /** @internal Fixed step: enter / stay / exit for every zone */
   update(dt) {
     const e = this.engine;
-    if (!this.list.length) return;
+    if (!this._list.length) return;
     const def = this._defaultWho(), list = this._scan;
-    list.length = 0; list.push(...this.list);   // a callback removing an earlier zone must not make a later one run twice
+    list.length = 0; list.push(...this._list);   // a callback removing an earlier zone must not make a later one run twice
     for (let i = list.length - 1; i >= 0; i--) {
       const t = list[i];
       if (t._gone) continue;
@@ -157,7 +159,7 @@ export class Triggers {
   }
   /** @internal session:end: occupied zones exit, cooldowns clear, once zones are armed again (recipes/14-custom-module.md "Per-playthrough state") */
   _reset() {
-    for (const t of [...this.list]) { if (t.inside) this._exit(t, null); t._cool = 0; t.used = false; }
+    for (const t of [...this._list]) { if (t.inside) this._exit(t, null); t._cool = 0; t.used = false; }
   }
   _exit(t, who) {
     t.inside = false; t._cool = t.cooldown;
@@ -173,9 +175,9 @@ export class Triggers {
       const st = this.engine.style.triggers || {};
       this._mat ??= new THREE.LineBasicMaterial({ color: st.debugColor ?? 0x9a9a9a, transparent: true, opacity: st.debugOpacity ?? 0.8, depthTest: false });
       this.engine.add(this._debugGroup);
-      for (const t of this.list) if (!t._mesh) this._addDebugMesh(t);
+      for (const t of this._list) if (!t._mesh) this._addDebugMesh(t);
     } else if (this._debugGroup) {
-      for (const t of this.list) if (t._mesh) { t._mesh.geometry.dispose(); t._mesh = null; }
+      for (const t of this._list) if (t._mesh) { t._mesh.geometry.dispose(); t._mesh = null; }
       this._debugGroup.clear(); this.engine.detach(this._debugGroup);   // keep group and material for the next enable
     }
   }
@@ -200,14 +202,16 @@ export function triggers(opts = {}) {
     install(e) {
       checkOptions('triggers()', opts, ['debug', 'action', 'keys']);
       tr = new Triggers(e, opts);
+      // audio rule condition { zone: 'cave' | ['cave', 'mine'] }: some trigger zone with that tag is occupied
+      e.audio.condition('zone', v => [].concat(v).some(tag => tr.byTag(tag).some(t => t.inside)));
       e.events.on('session:end', () => tr._reset());
       return tr;
     },
     fixed(dt) { tr.update(dt); },
     frame(dt, e) { if (tr._keyed && e.input.pressed(tr.action)) tr.setDebug(!tr.debug); },
     describe(e, ctx) {
-      for (const t of tr.list) if (t.enabled && !t.used) ctx.near(t, { name: t.tag || t.shape, kind: 'trigger', inside: t.inside });
-      return { inside: tr.list.filter(t => t.inside).map(t => t.tag || t.shape), used: tr.list.filter(t => t.used).map(t => t.tag || t.shape) };
+      for (const t of tr._list) if (t.enabled && !t.used) ctx.near(t, { name: t.tag || t.shape, kind: 'trigger', inside: t.inside });
+      return { inside: tr._list.filter(t => t.inside).map(t => t.tag || t.shape), used: tr._list.filter(t => t.used).map(t => t.tag || t.shape) };
     },
   };
 }

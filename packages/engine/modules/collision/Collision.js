@@ -14,7 +14,7 @@ export class Collision {
   /**
    * maxClimb: max walkable slope (height diff / horizontal distance; default slopeRatio derived from engine.movement.maxSlope); canopyHeight: a camera above this height is not blocked by trees
    * cameraPad: camera margin from obstacles; cameraMin: closest camera distance; walkableWaterMargin: how far above the water surface counts as walkable
-   * cameraOcclusion: what camera occlusion tests: 'colliders' circles and boxes (default) | 'meshes' meshes registered as camera blockers (level buildings, col_ meshes, via engine.raycaster) | 'both'
+   * cameraOcclusion: what camera occlusion tests: 'colliders' circles and boxes (default) | 'meshes' meshes registered as camera blockers (level buildings, col_ meshes, via engine.rays) | 'both'
    */
   constructor(engine, { maxClimb = engine.movement.slopeRatio, canopyHeight = 5, cameraPad = 0.5, cameraMin = 1.5, walkableWaterMargin = 0.2, cameraOcclusion = 'colliders' } = {}) {
     this.engine = engine;
@@ -57,7 +57,7 @@ export class Collision {
     for (const it of this._grid.query(x, z, range)) { if (it._b) fn('b', it); else fn('c', it.x, it.z, it.r); }
   }
 
-  /** Push a character of radius `radius` out of obstacles; edits pos.x / pos.z directly. Returns whether a collision happened */
+  /** @internal Push a character of radius `radius` out of obstacles; edits pos.x / pos.z directly. Returns whether a collision happened */
   resolve(pos, radius = this.engine.movement.radius) {
     let hit = false;
     for (let iter = 0; iter < 2; iter++) {
@@ -102,7 +102,7 @@ export class Collision {
     return blocked;
   }
 
-  /** Camera occlusion: if the line from the character's head to the camera passes through a trunk or house, pull the camera closer. Returns the max allowed distance */
+  /** @internal Camera occlusion: if the line from the character's head to the camera passes through a trunk or house, pull the camera closer. Returns the max allowed distance */
   cameraDistance(from, to, want, pad = this.cameraPad) {
     const mode = this.cameraOcclusion;
     let best = want;

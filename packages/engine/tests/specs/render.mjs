@@ -1,5 +1,5 @@
-// 渲染审查（docs/plans/review/rendering.md）修过的问题的守卫：后期尺寸、深度读取顺序、补丁跟着 clone 走、真编译 GLSL、多引擎不串、UI CSS 顺序等。
-// 页面用 perf 的 city / world 模式；测试里临时改的东西在同一个 ev 里还原。
+// Rendering guards: post-processing size, depth read order, patches follow clone, GLSL really compiles, engines do not share state, UI CSS order.
+// Pages use the perf city / world modes; anything a test changes is restored inside the same ev.
 
 export const specs = [
   {
@@ -182,7 +182,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         const { THREE, createEngine, makeMaterial, lowpoly } = threedogTest, out = {};
-        out.neutral = { tone: engine.renderer.toneMapping === THREE.NeutralToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
+        out.neutral = { tone: engine.renderer.toneMapping === THREE.NoToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
         const warn = console.warn; let w = ''; console.warn = m => { w += m; };
         const second = createEngine({ canvas: document.createElement('canvas'), style: { ...lowpoly, materials: { default: { type: 'phong' } } }, headless: true, ui: { loading: false }, saveKey: 'render-test-2' });
         const t1 = engine.elapsed, t2 = second.elapsed;
@@ -196,7 +196,7 @@ export const specs = [
         out.afterDispose = makeMaterial('anything').type;
         return out;
       });
-      check('引擎兜底：中性色调映射、曝光 1、没有云影', r.neutral.tone && r.neutral.exposure === 1 && r.neutral.cloudShadow === 0, JSON.stringify(r.neutral));
+      check('引擎兜底：不做色调映射、曝光 1、没有云影', r.neutral.tone && r.neutral.exposure === 1 && r.neutral.cloudShadow === 0, JSON.stringify(r.neutral));
       check('第二个引擎不让第一个的 elapsed 变快，uTime 跟 elapsed 一致，两套 uniforms', r.time.first === 0.5 && r.time.second === 0 && r.time.uTime && r.time.separate, JSON.stringify(r.time));
       check('makeMaterial 不传引擎：用第一个引擎的风格包并提示传引擎', r.styleDefault === 'MeshLambertMaterial' && r.warned, JSON.stringify(r));
       check('makeMaterial(role, params, engine) 用那个引擎的风格包', r.styleSecond === 'MeshPhongMaterial');

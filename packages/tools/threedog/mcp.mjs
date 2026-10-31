@@ -1,6 +1,6 @@
 // threedog mcp: an MCP (Model Context Protocol) server over stdio that wraps the dev bridge, so MCP clients (Claude Code, Cursor...) drive the running game natively.
 //   claude mcp add threedog -- npx threedog mcp          (see recipes/16-dev-bridge.md section 10)
-//   threedog mcp [-w game] [--page /city.html] [--allow-js]
+//   threedog mcp [-w game] [--page /tests/city/index.html] [--allow-js]
 // One tool per bridge command; each runs the same commands.mjs code as the command line, so output and errors are identical.
 // Transport: newline-delimited JSON-RPC 2.0 on stdin / stdout (the small subset MCP needs: initialize, ping, tools/list, tools/call).
 //   Hand-written instead of @modelcontextprotocol/sdk, which pulls in express, hono, ajv, zod and more (several MB) for what is ~100 lines here.
@@ -40,7 +40,7 @@ const TOOLS = {
     args: a => [...(a.full ? ['--full'] : []), ...(a.all ? ['--all'] : []), ...(a.path ? [a.path] : []), ...opt('--max', a.max)],
   },
   step: {
-    description: 'Advance game time by N seconds, deterministically (a real browser page is paused first; call resume afterwards). Returns the new summary.',
+    description: 'Advance game time by N seconds, deterministically (a real browser page is paused first; call resume afterwards). Returns the new summary. Changes only this session (and its saves), never the level: to change the level, edit content/*.js and reload.',
     schema: obj({ seconds: num('Game seconds to advance (default 1)') }),
     args: a => [String(a.seconds ?? 1)],
   },
@@ -67,7 +67,7 @@ const TOOLS = {
     args: () => [],
   },
   op: {
-    description: 'Run a game op (a gameplay action such as shop.buy) as source "bridge", without advancing time. This is the right way to change game state; values are converted by the op\'s args shape. Returns ✓ with the value and bag, or ✗ with the reason. ops lists what exists.',
+    description: 'Run a game op (a gameplay action such as shop.buy) as source "bridge", without advancing time. This is the right way to change game state; values are converted by the op\'s args shape. Returns ✓ with the value and bag, or ✗ with the reason. ops lists what exists. Runtime ops change only the current session and its saves; to change the level itself, edit the content files (content/*.js, content/templates.js) or the level model, then reload.',
     schema: obj({ name: str('Op name, e.g. "shop.buy"'), args: { type: 'object', description: 'Op arguments, e.g. { "shop": "bakery", "item": "bread", "n": 2 }; positions as [x, y, z]', additionalProperties: true } }, ['name']),
     args: a => [a.name, ...pairs(a.args)],
   },
@@ -75,6 +75,11 @@ const TOOLS = {
     description: 'What is around the player (or around an actor id / a spot) and which ops can run there now, with reasons why not.',
     schema: obj({ target: str('Optional: an actor id such as "npc_3", or a spot "x,z" such as "10,-4"') }),
     args: a => a.target ? [String(a.target)] : [],
+  },
+  pick: {
+    description: 'What is at a screen point: the world record under pixel (x, y) from the canvas top-left, with its id, kind, template, where it is defined (content file:line) and its fields. Use it to find which content entry to edit for something you see.',
+    schema: obj({ x: num('Pixels from the left edge of the game canvas'), y: num('Pixels from the top edge of the game canvas') }, ['x', 'y']),
+    args: a => [`${a.x},${a.y}`],
   },
   explain: {
     description: 'Explain why: about "op" says whether an op can run now and its last attempts; about "quest" (or another key a module explains) says where it is stuck.',

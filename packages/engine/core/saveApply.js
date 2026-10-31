@@ -39,10 +39,10 @@ export function applySave(s, data, slot) {
     const back = readSave(before, s.providers, '(rollback)');
     // every part reloads its pre-load state; a part that throws again is reported (once) and the rest still roll back
     const onPart = er => reportError(e, er, fmt(DEV_STRINGS.rollback, { k: er.part }), { soft: true });
-    return Promise.resolve('list' in back ? e.ops._allowing(() => runParts(back.list, '(rollback)', onPart)) : null).then(() => false);
+    return Promise.resolve('list' in back ? e.ops.allow(() => runParts(back.list, '(rollback)', onPart)) : null).then(() => false);
   };
   let out;
-  try { out = e.ops._allowing(() => runParts(r.list, slot)); } catch (err) { return fail(err); }   // loading writes state outside ops on purpose (guard allows it)
+  try { out = e.ops.allow(() => runParts(r.list, slot)); } catch (err) { return fail(err); }   // loading writes state outside ops on purpose (guard allows it)
   return Promise.resolve(out).then(() => true, fail);
 }
 
@@ -76,7 +76,7 @@ export function adoptPart(s, key) {
   const where = fmt(DEV_STRINGS.adoptAt, { k: key });
   try {
     if (v > p.version) throw codedError('save-refused', `save part '${key}' is version ${v}, this build reads up to ${p.version}`);
-    const r = s.engine.ops._allowing(() => p.load(upgradePart(key, p, d, v)));
+    const r = s.engine.ops.allow(() => p.load(upgradePart(key, p, d, v)));
     if (r && typeof r.then === 'function') r.catch(err => reportError(s.engine, err, where));
   } catch (err) { reportError(s.engine, err, where); }
 }
@@ -101,5 +101,18 @@ export function loadSlot(s, slot, base) {
       }
     } catch { /* unreadable: apply refuses the text itself with the reason */ }
   }
-  return s.apply(data, slot).then(ok => { if (ok) s.engine.events.emit('load', slot); return ok; });
+  return s.apply(data, slot).then(async ok => {
+    if (ok) await afterLoad(s.engine);
+    if (ok) s.engine.events.emit('save:loaded', slot);
+    return ok;
+  });
+}
+
+/** Modules with an afterLoad hook rebuild what the loaded state needs nearby (models and the colliders their build adds); gameplay waits frozen
+ *  until every one resolves, so the first step after `await saves.load()` never runs on missing ground or walls */
+async function afterLoad(e) {
+  const hooks = [...e.modules.values()].filter(m => m.afterLoad);
+  if (!hooks.length) return;
+  e.freeze('load');
+  try { await Promise.all(hooks.map(m => m.afterLoad(e))); } finally { e.unfreeze('load'); }
 }

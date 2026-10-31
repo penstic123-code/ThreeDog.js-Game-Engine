@@ -1,0 +1,117 @@
+// Lowpoly terrain preset: noise hills (or island / canyon / gentle plain), rivers, and a biome rule table (beach, snow, rock, riverbank,
+// wetland, savanna, forest, highland, meadow). The engine has no built-in generator: terrain() alone is flat ground; a game passes this
+// preset (or its own height / groundType functions) explicitly:
+//   import { terrainPreset } from '@threedog/style-lowpoly';
+//   engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset({ shape: 'island' }) }));
+// height and groundType run in terrain workers, so they are pure: they read only their parameters (n.params is the options below) and Math.
+// The biome colors are the style pack's (style.terrain.biomeColors); the ground type names are plain strings that vegetation rules and a
+// game's footstep map match by name.
+
+// Biome rules: checked top to bottom, the first match is the biome there (the last has no condition and is the default).
+// Conditions (all optional): minHeight/maxHeight altitude, maxAboveWater height above water, minSlope slope, minTemp/maxTemp temperature 0-1,
+// minMoist/maxMoist moisture 0-1, minRiver closeness to a river (0-1); any: [cond, cond] matches if either holds.
+export const BIOMES = [
+  { name: 'beach', maxAboveWater: 1.3 },
+  { name: 'snow', any: [{ minHeight: 46 }, { maxTemp: 0.2 }] },
+  { name: 'rock', any: [{ minSlope: 0.8 }, { minHeight: 34 }] },
+  { name: 'riverbank', minRiver: 0.05 },
+  { name: 'wetland', minMoist: 0.62, maxHeight: 6 },
+  { name: 'savanna', maxMoist: 0.4, minTemp: 0.5 },
+  { name: 'forest', minMoist: 0.5 },
+  { name: 'highland', minHeight: 16 },
+  { name: 'meadow' },
+];
+
+/** Display names of the preset's ground types (describe() groundName): createEngine({ strings: terrainStrings }) or engine.i18n.add(terrainStrings) */
+export const terrainStrings = {
+  'zh-CN': { 'ground.meadow': '草地', 'ground.forest': '森林', 'ground.beach': '沙滩', 'ground.rock': '岩石', 'ground.snow': '雪地',
+    'ground.wetland': '湿地', 'ground.riverbank': '河岸', 'ground.savanna': '草原', 'ground.highland': '高地', 'ground.tilled': '耕地', 'ground.wet': '湿土' },
+  en: { 'ground.meadow': 'meadow', 'ground.forest': 'forest', 'ground.beach': 'beach', 'ground.rock': 'rock', 'ground.snow': 'snow',
+    'ground.wetland': 'wetland', 'ground.riverbank': 'riverbank', 'ground.savanna': 'savanna', 'ground.highland': 'highland' },
+};
+
+const DEFAULTS = {
+  shape: 'hills',      // 'hills' | 'island' | 'canyon' (mesas) | 'flat' (gentle plain)
+  heightScale: 1,      // overall relief multiplier
+  mountains: 1,        // mountain strength
+  rivers: true,        // carve rivers
+  riverWidth: 0.03,    // river width (noise threshold, 0.02 narrow, 0.05 wide)
+  biomes: BIOMES,
+  tempScale: 0.0011, moistScale: 0.0014, tempLapse: 0.006,   // temperature / moisture noise scale; temperature drop per meter of altitude
+  noise: { baseScale: 0.0035, baseAmp: 46, hillScale: 0.016, hillAmp: 10, mountainScale: 0.0018, mountainAmp: 900, mountainThreshold: 0.52, seaBias: 0.42 },
+  island: { center: [0, 0], radius: 700, falloff: 350, depth: 30 },
+  canyon: { scale: 0.004, depth: 40, plateau: 14 },
+};
+
+/** Height in meters (pure: runs in workers) */
+function height(x, z, n) {
+  const P = n.params, N = P.noise, fbm = n.fbm, smooth = t => t * t * (3 - 2 * t);
+  const hills = () => {
+    const base = fbm(x * N.baseScale, z * N.baseScale, 4);
+    const hl = fbm(x * N.hillScale + 71, z * N.hillScale - 33, 3);
+    const m = Math.max(0, fbm(x * N.mountainScale + 500, z * N.mountainScale + 200, 4) - N.mountainThreshold);
+    return ((base - N.seaBias) * N.baseAmp + (hl - 0.5) * N.hillAmp) * P.heightScale + m * m * N.mountainAmp * P.mountains;
+  };
+  let h;
+  if (P.shape === 'flat') h = (fbm(x * 0.01, z * 0.01, 2) - 0.5) * 2 * P.heightScale + 4;
+  else if (P.shape === 'island') {
+    const I = P.island, d = Math.hypot(x - I.center[0], z - I.center[1]), t = Math.min(1, Math.max(0, (d - I.radius) / I.falloff));
+    h = hills() * (1 - t) + 6 * (1 - t) - I.depth * smooth(t);
+  } else if (P.shape === 'canyon') {
+    const C = P.canyon, r = Math.abs(fbm(x * C.scale + 13, z * C.scale - 7, 4) - 0.5) * 2;
+    const terrace = Math.floor(fbm(x * 0.01, z * 0.01, 2) * 4) / 4;
+    h = C.plateau + terrace * 8 - C.depth * Math.pow(1 - Math.min(1, r * 3), 2);
+  } else h = hills();
+  // rivers: thin bands where noise is near 0.5 are dug below the water surface
+  if (P.rivers) {
+    const r = Math.abs(fbm(x * 0.0022 + 40, z * 0.0022 - 70, 3) - 0.5), w = P.riverWidth, bank = w * 2.2;
+    if (r < bank) h = h + (n.waterLevel - 1.6 - h) * Math.min(1, smooth(1 - r / bank) * (r < w ? 1 : 0.85) * 1.25);
+  }
+  return h;
+}
+
+/** Ground type from the biome rule table (pure: runs in workers) */
+function groundType(x, z, h, sl, n) {
+  const P = n.params, fbm = n.fbm, W = n.waterLevel;
+  let tp, ms, rv;   // computed on demand; skipped if no rule uses them
+  const temp = () => tp ??= fbm(x * P.tempScale + 300, z * P.tempScale - 90, 3) - h * P.tempLapse;
+  const moist = () => ms ??= fbm(x * P.moistScale - 200, z * P.moistScale + 100, 3);
+  const river = () => rv ??= (() => {
+    if (!P.rivers) return 0;
+    const r = Math.abs(fbm(x * 0.0022 + 40, z * 0.0022 - 70, 3) - 0.5), w = P.riverWidth, bank = w * 2.2, t = 1 - r / bank;
+    return r >= bank ? 0 : t * t * (3 - 2 * t) * (r < w ? 1 : 0.85);
+  })();
+  const test = c => c.any ? c.any.some(test) : !((c.minHeight != null && h < c.minHeight) || (c.maxHeight != null && h > c.maxHeight) ||
+    (c.maxAboveWater != null && h >= W + c.maxAboveWater) || (c.minSlope != null && sl < c.minSlope) ||
+    (c.minTemp != null && temp() < c.minTemp) || (c.maxTemp != null && temp() > c.maxTemp) ||
+    (c.minMoist != null && moist() < c.minMoist) || (c.maxMoist != null && moist() > c.maxMoist) ||
+    (c.minRiver != null && river() < c.minRiver));
+  for (const rule of P.biomes) if (test(rule)) return rule.name;
+  return P.biomes[P.biomes.length - 1].name;
+}
+
+/**
+ * Closeness to a river at (x, z): 0 away from rivers, up to 1 in the middle of one. Pure; pass the noise helpers of a terrain built with
+ * the preset, e.g. riverAt(x, z, createTerrain({ seed, ...terrainPreset() }).noise), to pick a dry spot before the engine starts.
+ * @param {number} x
+ * @param {number} z
+ * @param {{ fbm: (x: number, z: number, octaves?: number) => number, params: any }} n
+ */
+export function riverAt(x, z, n) {
+  const P = n.params;
+  if (!P?.rivers) return 0;
+  const r = Math.abs(n.fbm(x * 0.0022 + 40, z * 0.0022 - 70, 3) - 0.5), w = P.riverWidth, bank = w * 2.2, t = 1 - r / bank;
+  return r >= bank ? 0 : t * t * (3 - 2 * t) * (r < w ? 1 : 0.85);
+}
+
+/**
+ * Lowpoly terrain preset: spread it into terrain() (or openWorld({ terrain })). Options override the defaults above; noise, island and
+ * canyon merge field by field.
+ * @example engine.use(terrain({ seed: 7, ...terrainPreset({ shape: 'island', rivers: false }) }))
+ * @param {Partial<typeof DEFAULTS>} [opts]
+ */
+export function terrainPreset(opts = {}) {
+  const params = { ...DEFAULTS, ...opts };
+  for (const k of ['noise', 'island', 'canyon']) params[k] = { ...DEFAULTS[k], ...(opts[k] || {}) };
+  return { height, groundType, params };
+}

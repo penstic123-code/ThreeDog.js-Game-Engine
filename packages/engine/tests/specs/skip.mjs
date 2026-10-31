@@ -61,7 +61,7 @@ export const specs = [
         const startSeason = sky.season;
         const hs = [sky.daily(d => log.push('d' + d)), sky.at('12:00', d => log.push('n' + d)),
           sky.onSeason('summer', () => log.push('summer')), sky.onSeason('autumn', () => log.push('autumn')),
-          engine.events.on('day:new', d => log.push('new' + d)), engine.events.on('time:skip', e => log.push('skip' + Math.round(e.seconds)))];
+          engine.events.on('day:start', d => log.push('new' + d)), engine.events.on('time:skip', e => log.push('skip' + Math.round(e.seconds)))];
         engine.skip({ seconds: 8 * sky.dayLength });
         hs.forEach(h => h.remove());
         const bad = engine.ops.run('time.skip', { seconds: 0 });
@@ -72,7 +72,7 @@ export const specs = [
       const days = [8, 9, 10, 11, 12, 13, 14, 15];
       const want = days.flatMap(d => [`new${d}`, ...(d === 8 ? ['summer'] : d === 15 ? ['autumn'] : []), `d${d}`, `n${d}`]).concat(`skip${8 * r.dayLength}`);
       check('8 days from day 7 23:00: day 15, 23:00, autumn', r.startSeason === 'spring' && r.day === 15 && r.clock === '23:00' && r.season === 'autumn', JSON.stringify(r));
-      check('day:new, onSeason, daily and at fire once per crossing in time order', r.log.join(',') === want.join(','), `got  ${r.log.join(',')}\nwant ${want.join(',')}`);
+      check('day:start, onSeason, daily and at fire once per crossing in time order', r.log.join(',') === want.join(','), `got  ${r.log.join(',')}\nwant ${want.join(',')}`);
       check('time.skip op refuses seconds <= 0; skip({}) throws with the fix', r.bad.ok === false && r.bad.reason === 'notForward' && /to: "06:00"/.test(r.threw), JSON.stringify(r.bad) + ' ' + r.threw);
     },
   },
@@ -95,7 +95,7 @@ export const specs = [
         return { ...out, done: s.done, moved: Math.hypot(p.x - s.p0.x, p.z - s.p0.z), dt: engine.clock.now - s.t0, saved: engine.saves.list().some(x => x.slot === 'sk-auto') };
       });
       await page.keyboard.up('KeyW');
-      const after = await ev(() => ({ locked: !engine.input.enabled, frozen: engine.frozen }));
+      const after = await ev(() => { engine.step(0.02, { render: false }); return ({ locked: !engine.input.enabled, frozen: engine.frozen }); });   // input context changes apply at the next step boundary
       check('during the fade: input locked, gameplay frozen, W gives no axis', mid.locked && mid.frozen && mid.axis === 0, JSON.stringify(mid));
       check('holding W through the skip does not move the player; skip advanced 60 game seconds', mid.done && mid.moved < 0.01 && Math.abs(mid.dt - 60) < 0.01, JSON.stringify(mid));
       check('after the skip input and gameplay resume; save option wrote the slot', !after.locked && !after.frozen && mid.saved, JSON.stringify({ after, saved: mid.saved }));

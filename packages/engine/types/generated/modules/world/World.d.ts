@@ -24,7 +24,7 @@ export class World {
     buildPerFrame: number;
     set anchor(a: any);
     /**
-     * Gameplay simulation center (near / far is measured from it): null (default) = where engine.actor is (engine.actorPosition(): the player, or engine.focus when there is no player). The built-in load source engine.load.player follows the player too (models and colliders around it); the camera source engine.load.camera adds models only.
+     * Gameplay simulation center (near / far is measured from it): null (default) = where engine.actor is (engine.actorPosition(): the player, or engine.focus when there is no player). The built-in stream source engine.stream.player follows the player too (models and colliders around it); the camera source engine.stream.camera adds models only.
      * For another center (a strategy game's base) set a Vector3 / object / { x, z } / [x, y, z]; set null to restore. Read once at the start of each fixed step
      * @example engine.world.anchor = baseObject
      * @type {any}
@@ -51,6 +51,31 @@ export class World {
         initial?: boolean;
         save?: boolean;
     }): WorldRecord | null;
+    /**
+     * Where a record comes from (filled in dev and test builds; null in release): { definedAt: 'content/props.js:14' } for a content entry,
+     * { level, node } for a level-model node, { template } when it is a template instance, { spawned: { op, tick } } for a record created during play.
+     * engine.inspect(id) and engine.pick(...).thing show it, so you know which file to edit to change the level for good.
+     * @example engine.world.origin('chest-home')   // { definedAt: 'content/props.js:14', template: 'chest' }
+     * @param {string} id
+     * @returns {{ definedAt?: string, level?: string, node?: string, template?: string, spawned?: { op: string | null, tick: number } } | null}
+     */
+    origin(id: string): {
+        definedAt?: string;
+        level?: string;
+        node?: string;
+        template?: string;
+        spawned?: {
+            op: string | null;
+            tick: number;
+        };
+    } | null;
+    /**
+     * The id of the record whose model contains obj (obj itself or one of its parents is a built model), else null. A ray hit on a model names its record this way.
+     * @example const h = engine.pick(0, 0); const id = h && engine.world.idOf(h.object);
+     * @param {any} obj  a THREE.Object3D (a mesh of the model is fine)
+     * @returns {string | null}
+     */
+    idOf(obj: any): string | null;
     /**
      * Get a record by id (undefined if missing, like a Map)
      * @param {string} id
@@ -105,7 +130,7 @@ export class World {
      */
     forEachNear(center: any, radius: number, fn: (rec: WorldRecord, d2: number) => void): void;
     /**
-     * Register how a kind of thing looks: models are built automatically within radius meters of any full-detail load source (engine.load: player, camera focus, teleport destination) and torn down when far from all of them (radius × 1.25); tearing down never touches the record. Callbacks:
+     * Register how a kind of thing looks: models are built automatically within radius meters of any full-detail stream source (engine.stream: player, camera focus, teleport destination) and torn down when far from all of them (radius × 1.25); tearing down never touches the record. Callbacks:
      *   build(rec) → three.js object (may be async). world adds it to the scene and places it at rec.position; if it throws / fails / returns a non-object: reported once, does not block ready, retried when you leave and come back.
      *   update(rec, obj, dt): called every frame for records that have a model (change the look from the data, e.g. an opened chest swaps texture).
      *   dispose(rec, obj): called on teardown (record first, model second); if omitted, engine.remove(obj).
@@ -133,12 +158,12 @@ export class World {
      * @returns {any}
      */
     view(id: string): any;
-    /** All models that should exist near the load sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to wait yourself, await world.whenReady @type {boolean} */
+    /** All models that should exist near the stream sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to wait yourself, await world.whenReady @type {boolean} */
     get ready(): boolean;
     /** Promise that resolves when ready becomes true @type {Promise<void>} */
     get whenReady(): Promise<void>;
     /**
-     * Build / tear down models for the load sources right now (normally automatic every frame, with a per-frame limit). Use it right after add when you need the model: sync builds are available via view(id) after the call, for async ones also await world.whenReady
+     * Build / tear down models for the stream sources right now (normally automatic every frame, with a per-frame limit). Use it right after add when you need the model: sync builds are available via view(id) after the call, for async ones also await world.whenReady
      * @example engine.world.add({ id: 'gate', kind: 'gate', position: p }); engine.world.refresh(); engine.world.view('gate')
      * @returns {void}
      */
@@ -150,7 +175,7 @@ export class World {
      * With only far (crops), near also advances via far; with only near, far records are not simulated and owed time is not made up.
      * Both dt are accumulated fixed-step seconds (not multiplied by clock.timeScale). For things measured in game clock (grows over days) store engine.clock.now and compare.
      * radius defaults to the present radius ('view' widened by 1.25), or world.radius without present; may also be a function.
-     * worker: true runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must then be self-contained:
+     * worker: true (experimental) runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must then be self-contained:
      * it is recompiled from source and sees only (rec, dt) and globals like Math; an outside variable throws naming it (threads on or off alike).
      * @example engine.world.simulate('zombie', { near: (rec, dt) => chase(rec, dt), far: (rec, dt) => wander(rec, dt), farEvery: 2 })
      * @example engine.world.simulate('crop', { far: (rec, dt) => { rec.growth = Math.min(1, rec.growth + dt / 600); }, worker: true })

@@ -1,4 +1,4 @@
-// Guards for the engine core review fixes (docs/plans/review/core.md and the save-format freeze): each test builds fresh headless engines on the
+// Guards for the engine core: saves and the save format, session, threads, core guards. Each test builds fresh headless engines on the
 // threads test page, so no game content gets in the way. Same format as specs.mjs. Run: npm test -- "Core review"
 
 const PAGE = '/tests/threads/';
@@ -89,7 +89,7 @@ export const specs = [
         let part = 'new';
         E.saves.register('crP', { save: () => ({ v: part }), load: d => { part = d.v; } });
         await E.start();
-        const S = E.saves; let saved = 0; E.events.on('save', () => saved++);
+        const S = E.saves; let saved = 0; E.events.on('save:written', () => saved++);
         const atTitle = E.session.playing;
         const h = S.autosave(0.01);   // 0.6 fixed seconds of play
         E.step(2); await S.flush();
@@ -175,17 +175,18 @@ export const specs = [
         await new Promise(res => setTimeout(res, 0));
         out.lateInit = inited;
         const THREE = E.THREE, g = new THREE.Group();
+        g.userData.animations = [new THREE.AnimationClip('idle', 1, [])];   // a model with a clip (one without clips gets no per-frame hook)
         E.add(g);
         const f0 = E.counts().frame;
         E.assets.animate(g, {});
         const f1 = E.counts().frame;
         E.remove(g);
         out.animator = { f0, f1, f2: E.counts().frame };
-        E.load.readyCheck('cr-never', s => s.name !== 'teleport');
-        const tp = E.load.teleport([30, 0, 30], { timeout: 0.5 }).then(() => 'moved', e => ({ code: e.code, names: /cr-never/.test(e.message) }));
+        E.stream.readyCheck('cr-never', s => s.name !== 'teleport');
+        const tp = E.stream.teleport([30, 0, 30], { timeout: 0.5 }).then(() => 'moved', e => ({ code: e.code, names: /cr-never/.test(e.message) }));
         for (let i = 0; i < 20; i++) E.step(0.1);
         out.teleport = await tp;
-        const src = E.load.source([0, 0, 0]), gone = src.whenReady.then(() => 'ready', e => e.code); src.remove();
+        const src = E.stream.source([0, 0, 0]), gone = src.whenReady.then(() => 'ready', e => e.code); src.remove();
         out.removed = await gone;
         E.input._keyDown('PadRT', 'pad'); E.input._padOn = true; E.input.poll(1 / 60);
         out.padHeld = E.input.keys.has('PadRT');
@@ -206,7 +207,7 @@ export const specs = [
       check('one name as a model and a texture throws asset-name-clash', r.clash === 'asset-name-clash', JSON.stringify(r));
       check('a module installed after start() has its init run', r.lateInit === 1, JSON.stringify(r));
       check('engine.remove of an animated model stops its animator (counts().frame back)', r.animator.f1 === r.animator.f0 + 1 && r.animator.f2 === r.animator.f0, JSON.stringify(r.animator));
-      check('teleport timeout rejects with load-timeout naming the waiting loader; a removed source rejects whenReady', r.teleport?.code === 'load-timeout' && r.teleport.names && r.removed === 'load-removed', JSON.stringify(r));
+      check('teleport timeout rejects with stream-timeout naming the waiting loader; a removed source rejects whenReady', r.teleport?.code === 'stream-timeout' && r.teleport.names && r.removed === 'stream-removed', JSON.stringify(r));
       check('a gamepad that disconnects releases its buttons', r.padHeld === false, JSON.stringify(r));
       check('a clock timer error goes through the error tiers with a code, fix and docs', r.error?.code === 'clock-interval' && r.error.fix && r.error.docs > 0 && /clock timer/.test(r.error.where), JSON.stringify(r.error));
       check('describeText: a summary within 30 lines ending with how to expand; path and full modes', r.text.lines <= 30 && /^More:/.test(r.text.last) && /^time: /.test(r.text.path) && !r.text.full, JSON.stringify(r.text));
@@ -226,7 +227,7 @@ export const specs = [
         E.quests.define('q', { title: 'Q', steps: [step('a', () => doneA), step('b'), step('c')] });
         await E.start();
         const W = E.world, quiet = console.warn; console.warn = () => {};
-        E.ops._allowing(() => {
+        E.ops.allow(() => {
           E.quests.start('q');
           W.simulate('crop', { far: (rec, dt) => { rec.g = (rec.g ?? 0) + dt; } });
           for (let i = 0; i < 30; i++) W.add({ id: 'prop' + i, kind: 'crprop', position: [i, 0, 0] });

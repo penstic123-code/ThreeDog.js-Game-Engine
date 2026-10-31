@@ -1,6 +1,8 @@
 # Using threedog.js (read this first)
 
-threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no React): **core** (every game needs it) -> **modules** (installed on demand with `engine.use`) -> **style pack** (all art). This file is the index for the AI that builds a game on the engine. Paths are relative to this `docs/` folder (in a game project: `node_modules/threedog/docs/`).
+threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no React): **core** (every game needs it) -> **modules** (installed on demand with `engine.use`) -> **style pack** (all art, an optional separate package; the engine ships none and draws gray placeholders without one). This file is the index for the AI that builds a game on the engine. Paths are relative to this `docs/` folder (in a game project: `node_modules/threedog/docs/`).
+
+**Before writing gameplay code**, look for the system in the entry table below: inventory, collision, characters, saves, interactions, quests, grids, templates and more already exist. Hand-write a system only when no row fits.
 
 ## What to read, in order (stop when you have enough)
 1. This file: find the task in the entry table below.
@@ -15,7 +17,7 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | To do | Use | Recipe |
 |---|---|---|
 | New game, project layout | `npm run new-game name`, `createEngine({ canvas, style })`, `engine.use(...)`, `engine.start()` | `recipes/01-new-game.md` |
-| Preset parts on / off | `openWorld({ sky: {...}, debug: false })` (each part takes `false` or its options) | `recipes/01-new-game.md` |
+| Preset parts on / off | `openWorld({ camera: 'follow', sky: {...}, debug: false })` (each part takes `false` or its options) | `recipes/01-new-game.md` |
 | Game content data | `engine.content.load(data, { places })`; own data kinds in `content/rules.js` | `recipes/20-content-actions-save.md` |
 | NPCs and what they do | content `npcs` (`behavior`: `schedule` / `wander`), `engine.npcs.behavior(name, { near, far })` | `recipes/02-npc.md` |
 | Dialogue | content `dialogues`, `engine.dialogue` | `recipes/02-npc.md` |
@@ -26,7 +28,7 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Story flags, counters | `engine.vars` (`setFlag / flag / bump / counter`, saved) | `recipes/20-content-actions-save.md` |
 | Player actions, UI buttons that change state | `engine.ops.define('noun.verb', { can, run })`, `engine.ops.run(name, args)` | `recipes/23-ops.md` |
 | Why can't / what can the player do here | `engine.explain(...)`, `engine.inspect(at?)`, scenario tests `tests/scenarios/*.json` | `recipes/23-ops.md` |
-| Interaction prompts (talk, pick up, open) | `engine.interactions` (`interactions({ pick: 'aim' })`) | `recipes/20-content-actions-save.md` |
+| Interaction prompts (talk, pick up, open) | `engine.interactions` (`interactions({ ...presets.interactions.nearest })` or `{ pick, keys }`; no default pick or key) | `recipes/20-content-actions-save.md` |
 | Trigger zones | content `triggers`, `engine.triggers` | `recipes/20-content-actions-save.md` |
 | Saves | `engine.saves.register(key, { save, load })`; `await` every `saves.*` call (Promise; show "saved" only on true); `saves.autosave(minutes)` runs only during play; save stable ids (quest step `id`, vehicle `{ id }`), never positions | `recipes/20-content-actions-save.md` |
 | New game / continue / back to title / retry | `await engine.session.newGame() / load(slot)`, `quit()`; listeners, timers, zones, markers made during play go through `session.track(h)`; opening cutscene on `session:start` | `recipes/07-flow-scenes-pause.md` |
@@ -34,27 +36,30 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Cutscenes, tweens | `engine.timeline` (`tween(obj, { 'position.y': 2 }, s)`; no other tween class) | `recipes/07-flow-scenes-pause.md` |
 | Time, timers, skipping time | `engine.clock` (game seconds, `after / every`), `await engine.skip({ to: '06:00' })` | `recipes/06-clock-events.md` |
 | Events | `engine.events.on / emit` (`noun:action`; a game declares its own in `GameEvents`) | `recipes/06-clock-events.md` |
-| Day, night, seasons, sky, weather | `engine.sky` (`at / between / daily / onSeason`, `isDay`, `daylight`), `engine.weather` | `recipes/08-weather-sky.md` |
-| Water, ambience | `engine.water`, `engine.ambience` | `recipes/08-weather-sky.md` |
-| Look, materials, post-processing | style pack (`engine.style`), `makeMaterial('role', {...})`, `applyEffects(...)`, `engine.post`, shared shader time / wind in `engine.uniforms` | `recipes/09-style-pack.md` |
-| Sound and music | `engine.audio`, `engine.music` (sounds come from the style pack) | `recipes/09-style-pack.md` |
+| Day, night, seasons, sky, weather | `engine.sky` (`at / between / daily / onSeason`, `isDay`, `daylight`; seasons off unless `sky({ seasons })`), `engine.weather` (`weather({ types })`, only `clear` without) | `recipes/08-weather-sky.md` |
+| Opt-in feel presets (weather tables, calendars, player movement / keys, interaction pick / key, camera) | `presets` (`presets.weather.temperate`, `presets.calendar.fourSeasons`, `presets.player.thirdPerson`, `presets.interactions.nearest`, `presets.camera.overShoulder`); never applied by the engine | `recipes/01-new-game.md` |
+| Water | `engine.water` | `recipes/08-weather-sky.md` |
+| Look, materials, post-processing | style pack (`createEngine({ style })`, e.g. `@threedog/style-lowpoly`; without one gray placeholders), `makeMaterial('role', {...})`, `applyEffects(...)`, `engine.post`, shared shader time / wind in `engine.uniforms` | `recipes/09-style-pack.md` |
+| Sound, buses, ambience rules, music, footsteps, ducking | `createEngine({ audio: { sounds, ambience, music, footsteps, levels } })` (the game's), `engine.audio.sfx(name, { at })`, `audio.duck({ music: 0.3 })`, `engine.ambience`, `engine.music` (`rules`, `intensity`) | `recipes/31-audio.md` |
 | Text and languages | `engine.t(key)`, `engine.i18n` | `recipes/26-ui-parts.md` |
 | Art assets, loading, what failed | `engine.assets.manifest({ models })`, `engine.loading`, `npx threedog loading` | `recipes/05-props-bake.md` |
 | A few props / many repeated objects, deleting objects | content `props` / `vegetation` (`engine.vegetation`), `engine.remove(obj)` | `recipes/05-props-bake.md` |
+| What is this thing, where is it defined (point -> id) | `engine.pick(x, y).thing` (`{ id, kind, template, definedAt, fields }`), `engine.world.origin(id)` / `idOf(obj)`, `npx threedog pick x,y`, MCP `pick` | `recipes/30-templates.md` §5 |
 | Reusable object definitions (prefabs) | content `templates` (model + collision + op + defaults); place with props `{ template, x, z }` or `engine.content.spawn(name, pos)` | `recipes/30-templates.md` |
 | Many copies of one static model | automatic: `engine.batching` (one InstancedMesh per cell); opt out `batch: false`, recolor one `engine.batching.tint(obj, color)` | `recipes/05-props-bake.md` §2b |
 | Far detail (HLOD) | `engine.hlod` | `recipes/15-perf.md` |
+| Many lights (torches, lamps, muzzle flashes) without shader stalls | `lightPool({ point })`, `engine.lightPool.add(obj, { color, intensity, distance, flicker, glow })` | `recipes/09-style-pack.md` |
 | Blender level | `engine.level` | `recipes/10-blender-level.md` |
 | Saved / far-away objects, the player record | `engine.world` (`present` near, `simulate` far), `player.placeAt()` | `recipes/18-world.md` |
-| Stream in, teleport, what is loaded where | `engine.stream.add({ position, build })`, `await engine.load.teleport(p, { timeout })`, `engine.load.source(...)` | `recipes/18-world.md` |
-| Ground height, terrain editing | `engine.surface(x, z)`, `engine.snapToGround(obj)`, `engine.ground`, `engine.terrain.edit(...)` (in an op) | `recipes/28-terrain.md` |
+| Stream in, teleport, what is loaded where | `engine.stream.add({ position, build })`, `await engine.stream.teleport(p, { timeout })`, `engine.stream.source(...)` | `recipes/18-world.md` |
+| Terrain generator, ground height, terrain editing | `terrain({ height, groundType })` or a preset (`terrainPreset()` from `@threedog/style-lowpoly`; none = flat), `engine.surface(x, z)`, `engine.snapToGround(obj)`, `engine.ground`, `engine.terrain.edit(...)` (in an op) | `recipes/28-terrain.md` |
 | Grid placement, per-cell soil state | `engine.grids.add / define`, ops `grid.place / move / remove` | `recipes/29-grid.md` |
-| Player and characters | `engine.player`, `engine.characters.createPlayer({ control, model })`, `faceMode`, `push(...)` | `recipes/13-animation.md` |
+| Player and characters | `engine.player`, `engine.characters.createPlayer({ ...presets.player.thirdPerson, model })` (control required: `'camera'` / `'none'` / fn; `runKeys`, `jumpKeys`, `cameraFollow`), `faceMode`, `push(...)` | `recipes/13-animation.md` |
 | Skeletal animation | `engine.assets.animate(model, config)`, `anim.sync(state, t)` | `recipes/13-animation.md` |
 | Pathfinding, navmesh, "can walk there" | `engine.characters.findPath(from, to)`, `engine.nav`, `createEngine({ movement })` | `recipes/12-navmesh.md` |
 | Collision, physics, vehicles | `engine.collision`, `engine.rigid` (Rapier) | `recipes/11-vehicles.md` |
-| Ray / mouse picking, shooting, lock-on | `engine.raycast / pick`, `engine.raycaster.addStatic(obj)`, `engine.entities`, `engine.particles`, `pickTarget` | `recipes/19-shooting-picking.md` |
-| Camera | `openWorld({ camera })`, `engine.setCamera(...)`, `engine.cameraRig` | `recipes/21-camera.md` |
+| Ray / mouse picking, shooting, lock-on | `engine.raycast / pick`, `engine.rays.addStatic(obj)`, `engine.entities`, `engine.particles`, `pickTarget` | `recipes/19-shooting-picking.md` |
+| Camera | `openWorld({ camera })` (required), `engine.setCamera(...)`, `engine.cameraRig` | `recipes/21-camera.md` |
 | Keys and input contexts | `input.define('action', keys, label)`, read by action in the fixed step, `engine.input.push('menu')`, tests `input.simulate(action, down)` | `recipes/26-ui-parts.md` |
 | Screen UI parts, Esc / UI layering, settings menu, labels over the world | `createEngine({ ui })`, `engine.ui.set(name, ...)`, `engine.hud`, `uiFocus(engine)`, `engine.settings`, `worldToScreen(engine, pos)` | `recipes/26-ui-parts.md` |
 | Photo mode | `engine.photo` | `recipes/26-ui-parts.md` |
@@ -73,7 +78,7 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 
 ## Verification rules for AI
 1. Order: `npm run map` (only after changing a public API, JSDoc or content) -> `npm run check` -> the related tests. Report only after they ran and passed; attach before/after numbers for performance changes.
-2. Check logic with `describeText()` / describe snapshots, not screenshots; drive a running game with the dev bridge (`recipes/16-dev-bridge.md`), not throwaway playwright scripts. `main.js` sets `window.engine = engine` before `await engine.start()`.
+2. Check logic with `describeText()` / describe snapshots, not screenshots; drive a running game with the dev bridge (`recipes/16-dev-bridge.md`), not throwaway playwright scripts. Ops run through the bridge, MCP or `js` change this session only (and its saves); a lasting level change is an edit to `content/*.js` or the level model. `main.js` sets `window.engine = engine` before `await engine.start()`.
 3. Screenshots only for what the eye must judge (light, animation feel, UI occlusion). Known errors end with "Possible cause / Read: recipes/...": read that page first.
 
 ## Conventions (each line is detailed in `CONVENTIONS.md`)
@@ -82,12 +87,17 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 - **Ready is the boolean `ready`**; wait with `await h.whenReady`.
 - **Event names are `noun:action`** (`item:add`; a game's own: `door:open`).
 - **Time**: fixed seconds (hook `dt`, `step`) and game seconds (`engine.clock.now`); never `setTimeout` / `setInterval` / `performance.now()` / `requestAnimationFrame` in game logic.
+- **Fixed step vs frame**: `onFixed` runs game time (damage, cooldowns, AI, timers), the same at any frame rate; `onFrame` is presentation (animation, camera feel, HUD).
 - **Input**: gameplay keys in the fixed step, UI keys in the frame hook; never `addEventListener('keydown')` or `pointer.clicked` for gameplay.
 - **Gameplay state** (world, containers, vars, quests) changes only in fixed steps or ops.
 - **The engine owns** sky lights, fog and the camera transform every frame; adjust with `engine.sky.modify` / `engine.cameraOverride`.
+- **A level is content, code holds rules**: what stands in a level is a template plus a placement in `content/` (stable ids, saved as changes); code holds ops, `world.simulate` / `present`, conditions and UI, and things made during play come from `engine.content.spawn` inside an op (rule R33, `recipes/30-templates.md`).
 - **Look parameters** belong in the style pack or content, never in logic; materials via `makeMaterial`.
 - **Units** are meters, Y up, north -Z; characters face +Z.
 - **Errors say how to fix it**: an old form throws with the fix.
+
+## Stability
+These work and are tested, but their shape may still change before 1.0 (api pages mark them "(experimental)"): co-op `net()` / `fakeNetwork()` / `webSocket()` · `engine.threads` and `createEngine({ threads })` · `grids()` / `engine.grids` · `engine.terrain.edit` · `world.simulate(kind, { worker: true })` · `engine.post.add / get / enable / list` · `engine.stream.source / sources / teleport / readyCheck` · `hlod()` · `engine.ops.guard / allow`.
 
 ## Hard rule for game content
 Game content (dialogues, quests, items, map layout) lives in the game's own `content/` folder, never inside the engine.

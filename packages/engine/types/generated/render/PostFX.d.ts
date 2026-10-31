@@ -21,6 +21,7 @@ export class PostFX {
      * @param {PostEffect} effect
      * @param {{ slot?: PostSlot, order?: number, enabled?: boolean }} [opts]
      * @returns {PostHandle}
+     * @experimental
      */
     add(effect: PostEffect, { slot, order, enabled }?: {
         slot?: PostSlot;
@@ -31,6 +32,7 @@ export class PostFX {
      * Handle of an added effect, or undefined: engine.post.get('bloom')?.set({ strength: 0.6 })
      * @param {string} name
      * @returns {PostHandle | undefined}
+     * @experimental
      */
     get(name: string): PostHandle | undefined;
     /**
@@ -40,11 +42,13 @@ export class PostFX {
      * @param {string} name
      * @param {boolean} on
      * @returns {boolean}
+     * @experimental
      */
     enable(name: string, on: boolean): boolean;
     /**
      * Effects in render order: [{ name, slot, order, enabled }]
      * @returns {{ name: string, slot: PostSlot, order: number, enabled: boolean }[]}
+     * @experimental
      */
     list(): {
         name: string;

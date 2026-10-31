@@ -22,6 +22,7 @@ import { specs as specsS1Perf } from './specs/s1-perf.mjs';
 import { specs as specsE } from './specs/e-usability.mjs';
 import { specs as specsContainers } from './specs/containers.mjs';
 import { specs as specsA2 } from './specs/a2-input-player.mjs';
+import { specs as specsFriction } from './specs/friction-fixes.mjs';
 import { specs as specsCameraSwitch } from './specs/camera-switch.mjs';
 import { specs as specsAiTools } from './specs/ai-tools.mjs';
 import { specs as specsPlayerControl } from './specs/player-control.mjs';
@@ -44,9 +45,12 @@ import { specs as specsGrid } from './specs/grid.mjs';
 import { specs as specsSkip } from './specs/skip.mjs';
 import { specs as specsSession } from './specs/session.mjs';
 import { specs as specsTemplates } from './specs/templates.mjs';
+import { specs as specsSingleSource } from './specs/single-source.mjs';
 import { specs as specsSaveFormat } from './specs/save-format.mjs';
 import { specs as specsGameplayGuards } from './specs/gameplay-guards.mjs';
 import { specs as specsBatching } from './specs/batching.mjs';
+import { specs as specsAudio } from './specs/audio.mjs';
+import { specs as specsLights } from './specs/lights.mjs';
 import { specs as specsCoreReview } from './specs/core-review.mjs';
 
 export const specs = [
@@ -91,6 +95,13 @@ export const specs = [
       });
       check('存档后读档，背包数量恢复', save);
 
+      const placed = await ev(async () => {
+        await engine.world.whenReady;
+        const c = engine.world.get('cabin');
+        return { cabin: !!c && !!engine.world.view('cabin'), bodies: engine.world.query({ kind: 'body' }).length, rigid: engine.rigid.bodies.length };
+      });
+      check('关卡来自内容：小屋（模板实例）已建出，8 个物理道具是有 id 的记录，近处的有刚体', placed.cabin && placed.bodies === 8 && placed.rigid >= 7, JSON.stringify(placed));
+
       await ev(() => { engine.weather.set('storm', 0.01); engine.i18n.setLocale('en'); });
       await frames(3);
       check('切换天气', await ev(() => engine.weather.name === 'storm' && engine.weather.current.rain > 0.5));
@@ -100,7 +111,7 @@ export const specs = [
   },
   {
     name: '小城示例（关卡模块、无地形、无风格包）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const g = await ev(() => ({ stage: engine.surface(0, -14), ramp: engine.surface(0, -7.2), street: engine.surface(10, 10), boxes: engine.collision.boxes.length }));
       check('台子高度 1.2 米', Math.abs(g.stage - 1.2) < 0.05, g.stage);
@@ -195,7 +206,7 @@ export const specs = [
   },
   {
     name: '状态描述（小城示例，无地形）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const d = await ev(() => engine.describe());
       check('describe 不报错且没有地形/天气字段', !!d.player && !('weather' in d) && !d.perf.chunks && d.time.clock, Object.keys(d).join(','));
@@ -236,7 +247,7 @@ export const specs = [
   },
   {
     name: '运行时检查：npcs.add 字段写错（小城示例）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => (await __t.warns(() => {
         for (let i = 0; i < 2; i++) engine.npcs.remove(engine.npcs.add({ name: '路人' + i, position: { x: 3, z: 3 }, scedule: [] }));
@@ -246,7 +257,7 @@ export const specs = [
   },
   {
     name: '接口约定：句柄、位置参数、射线并入刚体、贴图缓存键、动作重定义（小城示例）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();
@@ -262,7 +273,7 @@ export const specs = [
             let n = 0; const sub = engine.events.on('conv:test', () => n++);
             engine.events.emit('conv:test'); sub.remove(); engine.events.emit('conv:test'); out.events = n;
             const t = engine.clock.after(1, () => n++); t.remove(); engine.step(2, { render: false }); out.clock = n;
-            out.handles = [engine.onFrame(() => {}), engine.onFixed(() => {}), engine.raycaster.addStatic([]), engine.budget.metric('conv', () => 0)].every(h => typeof h.remove === 'function' && (h.remove(), true));
+            out.handles = [engine.onFrame(() => {}), engine.onFixed(() => {}), engine.rays.addStatic([]), engine.budget.metric('conv', () => 0)].every(h => typeof h.remove === 'function' && (h.remove(), true));
             // 位置参数：旧写法（数字）直接报错
             try { engine.collision.addBox(1, 2, 3, 4); out.oldThrows = false; } catch (e) { out.oldThrows = /must be passed as one argument/.test(e.message); }
             // 射线 targets: 'all' 打到刚体，默认 'static' 打不到
@@ -306,5 +317,5 @@ export const specs = [
       check('按 W 沿相机前方移动', moved !== null && moved > 0.9, String(moved));
     },
   })),
-  ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsCoreReview,
+  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview,
 ];

@@ -23,7 +23,7 @@ const STRINGS = {
   owned: '{where} is recomputed every frame, so setting it directly gets overwritten{hint}',
   // Display names for each kind of name (the kind passed to warnMissing)
   kinds: {
-    action: 'action', channel: 'audio channel', event: 'event', particle: 'particle effect', asset: 'asset', text: 'text key', module: 'module', weather: 'weather',
+    action: 'action', bus: 'audio bus', synth: 'synth', event: 'event', particle: 'particle effect', asset: 'asset', text: 'text key', module: 'module', weather: 'weather',
     dialogue: 'dialogue', node: 'dialogue node', shot: 'camera shot', track: 'music track', entityType: 'entity type', quest: 'quest', ease: 'easing',
     step: 'timeline step', animState: 'animation state', clip: 'animation clip', item: 'item', vegetation: 'vegetation', state: 'scenario', condition: 'condition word', effect: 'effect word', flowState: 'flow state', material: 'material role',
   },
@@ -35,7 +35,9 @@ export const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 // (one validate setting per page; tests that run several engines all use the same setting).
 let enabled = true;
 /** Dev mode: npm run dev, or the test bundle built by npm test / npm run shot (vite.config defines import.meta.env.THREEDOG_TEST when THREEDOG_TEST is set). */
-const ENV = /** @type {any} */ (import.meta).env;   // Vite's import.meta.env (undefined outside Vite)
+// Written exactly `import.meta.env`: the Vite 8 dev server only rewrites that literal form; `(import.meta).env` stayed undefined there, so every dev check was off under npm run dev
+// @ts-ignore Vite's import.meta.env (undefined outside Vite)
+const ENV = import.meta.env;
 export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
 const warned = new Set();
 

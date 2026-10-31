@@ -62,7 +62,7 @@ export function idMap(me) {
 }
 
 /**
- * @internal client: write one part (full snapshot or diff) into this engine. Runs inside ops._allowing (the client guard lets it through).
+ * @internal client: write one part (full snapshot or diff) into this engine. Runs inside ops.allow (the client guard lets it through).
  * Position changes of interpolated kinds go to `interp(id, to)` instead of moving now; the own avatar keeps its local position (the client drives its own movement).
  */
 export function applyPart(e, key, part, full, opts) {

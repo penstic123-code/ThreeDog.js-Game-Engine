@@ -66,7 +66,7 @@ export function flow(opts = {}) {
           const m = music === 'fade' ? e.music : null, prev = m?.current;
           m?.stop(fade);
           if (autosave === 'auto') e.saves.save('auto');
-          await e.ops._allowing(async () => { await fn?.(); });   // the scene swap is loading: the ops guard lets its writes through
+          await e.ops.allow(async () => { await fn?.(); });   // the scene swap is loading: the ops guard lets its writes through
           await waitReady();
           if (m && prev && !m.current && !m.ruled) m.play(prev);   // no track rule: resume the previous track after the switch
           await fadeScreen(e, 0, fade);
@@ -87,7 +87,7 @@ export function flow(opts = {}) {
       e = engine;
       checkOptions('flow()', opts, ['start']);
       // initial state (title screen etc.): entered once the world is ready, so the game can define it after use()
-      if (opts.start && opts.start !== 'playing') e.events.once('world:ready', () => api.go(opts.start));
+      if (opts.start && opts.start !== 'playing') e.events.once('engine:ready', () => api.go(opts.start));
       // a playthrough ends (engine.session): back to the start state, so its enter() runs again; a new one starts in 'playing'
       e.events.on('session:end', () => api.go(opts.start ?? 'playing'));
       e.events.on('session:start', () => api.go('playing'));

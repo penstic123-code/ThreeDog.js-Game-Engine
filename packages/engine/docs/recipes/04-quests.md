@@ -1,6 +1,6 @@
 # Adding quests (with HUD objective markers)
 
-Modules needed: `quests()` (quest log, J by default); objective markers need `hud()` (neither is in openWorld, add them yourself: `engine.use(openWorld({...}), quests(), hud())`).
+Modules needed: `quests()` (quest log, J by default); objective markers need `hud()` (neither is in openWorld, add them yourself: `engine.use(openWorld({ camera: 'follow', ...}), quests(), hud())`).
 A quest is a list of steps completed in order; each step has one completion condition (or several parallel goals), checked every half second; a quest may also fail. When the current step has a `target`, hud shows a marker and distance above it automatically, and an edge arrow when it is off-screen.
 
 ## 1. Write data (recommended)
@@ -10,7 +10,7 @@ export default {
   'mushroom-soup': {
     title: '蘑菇汤',
     desc: '面包师想要一锅蘑菇汤。',
-    startOn: 'world:ready',                     // the event that starts it automatically (or use { startQuest: 'mushroom-soup' } in a dialogue)
+    startOn: 'engine:ready',                     // the event that starts it automatically (or use { startQuest: 'mushroom-soup' } in a dialogue)
     steps: [
       { id: 'talk', text: '和面包师聊聊', done: { flag: 'metBaker' }, target: { npc: 'baker' } },   // the marker follows the NPC
       { id: 'gather', text: '采 3 个蘑菇', done: { has: { mushroom: 3 } }, target: 'forest' },         // a place name
@@ -30,7 +30,7 @@ Not every quest is a straight line. A step can hold several goals done in any or
 ```js
 'defend-camp': {
   title: '守住营地',
-  startOn: 'world:ready',
+  startOn: 'engine:ready',
   steps: [
     { text: '赶到营地', done: { flag: 'atCamp' }, target: 'camp' },
     { all: [                                                            // text defaults to the required goals: "守住北门 / 守住南门"

@@ -7,37 +7,19 @@ import type { StyleSky, StyleShadow } from './style';
 // Terrain terrain()
 // ======================================================================
 
-/** Landform rule: checked from top to bottom, the first one satisfied is the landform at that spot (leave the last one without conditions as the default). All conditions are optional */
-export interface BiomeCondition {
-  /** Min / max altitude (meters) */
-  minHeight?: number;
-  maxHeight?: number;
-  /** Max height above the water surface */
-  maxAboveWater?: number;
-  /** Min slope */
-  minSlope?: number;
-  /** Temperature 0–1 */
-  minTemp?: number;
-  maxTemp?: number;
-  /** Humidity 0–1 */
-  minMoist?: number;
-  maxMoist?: number;
-  /** Closeness to a river (0–1) */
-  minRiver?: number;
-}
-export interface BiomeRule extends BiomeCondition {
-  /** Landform name (vegetation rules and footsteps match by name) */
-  name: string;
-  /** Satisfying any one of these condition groups is enough */
-  any?: BiomeCondition[];
-}
 /** Steep-slope colors: used when the normal's Y component is below maxNormalY */
 export interface SteepRule { maxNormalY: number; colors: string[] }
 /** Flattened plot (for villages, houses): center x/z, radius (meters), height optionally fixes the height */
 export interface FlattenZone { x: number; z: number; radius: number; height?: number; clearRatio?: number }
 
 /** Noise helpers handed to a custom height / groundType function (it cannot import anything) */
-export interface TerrainNoise { fbm(x: number, z: number, octaves?: number): number; noise(x: number, z: number): number; hash(x: number, z: number, salt?: number): number; seed: number }
+export interface TerrainNoise {
+  fbm(x: number, z: number, octaves?: number): number; noise(x: number, z: number): number; hash(x: number, z: number, salt?: number): number; seed: number;
+  /** The terrain's water level (meters) */
+  waterLevel: number;
+  /** terrain({ params }): plain data for the generator (a preset's settings) */
+  params: Record<string, any>;
+}
 
 /** Options of engine.terrain.edit() */
 export interface TerrainEditOptions {
@@ -65,48 +47,28 @@ export interface TerrainConfig {
   resolution: number;
   /** Water level (meters), default 0 */
   waterLevel: number;
-  /** Overall relief multiplier */
-  heightScale: number;
-  /** Mountain strength */
-  mountains: number;
-  /** Whether to generate rivers */
-  rivers: boolean;
-  /** River width (0.02 narrow, 0.05 wide) */
-  riverWidth: number;
   /** Flattened plots */
   flatten: FlattenZone[];
-  /** Landform rules */
-  biomes: BiomeRule[];
-  /** Landform → palette color name */
+  /** Ground type → palette color names (two are blended by noise); usually from style.terrain.biomeColors */
   biomeColors: Record<string, string[]>;
   /** Steep-slope color rule */
   steep: SteepRule[];
-  /** Temperature / humidity noise scale */
-  tempScale: number;
-  moistScale: number;
-  /** Temperature drop per meter of altitude */
-  tempLapse: number;
-  /** Shape: 'hills' | 'island' | 'canyon' (mesas) | 'flat' plains | 'heightmap' */
-  shape: 'hills' | 'island' | 'canyon' | 'flat' | 'heightmap';
-  /** Noise parameters */
-  noise: { baseScale?: number; baseAmp?: number; hillScale?: number; hillAmp?: number; mountainScale?: number; mountainAmp?: number; mountainThreshold?: number; seaBias?: number };
-  /** Island shape: center [x, z], radius, falloff (meters), depth seabed depth */
-  island: { center?: number[]; radius?: number; falloff?: number; depth?: number };
-  /** Canyon shape */
-  canyon: { scale?: number; depth?: number; plateau?: number };
-  /** Heightmap: url grayscale image, size [width m, length m], min/max height (meters), center [x, z] */
+  /** Heightmap (used when there is no height function): url grayscale image, size [width m, length m], min/max height (meters), center [x, z] */
   heightmap: { url?: string; size?: number[]; min?: number; max?: number; center?: number[]; outside?: number; data?: ArrayLike<number>; width?: number; height?: number } | null;
   /**
-   * Own height generator, replaces shape: (x, z, n) => meters. Runs in workers, so it must be pure (only its parameters and globals like Math);
-   * an outside variable throws at terrain() naming it. n = { fbm(x, z, octaves?), noise(x, z), hash(x, z, salt?), seed }. Rivers and flatten still apply.
-   * @example terrain({ height: (x, z, n) => 4 + 12 * n.fbm(x * 0.01, z * 0.01), rivers: false })
+   * Height generator: (x, z, n) => meters. Without one (and without a heightmap) the ground is flat at y = 0, a placeholder (dev warning).
+   * Runs in workers, so it must be pure (only its parameters and globals like Math); an outside variable throws at terrain() naming it.
+   * n = { fbm(x, z, octaves?), noise(x, z), hash(x, z, salt?), seed, waterLevel, params }. Flatten still applies. Presets: terrainPreset() from @threedog/style-lowpoly.
+   * @example terrain({ height: (x, z, n) => 4 + 12 * n.fbm(x * 0.01, z * 0.01) })
    */
   height: ((x: number, z: number, n: TerrainNoise) => number) | string | null;
   /**
-   * Own ground type: (x, z, h, slope, n) => type name, or null to use the biome rules. Pure, like height. Colors come from biomeColors[type].
-   * @example terrain({ groundType: (x, z, h, slope) => slope > 0.7 ? 'rock' : h < 2 ? 'beach' : null })
+   * Ground type: (x, z, h, slope, n) => type name (null = 'default'). Pure, like height. Colors come from biomeColors[type]; vegetation rules and footsteps match by name.
+   * @example terrain({ groundType: (x, z, h, slope) => slope > 0.7 ? 'rock' : h < 2 ? 'beach' : 'grass' })
    */
   groundType: ((x: number, z: number, h: number, slope: number, n: TerrainNoise) => string | null) | string | null;
+  /** Plain data handed to height / groundType as n.params (a preset's settings); must be serializable */
+  params: Record<string, any> | null;
   /** 'flat' one color per triangle (low poly) | 'smooth' smooth shading */
   shading: 'flat' | 'smooth';
   /** Palette: color name → color */
@@ -116,7 +78,7 @@ export interface TerrainConfig {
 /** Parameters of terrain({...}) */
 export interface TerrainOptions extends Partial<TerrainConfig> {
   /** View distance (in chunks), default 4 */
-  viewDistance?: number;
+  viewChunks?: number;
   /** Vegetation density multiplier, default 1 */
   density?: number;
   /** Ground material (default style.terrain.material, else the 'terrain' role with vertex colors); chunks have uv = world xz / chunk size. Cloud shadows and season tint are added */
@@ -138,10 +100,10 @@ export interface TerrainGen {
   surface(x: number, z: number): number;
   /** Slope at (x, z) */
   slope(x: number, z: number): number;
-  /** Landform name */
+  /** Ground type name ('default' without a groundType function) */
   biomeAt(x: number, z: number, h?: number, slope?: number): string;
-  /** Closeness to a river: 0 not by the river, larger is closer to the middle of the river */
-  riverFactor(x: number, z: number): number;
+  /** The noise helpers a height / groundType function receives (n), e.g. for a preset's riverAt(x, z, gen.noise) */
+  noise: TerrainNoise;
   /** Fractal noise 0–1 */
   fbm(x: number, z: number, octaves?: number): number;
   buildChunk(cx: number, cz: number): any;
@@ -158,7 +120,7 @@ export interface Terrain {
   /** Loaded chunks: 'cx,cz' → chunk */
   chunks: Map<string, any>;
   /** View distance (in chunks) */
-  viewDistance: number;
+  viewChunks: number;
   /** Vegetation density multiplier */
   density: number;
   /** Time budget (milliseconds) for uploading chunks per frame */
@@ -166,7 +128,7 @@ export interface Terrain {
   /** Statistics (for the debug panel) */
   stats: { builtThisFrame: number; applyMs: number; queued: number; visible?: number; loaded?: number; instances?: number };
   /** Change the view distance (in chunks); fog and camera far plane adjust too */
-  setViewDistance(n: number): void;
+  setViewChunks(n: number): void;
   /** Change the vegetation density (rebuilds all chunks) */
   setDensity(d: number): void;
   /** Rebuild all chunks */
@@ -179,14 +141,11 @@ export interface Terrain {
    * @example
    * engine.terrain.edit(pos, { radius: 3, lower: 1.5 });                                                   // dig a pit
    * engine.terrain.edit(pos, { shape: 'square', radius: engine.terrain.cellSize / 2, paint: 'tilled' });  // till one cell
+   * @experimental
    */
   edit(position: PositionLike, opts: TerrainEditOptions): { heights: number; cells: number };
   /** Whether the chunks within rings rings (default 1) around position are all loaded */
   isReadyAround(position: PositionLike, opts?: { rings?: number }): boolean;
-  forEachCollider(x: number, z: number, range: number, fn: (cx: number, cz: number, r: number) => void): void;
-  chunkCollision(cx: number, cz: number): any;
-  refreshLevels(): void;
-  registerSpecies(name: string, rule: VegetationRule): void;
 }
 
 // ======================================================================
@@ -271,10 +230,6 @@ export interface Vegetation {
   add(name: string, opts: VegetationOptions): Species;
   get(name: string): Species | undefined;
   list(): Species[];
-  baseNames(): string[];
-  nearNames(): string[];
-  /** Entry name in the save 'veg:<name>:<cx>,<cz>:<id>' */
-  key(species: string, cx: number, cz: number, id: number): string;
   isRemoved(species: string, cx: number, cz: number, id: number): boolean;
   /** Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name */
   removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }): string;
@@ -282,8 +237,6 @@ export interface Vegetation {
   restoreInstance(species: string, cx: number, cz: number, id: number): void;
   /** The one nearest to position within radius meters (default 2) (species restricts to one kind), null if none */
   instanceAt(position: PositionLike, opts?: { radius?: number; species?: string | null }): VegetationHit | null;
-  /** Set from which chunk ring on this vegetation stops casting shadows (smaller saves more), takes effect immediately */
-  setShadowRing(name: string, ring: number): void;
 }
 
 // ======================================================================
@@ -293,14 +246,14 @@ export interface Vegetation {
 export interface SkyOptions extends StyleSky {
   /** Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay) */
   time?: number;
-  /** Game seconds per day, default 360 (one sky hour = dayLength / 24 game seconds; with timeScale 1 game seconds are fixed-step seconds) */
+  /** Game seconds per day, default 360 (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves */
   dayLength?: number;
   /** Which day to start from, default 1 */
   day?: number;
-  /** Days per season, default 7 */
+  /** Days of each season given by name only, default 7 */
   daysPerSeason?: number;
-  /** Season name list, default ['spring', 'summer', 'autumn', 'winter'] */
-  seasons?: string[];
+  /** The calendar's seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring', 'summer', 'autumn', 'winter'] */
+  seasons?: (string | { name: string, days: number })[];
 }
 /** Parameters of sky.at() / daily() */
 export interface SkyAtOptions {
@@ -384,14 +337,14 @@ export interface WeatherPreset {
 export type WeatherName = 'clear' | 'cloudy' | 'overcast' | 'rain' | 'storm' | 'snow' | 'fog';
 
 export interface WeatherOptions {
-  /** Starting weather, default 'clear' */
+  /** Starting weather, default 'clear' (or the first of the game's types when it has no 'clear') */
   start?: WeatherName | (string & {});
   /** Automatic weather changes */
   auto?: boolean;
   /** Rain / snow particle count, default 6000 */
   particles?: number;
-  /** Add / override weather presets */
-  presets?: Record<string, Partial<WeatherPreset>>;
+  /** The game's weather table, the whole list (default the built-in WEATHER_PRESETS; extend them with { ...WEATHER_PRESETS, dust: {...} }). Left-out fields are calm; extra numeric fields of the game's own blend too and show in weather.current */
+  types?: Record<string, Partial<WeatherPreset> & Record<string, number>>;
   /** Candidates for automatic changes (repeat an entry for higher probability) */
   autoPool?: string[];
   /** Interval between automatic changes [shortest, longest] seconds */
@@ -512,14 +465,113 @@ export interface HlodHandle {
   /** Cancel: restore the originals, free the proxies */
   remove(): void;
 }
-/** engine.hlod: merge a patch of distant objects into a few meshes to cut draw calls */
+/** engine.hlod: merge a patch of distant objects into a few meshes to cut draw calls @experimental */
 export interface Hlod {
   /** All merged cells */
   cells: HlodCell[];
   /** Register a group of objects (a root or an array), merged into proxies by cell */
   add(target: Object3D | Object3D[], opts?: HlodAddOptions): HlodHandle;
-  /** Switch by focus right now (normally automatic every 0.25 s) */
-  update(): void;
+}
+
+// ======================================================================
+// Light pool engine.lightPool (lightPool() module)
+// ======================================================================
+
+/** Parameters of lightPool(): how many real lights exist (fixed for the whole game, so shaders never recompile) */
+export interface LightPoolOptions {
+  /** Real PointLights, default 8 */
+  point?: number;
+  /** Real SpotLights, default 0 (sources added with type: 'spot' use them) */
+  spot?: number;
+  /** How many of the point lights cast shadows, default 0; only sources added with castShadow: true get them */
+  shadows?: number;
+  /** Seconds between choosing which sources get the lights, default 0.1 (fading and following run every frame) */
+  every?: number;
+  /** Seconds a light takes to fade in or out when it moves to another source, default 0.3 */
+  fade?: number;
+  /** Measure distance from this object / position instead of the camera (e.g. the player in a top-down game) */
+  focus?: PositionLike | null;
+}
+/** Options of lightPool.add(position, opts): one light source (a torch, lamp, campfire, muzzle flash...) */
+export interface LightSourceOptions {
+  /** Name shown in lightPool.usage() */
+  name?: string;
+  /** 'point' (default) or 'spot' (needs lightPool({ spot: n })) */
+  type?: 'point' | 'spot';
+  /** Light color, default white */
+  color?: ColorLike;
+  /** three.js intensity at full strength, default 1; 0 = off (it gives its light away) */
+  intensity?: number;
+  /** three.js light distance (range, meters), default 10; also the scale of the distance score */
+  distance?: number;
+  /** three.js decay, default 2 */
+  decay?: number;
+  /** Weight in the choice, default 1: 3 = picked over a 1 three times as bright at the same distance (a quest lamp, a muzzle flash) */
+  priority?: number;
+  /** May take one of the shadow-casting lights (lightPool({ shadows })), default false; fixed when added */
+  castShadow?: boolean;
+  /** Spot cone half-angle (radians), default PI / 4 */
+  angle?: number;
+  /** Spot penumbra 0-1, default 0.3 */
+  penumbra?: number;
+  /** Spot aim: a position or an Object3D it follows; default straight down */
+  target?: PositionLike | null;
+  /** Brightness factor each frame (time = presentation seconds, index = the source's number): (t, i) => 0.85 + 0.15 * Math.sin(t * 13 + i) */
+  flicker?: ((time: number, index: number) => number) | null;
+  /** Stand-in shown while the source has no real light: a halo Sprite / Mesh (its material's opacity) or an emissive material (emissiveIntensity) scaled from its value at add() down to 0 as the real light fades in. Give each source its own material */
+  glow?: Material | Object3D | null;
+}
+/** What lightPool.add().set(patch) can change (type and castShadow are fixed when added) */
+export interface LightSourcePatch {
+  /** New position, or an Object3D to follow */
+  position?: PositionLike;
+  name?: string;
+  color?: ColorLike;
+  intensity?: number;
+  distance?: number;
+  decay?: number;
+  priority?: number;
+  angle?: number;
+  penumbra?: number;
+  target?: PositionLike | null;
+  flicker?: ((time: number, index: number) => number) | null;
+  glow?: Material | Object3D | null;
+}
+/** Handle returned by lightPool.add() */
+export interface LightSource {
+  /** The real light lighting this source now, null while it has none */
+  readonly light: Object3D | null;
+  /** How much of its light it has now, 0-1 */
+  readonly weight: number;
+  /** Change the source; returns the same handle */
+  set(patch: LightSourcePatch): LightSource;
+  /** Unregister: its light fades out and moves on, the stand-in is put back (safe to call twice) */
+  remove(): void;
+}
+/** lightPool.usage(): what the pool is doing now */
+export interface LightPoolUsage {
+  /** Registered sources */
+  sources: number;
+  /** Real lights lighting a source now */
+  lit: number;
+  /** One per real light: its kind, whether it casts shadows, the source it holds (name or number, null = idle) and its fade 0-1 */
+  slots: { type: 'point' | 'spot'; shadow: boolean; source: string | number | null; weight: number }[];
+}
+/** engine.lightPool: register any number of light sources; a fixed set of real lights moves to the most relevant ones */
+export interface LightPool {
+  /** The real three.js lights, created once at install and never added, removed or hidden (the pool sets their position, color, intensity) */
+  readonly lights: Object3D[];
+  /** Distance is measured from this object / position; null = the camera */
+  focus: PositionLike | null;
+  /**
+   * Register a light source at a position (an Object3D: it follows that object every frame)
+   * @example
+   * const torch = engine.lightPool.add(torchMesh, { color: 0xffa040, intensity: 4, distance: 8, glow: haloSprite });
+   * torch.set({ intensity: 0 });   // put out: its light goes to another torch
+   */
+  add(position: PositionLike, opts?: LightSourceOptions): LightSource;
+  /** What the pool is doing now (also in describe().lightPool) */
+  usage(): LightPoolUsage;
 }
 
 // ======================================================================

@@ -1,4 +1,4 @@
-// Chunk streaming: chunks around the engine.load sources (player, camera focus, teleport destination...) are generated on engine.threads workers,
+// Chunk streaming: chunks around the engine.stream sources (player, camera focus, teleport destination...) are generated on engine.threads workers,
 // uploaded to the GPU when in view, released when far from all sources.
 // LOD is split by ring from the nearest source: the chunk a source stands in plus the one ring around it is ring 1, and so on.
 // Visuals and gameplay take effect separately: a finished model is uploaded and shown at once; tree collision (forEachCollider, chunkCollision) only takes effect at the tick set by engine.commits (c.solid),
@@ -19,7 +19,7 @@ export class ChunkManager {
     this.engine = engine;
     this.T = createTerrain(terrainCfg);          // main-thread copy: height queries for the character and camera
     this.chunks = new Map();
-    this.viewDistance = 4;                        // unit: chunks
+    this.viewChunks = 4;                        // unit: chunks
     this.density = 1;
     this.applyBudgetMs = 3;                       // max ms per frame spent uploading results to the GPU
     this.maxInFlight = 4;
@@ -31,7 +31,7 @@ export class ChunkManager {
     this.gen = 0;
     this.stats = { builtThisFrame: 0, applyMs: 0, queued: 0 };
     this.terrainMat = terrainMaterial(typeof material === 'function' ? material(engine) : material, engine);
-    this.centers = [];                            // load sources in chunk units: { cx, cz, R, simple } (set by update)
+    this.centers = [];                            // stream sources in chunk units: { cx, cz, R, simple } (set by update)
     this._frustum = new THREE.Frustum();
     this._m = new THREE.Matrix4();
 
@@ -48,7 +48,7 @@ export class ChunkManager {
    * Change the ground: dig, raise, flatten, or paint the ground type. Call it from an op or a fixed step (it is saved gameplay state).
    * Heights snap to grid points and paint to cells (cellSize); the nearest one is taken when the shape is smaller than a cell.
    * engine.surface / slope / groundType, collision, paths and vegetation (what grew there is removed) follow at once; it is saved,
-   * and a chunk unloaded and generated again comes back edited. Paint colors come from biomeColors[type] (the style pack gives 'tilled' and 'wet').
+   * and a chunk unloaded and generated again comes back edited. Paint colors come from biomeColors[type] (gray when the game's style has none).
    * @param {import('three').Vector3 | {x:number,z:number} | number[]} position
    * @param {{ radius?: number, shape?: 'circle' | 'square', raise?: number, lower?: number, flatten?: number, paint?: string | null }} opts
    *   radius meters (default half a cell); one of raise / lower (meters) / flatten (target height); paint a type name, null gives back the generated type
@@ -61,6 +61,7 @@ export class ChunkManager {
    */
   edit(position, opts) { return this.edits.edit(position, opts); }
 
+  /** @internal vegetation plumbing */
   registerSpecies(name, rule) {
     this.lane.broadcast({ type: 'species', name, rule }, 'species:' + name);
     this.rebuild();
@@ -80,7 +81,7 @@ export class ChunkManager {
   }
 
   /** View distance (in chunks). Also adjusts fog and the camera far plane */
-  setViewDistance(n) { this.viewDistance = n; this.engine.setFogFar((n - 0.3) * this.T.CHUNK); }
+  setViewChunks(n) { this.viewChunks = n; this.engine.setFogFar((n - 0.3) * this.T.CHUNK); }
   /** Vegetation density multiplier (rebuilds all chunks) */
   setDensity(d) { this.density = d; this.rebuild(); }
 
@@ -92,15 +93,15 @@ export class ChunkManager {
     this.gen++; this._ver++;
   }
 
-  /** Ring of a chunk from the nearest load source; a 'simple' source counts as the outer ring (far look, no near detail) */
+  /** Ring of a chunk from the nearest stream source; a 'simple' source counts as the outer ring (far look, no near detail) */
   _ring(c) {
     let r = Infinity;
-    for (const s of this.centers) r = Math.min(r, Math.max(Math.abs(c.cx - s.cx), Math.abs(c.cz - s.cz), s.simple ? this.viewDistance : 0));
+    for (const s of this.centers) r = Math.min(r, Math.max(Math.abs(c.cx - s.cx), Math.abs(c.cz - s.cz), s.simple ? this.viewChunks : 0));
     return r;
   }
 
   /**
-   * Build a queued chunk entry and register the tick when its collision takes effect. Registered when the chunk is first needed (decided by load source positions),
+   * Build a queued chunk entry and register the tick when its collision takes effect. Registered when the chunk is first needed (decided by stream source positions),
    * not when actually sent to the worker (which depends on how busy the worker is) -- so the effect time depends on gameplay only.
    * Effect delay: ring 1, which the loading screen waits for, takes effect the moment play starts (lag 0); farther rings get more worker time, so on-the-spot generation is rarely needed
    */
@@ -127,9 +128,9 @@ export class ChunkManager {
     }
   }
 
-  /** sources: engine.load.list() (every load source; a source radius caps the view distance) */
+  /** sources: engine.stream.sources() (every stream source; a source radius caps the view distance) */
   update(sources, camera) {
-    const CH = this.T.CHUNK, V = this.viewDistance;
+    const CH = this.T.CHUNK, V = this.viewChunks;
     // centers are reused objects compared field by field: nothing is allocated on a frame where no source changed chunk
     const C = this.centers;
     let changed = C.length !== sources.length || this._wantFor[0] !== V || this._wantFor[1] !== this._ver;
@@ -293,6 +294,7 @@ export class ChunkManager {
     return true;
   }
 
+  /** @internal vegetation / settings plumbing */
   refreshLevels() { for (const c of this.chunks.values()) c.level = -1; }
 
   _dispose(c) {

@@ -2,22 +2,23 @@
 // the file summary, bracket pairing, top-level argument splitting, and "did you mean" suggestions.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { SKIP_DIRS } from '../paths.mjs';
+import { SKIP_DIRS, notGameSource } from '../paths.mjs';
 
 export const read = f => readFileSync(f, 'utf8');
 export const uniq = a => [...new Set(a)];
 
 /**
  * Files under d (sorted, recursive) whose name matches exts (default .js / .mjs). skip adds names to SKIP_DIRS;
- * skipDir(name, path) can veto more folders.
+ * skipDir(name, path) can veto more folders. In a game's own repo only the game's sources are listed (paths.mjs gameSources).
  */
-export function walk(d, { exts = /\.(js|mjs)$/, skip = [], skipDir } = {}, out = []) {
+export function walk(d, { exts = /\.(js|mjs)$/, skip = [], skipDir, start = d } = {}, out = []) {
   if (!existsSync(d)) return out;
   const no = new Set([...SKIP_DIRS, ...skip]);
   for (const f of readdirSync(d).sort()) {
     if (no.has(f)) continue;
-    const p = join(d, f);
-    if (statSync(p).isDirectory()) { if (!skipDir?.(f, p)) walk(p, { exts, skip, skipDir }, out); }
+    const p = join(d, f), dir = statSync(p).isDirectory();
+    if (notGameSource(p, start, dir)) continue;
+    if (dir) { if (!skipDir?.(f, p)) walk(p, { exts, skip, skipDir, start }, out); }
     else if (exts.test(p)) out.push(p);
   }
   return out;

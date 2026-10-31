@@ -17,4 +17,4 @@
 - None yet (write one as docs/plans/<feature>.md).
 
 **Done**
-- Project created with `npm run new-game`.
+- Project created from the threedog game template.

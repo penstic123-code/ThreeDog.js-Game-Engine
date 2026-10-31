@@ -1,6 +1,6 @@
 {
   "name": "threedog",
-  "version": "0.4.0",
+  "version": "0.1.0",
   "description": "Web 3D game engine on three.js for large low-poly worlds: core + modules + style packs, built to be driven by an AI",
   "license": "MIT",
   "repository": {
@@ -23,10 +23,6 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./styles/*": {
-      "types": "./styles/*/index.d.ts",
-      "default": "./styles/*/index.js"
-    },
     "./error-hints": "./core/errorHints.js",
     "./worker": {
       "types": "./types/worker.d.ts",
@@ -37,11 +33,11 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "presets.js",
     "core",
     "modules",
     "render",
     "ui",
-    "styles",
     "types",
     "docs",
     "examples",
@@ -65,9 +61,5 @@
     "@recast-navigation/three": "^0.44.0",
     "@types/three": "~0.187.0",
     "three-mesh-bvh": "^0.9.17"
-  },
-  "devDependencies": {
-    "@threedog/tools": "*",
-    "three": "^0.187.0"
   }
 }

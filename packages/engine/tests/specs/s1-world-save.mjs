@@ -53,7 +53,7 @@ export const specs = [
   },
   {
     name: 'S1 world data: content placed by level markers carries a zone; remove / move -> change level -> come back still removed / moved (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const W = engine.world, T = engine.THREE, m = engine.level.marker('npc_shopkeeper').position.clone();

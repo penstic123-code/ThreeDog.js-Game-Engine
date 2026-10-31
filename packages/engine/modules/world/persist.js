@@ -2,6 +2,8 @@
 //   Things written in content (props, pickups, NPCs…) are initial records: add(def, { initial: true }), which needs a stable id.
 //   A save only keeps "which fields changed" and "which were removed" (tombstones) for them; runtime-created ones (a tree the player planted, a spawned monster) are saved whole.
 //   Load: runtime records are replaced wholesale by the save's; initial records first go back to their original content, then the save's changes are applied; records removed in the save do not reappear.
+//   Orphans: a change or removal in the save whose id the content no longer produces (renamed / deleted entry) is kept in _pending / _removed and
+//   written back by the next save, never dropped, so reverting the content change gets the player's data back; dev warns once (world.orphans()).
 //   Loading before content is loaded works too: changes and removals are remembered and applied / skipped when content is added. Things newly added to content after a game update still show up with an old save.
 //   Temporary things (data for effects, one-off spawns): add(def, { save: false }) — not saved, cleared on load.
 //   Changes are found by comparing JSON against the original content, not by events: fields changed directly inside simulate are saved too.
@@ -60,6 +62,7 @@ export function saveWorld(w) {
 export function loadWorld(w, d) {
   w._v.clear();
   w.records.clear(); w._cells.clear(); w._unsaved.clear();
+  for (const id of [...w._origin.keys()]) if (!w._base.has(id)) w._origin.delete(id);   // runtime records come from the save now (no op to name)
   w._seq = d?.seq ?? 0;
   w._removed = new Set(d?.removed);
   w._pending = new Map(Object.entries(d?.changed || {}));

@@ -99,7 +99,7 @@ The batching bookkeeping itself costs about 0.46 ms/frame with 3000 batched obje
 |---|---|---|---|---|---|
 | Open world (`/`), before optimization | 7036 | 6778 | 0 | 4319 | terrain 4319 |
 | Open world (`/`), after optimization (median of 5) | 3067 | 2798 | 0 | 377 | rigid 2420 (Rapier download and initialization) |
-| Small city (`/city.html`), previous run | 2103 | 1866 | 0 | — | rigid 1863 (Rapier download and initialization) |
+| Small city (`/tests/city/index.html`), previous run | 2103 | 1866 | 0 | — | rigid 1863 (Rapier download and initialization) |
 | Open world, this run (perf.mjs) | 4392 | 4116 | 0 | 1281 | rigid 2834 |
 | Open world, this run (npm test "startup time") | 4057 | 3176 | 0 | 940 | rigid 2235 |
 | Small city, this run (perf.mjs / npm test) | 2470 / 3094 | 2246 / 1846 | 0 | — | rigid 1511 |

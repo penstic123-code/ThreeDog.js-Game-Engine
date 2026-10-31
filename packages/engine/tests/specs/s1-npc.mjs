@@ -40,7 +40,7 @@ export const specs = [
   },
   {
     name: 'S1 NPC: a repeated add overrides only the passed fields (zone is not reset) (city block)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         const W = engine.world, id = engine.npcs.get('店主').id, zone = W.get(id).zone, sched = W.get(id).schedule.length;
@@ -53,7 +53,7 @@ export const specs = [
   },
   {
     name: 'S1 NPC: switching level only removes the model; switching back keeps the NPC and its state (city block)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const W = engine.world, T = engine.THREE, npc = engine.npcs.get('店主');
@@ -66,7 +66,7 @@ export const specs = [
         await engine.level.load('s1-level2'); engine.step(0.2);
         const mid = { data: !!engine.npcs.get(id), model: !!npc.root, zone: W.zone, nearby: engine.describe().nearby.some(x => x.id === id) };
         await engine.level.load('city-block'); engine.step(0.2);
-        return { id, zone, mid, back: { data: !!engine.npcs.get(id), model: !!npc.root?.parent, mood: npc.data?.mood, zone: W.zone, count: engine.npcs.list.filter(n => n.name === '店主').length } };
+        return { id, zone, mid, back: { data: !!engine.npcs.get(id), model: !!npc.root?.parent, mood: npc.data?.mood, zone: W.zone, count: engine.npcs.list().filter(n => n.name === '店主').length } };
       });
       check('shopkeeper has a stable id (content key) and belongs to the current zone', r.id === 'shopkeeper' && r.zone === 'city-block', JSON.stringify(r));
       check('switch to another zone: data stays, model removed, describe does not list it', r.mid.data && !r.mid.model && r.mid.zone === 's1-level2' && !r.mid.nearby, JSON.stringify(r.mid));
@@ -123,6 +123,7 @@ export const specs = [
         engine.step(N, { render: false });
         const a = snap();
         await engine.saves.load('s1-det');
+        engine.world.refresh(); for (let i = 0; i < 100 && !engine.world.view('cabin'); i++) await null;   // a load rebuilds content views (the cabin template and its collider) in a few microtasks; wait for it as the next frame would
         engine.step(N, { render: false });
         const b = snap();
         const moved = Math.hypot(a.det[0] - A.x, a.det[2] - A.z);
@@ -237,7 +238,7 @@ export const specs = [
           engine.random.setSeed(3);
           for (let i = 0; i < 400; i++) make(i, 's1-pf' + i);
           engine.step(2, { render: false });
-          const list = engine.npcs.list.filter(n => n.character);
+          const list = engine.npcs.list().filter(n => n.character);
           let best = 1e9;
           for (let k = 0; k < 15; k++) {
             A._gridN = -1; const t = performance.now();

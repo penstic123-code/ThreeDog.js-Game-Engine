@@ -11,8 +11,10 @@
 //    Labels not in this form (e.g. 'timeline step') or types that cannot be resolved are skipped (the output shows the skip count).
 // B. Names destructured from function parameters (function f({ a, b = 1 })) never read in the function body → warning (dead parameter);
 //    only stored as this.x = x while nothing in the project (engine demo styles) reads .x → also a warning (catches things like NPC wander that are "declared but unused").
+// C. Retired option names (one word per meaning): an options interface field named padKeys / brakePadKeys (→ pad / brakePad), viewDistance
+//    (chunks → viewChunks) or range (a distance → radius) → error.
 // Limitation: A only understands known-key arrays resolvable in the same file (literals, ...constants, ...Object.keys(constant)); B ignores variable shadowing and cannot see reads in a game repo.
-import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, dtsProgram, abs, P } from './_lib.mjs';
+import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, dtsProgram, dtsFiles, abs, P } from './_lib.mjs';
 
 // Allowlist: [label, key, reason] (part A); [file, name, reason] (part B)
 const ALLOW_KEYS = [];
@@ -166,12 +168,27 @@ function partB(out) {
   }
 }
 
+const RETIRED = { padKeys: 'pad', brakePadKeys: 'brakePad', viewDistance: 'viewChunks', range: 'radius' };
+function partC(out) {
+  for (const f of dtsFiles()) {
+    const sf = parse(f);
+    visit(sf, n => {
+      if (!ts.isInterfaceDeclaration(n) || !/Options$/.test(n.name.text)) return;
+      for (const m of n.members) {
+        const k = m.name && m.name.getText();
+        if (k && Object.hasOwn(RETIRED, k)) out.push({ level: 'error', file: f, line: lineOf(m), msg: `${n.name.text}.${k} is a retired option name`, fix: `call it ${RETIRED[k]}` });
+      }
+    });
+  }
+}
+
 export default {
   id: 'R6', title: 'd.ts vs checkOptions table, dead parameters',
   run() {
     const out = [], stats = { matched: 0, skipped: [] };
     partA(out, stats);
     partB(out);
+    partC(out);
     out.note = `${stats.matched} checkOptions calls matched, ${stats.skipped.length} skipped because the label cannot be resolved to a d.ts type (add --verbose for the list)`;
     out.verbose = stats.skipped;
     return out;

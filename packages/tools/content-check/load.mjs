@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT, rel, abs, gameDirs, CONTENT_RULES_REL, STYLES_REL, ENGINE_PKG } from '../paths.mjs';
+import { ROOT, rel, abs, gameDirs, CONTENT_RULES_REL, STYLE_PKG_PREFIX, styleDir } from '../paths.mjs';
 
 // The engine's content vocabulary (path read from paths.mjs); content-check.mjs and gamemap.mjs also take mergeRules etc. from here
 const rules = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
@@ -66,17 +66,17 @@ export function dupKeys(src) {
 
 /**
  * Model names and level source a game uses (inferred statically from the game code):
- *   style        style pack name (main.js etc. import packages/engine/styles/<name>/), null if it cannot be inferred
+ *   style        style pack name (main.js etc. import @threedog/style-<name>), null if it cannot be inferred
  *   styleModels  model names in the style pack's models.js (a Set), null if there is no style pack
  *   manifest     model names registered by assets.manifest({ models: { name: … } })
  *   levelFile    the level is a file (level({ url })): markers are inside the .glb and cannot be read statically
  */
 export function gameSetup(dir, code) {
-  const style = code.match(/from\s+['"](?:\.\.\/)+styles\/([\w-]+)\//)?.[1] ?? code.match(new RegExp(`from\\s+['"]${ENGINE_PKG}/styles/([\\w-]+)['"/]`))?.[1] ?? null;
-  const modelsFile = style && join(abs(STYLES_REL), style, 'models.js');
+  const style = code.match(new RegExp(`from\\s+['"]${STYLE_PKG_PREFIX}([\\w-]+)['"/]`))?.[1] ?? null;
+  const modelsFile = style && join(styleDir(style), 'models.js');
   const styleModels = modelsFile && existsSync(modelsFile) ? new Set([...readFileSync(modelsFile, 'utf8').matchAll(/^ {2}(\w+):/gm)].map(m => m[1])) : style ? new Set() : null;
   const manifest = new Set();
-  for (const m of code.matchAll(/manifest\(\s*\{[\s\S]*?models:\s*\{([^}]*)\}/g)) for (const k of m[1].matchAll(/(?:^|,)\s*['"]?([\w\u4e00-\u9fff-]+)['"]?\s*:/g)) manifest.add(k[1]);
+  for (const m of code.matchAll(/manifest\(\s*\{[\s\S]*?models:\s*\{([^}]*)\}/g)) for (const k of m[1].matchAll(/(?:^|,)\s*['"]?([\w\u4e00-\u9fff-]+)['"]?\s*(?=[:,]|$)/g)) manifest.add(k[1]);
   const levelFile = /\blevel\(\s*\{[^}]*\burl\s*:/.test(code);
   return { style, styleModels, manifest, levelFile };
 }

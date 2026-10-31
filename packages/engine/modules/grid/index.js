@@ -11,12 +11,12 @@
 import { Grid } from './Grid.js';
 import { layerTiles } from './tiles.js';
 import { makePreview } from './preview.js';
-import { defineGridOps } from './ops.js';
+import { defineGridOps, placed } from './ops.js';
 import { checkOptions, closest, DEV } from '../../core/validate.js';
 
 const STRINGS = {
   dup: "grids.add('{name}'): a grid with this name exists",
-  noGrid: "grids.get('{name}'): no such grid{hint}. Grids: {list}",
+  noGrid: "grid '{name}': no such grid{hint}. Grids: {list}",
   noItem: "grid item '{name}' is not defined{hint}: engine.grids.define('{name}', { size: [1, 1] }). Defined: {list}",
   overlap: "[engine] grid '{grid}': {id} overlaps {other} at cell {cell}; the cell stays with {other}. Place things with engine.ops.run('grid.place', ...) / 'grid.move', which check can() first",
 };
@@ -30,6 +30,7 @@ const freeze = p => { Object.freeze(p.cell); Object.freeze(p.size); return Objec
  * const farm = engine.grids.add('farm', { cell: 1, origin: [0, 0], size: [16, 12] });
  * engine.grids.define('bed', { size: [2, 1], kind: 'furniture', fields: { model: 'bed' } });
  * engine.ops.run('grid.place', { grid: 'farm', item: 'bed', cell: [4, 4], rotation: 1 });
+ * @experimental
  */
 export class Grids {
   /** @internal */
@@ -59,18 +60,27 @@ export class Grids {
     return g;
   }
   /**
-   * A grid by name (throws with the names that exist; must = false returns undefined instead)
+   * A grid by name, or null when there is none
    * @param {string} name
-   * @param {boolean} [must]
-   * @returns {Grid}
+   * @returns {Grid | null}
    */
-  get(name, must = true) {
+  get(name) { return this._grids.get(name) ?? null; }
+  /** @internal A grid by name; throws with the names that exist */
+  _must(name) {
     const g = this._grids.get(name);
-    if (!g && must) throw new Error(fmt(STRINGS.noGrid, { name, hint: hint(name, [...this._grids.keys()]), list: [...this._grids.keys()].join(', ') || 'none' }));
-    return /** @type {Grid} */ (g);
+    if (!g) throw new Error(fmt(STRINGS.noGrid, { name, hint: hint(name, [...this._grids.keys()]), list: [...this._grids.keys()].join(', ') || 'none' }));
+    return g;
   }
-  /** All grids @returns {Grid[]} */
-  get list() { return [...this._grids.values()]; }
+  /**
+   * @internal The record a placement makes (kind + fields), the same math as the grid.place op; content uses it for pre-placed grid items (props entries with grid)
+   * @param {string} grid @param {string} item @param {[number, number]} cell @param {number} rotation
+   */
+  placement(grid, item, cell, rotation) {
+    const g = this._must(grid), rule = this._rule(item);
+    return { kind: rule.kind ?? item, fields: { ...structuredClone(rule.fields ?? {}), ...placed(g, rule, item, cell, rotation) } };
+  }
+  /** All grids (a new array) @returns {Grid[]} */
+  list() { return [...this._grids.values()]; }
   /**
    * Register what can be placed and its rules. size [w, d] in cells (default [1, 1]); kind of the world record (default the item name);
    * ground: allowed engine.groundType values; layer: { layerName: field } that must be truthy on every cell (reason 'not' + Field, e.g. notTilled);
@@ -96,7 +106,7 @@ export class Grids {
   }
   /**
    * Show where an item would go: the target cell under the pointer ('pointer', default), in front of the player ('front') or from your
-   * function, turned by the input action rotate (default 'rotate', R), green when can() passes, red otherwise (style.grid.ok / bad).
+   * function, turned by the input action rotate (default 'rotate', R), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
    * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
    * @example const pv = engine.grids.preview({ grid: 'farm', item: 'crop' });
    *   engine.onFrame(() => { if (engine.input.pointer.clicked) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); } });
@@ -168,7 +178,7 @@ export class Grids {
   }
   /** @internal engine.explain({ grid: { grid, item, cell, rotation } }) */
   _explain(q) {
-    const g = this.get(q?.grid, false);
+    const g = this.get(q?.grid);
     if (!g) return { ok: false, text: `no grid '${q?.grid}' (grids: ${[...this._grids.keys()].join(', ') || 'none'})` };
     const r = g.check(q.item, q.cell, { rotation: q.rotation ?? 0 });
     const head = `${q.item} at ${g.name} [${q.cell}] rotation ${q.rotation ?? 0}`;
@@ -182,6 +192,7 @@ export class Grids {
  * Grid placement module: installed as engine.grids. Needs world(). Adds the ops grid.place / grid.remove / grid.move and the save key 'grids' (layers).
  * @example engine.use(world(), grids())
  * @returns {import('../../types/core').ModuleDef<Grids>}
+ * @experimental
  */
 export function grids() {
   let G = null, offOps = null;

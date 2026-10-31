@@ -74,7 +74,7 @@ export class Clock {
    */
   restoreFnTimers(list) { this._set(this._timers.filter(t => t.event).concat(list.map(({ t, rem }) => Object.assign(t, { due: this.now + rem })))); }
 
-  /** Called by the engine every fixed step (after module hooks) */
+  /** @internal Called by the engine every fixed step (after module hooks) */
   tick(dt) {
     this.now += dt * this.timeScale;
     if (this._next <= this.now) this._runTimers();

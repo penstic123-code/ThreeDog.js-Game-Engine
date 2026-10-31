@@ -22,7 +22,7 @@ export const specs = [
         const a = snap();
         // play: change state, leave timers / listeners / background results behind
         const hits = { timer: 0, tracked: 0, commit: 0, every: 0 };
-        const W = fn => engine.ops._allowing(fn);   // a test writes state directly, outside ops
+        const W = fn => engine.ops.allow(fn);   // a test writes state directly, outside ops
         W(() => engine.vars.bump('s.gold', 99));
         engine.clock.after(3, () => hits.timer++);
         engine.clock.every(1, () => hits.every++);
@@ -58,7 +58,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const W = fn => engine.ops._allowing(fn);
+        const W = fn => engine.ops.allow(fn);
         await engine.session.newGame();
         W(() => engine.vars.bump('s.coins', 5));
         await engine.saves.save('checkpoint');
@@ -81,13 +81,13 @@ export const specs = [
   },
   {
     name: 'Save failure: a failed write returns false, shows an error and keeps the previous save (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     expectErrors: /failed to write slot/,   // the provoked write failures
     async run({ check, ev }) {
       const r = await ev(async () => {
         let v = 'old', got = null, saved = 0;
         engine.saves.register('sfail', { save: () => v, load: d => { got = d; } });
-        engine.events.on('save', () => saved++);
+        engine.events.on('save:written', () => saved++);
         await engine.saves.save('sf');
         const put = engine.saves.store.putSlot;
         engine.saves.store.putSlot = () => Promise.reject(new DOMException('quota', 'QuotaExceededError'));
@@ -101,7 +101,7 @@ export const specs = [
         engine.saves.store.putSlot = put;
         return { ok, saved: events, got, toast, listed: engine.saves.list().some(s => s.slot === 'brand-new'), ok2 };
       });
-      check('save() resolves false and no "save" event fires', r.ok === false && r.saved === 0, JSON.stringify(r));
+      check('save() resolves false and no "save:written" event fires', r.ok === false && r.saved === 0, JSON.stringify(r));
       check('the error is shown to the player', /存档失败|Save failed/.test(r.toast), r.toast);
       check('loading the slot gives the previous save', r.got === 'old', JSON.stringify(r));
       check('a slot whose first write failed is not listed', r.ok2 === false && !r.listed, JSON.stringify(r));
@@ -109,20 +109,20 @@ export const specs = [
   },
   {
     name: 'Save failure: corrupt and too-new saves are refused before anything changes, the stored save stays (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         let got = 'untouched';
         engine.saves.register('sver', { version: 2, migrate: { 1: d => d + '+m' }, save: () => 'x', load: d => { got = d; } });
         const tick0 = engine.commits.epoch;
         engine.saves._json.set('bad', 'not json');
-        const bad = engine.saves.load('bad');
+        const bad = await engine.saves.load('bad');
         const newer = JSON.stringify({ savedAt: 1, versions: { sver: 3 }, parts: { sver: 'from the future' } });
         engine.saves._json.set('newer', newer);
-        const nw = engine.saves.load('newer');
+        const nw = await engine.saves.load('newer');
         const old = JSON.stringify({ savedAt: 1, versions: { sver: 1 }, parts: { sver: 'v1' } });
         engine.saves._json.set('old', old);
-        const ol = engine.saves.load('old');
+        const ol = await engine.saves.load('old');
         return { bad, nw, got, ol, kept: engine.saves._json.get('newer') === newer, epoch: engine.commits.epoch - tick0,
           checks: [engine.saves.check('bad'), engine.saves.check('newer'), engine.saves.check('old'), engine.saves.check('nope')], versions: engine.saves.versions.sver };
       });
@@ -134,7 +134,7 @@ export const specs = [
   },
   {
     name: 'Window: losing focus holds gameplay, coming back resumes without a catch-up burst; pauseOnBlur false keeps playing (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     expectErrors: /WebGL context lost/,   // provoked on purpose
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -198,7 +198,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async (vol) => {
-        const re = new RegExp(vol), W = fn => engine.ops._allowing(fn);
+        const re = new RegExp(vol), W = fn => engine.ops.allow(fn);
         const flat = (o, p = '', out = {}) => {
           if (o && typeof o === 'object') { for (const k of Object.keys(o)) flat(o[k], p ? `${p}.${k}` : k, out); return out; }
           if (!re.test(p)) out[p] = o;

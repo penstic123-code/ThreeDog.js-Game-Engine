@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { copyPatches } from '../render/patches.js';
 
 const noRaycast = () => {};
-/** Layer a batched original is moved to: the camera does not draw it (nor its shadow), engine.raycaster still tests it */
+/** Layer a batched original is moved to: the camera does not draw it (nor its shadow), engine.rays still tests it */
 export const BATCH_LAYER = 31;
 const WHITE = new THREE.Color(1, 1, 1);
 const _m = new THREE.Matrix4(), _c = new THREE.Color();

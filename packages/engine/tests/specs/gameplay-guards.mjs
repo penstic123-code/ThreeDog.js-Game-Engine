@@ -1,4 +1,4 @@
-// Guards for the gameplay-module review fixes (docs/plans/review/gameplay.md). Same format as specs.mjs, appended at the end of it.
+// Guards for gameplay modules (inventory transfers, world anchor, interaction ids...). Same format as specs.mjs, appended at the end of it.
 
 export const specs = [
   {
@@ -6,7 +6,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const I = engine.inventory, W = fn => engine.ops._allowing(fn);
+        const I = engine.inventory, W = fn => engine.ops.allow(fn);
         I.define('g-sword', { name: 'sword', stack: 1 });
         const box = I.container('g-box', { capacity: 1 });
         W(() => { for (let i = 0; i < 3; i++) I.add('g-sword', 1, { data: { n: i }, silent: true }); });
@@ -36,7 +36,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const w = engine.world, W = fn => engine.ops._allowing(fn), out = {};
+        const w = engine.world, W = fn => engine.ops.allow(fn), out = {};
         const p = engine.player.position;
         w.simulate('g-near', { near: rec => { rec.hits = (rec.hits ?? 0) + 1; }, radius: 5 });
         W(() => w.add({ id: 'g-n1', kind: 'g-near', position: [p.x + 500, 0, p.z] }));
@@ -46,7 +46,7 @@ export const specs = [
         w.anchor = null;
         try { w.anchor = 'home'; out.badAnchor = 'no throw'; } catch (err) { out.badAnchor = err.message; }
         if (engine.grids) {
-          const g = engine.grids.get('g-l', false) ?? engine.grids.add('g-l', { cell: 1, origin: { x: 0, z: 0 }, size: [4, 4] });
+          const g = engine.grids.get('g-l') ?? engine.grids.add('g-l', { cell: 1, origin: { x: 0, z: 0 }, size: [4, 4] });
           const soil = g.layer('g-soil');
           W(() => soil.set([1, 1], { wet: true }));
           try { soil.get([1, 1]).wet = false; out.frozen = 'writable'; } catch { out.frozen = 'frozen'; }
@@ -56,7 +56,7 @@ export const specs = [
         return out;
       });
       const { openWorld, pickTarget } = await import('../../index.js');   // pure option checks: run here in node
-      try { openWorld({ vegetation: { density: 2 } }); r.veg = 'no throw'; } catch (err) { r.veg = err.message; }
+      try { openWorld({ camera: false, vegetation: { density: 2 } }); r.veg = 'no throw'; } catch (err) { r.veg = err.message; }
       try { pickTarget({ x: 0, z: 0 }, 0, [], { range: 5 }); r.range = 'no throw'; } catch (err) { r.range = err.message; }
       check('an [x, y, z] anchor simulates the records near it', r.nearHits > 5, JSON.stringify(r));
       check('a non-position anchor throws with the accepted forms', /world.anchor must be/.test(r.badAnchor), r.badAnchor);
@@ -70,14 +70,14 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const W = fn => engine.ops._allowing(fn), p = engine.player.position;
+        const W = fn => engine.ops.allow(fn), p = engine.player.position;
         engine.entities.define('g-box', { create: () => new engine.THREE.Group(), interact: { label: 'open', onUse: () => {} } });
         const ent = W(() => engine.entities.spawn('g-box', { position: { x: p.x + 1, z: p.z } }));
         const pick = W(() => engine.inventory.spawnPickup('film', { x: p.x - 1, z: p.z }, { id: 'g-film' }));
         engine.world.refresh(); engine.step(0.1);
         const ids = engine.interactions.items.map(i => i.id);
         let saved = 0;
-        const off = engine.events.on('save', () => saved++);
+        const off = engine.events.on('save:written', () => saved++);
         if (engine.flow) await engine.flow.transition(() => {}, { fade: 0.01 });
         off.remove();
         return { ent: ent.id, entIn: ids.includes(ent.id), pickIn: ids.includes(pick.worldId), npc: ids.some(id => engine.world.get(id)?.kind === 'npc'), npcs: engine.world.query({ kind: 'npc' }).length,

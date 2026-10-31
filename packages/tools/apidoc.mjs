@@ -53,7 +53,7 @@ for (const n of ['stateApplied', 'ready', 'player', 'scene',
 // ---------- Core objects ----------
 const CORE_OBJS = [['events', 'Events'], ['input', 'Input'], ['clock', 'Clock'], ['vars',
   'Vars'], ['saves', 'Saves'], ['assets', 'Assets'], ['audio', 'Audio'], ['i18n', 'I18n'],
-  ['raycaster', 'Raycast'], ['jobs', 'Jobs'], ['stream', 'Stream'], ['load', 'Load'], ['budget', 'Budget'], ['post', 'PostFX'], ['ground', 'Ground']];
+  ['rays', 'Rays'], ['jobs', 'Jobs'], ['stream', 'Stream'], ['budget', 'Budget'], ['post', 'PostFX'], ['ground', 'Ground']];
 idx.push('', '## Core objects (engine.xxx, no install needed)');
 for (const [p, t] of CORE_OBJS) {
   const d = docOf(get(t)).text;
@@ -158,11 +158,11 @@ for (const p of engProps) {
 
 // ---------- Style pack ----------
 {
-  const L = page('style', 'Style pack Style — createEngine({ style }), all the look (example: styles/lowpoly/index.js)');
+  const L = page('style', 'Style pack Style — createEngine({ style }), all the look (example: @threedog/style-lowpoly, packages/styles/lowpoly/index.js)');
   const { props } = split(get('Style'), 'Style');
   L.push('- **Style** fields (all optional):', ...fieldLines(props));
   L.push('', '## Sub-structures');
-  for (const s of ['StyleSky', 'StyleShadow', 'StyleWeather', 'StyleWater', 'StyleTerrain', 'StyleUI', 'StyleAmbience', 'MaterialSpec']) renderStruct(L, s);
+  for (const s of ['StyleSky', 'StyleShadow', 'StyleWeather', 'StyleWater', 'StyleTerrain', 'StyleUI', 'MaterialSpec']) renderStruct(L, s);
 }
 
 // ---------- Utility functions ----------

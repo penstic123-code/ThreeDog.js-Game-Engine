@@ -36,7 +36,7 @@ Add `recipes` to `content/index.js` like any other file. A file in `content/` th
 and so is `content.load({ enemies })` without the kind: both say how to register it. A kind may not reuse an engine file name.
 
 ## 2. actions.js: a game's own key actions
-Format of `content/actions.js`: **action name -> { keys: default keys, label: display text }**. Actions that engine modules bring along (move, jump, interact E, inventory I, quests J, photo P...) need not be written.
+Format of `content/actions.js`: **action name -> { keys: default keys, label: display text }**. Actions that engine modules bring along (move, inventory I, quests J, photo P...) need not be written; run, jump and interact are not core keys: they come from the game (`presets.player.*`, `interactions({ keys })`, this file or `createEngine({ bindings })`).
 ```js
 // content/actions.js
 export default {
@@ -49,7 +49,7 @@ Don't forget to add it to the exports in `content/index.js` (`export default { .
 
 **The engine does not perform the `save` / `load` actions for you**: they only register the keys; after the press you call the engine yourself in main.js. Saving and loading are async (`Promise<boolean>`): await them, and say "saved" only on `true` (on `false` the engine already showed why). Loading a slot to keep playing from it is `engine.session.load`, which leaves nothing of the current playthrough behind:
 ```js
-import { toast } from 'threedog';
+import { presets, toast } from 'threedog';
 engine.onFrame(async () => {
   if (engine.input.pressed('save') && await engine.saves.save('slot1')) toast(engine, '已存档');
   if (engine.input.pressed('load') && !(await engine.session.load('slot1'))) toast(engine, '还没有存档');
@@ -58,12 +58,12 @@ engine.saves.autosave(3);     // autosave to 'auto' every 3 minutes of play (wai
 ```
 
 ## 3. Interact keys: which object, and who acts
-`interactions()` decides what the interact key uses. Pick the rule that fits the camera, not the genre default:
+`interactions({ pick, keys })` decides what the interact key uses and which key that is; neither has a default (`[interaction-setup]` names the fix). Pick the rule that fits the camera, not the genre default:
 ```js
-engine.use(interactions());                          // 'nearest' within 2.5 m (top-down, third person)
-engine.use(interactions({ pick: 'facing' }));        // only what the actor faces (within 60°): the door behind you stays dark
-engine.use(interactions({ pick: 'aim', radius: 2 })); // closest to the screen-center ray: first person, shooters
-engine.use(interactions({ pick: (list, ctx) => list.find(c => c.id.startsWith('npc')) ?? list[0] }));   // own rule; list = enabled ones in range, nearest first
+engine.use(interactions({ ...presets.interactions.nearest }));                   // E, nearest within 2.5 m (top-down, third person)
+engine.use(interactions({ pick: 'facing', keys: ['KeyE'] }));  // only what the actor faces (within 60°): the door behind you stays dark
+engine.use(interactions({ pick: 'aim', keys: ['KeyF'], radius: 2 })); // closest to the screen-center ray: first person, shooters
+engine.use(interactions({ pick: (list, ctx) => list.find(c => c.id.startsWith('npc')) ?? list[0], keys: ['KeyE'] }));   // own rule; list = enabled ones in range, nearest first
 engine.interactions.pickMode = 'aim';                // switch at runtime (entering a first-person mode)
 ```
 One object with two verbs = two interactions with different key actions; each key picks among its own action, and `engine.interactions.options` lists one `{ action, id, label }` per key for a prompt that shows both:
@@ -103,7 +103,9 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
 ```
 - **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. When `save()` changes shape, raise `version` by 1 and add `migrate[oldVersion] = data => newData`; load runs the steps in order on a copy, so `load` only sees the current shape. A part from a newer build, or a missing step, refuses the whole load before anything changes.
 - **Parts nobody owns are kept**: a part in the loaded save whose module is not installed in this run (a feature turned off for a version) is written back unchanged on every save, and handed to the module if it registers later. Only a new game drops it.
-- **Stable ids, never positions**: saved data names things by stable ids. The world part keys records by id and stores only what play changed (`records`: records created during play, whole; `changed`: fields of content records that differ; `removed`: content records removed; `owed`: seconds owed, only for kinds simulated with `far`). The player's vehicle is saved by `rigid.addVehicle(mesh, { id })`; quest progress by step ids (`steps: [{ id: 'talk-mayor', ... }]`, recipe 04). Content edits (a new step, a new prop) then never shift an old save.
+- **Authored baseline + per-id diff**: everything placed in a level comes from content (props, template instances, pickups, NPCs, grid items in `props`, level-model nodes tagged `template` / `id`) with a stable id, and the world part stores only what play changed on top of it, keyed by id: `changed` (fields of an authored record that differ), `removed` (authored records removed), `records` (records created during play, such as `content.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same world, and a new game's world part is empty: in dev, start warns about records that code created or changed before it, naming them.
+- **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written back, never dropped, so reverting the content change gets the data back. Dev warns once with the closest id; `describe().world.orphans` lists them.
+- **Stable ids, never positions**: saved data names things by stable ids. The player's vehicle is saved by `rigid.addVehicle(mesh, { id })`; quest progress by step ids (`steps: [{ id: 'talk-mayor', ... }]`, recipe 04). Content edits (a new step, a new prop) then never shift an old save.
 - **Built-in part versions**: `world` 2 (version 1 kept `records` as an array), `quests` 2 (version 1 kept step positions; the migrate step maps them to ids through the quest definitions), every other part 1.
 - The export file wraps the envelope: `{ threedog: 'save', format: 1, game, slot, savedAt, data: <envelope>, files: [{ group, id, at, meta, type, url: 'data:...' }] }`.
 - Tests: `npm test -- "Save failure"`.

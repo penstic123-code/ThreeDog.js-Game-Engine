@@ -5,13 +5,13 @@
 //
 //   import { createEngine, terrain, vegetation, sky, weather, water, collision, rigid,
 //            followCamera, characters, interactions, dialogue, inventory, quests, photo, ambience, debug } from 'threedog';
-//   import lowpoly from 'threedog/styles/lowpoly';
+//   import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';   // optional: the engine itself ships no art and no terrain generator
 //
-//   const engine = createEngine({ canvas, style: lowpoly });
-//   engine.use(terrain({ seed: 7 }), vegetation(), sky(), weather(), water(), collision(), followCamera(), characters());
+//   const engine = createEngine({ canvas, style: lowpoly });   // without a style pack: neutral gray placeholders
+//   engine.use(terrain({ seed: 7, ...terrainPreset() }), vegetation(), sky(), weather(), water(), collision(), followCamera(), characters());
 //   engine.start();
 //
-// Or install the usual open-world set at once with a preset: engine.use(openWorld({ seed: 7 }))
+// Or install the usual open-world set at once with a preset: engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset() }))
 import * as THREE from 'three';
 import { Engine } from './core/Engine.js';
 import { terrain } from './modules/terrain/index.js';
@@ -40,28 +40,29 @@ import { firstPersonCamera, fixedCamera, rtsCamera } from './modules/camera/inde
 import { timeline } from './modules/timeline/Timeline.js';
 import { nav } from './modules/nav/index.js';
 import { hlod } from './modules/hlod/index.js';
+import { lightPool } from './modules/lights/index.js';
 import { content } from './modules/content/index.js';
 import { flow } from './modules/flow/index.js';
 import { hud } from './modules/hud/index.js';
 import { world } from './modules/world/index.js';
 import { grids } from './modules/grid/index.js';
 import { checkOptions, DEV } from './core/validate.js';
+import { codedError } from './core/errorHints.js';
 
 // Engine and Animator are exported for types and instanceof; make them with createEngine / engine.assets.animate (AI.md entry-point table)
 export { THREE, Engine };
 export { Animator } from './core/Animator.js';
 export { terrain, vegetation, sky, weather, water, collision, rigid, followCamera, characters, interactions, dialogue, inventory, quests, photo, ambience, debug,
-  level, triggers, entities, particles, settings, music, firstPersonCamera, fixedCamera, rtsCamera, timeline, nav, hlod, content, flow, hud, world, grids };
+  level, triggers, entities, particles, settings, music, firstPersonCamera, fixedCamera, rtsCamera, timeline, nav, hlod, lightPool, content, flow, hud, world, grids };
 export { net, fakeNetwork, webSocket } from './modules/net/index.js';
 export { screenToGround } from './core/screenToGround.js';
 export { EASINGS, ease } from './core/easing.js';
 export { checkOptions };   // for game-made modules (recipes/14): the package exposes no core/* deep paths
-export { createTerrain, BIOMES } from './modules/terrain/index.js';
+export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
-export { WEATHER_PRESETS } from './modules/weather/Weather.js';
+export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself
 export { terrainMaterial, mergeColored, applyEffects, makeMaterial, MATERIAL_PURPOSES } from './render/materials.js';
 export { materialPatches } from './render/patches.js';
-export { row, toggle, range, segmented } from './modules/settings/index.js';
 export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './ui/UI.js';
 export { parseClock, formatClock, inRange } from './core/dayTime.js';
 export { pickTarget, switchTarget } from './core/targeting.js';
@@ -73,31 +74,33 @@ export function createEngine(opts) { return new Engine(opts); }
  * Open-world preset: covers only "world and environment" plus the basics every game needs:
  *   world, terrain, vegetation, sky, weather, water, collision, rigid, camera, characters, ambience, settings, debug (debug only in dev builds).
  * Gameplay modules (interactions, dialogue, inventory, quests, photo mode, timeline, trigger zones, entities, particles, music, markers...) are not included:
- *   engine.use(openWorld({ seed: 7 }), interactions(), dialogue(), inventory(), quests());
+ *   engine.use(openWorld({ seed: 7, camera: 'follow' }), interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests());
  * Every part takes false (leave it out) or an object (that module's own options), so the preset never has to be abandoned for one setting:
- *   openWorld({ seed: 7, sky: { daysPerSeason: 28 }, characters: { npcs: false }, rigid: false, ambience: false })
- * Shorthands still work and go to their module: seed / viewDistance / density / flatten → terrain, time / dayLength → sky,
+ *   openWorld({ seed: 7, camera: 'follow', sky: { seasons: ['wet', 'dry'], daysPerSeason: 28 }, characters: { npcs: false }, rigid: false, ambience: false })
+ * Shorthands still work and go to their module: seed / viewChunks / density / flatten → terrain, time / dayLength → sky,
  *   weather: 'rain' (starting weather) and autoWeather → weather. An object for the same module wins over the shorthand.
  * debug: installed only in dev builds by default (players of a release build get no F3 panel); true installs it in release builds too.
- * Camera: camera picks 'follow' (default) / 'firstPerson' / 'rts' / 'fixed', a camera module with options, or false:
+ * Camera (required: the bundle picks no camera feel for the game): 'follow' / 'firstPerson' / 'rts' / 'fixed', a camera module with options, or false:
  *   engine.use(openWorld({ seed: 7, camera: followCamera({ shoulder: 0.7, distance: 3 }) }));
  * Switch at runtime: engine.setCamera('firstPerson') (see recipes/21-camera.md).
- * @param {{ camera?: 'follow' | 'firstPerson' | 'rts' | 'fixed' | false | import('./types/core').ModuleDef, [k: string]: any }} [opts]
+ * @param {{ camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | false | import('./types/core').ModuleDef, [k: string]: any }} opts
  */
 const CAMERAS = { follow: followCamera, firstPerson: firstPersonCamera, rts: rtsCamera, fixed: fixedCamera };
 const OPEN_WORLD_PARTS = { world, terrain, vegetation, sky, weather, water, collision, rigid, characters, ambience, settings, debug };
-const OPEN_WORLD_SHORT = ['seed', 'viewDistance', 'density', 'flatten', 'time', 'dayLength', 'autoWeather', 'camera'];
+const OPEN_WORLD_SHORT = ['seed', 'viewChunks', 'density', 'flatten', 'time', 'dayLength', 'autoWeather', 'camera'];
 const OW_ERR = { camera: 'openWorld(): camera has no kind \'{k}\'; available: {list}, or pass a camera module (e.g. rtsCamera({ height: 60 })) or false',
+  noCamera: "openWorld(): no camera given; pick one: openWorld({ camera: 'follow' }) (or 'firstPerson' / 'rts' / 'fixed', a camera module such as followCamera(presets.camera.overShoulder), or false for none)",
   part: 'openWorld(): {k} must be false (leave it out), true or an options object, e.g. openWorld({ {k}: false }); got {got}',
   noOpts: 'openWorld(): {k} takes no options, only true / false; got {got}. {hint}' };
 // parts whose module takes no options: an options object would be dropped silently, so it throws and points to where the setting lives
 const NO_OPTIONS = { vegetation: 'How much vegetation grows is a terrain setting: openWorld({ density: 1.5 }) or terrain({ density }); the species come from content vegetation / the style pack.' };
 export function openWorld(opts = {}) {
   checkOptions('openWorld()', opts, [...OPEN_WORLD_SHORT, ...Object.keys(OPEN_WORLD_PARTS)]);
-  const { seed, viewDistance, density, flatten = [], time, dayLength, autoWeather = false, camera = 'follow' } = opts;
+  const { seed, viewChunks, density, flatten = [], time, dayLength, autoWeather = false, camera } = opts;
+  if (camera === undefined) throw codedError('open-world-camera', OW_ERR.noCamera);   // no default camera feel: the game names one (genericity rule)
   if (typeof camera === 'string' && !CAMERAS[camera]) throw new Error(OW_ERR.camera.replace('{k}', camera).replace('{list}', Object.keys(CAMERAS).join(', ')));
   const w = opts.weather;
-  const short = { terrain: { seed, viewDistance, density, flatten }, sky: { time, dayLength }, weather: { start: typeof w === 'string' ? w : 'clear', auto: autoWeather } };
+  const short = { terrain: { seed, viewChunks, density, flatten }, sky: { time, dayLength }, weather: { start: typeof w === 'string' ? w : undefined, auto: autoWeather } };   // no start: weather() picks one from the game's table
   const part = k => {
     const v = opts[k];
     if (v === false || (k === 'debug' && v === undefined && !DEV)) return null;

@@ -24,12 +24,14 @@ const NONE = Object.freeze([]);
 const OWN_FIELDS = ' (put your own fields in data: { ... })';
 
 export class Dialogue {
-  constructor(engine, { charsPerSecond = 40, advanceActions = ['confirm', 'interact'], choiceKeys = true, holdSeconds = 2 } = {}) {
+  constructor(engine, { charsPerSecond = 40, advanceActions, choiceKeys = true, holdSeconds = 2 } = {}) {
     this.engine = engine;
     this.scripts = new Map();
     this.state = { get flags() { return engine.vars.flags; } };   // story flags = engine.vars.flags (autosaved)
     this.cps = charsPerSecond;
-    this.advanceActions = advanceActions;
+    // default: confirm, plus interact when the game bound one (interact is not a core key any more, so it is only used if it exists)
+    /** @internal */ this._advDefault = advanceActions === undefined;
+    this.advanceActions = advanceActions ?? ['confirm', 'interact'];
     this.holdSeconds = holdSeconds;
     this.choiceKeys = choiceKeys;
     this.active = null;
@@ -166,7 +168,7 @@ export class Dialogue {
     }
     if (a.focus.fresh) return;   // just opened this frame: the key press that opened it (E) does not advance
     const input = this.engine.input, P = { source: 'player' };
-    if (this.advanceActions.some(x => input.pressedRaw(x))) ops.run('dialogue.advance', {}, P);
+    if (this.advanceActions.some(x => (!this._advDefault || input.actions.has(x)) && input.pressedRaw(x))) ops.run('dialogue.advance', {}, P);
     if (this.choiceKeys) for (let i = 1; i <= 9; i++) if (input.pressedRaw('choice' + i) && this.active && this._visible()[i - 1]) ops.run('dialogue.choose', { index: i - 1 }, P);
   }
 }

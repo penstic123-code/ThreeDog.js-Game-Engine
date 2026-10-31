@@ -9,7 +9,7 @@ const setup = () => {
   const H = window.TE = {
     async make(threads, opts = {}, key = 'te') {
       const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads, urlState: false, saveKey: key + threads });
-      E.use(terrain({ seed: 7, viewDistance: 2, ...opts }), vegetation(), collision());
+      E.use(terrain({ seed: 7, viewChunks: 2, ...opts }), vegetation(), collision());
       E.vegetation.add('tree', { geometry: new THREE.ConeGeometry(1, 3, 5), rule: { perChunk: 1500, collider: 0.4, minHeight: -99, maxHeight: 999, maxSlope: 99 } });
       E.ops.define('test.edit', { args: { x: 'number', z: 'number', o: 'any' }, run: (e, a) => e.terrain.edit({ x: a.x, z: a.z }, a.o) });
       await E.start();
@@ -78,7 +78,7 @@ export const specs = [
         A.ops.run('test.edit', { x: P.x, z: P.z, o: { radius: 6, raise: 5 } });
         A.ops.run('test.edit', { x: Q.x, z: Q.z, o: { shape: 'square', radius: 2, paint: 'wet' } });
         out.wet = A.groundType(Q.x, Q.z); out.raised = A.surface(P.x, P.z);
-        A.ops._allowing(() => A.saves.apply(JSON.parse(JSON.stringify(save))));
+        A.ops.allow(() => A.saves.apply(JSON.parse(JSON.stringify(save))));
         out.h2 = A.surface(P.x, P.z); out.mesh2 = T.vtx(A, P.x, P.z); out.type2 = A.groundType(Q.x, Q.z);
         out.goneA = await T.away(A, P); out.goneB = await T.away(B, P);
         out.h3 = A.surface(P.x, P.z); out.mesh3 = T.vtx(A, P.x, P.z); out.meshB = T.vtx(B, P.x, P.z); out.treesBack = T.trees(B, P.x, P.z, 3);

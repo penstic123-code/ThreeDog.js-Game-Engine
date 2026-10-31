@@ -5,7 +5,7 @@ export function parseClock(v, hoursPerDay = 24) {
   const [h, m = 0] = String(v).split(':').map(Number);
   return (h + m / 60) / hoursPerDay;
 }
-/** Is time t (0-1) inside the window [from, to)? (from and to are 'HH:MM' or 0-1; from > to wraps past midnight). sky.between and music's when.time both use it */
+/** Is time t (0-1) inside the window [from, to)? (from and to are 'HH:MM' or 0-1; from > to wraps past midnight). sky.between and the audio rule condition { time: [from, to] } both use it */
 export function inRange(t, from, to, hoursPerDay = 24) { return inFrac(t, parseClock(from, hoursPerDay), parseClock(to, hoursPerDay)); }
 export const inFrac = (t, a, b) => (a <= b ? t >= a && t < b : t >= a || t < b);
 /** Fraction of a day 0-1 -> 'HH:MM' */

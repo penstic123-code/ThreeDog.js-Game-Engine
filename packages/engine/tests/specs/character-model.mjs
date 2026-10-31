@@ -10,8 +10,9 @@ export const specs = [
       await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
       const r = await ev(async () => {
         engine.pause();
-        const { Character } = engine.characters, A = engine.assets, style = engine.style.character ??= {};
-        A.manifest({ models: { king2: A.entries.get('king').url, broken: new URL('/tests/anim/public/broken.glb', location.href).href } }, { name: 'character-model-spec' });
+        const { Character } = window, A = engine.assets, style = engine.style.character ??= {};
+        const kingUrl = A.entries.get('king').url;   // king is already loaded by the page; king3 / king4 are fresh (uncached) names for the placeholder sections
+        A.manifest({ models: { king2: kingUrl, king3: kingUrl + '?spec=3', king4: kingUrl + '?spec=4', broken: new URL('/tests/anim/public/broken.glb', location.href).href } }, { name: 'character-model-spec' });
         const events = []; engine.events.on('character:model', ({ character }) => events.push(character));
         const make = o => { const c = new Character(engine, o).addTo(); c.placeAt({ x: 2, z: 0 }); engine.onFrame(dt => c.animate(dt)); return c; };
         const hasModel = c => !!c.root.children.find(o => o.userData.animations?.length);
@@ -20,7 +21,7 @@ export const specs = [
         // console.warn captured over the whole run; only the broken-model warnings are checked (section 5)
         const { warns } = await __t.warns(async () => {
           // 1. style default: placeholder now, swapped later, idle plays; position and facing kept
-          const before = style.model; style.model = 'king';
+          const before = style.model; style.model = 'king3';
           const a = make({}); a.face(1.2);
           out.pending = { ready: a.ready, anim: !!a.anim, rig: !!a.root.children.length, model: hasModel(a) };
           await a.whenReady; engine.step(0.3);
@@ -31,9 +32,11 @@ export const specs = [
           out.override = { king2: A.users('king2') - u0, model: hasModel(b) };
 
           // 3. removed before loading finished: nothing reaches the scene, the copy is released
-          const kingUsers = A.users('king'), sceneCount = () => { let n = 0; engine.scene.traverse(o => { if (o.userData.animations?.length) n++; }); return n; };
+          style.model = 'king4';
+          const kingUsers = A.users('king4'), sceneCount = () => { let n = 0; engine.scene.traverse(o => { if (o.userData.animations?.length) n++; }); return n; };
           const n0 = sceneCount(), d = make({}); d.dispose(); await d.whenReady; engine.step(0.1);
-          out.early = { added: sceneCount() - n0, users: A.users('king') - kingUsers, anim: d.anim, inScene: !!d.root.parent };
+          out.early = { added: sceneCount() - n0, users: A.users('king4') - kingUsers, anim: d.anim ?? null, inScene: !!d.root.parent };
+          style.model = 'king';
 
           // 4. unknown name throws at once with the registered names
           try { new Character(engine, { model: 'kng' }); out.unknown = 'no throw'; } catch (err) { out.unknown = err.message; }

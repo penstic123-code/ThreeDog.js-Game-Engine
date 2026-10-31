@@ -7,7 +7,7 @@ export const specs = [
     name: 'Containers: create / add / remove / slots across stacks / transfer / events / errors; limits default to none',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
-      const r = await ev(() => engine.ops._allowing(() => {   // direct container calls are setup here; the guard has its own test
+      const r = await ev(() => engine.ops.allow(() => {   // direct container calls are setup here; the guard has its own test
         const I = engine.inventory;
         I.define('rock', { name: '石头', stack: 5 }).define('stick', { name: '木棍' }).define('rag', { name: '布' });
         const log = [], chest = I.container('chest-1', { capacity: 3 });
@@ -101,7 +101,7 @@ export const specs = [
     name: 'Containers: when an add does not fit (slots / weight), DEV warns with the reason and fix; partial fit returns the key',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
-      const r = await ev(async () => { const { value, warns } = await __t.warns(() => engine.ops._allowing(() => {
+      const r = await ev(async () => { const { value, warns } = await __t.warns(() => engine.ops.allow(() => {
         const I = engine.inventory;
         I.define('coin2', { name: '金币' }).define('gem', { name: '宝石', stack: 5 }).define('ore', { name: '矿', weight: 3 });
         const box = I.container('tiny', { capacity: 1 }); const part = box.add('gem', 7), noSlot = box.add('coin2');
@@ -145,7 +145,7 @@ export const specs = [
       const r = await ev(async s => {
         const I = engine.inventory, S = new Function('return ' + s)();
         S();
-        engine.ops._allowing(() => I.add('gold', 12, { silent: true }));   // test setup, not a gameplay action
+        engine.ops.allow(() => I.add('gold', 12, { silent: true }));   // test setup, not a gameplay action
         const D = engine.dialogue, snap = () => ({ gold: I.count('gold'), bag: I.count('bread'), shelf: I.container('shop-bakery').count('bread'), opts: D._opts?.length });
         const pick = i => { D._finishTyping(); engine.ops.run('dialogue.choose', { index: i }, { source: 'test' }); D._finishTyping(); return snap(); };   // i-th visible choice
         D.start('baker'); D._finishTyping();
@@ -178,7 +178,7 @@ export const specs = [
         const I = engine.inventory, rows = c => c.list().map(e => [e.key, e.id, e.count, e.data ?? null]);
         return JSON.stringify({ bag: rows(I.bag), rack: rows(I.container('rack')) });
       };
-      const a = await ev(async s => engine.ops._allowing(async () => {
+      const a = await ev(async s => engine.ops.allow(async () => {
         const I = engine.inventory;
         I.define('sword', { name: '剑', stack: 1 }).define('tomato', { name: '番茄', stack: 20 });
         const k1 = I.add('sword', 1, { data: { durability: 80, level: 3 } }), k2 = I.add('sword', 1, { data: { level: 3, durability: 80 } }), k3 = I.add('sword');
@@ -201,7 +201,7 @@ export const specs = [
         const I = engine.inventory; I.define('sword', { name: '剑', stack: 1 }).define('tomato', { name: '番茄', stack: 20 });
         const ret = engine.saves.load('single'); if (ret?.then) await ret;
         const snap = new Function('return ' + s)()();
-        const fresh = engine.ops._allowing(() => I.add('sword', 1, { data: { durability: 1 } }));
+        const fresh = engine.ops.allow(() => I.add('sword', 1, { data: { durability: 1 } }));
         return { snap, fresh, keys: I.list().map(e => e.key) };
       }, '' + snap);
       check('[守] save -> reload -> load: every entry, key and data identical', b.snap === a.snap, b.snap + ' vs ' + a.snap);
@@ -215,7 +215,7 @@ export const specs = [
       const r = await ev(async () => {
         const I = engine.inventory, warns = [], orig = console.warn;
         I.define('axe', { name: '斧', stack: 1 });
-        const k = engine.ops._allowing(() => I.add('axe', 1, { data: { durability: 50 } }));
+        const k = engine.ops.allow(() => I.add('axe', 1, { data: { durability: 50 } }));
         I.container('shed');
         console.warn = (...a) => { warns.push(String(a[0])); };
         await new Promise(res => setTimeout(() => { I.setData(k, { durability: 49 }); I.transfer('player', 'shed', k); res(); }, 0));   // the misuse under test
@@ -236,7 +236,7 @@ export const specs = [
         const I = engine.inventory, used = [];
         engine.events.on('item:use', e => used.push(e.item + ':' + (e.data?.hp ?? '')));
         I.define('potion', { name: '药', stack: 9, consume: true, use: () => {} }).define('stone', { name: '石' }).define('blade', { name: '刃', stack: 1 }).define('coin', { name: '币' });
-        const bk = engine.ops._allowing(() => { I.add('potion', 2, { silent: true }); I.add('stone', 3, { silent: true }); return I.add('blade', 1, { data: { sharp: 7 }, silent: true }); });
+        const bk = engine.ops.allow(() => { I.add('potion', 2, { silent: true }); I.add('stone', 3, { silent: true }); return I.add('blade', 1, { data: { sharp: 7 }, silent: true }); });
         engine.ui.set('inventory', { drop: true });
         const opened = engine.ui.open('inventory');
         const el = document.querySelector('.threedog-win-inventory'), rows = el?.querySelectorAll('.threedog-row').length, entries = I.list().length;
@@ -275,7 +275,7 @@ export const specs = [
       const r = await ev(() => {
         engine.inventory.container('box');
         const opened = engine.ui.open('inventory');
-        engine.ops._allowing(() => engine.inventory.add('film', 2, { silent: true }));
+        engine.ops.allow(() => engine.inventory.add('film', 2, { silent: true }));
         const t = engine.ops.run('inventory.transfer', { from: 'player', to: 'box', item: 'film', n: 2 });
         return { opened, dom: !!document.querySelector('.threedog-win-inventory'), isOpen: engine.ui.isOpen('inventory'), moved: t.value, ui: engine.ui.describe().inventory };
       });

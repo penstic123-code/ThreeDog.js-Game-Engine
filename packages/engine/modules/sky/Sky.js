@@ -1,9 +1,11 @@
 // Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional light, hemisphere ambient light and fog, all driven by time.
 // Look (per-time colors, sun size, star density...) comes from style.sky in the style pack; the engine only holds neutral fallbacks.
 //
-// engine.use(sky({ time: 0.3, dayLength: 360, daysPerSeason: 7 }));
+// engine.use(sky({ time: 0.3, dayLength: 360 }));
 // engine.sky.timeOfDay = 0.75;  engine.clock.timeScale = 10;  engine.sky.clock  // "18:00"
-// Calendar: engine.sky.day (1-based), season ('spring'...), seasonProgress (0-1), dayOfSeason; events day:new, season:change
+// Calendar: engine.sky.day (1-based); event day:start. Seasons are the game's choice and off by default (a soulslike or a shooter has none):
+//   sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 }), or each with its own length: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }];
+//   then season, seasonProgress (0-1), dayOfSeason and the season:change event. A time of day that never moves (dungeon, space, arena): sky({ dayLength: Infinity })
 // Season tint: style pack seasons = { spring: { foliage: 0xffffff, ground: 0xffffff }, autumn: { foliage: 0xffb070 }, ... }, blended smoothly at season changes
 // Clouds: style pack sky.clouds = { color, shade, coverage: 1, scale: 0.35, speed: [x, z] } (coverage follows weather)
 // three.js objects: engine.sky.sun (DirectionalLight; moonlight at night, shadows live on it), hemi (HemisphereLight ambient), dome (dome Mesh),
@@ -18,13 +20,18 @@ import { shadowMethods, shadowFor } from './shadow.js';
 import { layerMethods, blankLayer } from './layers.js';
 import { updateSky, watchOwned } from './frame.js';
 import { checkOptions } from '../../core/validate.js';
-import { parseClock, formatClock } from '../../core/dayTime.js';
+import { parseClock, formatClock, inRange } from '../../core/dayTime.js';
 import { Schedule } from './schedule.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Vector3 } from '../../types/common' */
 /** @import { SkyOptions, SkyModifiers, SkyLayer, SkyAtOptions, SkyBetweenOptions } from '../../types/world' */
 /** @import { Handle } from '../../types/common' */
 /** @import { StyleShadow } from '../../types/style' */
+const STRINGS = {
+  badDayLength: 'sky({ dayLength }): game seconds per day must be a number > 0 (Infinity = the time of day never moves); got {got}',
+  badSeasons: "sky({ seasons }): a list of names (each daysPerSeason days long) or of { name, days } with days >= 1, [] for none; got {got}",
+  noSeason: "sky.onSeason('{name}'): the calendar has no such season (seasons: {list}). Seasons are off by default: sky({ seasons: ['spring', 'summer', 'autumn', 'winter'] })",
+};
 // Options sky() accepts: calendar + look overrides of style pack style.sky
 const SKY_OPTIONS = ['time', 'dayLength', 'day', 'daysPerSeason', 'seasons', 'keyframes', 'groundTint', 'sunSize', 'sunGlow', 'sunBrightness', 'moonBrightness',
   'moonSize', 'moonColor', 'clouds', 'starDensity', 'starScale', 'gradientCurve', 'skybox', 'shadow', 'orbitTilt', 'orbitSway', 'hoursPerDay'];
@@ -32,19 +39,29 @@ const SKY_OPTIONS = ['time', 'dayLength', 'day', 'daysPerSeason', 'seasons', 'ke
 /** engine.sky */
 export class Sky {
   /** @internal */
-  constructor(engine, { time = 0.33, dayLength = 360, day = 1, daysPerSeason = 7, seasons = ['spring', 'summer', 'autumn', 'winter'], ...over } = {}) {
+  constructor(engine, { time = 0.33, dayLength = 360, day = 1, daysPerSeason = 7, seasons = [], ...over } = {}) {
     /** @internal */ this.engine = engine;
     const st = { ...(engine.style.sky || {}), ...over };
     /** Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed @type {number} */
     this.timeOfDay = time;
-    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds) @type {number} */
+    if (!(dayLength > 0)) throw new Error(STRINGS.badDayLength.replace('{got}', String(dayLength)));
+    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never moves @type {number} */
     this.dayLength = dayLength;
     /** Day number (1-based) @type {number} */
     this.day = day;
-    /** Days per season @type {number} */
+    /** Days per season for seasons given by name only @type {number} */
     this.daysPerSeason = daysPerSeason;
-    /** Season names @type {string[]} */
-    this.seasons = seasons;
+    if (!Array.isArray(seasons)) throw new Error(STRINGS.badSeasons.replace('{got}', JSON.stringify(seasons)));
+    /** Season names, [] when the game has no seasons (the default) @type {string[]} */
+    this.seasons = [];
+    // kept as names plus the day each season ends (cumulative), so seasons of different lengths cost one short loop in the getters
+    /** @internal */ this._ends = [];
+    let end = 0;
+    for (const x of seasons) {
+      const name = typeof x === 'string' ? x : x?.name, days = typeof x === 'string' ? daysPerSeason : x?.days;
+      if (typeof name !== 'string' || !(days >= 1)) throw new Error(STRINGS.badSeasons.replace('{got}', JSON.stringify(x)));
+      this.seasons.push(name); this._ends.push(end += days);
+    }
     /** @internal */ this.seasonStyle = engine.style.seasons || null;
     /** @internal */ this._season = this.season;
     /** @internal */ this._sched = new Schedule(this);
@@ -129,14 +146,21 @@ export class Sky {
   get daylight() { return Math.max(0, this.sunHeight); }
 
   // ---------- Calendar ----------
-  /** Current season index */
-  get seasonIndex() { return Math.floor((this.day - 1) / this.daysPerSeason) % this.seasons.length; }
-  /** Current season name, e.g. 'spring' */
-  get season() { return this.seasons[this.seasonIndex]; }
-  /** Day within the season (1-based) */
-  get dayOfSeason() { return ((this.day - 1) % this.daysPerSeason) + 1; }
-  /** Fraction of the season elapsed, 0-1 (includes time of day) */
-  get seasonProgress() { return (((this.day - 1) % this.daysPerSeason) + this.timeOfDay) / this.daysPerSeason; }
+  /** Current season index, -1 without seasons */
+  get seasonIndex() {
+    const n = this._ends.length;
+    if (!n) return -1;
+    const d = (this.day - 1) % this._ends[n - 1];
+    let i = 0;
+    while (d >= this._ends[i]) i++;
+    return i;
+  }
+  /** Current season name, e.g. 'spring'; null without seasons @type {string | null} */
+  get season() { return this.seasons[this.seasonIndex] ?? null; }
+  /** Day within the season (1-based); 0 without seasons */
+  get dayOfSeason() { const i = this.seasonIndex; return i < 0 ? 0 : (this.day - 1) % this._ends[this._ends.length - 1] - (this._ends[i - 1] ?? 0) + 1; }
+  /** Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons */
+  get seasonProgress() { const i = this.seasonIndex; return i < 0 ? 0 : (this.dayOfSeason - 1 + this.timeOfDay) / (this._ends[i] - (this._ends[i - 1] ?? 0)); }
   /** Total game time in days (fractional), for growth, cooldowns and the like */
   get totalDays() { return this.day - 1 + this.timeOfDay; }
 
@@ -144,12 +168,13 @@ export class Sky {
    * Advance time (called by the module every fixed step)
    * @param {number} dt
    * @returns {void}
+   * @internal
    */
   tick(dt) {
     const t = this.timeOfDay + dt * this.engine.clock.timeScale / this.dayLength;
     if (t >= 1) {
       this.timeOfDay = t % 1; this.day += Math.floor(t);
-      this.engine.events.emit('day:new', this.day);
+      this.engine.events.emit('day:start', this.day);
       if (this.season !== this._season) { this._season = this.season; this.engine.events.emit('season:change', this.season); }
     } else this.timeOfDay = t;
     this._sched.tick();
@@ -189,9 +214,13 @@ export class Sky {
    * @param {(season: string) => void} fn
    * @returns {Handle}
    */
-  onSeason(name, fn) { return this._sched.onSeason(name, fn); }
-  /** Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there @internal */
-  untilMark() { return this._sched.untilNext() * this.dayLength; }
+  onSeason(name, fn) {
+    // a season the calendar does not have would never fire: say so now instead of waiting forever
+    if (!this.seasons.includes(name)) throw new Error(STRINGS.noSeason.replace('{name}', name).replace('{list}', this.seasons.length ? this.seasons.join(', ') : 'none'));
+    return this._sched.onSeason(name, fn);
+  }
+  /** Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there; Infinity when the time of day never moves @internal */
+  untilMark() { return Number.isFinite(this.dayLength) ? this._sched.untilNext() * this.dayLength : Infinity; }
   /** Number of registered clock-time / season timers, for engine.counts() @internal */
   get scheduled() { return this._sched.size; }
 
@@ -199,6 +228,7 @@ export class Sky {
    * Update sky, lights and fog every frame (called by the module each frame)
    * @param {Vector3} focus
    * @returns {void}
+   * @internal
    */
   update(focus) { updateSky(this, focus); }
 
@@ -233,6 +263,8 @@ export function sky(opts = {}) {
     install(e) {
       checkOptions('sky()', opts, SKY_OPTIONS);
       s = new Sky(e, opts);
+      // audio rule condition { time: 'day' | 'night' | ['18:00', '06:00'] } for music / ambience rule lists
+      e.audio.condition('time', v => v === 'day' ? s.isDay : v === 'night' ? !s.isDay : inRange(s.timeOfDay, v[0], v[1], s.hoursPerDay));
       e.saves.register('sky', { save: () => ({ time: s.timeOfDay, day: s.day }),
         load: d => { if (d) { s.timeOfDay = d.time ?? s.timeOfDay; s.day = d.day ?? 1; s._season = s.season; } s._sched.rebase(); } });
       return s;

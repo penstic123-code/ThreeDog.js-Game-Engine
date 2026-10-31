@@ -2,20 +2,29 @@
 
 Requires module `terrain()` (in the `openWorld()` preset). The API list is in `../api/terrain.md`.
 
-The engine always does the chunks, streaming, workers, collision and vegetation. What the ground looks like (its height and type) can come from the built-in generator, your own two functions, or both, and the player can change it during play.
+The engine always does the chunks, streaming, workers, collision and vegetation. It has **no built-in landform**: `terrain()` without a generator is flat gray ground at y = 0, with a dev warning. The height and ground type come from your own two functions or a preset, and the player can change the ground during play.
+
+## 0. A ready-made generator: the lowpoly preset
+```js
+import { openWorld, createTerrain } from 'threedog';
+import { terrainPreset, riverAt } from '@threedog/style-lowpoly';   // optional package: noise hills, rivers, biomes
+engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset({ shape: 'island' }) }));   // 'hills' (default) | 'island' | 'canyon' | 'flat'
+const preview = createTerrain({ seed: 7, ...terrainPreset() });                    // same heights before the engine starts
+const dry = (x, z) => riverAt(x, z, preview.noise) === 0;
+```
+Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; the lowpoly style pack colors them (`style.terrain.biomeColors`), and `terrainStrings` names them for `describe()`. Other options: `heightScale mountains rivers riverWidth biomes noise island canyon` (types in the package's `index.d.ts`).
 
 ## 1. Your own generator
 ```js
 import { terrain } from 'threedog';
 terrain({
-  // meters at (x, z); n = { fbm(x, z, octaves), noise(x, z), hash(x, z, salt), seed }
+  // meters at (x, z); n = { fbm(x, z, octaves), noise(x, z), hash(x, z, salt), seed, waterLevel, params }
   height: (x, z, n) => 4 + 30 * n.fbm(x * 0.004, z * 0.004) - 8 * Math.abs(Math.sin(x * 0.01)),
-  // a ground type name, or null to use the built-in biome rules; its colors come from biomeColors[type]
-  groundType: (x, z, h, slope) => slope > 0.8 ? 'rock' : h < 1 ? 'beach' : null,
-  rivers: false,
+  // a ground type name (null = 'default'); its colors come from biomeColors[type]
+  groundType: (x, z, h, slope) => slope > 0.8 ? 'rock' : h < 1 ? 'beach' : 'grass',
 });
 ```
-Both functions run in workers, so they are **pure**: they see only their parameters and globals like `Math`. Reading a variable from outside (`(x, z) => x * scale`) throws at `terrain()` and names the variable; put the number inside the function. Rivers and `flatten` plots still apply on top (`rivers: false` turns rivers off). A new type name needs colors: `terrain({ biomeColors: { lava: ['lavaA', 'lavaB'] }, colors: { lavaA: 0xd04010, lavaB: 0xa03008 } })`.
+Both functions run in workers, so they are **pure**: they see only their parameters and globals like `Math`. Reading a variable from outside (`(x, z) => x * scale`) throws at `terrain()` and names the variable; put the number inside the function, or pass settings as plain data in `terrain({ params })` and read them as `n.params`. `flatten` plots still apply on top. A new type name needs colors: `terrain({ biomeColors: { lava: ['lavaA', 'lavaB'] }, colors: { lavaA: 0xd04010, lavaB: 0xa03008 } })`.
 
 ## 2. Changing the ground: `engine.terrain.edit`
 ```js
@@ -33,7 +42,7 @@ engine.ops.run('ground.dig', { at });
 
 ## 3. Farming soil and ground types
 Gameplay soil state (tilled, watered, crops) is **not** terrain paint: keep it in a grid layer (`grids()`, `farm.layer('soil')`), which is per cell, saved, works on levels and indoors, and draws its own tiles. See `recipes/29-grid.md` section 3.
-`terrain.edit({ paint })` is for landscape ground types: roads, sand, a coarse visual layer (the built-in `'tilled'` / `'wet'` colors are for that look only). `engine.groundType(pos)` reads the painted type (footsteps, `can` checks):
+`terrain.edit({ paint })` is for landscape ground types: roads, sand, a coarse visual layer (a painted type with no color is gray; the game names its types and gives them colors in its own style object: `terrain.colors` + `terrain.biomeColors`). `engine.groundType(pos)` reads the painted type (footsteps, `can` checks):
 ```js
 engine.ops.define('path.sand', { args: { at: 'position' },   // a sandy path; a new type name needs biomeColors (section 1)
   run(e, a) { e.terrain?.edit(a.at, { shape: 'square', radius: (e.terrain.cellSize ?? 4) / 2, paint: 'beach' }); } });

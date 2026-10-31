@@ -15,7 +15,7 @@
 //   engine.settings.define('subtitles', true, on => game.subtitles = on);   // custom setting: default value + apply function, autosaved
 //   engine.settings.addSection('gameplay', {
 //     title: e => e.t('my.gameplay'),
-//     render: (tools, e, s) => s.ui.row(tools.t('my.subtitles'), s.ui.toggle('subtitles', s.get('subtitles'), tools), tools.esc),
+//     render: (tools, e, s) => tools.row(tools.t('my.subtitles'), tools.toggle('subtitles', s.get('subtitles'))),
 //     bind: (el, e, s) => {},                       // optional: called after every redraw, to wire events on custom controls
 //     order: 50,
 //   });
@@ -26,18 +26,17 @@
 //   Replace it whole: style.ui.templates.settings({ sections, current, body, values }, { esc, t, icon }) returns HTML;
 //           controls just carry the attributes data-tab / data-set+data-value / data-range / data-rebind / data-reset / data-locale / data-save-export / data-save-import (see sections.js)
 import { makeWindow, injectUICSS, uiFocus } from '../../ui/UI.js';
-import { BUILTIN_SECTIONS, row, toggle, range, segmented } from './sections.js';
+import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
 import { checkOptions } from '../../core/validate.js';
 
 // Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
 const PRESETS = {
-  low: { pixelRatio: 0.75, shadows: false, antialias: false, bloom: false, ao: false, viewDistance: 3, density: 0.5 },
-  medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewDistance: 4, density: 0.75 },
-  high: { pixelRatio: 1.5, shadows: true, antialias: true, bloom: true, ao: false, viewDistance: 5, density: 1 },
+  low: { pixelRatio: 0.75, shadows: false, antialias: false, bloom: false, ao: false, viewChunks: 3, density: 0.5 },
+  medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewChunks: 4, density: 0.75 },
+  high: { pixelRatio: 1.5, shadows: true, antialias: true, bloom: true, ao: false, viewChunks: 5, density: 1 },
 };
-const VOL = ['volume', 'music', 'sfx', 'ambience'];
 // Settings keys that switch a style post effect of the same name; a key whose effect the style pack lacks is hidden and ignored
 const POST_KEYS = ['bloom', 'ao'];
 
@@ -58,7 +57,6 @@ export class Settings extends SettingsView {
     this.current = null;             // current tab
     this.freezeWorld = freezeWorld;
     this._syncT = 0;
-    this.ui = { row, toggle, range, segmented };   // small helpers for custom tabs
 
     engine.i18n.add(STRINGS);
     engine.input.define(action, keys, 'settings.action');
@@ -188,8 +186,8 @@ export class Settings extends SettingsView {
     v.antialias = e.post.antialias;
     for (const k of POST_KEYS) if (e.post.get(k)) v[k] = e.post.get(k).enabled;
     if (e.adaptive) v.adaptive = !!e.adaptive.on;
-    if (e.terrain) { v.viewDistance = e.terrain.viewDistance ?? 4; v.density = e.terrain.density ?? 1; }
-    for (const ch of VOL) v['vol.' + ch] = e.audio.levels[ch] ?? 1;
+    if (e.terrain) { v.viewChunks = e.terrain.viewChunks ?? 4; v.density = e.terrain.density ?? 1; }
+    for (const [bus, level] of Object.entries(e.audio.levels)) v['vol.' + bus] = level;   // one slider per bus, the game's own buses too
     this.values = v;
     v.quality = this._matchPreset();
     return v;
@@ -198,7 +196,7 @@ export class Settings extends SettingsView {
     const v = this.values, e = this.engine;
     for (const [name, p] of Object.entries(this.presets)) {
       const ok = Object.entries(p).every(([k, val]) => {
-        if ((k === 'viewDistance' || k === 'density') && !e.terrain) return true;
+        if ((k === 'viewChunks' || k === 'density') && !e.terrain) return true;
         if (POST_KEYS.includes(k) && !e.post.get(k)) return true;
         return v[k] === val;
       });
@@ -215,10 +213,11 @@ export class Settings extends SettingsView {
         case 'shadows': if (e.shadows !== val) e.setShadows(val); break;
         case 'antialias': case 'bloom': case 'ao': e.post.enable(key, val); break;
         case 'adaptive': if (e.adaptive) { e.adaptive.on = val; if (!val && e.adaptive.max) e.setPixelRatio(e.adaptive.max); } break;
-        case 'viewDistance': if (e.terrain?.setViewDistance && e.terrain.viewDistance !== val) e.terrain.setViewDistance(val); break;
+        case 'viewChunks': if (e.terrain?.setViewChunks && e.terrain.viewChunks !== val) e.terrain.setViewChunks(val); break;
         case 'density': if (e.terrain?.setDensity && e.terrain.density !== val) e.terrain.setDensity(val); break;
         default:
-          if (key.startsWith('vol.')) e.audio.setVolume(key.slice(4), val);
+          // a saved slider for a bus this build no longer has is skipped, not an error
+          if (key.startsWith('vol.')) { if (key.slice(4) in e.audio.levels) e.audio.setVolume(key.slice(4), val); }
           else this.custom.get(key)?.apply?.(val, e);
       }
     } catch (err) { console.error(`[settings] ${key} failed to apply`, err); }
@@ -240,7 +239,7 @@ export class Settings extends SettingsView {
     // At start() every module is installed: terrain settings and key bindings can only be applied fully now
     this._ready = true;
     const stored = this.saved.values || {};
-    for (const k of ['viewDistance', 'density']) {
+    for (const k of ['viewChunks', 'density']) {
       if (!this.engine.terrain) continue;
       if (k in stored) this._apply(k, stored[k]); else this.values[k] = this.engine.terrain[k];
     }

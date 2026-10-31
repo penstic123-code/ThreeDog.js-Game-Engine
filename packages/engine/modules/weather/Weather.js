@@ -1,4 +1,6 @@
-// Weather: clear, cloudy, overcast, rain, storm, snow, fog. All parameters blend smoothly on change.
+// Weather: the game's table of weather types (weather({ types })); without one only a calm 'clear' (the engine assumes no climate).
+// Seven temperate ones are an opt-in preset: weather(presets.weather.temperate), extend with types: { ...presets.weather.temperate.types, dust: {...} }.
+// All fields blend smoothly on change.
 // Affects: cloud shadows, sky color, sun intensity, fog distance, wind (plants sway), rain/snow particles, lightning, ambience.
 //
 // engine.weather.set('rain', 20)   // turn to rain over 20 seconds
@@ -10,26 +12,23 @@ import { rainVert, rainFrag, snowVert, snowFrag } from './shaders.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../types/world' */
 
-/**
- * Built-in weather presets
- * @type {Record<WeatherName, WeatherPreset>}
- */
-export const WEATHER_PRESETS = {
-  clear:  { cloud: 0.15, sun: 1.0, fog: 1.0, wind: 0.8, rain: 0, snow: 0, grey: 0.0, lightning: 0 },
-  cloudy: { cloud: 0.45, sun: 0.85, fog: 0.9, wind: 1.1, rain: 0, snow: 0, grey: 0.15, lightning: 0 },
-  overcast: { cloud: 0.85, sun: 0.45, fog: 0.75, wind: 1.3, rain: 0, snow: 0, grey: 0.45, lightning: 0 },
-  rain:   { cloud: 0.9, sun: 0.35, fog: 0.6, wind: 1.6, rain: 0.6, snow: 0, grey: 0.55, lightning: 0 },
-  storm:  { cloud: 1.0, sun: 0.2, fog: 0.45, wind: 2.6, rain: 1.0, snow: 0, grey: 0.7, lightning: 1 },
-  snow:   { cloud: 0.85, sun: 0.5, fog: 0.55, wind: 0.9, rain: 0, snow: 1.0, grey: 0.5, lightning: 0 },
-  fog:    { cloud: 0.6, sun: 0.55, fog: 0.25, wind: 0.4, rain: 0, snow: 0, grey: 0.5, lightning: 0 },
-};
+// The table when the game gives none: one calm type, so engine.weather works without assuming rain, snow or storms exist
+const ONLY_CLEAR = { clear: {} };
 const STRINGS = {
   'zh-CN': { 'weather.clear': '晴', 'weather.cloudy': '多云', 'weather.overcast': '阴', 'weather.rain': '雨', 'weather.storm': '暴雨',
     'weather.snow': '雪', 'weather.fog': '雾', 'weather.auto': '自动变化' },
   en: { 'weather.clear': 'Clear', 'weather.cloudy': 'Cloudy', 'weather.overcast': 'Overcast', 'weather.rain': 'Rain', 'weather.storm': 'Storm',
     'weather.snow': 'Snow', 'weather.fog': 'Fog', 'weather.auto': 'Auto' },
 };
-const OPTIONS = ['start', 'auto', 'particles', 'presets', 'autoPool', 'autoInterval', 'transition', 'area'];
+const OPTIONS = ['start', 'auto', 'particles', 'types', 'autoPool', 'autoInterval', 'transition', 'area'];
+// Fields a type leaves out: calm (no cloud, rain, snow, grey or lightning; normal sun, fog and wind)
+const CALM = { cloud: 0, sun: 1, fog: 1, wind: 1, rain: 0, snow: 0, grey: 0, lightning: 0 };
+const ERR = {
+  types: "weather({ types }): the game's weather table, name -> { cloud, sun, fog, wind, rain, snow, grey, lightning } (left-out fields are calm), at least one; got {got}. Seven temperate ones: weather(presets.weather.temperate) with presets from 'threedog'",
+  field: "weather type '{k}': field {f} must be a number (every field blends smoothly on change); got {got}",
+  start: "weather({ start }): '{got}' is not one of this game's weather types ({list})",
+  pool: "weather({ autoPool }): '{got}' is not one of this game's weather types ({list})",
+};
 
 /** Particle shader material (transparent, no depth write) */
 const shaderMat = (vertexShader, fragmentShader, uniforms) => new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent: true, depthWrite: false });
@@ -39,20 +38,31 @@ const scatter = (n, size) => { const a = new Float32Array(n); for (let i = 0; i 
 /** engine.weather */
 export class Weather {
   /**
-   * start start: initial weather; particles: rain/snow particle count; presets: add/override weather presets
+   * start: initial weather (default 'clear', or the table's first type); particles: rain/snow particle count; types: the game's weather table (default only a calm 'clear'; seven temperate ones in presets.weather.temperate)
    * autoPool autoPool: candidates for automatic weather (repeat a name to make it likelier); autoInterval [min, max] seconds
    * @internal
    */
-  constructor(engine, { start = 'clear', particles = 6000, presets = {}, autoPool, autoInterval = [90, 240], transition = 25, area } = {}) {
+  constructor(engine, { start, particles = 6000, types, autoPool, autoInterval = [90, 240], transition = 25, area } = {}) {
     /** @internal */ this.engine = engine;
     const st = engine.style.weather || {};
-    // weather parameters (cloud cover, wind...) are mechanism; adjust them in module options or the style pack
-    /** All weather presets @type {Record<string, WeatherPreset>} */
-    this.presets = {};
-    for (const k of new Set([...Object.keys(WEATHER_PRESETS), ...Object.keys(st.presets || {}), ...Object.keys(presets)]))
-      this.presets[k] = { ...WEATHER_PRESETS.clear, ...(WEATHER_PRESETS[k] || {}), ...((st.presets || {})[k] || {}), ...(presets[k] || {}) };
+    // The game's table is the whole list (a desert game has no snow, a space station no rain); without one only a calm 'clear'.
+    // The style pack only fills fields of types the table has (its look of 'storm'), it never adds a kind of weather to a game.
+    if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw new Error(ERR.types.replace('{got}', JSON.stringify(types)));
+    const table = types ?? ONLY_CLEAR;
+    /** The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string, WeatherPreset>} */
+    this.types = {};
+    for (const k of Object.keys(table)) {
+      // calm, then the style's look, then the game's own numbers (a preset the game picked counts as the game's)
+      const v = { ...CALM, ...(st.types?.[k] || {}), ...table[k] };
+      for (const f in v) if (typeof v[f] !== 'number') throw new Error(ERR.field.replace('{k}', k).replace('{f}', f).replace('{got}', JSON.stringify(v[f])));
+      this.types[k] = v;
+    }
+    // a game field one type has ('heat' on 'heatwave') is 0 on the others, so a change always blends between two numbers
+    for (const v of Object.values(this.types)) for (const o of Object.values(this.types)) for (const f in o) v[f] ??= 0;
+    start ??= this.types.clear ? 'clear' : Object.keys(this.types)[0];
+    if (!this.types[start]) throw new Error(ERR.start.replace('{got}', start).replace('{list}', Object.keys(this.types).join(', ')));
     /** Current (mid-transition) weather parameters @type {WeatherPreset} */
-    this.current = { ...this.presets[start] };
+    this.current = { ...this.types[start] };
     /** @internal */ this.from = { ...this.current };
     /** @internal */ this.to = { ...this.current };
     /** @internal */ this.t = 1;
@@ -63,7 +73,8 @@ export class Weather {
     this.auto = false;
     /** @internal */ this.autoTimer = 0;
     /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} */
-    this.autoPool = autoPool || ['clear', 'clear', 'clear', 'cloudy', 'cloudy', 'overcast', 'rain', 'storm', 'fog'].filter(k => this.presets[k]);
+    this.autoPool = [...(autoPool || Object.keys(this.types))];
+    for (const k of this.autoPool) if (!this.types[k]) throw new Error(ERR.pool.replace('{got}', k).replace('{list}', Object.keys(this.types).join(', ')));
     /** Automatic weather interval [min, max] seconds @type {number[]} */
     this.autoInterval = autoInterval;
     /** Transition seconds for automatic weather @type {number} */
@@ -76,7 +87,10 @@ export class Weather {
     /** @internal */ this._layer = { sun: 1, ambient: 1, fog: 1, tint: this.grey, tintAmount: 0, horizonTintAmount: 0, flash: 0 };   // reused every frame
     /** Rain/snow particle count @type {number} */
     this.particles = engine.tier === 'low' ? Math.round(particles / 2) : particles;
-    this._makeParticles(st, area ?? st.area ?? 40);
+    // zero cost when unused: a table where nothing ever rains or snows builds no particle meshes (rain / snow stay null)
+    /** @internal */ this.rain = null;
+    /** @internal */ this.snow = null;
+    if (Object.values(this.types).some(v => v.rain > 0 || v.snow > 0)) this._makeParticles(st, area ?? st.area ?? 40);
   }
 
   // rain (line segments or textured points), snow (points); area: coverage in meters (a cube centered on the camera)
@@ -128,8 +142,8 @@ export class Weather {
    * @returns {void}
    */
   set(name, seconds = 15) {
-    const p = this.presets[name];
-    if (!p) { warnMissing('weather', name, Object.keys(this.presets)); return; }
+    const p = this.types[name];
+    if (!p) { warnMissing('weather', name, Object.keys(this.types)); return; }
     this.name = name; this.from = { ...this.current }; this.to = { ...p }; this.t = 0; this.dur = Math.max(0.01, seconds);
   }
   /**
@@ -144,6 +158,7 @@ export class Weather {
    * Advance weather transition, automatic weather and lightning (the module calls this itself every fixed step)
    * @param {number} dt
    * @returns {void}
+   * @internal
    */
   tick(dt) {
     const rnd = this.engine.random;
@@ -171,20 +186,22 @@ export class Weather {
    * Write weather effects into the sky modifier layer and make rain/snow particles follow the camera (the module calls this itself every frame)
    * @param {any} camera
    * @returns {void}
+   * @internal
    */
   apply(camera) {
     const c = this.current, L = this._layer;
     const U = this.engine.uniforms, t = this.engine.elapsed;
     U.uCloud.value = c.cloud;
     U.uWind.value = c.wind;
-    // fall distance and sway time wrapped here in double precision (see shaders.js)
-    this.rainU.uFallOff.value = (t * this.speeds.rain) % this.size;
-    this.snowU.uFallOff.value = (t * this.speeds.snow) % this.size;
-    this.snowU.uSway.value = t % (20 * Math.PI);
     L.sun = c.sun; L.ambient = 0.75 + 0.25 * c.sun; L.fog = c.fog;
     L.tintAmount = c.grey; L.horizonTintAmount = c.grey * 0.8;
     L.flash = this.flash > 0 ? this.flash * (Math.random() > 0.3 ? 1 : 0.4) * this.flashStrength : 0;   // presentation: flash flickers
     this.engine.sky.modify('weather', L);   // weather depends on sky (requires), so it is always present
+    if (!this.rain) return;   // this game's weather never rains or snows: no particles were built
+    // fall distance and sway time wrapped here in double precision (see shaders.js)
+    this.rainU.uFallOff.value = (t * this.speeds.rain) % this.size;
+    this.snowU.uFallOff.value = (t * this.speeds.snow) % this.size;
+    this.snowU.uSway.value = t % (20 * Math.PI);
     this.rainU.uCam.value.copy(camera.position);
     this.rainU.uOpacity.value = c.rain * this.rainOpacity; this.rain.visible = c.rain > 0.02;
     this.rain.geometry.setDrawRange(0, Math.floor(this.particles * Math.min(1, c.rain * 1.2)) * (this.rainIsPoints ? 1 : 2));
@@ -206,9 +223,11 @@ export function weather(opts = {}) {
       checkOptions('weather()', opts, OPTIONS);
       e.i18n.add(STRINGS);
       w = new Weather(e, opts);
+      e.audio.condition('weather', v => [].concat(v).includes(w.name));   // audio rule condition { weather: 'rain' | ['rain', 'storm'] }
       if (opts.auto) w.auto = true;
-      e.audio.register('thunder', (audio, v, p) => audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur: p.duration ?? 3.5,
-        bus: 'ambience', rate: 0.4, delay: 0.4 + Math.random() * 1.5 }));   // presentation: thunder delay
+      e.audio.register('thunder', (audio, p, out) => { const dur = p.duration ?? 3.5, delay = 0.4 + Math.random() * 1.5;   // presentation: thunder delay
+        audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur, rate: 0.4 * p.pitch, delay, out }); return delay + dur; },
+      { builtIn: true, bus: 'ambience' });
       e.events.on('weather:lightning', () => e.audio.sfx('thunder'));
       e.saves.register('weather', { save: () => ({ name: w.name, auto: w.auto, autoTimer: w.autoTimer, nextBolt: w.nextBolt }),
         load: d => { if (!d) return; w.set(d.name, 0.01); w.auto = d.auto; w.autoTimer = d.autoTimer ?? 0; w.nextBolt = d.nextBolt ?? 5; } });
@@ -225,7 +244,7 @@ export function weather(opts = {}) {
     describe() {
       const c = w.current, r = v => Math.round(v * 100) / 100;
       return { name: w.name, label: w.label(), progress: r(w.t), auto: w.auto, rain: r(c.rain), snow: r(c.snow), fog: r(c.fog), wind: r(c.wind),
-        cloud: r(c.cloud), lightning: r(c.lightning), rainVisible: w.rain.visible, snowVisible: w.snow.visible };
+        cloud: r(c.cloud), lightning: r(c.lightning), rainVisible: !!w.rain?.visible, snowVisible: !!w.snow?.visible };
     },
   };
 }

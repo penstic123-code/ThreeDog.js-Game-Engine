@@ -1,17 +1,17 @@
 // A 组测试页：压缩资源、射线（BVH）、流式生成、烘焙往返、网址设定现场。用代码搭的街区当关卡。
 //   /tests/a/?state=corner   → defineState('corner') 的现场（玩家到 (30, 30)）
-import { createEngine, world, collision, characters, level, THREE } from '../../index.js';
+import { createEngine, presets, world, collision, characters, level, THREE } from '../../index.js';
 import { toGLB, fromGLTF } from '../../core/Baked.js';
 import { ownedProps, allowOwned } from '../../core/validate.js';
 import { buildTestBlock, buildHeavy } from '../fixtures/block.js';
 
 const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: false }, saveKey: 'test-a' });
 engine.use(world(), level({ scene: buildTestBlock() }), collision(), characters());
-engine.createdPlayer = engine.characters.createPlayer({ spawn: engine.level.spawn });
+engine.createdPlayer = engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: engine.level.spawn });
 engine.defineState('corner', { pos: '30,30' });
 
 // 启动前登记 400 个按需生成的小方块（20×20 网格，间距 10 米）；范围 40 米内的要在 ready 前做完
-engine.stream.setRange(40);
+engine.stream.setRadius(40);
 const box = new THREE.BoxGeometry(1, 1, 1);
 for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) {
   const x = (i - 10) * 10, z = (j - 10) * 10;

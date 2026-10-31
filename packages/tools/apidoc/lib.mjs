@@ -69,7 +69,8 @@ export const clean = s => String(s ?? '').replace(/\s*\n\s*\*?\s*/g, ' ').replac
 export function docOf(node) {
   const d = (node.jsDoc || [])[node.jsDoc?.length - 1];
   if (!d) return { text: '', example: '' };
-  const text = clean(ts.getTextOfJSDocComment(d.comment));
+  const exp = (d.tags || []).some(t => t.tagName.text === 'experimental');   // badge: the API may still change (AI.md "Stability")
+  const text = (exp ? '(experimental) ' : '') + clean(ts.getTextOfJSDocComment(d.comment));
   const ex = (d.tags || []).find(t => t.tagName.text === 'example');
   return { text, example: ex ? clean(ts.getTextOfJSDocComment(ex.comment)) : '' };
 }
@@ -227,7 +228,7 @@ export const idx = [];            // packages/engine/docs/API.md
 export const STRUCTS = {
   engine: ['Handle', 'StateParams', 'StartupReport'], sky: ['SkyAtOptions', 'SkyBetweenOptions'],
     collision: ['CircleColliderOptions', 'BoxColliderOptions'], budget: ['BudgetLimits', 'BudgetReport', 'BudgetOver'],
-  raycaster: ['RaycastOptions', 'RayHit'], stream: ['StreamEntryOptions', 'StreamHandle'], saves: ['SaveProvider'],
+  audio: ['AudioConfig', 'SoundDef', 'AmbienceRule'], rays: ['RaycastOptions', 'RayHit'], stream: ['StreamEntryOptions', 'StreamHandle'], saves: ['SaveProvider'],
   assets: ['AssetManifest', 'AnimatorOptions', 'AnimatorState', 'Animator'],
   dialogue: ['DialogueScript', 'DialogueNode', 'DialogueChoice', 'DialogueState'],
   characters: ['NPCOptions', 'ScheduleStop', 'ScheduleEntry', 'PlayerOptions', 'CharacterOptions', 'FindSpawnOptions'],
@@ -235,7 +236,7 @@ export const STRUCTS = {
   entities: ['EntityDef', 'EntityStage', 'EntityInteract', 'EntitySpawnData', 'Entity'], particles: ['ParticleOptions', 'ParticleEmitter'],
   interactions: ['InteractionOptions'], rigid: ['RigidBodyOptions', 'RigidEntry', 'VehicleOptions', 'VehicleWheel', 'Vehicle'],
   flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker'],
-  hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], water: ['WaterBodyOptions', 'WaterBody'],
+  hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource', 'LightPoolUsage'], water: ['WaterBodyOptions', 'WaterBody'],
     vegetation: ['VegetationOptions', 'VegetationRule'], terrain: ['FlattenZone'],
   cameraRig: ['CameraShot'], music: ['MusicRule'], settings: ['SettingsSection'], level: ['LevelMarker'],
   timeline: ['TimelinePlayOptions', 'CameraPose'], tools: ['WindowOptions', 'UIWindow', 'ScreenPoint'],

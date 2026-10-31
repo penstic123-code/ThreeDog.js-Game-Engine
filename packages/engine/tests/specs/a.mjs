@@ -24,7 +24,7 @@ export const specs = [
     async run({ check, ev }) {
       const s0 = await ev(() => ({ ...engine.stream.stats, startup: engine.startup }));
       check('at startup, in-range chunks are built and out-of-range ones are not', s0.queued === 0 && s0.built > 0 && s0.built < 100, JSON.stringify(s0));
-      // both default load sources leave: the player (engine.load.player) and the camera focus (engine.load.camera)
+      // both default stream sources leave: the player (engine.stream.player) and the camera focus (engine.stream.camera)
       const far = await ev(() => { window.aHome = engine.player.position.clone(); engine.player.placeAt([500, 0, 500]); engine.focus.set(500, 0, 500); engine.step(0.5); return engine.stream.stats; });
       check('player and focus moved away: old chunks unload, nothing is built where nothing is registered', far.built === 0, JSON.stringify(far));
       const back = await ev(async () => {
@@ -47,7 +47,7 @@ export const specs = [
   },
   {
     name: 'A: raycast (BVH acceleration)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         const cam = engine.camera, b = engine.level.root.getObjectByName('building_1_1');
@@ -59,11 +59,11 @@ export const specs = [
         for (let i = 0; i < 1000; i++) { const a = i * 2.399; rays.push([{ x: Math.cos(a) * 5, y: 3 + (i % 10), z: Math.sin(a) * 5 }, { x: Math.cos(a), y: -0.05, z: Math.sin(a) }]); }
         const run = () => { const t = performance.now(); let n = 0; for (const [o, d] of rays) if (engine.raycast(o, d)) n++; return { ms: +(performance.now() - t).toFixed(1), n }; };
         const withBvh = run();
-        const geos = [...engine.raycaster.statics.keys()].map(m => m.geometry), saved = geos.map(g => g.boundsTree);
+        const geos = [...engine.rays.statics.keys()].map(m => m.geometry), saved = geos.map(g => g.boundsTree);
         geos.forEach(g => { g.boundsTree = null; });
         const without = run();
         geos.forEach((g, i) => { g.boundsTree = saved[i]; });
-        return { name: hit?.object.name, bvh: !!b.geometry.boundsTree, withBvh, without, statics: engine.raycaster.statics.size };
+        return { name: hit?.object.name, bvh: !!b.geometry.boundsTree, withBvh, without, statics: engine.rays.statics.size };
       });
       check('pick on a city building returns building_*', /^building_/.test(r.name ?? ''), JSON.stringify(r));
       check(`city 1000 rays ${r.withBvh.ms} ms (box building has 12 triangles, no tree built: ${!r.bvh})`, !r.bvh && r.withBvh.n === r.without.n && r.withBvh.n > 0, JSON.stringify(r));
@@ -74,7 +74,7 @@ export const specs = [
         for (let i = 0; i < 1000; i++) rays.push([{ x: (i % 40) / 4 - 5, y: 20 + Math.floor(i / 40) / 4 - 3, z: 250 }, { x: 0, y: 0, z: 1 }]);
         const run = (k = 1) => { const t = performance.now(); let n = 0; for (let i = 0; i < rays.length; i += k) if (engine.raycast(rays[i][0], rays[i][1], { targets: [m] })) n++; return { ms: +((performance.now() - t) * k).toFixed(1), n: n * k }; };
         const without = run(25);   // without BVH this is too slow: cast only 40 rays and scale to 1000
-        const tb = performance.now(); engine.raycaster.addStatic(m); const buildMs = +(performance.now() - tb).toFixed(1);
+        const tb = performance.now(); engine.rays.addStatic(m); const buildMs = +(performance.now() - tb).toFixed(1);
         const withBvh = run();
         return { tris, without, withBvh, buildMs, tree: !!m.geometry.boundsTree };
       });
@@ -87,7 +87,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip?.();
-        const npc = engine.npcs.list[0], p = npc.root.position, cam = engine.camera;
+        const npc = engine.npcs.list()[0], p = npc.root.position, cam = engine.camera;
         engine.cameraOverride = { owner: 'test' };
         cam.position.set(p.x + 4, p.y + 1.5, p.z + 4); cam.lookAt(p.x, p.y + 1, p.z); cam.updateMatrixWorld();
         const shot = engine.ops.run('photo.take', {}, { source: 'test' }).value;
@@ -108,7 +108,7 @@ export const specs = [
           return { boxes: engine.collision.boxes.length, markers: Object.keys(lv.markers).sort().join(','), calls: engine.renderer.info.render.calls, mats: [...mats].sort().join(','),
             spawn: lv.spawn.toArray().map(v => +v.toFixed(2)).join(','), height: +engine.surface(0, -14).toFixed(2) };
         };
-        engine.player.placeAt([1000, 0, 1000]); engine.focus.set(1000, 0, 1000); engine.step(0.2);   // both load sources leave: unload streamed blocks first so they do not affect draw calls
+        engine.player.placeAt([1000, 0, 1000]); engine.focus.set(1000, 0, 1000); engine.step(0.2);   // both stream sources leave: unload streamed blocks first so they do not affect draw calls
         const code = stats();
         const buf = await threedogTest.toGLB(threedogTest.buildTestBlock());
         const url = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' }));

@@ -17,8 +17,9 @@ export function walk(dir, exts = ['.js']) {
   (function go(d) {
     for (const f of readdirSync(d).sort()) {
       if (SKIP_DIRS.has(f)) continue;
-      const p = join(d, f);
-      if (statSync(p).isDirectory()) go(p);
+      const p = join(d, f), dir = statSync(p).isDirectory();
+      if (P.notGameSource(p, start, dir)) continue;   // a game in its own repo: only its own sources (paths.mjs gameSources)
+      if (dir) go(p);
       else if (exts.some(e => f.endsWith(e))) out.push(rel(p));
     }
   })(start);
@@ -137,7 +138,7 @@ export function resolveImport(fromFile, spec) {
   if (spec.startsWith('.')) p = resolve(dirname(abs(fromFile)), spec);
   else if (spec.startsWith('/')) p = join(P.workspaceOf(dirname(abs(fromFile))) ?? ROOT, spec);   // site path: relative to the workspace root
   else if (spec === P.ENGINE_PKG) p = abs(P.INDEX_JS_REL);
-  else if (spec.startsWith(P.ENGINE_PKG + '/styles/')) p = join(abs(P.STYLES_REL), spec.slice((P.ENGINE_PKG + '/styles/').length), 'index.js');
+  else if (P.styleName(spec)) p = join(P.styleDir(P.styleName(spec)), 'index.js');   // a style pack package (@threedog/style-<name>)
   else if (spec.startsWith(P.ENGINE_PKG + '/') && typeof engineExports()['.' + spec.slice(P.ENGINE_PKG.length)] === 'string') p = join(P.ENGINE, engineExports()['.' + spec.slice(P.ENGINE_PKG.length)]);   // other fixed subpaths of package.json exports (threedog/error-hints)
   else return null;
   for (const cand of [p, p + '.js', join(p, 'index.js')]) if (existsSync(cand) && statSync(cand).isFile()) return rel(cand);

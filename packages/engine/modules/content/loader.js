@@ -6,6 +6,8 @@ import { parseClock } from '../../core/dayTime.js';
 import { cachedModel } from './models.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
+import { IdCheck, srcOf } from './ids.js';
+import { DEV } from '../../core/validate.js';
 import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent } from './rules.js';
 
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
@@ -51,7 +53,8 @@ const markerId = raw => raw.id ?? (typeof raw === 'string' ? raw : raw.place ?? 
  * a level change only tears down models and they are rebuilt on return, with taken / moved / removed state intact; trigger zones are not data and are removed on level change (level.track).
  */
 export function loadContent(e, api, c, models, st) {
-  const { where } = api;
+  const { where } = api, ids = new IdCheck();   // duplicate ids across this load are an error; stateful entries without an id are listed once (ids.js)
+  const origin = (id, list, key) => { if (DEV) e.world?.setOrigin(id, { definedAt: srcOf(list, key) }); };
   const onLevel = (...ps) => ps.some(p => p && typeof p === 'object' ? st.levelPlace(p.place) : st.levelPlace(p));
   const bind = (h, ...ps) => { if (h && onLevel(...ps)) e.level?.track(h); return h; };
   const zoneOf = (...ps) => onLevel(...ps) ? e.world?.zone ?? null : null;
@@ -80,15 +83,22 @@ export function loadContent(e, api, c, models, st) {
   each(c.items, (id, d) => e.inventory.define(id, d));
   each(c.startItems, (id, n) => e.inventory.add(id, n, { silent: true }));
   // containers: starting goods are placed only the first time (if the save already has the container, the save wins; no refill after it was emptied and reloaded)
-  each(c.containers, (id, d) => e.inventory.container(id, { capacity: d.capacity, items: d.items }));
+  each(c.containers, (id, d) => { ids.claim(id, `containers.${id}`); e.inventory.container(id, { capacity: d.capacity, items: d.items }); });
   // pickups: data goes into world (kind 'pickup'). id: the written id if given, else `pickup:<item>:<index in the pickups array>` (stable for the same content; when inserting in the middle, give existing entries an id)
   if (c.pickups?.length) needWorld(e);
-  c.pickups?.forEach((p, i) => e.inventory.spawnPickup(p.item, where(p), { id: p.id ?? `pickup:${p.item}:${i}`, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zoneOf(p) }));
+  c.pickups?.forEach((p, i) => {
+    const id = p.id ?? `pickup:${p.item}:${i}`;
+    if (p.id != null) ids.claim(id, `pickups[${i}] (${p.item})`); else ids.unnamed(id, `pickups[${i}] (${p.item})`);   // taken / respawning is state
+    e.inventory.spawnPickup(p.item, where(p), { id, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zoneOf(p) });
+    origin(id, c.pickups, i);
+  });
 
   const hpd = e.sky?.hoursPerDay ?? 24;
   each(c.npcs, (id, n) => {   // the key in content is the NPC's stable id (used by saves and quest targets)
     const plan = n.schedule ?? [];
+    ids.claim(id, `npcs.${id}`);
     e.npcs.add({ id, name: n.name, colors: n.colors, talk: n.talk, behavior: n.behavior, mind: n.mind, schedule: plan.map(s => ({ at: parseClock(s.at, hpd), position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
+    origin(id, c.npcs, id);
   });
 
   // dialogue: a line can be several variants [{ if: condition, text }, ..., { text }]; the first whose condition holds is used
@@ -134,10 +144,16 @@ export function loadContent(e, api, c, models, st) {
     ];
   }
 
+  // grids (layout rules, not saved) before props: a props entry with grid places an item on one; a repeated load keeps the grid that exists
+  each(c.grids, (name, g) => {
+    if (!e.grids) throw new Error(`content grids: install grids() to use grid "${name}"`);
+    if (!e.grids.get(name)) e.grids.add(name, g);
+  });
   // templates before props: a props entry with template places an instance of it
   if (c.templates) { needWorld(e); defineTemplates(e, api, st, c.templates, models); }
   // props: data goes into world (kind 'prop'); models and collision are built nearby and torn down when far by present in props.js
-  if (c.props?.length) addProps(e, api, c.props, models, st, zoneOf);
+  if (c.props?.length) addProps(e, api, c.props, models, st, zoneOf, ids);
+  ids.done();
 
   // game kinds last: their data may name the items, NPCs and places loaded above
   each(st.kinds, (name, k) => { if (c[name] !== undefined) k.load(e, c[name], api); });

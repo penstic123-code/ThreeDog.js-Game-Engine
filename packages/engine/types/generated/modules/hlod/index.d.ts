@@ -3,6 +3,7 @@
  * HLOD (merge far buildings into a few meshes) -> engine.hlod
  * @param {HlodOptions} [opts]
  * @returns {ModuleDef<Hlod>}
+ * @experimental
  */
 export function hlod(opts?: HlodOptions): ModuleDef<Hlod>;
 import type { HlodOptions } from '../../../world';

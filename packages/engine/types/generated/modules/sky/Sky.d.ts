@@ -9,13 +9,13 @@ export function sky(opts?: SkyOptions): ModuleDef<Sky>;
 export class Sky {
     /** Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed @type {number} */
     timeOfDay: number;
-    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds) @type {number} */
+    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never moves @type {number} */
     dayLength: number;
     /** Day number (1-based) @type {number} */
     day: number;
-    /** Days per season @type {number} */
+    /** Days per season for seasons given by name only @type {number} */
     daysPerSeason: number;
-    /** Season names @type {string[]} */
+    /** Season names, [] when the game has no seasons (the default) @type {string[]} */
     seasons: string[];
     /** Dome mesh @type {Object3D} */
     dome: THREE.Object3D;
@@ -65,22 +65,16 @@ export class Sky {
     get isDay(): boolean;
     /** Daylight amount 0-1 (0 at night, 1 at noon); ambience etc. fade by it */
     get daylight(): number;
-    /** Current season index */
+    /** Current season index, -1 without seasons */
     get seasonIndex(): number;
-    /** Current season name, e.g. 'spring' */
-    get season(): string;
-    /** Day within the season (1-based) */
+    /** Current season name, e.g. 'spring'; null without seasons @type {string | null} */
+    get season(): string | null;
+    /** Day within the season (1-based); 0 without seasons */
     get dayOfSeason(): number;
-    /** Fraction of the season elapsed, 0-1 (includes time of day) */
+    /** Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons */
     get seasonProgress(): number;
     /** Total game time in days (fractional), for growth, cooldowns and the like */
     get totalDays(): number;
-    /**
-     * Advance time (called by the module every fixed step)
-     * @param {number} dt
-     * @returns {void}
-     */
-    tick(dt: number): void;
     /**
      * Call fn every day at a clock time: at('18:00', fn) or at(0.75, fn).
      * Fires only when time moves forward across the clock time: natural flow, step fast-forward and setting timeOfDay later all count; crossing several triggers at once is replayed per catchUp;
@@ -115,12 +109,6 @@ export class Sky {
      * @returns {Handle}
      */
     onSeason(name: string, fn: (season: string) => void): Handle;
-    /**
-     * Update sky, lights and fog every frame (called by the module each frame)
-     * @param {Vector3} focus
-     * @returns {void}
-     */
-    update(focus: THREE.Vector3): void;
     /**
      * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
      * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view

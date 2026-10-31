@@ -67,6 +67,22 @@ export class Ops {
         reason?: string;
     };
     /**
+     * Reverse a finished op with the undo(e, args, value) its definition declared: pass the same args and the value run returned.
+     * Returns { ok: true }, or { ok: false, reason: 'noUndo' } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
+     * @example const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' }); engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);
+     * @param {string} name
+     * @param {object} args
+     * @param {any} value
+     * @param {{ actor?: string }} [opts]
+     * @returns {{ ok: boolean, reason?: string }}
+     */
+    undo(name: string, args: object, value: any, opts?: {
+        actor?: string;
+    }): {
+        ok: boolean;
+        reason?: string;
+    };
+    /**
      * Ask without doing: runs only can (no state change, no history). For greying out buttons and input buffers.
      * @param {string} name
      * @param {object} [args]
@@ -119,6 +135,24 @@ export class Ops {
         depth: number;
         count: number;
     }[];
+    /**
+     * Dev guard for a module that owns saved gameplay state: call it at the top of every method that writes that state. In development it warns once per call site
+     * when the write happens outside a fixed step, an op or an allow() window (before ready everything is allowed); in production it does nothing (write DEV && ops.guard(...)).
+     * @experimental
+     * @example set(k, v) { DEV && this.engine.ops.guard('myStore.set'); this.data[k] = v; }
+     * @param {string} where label shown in the warning, e.g. 'vars.setFlag'
+     * @returns {void}
+     */
+    guard(where: string): void;
+    /**
+     * Run fn with guarded writes allowed (loading a save, applying a scenario, net sync); works for an async fn too (allowed until its Promise settles). Returns what fn returns.
+     * @experimental
+     * @example engine.ops.allow(() => store.load(data));
+     * @template T
+     * @param {() => T} fn
+     * @returns {T}
+     */
+    allow<T>(fn: () => T): T;
 }
 export type OpContext = {
     source: string;

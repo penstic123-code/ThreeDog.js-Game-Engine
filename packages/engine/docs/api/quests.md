@@ -5,7 +5,7 @@ Quests (quests() module)
 - Options `QuestsOptions`:
   - `action?: string` Action name that opens the quest log, default 'quests'
   - `keys?: string[]` Keys, default ['KeyJ']
-  - `padKeys?: string[]` Gamepad button, default ['PadSelect']
+  - `pad?: string[]` Gamepad button, default ['PadSelect']
   - `checkInterval?: number` Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5
   - `notify?: boolean | ((msg) => void)` Messages on quest start / step / done: true a toast with kind 'quest' (default) · false none · a function to show them your way. Example: `quests({ notify: false })   quests({ notify: ({ type, text }) => type === 'done' && myBanner(text) })`
 
@@ -16,7 +16,7 @@ Quests (quests() module)
 - `quests.isFailed(id: string) → boolean` — Its fail condition held (start(id) begins it again)
 - `quests.check()` — Check completion conditions once immediately
 - `quests.list() → { id, title, desc?, done, failed, steps }[]` — Quest list (for custom UI)
-- Also: `quests.isDone(id: string) → boolean`, `quests.counter(name: string) → number`, `quests.bump(name: string, n?: number) → number`
+- Also: `quests.isDone(id: string) → boolean`
 - Properties:
   - `state: Record<string, { step: number; done: boolean; failed?: bool…` Quests in progress / completed / failed: id -> { step (current step), done, failed?, parts? }
   - `win: { open, toggle, refresh }` The quest log (UI part 'questLog'): open, toggle(on?), refresh()

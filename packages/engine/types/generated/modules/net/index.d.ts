@@ -23,6 +23,7 @@
  * // client (same game code, same op definitions)
  * engine.use(net({ role: 'client', transport: webSocket('ws://192.168.1.5:8787/farm') }));
  * engine.ops.run('chest.take', { chest: 'chest-1', item: 'apple' });   // -> { ok: true, pending: true, seq: 1 }
+ * @experimental
  */
 export function net(opts?: {
     role: "host" | "client";

@@ -1,5 +1,5 @@
 // net(): optional co-op multiplayer (modules/net). Same format as specs.mjs, appended at the end of it.
-// Each case builds a host and two clients (headless engines from examples/coop/coop.js) joined by a manual fakeNetwork, and advances
+// Each case builds a host and two clients (headless engines from tests/coop/coop.js) joined by a manual fakeNetwork, and advances
 // network time and fixed steps together. Guard items ("do not bypass"): non-peer ops are refused, the actor comes from the connection,
 // owner and rate limits hold for raw messages that skip the client code, and a client writing shared state itself is reported.
 

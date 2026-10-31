@@ -130,9 +130,19 @@ const PAGE = {
   inspect: (a, e) => {
     const r = e.inspect(a.at), args = x => Object.entries(x || {}).map(([k, v]) => ` ${k}=${v}`).join('');
     return [`${r.actor} at (${r.at.x}, ${r.at.z}) · near: ${r.near.slice(0, 4).map(n => `${n.name} ${n.dist} m`).join(', ') || 'nothing'}`,
-      r.ops.map(o => `${o.ok ? '✓' : '✗'} ${o.op}${args(o.args)}${o.ok ? '' : ` (${o.reason}${o.why ? ': ' + o.why : ''})`}`).join(' · ') || 'No ops on offer'].join('\n');
+      r.ops.map(o => `${o.ok ? '✓' : '✗'} ${o.op}${args(o.args)}${o.ok ? '' : ` (${o.reason}${o.why ? ': ' + o.why : ''})`}`).join(' · ') || 'No ops on offer',
+      r.thing?.edit && `${r.thing.id}: ${r.thing.edit}`].filter(Boolean).join('\n');
   },
   explain: (a, e) => { const r = e.explain({ [a.key]: a.value }); return { ok: r.ok, text: r.text, detail: r.detail }; },
+  // pick: screen pixels (from the canvas top-left) -> the thing under them (engine.pick(...).thing): record id, kind, template, where it was authored
+  pick: (a, e) => {
+    const r = e.renderer.domElement.getBoundingClientRect(), h = e.pick(a.x / r.width * 2 - 1, 1 - a.y / r.height * 2, { targets: 'all' });
+    if (!h) return { ok: false, text: `Nothing under (${a.x}, ${a.y}) (canvas ${Math.round(r.width)}x${Math.round(r.height)} px; sky, terrain and vegetation are not picked)` };
+    const t = h.thing, p = h.point, f = Object.entries(t.fields || {}).slice(0, 6).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ');
+    const head = t.id ? `${t.id} (kind ${t.kind}${t.template ? ', template ' + t.template : ''})` : `scenery mesh "${t.mesh ?? '?'}" (no world record)`;
+    return { ok: true, text: [`✓ ${head} at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}) · material ${t.material ?? '-'}${t.model ? ' · model ' + JSON.stringify(t.model) : ''}`,
+      t.edit ?? (t.id ? 'no source known (a record added from code)' : 'part of a level model or added with engine.add'), f && 'fields ' + f].filter(Boolean).join('\n'), thing: t };
+  },
   // loading: the same view as describe().loading, or one task with its source; formatted in node so the hint table applies
   loading: (a, e) => (a.name ? { task: e.loading.get(a.name) } : { view: e.loading.view(), ready: e.ready }),
 };
@@ -192,6 +202,7 @@ export const COMMANDS = {
   ops: 'what the player can do now (each op offer checked with can): ✓ shop.buy shop=bakery item=bread · ✗ … (reason)',
   op: 'run an op as source bridge (no time passes): op shop.buy shop=bakery item=bread n=2 (values converted by the op args shape)',
   inspect: 'what is around the player (or inspect npc_3 / inspect 10,-4) and which ops it can do now, with reasons',
+  pick: 'what is at screen pixel x,y (from the canvas top-left): pick 480,270 -> record id, kind, template, where it is defined (content file:line), fields',
   explain: 'why: explain op shop.buy shop=bakery item=bread (can it run; --full adds its last attempt) / explain quest first-light (where it is stuck)',
   scenario: 'run one scenario test (tests/scenarios/<name>.json) on this page: scenario barter (prints failed checks; the scenario leaves the page paused)',
   loading: 'what loading waits for / what failed / does it block the start (answers while start() is stuck); loading hero: one task with its manifest and path',
@@ -286,6 +297,12 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'inspect': {
       const at = rest[0] && /^-?[\d.]+,-?[\d.]+$/.test(rest[0]) ? rest[0].split(',').map(Number) : rest[0];
       return { ok: true, text: lines(await ev(driver, 'inspect', { at }), 3) };
+    }
+    case 'pick': {
+      const m = /^(-?[\d.]+),(-?[\d.]+)$/.exec(rest[0] ?? '');
+      if (!m) throw new Error('Usage: threedog pick x,y (screen pixels from the canvas top-left), e.g. threedog pick 480,270 (in PowerShell quote it: "480,270")');
+      const r = await ev(driver, 'pick', { x: Number(m[1]), y: Number(m[2]) });
+      return { ok: r.ok, text: lines(r.text, 3) };
     }
     case 'explain': {
       if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light');

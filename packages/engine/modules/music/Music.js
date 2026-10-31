@@ -1,53 +1,54 @@
-// Background music module: plays tracks on the "music" channel with cross-fade on change; ducks during dialogue; picks tracks by rules.
+// Background music module: tracks on the "music" bus, cross-faded; chosen by a small rule list; optional stems that follow an intensity value.
 //
-//   engine.use(music({ tracks: { day: '/sounds/day.ogg', night: { url: '/sounds/night.ogg', volume: 0.8 }, win: { url: '/sounds/win.ogg', loop: false } } }));
-//   engine.music.play('day')                 // 2 s cross-fade by default; play('day', { fade: 0 }) cuts at once
-//   engine.music.stop(3)                     // fade out over 3 s
-//   engine.music.duck(0.3, 2)                // duck the music to 30%, restore after 2 s (without seconds it stays ducked; duck(1) restores)
-//   engine.music.stinger('win')              // layer a short piece over the music (current track keeps playing)
+//   engine.use(music({ tracks: {
+//     explore: '/music/explore.ogg',
+//     combat: { url: '/music/combat-base.ogg', stems: [{ url: '/music/combat-drums.ogg', at: [0.3, 0.7] }, { url: '/music/combat-brass.ogg', at: [0.7, 1] }] },
+//     win: { url: '/music/win.ogg', loop: false },
+//   } }));
+//   engine.music.play('explore')          // 2 s cross-fade by default; play('explore', { fade: 0 }) cuts at once
+//   engine.music.intensity = 0.8          // stems fade in as it rises through their `at` range (0-1)
+//   engine.music.stinger('win')           // a short piece over the music; the music dips under it
+//   engine.music.stop(3)                  // fade out over 3 s
 //
-// Where tracks come from (later overrides earlier): style pack style.music = { tracks: {...}, fade, duck } -> music({ tracks }) option.
-// Browsers need a click/key press before they can play sound: play() before that is only remembered and starts once audio is usable.
-//
-// Auto track rules (checked about once a second; the highest-priority matching rule wins; a new result must hold for `hold` seconds before switching, to avoid flip-flopping):
-//   const { when } = engine.music;
+// Rules (checked about once a second; the highest-priority match wins; a new result must hold `hold` seconds before switching):
 //   engine.music.rules([
-//     { track: 'cave',  when: when.inRegion('cave'), priority: 10 },          // trigger zone (trigger:enter/exit events of the triggers module, tag)
-//     { track: 'storm', when: when.weather('rain', 'storm'), priority: 5 },   // weather (needs the weather module)
-//     { track: 'night', when: when.night(), priority: 2 },                     // night (needs the sky module)
-//     { track: 'day',   when: () => true, priority: 0 },                       // fallback
-//     { track: null,    when: e => e.dialogue?.active, priority: 20 },        // track: null = silence
+//     { track: 'combat',  when: { state: 'combat' }, priority: 10 },   // engine.audio.state = 'combat' (the game sets it)
+//     { track: 'cave',    when: { zone: 'cave' }, priority: 5 },        // condition keys: state, zone (triggers), time (sky), weather
+//     { track: 'night',   when: { time: 'night' }, priority: 2 },
+//     { track: 'explore', priority: 0 },                                // no when = always: the fallback
+//     { track: null,      when: e => e.dialogue?.active, priority: 20 },  // a function works too; track: null = silence
 //   ], { hold: 2, fade: 3 });
 //   engine.music.override('boss')    // pick by hand, pausing the rules; override(null) hands control back
+// Tracks and rules may also come from createEngine({ audio: { music: { tracks, rules, fade } } }). Ducking is engine.audio.duck({ music: 0.3 });
+// music({ duckDialogue: 0.35 }) does that during dialogue. Before the first click play() is remembered and starts once audio is usable.
 //
 // Events: music:change { from, to }, music:stinger { name }
 
-import { inRange } from '../../core/dayTime.js';
-import { checkOptions, warnMissing } from '../../core/validate.js';
+import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
 /** @import { ModuleDef } from '../../types/core' */
-/** @import { MusicTrack, MusicRule, MusicOptions, MusicCondition } from '../../types/gameplay' */
+/** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
 
 const DEFAULTS = { fade: 2, duckDialogue: 0.35, duckFade: 0.4, hold: 2, interval: 1 };
 const RULE_KEYS = ['track', 'when', 'priority'];
+const stemLevel = (st, x) => { const [lo, hi] = st.at ?? [0, 1]; return (st.volume ?? 1) * Math.min(1, Math.max(0, hi > lo ? (x - lo) / (hi - lo) : +(x >= lo))); };
 
 /** engine.music */
 export class Music {
   /** @internal */
   constructor(engine, opts = {}) {
     /** @internal */ this.engine = engine;
-    const st = engine.style.music || {};
+    const st = engine.audio.config.music;
     /** @internal */ this.opts = { ...DEFAULTS, ...st, ...opts };
-    /** Registered tracks @type {Map<string, { url: string, volume?: number, loop?: boolean }>} */
+    /** Registered tracks @type {Map<string, { url?: string, volume?: number, loop?: boolean, stems?: { url: string, at?: number[], volume?: number }[] }>} */
     this.tracks = new Map();
     this.addTracks(st.tracks || {});
     this.addTracks(opts.tracks || {});
     /** Name of the track playing (or wanted) @type {string | null} */
     this.current = null;
-    /** @internal */ this.playing = null;          // { name, handle, gain (node), token }
+    /** 0-1: how loud each stem of the playing track is (see the stems `at` range); fades in about half a second @type {number} */
+    this.intensity = 0;
+    /** @internal */ this.playing = null;          // { name, gain, srcs, stems: [{ def, gain }], token }
     /** @internal */ this.pending = null;          // { name, fade } remembered while audio is still locked
-    /** Current duck multiplier @type {number} */
-    this.duckLevel = 1;
-    /** @internal */ this._duckTimer = null;
     /** @internal */ this._token = 0;
     /** @internal */ this._rules = null;
     /** @internal */ this._ruleOpts = {};
@@ -55,31 +56,28 @@ export class Music {
     /** @internal */ this._candidateT = 0;
     /** @internal */ this._ruleT = 0;
     /** @internal */ this._override = undefined;
-    /** Trigger-zone tag the player is in -> count @type {Map<string, number>} */
-    this.regions = new Map();
-    /**
-     * Common conditions (for the `when` of rules; all return a MusicCondition; without the matching module they simply never match)
-     * @type {{ weather(...names: string[]): MusicCondition, time(from: string | number, to: string | number): MusicCondition, night(): MusicCondition, day(): MusicCondition, inRegion(tag: string): MusicCondition, dialogue(): MusicCondition, all(...fs: MusicCondition[]): MusicCondition, any(...fs: MusicCondition[]): MusicCondition, not(f: MusicCondition): MusicCondition }}
-     */
-    this.when = this._helpers();
-
-    const ev = engine.events;
-    ev.on('trigger:enter', ({ tag }) => { if (tag != null) this.regions.set(tag, (this.regions.get(tag) || 0) + 1); });
-    ev.on('trigger:exit', ({ tag }) => { if (tag == null) return; const n = (this.regions.get(tag) || 0) - 1; if (n > 0) this.regions.set(tag, n); else this.regions.delete(tag); });
-    // Auto duck during dialogue: music({ duckDialogue: false }) turns it off, or give a 0-1 multiplier
+    /** @internal */ this._duck = null;
+    /** @internal */ this._lastIntensity = -1;
+    const rules = opts.rules ?? st.rules;
+    if (rules) this.rules(rules);
+    // Duck the music bus during dialogue: music({ duckDialogue: false }) turns it off, or give a 0-1 multiplier
     if (this.opts.duckDialogue !== false) {
-      ev.on('dialogue:start', () => this.duck(this.opts.duckDialogue, 0, this.opts.duckFade));
-      ev.on('dialogue:end', () => this.duck(1, 0, this.opts.duckFade * 2));
+      engine.events.on('dialogue:start', () => { this._duck?.remove(); this._duck = engine.audio.duck({ music: this.opts.duckDialogue }, { fade: this.opts.duckFade }); });
+      engine.events.on('dialogue:end', () => { this._duck?.remove(this.opts.duckFade * 2); this._duck = null; });
     }
   }
 
   /**
-   * Register tracks: { name: url | { url, volume, loop } }
+   * Register tracks: { name: url | { url, volume, loop, stems } }
    * @param {Record<string, MusicTrack>} map
    * @returns {this}
    */
   addTracks(map) {
-    for (const [name, v] of Object.entries(map)) this.tracks.set(name, typeof v === 'string' ? { url: v } : { ...v });
+    for (const [name, v] of Object.entries(map)) {
+      const tr = typeof v === 'string' ? { url: v } : { ...v };
+      if (tr.url == null && !tr.stems?.length) throw new TypeError(`music track '${name}' needs url or stems, e.g. { url: '/music/${name}.ogg' }`);
+      this.tracks.set(name, tr);
+    }
     return this;
   }
   /**
@@ -90,12 +88,13 @@ export class Music {
   /** Auto track rules are in use */
   get ruled() { return !!this._rules; }
   /**
-   * State (for debugging)
-   * @returns {{ current: string | null, playing: string | null, pending: string | null, duck: number, regions: string[], override: string | null, gain: number, outGain: number }}
+   * State (for debugging and tests): gain is the playing track's fade level, stems each stem's level
+   * @returns {{ current: string | null, playing: string | null, pending: string | null, override: string | null, intensity: number, gain: number, stems: number[] }}
    */
   get state() {
-    return { current: this.current, playing: this.playing?.name ?? null, pending: this.pending?.name ?? null, duck: this.duckLevel, regions: [...this.regions.keys()], override: this._override ?? null,
-      gain: this.playing?.gain ? +this.playing.gain.gain.value.toFixed(3) : 0, outGain: this.output ? +this.output.gain.value.toFixed(3) : 0 };
+    const p = this.playing;
+    return { current: this.current, playing: p?.name ?? null, pending: this.pending?.name ?? null, override: this._override ?? null, intensity: this.intensity,
+      gain: p ? +p.gain.gain.value.toFixed(3) : 0, stems: p ? p.stems.map(s => +s.gain.gain.value.toFixed(3)) : [] };
   }
 
   // ---------- playback ----------
@@ -122,17 +121,18 @@ export class Music {
     const ctx = audio.ctx, g = ctx.createGain(), vol = tr.volume ?? 1;
     g.gain.setValueAtTime(fade > 0 ? 0 : vol, ctx.currentTime);
     g.connect(this.output);
-    const slot = { name, gain: g, src: null, token };
+    const stems = (tr.stems || []).map(def => { const sg = ctx.createGain(); sg.gain.value = stemLevel(def, this.intensity); sg.connect(g); return { def, gain: sg }; });
+    const slot = { name, gain: g, srcs: [], stems, token };
     this.playing = slot;
-    audio.load(tr.url).then(buf => {
+    const parts = [...(tr.url != null ? [{ url: tr.url, out: g }] : []), ...stems.map(s => ({ url: s.def.url, out: s.gain }))];
+    // all parts decode first, then start on the same audio-clock instant: stems only line up if they begin together
+    Promise.all(parts.map(p => audio.load(p.url))).then(bufs => {
       if (this._token !== token || this.playing !== slot) { g.disconnect(); return; }   // another track was chosen while loading
-      const src = ctx.createBufferSource();
-      src.buffer = buf; src.loop = tr.loop !== false;
-      src.connect(g); src.start();
-      slot.src = src;
-      if (fade > 0) { g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(vol, ctx.currentTime + fade); }
-      if (!src.loop) src.onended = () => { if (this.playing === slot) { this.playing = null; this.current = null; this.engine.events.emit('music:change', { from: name, to: null }); } };
-    }).catch(err => { console.warn('[music]', err.message); if (this.playing === slot) this.playing = null; });
+      const t = ctx.currentTime + 0.02, loop = tr.loop !== false;
+      bufs.forEach((buf, i) => { const src = ctx.createBufferSource(); src.buffer = buf; src.loop = loop; src.connect(parts[i].out); src.start(t); slot.srcs.push(src); });
+      if (fade > 0) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + fade); }
+      if (!loop && slot.srcs[0]) slot.srcs[0].onended = () => { if (this.playing === slot) { this.playing = null; this.current = null; this.engine.events.emit('music:change', { from: name, to: null }); } };
+    }).catch(err => { warnOnce(err.message); if (this.playing === slot) this.playing = null; });   // a missing file is said once; the game goes on silent
   }
   /**
    * Fade out and stop (fade over fade seconds)
@@ -153,39 +153,21 @@ export class Music {
     p.gain.gain.cancelScheduledValues(t);
     p.gain.gain.setValueAtTime(p.gain.gain.value, t);
     p.gain.gain.linearRampToValueAtTime(0, t + f);
-    try { p.src?.stop(t + f + 0.05); } catch { /* already stopped */ }
-    setTimeout(() => { try { p.gain.disconnect(); } catch { /* ignore */ } }, (f + 0.2) * 1000);   // presentation: follows the actual audio fade
+    for (const s of p.srcs) { try { s.stop(t + f + 0.05); } catch { /* already stopped */ } }
+    if (p.srcs[0]) p.srcs[0].onended = () => p.gain.disconnect();   // free the nodes once the fade has really ended
   }
-  /** Total music output (for ducking), connected to the core's music channel */
-  /** @internal */
+  /** @internal the background bed: tracks connect here, then to the music bus; a stinger dips this node, never the bus (it plays on the bus itself) */
   _ensureOutput() {
     const a = this.engine.audio;
     if (this.output) return true;
     if (!a.ctx) return false;
-    this.output = a.ctx.createGain(); this.output.gain.value = this.duckLevel;
-    this.output.connect(a.bus.music);
+    /** @internal */ this.output = a.ctx.createGain();
+    this.output.connect(a.buses.music);
     return true;
   }
 
   /**
-   * Duck the music to amount (0-1), restore automatically after `seconds` (0 = stay ducked), fade is the fade seconds
-   * @param {number} [amount]
-   * @param {number} [seconds]
-   * @param {number} [fade]
-   * @returns {void}
-   */
-  duck(amount = 0.35, seconds = 0, fade = this.opts.duckFade) {
-    clearTimeout(this._duckTimer);
-    this.duckLevel = amount;
-    if (this.output) {
-      const ctx = this.engine.audio.ctx, t = ctx.currentTime, g = this.output.gain;
-      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(amount, t + Math.max(0.02, fade));
-    }
-    if (seconds > 0) this._duckTimer = setTimeout(() => this.duck(1, 0, fade), seconds * 1000);   // presentation: follows actual playback
-  }
-
-  /**
-   * Layer a one-shot piece (victory, discovered place...), ducking the background music slightly while it plays
+   * Layer a one-shot piece (victory, discovered place...); the background dips to `duck` while it plays
    * @param {string} name
    * @param {{ duck?: number, volume?: number }} [opts]
    * @returns {void}
@@ -195,12 +177,15 @@ export class Music {
     const tr = this.tracks.get(name);
     if (!tr) { warnMissing('track', name, [...this.tracks.keys()]); return; }
     const a = this.engine.audio;
-    if (!a.running) return;          // a one-shot piece is not worth queueing
+    if (!a.running || !this._ensureOutput()) return;          // a one-shot piece is not worth queueing
     this.engine.events.emit('music:stinger', { name });
-    a.play(tr.url, { channel: 'music', volume: volume ?? tr.volume ?? 1 }).then(h => {
-      const d = h.source.buffer?.duration || 1;
-      if (duck < 1) this.duck(duck, d, 0.15);
-    }).catch(err => console.warn('[music]', err.message));
+    a.play(tr.url, { bus: 'music', volume: volume ?? tr.volume ?? 1 }).then(h => {
+      const d = h.source.buffer?.duration || 1, g = this.output.gain, t = a.ctx.currentTime;
+      if (duck >= 1) return;
+      // scheduled on the audio clock (no timers): dip, hold for the stinger's length, come back
+      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(duck, t + 0.15);
+      g.setValueAtTime(duck, t + d); g.linearRampToValueAtTime(1, t + d + 0.3);
+    }).catch(err => warnOnce(err.message));
   }
 
   // ---------- rules ----------
@@ -238,7 +223,7 @@ export class Music {
     let best = null;
     for (const r of this._rules) {
       let ok = false;
-      try { ok = !!r.when?.(this.engine, this); } catch (err) { console.error('[music] rule threw', err); }
+      try { ok = this.engine.audio.matches(r.when, this); } catch (err) { console.error('[music] rule threw', err); }
       if (ok && (!best || (r.priority ?? 0) > (best.priority ?? 0))) best = r;
     }
     return best ? best.track ?? null : undefined;
@@ -259,7 +244,7 @@ export class Music {
     }
   }
   /**
-   * Per-frame update (plays queued tracks, picks tracks by rules; the module calls it every frame)
+   * Per-frame update (plays queued tracks, follows intensity, picks tracks by rules; the module calls it every frame)
    * @param {number} dt
    * @returns {void}
    * @internal
@@ -267,6 +252,11 @@ export class Music {
   frame(dt) {
     // Once audio is usable, play the queued track
     if (this.pending && this.engine.audio.running) { const p = this.pending; this.pending = null; this.play(p.name, { fade: p.fade, force: true }); }
+    if (this.playing?.stems.length && this.intensity !== this._lastIntensity) {
+      this._lastIntensity = this.intensity;
+      const t = this.engine.audio.ctx.currentTime;
+      for (const s of this.playing.stems) s.gain.gain.setTargetAtTime(stemLevel(s.def, this.intensity), t, 0.15);
+    }
     if (!this._rules) return;
     const iv = this._ruleOpts.interval ?? this.opts.interval;
     if (this._candidate !== undefined) this._candidateT += dt;
@@ -274,46 +264,23 @@ export class Music {
     this._ruleT = iv;
     this._evaluate(false);
   }
-
-  /**
-   * Common conditions (the matching modules need not be installed; they just never match)
-   * @internal
-   * @returns {any}
-   */
-  _helpers() {
-    const m = this;
-    return {
-      /** The current weather is one of these (weather module) */
-      weather: (...names) => e => names.includes(e.weather?.name),
-      /** Time-of-day range: 'HH:MM' or 0-1 (0.5 is noon); wraps past midnight when from > to (sky module) */
-      time: (from, to) => e => (e.sky ? inRange(e.sky.timeOfDay, from, to, e.sky.hoursPerDay) : false),
-      night: () => e => e.sky ? !e.sky.isDay : false,
-      day: () => e => e.sky ? !!e.sky.isDay : false,
-      /** The player is inside a trigger zone with this tag (trigger:enter/exit events) */
-      inRegion: tag => () => m.regions.has(tag),
-      dialogue: () => e => !!e.dialogue?.active,
-      all: (...fs) => (e, mm) => fs.every(f => f(e, mm)),
-      any: (...fs) => (e, mm) => fs.some(f => f(e, mm)),
-      not: f => (e, mm) => !f(e, mm),
-    };
-  }
 }
 
 /**
- * Background music -> engine.music. tracks: tracks; fade: default fade seconds (2); duckDialogue: how far to duck during dialogue (0.35, false = off); duckFade; hold: rule debounce seconds (2)
+ * Background music -> engine.music. tracks; rules; fade: default fade seconds (2); duckDialogue: duck the music bus during dialogue (0.35, false = off); duckFade; hold: rule debounce seconds (2)
  * @param {MusicOptions} [opts]
  * @returns {ModuleDef<Music>}
+ * @example engine.use(music({ tracks: { explore: '/music/explore.ogg' }, rules: [{ track: 'explore' }] }));
  */
 export function music(opts = {}) {
   let m = null;
   return {
-    name: 'music', label: 'Music', optional: ['weather', 'sky', 'dialogue'], stage: 'audio', presentation: true,
+    name: 'music', label: 'Music', optional: ['dialogue'], stage: 'audio', presentation: true,
     install(e) {
-      checkOptions('music()', opts, ['tracks', ...Object.keys(DEFAULTS)]); m = new Music(e, opts);
+      checkOptions('music()', opts, ['tracks', 'rules', ...Object.keys(DEFAULTS)]); m = new Music(e, opts);
       e.events.on('session:end', () => m.stop(0));   // a playthrough ends: its music stops at once
       return m;
     },
     frame(dt) { m.frame(dt); },
-    dispose() { clearTimeout(m._duckTimer); },
   };
 }

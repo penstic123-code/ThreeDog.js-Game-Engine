@@ -8,13 +8,13 @@ Trigger zones (triggers() module)
   - `keys?: string[]` Key that toggles the wireframes: default ['F4'] in dev builds, none in release builds
 
 ## Methods and properties
+- `triggers.list() → Trigger[]` — All trigger zones (a new array)
 - `triggers.add(opts?: TriggerOptions) → Trigger` — Add a trigger zone
 - `triggers.clear()` — Delete all (delete a single one with trigger.remove())
 - `triggers.byTag(tag: string) → Trigger[]` — Find by tag
 - `triggers.fromMarkers(opts?: TriggerOptions) → Trigger[]` — Every trigger_xxx marker in the level becomes a trigger zone with tag xxx; opts is shared by all of them
 - `triggers.setDebug(on: boolean)` — Show / hide the wireframes
 - Properties:
-  - `list: Trigger[]` All trigger zones
   - `debug: boolean` Whether wireframes are shown
 
 ## Data structures

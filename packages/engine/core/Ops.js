@@ -8,7 +8,7 @@
 // the AI can ask "what can I do now", and replay / netcode have a record of who did what on which step.
 // run() is always synchronous: inside a fixed step it is phase 'fixed'; between steps (UI, bridge, tests) phase 'between',
 // which lands "after step N" and replays the same. Args must be plain data and self-contained (aim direction goes in the args).
-// The guard (_guard) backs "don't go around it": in dev, saved gameplay state written outside loading, fixed steps and ops
+// The guard (ops.guard) backs "don't go around it": in dev, saved gameplay state written outside loading, fixed steps and ops
 // is reported (see recipes/23-ops.md). Dev argument checks live in opsCheck.js.
 import { DEV, missingText, warnOnce } from './validate.js';
 import { checkDef, checkArgs, devError, fmt, SOURCES } from './opsCheck.js';
@@ -44,14 +44,17 @@ export class Ops {
     /** @internal */ this._len = 0;
     /** @internal names of the ops currently running (nesting) */ this._stack = [];
     /** @internal */ this._inCan = null;
-    /** @internal > 0 while state may be written without an op (save load, applyState, net sync) */ this._allow = 0;
+    /** @internal > 0 while state may be written without an op (save load, applyState, net sync) */ this._allowDepth = 0;
     /** @internal */ this._warned = new Set();
     /** @internal request counter (net replies carry it) */ this._seq = 0;
     /** @internal ctx of the innermost running op (nested ops inherit source and actor) */ this._last = null;
     /** @internal set by net() on clients: (def, args, opts) => result to return instead of running locally, or null to run here */ this._route = null;
-    /** @internal set by net() on clients: every write outside _allowing is reported, even in fixed steps and ops (own movement, world.move, excepted) */ this._client = false;
+    /** @internal set by net() on clients: every write outside allow() is reported, even in fixed steps and ops (own movement, world.move, excepted) */ this._client = false;
     this.historySize = 256;
   }
+  /** @internal Name of the innermost op running right now, or null (world records who spawned a runtime record with it, dev only) @type {string | null} */
+  get running() { return this._stack.at(-1) ?? null; }
+
   /** History entries kept (ring, default 256); setting it clears the history */
   get historySize() { return this._ring.length; }
   set historySize(n) {
@@ -135,6 +138,25 @@ export class Ops {
   }
 
   /**
+   * Reverse a finished op with the undo(e, args, value) its definition declared: pass the same args and the value run returned.
+   * Returns { ok: true }, or { ok: false, reason: 'noUndo' } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
+   * @example const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' }); engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);
+   * @param {string} name
+   * @param {object} args
+   * @param {any} value
+   * @param {{ actor?: string }} [opts]
+   * @returns {{ ok: boolean, reason?: string }}
+   */
+  undo(name, args, value, opts) {
+    const d = this._def(name);
+    if (!d) return { ok: false, reason: 'unknownOp' };
+    if (typeof d.undo !== 'function') return { ok: false, reason: 'noUndo' };
+    this._allowDepth++;
+    try { d.undo(this.engine, args, value, this._ctx(name, args, opts, null)); } finally { this._allowDepth--; }
+    return { ok: true };
+  }
+
+  /**
    * Ask without doing: runs only can (no state change, no history). For greying out buttons and input buffers.
    * @param {string} name
    * @param {object} [args]
@@ -188,11 +210,18 @@ export class Ops {
     return out;
   }
 
-  /** @internal Dev guard: called by saved-state writers (world, containers, vars, quests). Allowed before ready, in fixed steps, inside ops and in _allow windows */
-  _guard(where) {
+  /**
+   * Dev guard for a module that owns saved gameplay state: call it at the top of every method that writes that state. In development it warns once per call site
+   * when the write happens outside a fixed step, an op or an allow() window (before ready everything is allowed); in production it does nothing (write DEV && ops.guard(...)).
+   * @experimental
+   * @example set(k, v) { DEV && this.engine.ops.guard('myStore.set'); this.data[k] = v; }
+   * @param {string} where label shown in the warning, e.g. 'vars.setFlag'
+   * @returns {void}
+   */
+  guard(where) {
     const e = this.engine;
     if (this._inCan) throw devError(fmt(STRINGS.canWrote, { name: this._inCan, where }));
-    if (this._client ? !e.ready || this._allow > 0 || where === 'world.move' : !e.ready || e._inFixed || this._stack.length || this._allow > 0) return;
+    if (this._client ? !e.ready || this._allowDepth > 0 || where === 'world.move' : !e.ready || e._inFixed || this._stack.length || this._allowDepth > 0) return;
     // first caller outside the engine: skip frames in engine folders, or in the bundle file this guard itself lives in
     const lines = (new Error().stack || '').split('\n'), file = l => l.match(/\(?([^()\s]+?):\d+:\d+\)?$/)?.[1], own = file(lines[1] || '');
     const at = lines.slice(3).find(l => !/\/(core|modules)\//.test(l) && file(l) !== own)?.trim() ?? '';
@@ -203,13 +232,20 @@ export class Ops {
   }
   /** @internal A separator in the history (save load): later entries belong to a different world state */
   _mark(label) { this._log(label, null, { tick: this.engine.tick, source: 'game', actor: '' }, true, null, 0); }
-  /** @internal Allow writes during fn (save load, applyState, net sync); works for async fn too */
-  _allowing(fn) {
-    this._allow++;
+  /**
+   * Run fn with guarded writes allowed (loading a save, applying a scenario, net sync); works for an async fn too (allowed until its Promise settles). Returns what fn returns.
+   * @experimental
+   * @example engine.ops.allow(() => store.load(data));
+   * @template T
+   * @param {() => T} fn
+   * @returns {T}
+   */
+  allow(fn) {
+    this._allowDepth++;
     let r;
-    try { r = fn(); } catch (err) { this._allow--; throw err; }
-    if (r && typeof r.then === 'function') return r.finally(() => { this._allow--; });
-    this._allow--;
+    try { r = fn(); } catch (err) { this._allowDepth--; throw err; }
+    if (r && typeof r.then === 'function') return /** @type {any} */ (r.finally(() => { this._allowDepth--; }));
+    this._allowDepth--;
     return r;
   }
 

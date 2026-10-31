@@ -55,8 +55,17 @@ export class FirstPersonCamera {
       obj.addEventListener('childadded', this._onChild);
     }
   }
-  /** Turn toward a world position (Vector3 / object / [x, y, z] / { x, y, z }) */
+  /**
+   * Turn toward a world position (Vector3 / object / [x, y, z] / { x, y, z }).
+   * The angle is computed from where the head is NOW (the followed body's current position + eye height), not from the last drawn frame,
+   * so teleport-then-lookAt works in one go: `await engine.stream.teleport(p); engine.cameraRig.lookAt(target);`. The eye is also snapped there
+   * (no easing up from the old height after a teleport). Call lookAt after the move, not before: yaw/pitch are angles, they do not follow later moves.
+   * @example await engine.stream.teleport([10, 0, 4]); engine.cameraRig.lookAt([10, 1.5, -6]);
+   * @param {any} position
+   */
   lookAt(position) {
+    const t = this.target?.position;
+    if (t) this.eye.set(t.x, t.y + this.height, t.z);   // teleport moved the body; update() would only catch up on the next frame
     const { x, y, z } = vec3(position, this._look ??= new THREE.Vector3()), dx = x - this.eye.x, dy = y - this.eye.y, dz = z - this.eye.z;
     this.yaw = Math.atan2(-dx, -dz);
     this.pitch = Math.atan2(dy, Math.hypot(dx, dz));

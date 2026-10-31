@@ -2,7 +2,7 @@
 //   - ops.run of a net: 'peer' op checks can locally (instant feedback, e.g. grey out "buy" without gold), sends { name, args, seq } and returns
 //     { ok: true, pending: true, seq }; other ops are refused here ('notAllowed') except net: 'local' ones, which run on this machine
 //     (ops they call are routed the same way, so a local "quick buy" button still asks the host to buy).
-//   - snapshots / diffs from the host are queued and applied in the next fixed step (inside ops._allowing, the only window the client guard opens).
+//   - snapshots / diffs from the host are queued and applied in the next fixed step (inside ops.allow, the only window the client guard opens).
 //   - the own avatar is driven locally and its position sent to the host every few steps; other avatars glide between updates (plain interpolation;
 //     prediction / rollback is a later step).
 //   - world.simulate does not run here: the host simulates and the result arrives as diffs (two simulations would fight).
@@ -58,7 +58,7 @@ export class NetClient {
     const e = this.e;
     if (this.inbox.length) {
       const box = this.inbox.splice(0);
-      e.ops._allowing(() => { for (const m of box) this.handle(m); });
+      e.ops.allow(() => { for (const m of box) this.handle(m); });
     }
     if (this.synced && e.tick % this.o.posEvery === 0) this.sendPosition();
   }

@@ -28,6 +28,7 @@ function emitter() {
  * host.use(net({ role: 'host', transport: wire.host() }));
  * guest.use(net({ role: 'client', transport: wire.connect() }));
  * wire.advance(100);   // deliver what is due in the next 100 ms
+ * @experimental
  */
 export function fakeNetwork(opts = {}) {
   const { seed = 1, manual = false } = opts;
@@ -91,6 +92,7 @@ export function fakeNetwork(opts = {}) {
  * const t = webSocket('ws://192.168.1.5:8787/farm', { key: localStorage.netKey });
  * t.on('open', () => { localStorage.netKey = t.key; });
  * engine.use(net({ role: 'client', transport: t }));
+ * @experimental
  */
 export function webSocket(url, { host = false, key } = {}) {
   const ev = emitter(), q = new URL(url);

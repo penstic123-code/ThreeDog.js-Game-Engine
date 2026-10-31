@@ -79,12 +79,34 @@ export const TYPES_GEN_REL = `${TYPES_REL}/generated`;
 export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/ui/UI.js`, `${ENGINE_REL}/ui/Focus.js`, `${ENGINE_REL}/ui/LoadingScreen.js`,
   `${ENGINE_REL}/render/materials.js`, `${ENGINE_REL}/render/patches.js`, `${ENGINE_REL}/render/PostFX.js`,
-  `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
+  `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
-  `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Load.js`, `${ENGINE_REL}/core/Raycast.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
+  `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
 ];
-export const STYLES_REL = `${ENGINE_REL}/styles`;
+/** APIs that may still change: each [file, declared name] must carry @experimental in the JSDoc right above it (R07-H); AI.md "Stability" lists them for readers */
+export const STABILITY = {
+  experimental: [
+    [`${ENGINE_REL}/modules/net/index.js`, 'net'], [`${ENGINE_REL}/modules/net/transports.js`, 'fakeNetwork'], [`${ENGINE_REL}/modules/net/transports.js`, 'webSocket'],
+    [`${ENGINE_REL}/core/Threads.js`, 'Threads'],
+    [`${ENGINE_REL}/modules/grid/index.js`, 'grids'], [`${ENGINE_REL}/modules/grid/index.js`, 'Grids'], [`${ENGINE_REL}/modules/grid/Grid.js`, 'Grid'], [`${ENGINE_REL}/modules/grid/Layer.js`, 'Layer'],
+    [`${ENGINE_REL}/types/world.d.ts`, 'edit'],
+    [`${ENGINE_REL}/render/PostFX.js`, 'add'], [`${ENGINE_REL}/render/PostFX.js`, 'get'], [`${ENGINE_REL}/render/PostFX.js`, 'enable'], [`${ENGINE_REL}/render/PostFX.js`, 'list'],
+    [`${ENGINE_REL}/core/Stream.js`, 'source'], [`${ENGINE_REL}/core/Stream.js`, 'sources'], [`${ENGINE_REL}/core/Stream.js`, 'teleport'], [`${ENGINE_REL}/core/Stream.js`, 'readyCheck'],
+    [`${ENGINE_REL}/modules/hlod/index.js`, 'hlod'],
+    [`${ENGINE_REL}/core/Ops.js`, 'guard'], [`${ENGINE_REL}/core/Ops.js`, 'allow'],
+  ],
+};
+// ── Style packs ─────────────────────────────────────────
+// Style packs are separate, optional packages (the engine ships no art): npm name `@threedog/style-<name>`.
+// Monorepo: packages/styles/<name>/ (one workspace each). Game mode: node_modules/@threedog/style-<name>/.
+export const STYLE_PKG_PREFIX = '@threedog/style-';
+/** Folder that holds the style packs (monorepo: packages/styles; game mode: node_modules/@threedog) */
+export const STYLES_REL = MODE === 'monorepo' ? 'packages/styles' : 'node_modules/@threedog';
+/** Style pack name from an import specifier ('@threedog/style-lowpoly' or a subpath of it → 'lowpoly'), null if it is not one */
+export const styleName = spec => spec.startsWith(STYLE_PKG_PREFIX) ? spec.slice(STYLE_PKG_PREFIX.length).split('/')[0] : null;
+/** Absolute folder of a style pack by name (lowpoly → packages/styles/lowpoly or node_modules/@threedog/style-lowpoly) */
+export const styleDir = name => join(abs(STYLES_REL), MODE === 'monorepo' ? name : 'style-' + name);
 export const EXAMPLES_REL = `${ENGINE_REL}/examples`;
 export const ENGINE_TESTS_REL = `${ENGINE_REL}/tests`;
 export const DOCS_REL = `${ENGINE_REL}/docs`;
@@ -111,6 +133,39 @@ export const GAMES = abs(GAMES_REL);
 
 /** Folder names no scan descends into (dependencies, build output, caches, assets, screenshots); callers add 'tests' etc. when needed */
 export const SKIP_DIRS = ['node_modules', 'dist', '.threedog', 'public', 'shots', '.git'];
+
+/**
+ * A game in its own repo (MODE 'game'): which files are the game's own sources. Everything else under the game folder is a dependency and is never
+ * checked, typed or mapped as game code. Set in the game's package.json, paths relative to the game folder:
+ *   "threedog": { "src": ["main.js", "src", "content"], "exclude": ["notes"] }
+ * Defaults: src = the whole folder; always excluded: node_modules (SKIP_DIRS), vendor/, and every local-path dependency (file: / link: specs).
+ */
+export const GAME_EXCLUDE_DEFAULT = ['vendor'];
+function gameScope() {
+  const pkg = readJson(join(ROOT, 'package.json')) ?? {}, cfg = pkg.threedog ?? {};
+  const local = Object.values({ ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies, ...pkg.peerDependencies })
+    .map(String).filter(v => /^(file|link):/.test(v)).map(v => resolve(ROOT, v.replace(/^(file|link):/, '')));
+  return {
+    src: (cfg.src ?? ['.']).map(p => resolve(ROOT, p)),
+    exclude: [...GAME_EXCLUDE_DEFAULT, ...(cfg.exclude ?? [])].map(p => resolve(ROOT, p)).concat(local),
+  };
+}
+const inside = (p, dir) => p === dir || p.startsWith(dir + sep);
+let scope = null;
+/** The game's source scope in game mode ({ src, exclude }, absolute paths); null in the monorepo */
+export const gameSources = () => MODE === 'game' ? (scope ??= gameScope()) : null;
+/**
+ * Whether a walk that started at `start` should leave out the absolute path p (a file or folder): only in game mode, only for walks over the game
+ * folder (a walk inside the engine package, wherever it is installed or vendored, is never filtered). A folder is kept while it contains or lies under
+ * a src entry; a file must lie under one.
+ */
+export function notGameSource(p, start, isDir) {
+  const s = gameSources();
+  if (!s || inside(resolve(start), ENGINE) || !inside(resolve(p), ROOT)) return false;
+  const a = resolve(p);
+  if (s.exclude.some(x => inside(a, x))) return true;
+  return !s.src.some(x => inside(a, x) || (isDir && inside(x, a)));
+}
 /** Source scope scanned by rules, file size etc. (directories relative to the repo root) */
 export const SOURCE_DIRS_REL = [...ENGINE_CODE_DIRS_REL, STYLES_REL, EXAMPLES_REL, ENGINE_TESTS_REL, TOOLS_REL, GAMES_REL];
 /** Game code (examples + games/*): only checked for direct new materials, type checking, key text, etc. */

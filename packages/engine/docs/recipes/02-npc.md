@@ -1,6 +1,6 @@
 # Adding an NPC (schedule + dialogue)
 
-Modules needed: `characters()` (NPCs on by default), `interactions()`, `dialogue()`; clock-time schedules need `sky()`. The `openWorld()` preset already installs `characters()` and `sky()` but not `interactions()` or `dialogue()`, so add them yourself: `engine.use(openWorld({...}), interactions(), dialogue(), content())`.
+Modules needed: `characters()` (NPCs on by default), `interactions({ ...presets.interactions.nearest })`, `dialogue()`; clock-time schedules need `sky()`. The `openWorld()` preset already installs `characters()` and `sky()` but not `interactions({ ...presets.interactions.nearest })` or `dialogue()`, so add them yourself: `engine.use(openWorld({ camera: 'follow', ...}), interactions({ ...presets.interactions.nearest }), dialogue(), content())`.
 
 ## 1. Write data (recommended)
 `games/<game>/content/npcs.js`:

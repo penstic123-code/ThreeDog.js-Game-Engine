@@ -2,7 +2,7 @@
 export const specs = [
   {
     name: 'S1 multi-layer ground: the same (x, z) gives different heights on and under a bridge (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();

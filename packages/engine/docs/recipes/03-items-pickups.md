@@ -1,6 +1,6 @@
 # Adding items and pickups
 
-Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with I by default) + `interactions()` (walk up to an item on the ground and press E to pick it up). "Already picked up / how long until it grows back" is data in world (needs the world module that `openWorld()` includes) and is saved with the game.
+Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with I by default) + `interactions({ ...presets.interactions.nearest })` (walk up to an item on the ground and press E to pick it up). "Already picked up / how long until it grows back" is data in world (needs the world module that `openWorld()` includes) and is saved with the game.
 
 ## 1. Write data (recommended)
 `games/<game>/content/items.js`:
@@ -71,7 +71,18 @@ engine.ops.run('inventory.drop', { item: 'sword#7' });      // a pickup at the a
 ```
 Both act on `ctx.actor`'s container (`'player'` by default).
 
+**Replace an item when the bag is full**: `inventory.trade` takes A and gives B as one all-or-nothing step (it checks that B fits once A is gone), and can be undone.
+```js
+const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' });   // also takeN / giveN; take may be an entry key ('sword#3')
+if (!r.ok) say(r.reason);                                                              // 'notEnough' (A missing) | 'full' (B does not fit even after A leaves)
+engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);   // gives A back (with its data), takes B away
+engine.inventory.trade('rusty_key', 'gold_key');                                       // the same from code; a container has .trade() too
+```
+**Why a pickup failed**: a pickup's `interaction.use` returns the reason as the op value: `const r = engine.ops.run('interaction.use'); if (r.ok && r.value?.ok === false) say(r.value.reason);   // 'full'` (the item stays on the ground).
+
 ## The inventory window (UI part `inventory`)
+`inventory({ pauseGame: true })` freezes gameplay (`engine.freeze`, the same mechanism as flow's `paused`) while the window is open; default `false` (the world keeps running behind the window). Switchable at runtime: `engine.inventory.pauseGame = true`.
+
 The window is a UI part (recipe 26): the engine opens and closes it (I key, Esc, input lock), the part only draws `{ title, hint, items: list(), capacity, used, weight, maxWeight }`.
 ```js
 engine.ui.set('inventory', false);                         // no window at all (the key does nothing, no DOM)

@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { screenToGround } from '../../core/screenToGround.js';
 
-const GRAY = 0x9a9a9a;
+// tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot); a style pack may override them
+const OK = 0xe0e0e0, BAD = 0x3a3a3a;
 const STRINGS = { 'zh-CN': { 'grid.rotate': '旋转' }, en: { 'grid.rotate': 'Rotate' } };
 
 /** Default look: a flat translucent box over the footprint @internal */
@@ -16,7 +17,7 @@ function boxLook(e) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
   mesh.name = 'grid:preview'; mesh.visible = false; mesh.renderOrder = 2;
   e.add(mesh);
-  const ok = new THREE.Color(st.ok ?? GRAY), bad = new THREE.Color(st.bad ?? GRAY), h = st.previewHeight ?? 0.08;
+  const ok = new THREE.Color(st.ok ?? OK), bad = new THREE.Color(st.bad ?? BAD), h = st.previewHeight ?? 0.08;
   return {
     update(v) {
       mesh.visible = true;
@@ -44,7 +45,7 @@ function target(e, from, g) {
 /** Create a preview handle @internal */
 export function makePreview(e, grids, opts) {
   const { grid, item, from = 'pointer', rotate = 'rotate', look } = opts;
-  const g = grids.get(grid), rule = grids._rule(item);
+  const g = grids._must(grid), rule = grids._rule(item);
   if (rotate && !e.input.actions.has(rotate)) { e.i18n.add(STRINGS); e.input.define(rotate, ['KeyR'], 'grid.rotate'); }
   const part = look === false ? null : typeof look === 'function' ? look(e) : boxLook(e);
   const h = {

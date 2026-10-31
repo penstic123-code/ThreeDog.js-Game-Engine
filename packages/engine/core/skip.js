@@ -1,6 +1,6 @@
 // Skipping time (part of Engine, mixed into Engine.prototype): engine.skip({ to: '06:00' }) for "sleep until morning", { seconds } for "wait a while".
 // Why not step(): a long skip can be hours of fixed steps. skip moves game seconds in segments that end at each timed thing
-// (a clock timer due, a sky clock mark: midnight, an at time, a between edge), so after / every / at / daily / between / day:new / season:change
+// (a clock timer due, a sky clock mark: midnight, an at time, a between edge), so after / every / at / daily / between / day:start / season:change
 // fire in the same order and the same number of times as when stepping. The world catches up once at the end: every record with far
 // gets the whole span as one far(rec, dt) (records added by a timer mid-skip owe only from when they were added).
 // What does not run while skipping: onFixed callbacks, module fixed hooks, physics and near simulation; fixed seconds (engine.elapsed, engine.tick) stay put.
@@ -16,6 +16,7 @@ const NUDGE = 1e-6;   // game seconds past each mark: land just after it, so flo
 const STRINGS = {
   amount: 'engine.skip(): pass { to: "06:00" } (until the sky clock next reads 06:00) or { seconds: 600 } (game seconds, > 0); got {got}',
   noSky: 'engine.skip({ to }) needs the sky module (it reads the sky clock); without sky pass { seconds } (game seconds)',
+  fixedDay: 'engine.skip({ to }): the sky time of day never moves (sky({ dayLength: Infinity })), so the clock never reads that time; pass { seconds } (game seconds)',
   hook: 'skip hook of module {name}',
 };
 
@@ -25,6 +26,7 @@ function amount(e, o) {
   if (o.seconds != null) { if (!(o.seconds > 0) || !Number.isFinite(o.seconds)) throw bad(); return o.seconds; }
   if (o.to == null) throw bad();
   const sky = e.sky; if (!sky) throw codedError('skip-amount', STRINGS.noSky);
+  if (!Number.isFinite(sky.dayLength)) throw codedError('skip-amount', STRINGS.fixedDay);   // the clock never reaches that time: an endless skip otherwise
   const f = parseClock(o.to, sky.hoursPerDay) % 1;
   if (!Number.isFinite(f)) throw bad();
   return ((((f - sky.timeOfDay) % 1) + 1) % 1 || 1) * sky.dayLength;
@@ -67,7 +69,7 @@ export function defineSkipOp(e) {
 export const skipMethods = {
   /**
    * Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step.
-   * Timers fire in time order as if stepped: clock.after / every, sky.at / daily / between, day:new, season:change (each crossing once; catchUp does not apply).
+   * Timers fire in time order as if stepped: clock.after / every, sky.at / daily / between, day:start, season:change (each crossing once; catchUp does not apply).
    * World records with far catch up the whole span in one far(rec, dt) (dt in fixed seconds = game seconds / timeScale); growth and respawns measured with clock.now are exact.
    * Not run while skipping: onFixed, module fixed hooks, physics, near simulation. Input is blocked (an opaque 'skip' input context) and gameplay frozen for the whole skip; emits time:skip { seconds } after the jump.
    * With fade 0 (default) the time has already moved when skip returns; with fade > 0 it fades out, jumps, (saves), fades in (through flow.transition when flow is installed),

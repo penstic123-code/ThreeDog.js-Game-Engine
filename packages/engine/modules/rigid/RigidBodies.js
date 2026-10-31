@@ -1,6 +1,6 @@
 // Real physics (Rapier): objects that topple, roll, get pushed and float on water.
 //
-// Split from collision() (engine.collision, cheap walking collision covering the whole map): this is dynamic-body physics, more costly, simulated only for chunks within +-terrainRing of each physics engine.load source (the player, a teleport destination; never a camera-only source).
+// Split from collision() (engine.collision, cheap walking collision covering the whole map): this is dynamic-body physics, more costly, simulated only for chunks within +-terrainRing of each physics engine.stream source (the player, a teleport destination; never a camera-only source).
 // The player is a kinematic capsule: it pushes crates and balls but is not pushed by them.
 //
 // const crate = engine.rigid.addBox(mesh, { mass: 5 });     // crate
@@ -19,7 +19,7 @@ import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
 const BODY_KEYS = ['mass', 'friction', 'restitution', 'damping', 'angularDamping', 'fixed'];
 
 export class RigidBodies {
-  /** gravity gravity = gravity; terrainRing = chunk rings around each physics load source that get terrain collision; buoyancy = buoyancy toggle; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
+  /** gravity gravity = gravity; terrainRing = chunk rings around each physics stream source that get terrain collision; buoyancy = buoyancy toggle; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
    *  floatLine / floatDepth： floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth meters deeper; treeColliderHeight = trunk collision cylinder height;
    *  playerCapsule { halfHeight, radius }  playerCapsule { halfHeight, radius } = player capsule size (default derived from engine.movement radius / height) */
   constructor(engine, { gravity = -9.81, terrainRing = 1, buoyancy = true, buoyancyForce = 1.6, waterDrag = 2.5, floatLine = 0.3, floatDepth = 0.8,
@@ -41,6 +41,7 @@ export class RigidBodies {
     this.ready = false;
   }
 
+  /** @internal module hook */
   async init() {
     if (this.ready) return;
     const mod = await import('@dimforge/rapier3d-compat');
@@ -60,7 +61,7 @@ export class RigidBodies {
 
   // ---------- Add bodies ----------
   _add(mesh, desc, { mass = 1, friction = 0.7, restitution = 0.1, damping = 0.05, angularDamping = 0.1, fixed = false } = {}) {
-    if (!this.ready) { console.warn('Physics is not ready: add bodies after engine.start() or in the world:ready event'); return null; }
+    if (!this.ready) { console.warn('Physics is not ready: add bodies after engine.start() or in the engine:ready event'); return null; }
     const R = this.R, p = mesh.position, q = mesh.quaternion;
     const bd = (fixed ? R.RigidBodyDesc.fixed() : R.RigidBodyDesc.dynamic())
       .setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
@@ -141,7 +142,7 @@ export class RigidBodies {
     entry.body.setTranslation({ x, y, z }, true); entry.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
   }
 
-  /** Ray (provider for engine.raycaster, called by engine.raycast when targets: 'all'): hits dynamic bodies only, returns RayHit (with entry, kind: 'rigid') */
+  /** Ray (provider for engine.rays, called by engine.raycast when targets: 'all'): hits dynamic bodies only, returns RayHit (with entry, kind: 'rigid') */
   _raycast(origin, dir, far) {
     if (!this.ready || !this.bodies.length) return null;
     const byHandle = new Map(this.bodies.map(b => [b.body.handle, b]));
@@ -157,12 +158,13 @@ export class RigidBodies {
   }
 
   // ---------- Every fixed step ----------
+  /** @internal module hook */
   step(dt) {
     if (!this.ready) return;
     const e = this.engine, G = e.ground, CH = G.chunkSize ?? 64, chunked = !!G.chunkCollision;
     const focus = e.player ? e.player.position : e.focus;   // player-body: the player's own kinematic body follows the character, not engine.actor
-    // terrain collision around physics load sources: sync at once when their chunks change, otherwise check every 0.5 s (tree felling etc.)
-    const src = e.load.list({ physics: true }).map(s => [Math.floor(s.x / CH), Math.floor(s.z / CH), Math.min(this.terrainRing, s.radius == null ? Infinity : Math.max(1, Math.ceil(s.radius / CH)))]);
+    // terrain collision around physics stream sources: sync at once when their chunks change, otherwise check every 0.5 s (tree felling etc.)
+    const src = e.stream.sources({ physics: true }).map(s => [Math.floor(s.x / CH), Math.floor(s.z / CH), Math.min(this.terrainRing, s.radius == null ? Infinity : Math.max(1, Math.ceil(s.radius / CH)))]);
     const key = src.join(';');
     this._syncT = (this._syncT || 0) + dt;
     if (chunked && (key !== this._srcKey || this._syncT > 0.5)) { this._syncTerrain(src); this._srcKey = key; this._syncT = 0; }
@@ -205,7 +207,7 @@ export class RigidBodies {
     for (const v of this.vehicles) v._sync();
   }
 
-  // Chunks around physics load sources ([cx, cz, rings] each): terrain uses triangle-mesh colliders (identical to what is drawn), vegetation uses cylinders. Data comes from the ground API ground.chunkCollision
+  // Chunks around physics stream sources ([cx, cz, rings] each): terrain uses triangle-mesh colliders (identical to what is drawn), vegetation uses cylinders. Data comes from the ground API ground.chunkCollision
   _syncTerrain(src) {
     const e = this.engine, R = this.R, want = new Set();
     for (const [pcx, pcz, n] of src) for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
@@ -275,8 +277,8 @@ export function rigid(opts = {}) {
       checkOptions('rigid()', opts, ['gravity', 'terrainRing', 'buoyancy', 'buoyancyForce', 'waterDrag', 'floatLine', 'floatDepth', 'treeColliderHeight', 'playerCapsule']);
       e.i18n.add(STRINGS); r = new RigidBodies(e, opts);
       e.budget.metric('rigidBodies', () => r.bodies.length);
-      e.load.readyCheck('rigid', s => !s.physics || r.ready && r.groundReady(s));   // a physics load source waits for the collider under it
-      e.raycaster.addProvider((o, d, far) => r._raycast(o, d, far));   // engine.raycast(..., { targets: 'all' }) includes rigid bodies
+      e.stream.readyCheck('rigid', s => !s.physics || r.ready && r.groundReady(s));   // a physics stream source waits for the collider under it
+      e.rays.addProvider((o, d, far) => r._raycast(o, d, far));   // engine.raycast(..., { targets: 'all' }) includes rigid bodies
       return r;
     },
     async init() { await r.init(); },

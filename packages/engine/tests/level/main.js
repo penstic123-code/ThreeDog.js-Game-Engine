@@ -1,7 +1,7 @@
 // Level + trigger zone test scene: built entirely in code, no model files needed.
 //   floor (40×40, y=0) · ramp (x 2→8, rising from 0 to 2 m) · platform (x 8→14, top at y=2)
 //   three walls col_wall_* (hidden collision boxes, one rotated 30°) · markers spawn、npc_guard、trigger_test、marker_chest
-import { createEngine, world, sky, collision, rigid, followCamera, characters, grids, THREE } from '../../index.js';
+import { createEngine, presets, world, sky, collision, rigid, followCamera, characters, grids, content, THREE } from '../../index.js';
 import { level } from '../../modules/level/index.js';
 import { triggers } from '../../modules/triggers/index.js';
 
@@ -44,9 +44,10 @@ engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), c
 
 window.log = { enter: [], exit: [] };
 window.grids = grids;   // installed at runtime by tests/specs/grid.mjs (the test build has no source files to import)
+window.content = content; window.THREE = THREE;   // tests/specs/single-source.mjs: content at runtime, level-node scenes built in the page
 engine.events.on('level:loaded', () => {
   const s = engine.level.spawn;
-  engine.characters.createPlayer({ spawn: { x: s.x, z: s.z } });
+  engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: s.x, z: s.z } });
   engine.triggers.fromMarkers({ onEnter: t => window.log.enter.push(t.tag), onExit: t => window.log.exit.push(t.tag) });
 });
 engine.start();

@@ -24,7 +24,7 @@ const STRINGS = {
 };
 
 export class Inventory {
-  constructor(engine, { action = 'inventory', keys = ['KeyI'], padKeys = ['PadY'], capacity = Infinity, maxWeight = Infinity, defaultStack = 99, pickupRadius = 2, bobDistance = 60 } = {}) {
+  constructor(engine, { action = 'inventory', keys = ['KeyI'], pad = ['PadY'], capacity = Infinity, maxWeight = Infinity, defaultStack = 99, pickupRadius = 2, bobDistance = 60 } = {}) {
     this.engine = engine;
     this.defs = new Map();
     this.defaultStack = defaultStack;
@@ -41,7 +41,7 @@ export class Inventory {
     this._seq = 0;              // entry key counter ('sword#7'), saved so keys never repeat
     this.bobDistance = bobDistance;
     engine.i18n.add(STRINGS);
-    engine.input.define(action, keys, 'inventory.action', { pad: padKeys });
+    engine.input.define(action, keys, 'inventory.action', { pad });
     engine.input.touchButton(action, 'inventory.action');
     engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), data: () => windowData(this) } });
     for (const ev of ['i18n:change', 'input:rebind']) engine.events.on(ev, () => this._refresh());
@@ -106,10 +106,19 @@ export class Inventory {
   }
   // using an undefined item: warn when other items are defined (none defined means the game doesn't use define)
   _known(id) { if (this.defs.size && !this.defs.has(id)) warnMissing('item', id, [...this.defs.keys()]); }
-  def(id) { return this.defs.get(id) || { name: id, stack: this.defaultStack }; }
+  /** An item definition by id (a bare { name, stack } for an unknown id) */
+  item(id) { return this.defs.get(id) || { name: id, stack: this.defaultStack }; }
   /** How many of an item (or of one entry key) the player has. */
   count(id) { return this.bag.count(id); }
   has(id, n = 1) { return this.bag.has(id, n); }
+  /**
+   * Atomic trade in the player inventory: take A and give B in one step, or change nothing (see Container.trade). Players run the op: engine.ops.run('inventory.trade', { take, give }).
+   * @example engine.inventory.trade('rusty_key', 'gold_key')   // { ok: true, ... } or { ok: false, reason: 'full' | 'notEnough' }
+   * @param {string} take
+   * @param {string} give
+   * @param {{ takeN?: number, giveN?: number, data?: Record<string, any>, silent?: boolean }} [opts]
+   */
+  trade(take, give, opts) { return this.bag.trade(take, give, opts); }
   get slotsUsed() { return this.bag.slotsUsed; }
   /** Player inventory entries: [{ key, id, count, data, def }] (for custom UI). */
   list() { return this.bag.list(); }
@@ -149,14 +158,25 @@ export class Inventory {
   _refresh() { const ui = this.engine.ui; if (ui.isOpen('inventory')) ui.get('inventory')?.update(windowData(this)); }
 }
 
-/** Inventory module. Installs engine.inventory, the 'inventory' UI part and the ops inventory.transfer / use / drop; ground pickups need world() and interactions(). */
+/**
+ * Inventory module. Installs engine.inventory, the 'inventory' UI part and the ops inventory.transfer / use / drop / trade; ground pickups need world() and interactions().
+ * Options: action / keys / pad (the open key), capacity / maxWeight / defaultStack (bag limits), pickupRadius / bobDistance (ground pickups),
+ * pauseGame (default false): true freezes gameplay while the window is open (monsters, timers and the game clock stop; the picture and UI stay alive).
+ * @example engine.use(inventory({ pauseGame: true }))   // opening the bag with I stops the world until it closes
+ */
 export function inventory(opts = {}) {
   let inv = null;
   return {
     name: 'inventory', label: 'Inventory', optional: ['world'],
     install(e) {
-      checkOptions('inventory()', opts, ['action', 'keys', 'padKeys', 'capacity', 'maxWeight', 'defaultStack', 'pickupRadius', 'bobDistance']);
+      checkOptions('inventory()', opts, ['action', 'keys', 'pad', 'capacity', 'maxWeight', 'defaultStack', 'pickupRadius', 'bobDistance', 'pauseGame']);
       inv = new Inventory(e, opts);
+      // pauseGame: true freezes gameplay (engine.freeze, the same mechanism flow's 'paused' and settings({ freezeWorld }) use) while the window is open.
+      // Rendering and UI go on; the freeze is released when the window closes or the inventory is turned off with engine.ui.set('inventory', false).
+      if (opts.pauseGame != null && typeof opts.pauseGame !== 'boolean') throw new Error(`inventory({ pauseGame: ${JSON.stringify(opts.pauseGame)} }): pauseGame must be true or false. Example: engine.use(inventory({ pauseGame: true }))`);
+      inv.pauseGame = !!opts.pauseGame;   // also settable at runtime: engine.inventory.pauseGame = true
+      e.events.on('ui:open', id => { if (id === 'inventory' && inv.pauseGame) e.freeze('inventory'); });
+      e.events.on('ui:close', id => { if (id === 'inventory') e.unfreeze('inventory'); });   // always: switching pauseGame off while open must not leave the world frozen
       defineInventoryOps(e, inv);
       return inv;
     },
@@ -167,7 +187,7 @@ export function inventory(opts = {}) {
     },
     describe(e, ctx) {
       const w = e.world;   // use the model if present (same object the interactions module reports, merged into one entry); far away only data
-      if (w) for (const r of w.query({ kind: 'pickup', near: ctx.center, radius: ctx.radius, where: r => r.until == null })) ctx.near(w.view(r.id) ?? r.position, { name: inv.def(r.item).name, kind: 'pickup', id: r.item });
+      if (w) for (const r of w.query({ kind: 'pickup', near: ctx.center, radius: ctx.radius, where: r => r.until == null })) ctx.near(w.view(r.id) ?? r.position, { name: inv.item(r.item).name, kind: 'pickup', id: r.item });
       const show = c => Object.fromEntries(c._entries.map(x => [x.key, x.data === undefined ? x.count : { count: x.count, data: x.data }]));
       const boxes = Object.fromEntries([...inv._containers.map].filter(([, c]) => c !== inv.bag && c._entries.length).map(([id, c]) => [id, show(c)]));
       return { items: show(inv.bag), slots: inv.capacity === Infinity ? `${inv.slotsUsed}` : `${inv.slotsUsed}/${inv.capacity}`, ...(inv.bag.weight && { weight: `${inv.bag.weight}/${inv.bag.maxWeight}` }), ...(Object.keys(boxes).length && { containers: boxes }) };

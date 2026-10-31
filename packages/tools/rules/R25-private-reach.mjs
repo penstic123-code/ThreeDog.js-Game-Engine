@@ -8,8 +8,6 @@ import { walk, read, codeOnly, P } from './_lib.mjs';
 
 // [folder, member, reason]; folder '*' = any folder
 const ALLOW = [
-  ['*', 'ops._guard', 'documented module-facing hook of the ops guard; becoming public in the API rename pass'],
-  ['*', 'ops._allowing', 'documented module-facing hook of the ops guard; becoming public in the API rename pass'],
   ['net', 'ops._client', 'net routing hooks kept in core Ops.js; net is deferred (user decision), experimental'],
   ['net', 'ops._route', 'net routing hooks kept in core Ops.js; net is deferred (user decision), experimental'],
   ['net', 'ops._log', 'host logs refused peer requests into the op history; net is deferred (user decision)'],

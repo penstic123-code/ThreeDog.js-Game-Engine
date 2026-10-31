@@ -145,7 +145,7 @@ export function hud(opts = {}) {
       checkOptions('hud()', opts, ['questMarkers']);
       e.i18n.add(STRINGS);
       defineHudParts(e, containers);
-      for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'load', 'session:start']) e.events.on(ev, syncQuests);
+      for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'save:loaded', 'session:start']) e.events.on(ev, syncQuests);
       // per-playthrough state (recipes/14-custom-module.md "Per-playthrough state"): quest markers belong to the old quests
       e.events.on('session:end', () => { for (const m of quest.values()) m.remove(); quest.clear(); });
       e.events.on('i18n:change', () => { for (const [id, it] of items) it.part?.update({ id, ...it.o }); });

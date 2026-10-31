@@ -1,4 +1,4 @@
-// Test city block (modeled on packages/engine/examples/city): ground, platform, buildings (visual mesh + hidden col_ collision box), markers.
+// Test city block (modeled on packages/engine/tests/city): ground, platform, buildings (visual mesh + hidden col_ collision box), markers.
 // Some materials use makeMaterial (with purpose), some are created directly; the bake round trip must restore both unchanged.
 import { THREE, makeMaterial } from '../../index.js';
 

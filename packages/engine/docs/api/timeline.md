@@ -9,7 +9,6 @@ Cutscenes, tweens (timeline() module)
 - `timeline.tween(target: any, to: TweenTo, duration?: number, ease?: Ease) → TweenPromise` — General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, 1, 'outCubic'); duration in seconds. Returns a Promise (with finish()/cancel())
 - `timeline.play(steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions) → Promise<{ skipped: boolean }>` — Play a timeline; resolves with { skipped } when it ends
 - `timeline.skip(run?: any)` — Skip all (or one) playing timelines
-- `timeline.frame(dt: number)` — Update every frame (called by the module each frame)
 - Properties:
   - `skipAll: boolean` Skip every cutscene immediately (set by scenario param cutscene=skip)
   - `playing: boolean` Whether a cutscene is playing

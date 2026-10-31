@@ -63,8 +63,9 @@ const RULE_STRINGS = {
     triggers: 'trigger zones (tag -> position / from level, enter/exit effects)',
     level: 'level markers (spawn point, NPCs, trigger zones)',
     vegetation: 'vegetation (name -> model, growth rule)',
-    props: 'props (list: model, position, facing, collision; or { template, x, z } = an instance of a template), streamed in on demand',
-    templates: 'reusable objects (name -> model, collide, interact, container, sound, animate, state defaults); shared read-only definitions',
+    props: 'props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand',
+    templates: 'reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions',
+    grids: 'placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved',
     rules: 'condition words added by the game ({ conditions }); actions are ops, not effect words',
   },
   // ref of conditions / effects -> how to write the value (used to generate API docs)

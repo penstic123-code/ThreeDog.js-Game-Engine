@@ -5,17 +5,10 @@
  * @returns {ModuleDef<Weather>}
  */
 export function weather(opts?: WeatherOptions): ModuleDef<Weather>;
-/** @import { ModuleDef } from '../../../core' */
-/** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../../world' */
-/**
- * Built-in weather presets
- * @type {Record<WeatherName, WeatherPreset>}
- */
-export const WEATHER_PRESETS: Record<WeatherName, WeatherPreset>;
 /** engine.weather */
 export class Weather {
-    /** All weather presets @type {Record<string, WeatherPreset>} */
-    presets: Record<string, WeatherPreset>;
+    /** The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string, WeatherPreset>} */
+    types: Record<string, WeatherPreset>;
     /** Current (mid-transition) weather parameters @type {WeatherPreset} */
     current: WeatherPreset;
     /** Current weather name @type {string} */
@@ -49,21 +42,9 @@ export class Weather {
      * @returns {string}
      */
     label(name?: string): string;
-    /**
-     * Advance weather transition, automatic weather and lightning (the module calls this itself every fixed step)
-     * @param {number} dt
-     * @returns {void}
-     */
-    tick(dt: number): void;
-    /**
-     * Write weather effects into the sky modifier layer and make rain/snow particles follow the camera (the module calls this itself every frame)
-     * @param {any} camera
-     * @returns {void}
-     */
-    apply(camera: any): void;
 }
 import type { WeatherOptions } from '../../../world';
 import type { ModuleDef } from '../../../core';
-import type { WeatherName } from '../../../world';
 import type { WeatherPreset } from '../../../world';
 import * as THREE from 'three';
+import type { WeatherName } from '../../../world';

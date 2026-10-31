@@ -46,9 +46,9 @@ export const specs = [
       const r = await ev(() => {
         const c = engine.content, v = engine.vars;
         c.run([{ setFlag: 'dTest' }, { bump: 'dCount' }, { bump: 'dCount' }]);
-        const shared = engine.dialogue.state.flags === v.flags && engine.quests.counter('dCount') === 2;
+        const shared = engine.dialogue.state.flags === v.flags && v.counter('dCount') === 2;
         engine.saves.save('d-vars');
-        v.setFlag('dTest', false); engine.quests.bump('dCount', 5);
+        v.setFlag('dTest', false); v.bump('dCount', 5);
         engine.saves.load('d-vars');
         const restored = v.flag('dTest') === true && v.counter('dCount') === 2 && engine.dialogue.state.flags.dTest === true;
         const parts = engine.saves.collect().parts;
@@ -82,7 +82,7 @@ export const specs = [
   },
   {
     name: 'D 游戏流程：transition 渐黑与锁输入、paused 冻结（小城）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const tick = () => new Promise(r => setTimeout(r, 0));
@@ -122,7 +122,7 @@ export const specs = [
   },
   {
     name: 'D 时间轴 fade 步骤与 cutscene=skip（小城）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const tick = () => new Promise(r => setTimeout(r, 0));
@@ -203,7 +203,7 @@ export const specs = [
         const n = calls; engine.step(1, { render: false }); out.noRepeat = calls === n;
         engine.saves.save('d-between');
         await engine.applyState({ time: '12:00' }); out.rewound = on;
-        await engine.saves.load('d-between'); out.loaded = on;   // the 'load' event (sky re-aligns its ranges) fires when the Promise settles
+        await engine.saves.load('d-between'); out.loaded = on;   // the 'save:loaded' event (sky re-aligns its ranges) fires when the Promise settles
         sky.timeOfDay = 0.1; engine.step(0.05, { render: false }); out.night = on;
         range.remove();
         return out;
@@ -335,7 +335,7 @@ export const specs = [
   // ---------- Seams (review 6.8): UI focus stack, trigger zone exit, freezing, repeated content load, load ----------
   {
     name: 'D 接缝：Esc 前台栈（对话吞掉 Esc、栈空才开菜单）（小城）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ page, check, ev, frames }) {
       await ev(() => { window.dSaid = engine.dialogue.say('测试台词'); });
       await frames(2);
@@ -356,7 +356,7 @@ export const specs = [
   },
   {
     name: 'D 接缝：触发区删除发 exit、flow.transition 出错也亮回来、findSpawn 不假设地形（小城）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();
@@ -374,7 +374,7 @@ export const specs = [
         await new Promise(r => { const h = engine.onFixed(() => { h.remove(); r(); }); });   // context pops apply on the next fixed step
         const fade = getComputedStyle(document.querySelector('.threedog-fade')).getPropertyValue('--threedog-fade').trim();
         const s = engine.characters.findSpawn({ x: 0, z: 8 });
-        return { inside, log, once: o.used && engine.triggers.list.includes(o), threw, fade, unlocked: engine.input.enabled, transitioning: engine.flow.transitioning,
+        return { inside, log, once: o.used && engine.triggers.list().includes(o), threw, fade, unlocked: engine.input.enabled, transitioning: engine.flow.transitioning,
           spawn: { y: s.y, walk: engine.collision.walkable(s) } };
       });
       check('remove() on a zone the player is still inside: exit fires first', r.inside && r.log.includes('dRemove'), JSON.stringify(r.log));
@@ -423,7 +423,7 @@ export const specs = [
   },
   {
     name: 'D 接缝：跨关卡读档等关卡加载完、旧关卡的触发区被清掉、NPC 只拆模型（小城）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.saves.save('d-level');

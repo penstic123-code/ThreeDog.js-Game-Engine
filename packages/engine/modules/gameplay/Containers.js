@@ -14,7 +14,7 @@ export class Containers {
     if (!c) {
       this.map.set(id, c = new Container(this.inv, id, opts));
       // place goods only on first creation; seeding is setup, so the ops guard lets it through
-      if (opts?.items) { this.inv.engine.ops._allowing(() => { for (const [item, n] of Object.entries(opts.items)) c.add(item, n, { silent: true }); }); c.seeded = true; }
+      if (opts?.items) { this.inv.engine.ops.allow(() => { for (const [item, n] of Object.entries(opts.items)) c.add(item, n, { silent: true }); }); c.seeded = true; }
     } else {   // container created first by a load, game code sets the limits afterwards; if it already exists, goods are not placed again
       if (opts?.capacity != null) c.capacity = opts.capacity;
       if (opts?.maxWeight != null) c.maxWeight = opts.maxWeight;
@@ -34,7 +34,7 @@ export class Containers {
   entry(key) { for (const c of this.map.values()) { const e = c._find(key); if (e) return e; } return null; }
 
   transfer(from, to, x, n = 1) {
-    DEV && this.inv.engine.ops._guard('inventory.transfer');
+    DEV && this.inv.engine.ops.guard('inventory.transfer');
     const a = this.find(from, 'from'), b = this.find(to, 'to');
     if (!(n > 0)) throw new Error(`inventory.transfer: count must be a positive number, got ${n}`);
     if (a === b) return 0;

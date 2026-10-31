@@ -5,25 +5,26 @@ A low-poly web 3D game engine on three.js 0.187: **core** (rendering, main loop,
 ## Install
 ```sh
 npm install threedog three@~0.187.0
+npm install @threedog/style-lowpoly          # optional: the low-poly style pack (the engine ships no art)
 npm install -D vite @threedog/tools   # optional: the vite preset and the threedog command line
 ```
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.
 
 ## Minimal usage
 ```js
-import { createEngine, openWorld } from 'threedog';
-import lowpoly from 'threedog/styles/lowpoly';
+import { createEngine, presets, openWorld } from 'threedog';
+import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';   // optional style pack (npm install @threedog/style-lowpoly)
 
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly });
-engine.use(openWorld({ seed: 7 }));
-engine.characters.createPlayer();
+engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));
+engine.characters.createPlayer({ ...presets.player.thirdPerson });
 engine.start();
 ```
 `vite.config.js` with the preset: `import { gameConfig } from '@threedog/tools/vite'; export default gameConfig(import.meta.dirname);`
 
 ## Entry points
 - `threedog`: the whole public API (`THREE` is re-exported, so `import { THREE } from 'threedog'` is the same three instance).
-- `threedog/styles/<name>`: style packs (`lowpoly` ships with the engine).
+- Style packs are separate packages: the engine ships no art. `npm install @threedog/style-lowpoly` for the optional low-poly one (visuals plus `terrainPreset()`); without a style pack everything is a neutral gray placeholder.
 - `threedog/error-hints`: the developer error hint table (used by `@threedog/tools`).
 
 Nothing else is a public path; files under `core/`, `modules/` etc. may move between versions.

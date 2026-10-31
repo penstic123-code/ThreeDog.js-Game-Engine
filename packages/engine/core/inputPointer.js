@@ -5,9 +5,11 @@
 export function bindPointer(input, canvas, signal) {
   let drag = null;
   canvas.addEventListener('pointerdown', e => {
-    drag = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: 0 }; canvas.setPointerCapture(e.pointerId); canvas.focus();
     input.pointer.down = true; input.pointer.button = e.button;
     if (e.pointerType === 'mouse') input._keyDown('Mouse' + e.button, 'keyboard');
+    drag = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: 0 }; canvas.focus();
+    // While the mouse is locked (first person) Chromium rejects pointer capture with InvalidStateError; capture is only needed for drag-to-look anyway
+    if (document.pointerLockElement !== canvas) canvas.setPointerCapture(e.pointerId);
   }, { signal });
   canvas.addEventListener('pointermove', e => {
     const p = input.pointer;

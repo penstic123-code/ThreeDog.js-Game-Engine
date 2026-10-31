@@ -5,12 +5,10 @@ Vegetation (vegetation() module, needs terrain)
 
 ## Methods and properties
 - `vegetation.add(name: string, opts: VegetationOptions) → Species` — Register a kind of vegetation
-- `vegetation.key(species: string, cx: number, cz: number, id: number) → string` — Entry name in the save 'veg:<name>:<cx>,<cz>:<id>'
 - `vegetation.removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }) → string` — Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name
 - `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — Restore one
 - `vegetation.instanceAt(position: PositionLike, opts?: { radius?, species? }) → VegetationHit | null` — The one nearest to position within radius meters (default 2) (species restricts to one kind), null if none
-- `vegetation.setShadowRing(name: string, ring: number)` — Set from which chunk ring on this vegetation stops casting shadows (smaller saves more), takes effect immediately
-- Also: `vegetation.get(name: string) → Species | undefined`, `vegetation.list() → Species[]`, `vegetation.baseNames() → string[]`, `vegetation.nearNames() → string[]`, `vegetation.isRemoved(species: string, cx: number, cz: number, id: number) → boolean`
+- Also: `vegetation.get(name: string) → Species | undefined`, `vegetation.list() → Species[]`, `vegetation.isRemoved(species: string, cx: number, cz: number, id: number) → boolean`
 
 ## Data structures
 - **VegetationOptions** Parameters of engine.vegetation.add(name, {...})

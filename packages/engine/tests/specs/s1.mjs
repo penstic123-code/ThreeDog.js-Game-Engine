@@ -1,9 +1,9 @@
-// Tests for batch 4, stage 1 (tightening low-level conventions, see HANDOFF.md section 5); same style as packages/engine/tests/specs.mjs, appended at the end of specs.mjs.
+// Low-level conventions; same style as packages/engine/tests/specs.mjs, appended at the end of specs.mjs.
 // 1.3 module lifecycle: entering / leaving levels does not accumulate, no callbacks after engine.dispose(), UI elements and listeners are all released.
 export const specs = [
   {
     name: 'S1 lifecycle: 10 level enters / exits, listeners, timers and geometries do not grow (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();
@@ -68,7 +68,7 @@ export const specs = [
   },
   {
     name: 'S1 resource ref counting: removing one of two copies leaves the other working, release waits for the last one, trim frees unused ones (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();
@@ -95,7 +95,7 @@ export const specs = [
   },
   {
     name: 'S1 error tiers: a presentation module error disables only that module; a gameplay error (inventory give throws) freezes gameplay and is recorded in engine.error (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     expectErrors: /s1-boom|give failed/,   // this test deliberately causes two errors
     async run({ check, ev }) {
       const r = await ev(() => {

@@ -1,17 +1,17 @@
 // MCP server test: npm test -- "MCP server"
-// Starts `threedog mcp` over stdio (through the real bin), talks JSON-RPC to it, and calls describe / snap against a real dev server (photo-life,
-//   started in this process the same way as the bridge test).
+// Starts `threedog mcp` over stdio (through the real bin), talks JSON-RPC to it, and calls describe / snap against a real dev server on the engine
+//   package (its index page is the world example), started in this process the same way as the bridge test; needs no game under games/.
 import { createServer } from 'vite';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { TOOLS, ROOT, findWorkspace } from '../paths.mjs';
+import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
 
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'press', 'reload', 'resume', 'scenario', 'snap', 'snap_describe', 'state', 'step'];
+const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'press', 'reload', 'resume', 'scenario', 'snap', 'snap_describe', 'state', 'step'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -31,13 +31,13 @@ function mcp(...args) {
 const names = r => r.tools.map(t => t.name).sort();
 
 export async function run({ check }) {
-  const plain = mcp('-w', 'photo-life');
+  const plain = mcp('-w', 'engine');
   try { await steps(check, plain); } finally { plain.close(); }
 }
 
 async function steps(check, plain) {
   // 1. initialize + tools/list: the expected tools, each with a schema and a description; js only with --allow-js
-  const withJs = mcp('-w', 'photo-life', '--allow-js');
+  const withJs = mcp('-w', 'engine', '--allow-js');
   try {
     const info = await plain.init, list = await plain.rpc('tools/list');
     check('initialize: answers with the protocol version, the tools capability and the server name',
@@ -53,20 +53,15 @@ async function steps(check, plain) {
     check('unknown method: JSON-RPC "Method not found" error', unknown.includes('Method not found'), unknown);
   } finally { withJs.close(); }
 
-  // 2. No dev server: a tool call says how to fix it (use a workspace nobody is running dev for)
-  const idle = ['pig-delivery', 'builder'].find(n => !existsSync(join(findWorkspace(n), '.threedog/dev.json')));
-  if (idle) {
-    const s = mcp('-w', idle);
-    try {
-      await s.init;
-      const r = await s.rpc('tools/call', { name: 'describe', arguments: {} });
-      check('without a dev server the tool result is an error that says npm run dev', r.isError && r.content[0].text.includes('npm run dev'), r.content[0].text);
-    } finally { s.close(); }
+  // 2. No dev server: a tool call says how to fix it (skipped when someone is running dev on the engine right now)
+  const dir = ENGINE;
+  if (!existsSync(join(dir, '.threedog/dev.json'))) {
+    const r = await plain.rpc('tools/call', { name: 'describe', arguments: {} });
+    check('without a dev server the tool result is an error that says npm run dev', r.isError && r.content[0].text.includes('npm run dev'), r.content[0].text);
   }
 
   // 3. Against a running dev server: describe returns text, snap returns an image
-  const dir = findWorkspace('photo-life');
-  const server = await createServer({ root: dir, configFile: join(dir, 'vite.config.js'), server: { port: 5392, strictPort: false }, logLevel: 'error' });
+  const server = await createServer({ root: dir, configFile: join(dir, 'vite.config.js'), server: { port: 0, host: 'localhost' }, logLevel: 'error' });
   await server.listen();
   try {
     const d = await plain.rpc('tools/call', { name: 'describe', arguments: {} });

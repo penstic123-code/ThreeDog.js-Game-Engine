@@ -74,7 +74,7 @@ export interface OpenWorldOptions {
   /** Terrain random seed */
   seed?: number;
   /** View distance (in chunks) */
-  viewDistance?: number;
+  viewChunks?: number;
   /** Vegetation density multiplier */
   density?: number;
   /** Flatten a plot (for a house) */
@@ -87,8 +87,8 @@ export interface OpenWorldOptions {
   weather?: WeatherName | (string & {}) | Part<typeof weather>;
   /** Automatic weather changes */
   autoWeather?: boolean;
-  /** Camera: 'follow' (default) / 'firstPerson' / 'rts' / 'fixed', a camera module with options (e.g. followCamera({ shoulder: 0.7 })), or false */
-  camera?: 'follow' | 'firstPerson' | 'rts' | 'fixed' | ModuleDef | false;
+  /** Required, no default: 'follow' / 'firstPerson' / 'rts' / 'fixed', a camera module with options (e.g. followCamera(presets.camera.overShoulder)), or false */
+  camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | ModuleDef | false;
   world?: Part<typeof world>;
   terrain?: Part<typeof terrain>;
   vegetation?: Part<typeof vegetation>;
@@ -104,9 +104,9 @@ export interface OpenWorldOptions {
 }
 /**
  * Open-world preset: world, terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only).
- * Every part takes false or its own options: openWorld({ seed: 7, sky: { daysPerSeason: 28 }, rigid: false }). Add gameplay modules yourself
+ * camera is required (the bundle picks no camera feel). Every part takes false or its own options: openWorld({ seed: 7, camera: 'follow', rigid: false }). Add gameplay modules yourself
  */
-export function openWorld(opts?: OpenWorldOptions): ModuleDef[];
+export function openWorld(opts: OpenWorldOptions): ModuleDef[];
 
 // ======================================================================
 // Modules (each function returns a module for engine.use())
@@ -118,8 +118,19 @@ export function terrain(opts?: TerrainOptions): ModuleDef<Terrain>;
 export function vegetation(): ModuleDef<Vegetation>;
 // Migrated: sky() is generated from the JSDoc in modules/sky/Sky.js
 export { sky } from './types/generated/modules/sky/Sky';
-// Migrated: weather() and WEATHER_PRESETS are generated from the JSDoc in modules/weather/Weather.js
-export { weather, WEATHER_PRESETS } from './types/generated/modules/weather/Weather';
+// Migrated: weather() is generated from the JSDoc in modules/weather/Weather.js
+export { weather } from './types/generated/modules/weather/Weather';
+/**
+ * Opt-in gameplay presets: named option objects a game picks on purpose (the engine never applies one itself). Each only bundles options
+ * the game could write; spread and override: weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] })
+ */
+export const presets: {
+  readonly weather: { readonly temperate: WeatherOptions & Required<Pick<WeatherOptions, 'types' | 'autoPool'>> };
+  readonly calendar: { readonly fourSeasons: SkyOptions; readonly fixedTime: SkyOptions };
+  readonly player: { readonly [K in 'none' | 'thirdPerson' | 'lockOn' | 'aim' | 'sideScroller']: Pick<import('./types/gameplay').PlayerOptions, 'control' | 'faceMode' | 'runKeys' | 'jumpKeys' | 'cameraFollow'> };
+  readonly interactions: { readonly [K in 'nearest' | 'facing' | 'aim']: import('./types/gameplay').InteractionsOptions };
+  readonly camera: { readonly follow: import('./types/physics').FollowCameraOptions; readonly overShoulder: import('./types/physics').FollowCameraOptions };
+};
 // Migrated: water() is generated from the JSDoc in modules/water/Water.js
 export { water } from './types/generated/modules/water/Water';
 // Migrated: world() is generated from the JSDoc in modules/world/index.js
@@ -148,7 +159,7 @@ export function rtsCamera(opts?: RtsCameraOptions): ModuleDef<CameraRig>;
 /** Characters: player engine.characters, NPCs engine.npcs */
 export function characters(opts?: CharactersOptions): ModuleDef<CharactersApi>;
 /** Interaction prompts -> engine.interactions */
-export function interactions(opts?: InteractionsOptions): ModuleDef<Interactions>;
+export function interactions(opts: InteractionsOptions): ModuleDef<Interactions>;
 /** Dialogue -> engine.dialogue */
 export function dialogue(opts?: DialogueOptions): ModuleDef<Dialogue>;
 /** Inventory -> engine.inventory */
@@ -181,6 +192,8 @@ export function nav(opts?: NavOptions): ModuleDef<Nav>;
 export function content(): ModuleDef<Content>;
 // Migrated: hlod(), flow() and hud() are generated from the JSDoc in modules/hlod/index.js, flow/index.js, hud/index.js
 export { hlod } from './types/generated/modules/hlod/index';
+// Migrated: lightPool() is generated from the JSDoc in modules/lights/index.js
+export { lightPool } from './types/generated/modules/lights/index';
 export { flow } from './types/generated/modules/flow/index';
 export { hud } from './types/generated/modules/hud/index';
 
@@ -202,31 +215,19 @@ export function ease(e: Ease): (t: number) => number;
 export function checkOptions(where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean }): void;
 // The Character, NPC and Engine classes are exported by the export * above (tweens use engine.timeline.tween, pathfinding uses engine.characters.findPath)
 
-/** Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed }).surface(x, z) */
+/** Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed, ...terrainPreset() }).surface(x, z) */
 export function createTerrain(cfg?: Partial<TerrainConfig>): TerrainGen;
-/** Default biome name list */
-export const BIOMES: string[];
 
 // ---------- Materials ----------
 // Migrated: declarations are generated from the JSDoc in packages/engine/render/materials.js (npm run map), not written by hand here
 export { terrainMaterial, mergeColored, applyEffects, MATERIAL_PURPOSES, makeMaterial } from './types/generated/render/materials';
 export { materialPatches } from './types/generated/render/patches';
 
-// ---------- Settings page controls ----------
-/** One row: text on the left, control on the right (returns HTML) */
-export function row(label: string, ctl: string, esc: (s: any) => string): string;
-/** Toggle button */
-export function toggle(key: string, on: boolean, tools: SettingsTools): string;
-/** Slider */
-export function range(key: string, v: number, min: number, max: number, step: number, tools: SettingsTools): string;
-/** A group of mutually exclusive buttons */
-export function segmented(key: string, cur: any, options: [any, string][], tools: SettingsTools, disabled?: any[]): string;
-
 // ---------- UI ----------
 // Migrated: declarations are generated from the JSDoc in packages/engine/ui/UI.js and Focus.js (npm run map), not written by hand here
 export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './types/generated/ui/UI';
 // Type PostFX (class in render/PostFX.js): used by engine.post in Engine, and exported publicly
-export type { PostFX } from './types/generated/render/PostFX';
+export type { PostFX, PostEffect } from './types/generated/render/PostFX';
 export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleItem } from './types/core';
 
 // ---------- Clock ----------
@@ -234,7 +235,7 @@ export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleIte
 export function parseClock(clock: string | number, hoursPerDay?: number): number;
 /** Fraction of the day -> 'HH:MM': formatClock(0.75) = '18:00' */
 export function formatClock(t: number, hoursPerDay?: number): string;
-/** Is time t (0-1, e.g. sky.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by sky.between and music's when.time */
+/** Is time t (0-1, e.g. sky.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by sky.between and the audio rule condition { time: [from, to] } */
 export function inRange(t: number, from: string | number, to: string | number, hoursPerDay?: number): boolean;
 
 // ---------- Target selection (core/targeting.js, pure functions) ----------

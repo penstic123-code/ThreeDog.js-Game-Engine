@@ -28,7 +28,7 @@ guest.use(net({ role: 'client', transport: wire.connect() }));
 ```
 Other carriers (Colyseus room, WebRTC data channel, your own server) only need `send(msg, to?)`, `on(type, fn)` and `close()`; see the top of
 `modules/net/transports.js`.
-Example: `examples/coop/` (host + two guests in one page, shared chest, shop, plots; open `/examples/coop/` with `npm run dev`).
+Example: the co-op test page in the engine repository, tests/coop/ (host + two guests in one page, shared chest, shop, plots; open /tests/coop/index.html with `npm run dev`).
 
 ## 2. Mark the ops friends may request: `net: 'peer'`
 Default deny: a client may only request ops defined with `net: 'peer'`. Everything else is refused with `'notAllowed'`, on the client at once and

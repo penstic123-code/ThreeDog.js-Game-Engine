@@ -129,6 +129,7 @@ export class Timeline {
    * Update every frame (called by the module each frame)
    * @param {number} dt
    * @returns {void}
+   * @internal
    */
   frame(dt) {
     if (!this.engine.frozen) this._tweener.update(dt);   // wait and tweens do not advance while frozen
@@ -259,7 +260,7 @@ export class Timeline {
       },
     }).then(r => {
       // the path moved the model, not the mover: the character's world record (the player's) catches up once, so a save right after the cutscene has the new place
-      if (chr?.recordId && chr.syncRecord) e.ops._allowing(() => chr.syncRecord());
+      if (chr?.recordId && chr.syncRecord) e.ops.allow(() => chr.syncRecord());
       return r;
     });
   }

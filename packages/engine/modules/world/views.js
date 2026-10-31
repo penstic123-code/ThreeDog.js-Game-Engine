@@ -1,4 +1,4 @@
-// Presentation layer of world: build / tear down models by distance from the full-detail load sources (engine.load: player, camera focus, teleport destination...),
+// Presentation layer of world: build / tear down models by distance from the full-detail stream sources (engine.stream sources: player, camera focus, teleport destination...),
 // sync positions, decide ready. The public API is in World.js (present / view / ready / refresh); this is the implementation.
 // It only decides "which records have a model" and never affects gameplay: simulation follows the gameplay anchor (sim.js), and how fast models are built, or whether they are built, does not change simulation results.
 import { reportError } from '../../core/errors.js';
@@ -23,10 +23,11 @@ export class Views {
     this.w = w;
     this.presenters = new Map();   // kind → { build, update, dispose, radius, positionFrom, show }
     this.map = new Map();          // id → { obj, pending, p }; obj null and not pending = build failed (retried when you leave and come back)
+    this.byObj = new WeakMap();    // built model → record id (world.idOf: a ray hit on the model names its record)
     this.radii = new Map();        // presentation → radius at the last refresh (used to decide whether a moving record needs another refresh)
     this.moving = new Set();       // ids of built positionFrom 'view' models (each fixed step scans only these, not thousands of props)
     this.dirty = true;             // models need to be re-decided (a record crossed the build / teardown distance, zone changed, new registration, last frame unfinished)
-    this.memo = {};                // load sources at the last refresh (memo.at: [{ x, z, s }])
+    this.memo = {};                // stream sources at the last refresh (memo.at: [{ x, z, s }])
     this.waiters = [];
   }
 
@@ -48,9 +49,9 @@ export class Views {
   /** Distance for building models: a number, or a function (asked at each refresh; write it as a function for distances that change at runtime, like terrain view distance) */
   radius(p) { const r = p.radius; return typeof r === 'function' ? r() : r ?? this.w.radius; }
   /** A source was added / removed or moved more than min(cell / 4, 8 m) since the last refresh: refresh (that is the error of "build within radius") */
-  moved() { return this.w.engine.load.changed(this.memo, Math.min(this.w._cells.size / 4, 8), FULL, false); }
+  moved() { return this.w.engine.stream.changed(this.memo, Math.min(this.w._cells.size / 4, 8), FULL, false); }
   /** Radius of presentation p for source s (a source radius caps it) */
-  reach(p, s) { return this.w.engine.load.reach(s, this.radii.get(p) ?? this.radius(p)); }
+  reach(p, s) { return s.reach(this.radii.get(p) ?? this.radius(p)); }
   /** Squared distance from rec to the nearest source of the last refresh, measured in units of each source's reach (≤ 1 = inside) */
   near(rec, p) {
     let best = Infinity;
@@ -71,7 +72,7 @@ export class Views {
 
   get ready() {
     if (!this.presenters.size) return true;
-    if (this.dirty || this.moved()) return false;   // not yet refreshed for the current load sources
+    if (this.dirty || this.moved()) return false;   // not yet refreshed for the current stream sources
     for (const v of this.map.values()) if (v.pending) return false;
     return true;
   }
@@ -87,7 +88,14 @@ export class Views {
       if (v.p.positionFrom !== 'view') v.obj.position.copy(rec.position);   // 'view' position is copied back to the record at the end of the fixed step (pull)
       v.p.update?.(rec, v.obj, dt);
     }
-    if (this.waiters.length && this.ready) for (const r of this.waiters.splice(0)) r();
+    this.wake();
+  }
+  /** Resolve whenReady waiters once ready. Also called when an async build settles: a paused engine (tests, engine.step) runs no frame,
+   *  so waiting only in frame() would never resolve; builds still owed (per-frame limit) are done right here, like world.refresh() */
+  wake() {
+    if (!this.waiters.length) return;
+    if (this.presenters.size && (this.dirty || this.moved()) && this.w.engine.paused) this.refresh();
+    if (this.ready) for (const r of this.waiters.splice(0)) r();
   }
   /** End of fixed step: models that move themselves (positionFrom 'view') copy their position back to the record, so later gameplay in this step and saves read this step's result.
    *  Ones not simulated near this step (focus and gameplay anchor apart: model still exists but counts as far) go the other way: the record rules, the model follows */
@@ -102,11 +110,11 @@ export class Views {
   /** Build models that should exist near any full-detail source (at most limit);
    *  tear down those far from all of them, in another zone, or that show says no to */
   refresh(limit = Infinity) {
-    const W = this.w, L = W.engine.load;
+    const W = this.w, L = W.engine.stream;
     L.changed(this.memo, 0, FULL); this.dirty = false;
     let maxR = W.radius, n = 0;
     for (const p of this.presenters.values()) { const r = this.radius(p); this.radii.set(p, r); if (r > maxR) maxR = r; }
-    for (const a of this.memo.at) W._cells.forEach(a, L.reach(a.s, maxR), (rec, d2) => {
+    for (const a of this.memo.at) W._cells.forEach(a, a.s.reach(maxR), (rec, d2) => {
       const p = this.presenters.get(rec.kind);
       if (!p || this.map.has(rec.id) || !W._inZone(rec)) return;
       const r = this.reach(p, a.s);
@@ -128,7 +136,7 @@ export class Views {
     const done = obj => {
       if (!obj?.isObject3D) throw new Error(say(STRINGS.nullBuild, rec.kind, rec.id, String(obj)));
       if (this.map.get(rec.id) !== v) { this.drop(rec, p, obj); return; }   // no longer wanted by the time it was built
-      v.obj = obj; v.pending = false;
+      v.obj = obj; v.pending = false; this.byObj.set(obj, rec.id);
       if (p.positionFrom === 'view') this.moving.add(rec.id);
       obj.position.copy(rec.position);
       if (!obj.parent) e.add(obj);
@@ -136,11 +144,12 @@ export class Views {
     let out;
     this.w._building = rec.id;   // interactions.add inside build takes this as its stable id (the interaction.use op names it)
     try { out = p.build(rec); if (typeof out?.then !== 'function') { done(out); return; } } catch (err) { fail(err); return; } finally { this.w._building = null; }
-    out.then(done).catch(fail);
+    out.then(done).catch(fail).then(() => this.wake());   // an async build settled: waiters of a paused engine resolve here (see wake)
   }
   unview(id) {
     const v = this.map.get(id); if (!v) return;
     this.map.delete(id); this.moving.delete(id);
+    if (v.obj) this.byObj.delete(v.obj);
     if (v.obj) this.drop(this.w.records.get(id), v.p, v.obj);
   }
   /** Tear down a model. A dispose error is reported on its own (naming the kind's dispose) and not thrown outward — otherwise loading a save would report it as "world load failed" */

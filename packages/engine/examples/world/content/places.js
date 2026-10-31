@@ -2,4 +2,5 @@
 export default {
   home: 'cabin (a flat spot found on the terrain at startup; the cabin stands here)',
   river: 'nearest riverside to the cabin (found at startup; the old fisherman goes here in the morning)',
+  water: 'the water just past that riverside (found at startup; the barrel floats here)',
 };

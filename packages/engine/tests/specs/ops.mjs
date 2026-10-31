@@ -3,7 +3,7 @@ import { runScenario, pageDriver } from '@threedog/tools/scenario';
 export const specs = [
   {
     name: 'ops-core: define / run / can / list / recent, nesting depth, ring history, failure merging, phase',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         const O = engine.ops, log = [];
@@ -51,7 +51,7 @@ export const specs = [
   },
   {
     name: 'ops-core: dev errors say how to fix it; run throwing freezes gameplay with the op in engine.error',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     expectErrors: /kaboom/,   // test.boom throws on purpose
     async run({ check, ev }) {
       const r = await ev(() => {
@@ -99,7 +99,7 @@ export const specs = [
   },
   {
     name: 'ops-core perf: 10,000 run() calls (dev checks on) stay in the low milliseconds',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         let n = 0;
@@ -170,7 +170,7 @@ export const specs = [
         const noDlg = engine.ops.can('dialogue.advance').reason;
         // inventory.transfer
         const inv = engine.inventory;
-        engine.ops._allowing(() => { inv.container('ops-chest', { capacity: 2 }); inv.add('film', 2, { silent: true }); });
+        engine.ops.allow(() => { inv.container('ops-chest', { capacity: 2 }); inv.add('film', 2, { silent: true }); });
         const t1 = engine.ops.run('inventory.transfer', { from: 'player', to: 'ops-chest', item: 'film', n: 2 });
         const t2 = engine.ops.run('inventory.transfer', { from: 'player', to: 'ops-chest', item: 'film', n: 99 }).reason;
         const t3 = engine.ops.run('inventory.transfer', { from: 'nope', to: 'player', item: 'film' }).reason;
@@ -247,7 +247,7 @@ export const specs = [
       await page.keyboard.down('KeyP'); await ev(() => engine.step(1 / 30)); await page.keyboard.up('KeyP');
       const r = await ev(() => {
         const key = engine.ops.recent('photo.take').at(-1), film1 = engine.inventory.count('film');
-        engine.ops._allowing(() => engine.inventory.remove('film', film1));
+        engine.ops.allow(() => engine.inventory.remove('film', film1));
         document.getElementById('shoot').click();
         return { key: key && key.source + '/' + key.ok, film1, last: engine.ops.recent('photo.take').at(-1).reason, denied: window._denied };
       });
@@ -267,7 +267,7 @@ export const specs = [
         const ex = E.explain({ op: 'barter.buy', args: { ...B } });
         const ins = E.inspect(), npc = E.inspect('fisher');
         E.quests.define('t-q', { title: 'T', steps: [{ text: 'find the key', done: () => false }] });
-        E.ops._allowing(() => E.quests.start('t-q'));
+        E.ops.allow(() => E.quests.start('t-q'));
         let bad; try { E.explain({ qeust: 'x' }); } catch (e) { bad = e.message; }
         return { sold: sold.reason, ex, ins: ins.ops.find(o => o.args?.item === 'feather'), npcActor: npc.actor, q: E.explain({ quest: 't-q' }).text, bad };
       });

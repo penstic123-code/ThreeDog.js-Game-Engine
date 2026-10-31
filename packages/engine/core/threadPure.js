@@ -58,7 +58,7 @@ function freeNames(src) {
   const declared = new Set(), add = s => { for (const m of s.matchAll(/[A-Za-z_$][\w$]*/g)) declared.add(m[0]); };
   // parameters (function, arrow, catch) and let / const / var / function / class names, destructuring included; default values are over-collected, which only hides names
   for (const m of code.matchAll(/function\b[^(]*\(([^)]*)\)|\(([^()]*(?:\([^()]*\)[^()]*)*)\)\s*=>|([A-Za-z_$][\w$]*)\s*=>|catch\s*\(([^)]*)\)/g)) add(m[1] ?? m[2] ?? m[3] ?? m[4] ?? '');
-  for (const m of code.matchAll(/\b(?:let|const|var)\s+([^;]*?)(?:=(?!=)|;|\bof\b|\bin\b|$)/gm)) add(m[1]);
+  for (const m of code.matchAll(/\b(?:let|const|var)\s+/g)) for (const t of declarators(code, m.index + m[0].length)) add(t);
   for (const m of code.matchAll(/\b(?:function|class)\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
   for (const m of code.matchAll(/([A-Za-z_$][\w$]*)\s*\(([^()]*)\)\s*\{/g)) if (!/^(if|for|while|switch|catch|with|function)$/.test(m[1])) add(m[2]);   // shorthand method parameters
   const out = new Set();
@@ -69,6 +69,30 @@ function freeNames(src) {
     out.add(n);
   }
   return [...out];
+}
+
+/**
+ * Binding targets of one let / const / var statement starting at i: `a = 1, { b, c } = o, d` gives 'a ', '{ b, c } ', 'd'. Declarators are split
+ * at commas outside brackets (a minifier joins consecutive declarations into one statement, so every one counts, not only the first); the
+ * statement ends at a ';' or a closing bracket outside them. `for (const x of list)` ends the target at of / in.
+ * @param {string} code
+ * @param {number} i
+ */
+function declarators(code, i) {
+  const out = [], cut = t => t.split(/\b(?:of|in)\b/)[0];
+  let depth = 0, start = i, target = null;
+  for (; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') { if (--depth < 0) break; }
+    else if (depth === 0 && ch === '=' && target === null && code[i + 1] !== '=' && code[i + 1] !== '>' && !/[=!<>]/.test(code[i - 1])) target = code.slice(start, i);
+    else if (depth === 0 && (ch === ',' || ch === ';')) {
+      out.push(cut(target ?? code.slice(start, i))); target = null; start = i + 1;
+      if (ch === ';') return out;
+    }
+  }
+  out.push(cut(target ?? code.slice(start, i)));
+  return out;
 }
 
 /** Collect the ArrayBuffers of typed arrays in a reply (a few levels deep) so postMessage moves them instead of copying. Shared buffers are skipped: they are already visible everywhere. */

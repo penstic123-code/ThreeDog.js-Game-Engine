@@ -6,7 +6,7 @@
 //   h.fresh      pushed this frame: the key press that opened it (E, Space) must not count as its own action
 //   h.remove()   pop (safe to call repeatedly)
 //   f.setRoot(() => settings.open())                             // what the back key does on an empty stack; returns a handle { remove() }
-//   f.top        top name or null; f.list names from bottom to top
+//   f.top        top name or null; f.list() names from bottom to top
 // Look: none (behavior only).
 const stacks = new WeakMap();   // engine -> UI focus stack
 /** @import { Engine } from '../types/core' */
@@ -24,7 +24,7 @@ export function uiFocus(engine) {
   let frame = 0, root = null;
   f = {
     get top() { return entries.at(-1)?.id ?? null; },
-    get list() { return entries.map(x => x.id); },
+    list() { return entries.map(x => x.id); },
     /** Push: { cancel }. Returns a handle { id, fresh, remove() } */
     push(id, { cancel = null } = {}) {
       const h = {

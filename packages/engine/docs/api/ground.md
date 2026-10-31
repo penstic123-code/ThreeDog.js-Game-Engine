@@ -4,7 +4,7 @@
 - `ground.slope(x: number, z: number) → number` — Slope at (x, z) (height difference / horizontal distance)
 - `ground.type(x: number, z: number) → string` — Ground type at (x, z) (landform name, e.g. 'meadow')
 - `ground.forEachCollider(x: number, z: number, range: number, fn: (cx, cz, r) => void)` — Optional: iterate the circular colliders (tree trunks etc.) within range meters of (x, z)
-- `ground.viewRange() → number` — Optional: how far (meters) the ground is shown around a load source now; stream entries build within it by default (else fogFar)
+- `ground.viewRange() → number` — Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else fogFar)
 - `ground.chunkCollision(cx: number, cz: number) → any` — Optional: collision data of a chunk (used by the physics module)
 - `ground.staticTrimeshes() → { positions, indices }[]` — Optional: static triangle mesh (the level module provides it for physics)
 - `ground.staticVersion() → number` — Optional: version number of the static mesh; rebuild when it changes

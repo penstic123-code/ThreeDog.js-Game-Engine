@@ -1,11 +1,11 @@
-# Style pack Style — createEngine({ style }), all the look (example: styles/lowpoly/index.js)
+# Style pack Style — createEngine({ style }), all the look (example: @threedog/style-lowpoly, packages/styles/lowpoly/index.js)
 
 - **Style** fields (all optional):
   - `name?: string` Style pack name
   - `exposure?: number` Exposure, default 1 (lowpoly: 1.05)
   - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping, default 'neutral' (lowpoly: 'aces')
   - `background?: ColorLike` Background color (when there is no sky module)
-  - `post?: import('./generated/render/PostFX').PostEffect[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from 'threedog/styles/lowpoly'
+  - `post?: import('./generated/render/PostFX').PostEffect[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/style-lowpoly'
   - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
   - `antialias?: boolean` Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier; createEngine({ antialias }) wins
   - `seasons?: Record<string, { foliage?: ColorLike; ground?: ColorLike }>` Seasonal tint (multiplied onto the base color): { spring: { foliage, ground }, ... }
@@ -17,10 +17,6 @@
   - `water?: StyleWater` Water look
   - `pickup?: { color?, size?, lift?, model? }` Default look of pickups on the ground: color (the item's own color wins), size (meters), lift height above ground (meters), model(item, { color, size }) builds the shape (a geometry gets materials.pickup; without model a plain box)
   - `character?: { model?, colors?, create?, animation? }` Default character: colors palette; create(engine, colors) returns the procedural character (without it a gray capsule); model names a registered model asset every character uses unless it passes its own model (the procedural body shows until it loads); animation.fade skeletal animation transition seconds
-  - `footstepMap?: Record<string, string>` Ground type → footstep type
-  - `sounds?: StyleSounds` Sound files
-  - `ambience?: StyleAmbience` Ambience
-  - `music?: { tracks?, fade?, duckDialogue?, duckFade?, hold?, interval? }` Background music: tracks list, fade fade seconds, duckDialogue how low it ducks during dialogue
   - `ui?: StyleUI` UI colors, fonts, templates
   - `particles?: Record<string, ParticleOptions>` Particle presets: name → parameters; default is the fallback for all effects
   - `triggers?: { debugColor?: ColorLike; debugOpacity?: number }` Trigger zone debug wireframe
@@ -62,7 +58,7 @@
   - `lightningBrightness?: number` Lightning brightness multiplier
   - `rain?: { color?, opacity?, length?, speed?, slant?, texture?, … }` Rain: color, opacity, streak length (meters), fall speed (m/s), slant; texture uses a textured raindrop instead
   - `snow?: { color?, opacity?, size?, maxSize?, speed?, texture? }` Snow: color, opacity, size, max pixels, fall speed (m/s), snowflake texture
-  - `presets?: Record<string, Partial<WeatherPreset>>` Add / override weather presets
+  - `types?: Record<string, Partial<WeatherPreset>>` Retune the look of weather types the game has (e.g. a darker storm); never adds a type: the list is the game's weather({ types })
 - **StyleWater**
   - `material?: (engine, ctx) => Material` Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch and the scrolling normal map (null without one). Example: `material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })`
   - `color?: ColorLike`
@@ -109,15 +105,6 @@
   - `fontCSS?: string` Web font stylesheet URL. A third-party URL (e.g. Google Fonts) makes the player's browser contact that server; ship the font files with fontFaces when that matters (privacy, offline)
   - `css?: string` Extra CSS (overrides .threedog-* classes)
   - `templates?: Record<string, UITemplate>` Replace the content of a window wholesale: inventory, quests, settings, loading, hudMarker, hudCounter, hudBar…
-- **StyleAmbience**
-  - `wind?: AmbienceSource`
-  - `rain?: AmbienceSource`
-  - `water?: AmbienceSource`
-  - `birds?: AmbienceSource`
-  - `crickets?: AmbienceSource`
-  - `day?: AmbienceSource` Looping background-noise files for day / night
-  - `night?: AmbienceSource`
-  - `synth?: Record<string, any>` Synthesis parameters: windVolume, rainVolume, waterVolume, birdPitch [low, high] Hz, birdGap [shortest, longest] seconds, waterRadius meters…
 - **MaterialSpec** Material parameters for one role (other fields are set on the three.js material as is, e.g. roughness, shininess, specular)
   - `type?: MaterialType` Material type, default 'lambert'
   - `steps?: number` Number of light/dark steps for the toon type, default 3

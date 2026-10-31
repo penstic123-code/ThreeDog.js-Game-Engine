@@ -7,7 +7,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const W = fn => engine.ops._allowing(fn), w = engine.world;
+        const W = fn => engine.ops.allow(fn), w = engine.world;
         W(() => { for (let i = 0; i < 200; i++) w.add({ kind: 'sf-prop', position: [i * 3, 0, 900] }); });
         w.simulate('sf-crop', { far: rec => { rec.g = (rec.g ?? 0) + 1; } });
         W(() => w.add({ id: 'sf-crop-1', kind: 'sf-crop', position: [2000, 0, 2000] }));
@@ -26,7 +26,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const W = fn => engine.ops._allowing(fn), Q = engine.quests;
+        const W = fn => engine.ops.allow(fn), Q = engine.quests;
         let met = false, partA = false;
         const steps = () => [
           { id: 'talk', text: 'talk', done: () => met },
@@ -70,7 +70,7 @@ export const specs = [
         const ok = engine.saves.apply(bad, 'bad');
         console.warn = warn;
         const list = engine.inventory.bag.list().map(x => `${x.key}:${x.count}`);
-        const key = engine.ops._allowing(() => engine.inventory.add('film', 1, { data: { roll: 9 }, silent: true }));
+        const key = engine.ops.allow(() => engine.inventory.add('film', 1, { data: { roll: 9 }, silent: true }));
         return { ok, list, warns: warns.filter(w => w.includes('dropped a saved entry')).length, seq: engine.inventory._seq };
       });
       check('only well-formed rows are loaded', r.list.join() === 'film:3,film#7:1', JSON.stringify(r));
@@ -84,17 +84,17 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const car = window.car, W = engine.world;
-        engine.ops._allowing(() => engine.player.enter(car));
+        engine.ops.allow(() => engine.player.enter(car));
         engine.step(0.2);
         const id = car.id, rec = W.get('player').vehicle;
         await engine.saves.save('sf-car');
-        engine.ops._allowing(() => engine.player.exit());
+        engine.ops.allow(() => engine.player.exit());
         engine.step(0.2);
         await engine.saves.load('sf-car');
         engine.step(0.1);
         const back = engine.player.vehicle === car;
         // an old save: vehicle as the index in rigid.vehicles
-        engine.ops._allowing(() => engine.player.exit());
+        engine.ops.allow(() => engine.player.exit());
         engine.step(0.1);
         const data = engine.saves.collect();
         data.parts.world.records.player.vehicle = 0;   // world v2: records keyed by id

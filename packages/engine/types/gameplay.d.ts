@@ -122,8 +122,6 @@ export interface Level {
   marker(name: string): LevelMarker | null;
   /** Get all markers whose names start with prefix, e.g. markersWith('npc_') */
   markersWith(prefix: string): LevelMarker[];
-  /** Triangles of the walkable mesh (for physics) */
-  staticTrimeshes(): { positions: Float32Array; indices: Uint32Array }[];
   /** Unload the level (the scene is fully deleted with engine.remove; collision, ray registrations and things registered with track are removed together) */
   unload(): void;
   /** Change level: unload the current one, load the new one (glTF path/asset name, or a THREE object), and emit level:loaded when done. When a load changes level, the save system waits for it */
@@ -205,8 +203,8 @@ export interface TriggersOptions {
 
 /** engine.triggers */
 export interface Triggers {
-  /** All trigger zones */
-  list: Trigger[];
+  /** All trigger zones (a new array) */
+  list(): Trigger[];
   /** Whether wireframes are shown */
   debug: boolean;
   action: string;
@@ -220,7 +218,6 @@ export interface Triggers {
   fromMarkers(opts?: TriggerOptions): Trigger[];
   /** Show / hide the wireframes */
   setDebug(on: boolean): void;
-  update(dt: number): void;
 }
 
 // ======================================================================
@@ -406,19 +403,24 @@ export type { Particles };
 // ======================================================================
 
 /** Contents of a graphics quality preset */
-export interface QualityPreset { pixelRatio?: number; shadows?: boolean; antialias?: boolean; bloom?: boolean; ao?: boolean; viewDistance?: number; density?: number; [key: string]: any }
-/** Small helpers used on the settings page */
-export interface SettingsTools { esc: (s: any) => string; t: (key: string, params?: Record<string, any>) => string }
-/** Settings control generator functions (return HTML) */
-export interface SettingsUI {
+export interface QualityPreset { pixelRatio?: number; shadows?: boolean; antialias?: boolean; bloom?: boolean; ao?: boolean; viewChunks?: number; density?: number; [key: string]: any }
+/**
+ * The tools a settings tab's render(tools, e, s) receives: escaping, translation and the control helpers (each returns HTML)
+ * @example render: (tools, e, s) => tools.row(tools.t('my.subtitles'), tools.toggle('subtitles', s.get('subtitles')))
+ */
+export interface SettingsTools {
+  /** Escape text for HTML */
+  esc: (s: any) => string;
+  /** Translate a string key */
+  t: (key: string, params?: Record<string, any>) => string;
   /** One row: text on the left, control on the right */
-  row(label: string, ctl: string, esc: (s: any) => string): string;
-  /** Toggle button */
-  toggle(key: string, on: boolean, tools: SettingsTools): string;
-  /** Slider */
-  range(key: string, v: number, min: number, max: number, step: number, tools: SettingsTools): string;
-  /** A group of mutually exclusive buttons: options = [[value, text], ...] */
-  segmented(key: string, cur: any, options: [any, string][], tools: SettingsTools, disabled?: any[]): string;
+  row(label: string, ctl: string): string;
+  /** Toggle button for a setting */
+  toggle(key: string, on: boolean): string;
+  /** Slider for a setting */
+  range(key: string, v: number, min: number, max: number, step: number): string;
+  /** A group of mutually exclusive buttons: options = [[value, text], ...]; a disabled value is display-only */
+  segmented(key: string, cur: any, options: [any, string][], disabled?: any[]): string;
 }
 /** One settings tab */
 export interface SettingsSection {
@@ -461,8 +463,6 @@ export interface Settings {
   presets: Record<string, QualityPreset>;
   /** Tabs */
   sections: Map<string, any>;
-  /** Control generator helpers */
-  ui: SettingsUI;
   /** Whether the menu is open */
   readonly isOpen: boolean;
   /** Read a setting, e.g. get('vol.music') */
@@ -493,19 +493,23 @@ export interface Settings {
 // Music music()
 // ======================================================================
 
-/** Track: a path, or { url, volume 0–1, loop } */
-export type MusicTrack = string | { url: string; volume?: number; loop?: boolean };
-/** Auto-selection condition: returning true means it holds */
-export type MusicCondition = (e: Engine, music: Music) => boolean;
-/** Auto-selection rule: when the condition holds play track (null = silence), higher priority wins */
-export interface MusicRule { track: string | null; when: MusicCondition; priority?: number }
+/** Track: a path, or { url, volume 0-1, loop, stems }. Stems are extra layers started in sync; each fades in as music.intensity rises through its `at` range */
+export type MusicTrack = string | { url?: string; volume?: number; loop?: boolean; stems?: MusicStem[] };
+/** A layer of a track: silent below at[0], full at at[1] and above (intensity 0-1) */
+export interface MusicStem { url: string; at?: number[]; volume?: number }
+/** Auto-selection condition: an object of condition keys ({ state: 'combat', time: 'night', zone: 'cave' }) or (e, music) => boolean */
+export type MusicCondition = import('./core').AudioCondition;
+/** Auto-selection rule: when the condition holds play track (null = silence), higher priority wins; no `when` = always (a fallback) */
+export interface MusicRule { track: string | null; when?: MusicCondition; priority?: number }
 export interface MusicChangeEvent { from: string | null; to: string | null }
 export interface MusicOptions {
-  /** Tracks: name -> path or { url, volume, loop } */
+  /** Tracks: name -> path or { url, volume, loop, stems } */
   tracks?: Record<string, MusicTrack>;
+  /** Auto track rules (same as engine.music.rules(list)) */
+  rules?: MusicRule[];
   /** Default crossfade seconds, default 2 */
   fade?: number;
-  /** How far music is ducked during dialogue (0–1), false turns it off, default 0.35 */
+  /** Duck the music bus during dialogue to this (0-1), false turns it off, default 0.35 */
   duckDialogue?: number | false;
   /** Fade seconds for the ducking */
   duckFade?: number;
@@ -585,16 +589,20 @@ export interface CharacterOptions {
 export type FaceMode = 'move' | 'camera' | 'target' | 'manual';
 /** What a player control function returns: world direction (length 0–1), run, speed override (m/s); null = stand still */
 export type MoveRequest = { x: number; z: number; run?: boolean; speed?: number } | null | undefined;
-/** Who moves the player each fixed step: true default keys | false the game calls player.move() itself | function returns the move request */
-export type PlayerControl = boolean | ((player: Character, input: Input, dt: number) => MoveRequest);
+/** Who moves the player each fixed step: 'camera' movement keys relative to the camera | 'none' the game calls player.move() itself | function returns the move request */
+export type PlayerControl = 'camera' | 'none' | ((player: Character, input: Input, dt: number) => MoveRequest);
 /** Parameters of createPlayer() */
 export interface PlayerOptions extends CharacterOptions {
   /** Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted */
   spawn?: PositionLike;
-  /** Jump keys, default ['Space'] */
+  /** Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space'] */
   jumpKeys?: string[];
-  /** Who moves the player: true (default keys relative to the camera) | false (call player.move() yourself in onFixed) | (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control */
-  control?: PlayerControl;
+  /** Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift */
+  runKeys?: string[];
+  /** Required, no default: 'camera' (keys relative to the camera) | 'none' (call player.move() yourself in onFixed) | (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control. presets.player.* fill it */
+  control: PlayerControl;
+  /** true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev */
+  cameraFollow?: boolean;
 }
 /** Character state */
 export type CharacterState = 'idle' | 'walk' | 'run' | 'swim' | 'jump' | 'fall' | 'drive';
@@ -629,6 +637,8 @@ export declare class Character {
   faceTarget: PositionLike | null;
   /** Player only: who moves it each fixed step (see PlayerOptions.control) */
   control?: PlayerControl;
+  /** Player only: whether the camera module follows it (see PlayerOptions.cameraFollow) */
+  cameraFollow?: boolean;
   /** Move at a fixed velocity (m/s) for seconds, ignoring move()'s direction and without turning (knockback, dodge roll); gravity and collision still apply */
   push(vx: number, vz: number, seconds: number): void;
   speed: number; runSpeed: number; radius: number; canSwim: boolean; swimDepth: number; swimSpeedFactor: number;
@@ -672,8 +682,6 @@ export declare class Character {
   groundType(): string;
   /** Turn at once to a position, or to an angle in radians (0 = +Z) */
   face(target: PositionLike | number): void;
-  /** Play animation every frame */
-  animate(dt: number): void;
   /** Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results */
   saveMotion(out?: CharacterMotion): CharacterMotion;
   /** Restore the motion state from the plain object of saveMotion */
@@ -765,7 +773,7 @@ export declare class NPC {
 /** engine.npcs (NPC data lives in engine.world, kind 'npc'; needs the world module) */
 export interface NPCManager {
   /** All NPCs (including far ones and ones in other levels) */
-  readonly list: NPC[];
+  list(): NPC[];
   /** Add an NPC, returns a handle */
   add(opts: NPCOptions): NPC;
   /** Delete an NPC (pass a handle, id or name): the data is deleted, and the model and dialogue interaction are torn down together. Returns false if not found */
@@ -796,9 +804,9 @@ export interface NPCManager {
 export interface CharactersApi {
   /** Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height) */
   findSpawn(position?: PositionLike, opts?: FindSpawnOptions): Vector3;
-  /** Create a keyboard/joystick-controlled player (the camera follows automatically when a camera module is installed) and set engine.player. An existing player is deleted first */
-  createPlayer(opts?: PlayerOptions): Character;
-  /** The default player control as a value: keys / stick relative to the camera, run key, input.autopilot. Reused object; call it inside your own control function to wrap the default */
+  /** Create the player and set engine.player; control is required (no default feel), e.g. createPlayer({ ...presets.player.thirdPerson, spawn }). An existing player is deleted first */
+  createPlayer(opts: PlayerOptions): Character;
+  /** The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it inside your own control function to wrap it */
   moveInput(): { x: number; z: number; run: boolean; speed?: number };
   /** Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first */
   removePlayer(): void;
@@ -821,7 +829,7 @@ export interface CharactersOptions {
   /** Brake key when driving (action brake, registered when rigid is installed), default ['KeyB'] (so it doesn't fight with Space for jump) */
   brakeKeys?: string[];
   /** Gamepad button for braking, default ['PadLT'] */
-  brakePadKeys?: string[];
+  brakePad?: string[];
 }
 /** Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters) */
 /** radius defaults to engine.movement.radius; for detailed see findPath */
@@ -865,7 +873,7 @@ export interface Interactions {
   /** Add an interaction: passing an object makes it follow the object, passing a position (Vector3 / [x, y, z] / { x, y, z }) makes a fixed point. Returns a handle { remove() } */
   add(target: Object3D | PositionLike, opts?: InteractionOptions): Handle;
   /** The interaction with this id, or null. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick) */
-  byId(id: string): any;
+  get(id: string): any;
 }
 /**
  * What the 'prompt' UI part receives in update(view) every frame while an interaction is in reach (hide() when none). Call use() on click: it runs the op interaction.use.
@@ -900,8 +908,10 @@ export interface InteractionsOptions {
   promptHeight?: number;
   /** Default reach of add() in meters, default 2.5 */
   radius?: number;
-  /** How the interaction in front of the actor is chosen, default 'nearest'. @example interactions({ pick: 'aim', radius: 2 }) // first person */
-  pick?: InteractionPick;
+  /** Required, no default: how the interaction in front of the actor is chosen. presets.interactions.* fill it. @example interactions({ pick: 'aim', keys: ['KeyE'], radius: 2 }) // first person */
+  pick: InteractionPick;
+  /** Keys of the action; required unless the game bound the action already (createEngine({ bindings: { interact: [...] } }) or input.define) */
+  keys?: string[];
 }
 
 // ======================================================================
@@ -982,7 +992,7 @@ export interface Dialogue {
 export interface DialogueOptions {
   /** Typing speed (characters/second, game time: advanced by engine.step), default 40 */
   charsPerSecond?: number;
-  /** Actions that advance the dialogue, default ['confirm', 'interact'] */
+  /** Actions that advance the dialogue, default ['confirm', 'interact'] (interact only when the game bound it) */
   advanceActions?: string[];
   /** Number keys 1-9 pick choices (read only while a locking dialogue runs; rebind them as actions choice1...choice9), false = click / op only. Default true */
   choiceKeys?: boolean;
@@ -1120,6 +1130,8 @@ export interface Container {
   add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
+  /** Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo reverses it */
+  trade(take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
   /** Replace an entry's data (null = none) for n pieces (default all); returns the key now holding them */
   setData(key: string, data: Record<string, any> | null, n?: number): string;
   /** Listen for changes of this container, returns a handle */
@@ -1128,6 +1140,8 @@ export interface Container {
 
 /** engine.inventory */
 export interface Inventory {
+  /** true: gameplay freezes while the inventory window is open (set from inventory({ pauseGame }) or at runtime) */
+  pauseGame: boolean;
   /** Item definitions */
   defs: Map<string, ItemDef>;
   /** Slot limit of the player inventory */
@@ -1141,7 +1155,7 @@ export interface Inventory {
   /** Define an item (chainable) */
   define(id: string, def: ItemDef): this;
   /** Get an item definition */
-  def(id: string): ItemDef;
+  item(id: string): ItemDef;
   /** How many of an item, or of one entry key */
   count(x: string): number;
   /** Whether there are at least n (default 1) */
@@ -1156,6 +1170,8 @@ export interface Inventory {
   add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
+  /** Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo reverses it */
+  trade(take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
   /** Replace a player inventory entry's data for n pieces (default all); returns the key now holding them */
   setData(key: string, data: Record<string, any> | null, n?: number): string;
   /** Get or create a container (chest, corpse, shelf...); the id can be the id of a world record, and the contents are saved. A second call returns the same one; deleting the world record does not delete the container automatically */
@@ -1175,7 +1191,9 @@ export interface InventoryOptions {
   /** Keys, default ['KeyI'] */
   keys?: string[];
   /** Gamepad button, default ['PadY'] */
-  padKeys?: string[];
+  pad?: string[];
+  /** true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame */
+  pauseGame?: boolean;
   /** Pickups float and spin only within this distance (meters) of the focus, default 60 */
   bobDistance?: number;
   /** Slot limit of the player inventory, default Infinity (no limit) */
@@ -1236,10 +1254,6 @@ export interface Quests {
   isActive(id: string): boolean;
   /** Its fail condition held (start(id) begins it again) */
   isFailed(id: string): boolean;
-  /** @deprecated use engine.vars.counter (the one entry for counters) */
-  counter(name: string): number;
-  /** @deprecated use engine.vars.bump (the one entry for counters) */
-  bump(name: string, n?: number): number;
   /** Check completion conditions once immediately */
   check(): void;
   /** Quest list (for custom UI) */
@@ -1272,7 +1286,7 @@ export interface QuestsOptions {
   /** Keys, default ['KeyJ'] */
   keys?: string[];
   /** Gamepad button, default ['PadSelect'] */
-  padKeys?: string[];
+  pad?: string[];
   /** Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5 */
   checkInterval?: number;
   /**
@@ -1310,7 +1324,7 @@ export interface PhotoOptions extends PhotoTakeOptions {
   /** Photo key, default ['KeyP']; [] for no key */
   keys?: string[];
   /** Gamepad button for taking a photo, default ['PadRB'] */
-  padKeys?: string[];
+  pad?: string[];
   /** How many photos the album keeps at most, default 50 */
   maxAlbum?: number;
 }
@@ -1334,19 +1348,8 @@ export interface Photo {
 // Ambience (engine.ambience) is generated from the JSDoc in modules/ambience/Ambience.js (npm run map); only the type is re-exported here
 import type { Ambience } from './generated/modules/ambience/Ambience';
 export type { Ambience };
-/** Ambience parameters (same as the style pack's style.ambience) */
-export interface AmbienceOptions {
-  wind?: string | string[] | false;
-  rain?: string | string[] | false;
-  water?: string | string[] | false;
-  /** Bird calls by day: 'synth' or recordings; default off (the lowpoly style pack turns them on) */
-  birds?: string | string[] | false;
-  /** Insects at night: 'synth' or recordings; default off (the lowpoly style pack turns them on) */
-  crickets?: string | string[] | false;
-  day?: string | false;
-  night?: string | false;
-  synth?: Record<string, any>;
-}
+/** ambience() options: rules (the rule table; added after createEngine({ audio: { ambience } })), interval seconds between rule checks (0.25) */
+export interface AmbienceOptions { rules?: import('./core').AmbienceRule[]; interval?: number }
 // DebugPanel (engine.debug) is generated from the JSDoc in modules/debug/DebugPanel.js (npm run map); only the type is re-exported here
 import type { DebugPanel } from './generated/modules/debug/DebugPanel';
 export type { DebugPanel };
@@ -1393,7 +1396,7 @@ export interface UIFocus {
   /** Name of the top, null for an empty stack */
   readonly top: string | null;
   /** Names from bottom to top */
-  readonly list: string[];
+  list(): string[];
   /** Push; without cancel = swallow the back key */
   push(id: string, opts?: { cancel?: (() => void) | null }): FocusHandle;
   /** What to do on the back key when the stack is empty (only one, a later registration replaces it) */
@@ -1415,7 +1418,6 @@ export interface Clock {
   after(seconds: number, fnOrEvent: (() => void) | string, data?: any): Handle;
   /** Call once every seconds game seconds */
   every(seconds: number, fn: () => void): Handle;
-  tick(dt: number): void;
 }
 /** engine.vars: story flags and counters (autosaved) */
 export interface Vars {
@@ -1431,8 +1433,6 @@ export interface Vars {
   counter(key: string): number;
   /** Counter +n (default 1), returns the new value */
   bump(key: string, n?: number): number;
-  /** Replace the contents wholesale (for loading; the object itself stays the same). A part passed as undefined is left alone */
-  replace(flags?: Record<string, any>, counters?: Record<string, number>): void;
 }
 
 // ======================================================================
@@ -1521,7 +1521,7 @@ export interface ContentTemplate {
 
 /** Parameters of flow() */
 export interface FlowOptions {
-  /** Starting state, default 'playing'; other states are entered on world:ready (so you can define after use()) */
+  /** Starting state, default 'playing'; other states are entered on engine:ready (so you can define after use()) */
   start?: string;
 }
 /** A flow state (title, playing, paused, game over...) */

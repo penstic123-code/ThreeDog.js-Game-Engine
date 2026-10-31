@@ -18,14 +18,14 @@ export class Vars {
   /** Read a flag */
   flag(k) { return this.flags[k]; }
   /** Set a flag (default true) */
-  setFlag(k, v = true) { DEV && this.engine.ops._guard('vars.setFlag'); this.flags[k] = v; }
+  setFlag(k, v = true) { DEV && this.engine.ops.guard('vars.setFlag'); this.flags[k] = v; }
   /** Read a counter (0 if absent) */
   counter(k) { return this.counters[k] ?? 0; }
   /** Add n to a counter (default 1) and return the new value */
-  bump(k, n = 1) { DEV && this.engine.ops._guard('vars.bump'); return (this.counters[k] = this.counter(k) + n); }
-  /** Replace wholesale (for loading); a kind passed as undefined stays unchanged */
+  bump(k, n = 1) { DEV && this.engine.ops.guard('vars.bump'); return (this.counters[k] = this.counter(k) + n); }
+  /** @internal Replace wholesale (for loading and net sync); a kind passed as undefined stays unchanged */
   replace(flags, counters) {
-    DEV && this.engine.ops._guard('vars.replace');
+    DEV && this.engine.ops.guard('vars.replace');
     // same object: already it, skip (clearing first would lose the data). Own keys only, never "__proto__": a save must not swap the prototype
     const set = (o, v) => { if (o === v) return; for (const k of Object.keys(o)) delete o[k]; for (const k of Object.keys(v || {})) if (k !== '__proto__') o[k] = v[k]; };
     if (flags !== undefined) set(this.flags, flags);

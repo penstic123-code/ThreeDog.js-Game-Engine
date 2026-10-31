@@ -22,13 +22,6 @@ export class Water {
      * @type {THREE.Mesh | null}
      */
     sea: THREE.Mesh | null;
-    /**
-     * Per-frame update: global water snaps to the focus grid, normal map scrolls (called by the module itself each frame)
-     * @param {Vector3} focus
-     * @param {number} dt
-     * @returns {void}
-     */
-    update(focus: THREE.Vector3, dt: number): void;
 }
 import type { WaterOptions } from '../../../world';
 import type { ModuleDef } from '../../../core';

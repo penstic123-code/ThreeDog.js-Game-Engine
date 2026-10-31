@@ -19,7 +19,7 @@ export interface CollisionOptions {
   cameraMin?: number;
   /** Height above the water surface (meters) at which it counts as walkable, default 0.2 */
   walkableWaterMargin?: number;
-  /** What camera occlusion checks: 'colliders' (default) | 'meshes' registered static meshes (engine.raycaster) | 'both' */
+  /** What camera occlusion checks: 'colliders' (default) | 'meshes' registered static meshes (engine.rays) | 'both' */
   cameraOcclusion?: 'colliders' | 'meshes' | 'both';
 }
 /** Circle collider: center x/z, radius r, height h (meters) */
@@ -71,14 +71,10 @@ export interface Collision {
   addObject(obj: Object3D, opts?: { pad?: number }): Handle;
   /** Iterate all static colliders added by hand */
   forEachStatic(fn: (type: 'box' | 'circle', data: any) => void): void;
-  /** Low level (called every step by character movement): push a character of radius radius (meters) out of obstacles (modifies pos.x/pos.z directly), returns whether it hit anything */
-  resolve(pos: { x: number; z: number }, radius?: number): boolean;
   /** Whether someone can stand at this position (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (meters, default engine.movement.radius) */
   walkable(position: PositionLike, opts?: { radius?: number }): boolean;
   /** walkable with plain numbers, allocating nothing (A* inner loops); radius defaults to engine.movement.radius */
   walkableAt(x: number, z: number, radius?: number): boolean;
-  /** Low level (called every frame by the camera): camera occlusion, returns the max allowed distance (meters) */
-  cameraDistance(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, want: number, pad?: number): number;
 }
 
 // ======================================================================
@@ -151,7 +147,7 @@ export interface RigidEntry extends Handle {
   remove(): void;
 }
 
-/** engine.rigid (real physics; bodies can only be added after start(), or in the world:ready event) */
+/** engine.rigid (real physics; bodies can only be added after start(), or in the engine:ready event) */
 export interface RigidBodies {
   /** Is the physics engine ready (downloaded and initialized at start()) */
   readonly ready: boolean;
@@ -190,8 +186,6 @@ export interface RigidBodies {
   addVehicle(mesh: Object3D, opts: VehicleOptions): Vehicle | null;
   /** Statistics */
   readonly stats: { bodies: number; active: number; colliders: number };
-  init(): Promise<void>;
-  step(dt: number): void;
 }
 
 // ---------- Vehicles ----------
@@ -328,8 +322,6 @@ export declare class Animator {
   sync(state: string | null, t?: number): any;
   /** What is showing: state, clip, clip time, progress, driven, weights */
   describe(): AnimatorInfo;
-  /** Advance every frame (called automatically by the engine) */
-  update(dt: number): void;
   /** Stop the per-frame update when no longer needed */
   dispose(): void;
 }

@@ -3,7 +3,7 @@
 // Works in this monorepo and in a game installed from npm (paths.mjs project(): MODE 'monorepo' or 'game'). Usage text is built from the tables below.
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { ROOT, TOOLS, MODE, pickWorkspace, findWorkspace, workspaces, rel, ENGINE } from '../paths.mjs';
@@ -12,7 +12,7 @@ import { ROOT, TOOLS, MODE, pickWorkspace, findWorkspace, workspaces, rel, ENGIN
 export const SCRIPTS = { test: 'run.mjs', check: 'check.mjs', types: 'types.mjs', shot: 'shot.mjs', perf: 'perf.mjs', bake: 'bake.mjs', assets: 'assets.mjs',
   doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', relay: 'net-relay.mjs', mcp: 'threedog/mcp.mjs' };
 /** Dev bridge commands: drive the page running under `npm run dev` (recipes/16-dev-bridge.md) */
-export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'ops', 'scenario', 'inspect', 'explain', 'loading'];
+export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'ops', 'scenario', 'inspect', 'explain', 'loading', 'pick'];
 /** vite commands on one workspace */
 export const VITE = ['dev', 'build', 'preview'];
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */
@@ -36,7 +36,10 @@ export function main([cmd, ...rest]) {
     try { const pkg = createRequire(join(ROOT, 'package.json')).resolve('vite/package.json'); vite = join(dirname(pkg), JSON.parse(readFileSync(pkg, 'utf8')).bin.vite); }
     catch { console.error('vite is not installed: run npm install (it comes with @threedog/tools)'); return 1; }
     console.log(`${cmd}: ${rel(dir) || '.'}`);
-    return spawnSync(process.execPath, [vite, ...(cmd === 'dev' ? [] : [cmd]), ...args], { stdio: 'inherit', cwd: dir }).status ?? 1;
+    // a game without its own vite config gets the threedog preset (Workers as ES modules, multi-page input, dev bridge), not vite's bare defaults
+    const own = ['js', 'mjs', 'ts', 'cjs', 'mts'].some(x => existsSync(join(dir, 'vite.config.' + x))) || args.some(a => a === '--config' || a === '-c' || a.startsWith('--config='));
+    const cfg = own ? [] : ['--config', join(TOOLS, 'threedog', 'vite-default.config.mjs')];
+    return spawnSync(process.execPath, [vite, ...(cmd === 'dev' ? [] : [cmd]), ...cfg, ...args], { stdio: 'inherit', cwd: dir }).status ?? 1;
   }
   if (cmd === 'map') { for (const s of MAP) { const c = node(s, rest); if (c) return c; } return 0; }
   if (BRIDGE.includes(cmd)) return node('threedog/cli.mjs', [cmd, ...rest]);

@@ -105,17 +105,20 @@ export class Vegetation {
   }
   get(name) { return this.species.get(name); }
   list() { return [...this.species.values()]; }
-  /** Set from which chunk ring a vegetation kind stops casting shadows (smaller is cheaper); takes effect immediately */
+  /** @internal Set from which chunk ring a vegetation kind stops casting shadows (smaller is cheaper); takes effect immediately */
   setShadowRing(name, ring) {
     const sp = this.species.get(name);
     if (!sp) { warnMissing('vegetation', name, [...this.species.keys()]); return; }
     sp.shadowRing = ring;
     this.engine.terrain.refreshLevels();
   }
+  /** @internal terrain plumbing */
   baseNames() { return this.list().filter(s => !s.nearOnly).map(s => s.name); }
+  /** @internal terrain plumbing */
   nearNames() { return this.list().filter(s => s.nearOnly).map(s => s.name); }
 
   // ---------- single-instance remove / restore ----------
+  /** @internal save-key format */
   key(species, cx, cz, id) { return `veg:${species}:${cx},${cz}:${id}`; }
   isRemoved(species, cx, cz, id) { return !!this._removed.get(`${species}:${cx},${cz}`)?.has(id); }
   /** Remove one instance (regrowSeconds: game seconds until it grows back, 0/omitted = permanent). The record is saved with the save */
@@ -133,7 +136,7 @@ export class Vegetation {
     this._refresh(species, cx, cz, id);
     this.engine.events.emit('vegetation:restore', { species, cx, cz, id });
   }
-  // check once per second: those due grow back
+  /** @internal module hook: check once per second, those due grow back */
   tick(dt) {
     this._acc += dt;
     if (this._acc < 1) return;
@@ -169,7 +172,7 @@ export class Vegetation {
     return best;
   }
 
-  /** Called by the terrain module when a chunk's vegetation was just uploaded: reapply the edit records */
+  /** @internal Called by the terrain module when a chunk's vegetation was just uploaded: reapply the edit records */
   applyEdits(c, name) {
     const im = c.veg[name];
     if (!im) return;

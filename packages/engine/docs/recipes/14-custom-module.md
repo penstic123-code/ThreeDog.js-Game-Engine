@@ -39,7 +39,7 @@ export function stamina(opts = {}) {
   };
 }
 ```
-Install it: `engine.use(openWorld({...}), stamina({ max: 80 }))` (dependencies must be installed first).
+Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }))` (dependencies must be installed first).
 
 ## 2. Hooks and order cheat sheet
 - `install(e)` returns the public object; `init(e)` (may be async) prepares at start; while `isReady(e)` returns false the loading screen waits for it (the hook is called isReady; `ready` is always a boolean property in the engine).
@@ -53,7 +53,8 @@ Install it: `engine.use(openWorld({...}), stamina({ max: 80 }))` (dependencies m
   The `dispose(e)` hook only collects what the core can't, such as Workers, the physics world and real-time timers, and is called in reverse install order.
 - While frozen (`engine.freeze`, flow pause) `fixed` is skipped entirely and `frame` still runs: check `e.frozen` before gameplay decisions.
 - Changing what a saved part looks like: raise its version and add one upgrade step per old version, e.g. `e.saves.register('stamina', { version: 2, migrate: { 1: v => ({ value: v }) }, save, load })`. `load` only ever sees the current shape; a save written by a newer build is refused (load returns false, the save is kept).
-- **Per-playthrough state** (one hook for every module): state that is not a save part but belongs to the current playthrough (an open dialogue, a trigger's `inside` / `once`, markers derived from quests, a pending request) is dropped on `e.events.on('session:end', ...)`: it fires before `engine.session` newGame / load / quit replaces the state. State derived from save parts is rebuilt on `'session:start'` (newGame / load) and `'load'` (`saves.load`). Save parts themselves need nothing: the session applies the new-game state or the save. A module's `describe()` should show such state, because the session spec (`npm test -- Session`) compares every installed module's describe after two new games.
+- Saved state the module writes joins the ops guard (experimental): `DEV && e.ops.guard('stamina.set')` in each writing method, `e.ops.allow(fn)` around writes that are allowed anyway (recipe 23 section 5).
+- **Per-playthrough state** (one hook for every module): state that is not a save part but belongs to the current playthrough (an open dialogue, a trigger's `inside` / `once`, markers derived from quests, a pending request) is dropped on `e.events.on('session:end', ...)`: it fires before `engine.session` newGame / load / quit replaces the state. State derived from save parts is rebuilt on `'session:start'` (newGame / load) and `'save:loaded'` (`saves.load`). Save parts themselves need nothing: the session applies the new-game state or the save. A module's `describe()` should show such state, because the session spec (`npm test -- Session`) compares every installed module's describe after two new games.
 - When you only need a per-frame callback and no module structure: `const h = engine.onFrame(dt => ...)` / `engine.onFixed`, and `h.remove()` cancels it.
 
 ## 3. Extra steps when it goes into the engine

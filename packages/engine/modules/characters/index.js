@@ -10,7 +10,8 @@ import { NPCManager, NPC } from './NPC.js';
 import { findPath } from './astar.js';
 import { AsyncPaths } from './pathAsync.js';
 import { xzOf } from '../../core/math.js';
-import { checkOptions, checkOptionsArg } from '../../core/validate.js';
+import { checkOptions, checkOptionsArg, warnOnce, DEV } from '../../core/validate.js';
+import { codedError, coded } from '../../core/errorHints.js';
 export { Character, NPC };
 
 /**
@@ -23,27 +24,39 @@ export { Character, NPC };
  */
 const PLAYER = 'player';
 const REQ = { x: 0, z: 0, run: false, speed: undefined };   // moveInput() result, reused every step (no allocation)
-const DEV_STRINGS = { badControl: 'characters.createPlayer(): control must be true (default keyboard/stick control), false (the game calls player.move() itself in onFixed) or a function (player, input, dt) => ({ x, z, run?, speed? }); got {got}',
+// The engine picks no player feel: control has no default (genericity rule: core carries no preset). A preset is one spread away, so the error names it first.
+const CONTROL_FIX = "pick how the player moves: createPlayer({ ...presets.player.thirdPerson, spawn }) (import { presets } from 'threedog'), " +
+  "control: 'camera' (keys relative to the camera), control: 'none' (the game calls player.move() itself) or a function (player, input, dt) => ({ x, z, run?, speed? })";
+const DEV_STRINGS = { noControl: 'characters.createPlayer(): no control given; ' + CONTROL_FIX,
+  badControl: "characters.createPlayer(): control {got} is not a control; " + CONTROL_FIX + ". (true / false were renamed 'camera' / 'none')",
+  noFollow: "characters.createPlayer(): a camera module is installed but cameraFollow was not given, so the camera does not follow the player. " +
+    'Pass cameraFollow: true (presets.player.* do), or cameraFollow: false if the game aims the camera itself',
   noWorld: 'characters.createPlayer() needs world() installed first: the player is a record in world (position is saved, world splits near/far by it). Use engine.use(world(), …); openWorld() already installs it' };
 const STRINGS = { 'zh-CN': { 'npc.talk': '和{name}说话', 'input.jump': '跳跃', 'input.brake': '刹车' }, en: { 'npc.talk': 'Talk to {name}', 'input.jump': 'Jump', 'input.brake': 'Brake' } };
 
-// Procedural footstep fallback (a file from style pack style.sounds.footstep is used if given; style.sounds.synth.footstep can tune the params)
+// Built-in footstep synth, silent until the game names it: sounds: { 'step.grass': { synth: 'footstep', params: { surface: 'grass' } } }.
+// params: surface (a key of STEP_SYNTH or params.surfaces), volume, surfaces ({ mud: [filter, Hz, volume, seconds] } to add or retune one)
 const STEP_SYNTH = { grass: ['bandpass', 900, 0.08, 0.12], sand: ['lowpass', 1400, 0.1, 0.14], rock: ['bandpass', 2400, 0.05, 0.1], snow: ['lowpass', 900, 0.12, 0.16], water: ['bandpass', 600, 0.15, 0.18] };
-function footstepSynth(audio, surface, params) {
+function footstepSynth(audio, params, out) {
   const table = { ...STEP_SYNTH, ...(params.surfaces || {}) };
-  const p = table[surface] || table[params.default || 'grass'];
-  audio.noiseBurst({ type: p[0], freq: p[1] * (0.9 + Math.random() * 0.2), vol: p[2] * (params.volume ?? 1), dur: p[3] });   // presentation: random footstep pitch
+  const p = table[params.surface] || table.grass;
+  audio.noiseBurst({ type: p[0], freq: p[1] * params.pitch * (0.9 + Math.random() * 0.2), vol: p[2] * (params.volume ?? 1), dur: p[3], out });   // presentation: random footstep pitch
+  return p[3] + 0.05;
 }
+/** Sound name for a ground type: the game's createEngine({ audio: { footsteps } }) map, then its default, then 'footstep' */
+const stepSound = (e, type) => { const m = e.audio.config.footsteps; return m[type] ?? m.default ?? 'footstep'; };
+
+const validControl = c => c === 'camera' || c === 'none' || typeof c === 'function';
 
 export function characters(opts = {}) {
-  const { npcs = true, brakeKeys = ['KeyB'], brakePadKeys = ['PadLT'] } = opts;
+  const { npcs = true, brakeKeys = ['KeyB'], brakePad = ['PadLT'] } = opts;
   let mgr = null, paths = null, disposePlayer = null;
   return {
     name: 'characters', label: 'Characters', optional: ['cameraRig', 'sky', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
     install(e) {
-      checkOptions('characters()', opts, ['npcs', 'brakeKeys', 'brakePadKeys']);
+      checkOptions('characters()', opts, ['npcs', 'brakeKeys', 'brakePad']);
       e.i18n.add(STRINGS);
-      e.audio.register('footstep', footstepSynth);
+      e.audio.register('footstep', footstepSynth, { builtIn: true });
       if (npcs) { mgr = new NPCManager(e); e.npcs = mgr; }
       paths = new AsyncPaths(e);
       e.events.on('ground:change', b => paths.dropTiles(b));   // dug or raised ground: resample the path rasters there
@@ -96,33 +109,36 @@ export function characters(opts = {}) {
         get pathsPerStep() { return paths.perStep; },
         set pathsPerStep(n) { paths.perStep = Math.max(1, n | 0); },
         /**
-         * The default player control as a value: movement keys / stick relative to the camera (world axes, up = -Z, without a camera module), run key, input.autopilot.
+         * The 'camera' player control as a value: movement keys / stick relative to the camera (world axes, up = -Z, without a camera module), the 'run' action when the game bound one, input.autopilot.
          * Returns a reused { x, z, run, speed } (do not keep it). Call it from your own control function to wrap the default instead of rewriting it
-         * @example createPlayer({ control: (p, input) => busy ? null : engine.characters.moveInput() })   // no movement while attacking
+         * @example createPlayer({ ...presets.player.thirdPerson, control: (p, input) => busy ? null : engine.characters.moveInput() })   // no movement while attacking
          */
         moveInput() {
           const inp = e.input, auto = inp.autopilot, a = auto || inp.axis;   // autopilot (stress tests, recordings): input.autopilot = { x, y, speed }
           const f = e.cameraRig ? e.cameraRig.forward() : { x: 0, z: -1 }, rt = e.cameraRig ? e.cameraRig.right() : { x: 1, z: 0 };
-          REQ.x = f.x * a.y + rt.x * a.x; REQ.z = f.z * a.y + rt.z * a.x; REQ.run = inp.down('run'); REQ.speed = auto?.speed;
+          REQ.x = f.x * a.y + rt.x * a.x; REQ.z = f.z * a.y + rt.z * a.x; REQ.run = inp.actions.has('run') && inp.down('run');   // run is the game's key, not a core default REQ.speed = auto?.speed;
           return REQ;
         },
         /** Remove the current player (exit the vehicle first, stop responding to keys, dispose the model: animation, geometry, materials; the 'player' record in world is removed too) */
         removePlayer() { disposePlayer?.(); disposePlayer = null; },
         /**
-         * Create the keyboard/stick-controlled player; with the camera module the camera follows automatically. The player is also the world record with id 'player' (needs the world module).
+         * Create the player. The engine assumes no feel: control is required, keys and camera follow come only from options (presets.player.* bundle them).
+         * The player is also the world record with id 'player' (needs the world module).
          * Without spawn and with an existing player record in world (loaded before the player was created) it continues from the record's position; move the player with player.placeAt(position)
-         * control (also the plain property player.control, switch it at any time) decides who moves the player each fixed step:
-         *   true (default) moveInput(): keys relative to the camera, plus jump key and vehicle driving
+         * control (required; also the plain property player.control, switch it at any time) decides who moves the player each fixed step:
+         *   'camera' moveInput(): movement keys relative to the camera, plus the jump key and vehicle driving
          *   function (player, input, dt) => ({ x, z, run?, speed? }) | null: you decide direction and speed (null = stand still); jump key and vehicles stay. Side-scroller: return { x: input.axis.x, z: 0 }
-         *   false: the engine never moves the player; call player.move(x, z, run, dt) yourself once per fixed step (rolls, attack lunges, hit stun)
-         * The world record, saving and describe().player work the same in all three
-         * @example const player = engine.characters.createPlayer({ spawn: engine.characters.findSpawn() })
-         * @example const player = engine.characters.createPlayer({ control: false, faceMode: 'manual' }); engine.onFixed(dt => player.move(0, 0, false, dt))
+         *   'none': the engine never moves the player; call player.move(x, z, run, dt) yourself once per fixed step (rolls, attack lunges, hit stun)
+         * runKeys / jumpKeys bind the 'run' / 'jump' actions (no keys are bound otherwise; player.jump() still works); cameraFollow: true points the camera module at the player (and back after a vehicle)
+         * The world record, saving and describe().player work the same for every control
+         * @example const player = engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: engine.characters.findSpawn() })
+         * @example const player = engine.characters.createPlayer({ ...presets.player.none, cameraFollow: true }); engine.onFixed(dt => player.move(0, 0, false, dt))
          */
         createPlayer(opts = {}) {
-          checkOptions('characters.createPlayer()', opts, [...CHARACTER_KEYS, 'spawn', 'jumpKeys', 'control']);
-          const control = opts.control ?? true;
-          if (typeof control !== 'boolean' && typeof control !== 'function') throw new Error(DEV_STRINGS.badControl.replace('{got}', String(control)));
+          checkOptions('characters.createPlayer()', opts, [...CHARACTER_KEYS, 'spawn', 'jumpKeys', 'runKeys', 'control', 'cameraFollow']);
+          const control = opts.control;
+          if (control === undefined) throw codedError('player-control', DEV_STRINGS.noControl);
+          if (!validControl(control)) throw codedError('player-control', DEV_STRINGS.badControl.replace('{got}', JSON.stringify(control) ?? String(control)));
           const W = e.world;
           if (!W) throw new Error(DEV_STRINGS.noWorld);
           // vehicle id saved in the player record; a number is a save from before vehicles had ids (the index in rigid.vehicles)
@@ -130,6 +146,8 @@ export function characters(opts = {}) {
           disposePlayer?.();   // existing player: dispose the old one first (else two characters respond to keys)
           const p = new Character(e, opts), had = W.get(PLAYER);
           p.control = control;
+          p.cameraFollow = !!opts.cameraFollow;   // read again on vehicle exit and a new session (Character.js, camera/common.js)
+          if (DEV && opts.cameraFollow === undefined && e.cameraRig) warnOnce(coded('player-control', DEV_STRINGS.noFollow));
           if (!had) W.add({ id: PLAYER, kind: PLAYER, position: [0, 0, 0], vehicle: null });
           // place the player by the record (loading, reusing an existing record): do not write back to the record while placing, write once afterwards so record and character agree
           const apply = rec => {
@@ -143,26 +161,30 @@ export function characters(opts = {}) {
           if (had && !opts.spawn) apply(had);
           else { p.recordId = PLAYER; p.placeAt(opts.spawn || api.findSpawn()); }
           p.addTo();
-          p.onStep = type => e.audio.sfx('footstep', type);
-          p.onLand = impact => { if (impact > 3) e.audio.sfx('footstep', p.groundType(), { volume: Math.min(2, impact / 6) }); };
-          if (p.canJump) { e.input.define('jump', opts.jumpKeys || ['Space'], 'input.jump'); e.input.touchButton('jump', 'input.jump'); }
+          p.onStep = type => e.audio.sfx(stepSound(e, type));
+          p.onLand = impact => { if (impact > 3) e.audio.sfx(stepSound(e, p.groundType()), { volume: Math.min(2, impact / 6) }); };
+          // the game's keys only: no Space-to-jump or Shift-to-run unless it (or a preset it picked) asked
+          if (p.canJump && opts.jumpKeys) { e.input.define('jump', opts.jumpKeys, 'input.jump'); e.input.touchButton('jump', 'input.jump'); }
+          if (opts.runKeys) e.input.define('run', opts.runKeys, 'input.run');
           // brake: a separate action (default B / gamepad LT, change via characters({ brakeKeys })), does not compete with jump on space. Registered only when driving is possible (rigid installed)
-          if (e.rigid) e.input.define('brake', brakeKeys, 'input.brake', { pad: brakePadKeys, context: 'vehicle' });
+          if (e.rigid) e.input.define('brake', brakeKeys, 'input.brake', { pad: brakePad, context: 'vehicle' });
           e.player = p;
-          e.cameraRig?.follow(p.root);
+          if (p.cameraFollow) e.cameraRig?.follow(p.root);
           // gameplay keys are read in the fixed step (input snapshot, frame-rate independent); frame only plays animation
           const fixedHook = e.onFixed(dt => {
             const c = p.control;
-            if (c === false) return;   // the game drives the player itself: no key reads, no move
-            if (p.vehicle) { if (!e.interactions && e.input.pressed('interact')) p.exit(); }   // when the interactions module is installed, the vehicle's "exit" interaction handles it
-            else if (p.canJump && e.input.pressed('jump')) p.jump();
+            if (c === 'none') return;   // the game drives the player itself: no key reads, no move
+            if (!validControl(c)) { warnOnce(coded('player-control', DEV_STRINGS.badControl.replace('{got}', JSON.stringify(c) ?? String(c)))); return; }   // player.control set to a bad value at runtime
+            const has = a => e.input.actions.has(a);   // keys the game bound; an unbound action is simply not used
+            if (p.vehicle) { if (!e.interactions && has('interact') && e.input.pressed('interact')) p.exit(); }   // when the interactions module is installed, the vehicle's "exit" interaction handles it
+            else if (p.canJump && has('jump') && e.input.pressed('jump')) p.jump();
             if (p.vehicle) { const a = e.input.autopilot || e.input.axis; p.vehicle.drive(a.y, a.x, e.input.actions.has('brake') && e.input.down('brake') ? 1 : 0); }
-            const m = c === true ? api.moveInput() : c(p, e.input, dt);
+            const m = c === 'camera' ? api.moveInput() : c(p, e.input, dt);
             p.move(m?.x ?? 0, m?.z ?? 0, !!m?.run, dt, m?.speed);
           });
           const frameHook = e.onFrame(dt => p.animate(dt));
           // record the stable id of the vehicle the player is in (world.set: world:change fires; it follows an enter / exit that already happened)
-          const setCar = id => e.ops._allowing(() => W.set(PLAYER, { vehicle: id }));
+          const setCar = id => e.ops.allow(() => W.set(PLAYER, { vehicle: id }));
           const onCar = e.events.on('vehicle:enter', ({ character }) => { if (character === p) setCar(p.vehicle?.id ?? null); });
           const offCar = e.events.on('vehicle:exit', ({ character }) => { if (character === p) setCar(null); });
           // loading: after world is replaced wholesale, place the player back by the record; if the save has no player record (saved before the player was created), add one from the current state
@@ -190,7 +212,7 @@ export function characters(opts = {}) {
         ctx.near(e.world.view(r.id) ?? r.position, { id: r.id, name: r.name, kind: 'npc', state: r.state });
       }
       if (ctx.out.player) Object.assign(ctx.out.player, { swimming: e.player.swimming, grounded: e.player.grounded, facing: Math.round(e.player.facing * 100) / 100,
-        control: typeof e.player.control === 'function' ? 'custom' : e.player.control === false ? 'off' : 'default', faceMode: e.player.faceMode, mover: e.player.mover.name, ...(e.player.anim && { anim: e.player.anim.describe() }), ...(e.player.vehicle && { vehicle: { speed: Math.round(e.player.vehicle.speed * 10) / 10 } }) });
+        control: typeof e.player.control === 'function' ? 'custom' : e.player.control, faceMode: e.player.faceMode, mover: e.player.mover.name, ...(e.player.anim && { anim: e.player.anim.describe() }), ...(e.player.vehicle && { vehicle: { speed: Math.round(e.player.vehicle.speed * 10) / 10 } }) });
     },
   };
 }

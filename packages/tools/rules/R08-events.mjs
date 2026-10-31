@@ -3,6 +3,7 @@
 //   ! an event in EventMap that nothing in the engine emits (a dead event, or a misspelled name) → warning
 //   ✗ if packages/engine/core/Events.js still has a hand-written event-name array (for spell checking), it must match EventMap exactly → a mismatch is an error
 //     (once it is generated from EventMap, this check skips itself: with no array whose elements are mostly EventMap names, nothing is checked)
+//   ✗ an EventMap key that is not noun:action (/^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z]*$/, e.g. 'save' or 'load' alone) → error
 // Criteria: the syntax tree is searched for `<…events>.emit(first argument)`; the argument counts if it is a string literal, or `cond ? 'a' : 'b'` with both sides literals.
 // Limitation: names held in variables (such as the { event: name } timed events of clock) are not found; those names come from the game anyway.
 import { ts, parse, visit, engineFiles, lineOf, strValue, dtsFiles, read, E, P } from './_lib.mjs';
@@ -50,6 +51,9 @@ export default {
         }
       });
     }
+    for (const [name, line] of map.keys) if (!/^[a-z][a-zA-Z0-9]*:[a-z][a-zA-Z]*$/.test(name))
+      out.push({ level: 'error', file: map.file, line, msg: `event '${name}' is not noun:action`,
+        fix: 'name it <emitter noun>:<lowercase verb or state> (save:written, save:loaded, engine:ready); see .claude/rules/api-design.md' });
     for (const [name, line] of map.keys) {
       if (emitted.has(name) || ALLOW_UNEMITTED.some(([a]) => a === name)) continue;
       out.push({ level: 'warn', file: map.file, line, msg: `EventMap has '${name}', but nothing in the engine calls events.emit('${name}')`,

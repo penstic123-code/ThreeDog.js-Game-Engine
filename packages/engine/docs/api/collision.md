@@ -8,17 +8,15 @@ Lightweight collision (collision() module): no clipping while walking, the camer
   - `cameraPad?: number` Margin between the camera and obstacles (meters), default 0.5
   - `cameraMin?: number` Nearest camera distance (meters), default 1.5
   - `walkableWaterMargin?: number` Height above the water surface (meters) at which it counts as walkable, default 0.2
-  - `cameraOcclusion?: 'colliders' | 'meshes' | 'both'` What camera occlusion checks: 'colliders' (default) / 'meshes' registered static meshes (engine.raycaster) / 'both'
+  - `cameraOcclusion?: 'colliders' | 'meshes' | 'both'` What camera occlusion checks: 'colliders' (default) / 'meshes' registered static meshes (engine.rays) / 'both'
 
 ## Methods and properties
 - `collision.addCircle(position: PositionLike, opts?: CircleColliderOptions) → Handle` — Add a circle collider (pillar, campfire): position is the center, e.g. addCircle(mesh, { radius: 1 }). Returns a handle { remove() }
 - `collision.addBox(position: PositionLike, opts?: BoxColliderOptions) → Handle` — Add a box collider (house, fence): position is the center, e.g. addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 }). Returns a handle { remove() }
 - `collision.addObject(obj: Object3D, opts?: { pad?: number }) → Handle` — Add a collider from an object's bounding box, pad expands outward (meters). Returns a handle { remove() }
 - `collision.forEachStatic(fn: (type, data) => void)` — Iterate all static colliders added by hand
-- `collision.resolve(pos: { x: number; z: number }, radius?: number) → boolean` — Low level (called every step by character movement): push a character of radius radius (meters) out of obstacles (modifies pos.x/pos.z directly), returns whether it hit anything
 - `collision.walkable(position: PositionLike, opts?: { radius?: number }) → boolean` — Whether someone can stand at this position (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (meters, default engine.movement.radius)
 - `collision.walkableAt(x: number, z: number, radius?: number) → boolean` — walkable with plain numbers, allocating nothing (A* inner loops); radius defaults to engine.movement.radius
-- `collision.cameraDistance(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, want: number, pad?: number) → number` — Low level (called every frame by the camera): camera occlusion, returns the max allowed distance (meters)
 - Properties:
   - `cameraOcclusion: 'colliders' | 'meshes' | 'both'` What camera occlusion checks (see CollisionOptions.cameraOcclusion)
   - `circles: CircleCollider[]` Circle colliders added by hand

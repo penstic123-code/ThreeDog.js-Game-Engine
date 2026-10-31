@@ -4,7 +4,7 @@
 export const specs = [
   {
     name: '性能预算（小城示例）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
@@ -29,7 +29,7 @@ export const specs = [
   },
   {
     name: '阴影：updateEvery 与参数可配（小城示例）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
@@ -178,8 +178,8 @@ export const specs = [
         const url = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' })) + '#x.glb';
         const m = (await engine.assets.model(url)).getObjectByProperty('isMesh', true).material;
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat); engine.add(mesh);
-        engine.raycaster.addStatic(mesh); const had = engine.raycaster.statics.has(mesh);
-        mesh.geometry.dispose(); const gone = !engine.raycaster.statics.has(mesh); engine.detach(mesh);
+        engine.rays.addStatic(mesh); const had = engine.rays.statics.has(mesh);
+        mesh.geometry.dispose(); const gone = !engine.rays.statics.has(mesh); engine.detach(mesh);
         return { purpose: m.userData.purpose, flat: m.flatShading, tr: m.transparent, op: m.opacity, side: m.side === THREE.DoubleSide,
           em: m.emissive?.getHex(), want: new THREE.Color(0x332211).getHex(), had, gone };
       });
@@ -249,7 +249,7 @@ export const specs = [
     name: '启动耗时（只报告数字，不设门槛）',
     url: '/',
     async run({ check, ev, page }) {
-      for (const [name, url] of [['open world', '/'], ['city', '/city.html']]) {
+      for (const [name, url] of [['open world', '/'], ['city', '/tests/city/index.html']]) {
         if (url !== '/') { await page.goto(page.url().replace(/\/[^/]*$/, url)); await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 }); }
         const s = await ev(() => engine.startup);
         check(`${name}: open to playable ${s?.totalMs} ms (start to playable ${s?.startMs} ms, first-screen chunks ${s?.modules.terrain?.ready ?? '—'} ms)`, !!s);

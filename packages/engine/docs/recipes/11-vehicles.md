@@ -1,11 +1,11 @@
 # Vehicles and boarding
 
-Required modules: `collision()` + `rigid()` (Rapier physics; the vehicle controller lives there) + `characters()`. With `interactions()` installed, a "board/exit" prompt (E key) appears automatically near a vehicle.
-Convention: **the front of the car faces the model's +Z**, and a wheel's `position` is relative to the body origin (meters). Rapier has to be downloaded and initialized, so build the car after `world:ready`.
+Required modules: `collision()` + `rigid()` (Rapier physics; the vehicle controller lives there) + `characters()`. With `interactions({ ...presets.interactions.nearest })` installed, a "board/exit" prompt (E key) appears automatically near a vehicle.
+Convention: **the front of the car faces the model's +Z**, and a wheel's `position` is relative to the body origin (meters). Rapier has to be downloaded and initialized, so build the car after `engine:ready`.
 
 ## 1. Build a car (main.js)
 ```js
-import { THREE, makeMaterial } from 'threedog';
+import { presets, THREE, makeMaterial } from 'threedog';
 
 function makeCar() {
   const car = new THREE.Group();
@@ -19,7 +19,7 @@ function makeCar() {
   return { car, wheels };
 }
 
-engine.events.on('world:ready', () => {
+engine.events.on('engine:ready', () => {
   const { car, wheels } = makeCar();
   car.position.set(10, engine.surface(10, 0) + 1.5, 0);                // place it slightly above the ground and let it drop
   const v = engine.rigid.addVehicle(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 14, height: 2 } });

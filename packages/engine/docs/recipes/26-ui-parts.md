@@ -111,6 +111,14 @@ engine.use(settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camer
 // optional built-ins by name: 'game' (resume / load / back to title), 'camera' (sensitivity, invert Y, field of view; re-applied on 'camera:change')
 engine.settings.addSection('camera');
 engine.settings.removeSection('saves');
+
+// a tab of your own: render gets tools with the control helpers (row / toggle / range / segmented) already bound
+engine.settings.define('subtitles', true, on => { document.body.dataset.subtitles = String(on); });
+engine.settings.addSection('gameplay', {
+  title: 'Gameplay',
+  render: (tools, e, s) => tools.row('Subtitles', tools.toggle('subtitles', s.get('subtitles'))),
+  order: 50,
+});
 ```
 A completely different menu: don't install `settings()`; open your own with `uiFocus(engine).setRoot(() => myMenu.open())` so Esc on an empty stack reaches it.
 

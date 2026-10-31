@@ -5,7 +5,7 @@ import { expectDescribe } from '@threedog/tools/describe-snapshot';
 export const specs = [
   {
     name: 'describe snapshot: small town after loading, fields player / camera / ui / modules (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       await ev(() => { engine.pause(); engine.step(0.5); });
       await expectDescribe({ check, ev }, 'city-start', { only: ['player.ground', 'player.state', 'player.inWater', 'camera.type', 'ui', 'modules'], tolerance: 1 });
@@ -21,7 +21,7 @@ export const specs = [
   },
   {
     name: 'describe snapshot: state registered with describe.add is part of the baseline (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       await ev(() => { engine.pause(); engine.describe.add('snapDemo', () => ({ score: 3, targets: [{ name: 'crate', hp: 10 }, { name: 'barrel', hp: 5 }] })); engine.step(0.1); });
       await expectDescribe({ check, ev }, 'city-custom-state', { only: ['snapDemo'] });
@@ -29,7 +29,7 @@ export const specs = [
   },
   {
     name: 'errors carry a cause and a doc page: engine.error, describeText and warnOnce (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     expectErrors: /plain values/,   // a gameplay error provoked on purpose
     async run({ check, ev }) {
       const r = await ev(async () => {

@@ -10,6 +10,7 @@ export const name = 'AI tools: error hint table and describe snapshots (node)';
 
 // Real messages as the engine writes them (see the throw / warn sites); each must land on the listed hint id
 const SAMPLES = {
+  'frozen-definition': "Cannot assign to read only property 'opened' of object '#<Object>'",
   'module-requires': 'module npcs requires module "world", which is not installed',
   'module-cycle': 'module order forms a cycle: a -> b -> a (check before / after on these modules)',
   'module-stage': 'module x has stage "gamplay", which is not a stage; available stages: control, gameplay',

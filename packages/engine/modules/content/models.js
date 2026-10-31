@@ -42,7 +42,7 @@ export function settle(e, rec, o, look) {
   o.position.y = rec.position.y; o.rotation.y = rot; o.scale.setScalar(scale);
   ud.unstatic?.remove(); ud.unstatic = null;
   for (const h of ud.colliders.splice(0)) h.remove();
-  if (look.static !== false && e.raycaster) { o.updateMatrixWorld(true); ud.unstatic = e.raycaster.addStatic(o); }
+  if (look.static !== false && e.rays) { o.updateMatrixWorld(true); ud.unstatic = e.rays.addStatic(o); }
   if (!look.collide || !e.collision) return;
   const size = ud.proto.size.clone().multiplyScalar(scale), c = ud.proto.center.clone().multiplyScalar(scale);
   const cx = x + c.x * Math.cos(rot) + c.z * Math.sin(rot), cz = z - c.x * Math.sin(rot) + c.z * Math.cos(rot);

@@ -1,23 +1,24 @@
-// Player control is replaceable (genericity audit A1 / A2 / B1): control true / false / function, faceMode, push, input.simulate, follow camera shoulder / frame, target selection.
-// Guards [must not be bypassed]: with control false nothing in the engine moves the player; while framing, a yaw the game writes directly is pulled back (frame() owns yaw).
+// Player control is replaceable (genericity audit A1 / A2 / B1): control 'camera' / 'none' / function, faceMode, push, input.simulate, follow camera shoulder / frame, target selection.
+// Guards [must not be bypassed]: with control 'none' nothing in the engine moves the player; while framing, a yaw the game writes directly is pulled back (frame() owns yaw);
+// the engine picks no player feel (createPlayer without control throws, run / jump keys and camera follow exist only when given) and openWorld picks no camera.
 
 export const specs = [
   {
-    name: 'player control: false = the engine never moves the player (guard), function = side-scroller axis, true = default keys; describe reports it',
+    name: 'player control: none = the engine never moves the player (guard), function = side-scroller axis, camera = keys relative to the camera; describe reports it',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
         const p = engine.player, inp = engine.input, at = () => ({ x: p.position.x, z: p.position.z });
-        p.control = true; p.faceMode = 'move'; p.faceTarget = null;
+        p.control = 'camera'; p.faceMode = 'move'; p.faceTarget = null;
         engine.step(10 / 60, { render: false });
         const out = {};
         // default: W moves the player
         let a = at(); inp.simulate('moveForward'); engine.step(20 / 60, { render: false }); inp.simulate('moveForward', false);
         let b = at(); out.defaultMoved = Math.hypot(b.x - a.x, b.z - a.z);
         engine.step(20 / 60, { render: false });
-        // control false: holding W for half a second changes nothing at all (the engine does not even call move)
-        p.control = false;
+        // control 'none': holding W for half a second changes nothing at all (the engine does not even call move)
+        p.control = 'none';
         a = at(); inp.simulate('moveForward'); engine.step(30 / 60, { render: false }); inp.simulate('moveForward', false);
         b = at(); out.offIdle = Math.hypot(b.x - a.x, b.z - a.z);
         // ...and the game's own hook that only ever moves along +X is the one that moves it
@@ -34,15 +35,18 @@ export const specs = [
         a = at(); inp.simulate('moveRight'); engine.step(20 / 60, { render: false }); inp.simulate('moveRight', false);
         b = at(); out.fnDx = b.x - a.x; out.fnDz = Math.abs(b.z - a.z);
         out.describeFn = engine.describe().player.control;
-        p.control = true;
+        p.control = 'camera';
         try { engine.characters.createPlayer({ control: 'manual' }); } catch (err) { out.err = String(err.message); }
+        try { engine.characters.createPlayer({ control: true }); } catch (err) { out.errOld = String(err.message); }
+        try { engine.characters.createPlayer({ spawn: { x: 0, z: 0 } }); } catch (err) { out.errNone = String(err.message); out.codeNone = err.code; }
         out.stillPlayer = engine.player === p;
         return out;
       });
-      check('default control: W moves the player', r.defaultMoved > 1, JSON.stringify(r));
-      check('[guard] control false: W / A do nothing, only the game\'s move(+X) moves it', r.offIdle === 0 && r.offDx > 1 && Math.abs(r.offDz) < 0.3 && r.describeOff === 'off', JSON.stringify(r));
+      check('camera control: W moves the player', r.defaultMoved > 1, JSON.stringify(r));
+      check('[guard] control none: W / A do nothing, only the game\'s move(+X) moves it', r.offIdle === 0 && r.offDx > 1 && Math.abs(r.offDz) < 0.3 && r.describeOff === 'none', JSON.stringify(r));
       check('function control: W does not move a side-scroller, D moves only along X', r.fnW < 0.05 && r.fnDx > 1 && r.fnDz < 1e-6 && r.describeFn === 'custom', JSON.stringify(r));
-      check('bad control throws with the fix, before touching the existing player', /control must be true/.test(r.err) && r.stillPlayer, r.err);
+      check('bad control throws with the fix, before touching the existing player; old true / false say they were renamed', /is not a control/.test(r.err) && /presets\.player\.thirdPerson/.test(r.err) && /renamed/.test(r.errOld) && r.stillPlayer, r.err + ' | ' + r.errOld);
+      check('[guard] no control: createPlayer throws player-control and names the preset (the engine picks no feel)', r.codeNone === 'player-control' && /presets\.player\.thirdPerson/.test(r.errNone) && /control: 'none'/.test(r.errNone), r.errNone);
     },
   },
   {
@@ -52,7 +56,7 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const p = engine.player, inp = engine.input, at = () => ({ x: p.position.x, z: p.position.z });
-        p.control = true; p.faceMode = 'move'; p.faceTarget = null;
+        p.control = 'camera'; p.faceMode = 'move'; p.faceTarget = null;
         engine.step(10 / 60, { render: false });
         const out = {}, wrap = x => Math.atan2(Math.sin(x), Math.cos(x));
         p.face(0); p.faceMode = 'manual';
@@ -119,16 +123,18 @@ export const specs = [
   },
   {
     name: 'openWorld parts: every part takes false or its own options (nested sky / terrain reach the modules), shorthand still works, bad values explain the fix',
-    url: '/tests/entities/index.html',   // built with openWorld({ terrain: { seed }, sky: { time: 0.4, daysPerSeason: 28 }, debug: false, ambience: false })
+    url: '/tests/entities/index.html',   // built with openWorld({ camera: 'follow', terrain: { seed }, sky: { time: 0.4, daysPerSeason: 28 }, debug: false, ambience: false })
     async run({ check, ev }) {
       const r = await ev(() => ({ days: engine.sky.daysPerSeason, time: engine.sky.timeOfDay, debug: !!engine.debug, ambience: !!engine.ambience, terrain: !!engine.terrain }));
       check('[guard] nested options reach the module: sky daysPerSeason 28, time ~0.4; false parts are absent', r.days === 28 && Math.abs(r.time - 0.4) < 0.05 && !r.debug && !r.ambience && r.terrain, JSON.stringify(r));
       const { openWorld } = await import('../../index.js');
       const names = o => openWorld(o).map(m => m.name).join(',');
       check('shorthand and full list: all parts, camera included; debug is left out of non-dev builds (node is not dev)',
-        names({ seed: 3, time: 0.3 }) === 'world,terrain,vegetation,sky,weather,water,collision,rigid,cameraRig,characters,ambience,settings', names({ seed: 3 }));
+        names({ seed: 3, time: 0.3, camera: 'follow' }) === 'world,terrain,vegetation,sky,weather,water,collision,rigid,cameraRig,characters,ambience,settings', names({ seed: 3, camera: 'follow' }));
+      let noCam = ''; try { openWorld({ seed: 3 }); } catch (e) { noCam = e.message; }
+      check('[guard] openWorld picks no camera: leaving camera out throws open-world-camera with the choices', /\[open-world-camera\]/.test(noCam) && /camera: 'follow'/.test(noCam), noCam);
       check('false drops any part, camera too; debug: true forces the panel in', names({ sky: false, camera: false, collision: false, debug: true }) === 'world,terrain,vegetation,weather,water,rigid,characters,ambience,settings,debug');
-      let err = ''; try { openWorld({ terrain: 'island' }); } catch (e) { err = e.message; }
+      let err = ''; try { openWorld({ camera: 'follow', terrain: 'island' }); } catch (e) { err = e.message; }
       check('a non-object part value names the fix', /terrain must be false .* or an options object/.test(err), err);
     },
   },

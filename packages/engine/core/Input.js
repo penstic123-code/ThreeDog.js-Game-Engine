@@ -8,7 +8,7 @@
 // Gameplay (onFixed, module fixed) reads a snapshot taken at the start of each fixed step: reads within one step agree, and "just pressed" counts exactly once, never lost, whatever the frame rate.
 // UI keys and camera (onFrame, module frame) read this frame's latest state. Gameplay keys (jump, attack, fire, interact) are always read in fixed
 // Contexts: engine.input.push('vehicle') groups/shadows actions (inputContext.js); menus, dialogue and cutscenes push an opaque one. Window blur / tab hide (page:blur from core/page.js) releases every held key
-// engine.input.label('interact') -> "E" (for UI hints)
+// engine.input.label('interact') -> "E" (for UI hints; 'interact' exists only once the game bound it)
 // engine.input.rebind('interact', ['KeyF'])   rebind a key (this session only; with the settings module installed it saves to the browser and restores next time)
 // engine.input.axis -> { x, y }  movement direction (moveLeft/Right/Forward/Back + mobile stick)
 //
@@ -25,16 +25,19 @@ import { bindPointer } from './inputPointer.js';
 import { pollPad, keyLabel } from './inputPad.js';
 import { initContexts, pushContext, readableMap, applyContexts } from './inputContext.js';
 
+// Only neutral input lives here: the direction axis (input.axis, the touch stick) and menu confirm / cancel. Nothing in it does anything until a game or module reads it.
+// Gameplay keys (run, interact, jump...) are not core defaults: the game binds them (createEngine({ bindings }), input.define, a module's keys option or a preset such as
+// presets.player.thirdPerson / presets.interactions.nearest), so no game inherits another game's Shift-to-run or E-to-use.
 const DEFAULT_ACTIONS = {
   moveForward: [['KeyW', 'ArrowUp'], 'input.moveForward'],
   moveBack: [['KeyS', 'ArrowDown'], 'input.moveBack'],
   moveLeft: [['KeyA', 'ArrowLeft'], 'input.moveLeft'],
   moveRight: [['KeyD', 'ArrowRight'], 'input.moveRight'],
-  run: [['ShiftLeft', 'ShiftRight'], 'input.run'],
-  interact: [['KeyE'], 'input.interact'],
   confirm: [['Space', 'Enter'], 'input.confirm'],
   cancel: [['Escape'], 'input.cancel'],
 };
+// display names for actions a game creates through createEngine({ bindings }) before the module that reads them defines its label
+const BOUND_LABELS = { run: 'input.run', interact: 'input.interact', jump: 'input.jump' };
 // Default gamepad keys for common actions: added automatically when the action is registered (override in createEngine({ padBindings })).
 // Only those nearly every game shares; gameplay-specific actions (inventory, quests, photo...) get theirs from the registering module via define's { pad }
 const PAD_DEFAULTS = { confirm: 'PadA', jump: 'PadA', cancel: 'PadB', interact: 'PadX', run: 'PadLB', menu: 'PadStart' };
@@ -76,6 +79,10 @@ export class Input {
     this.touch = matchMedia('(pointer: coarse)').matches;
     /** @internal touch buttons the game asked for [{ action, labelKey }]; drawn by the UI part 'touch' (inputTouch.js) */ this._touch = [];
     for (const [a, [keys, label]] of Object.entries(DEFAULT_ACTIONS)) this.actions.set(a, { keys: this._withPad(a, bindings[a] || keys), labelKey: label });
+    // bindings may also name actions outside the neutral table (createEngine({ bindings: { interact: ['KeyF'] } })): they exist from the start, and a module's
+    // later define() keeps the game's keys (the game chose them; the module's keys are only its fallback)
+    /** @internal */ this._bound = bindings;
+    for (const [a, keys] of Object.entries(bindings)) if (!DEFAULT_ACTIONS[a]) this.actions.set(a, { keys: this._withPad(a, [].concat(keys)), labelKey: BOUND_LABELS[a] || a });
 
     const { signal } = engine;   // engine.dispose() cancels all listeners at once
     addEventListener('keydown', e => {
@@ -110,7 +117,7 @@ export class Input {
   define(action, keys, labelKey, opts = {}) {
     const { pad, context } = opts;
     this._readable = null;
-    keys = [].concat(keys);
+    keys = [].concat(this._bound[action] ?? keys);   // createEngine({ bindings }) wins over the keys a module passes
     if (pad && !this.padDefaults[action]) keys = [...keys, ...[].concat(pad).filter(p => !keys.includes(p))];   // a createEngine({ padBindings }) entry takes precedence
     const cur = this.actions.get(action), want = this._withPad(action, keys);
     if (!cur) { this.actions.set(action, { keys: want, labelKey: labelKey || action, custom: false, defined: true, context }); return this; }

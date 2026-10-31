@@ -130,7 +130,7 @@ export class Assets {
     return { loaded: list.length - failed.length, failed, ok: !failed.length };
   }
 
-  /** Get a model copy (name or path); skinned characters clone correctly. static: true registers it with engine.raycaster (builds ray acceleration) */
+  /** Get a model copy (name or path); skinned characters clone correctly. static: true registers it with engine.rays (builds ray acceleration) */
   async model(nameOrUrl, opts = {}) {
     const e = this._resolve(nameOrUrl, 'model'), gltf = await this._fetch(e);
     return this._copy(e, gltf, opts);
@@ -152,7 +152,7 @@ export class Assets {
     const cast = castShadow ?? (e.opts.build ? null : true), recv = receiveShadow ?? (e.opts.build ? null : true);
     root.traverse(o => { if (o.isMesh) { if (cast != null) o.castShadow = cast; if (recv != null) o.receiveShadow = recv; } });
     root.userData.animations = gltf.animations;
-    if (isStatic) this.engine.raycaster.addStatic(root);
+    if (isStatic) this.engine.rays.addStatic(root);
     return root;
   }
   /** Get the geometry of the first mesh in a model (for vegetation and bulk placement) */

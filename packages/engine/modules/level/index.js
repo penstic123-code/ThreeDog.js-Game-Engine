@@ -18,6 +18,9 @@
 //              (if none match, all meshes are walkable). Ground type = custom property groundType, else the material name
 //   walls/obstacles  col_xxx (hidden collision box, only blocks movement), or custom property collider = true (a visible object that blocks)
 //   markers     spawn, spawn_2, npc_shopkeeper, trigger_door, marker_chest -- custom properties go into userData as-is
+//   records     custom property template = 'door' (an instance of a content template; its other custom properties fill the template's state) or id = true
+//              (the node itself becomes a world record, kind 'levelNode', its custom properties are record fields): id `<level file name>/<node name>`,
+//              e.g. town/door_front; saved as a diff like content entries (opened, removed, moved). Untagged meshes stay static scenery
 //
 // Options:
 //   url / scene   pick one: glTF path (or name in the assets manifest) / THREE.Object3D built in code
@@ -45,7 +48,7 @@
 //   track(handle) register things that belong to the current level and need no keeping (handles with remove(): trigger zones...); auto-removed on level switch / unload.
 //                 World data that must keep state (NPCs, pickups, props) is not tracked: records carry zone (= level name), a level switch only tears down models.
 //                 triggers.fromMarkers and content (when positions use level markers) are tracked automatically
-// Rays: all meshes are registered in engine.raycaster (builds BVH); col_ meshes and non-walkable meshes (buildings, walls) also occlude the camera (collision's cameraOcclusion).
+// Rays: all meshes are registered in engine.rays (builds BVH); col_ meshes and non-walkable meshes (buildings, walls) also occlude the camera (collision's cameraOcclusion).
 // Save: the current level (path or asset name) goes into the save; on load, switch back first and wait for it before loading the rest (save key level comes first, load returns a Promise);
 //   scenes built in code (scene) cannot be saved, loading does not switch level -- to support cross-level loading, register the builder in the assets manifest and use level({ url: name }).
 // Event: level:loaded { root, markers, spawn }
@@ -60,6 +63,12 @@ const STRINGS = {
   en: { 'level.loadFailed': 'Failed to load level: {url}', 'level.noScene': 'The level module needs a url or scene option' },
 };
 
+const STRINGS_DEV = {
+  noWorld: '[level] nodes with the custom property template or id become world records: install world() (the openWorld() preset has it); they are left out for now',
+  noContent: 'level node {id} has the custom property template: install content() and define the template in content/templates.js',
+  clash: 'level node id "{id}" is already used by other data (kind {kind}): rename the node in Blender',
+  notLoaded: 'level node {id}: its level is not loaded (a record of another level is built only on that level)',
+};
 const WALK_RE = /ground|floor|road|terrain|stairs?|ramp/i;
 const MARKER_RE = /^(spawn|spawn_.*|npc_.*|trigger_.*|marker_.*)$/i;
 const COL_RE = /^col_/i;
@@ -80,6 +89,8 @@ export function level(opts = {}) {
   let e = null, hf = null, done = false, version = 0, trimeshCache = null, pendingColliders = null;
   let current = typeof url === 'string' && !scene ? url : null;   // current level path/asset name (for saving)
   const walkMeshes = [], removers = [];
+  const taken = [], nodes = new Map();   // record nodes waiting to be placed; record id -> node object (levelNode records)
+  let presented = null;
 
   const api = {
     root: null, markers: {}, spawn: new THREE.Vector3(), heightfield: null,
@@ -89,7 +100,7 @@ export function level(opts = {}) {
     track(h) { if (h) removers.push(h); return h; },
     marker: name => api.markers[name] || null,
     markersWith: prefix => Object.values(api.markers).filter(m => m.name.startsWith(prefix)),
-    /** Triangles of walkable meshes (world space), [{ positions: Float32Array, indices: Uint32Array }], cached */
+    /** @internal Triangles of walkable meshes (world space), [{ positions: Float32Array, indices: Uint32Array }], cached */
     staticTrimeshes() {
       if (trimeshCache) return trimeshCache;
       trimeshCache = walkMeshes.map(m => {
@@ -128,6 +139,7 @@ export function level(opts = {}) {
 
   function loaded() {
     addColliders();                    // if the collision module is installed after level, add colliders here
+    e.ops.allow(placeNodes);           // nodes tagged template / id become world records (loading is setup, not a gameplay action) before anyone (hlod...) sees level:loaded
     done = true;
     e.assets.trim();                   // old level's models have no copies in use: return GPU memory
     e.events.emit('level:loaded', { root: api.root, markers: api.markers, spawn: api.spawn });
@@ -139,6 +151,7 @@ export function level(opts = {}) {
     root.userData.budgetTag ??= 'level';
     if (addToScene && !root.parent) e.add(root);
     root.updateMatrixWorld(true);
+    takeNodes(root);   // record nodes leave the level root first: no ground, collision or ray registration for them, and hlod never bakes them
     const meshes = [], cols = [], markerObjs = [];
     root.traverse(o => {
       if (MARKER_RE.test(o.name)) { markerObjs.push(o); return; }
@@ -179,9 +192,67 @@ export function level(opts = {}) {
     api.spawn = sp ? sp.position.clone() : new THREE.Vector3(0, hf.height(0, 0), 0);
     pendingColliders = colliders === false ? cols.filter(m => COL_RE.test(m.name) || chainValue(m, root, 'collider')) : cols;
     // rays: all meshes; collision meshes and non-walkable meshes also occlude the camera
-    removers.push(e.raycaster.addStatic(root), e.raycaster.addStatic([...cols, ...meshes.filter(m => !walkSet.has(m))], { occluder: true }));
+    removers.push(e.rays.addStatic(root), e.rays.addStatic([...cols, ...meshes.filter(m => !walkSet.has(m))], { occluder: true }));
     trimeshCache = null; version++;
     addColliders();
+  }
+
+  /** Nodes tagged with the custom property template or id (Blender custom property -> glTF extras -> userData): taken out of the level root, world transform kept */
+  function takeNodes(root) {
+    taken.length = 0;
+    const walk = o => {
+      for (const c of [...o.children]) {
+        if ((c.userData?.template == null && c.userData?.id == null) || MARKER_RE.test(c.name)) { walk(c); continue; }
+        const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+        c.matrixWorld.decompose(p, q, s);
+        c.removeFromParent(); c.position.copy(p); c.quaternion.copy(q); c.scale.copy(s);
+        c.userData.hlod = false;   // its model comes and goes with the record: never part of a merged far proxy
+        taken.push(c);
+      }
+    };
+    walk(root);
+  }
+  /** The name in node ids `<level>/<node>`: the level file name without folders and extension; a code-built scene uses its root name */
+  const levelName = () => {
+    if (!current) return api.root?.name || 'level';
+    const f = String(current), base = f.slice(Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\')) + 1), dot = base.lastIndexOf('.');
+    return dot > 0 ? base.slice(0, dot) : base;
+  };
+  const OWN = ['template', 'id', 'name', 'hlod'];   // userData keys that are not record fields (three's glTF loader keeps the node name in userData.name)
+  /** Taken nodes -> authored world records, id `<level>/<node>`: a template instance (custom property template) or the node itself (custom property id) */
+  function placeNodes() {
+    if (!taken.length) return;
+    if (!e.world) { console.warn(STRINGS_DEV.noWorld); return; }
+    const level = levelName(), zone = e.world.zone;
+    for (const o of taken.splice(0)) {
+      const id = `${level}/${o.name}`, ud = o.userData, node = o.name, { x, y, z } = o.position;
+      const fields = Object.fromEntries(Object.entries(ud).filter(([k, v]) => !OWN.includes(k) && (v == null || typeof v !== 'object' || Array.isArray(v) || v.constructor === Object)));
+      if (ud.template != null) {
+        if (!e.content) throw new Error(STRINGS_DEV.noContent.replace('{id}', id));
+        const yaw = new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ').y, state = Object.keys(e.content.template(ud.template).state ?? {});
+        const own = Object.fromEntries(Object.entries(fields).filter(([k]) => state.includes(k)));
+        e.content.placeNode({ template: ud.template, id, x, z, floor: y, ...(yaw && { rot: yaw }), ...(o.scale.x !== 1 && { scale: o.scale.x }), ...own }, zone, { level, node });
+      } else {
+        presentNodes();
+        nodes.set(id, o);
+        const rec = e.world.add({ ...fields, id, kind: 'levelNode', position: { x, y, z }, ...(zone != null && { zone }), level, node }, { initial: true });
+        if (rec && rec.kind !== 'levelNode') throw new Error(STRINGS_DEV.clash.replace('{id}', id).replace('{kind}', rec.kind));
+      }
+      e.world.setOrigin(id, { level, node });
+    }
+  }
+  /** How a level node record looks: the node itself (detached while far or on another level, rebuilt from the same object) */
+  function presentNodes() {
+    if (presented) return;
+    presented = e.world.present('levelNode', {
+      build(rec) {
+        const o = nodes.get(rec.id);
+        if (!o) throw new Error(STRINGS_DEV.notLoaded.replace('{id}', rec.id));
+        o.userData.unstatic = e.rays.addStatic(o);
+        return o;
+      },
+      dispose(rec, o) { o.userData.unstatic?.remove(); e.detach(o); },
+    });
   }
 
   /** Turn collision meshes into rotated boxes in the collision module (best-fit box by the mesh's world orientation) */
@@ -211,7 +282,7 @@ export function level(opts = {}) {
   }
 
   return {
-    name: 'level', label: 'Level', stage: 'world', after: ['terrain'], optional: ['world'],
+    name: 'level', label: 'Level', stage: 'world', after: ['terrain'], optional: ['world', 'content'],
     install(engine) {
       e = engine;
       checkOptions('level()', opts, ['url', 'scene', 'walkable', 'colliders', 'cellSize', 'outside', 'waterLevel', 'colliderPad', 'colliderHeight', 'sharpEdge', 'hideMarkers', 'addToScene']);

@@ -71,17 +71,35 @@ export function defineInventoryOps(e, inv) {
     },
     run: (e, { from, to, item, n = 1 }) => inv.transfer(from, to, item, n),
   });
+  // Replace-when-full recipe: one op takes A and gives B, all or nothing. Undo with engine.ops.undo('inventory.trade', args, value).
+  //   engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' })   // { ok: true, value } or { ok: false, reason: 'full' | 'notEnough' }
+  const at = (a, ctx) => box(a.container ?? ctx?.actor ?? 'player');
+  e.ops.define('inventory.trade', {
+    desc: "Trade in the actor's container: take an item (or entry key) and give another in one all-or-nothing step; works with a full bag when the taken item frees the room",
+    args: { take: 'string', give: 'string', takeN: 'int?', giveN: 'int?', container: 'string?' },
+    can(e, a, ctx) {
+      const c = at(a, ctx);
+      return c ? c._canTrade(a.take, a.give, a.takeN ?? 1, a.giveN ?? 1) : 'noContainer';
+    },
+    run(e, a, ctx) { const { took, gave, giveId, giveN } = at(a, ctx).trade(a.take, a.give, { takeN: a.takeN, giveN: a.giveN }); return { took, gave, giveId, giveN }; },
+    undo(e, a, v, ctx) {   // give B back, take A back (with its data); the value of the run is v
+      const c = at(a, ctx);
+      c.remove(v.gave, v.giveN);
+      for (const t of v.took) c.add(t.id, t.count, { ...(t.data && { data: t.data }), silent: true });
+    },
+    reasons: { noContainer: 'No container with that id (container arg; default the actor)', notEnough: 'The container does not hold the item to give up', full: 'The new item does not fit even after the old one is removed' },
+  });
   e.ops.define('inventory.use', {
     desc: "Use an item from the actor's container: runs the item's use(e, info); consume: true removes one first", args: { item: 'string' },
     can(e, { item }, ctx) {
       const en = box(ctx.actor)?._of(item)[0];
       if (!en) return 'notEnough';
-      const def = inv.def(en.id);
+      const def = inv.item(en.id);
       if (typeof def.use !== 'function') return 'notUsable';
       return def.canUse ? def.canUse(e, { actor: ctx.actor, item: en.id, key: en.key, data: en.data }) : true;
     },
     run(e, { item }, ctx) {
-      const c = box(ctx.actor), en = c._of(item)[0], def = inv.def(en.id), info = { actor: ctx.actor, item: en.id, key: en.key, data: en.data };
+      const c = box(ctx.actor), en = c._of(item)[0], def = inv.item(en.id), info = { actor: ctx.actor, item: en.id, key: en.key, data: en.data };
       if (def.consume) c.remove(en.key, 1);
       def.use(e, info);
       e.events.emit('item:use', info);

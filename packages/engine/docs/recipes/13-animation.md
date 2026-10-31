@@ -22,8 +22,7 @@ states: { idle: { clip: 'Idle_Sword' }, attack: { clip: 'Sword_Slash', loop: fal
 
 ## 3. A character with a skinned model (most common)
 ```js
-engine.characters.createPlayer({
-  model: hero,
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero,
   clips: { idle: 'Idle', walk: 'Walk', run: 'Run', jump: 'Jump' },   // character state -> clip name in the glTF; states you leave out use the capitalised name if the model has that clip
 });
 engine.player.playAction('Wave');                                   // one-shot clip (skipped if the clip doesn't exist); returns to the previous state when done
@@ -31,7 +30,7 @@ engine.player.anim.state;                                           // current s
 ```
 For smooth walk/run blending, use `animation` instead of `clips` and write a `move` blend tree (when the model has no walk/run states, move is used automatically; the `speed` parameter is in m/s):
 ```js
-engine.characters.createPlayer({ model: hero, animation: { states: {
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero, animation: { states: {
   idle: { clip: 'Idle' },
   move: { blend: [{ clip: 'Walk', at: 1.5 }, { clip: 'Run', at: 6 }], param: 'speed', sync: true },   // sync: align footsteps
   jump: { clip: 'Jump', loop: false },
@@ -42,7 +41,7 @@ The default transition time comes from the style pack's `style.character.animati
 **By asset name.** `model` also takes the name of a registered model asset, and a style pack can set `style.character.model: 'hero'` as the default for every character (a per-character `model` wins). The character is built at once with the placeholder body (the style's `create()` or the gray capsule); when the asset loads, a skeleton-correct copy replaces it under the same root, so position, facing, state, collision and the world view stay. Then `ready` turns true, `whenReady` settles and `character:model` is emitted. A name missing from a registered manifest throws with the registered names; a failed load keeps the placeholder and warns once; a character disposed before loading ends never gets the model.
 ```js
 engine.assets.manifest({ models: { hero: '/models/hero.glb' } });
-const p = engine.characters.createPlayer({ model: 'hero' });        // placeholder now, the hero once loaded
+const p = engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });        // placeholder now, the hero once loaded
 await p.whenReady;                                                  // p.anim is set from here (unless the load failed)
 ```
 

@@ -69,7 +69,7 @@ if (want('startup')) {
 console.log('\n## 4. open to playable (engine.startup)\n');
 row('example', 'open to playable ms', 'start() to playable ms', 'asset preload ms', 'first-screen chunks (terrain ready) ms', 'slowest module');
 row('---', '---', '---', '---', '---', '---');
-for (const [name, url] of [['open world', '/'], ['town', '/city.html']]) {
+for (const [name, url] of [['open world', '/'], ['town', '/tests/city/index.html']]) {
   const page = await open(url);
   const s = await page.evaluate(() => engine.startup);
   const slow = Object.entries(s.modules).map(([k, v]) => [k, (v.init ?? 0) + (v.ready ?? 0)]).sort((a, b) => b[1] - a[1])[0];

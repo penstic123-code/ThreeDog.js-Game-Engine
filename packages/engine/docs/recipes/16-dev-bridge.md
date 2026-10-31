@@ -2,6 +2,8 @@
 
 Purpose: after changing code, don't write a playwright script or take a screenshot; just ask "what does the game look like now", advance time, press keys, change state. Output is English, three lines or fewer, to save tokens.
 
+What the bridge changes lives in this session only: `op`, `step`, `state` and `js` alter the running game and its saves, never the level. To change the level, edit `content/*.js` (templates, props, npcs…) or the level model and reload the page.
+
 ## 1. Usage
 ```
 npm run dev -- my-game          # terminal A: start the dev server first (for the engine example just npm run dev)
@@ -22,6 +24,7 @@ No browser needs to be open: when the first command arrives, the dev server itse
 | `ops` | What the player can do now: every op offer checked with `can` (see `recipes/23-ops.md`) | `✓ shop.buy shop=bakery item=bread · ✗ shop.buy shop=bakery item=cake (soldOut)` |
 | `op shop.buy shop=bakery item=bread n=2` | Run a game op (source `bridge`, **no time passes**). Values follow the op's `args` shape: `n=2` becomes a number, `position=3,0,-2` an array. **Change state with this, not with `js`**: `js` writes go around the op log and the dev guard warns | `✓ shop.buy → 2 · Bag gold×2 bread×2` / `✗ shop.buy: noMoney (Not enough gold)` |
 | `inspect` / `inspect npc_3` / `inspect 10,-4` | What is around the player (or that actor / spot) and which ops it can do now, with reasons (`engine.inspect`, recipes/23-ops.md section 8) | `player at (4, 7) · near: 老渔夫 1 m` / `✗ barter.buy shop=fisher-basket item=feather (soldOut: …)` |
+| `pick 480,270` | What is at that screen pixel (from the canvas top-left): record id, kind, template, the content file and line that defines it, its fields (recipes/30-templates.md section 5) | `✓ chest-home (kind chest, template chest) …` / `defined in content/props.js:14: edit it there …` |
 | `explain op barter.buy shop=fisher-basket item=berry` / `explain quest first-light` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and the events around it, `detail`), or where a quest is stuck (`engine.explain`) | `✗ barter.buy {...} cannot run now: noFilm (Not enough film)` |
 | `explain op name key=value --full` | Adds the detail: the op's last attempt and the events around it | |
 | `scenario barter` | Run the scenario test `tests/scenarios/barter.json` on this page (recipes/23-ops.md section 7); prints failed checks, leaves the page paused | `✓ scenario barter: 6 checks passed` |
@@ -39,7 +42,7 @@ No browser needs to be open: when the first command arrives, the dev server itse
 - **Keys go through `engine.input` like a real keyboard**: action names are translated to keyboard keys (gamepad buttons are ignored); when a window locks input, menu-type actions (`pressedRaw`) are still received.
 - **In your own page scripts and tests do the same with `engine.input.simulate(action, down = true)`** (it goes through the same path as `press`, and works with `engine.step`): `engine.input.simulate('jump'); engine.step(1 / 60); engine.input.simulate('jump', false)`. Never call `_keyDown` / `_keyUp` (internal).
 - `describe` by default gives only the 3 nearest things and the first quest; for detail use a path (`quests.active`, `nearby`, `world`) or `--full`; don't dump everything at once.
-- Several pages: `--page /city.html` picks the path; `-w name` picks the workspace.
+- Several pages: `--page /<page>.html` picks the path; `-w name` picks the workspace.
 - To change the port: `npm run dev -- my-game --port 5000`; the CLI finds the port from `.threedog/dev.json`, so you don't need to specify it again.
 - If a command never becomes ready: most likely `main.js` doesn't set `window.engine = engine;` (it must come before `await engine.start()`). Under the dev server `engine.start()` attaches it automatically, but the bundled build used by npm test does not; the timeout error says whether the page has `window.engine`, `engine.ready`, and the latest page errors.
 - Error messages give the cause and the next step, e.g. "no running dev server -> run npm run dev first".
@@ -88,7 +91,7 @@ Every error the engine raises by name carries a stable **code**: `err.code`, `er
 `engine.applyState({ time, weather, pos, ... })` (also URL parameters) sets up a scenario in one call; `engine.defineState(name, params)` names a combination so tests and scenarios reuse it.
 
 ## 10. MCP server: Claude Code, Cursor and other MCP clients
-`npx threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`describe`, `step`, `press`, `hold`, `state`, `ops`, `op`, `inspect`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `scenario`, `reload`, `resume`) and returns the same text as the command line; `snap` also returns the PNG as an image. It finds the dev server through `.threedog/dev.json` like the CLI, so start `npm run dev` first (without it, a tool call answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies.
+`npx threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`describe`, `step`, `press`, `hold`, `state`, `ops`, `op`, `inspect`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `scenario`, `reload`, `resume`) and returns the same text as the command line; `snap` also returns the PNG as an image. It finds the dev server through `.threedog/dev.json` like the CLI, so start `npm run dev` first (without it, a tool call answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As with the command line, the `op` and `step` tools change the current session and its saves; the level itself changes only by editing content files.
 
 Claude Code (in the game folder; in the engine repository add `-w name` after `mcp`):
 ```
@@ -100,4 +103,4 @@ Cursor, `.cursor/mcp.json` in the game folder: <!-- r18-ignore-line -->
 ```
 On native Windows, wrap npx in cmd: `claude mcp add threedog -- cmd /c npx threedog mcp` (Cursor: `"command": "cmd", "args": ["/c", "npx", "threedog", "mcp"]`).
 
-The `js` tool (arbitrary code in the page) is off by default; `threedog mcp --allow-js` enables it, for development only. Other options: `-w name` (workspace), `--page /city.html` (page path).
+The `js` tool (arbitrary code in the page) is off by default; `threedog mcp --allow-js` enables it, for development only. Other options: `-w name` (workspace), `--page /<page>.html` (page path).

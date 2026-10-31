@@ -1,5 +1,5 @@
 // UI part of the settings menu (tabs, redraw, click/slider events); Settings inherits it.
-import { formatValue, BUILTIN_SECTIONS, OPTIONAL_SECTIONS } from './sections.js';
+import { formatValue, BUILTIN_SECTIONS, OPTIONAL_SECTIONS, settingsTools } from './sections.js';
 import { esc } from '../../ui/UI.js';
 
 const CSS_ESC = s => (globalThis.CSS?.escape ? globalThis.CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&'));
@@ -25,7 +25,7 @@ export class SettingsView {
     try { body = sec ? sec.render(tools, this.engine, this) : ''; } catch (err) { console.error(`[settings] tab ${this.current} failed to render`, err); }
     return { sections: list.map(([id, s]) => ({ id, title: s.title(this.engine), active: id === this.current })), current: this.current, body, values: { ...this.values } };
   }
-  _tools() { return { esc, t: (k, p) => this.engine.t(k, p) }; }
+  _tools() { return settingsTools(this.engine, esc); }
   _render({ sections, body }, { esc }) {
     const tabs = sections.map(s => `<button type="button" role="tab" class="threedog-btn threedog-tab${s.active ? ' is-active' : ''}" aria-selected="${s.active}" data-tab="${esc(s.id)}">${esc(s.title)}</button>`).join('');
     return `<div class="threedog-tabs" role="tablist">${tabs}</div><div class="threedog-set-body" role="tabpanel">${body}</div>`;
@@ -54,7 +54,7 @@ export class SettingsView {
       const r = ev.target.closest?.('[data-range]'); if (!r) return;
       const key = r.dataset.range, v = +r.value;
       this.values[key] = v;
-      if (key !== 'density' && key !== 'viewDistance') this._apply(key, v);   // these two rebuild the world, so they apply on release
+      if (key !== 'density' && key !== 'viewChunks') this._apply(key, v);   // these two rebuild the world, so they apply on release
       const lab = el.querySelector(`[data-val="${CSS_ESC(key)}"]`); if (lab) lab.textContent = formatValue(key, v);
     });
     el.addEventListener('change', ev => {

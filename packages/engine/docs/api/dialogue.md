@@ -4,7 +4,7 @@ Dialogue (dialogue() module)
 
 - Options `DialogueOptions`:
   - `charsPerSecond?: number` Typing speed (characters/second, game time: advanced by engine.step), default 40
-  - `advanceActions?: string[]` Actions that advance the dialogue, default ['confirm', 'interact']
+  - `advanceActions?: string[]` Actions that advance the dialogue, default ['confirm', 'interact'] (interact only when the game bound it)
   - `choiceKeys?: boolean` Number keys 1-9 pick choices (read only while a locking dialogue runs; rebind them as actions choice1...choice9), false = click / op only. Default true
   - `holdSeconds?: number` A non-locking line (lock: false) moves on this many seconds after it is fully typed, default 2
 

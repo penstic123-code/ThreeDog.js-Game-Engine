@@ -57,9 +57,9 @@ engine.sky.at('06:00', () => engine.ops.run('farm.dry'));                       
 `get(cell)`, `set(cell, patch)` (merge; a field set to null is deleted), `clear(cell)`, `query(cell?, size?)` -> `[{ cell, data }]`, `updateAll(fn)`, `count`.
 Writes are saved gameplay state: do them inside an op or a fixed step (the guard reports anything else). Data must be plain values.
 
-**Tiles.** A layer whose name has a table in the style pack (`style.grid.tiles.soil = { watered: 0x5b3d2a, tilled: 0x8a6243 }`, first truthy field
-wins) shows crisp per-cell quads just above the ground, following its height (slopes, ramps, level meshes).
-`farm.layer('soil', { tiles: false })` turns them off; `{ tiles: { look: (data, cell) => color | null, lift } }` picks colors in code; `{ tiles:
+**Tiles.** The game gives a layer its colors: `farm.layer('soil', { tiles: { look: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
+(what the data means is gameplay, so no style pack ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its height (slopes, ramps, level meshes).
+`farm.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
 (engine, layer) => ({ update(cells), dispose() }) }` is your own view. Options are read when the layer is first created.
 
 ## 4. Preview

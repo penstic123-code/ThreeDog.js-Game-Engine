@@ -76,9 +76,9 @@ export class DebugPanel {
       /** @internal */ this.tod = bind('tod', () => e.sky.timeOfDay, v => e.sky.timeOfDay = v, () => e.sky.clock);
     }
     const ws = q('[data-s="weather"]');
-    if (e.weather) {   // options come from the weather module's presets (new game weather shows up here automatically)
+    if (e.weather) {   // options come from the game's weather table (its own types show up here automatically)
       // weather names come from the weather module's string table (weather.<name>); do not duplicate them here
-      ws.innerHTML = Object.keys(e.weather.presets).map(k => `<option value="${esc(k)}">${esc(e.weather.label(k))}</option>`).join('') + `<option value="auto">${esc(e.weather.label('auto'))}</option>`;
+      ws.innerHTML = Object.keys(e.weather.types).map(k => `<option value="${esc(k)}">${esc(e.weather.label(k))}</option>`).join('') + `<option value="auto">${esc(e.weather.label('auto'))}</option>`;
       ws.value = e.weather.name;
     }
     ws.onchange = () => { if (ws.value === 'auto') e.weather.setAuto(true); else { e.weather.setAuto(false); e.weather.set(ws.value, 8); } };
@@ -110,7 +110,7 @@ export class DebugPanel {
     const avg = b.dts.length / sum, low = 1 / worst, L = this.limits();
     const cls = (v, lim) => lim == null ? '' : v >= lim ? 'ok' : v >= lim * 0.6 ? 'mid' : 'bad';
     const w = this.engine.terrain;
-    this.out.bench.innerHTML = `${w ? `View distance ${w.viewDistance * w.CHUNK}m · Density ${w.density}×` : ''}\nAvg FPS <b class="${cls(avg, L.fps)}">${avg.toFixed(1)}</b>\n1% low FPS <b class="${cls(low, L.low1)}">${low.toFixed(1)}</b>\nLongest frame ${(d[0] * 1000).toFixed(1)} ms\nChunks built: ${b.built}`;
+    this.out.bench.innerHTML = `${w ? `View distance ${w.viewChunks * w.CHUNK}m · Density ${w.density}×` : ''}\nAvg FPS <b class="${cls(avg, L.fps)}">${avg.toFixed(1)}</b>\n1% low FPS <b class="${cls(low, L.low1)}">${low.toFixed(1)}</b>\nLongest frame ${(d[0] * 1000).toFixed(1)} ms\nChunks built: ${b.built}`;
   }
 
   /** Budget limits (empty object if budget is off: numbers are not colored) @internal */

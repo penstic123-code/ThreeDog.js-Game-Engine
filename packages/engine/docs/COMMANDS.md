@@ -4,7 +4,7 @@ The scripts in `package.json` all forward to the CLI `threedog` (from `@threedog
 
 ## Running one game only
 After `-w` write the directory or the package name (inside a game directory a plain `npm run ...` does the same):
-- Dev: `npm run dev -w games/my-game`, or from the root `npm run dev -- my` (part of the name is enough); no name means the engine example. To change the port (default 5173; if taken it moves to the next one): `npm run dev -- my --port 5000` (the game name must come first, the remaining arguments go to vite untouched; don't add another `--`).
+- Dev: `npm run dev -w games/my-game`, or from the root `npm run dev -- my-game` (part of the name is enough); no name means the engine example. To change the port (default 5173; if taken it moves to the next one): `npm run dev -- my-game --port 5000` (the game name must come first, the remaining arguments go to vite untouched; don't add another `--`).
 - Test: `npm test -w games/my-game`, or `npm test -- -w my-game`; `npm test` at the root tests every workspace (engine + each game).
 - Build: `npm run build -w games/my-game`; `npm run build` at the root builds all (every *.html in a workspace root is bundled, no change to vite.config.js needed).
 - Screenshot / bake / compress models: `npm run shot -- -w my-game / --describe-only`, `npm run bake -- -w my-game`, `npm run assets -- -w my-game`.
@@ -36,7 +36,7 @@ export const specs = [{
 | `npm test` | Full browser tests (slow). Normally `npm test -- name` runs only the related ones (matched by test-name substring, e.g. `-- HLOD`), `-- -w game` tests one game. `-- --update-snapshots` makes tests that use `expectDescribe` write their describe baselines (`tests/snapshots/*.describe.json`) instead of comparing. `npm test -- pack` (the build test): after a real build of each game, open only dist from a static server and check that the engine is ready, no 4xx resources, no console errors |
 | `npx threedog snap-describe save|diff name [--only a,b]` | Describe snapshot instead of a screenshot: baseline of the gameplay part of `describe()` (see recipes/16-dev-bridge.md section 7); in tests one line `expectDescribe({ check, ev }, name, { only, tolerance })` from `@threedog/tools/describe-snapshot` |
 | `npm run map` | Regenerate CODEMAP, API.md + api/, each game's GAMEMAP and the event-name list (generated from `EventMap` in core.d.ts; add a new event to EventMap first) after changing code, JSDoc or content (run it before `check`) |
-| `npm run shot -- / --time 18:30 --weather rain --pos x,z` | Only when you need to see the picture; by default 1 image of 960x540 into the workspace's .threedog/shots/; **read the state as text first with `--describe-only`**. `/city.html` switches the page, `-w game` switches the game, `--wait seconds` advances time |
+| `npm run shot -- / --time 18:30 --weather rain --pos x,z` | Only when you need to see the picture; by default 1 image of 960x540 into the workspace's .threedog/shots/; **read the state as text first with `--describe-only`**. `/<page>.html` switches the page, `-w game` switches the game, `--wait seconds` advances time |
 | `npm run bake` | Before release, or to take code-generated models into Blender: exports public/models/baked/*.glb (`-- -w game`) |
 | `npm run assets` | Compress glTF from art/models/ into public/models/ (names such as col_ and spawn are kept; `-- -w game`) |
 | `npm run perf` | Performance comparison (plain three.js vs engine vs per-module cost in openWorld); compare with `PERF.md` |
@@ -52,12 +52,12 @@ export const specs = [{
 - To operate a running game use the dev bridge, see `recipes/16-dev-bridge.md`.
 
 ## Folder guide (inside packages/engine)
-- `core/` core: Engine (main loop, ground, step/describe), Events Input Saves Assets Audio I18n Clock Vars Jobs Stream Raycast Budget UrlState Animator.
+- `core/` core: Engine (main loop, ground, step/describe), Events Input Saves Assets Audio I18n Clock Vars Jobs Stream Rays Budget UrlState Animator.
 - `modules/` modules, one folder each, installed with `engine.use`; list in `CODEMAP.md`.
 - `render/ ui/` material factory, post-processing; UI basics (windows, UI focus stack, toast, fadeScreen, worldToScreen).
 - `index.js index.d.ts types/` entry and API declarations (`types/generated/` is generated from source JSDoc, never edited by hand).
-- `styles/lowpoly/` the lowpoly style pack: `index.js` holds all look parameters, `models.js` the procedural models.
-- `examples/world/ city/` engine examples (the engine tests use them): open world `/` · small city `/city.html` (level, no terrain, no style pack, top-down).
+- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly style pack: `index.js` holds all look parameters, `models.js` the procedural models, `terrain.js` the terrain preset.
+- `examples/world/` is the engine example (open world `/`, content-only placement). The small city (level, no terrain, no style pack, top-down) and the co-op page are test pages in the engine repository (`tests/city/`, `tests/coop/`), opened at `/tests/city/index.html` and `/tests/coop/index.html`.
 - `tests/` specs.mjs + specs/ test list, `<name>/index.html` test pages, fixtures/ test assets. `public/` art for the examples.
 - Each game `games/<game>/`: package.json, vite.config.js (one line, gameConfig), index.html, main.js, `content/` (items npcs dialogues quests pickups containers props triggers actions places level vegetation rules; only these file names are read), `public/` (art; Blender source files go in `art/models/`), DESIGN.md, GAMEMAP.md (generated), CLAUDE.md.
 - Each workspace has its own `.threedog/` (browser error log errors.log, screenshots shots/, generated cache) and `dist/`; neither is committed.

@@ -1,6 +1,6 @@
 # Scene transitions and pause (flow)
 
-Needs the module `flow()` (not in openWorld; add it yourself: `engine.use(openWorld({...}), flow())`).
+Needs the module `flow()` (not in openWorld; add it yourself: `engine.use(openWorld({ camera: 'follow', ...}), flow())`).
 - **Flow states**: title, playing (built-in `playing`), paused (built-in `paused`: freezes gameplay + locks input), ending, ... Only one is active at a time.
 - **Scene transition** `transition(fn)`: lock input -> fade to black -> fade music out -> (with `{ autosave: 'auto' }` save slot 'auto'; off by default) -> run fn -> wait until every module is ready -> fade in -> unlock. Repeated calls queue up automatically.
 
@@ -8,7 +8,7 @@ Needs the module `flow()` (not in openWorld; add it yourself: `engine.use(openWo
 ```js
 import { flow, toast } from 'threedog';
 const titleEl = document.getElementById('title'), startBtn = document.getElementById('start');   // elements you wrote in the page html
-engine.use(flow({ start: 'title' }));            // start in the title state (entered after world:ready)
+engine.use(flow({ start: 'title' }));            // start in the title state (entered after engine:ready)
 
 engine.flow.define('title', {
   freeze: true, lockInput: true, music: 'title',   // music: the track to play on entry (music module), null = stop
@@ -46,7 +46,7 @@ await engine.flow.transition(async () => {
   engine.cameraRig.follow(engine.player.root);               // the camera jumps straight there instead of flying from far away
 }, { fade: 0.6, autosave: 'auto' });                         // also save slot 'auto' before switching
 
-// Teleport within the same map (the city example's teleport pad): no save, music keeps playing
+// Teleport within the same map (the city test page's teleport pad): no save, music keeps playing
 engine.flow.transition(() => engine.player.placeAt([40, 0, -20]), { music: 'keep' });
 ```
 When the level changes, the old level's things are cleared automatically: trigger zones built by `triggers.fromMarkers`, and pickups / trigger zones / props in content whose position uses a level marker.
@@ -86,7 +86,7 @@ await engine.session.load('slot1');      // continue (title "Continue", settings
 await engine.session.quit();             // back to the title (settings "Back to title"); the title's Start calls newGame
 engine.session.track(engine.events.once('npc:talk', onTalk));   // anything the game adds during play: removed when the playthrough ends
 ```
-Ending a playthrough skips a running cutscene, removes tracked handles, drops clock timers added after start(), drops background results not yet applied (commits), stops the music, applies the start state and snaps the camera to the player. flow goes back to its start state, then to `'playing'`. Events: `session:end`, `session:start { kind: 'new' | 'load', slot? }` (play an intro per new game there, not on `world:ready`).
+Ending a playthrough skips a running cutscene, removes tracked handles, drops clock timers added after start(), drops background results not yet applied (commits), stops the music, applies the start state and snaps the camera to the player. flow goes back to its start state, then to `'playing'`. Events: `session:end`, `session:start { kind: 'new' | 'load', slot? }` (play an intro per new game there, not on `engine:ready`).
 - `saves.load(slot)` is a quick load onto the running playthrough (keeps what the game added); `session.load(slot)` ends the playthrough first and refuses an unreadable save without touching the game. Deleting a save is `saves.remove(slot)`.
 - Listeners and hooks registered at boot stay (they are the game); register play-time ones with `session.track`.
 

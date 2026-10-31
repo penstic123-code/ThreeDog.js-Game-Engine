@@ -3,6 +3,7 @@
  * Grid placement module: installed as engine.grids. Needs world(). Adds the ops grid.place / grid.remove / grid.move and the save key 'grids' (layers).
  * @example engine.use(world(), grids())
  * @returns {import('../../../core').ModuleDef<Grids>}
+ * @experimental
  */
 export function grids(): import("../../../core").ModuleDef<Grids>;
 /**
@@ -11,6 +12,7 @@ export function grids(): import("../../../core").ModuleDef<Grids>;
  * const farm = engine.grids.add('farm', { cell: 1, origin: [0, 0], size: [16, 12] });
  * engine.grids.define('bed', { size: [2, 1], kind: 'furniture', fields: { model: 'bed' } });
  * engine.ops.run('grid.place', { grid: 'farm', item: 'bed', cell: [4, 4], rotation: 1 });
+ * @experimental
  */
 export class Grids {
     /**
@@ -29,14 +31,13 @@ export class Grids {
         flat?: number;
     }): Grid;
     /**
-     * A grid by name (throws with the names that exist; must = false returns undefined instead)
+     * A grid by name, or null when there is none
      * @param {string} name
-     * @param {boolean} [must]
-     * @returns {Grid}
+     * @returns {Grid | null}
      */
-    get(name: string, must?: boolean): Grid;
-    /** All grids @returns {Grid[]} */
-    get list(): Grid[];
+    get(name: string): Grid | null;
+    /** All grids (a new array) @returns {Grid[]} */
+    list(): Grid[];
     /**
      * Register what can be placed and its rules. size [w, d] in cells (default [1, 1]); kind of the world record (default the item name);
      * ground: allowed engine.groundType values; layer: { layerName: field } that must be truthy on every cell (reason 'not' + Field, e.g. notTilled);
@@ -50,7 +51,7 @@ export class Grids {
     define(name: string, rule: import("./Grid.js").GridRule): void;
     /**
      * Show where an item would go: the target cell under the pointer ('pointer', default), in front of the player ('front') or from your
-     * function, turned by the input action rotate (default 'rotate', R), green when can() passes, red otherwise (style.grid.ok / bad).
+     * function, turned by the input action rotate (default 'rotate', R), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
      * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
      * @example const pv = engine.grids.preview({ grid: 'farm', item: 'crop' });
      *   engine.onFrame(() => { if (engine.input.pointer.clicked) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); } });

@@ -8,7 +8,7 @@ const reload = async page => { await page.reload(); await page.waitForFunction((
 export const specs = [
   {
     name: 'S1 saves: a save over 5MB does not fail and reads back identically; it is not put in localStorage (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const big = 'abcdefghij'.repeat(700000);   // 7MB of text, too big for localStorage (about 5MB)
@@ -84,7 +84,7 @@ export const specs = [
   },
   {
     name: 'S1 saves: a write failure shows a notice (toast + console), save returns false, a slot never written is not offered (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     expectErrors: /\[saves\]/,
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -100,7 +100,7 @@ export const specs = [
   },
   {
     name: 'S1 saves: falls back to localStorage when IndexedDB is unavailable (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ page, check, ev }) {
       await page.addInitScript(() => Object.defineProperty(window, 'indexedDB', { get: () => undefined }));
       await reload(page);
@@ -116,12 +116,12 @@ export const specs = [
     },
   },
   {
-    name: 'S1 saves: the load of a part throws -> load returns false, no load event, goes through reportError, the parts are rolled back; an import whose disk write failed is not reported as success; an import without savedAt records 0 (city)',
-    url: '/city.html',
+    name: 'S1 saves: the load of a part throws -> load returns false, no save:loaded event, goes through reportError, the parts are rolled back; an import whose disk write failed is not reported as success; an import without savedAt records 0 (city)',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const S = engine.saves, loads = [], imported = [];
-        engine.events.on('load', s => loads.push(s)); engine.events.on('save:imported', s => imported.push(s));
+        engine.events.on('save:loaded', s => loads.push(s)); engine.events.on('save:imported', s => imported.push(s));
         S.register('s1bad', { save: () => ({ a: 1 }), load: () => { throw new Error('boom'); } });
         let good = null; S.register('s1good', { save: () => ({ b: 2 }), load: d => { good = d; } });
         await S.save('s1-bad');
@@ -140,7 +140,7 @@ export const specs = [
         console.error = origErr;
         return { ok, loads, good, errWhere, slot, imported, impOk, stamp: S.list().find(x => x.slot === 's1-nostamp')?.savedAt };
       });
-      check('provider.load throws: load returns false, no load event', r.ok === false && r.loads.length === 0, JSON.stringify(r));
+      check('provider.load throws: load returns false, no save:loaded event', r.ok === false && r.loads.length === 0, JSON.stringify(r));
       check('the error goes through reportError (engine.error records where it happened), the other parts hold their pre-load state', /s1bad/.test(r.errWhere || '') && r.good?.b === 2, JSON.stringify(r));
       check('importFile disk write failure: returns null, no save:imported for it', r.slot === null && !r.imported.includes('s1-imp'), JSON.stringify(r));
       check('import without savedAt: records 0, not NaN', r.impOk === true && r.stamp === 0, JSON.stringify(r));
@@ -148,7 +148,7 @@ export const specs = [
   },
   {
     name: 'S1 saves: per-part versions: old part upgraded through migrate, a newer part refuses the whole load with a clear message, bad register throws (city)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const S = engine.saves; let got = null, other = null;

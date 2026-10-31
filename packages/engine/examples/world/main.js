@@ -1,23 +1,27 @@
 // Open-world example (slow photography life): riverside cabin + an old fisherman who walks by the clock + pickups, quests, weather, photos, saves.
-// This file only holds: installing engine modules, computing place coordinates, handing content/ to the engine, and game-specific logic. Items/NPCs/dialogues/quests/vegetation/props live in content/.
-import { createEngine, openWorld, content, interactions, dialogue, inventory, quests, photo, timeline, triggers, entities, particles, music, hud, createTerrain, THREE, mergeColored, makeMaterial, toast } from '../../index.js';
-import lowpoly from '../../styles/lowpoly/index.js';   // style pack: all the art is here
+// This file only holds rules: installing engine modules, computing place coordinates, handing content/ to the engine, ops and presentation.
+// The level is content: the cabin, props, physics props, items, NPCs, dialogues, quests and vegetation all live in content/ (rule R33).
+import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, quests, photo, timeline, triggers, entities, particles, music, hud, createTerrain, toast } from '../../index.js';
+import lowpoly, { terrainPreset, riverAt, terrainStrings } from '@threedog/style-lowpoly';   // optional style pack: all the art is here, plus a terrain generator
 import data from './content/index.js';
+import { cabin, BODIES } from './models.js';
+import audio from './audio.js';   // this game's sounds
 
 // ---------- 0. Pick a flat spot as home ----------
 // Preview the terrain with the same seed, find a good spot, then tell the engine to flatten it
 const SEED = 1337;
-const preview = createTerrain({ seed: SEED });
+const preview = createTerrain({ seed: SEED, ...terrainPreset() });
 let home = { x: 0, z: 0 };
 for (let r = 0; r < 3000; r += 10) {
   const a = r * 0.37, x = Math.cos(a) * r, z = Math.sin(a) * r, h = preview.surface(x, z);
-  if (h > 4 && h < 10 && preview.slope(x, z) < 0.2 && preview.riverFactor(x, z) === 0) { home = { x, z }; break; }
+  if (h > 4 && h < 10 && preview.slope(x, z) < 0.2 && riverAt(x, z, preview.noise) === 0) { home = { x, z }; break; }
 }
 
 // core + style pack + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, ui: { loading: { title: '慢慢走' } } });
-engine.use(openWorld({ seed: SEED, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true }),
-  interactions(), dialogue(), inventory(), quests(), photo(), timeline(), triggers(), entities(), particles(), music(), hud(),   // gameplay modules: not in the preset, this game uses them all
+const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, audio, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
+// opt-in presets: four seasons and temperate weather (the engine assumes neither)
+engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, sky: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
+  interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests(), photo(), timeline(), triggers(), entities(), particles(), music(), hud(),   // gameplay modules: not in the preset, this game uses them all
   content());
 
 // ---------- 1. Places: nearest riverside to the cabin (fisherman goes there in the morning, barrel floats there) ----------
@@ -29,39 +33,26 @@ search: for (let r = 10; r < 400; r += 4) {
   }
 }
 
-// ---------- 2. Cabin: procedural low-poly house with collision and a smoking chimney ----------
-function makeHouse() {
-  const g = mergeColored([
-    [new THREE.BoxGeometry(6, 3, 5).translate(0, 1.5, 0), 0xe8dcc4],
-    [new THREE.ConeGeometry(4.8, 2.6, 4).rotateY(Math.PI / 4).scale(1.05, 1, 0.9).translate(0, 4.3, 0), 0xa4553c],
-    [new THREE.BoxGeometry(1.1, 2, 0.12).translate(0, 1, 2.52), 0x6b4a32],
-    [new THREE.BoxGeometry(1, 0.9, 0.1).translate(-1.8, 1.7, 2.52), 0x9cc6d6],
-    [new THREE.BoxGeometry(0.6, 1.6, 0.6).translate(1.8, 5, -0.8), 0x7d736a],
-  ]);
-  const m = new THREE.Mesh(g, makeMaterial('building', { vertexColors: true }));
-  m.castShadow = true; m.receiveShadow = true;
-  return m;
-}
-const house = makeHouse();
-house.position.set(home.x, engine.surface(home.x, home.z) - 0.05, home.z);
-engine.add(house);
-const chimney = new THREE.Object3D(); chimney.position.set(1.8, 6, -0.8); house.add(chimney);
-engine.particles.attach('smoke', chimney);
-engine.collision.addBox(home, { halfWidth: 3.1, halfDepth: 2.6 });
+// ---------- 2. Cabin: placed by content/props.js (template 'cabin'); its model is built in code and registered by name ----------
+engine.assets.manifest({ models: { cabin } });
+// Presentation that follows the clock: chimney smoke while the cabin's model is built, doorway lamp on 18:00-06:00
+// (sky.between re-aligns after start, load, applying a scenario, or rewinding time)
+let lampOn = false, smoke = null, smokeOn = null;
+engine.sky.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
+engine.onFrame(() => {
+  const view = engine.world.view('cabin');
+  if (smokeOn !== view) { smoke?.remove(); smoke = view && engine.particles.attach('smoke', view.getObjectByName('chimney')); smokeOn = view; }
+  const lamp = /** @type {import('three').Mesh<any, import('three').MeshLambertMaterial> | undefined} */ (view?.getObjectByName('lamp'));
+  if (lamp) lamp.material.emissiveIntensity = lampOn ? 1.6 : 0;
+});
 
-// Doorway lamp: on 18:00-06:00 (time-range switch: re-aligns automatically after start, load, applying a scenario, or rewinding time)
-// makeMaterial is typed as the base Material (the style picks the class); this one is lit, so it has emissiveIntensity
-const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 0.3), /** @type {THREE.MeshLambertMaterial} */ (makeMaterial('lamp', { color: 0x6b5a40, emissive: 0xffc070, emissiveIntensity: 0 })));
-lamp.position.set(0.9, 2.3, 2.7); house.add(lamp);
-engine.sky.between('18:00', '06:00', { on: () => { lamp.material.emissiveIntensity = 1.6; }, off: () => { lamp.material.emissiveIntensity = 0; } });
-
-// ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, props, custom conditions) ----------
-engine.characters.createPlayer({ spawn: { x: home.x + 4, z: home.z + 7 } });
-engine.content.load(data, { places: { home, river } });   // models default to the style pack's lowpoly.models
+// ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, templates, props, physics props, custom conditions) ----------
+engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: home.x + 4, z: home.z + 7 } });
+engine.content.load(data, { places: { home, river, water: waterSpot } });   // models default to the style pack's lowpoly.models
 
 // Show the film count at the top left (hud counter)
 const showFilm = () => engine.hud.counter('film', { icon: '🎞', label: '胶卷', value: engine.inventory.count('film') });
-for (const ev of ['item:add', 'item:remove', 'load']) engine.events.on(ev, showFilm);
+for (const ev of ['item:add', 'item:remove', 'save:loaded']) engine.events.on(ev, showFilm);
 showFilm();
 
 // Barter: the fisher's basket (content/containers.js) sells goods for film. An op, so the dialogue choice, the dev bridge and scenario tests share one rule
@@ -104,28 +95,26 @@ document.getElementById('viewerClose').onclick = () => { document.getElementById
 // ---------- 5. Save / load (keys in content/actions.js) ----------
 engine.onFrame(() => {
   if (engine.input.pressed('save')) { engine.saves.save('slot1').then(ok => { if (ok) toast(engine, '已存档'); }); }   // on false the engine already said why
-  if (engine.input.pressed('load')) { if (engine.saves.load('slot1')) toast(engine, '已读档'); else toast(engine, '还没有存档'); }
+  if (engine.input.pressed('load')) engine.saves.load('slot1').then(ok => toast(engine, ok ? '已读档' : '还没有存档'));
 });
 engine.saves.autosave(3);
 
-// ---------- 6. Real physics: crate, ball, and a barrel floating by the river; press F to push/kick ----------
-engine.events.on('world:ready', () => {
-  if (!engine.rigid) return;
-  const crateGeo = mergeColored([[new THREE.BoxGeometry(0.8, 0.8, 0.8), 0xb08850]]);
-  const crateMat = makeMaterial('prop', { vertexColors: true });
-  for (let i = 0; i < 6; i++) {
-    const m = new THREE.Mesh(crateGeo, crateMat);
-    const x = home.x + 5 + (i % 3) * 0.85, z = home.z - 1 + Math.floor(i / 3) * 0.9;
-    m.position.set(x, engine.surface(x, z) + 0.45, z);
-    m.castShadow = m.receiveShadow = true;   // rigid bodies do not change the model's shadow settings
-    engine.rigid.addBox(m, { mass: 4 });
-  }
-  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 1), makeMaterial('prop', { color: 0xe8c25a, flatShading: true }));
-  ball.position.set(home.x + 2, engine.surface(home.x + 2, home.z + 9) + 1, home.z + 9); ball.castShadow = true;
-  engine.rigid.addBall(ball, { radius: 0.35, mass: 1, restitution: 0.55, angularDamping: 0.3 });
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.9, 8), makeMaterial('prop', { color: 0x8a5a36, flatShading: true }));
-  barrel.position.set(waterSpot.x, Math.max(engine.waterLevel, engine.surface(waterSpot.x, waterSpot.z)) + 1.5, waterSpot.z); barrel.castShadow = true;
-  engine.rigid.addHull(barrel, { mass: 3 });
+// ---------- 6. Real physics: crates, a ball and a barrel floating by the river (placed in content/bodies.js); press F to push/kick ----------
+// The records come from content; this presenter gives each one a mesh and a rigid body while it is near. positionFrom 'view': the body moves
+// the mesh and the record follows, so a pushed crate's position is saved. Physics is ready at engine:ready, so the presenter is registered then.
+engine.events.on('engine:ready', () => {
+  if (!engine.rigid?.ready) return;
+  engine.world.present('body', {
+    positionFrom: 'view',
+    build(rec) {
+      const [mesh, add, opts] = BODIES[rec.shape]();
+      mesh.position.copy(rec.position);
+      mesh.castShadow = mesh.receiveShadow = true;   // rigid bodies do not change the model's shadow settings
+      mesh.userData.body = engine.rigid[add](mesh, opts);
+      return mesh;
+    },
+    dispose(rec, mesh) { if (engine.rigid.world) mesh.userData.body?.remove(); engine.remove(mesh); },   // after engine.dispose the physics world is already gone
+  });
 });
 engine.onFrame(() => {
   if (!engine.rigid?.ready || !engine.input.pressed('kick')) return;
@@ -165,7 +154,7 @@ engine.events.on('character:land', ({ character, impact }) => {
 });
 
 // ---------- 8. Intro camera (circles the cabin, Esc skips) ----------
-engine.events.on('world:ready', () => {
+engine.events.on('engine:ready', () => {
   const h = engine.surface(home.x, home.z);
   engine.timeline.play([
     { camera: { to: { position: [home.x + 30, h + 18, home.z + 30], lookAt: [home.x, h + 2, home.z] }, duration: 0.01 } },

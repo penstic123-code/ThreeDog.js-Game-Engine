@@ -1,5 +1,5 @@
 // Post-processing as an ordered list of named effects in four slots. The engine owns no look of its own here: bloom, AO and
-// outline are effects a style pack registers (see styles/lowpoly/post.js); games add theirs with engine.post.add().
+// outline are effects a style pack registers (see post.js in @threedog/style-lowpoly); games add theirs with engine.post.add().
 // An effect promises only a name, params and on/off; how it draws is its create() (a three.js Pass under WebGLRenderer),
 // so a WebGPU backend can later bring its own implementation without changing callers.
 //
@@ -92,6 +92,7 @@ export class PostFX {
    * @param {PostEffect} effect
    * @param {{ slot?: PostSlot, order?: number, enabled?: boolean }} [opts]
    * @returns {PostHandle}
+   * @experimental
    */
   add(effect, { slot, order, enabled } = {}) {
     if (!effect || typeof effect.name !== 'string' || typeof effect.create !== 'function')
@@ -125,6 +126,7 @@ export class PostFX {
    * Handle of an added effect, or undefined: engine.post.get('bloom')?.set({ strength: 0.6 })
    * @param {string} name
    * @returns {PostHandle | undefined}
+   * @experimental
    */
   get(name) { return this._list.find(e => e.name === name); }
   /**
@@ -134,6 +136,7 @@ export class PostFX {
    * @param {string} name
    * @param {boolean} on
    * @returns {boolean}
+   * @experimental
    */
   enable(name, on) {
     if (name === 'antialias') {
@@ -150,6 +153,7 @@ export class PostFX {
   /**
    * Effects in render order: [{ name, slot, order, enabled }]
    * @returns {{ name: string, slot: PostSlot, order: number, enabled: boolean }[]}
+   * @experimental
    */
   list() { return this._sorted().map(({ name, slot, order, enabled }) => ({ name, slot, order, enabled })); }
 

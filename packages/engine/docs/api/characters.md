@@ -5,12 +5,12 @@ Characters: createPlayer() (characters() module)
 - Options `CharactersOptions`:
   - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
   - `brakeKeys?: string[]` Brake key when driving (action brake, registered when rigid is installed), default ['KeyB'] (so it doesn't fight with Space for jump)
-  - `brakePadKeys?: string[]` Gamepad button for braking, default ['PadLT']
+  - `brakePad?: string[]` Gamepad button for braking, default ['PadLT']
 
 ## Methods and properties
 - `characters.findSpawn(position?: PositionLike, opts?: FindSpawnOptions) → Vector3` — Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
-- `characters.createPlayer(opts?: PlayerOptions) → Character` — Create a keyboard/joystick-controlled player (the camera follows automatically when a camera module is installed) and set engine.player. An existing player is deleted first
-- `characters.moveInput() → { x, z, run, speed? }` — The default player control as a value: keys / stick relative to the camera, run key, input.autopilot. Reused object; call it inside your own control function to wrap the default
+- `characters.createPlayer(opts: PlayerOptions) → Character` — Create the player and set engine.player; control is required (no default feel), e.g. createPlayer({ ...presets.player.thirdPerson, spawn }). An existing player is deleted first
+- `characters.moveInput() → { x, z, run, speed? }` — The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it inside your own control function to wrap it
 - `characters.removePlayer()` — Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first
 - `characters.findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }) → PathResult` — Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable
 - `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { cancel(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
@@ -30,7 +30,6 @@ Characters: createPlayer() (characters() module)
 - `player.move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number)` — Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1), run to run, dt in seconds
 - `player.groundType() → string` — Ground type underfoot ('water' while swimming)
 - `player.face(target: PositionLike | number)` — Turn at once to a position, or to an angle in radians (0 = +Z)
-- `player.animate(dt: number)` — Play animation every frame
 - `player.saveMotion(out?: CharacterMotion) → CharacterMotion` — Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
 - `player.loadMotion(m: CharacterMotion | null | undefined)` — Restore the motion state from the plain object of saveMotion
 - Properties:
@@ -47,6 +46,7 @@ Characters: createPlayer() (characters() module)
   - `faceMode: FaceMode` Facing mode, change at any time; see CharacterOptions.faceMode
   - `faceTarget: PositionLike | null` What faceMode 'target' faces
   - `control?: PlayerControl` Player only: who moves it each fixed step (see PlayerOptions.control)
+  - `cameraFollow?: boolean` Player only: whether the camera module follows it (see PlayerOptions.cameraFollow)
   - `onStep: ((groundType: string) => void) | null` Called when a foot lands (the argument is the ground type underfoot)
   - `onLand: ((impact: number) => void) | null` Called on landing (the argument is the landing speed)
   - `mover: { name, controller?, body?, collider?, move, dispose? }` Movement method; name is 'simple' / 'rapier', controller is the native Rapier character controller (when rapier)
@@ -99,8 +99,10 @@ Characters: createPlayer() (characters() module)
   - `z: number`
 - **PlayerOptions** (extends CharacterOptions) Parameters of createPlayer()
   - `spawn?: PositionLike` Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted
-  - `jumpKeys?: string[]` Jump keys, default ['Space']
-  - `control?: PlayerControl` Who moves the player: true (default keys relative to the camera) / false (call player.move() yourself in onFixed) / (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control
+  - `jumpKeys?: string[]` Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space']
+  - `runKeys?: string[]` Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift
+  - `control: PlayerControl` Required, no default: 'camera' (keys relative to the camera) / 'none' (call player.move() yourself in onFixed) / (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control. presets.player.* fill it
+  - `cameraFollow?: boolean` true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev
 - **CharacterOptions** Character parameters (shared by the player and NPCs)
   - `colors?: { body?, skin?, legs?, hair? }` Colors (default from the style pack's style.character.colors)
   - `speed?: number` Walking speed (m/s), default 4.5
@@ -130,11 +132,11 @@ Characters: createPlayer() (characters() module)
   - `waterMargin?: number`
 
 ## engine.npcs (installed together with characters())
+- `npcs.list() → NPC[]` — All NPCs (including far ones and ones in other levels)
 - `npcs.add(opts: NPCOptions) → NPC` — Add an NPC, returns a handle
 - `npcs.remove(npc: NPC | string) → boolean` — Delete an NPC (pass a handle, id or name): the data is deleted, and the model and dialogue interaction are torn down together. Returns false if not found
 - `npcs.behavior(name: string, impl: { near?, far? })` — Register an NPC behavior: near(rec, dt, npc) once per fixed step when nearby, far(rec, dt) simulated from the data when far (dt is accumulated seconds); selected through behavior in the data
 - `npcs.get(idOrName: string) → NPC | undefined` — Find by id or name (id first)
 - `npcs.character(id: string) → Character | null` — The current character model of an NPC, null if none
 - Properties:
-  - `list: NPC[]` All NPCs (including far ones and ones in other levels)
   - `avoid: { on, radius, strength, set, push }` Nearby NPCs avoid each other (on by default): pushed apart to no less than the sum of their radii, the player counts as an obstacle (NPCs yield to the player), then constrained back to walkable places by engine.collision; deterministic and cheap, with identical results after loading. With nav({ crowd: true }) crowd takes over. Example: `engine.npcs.avoid.set({ radius: 0.6, strength: 2 });   // set(false) turns it off`

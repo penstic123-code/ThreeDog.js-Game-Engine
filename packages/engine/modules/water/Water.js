@@ -56,7 +56,7 @@ export class Water {
     for (const b of engine.waterBodies) this._addBody(b);
     engine.events.on('water:add', b => this._addBody(b));
     // material is shared by all bodies, so not engine.remove (which would dispose it); its ray registration goes too
-    engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.raycaster.forget(m); m.geometry.dispose(); this.bodies.delete(b); } });
+    engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.rays.forget(m); m.geometry.dispose(); this.bodies.delete(b); } });
   }
 
   /** @internal */
@@ -120,6 +120,7 @@ export class Water {
    * @param {Vector3} focus
    * @param {number} dt
    * @returns {void}
+   * @internal
    */
   update(focus, dt) {
     if (!this._seaChecked) this._makeSea();

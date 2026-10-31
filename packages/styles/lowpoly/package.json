@@ -1,0 +1,30 @@
+{
+  "name": "@threedog/style-lowpoly",
+  "version": "0.1.0",
+  "description": "Optional low-poly style pack for threedog: colors, procedural models, sky, materials, post effects, plus terrain presets",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git",
+    "directory": "packages/styles/lowpoly"
+  },
+  "homepage": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine#readme",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.js",
+    "*.d.ts"
+  ],
+  "peerDependencies": {
+    "threedog": "^0.1.0",
+    "three": "^0.187.0"
+  }
+}

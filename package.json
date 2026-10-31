@@ -10,6 +10,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
+    "packages/styles/*",
     "games/*"
   ],
   "scripts": {
@@ -27,6 +28,7 @@
     "doctor": "threedog doctor"
   },
   "devDependencies": {
-    "@gltf-transform/cli": "^4.5.1"
+    "@gltf-transform/cli": "^4.5.1",
+    "three": "^0.187.0"
   }
 }

@@ -5,7 +5,7 @@
 //   they become instances of one InstancedMesh; below that they stay plain meshes. A batch dissolves when it drops under half of minCount.
 //   The placed object stays in the scene as it was (its userData, record, colliders, interactions are untouched): only its meshes are hidden and marked
 //   moved to layer 31 (BATCH_LAYER: not drawn, not in shadows; visible stays the game's). engine.raycast / pick / photo still hit the original and
-//   return it, never an instance index (engine.raycaster tests layer 31 too). Your own THREE.Raycaster: batching.item(hit.object, hit.instanceId).
+//   return it, never an instance index (engine.rays tests layer 31 too). Your own THREE.Raycaster: batching.item(hit.object, hit.instanceId).
 //   Moving / hiding / removing the object updates its instance next frame (checked each frame on the object's own transform); recolor with tint().
 //   Never batched: skinned / instanced / morphing meshes, objects with animations, multi-material, transparent, ShaderMaterial, custom renderOrder /
 //   layers / onBeforeRender, meshes with children, anything hlod registered (userData.hlod), and anything marked userData.batch = false (itself or a parent).

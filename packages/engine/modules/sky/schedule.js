@@ -17,7 +17,7 @@ export class Schedule {
     this.points = [];       // at / daily：{ clock, fn, days, catchUp }
     this.ranges = [];       // between：{ from, to, on, off, inside }
     this.last = null;       // last sky.totalDays (null = reset baseline next step)
-    for (const name of ['world:ready', 'load', 'state:applied']) sky.engine.events.on(name, () => this.syncRanges());
+    for (const name of ['engine:ready', 'save:loaded', 'state:applied']) sky.engine.events.on(name, () => this.syncRanges());
   }
   get size() { return this.points.length + this.ranges.length; }
   dispose() { this.points = []; this.ranges = []; }

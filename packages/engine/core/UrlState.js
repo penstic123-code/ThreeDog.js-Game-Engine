@@ -5,7 +5,7 @@
 // the rest go to the module hook applyState(e, params) (written like the describe hook): sky -> time, weather -> weather, timeline -> cutscene.
 // Two phases, both called from start():
 //   early(): before modules are ready, applies save, pos, time, weather (terrain is generated directly at the new position)
-//   late(): after world:ready, cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
+//   late(): after engine:ready, cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
 // In a game, await engine.applyState({...}) at any time runs both phases back to back.
 import { checkOptions, warnMissing } from './validate.js';
 import { xzOf } from './math.js';
@@ -58,7 +58,7 @@ export class UrlState {
   }
   async _late(p) {
     const e = this.engine;
-    await Promise.all(this._hooks(p, ['cutscene', 'weather']));   // set weather once more: the opening auto-weather or settings in world:ready may have changed it
+    await Promise.all(this._hooks(p, ['cutscene', 'weather']));   // set weather once more: the opening auto-weather or settings in engine:ready may have changed it
     if (p.wait > 0) for (let s = p.wait; s > 1e-6; s -= 0.5) {   // advance in small slices so Promises (the next cutscene segment) and background threads continue between them
       e.step(Math.min(0.5, s), { render: false, describe: false });
       await new Promise(r => setTimeout(r, 0));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
@@ -73,7 +73,7 @@ export class UrlState {
     const p = this._expand(params);
     this.applied = false;
     // setting up a scenario is not a gameplay action: the ops guard lets its writes through until it finishes
-    return this.engine.ops._allowing(async () => { await this._early(p); await this._settle(); await this._late(p); });
+    return this.engine.ops.allow(async () => { await this._early(p); await this._settle(); await this._late(p); });
   }
   /** In start(), before modules are ready: read the URL parameters and apply save/pos/time/weather */
   early() {
@@ -84,10 +84,10 @@ export class UrlState {
     this.pending = this._expand(raw);
     return this._early(this.pending);
   }
-  /** In start(), after world:ready: cutscene, wait, align time again, then emit state:applied */
+  /** In start(), after engine:ready: cutscene, wait, align time again, then emit state:applied */
   late() {
     if (!this.pending) { this.applied = true; return; }
     const p = this.pending;
-    return this.engine.ops._allowing(async () => { await this._settle(); await this._late(p); });
+    return this.engine.ops.allow(async () => { await this._settle(); await this._late(p); });
   }
 }

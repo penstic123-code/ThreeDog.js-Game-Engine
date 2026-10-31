@@ -55,7 +55,8 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `triggers.js` trigger zones (tag -> position / from level, enter/exit effects)
   - `level.js` level markers (spawn point, NPCs, trigger zones)
   - `vegetation.js` vegetation (name -> model, growth rule)
-  - `props.js` props (list: model, position, facing, collision; or { template, x, z } = an instance of a template), streamed in on demand
-  - `templates.js` reusable objects (name -> model, collide, interact, container, sound, animate, state defaults); shared read-only definitions
+  - `props.js` props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand
+  - `templates.js` reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions
+  - `grids.js` placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved
   - `rules.js` condition words added by the game ({ conditions }); actions are ops, not effect words
   - any other `<name>.js` the game registers in content/rules.js as kinds: { name: { desc, load(e, data), check?, map? } } (enemies, recipes, loot tables…)

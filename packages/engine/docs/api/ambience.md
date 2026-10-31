@@ -3,17 +3,13 @@
 Ambience (ambience() module)
 
 - Options `AmbienceOptions`:
-  - `wind?: string | string[] | false`
-  - `rain?: string | string[] | false`
-  - `water?: string | string[] | false`
-  - `birds?: string | string[] | false` Bird calls by day: 'synth' or recordings; default off (the lowpoly style pack turns them on)
-  - `crickets?: string | string[] | false` Insects at night: 'synth' or recordings; default off (the lowpoly style pack turns them on)
-  - `day?: string | false`
-  - `night?: string | false`
-  - `synth?: Record<string, any>`
+  - `rules?: import('./core').AmbienceRule[]`
+  - `interval?: number`
 
 ## Methods and properties
-- `ambience.update(dt: number)` — Per-frame update: tunes each sound by weather, time and place (the module calls it every frame)
+- `ambience.add(rule: AmbienceRule) → { remove(): void }` — Add one rule; returns a handle whose remove() fades the sound out and drops the rule. Example: `const h = engine.ambience.add({ sound: 'storm-wind', when: { weather: 'storm' }, volume: 0.5 });`
+- `ambience.rules(list: AmbienceRule[] | null)` — Replace the whole rule table (null or [] = silence)
+- `ambience.nearWater(radius?: number) → number` — How much of the ground within `radius` meters of the listener is water (0-1), sampled at 6 points: for a water rule's volume. Example: `{ sound: 'river', volume: (e, a) => a.nearWater(12) * 0.12 }`
 - Properties:
-  - `cfg: Record<string, any>` Sound source config
-  - `p: Record<string, any>` Synth parameters
+  - `position: THREE.Vector3` Where the sounds are heard from: whoever the player controls (engine.actor), else the camera focus
+  - `info: { sound: string; on: boolean; volume: number }[]` What each rule is doing (debug, tests): sound name, whether its condition holds, its current target volume

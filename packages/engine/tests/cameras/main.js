@@ -1,5 +1,5 @@
 // Camera and timeline test page：?cam=follow|first|fixed|rts
-import { createEngine, world, sky, collision, characters, interactions, dialogue, debug, THREE } from '../../index.js';
+import { createEngine, presets, world, sky, collision, characters, interactions, dialogue, debug, THREE } from '../../index.js';
 import { followCamera } from '../../modules/camera/FollowCamera.js';
 import { firstPersonCamera } from '../../modules/camera/FirstPersonCamera.js';
 import { fixedCamera } from '../../modules/camera/FixedCamera.js';
@@ -22,7 +22,7 @@ const rigs = {
 };
 
 const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'camera test' } } });
-engine.use(world(), sky({ time: 0.45 }), collision(), rigs[cam](), characters({ npcs: false }), interactions(), dialogue(), timeline(), debug());
+engine.use(world(), sky({ time: 0.45 }), collision(), rigs[cam](), characters({ npcs: false }), interactions({ ...presets.interactions.nearest }), dialogue(), timeline(), debug());
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a9a96 }));
 ground.receiveShadow = true;
@@ -40,7 +40,7 @@ const fader = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshLambe
 fader.position.set(4, 1, -4);
 engine.add(fader);
 
-const player = engine.characters.createPlayer({ spawn: { x: 0, z: 0 } });
+const player = engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: 0, z: 0 } });
 
 // Cutscene used by the tests
 window.cutscene = (opts = {}) => engine.timeline.play([

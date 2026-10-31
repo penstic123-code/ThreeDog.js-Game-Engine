@@ -29,7 +29,7 @@ Import it in `content/index.js` and put it in the exported object (`containers`)
 Buying and selling are things the player decides to do, so they are ops (`recipes/23-ops.md`): define them once in `main.js`, and every caller (dialogue choice, a shop window button, the dev bridge, a test) runs the same `can` / `run`. **Buy** is allowed only when the shelf has stock and the player has the money; `transfer` returns how many actually moved, and money is charged only for those (a full inventory does not charge for nothing). **Consign**: the player puts something on the shelf, and the shelf pays when it accepts it.
 ```js
 // main.js (after engine.use(...inventory()...))
-const price = (e, item) => e.inventory.def(item).price ?? 1;
+const price = (e, item) => e.inventory.item(item).price ?? 1;
 engine.ops.define('shop.buy', {
   args: { shop: 'string', item: 'string' },
   can(e, { shop, item }, ctx) {
@@ -76,7 +76,7 @@ export default {
 };
 ```
 - The shelf id (`'shop-bakery'`) is any string, and the shelf contents are saved. A "shop window" is your own UI drawn from `shelf.list()`; its buttons call `engine.ops.run('shop.buy', { shop, item })` and grey out with `engine.ops.can(...)`.
-- Prices live on the item: `bread: { ..., price: 5 }`, read with `e.inventory.def('bread').price`.
+- Prices live on the item: `bread: { ..., price: 5 }`, read with `e.inventory.item('bread').price`.
 - Items with their own data (a used sword with `durability`, recipe 03): pass the entry key as `item` (`'sword#3'`, from `shelf.list()[i].key`); `transfer` moves exactly that piece with its data, and `e.inventory.container(shop).get(item)` reads the data for a price (`def.price * data.durability / 100`).
 - Show a failure reason to the player through your own i18n string (`e.t('shop.' + r.reason)`); the engine shows nothing itself.
 - `npx threedog ops` lists what can be bought right now if you add `offers` (see recipe 23); `npx threedog op shop.buy shop=shop-bakery item=bread` buys from the terminal.

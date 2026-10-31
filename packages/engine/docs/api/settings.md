@@ -25,7 +25,6 @@ Settings menu (settings() module)
   - `values: Record<string, any>` All current setting values
   - `presets: Record<string, QualityPreset>` Graphics presets
   - `sections: Map<string, any>` Tabs
-  - `ui: SettingsUI` Control generator helpers
   - `isOpen: boolean` Whether the menu is open
 
 ## Data structures

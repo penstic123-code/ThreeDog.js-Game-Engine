@@ -61,13 +61,19 @@ export const startupMethods = {
     this._alive('applying scenario parameters');
     ls?.update({ progress: 0.5, text: this.t('common.generating', { name: this.t('common.world') }) });
     await this._waitReady(timing, tr, ms, v => { streamMs = v; }, () => streamMs).catch(why => Array.isArray(why) ? this._blocked(why) : Promise.reject(why));
+    // Compile every visible material for the current lights now, behind the loading screen, instead of stalling the first frame that shows it
+    // (async where the browser has KHR_parallel_shader_compile). A later change in the number of lights compiles again: see recipes/09 "Lights and stalls"
+    const tc = performance.now();   // measure
+    await this.renderer.compileAsync(this.scene, this.camera);
+    const compileMs = ms(tc);
+    this._alive('compiling shaders');
     this.ready = true;
     this.commits.rebase();                     // background results registered during loading restart timing from now (see Commits.js)
     // Startup timing: totalMs from page open to playable, startMs from start() to playable
-    this.startup = { totalMs: Math.round(performance.now()), startMs: ms(t0), preloadMs, streamMs, modules: timing };   // measure
+    this.startup = { totalMs: Math.round(performance.now()), startMs: ms(t0), preloadMs, streamMs, compileMs, modules: timing };   // measure
     this.budget.checkStartup(this.startup);
     ls?.update({ progress: 1, text: '' }); ls?.hide();
-    this.ops._allowing(() => this.events.emit('world:ready'));   // world:ready listeners finish setting up the game; still loading for the ops guard
+    this.ops.allow(() => this.events.emit('engine:ready'));   // engine:ready listeners finish setting up the game; still loading for the ops guard
     this.session._capture();                   // the state engine.session.newGame() returns to: set up, nothing played yet
     this.ui.open('title');                     // the title screen, only when the game turned it on (createEngine({ ui: { title: {...} } }))
     await this._urlState.late();              // scenario parameters: skip the cutscene, wait, align the time, then emit state:applied

@@ -1,6 +1,6 @@
 # engine.hlod — hlod(opts?: HlodOptions)
 
-HLOD, merged distant geometry (hlod() module)
+(experimental) HLOD, merged distant geometry (hlod() module)
 
 - Options `HlodOptions`:
   - `level?: boolean` Handle levels automatically (adds the level on level:loaded), default true
@@ -11,7 +11,6 @@ HLOD, merged distant geometry (hlod() module)
 
 ## Methods and properties
 - `hlod.add(target: Object3D | Object3D[], opts?: HlodAddOptions) → HlodHandle` — Register a group of objects (a root or an array), merged into proxies by cell
-- `hlod.update()` — Switch by focus right now (normally automatic every 0.25 s)
 - Properties:
   - `cells: HlodCell[]` All merged cells
 

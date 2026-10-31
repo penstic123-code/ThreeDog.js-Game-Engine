@@ -35,7 +35,7 @@ export default {
         for (const m of code.matchAll(re)) {
           if (!names.has(m[1]) || ALLOW.some(([file, mod]) => file === base && mod === m[1])) continue;
           out.push({ level: 'error', file: f, line: i + 1, msg: `core reads the ${m[1]} module directly (${m[0]})`,
-            fix: 'let the module do it through a hook (describe, counts, skip, isReady) or an event (session:end, world:ready); if core truly needs it, add [file, module, reason] to ALLOW in R27' });
+            fix: 'let the module do it through a hook (describe, counts, skip, isReady) or an event (session:end, engine:ready); if core truly needs it, add [file, module, reason] to ALLOW in R27' });
         }
       });
     }

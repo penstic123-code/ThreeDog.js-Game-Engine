@@ -25,6 +25,7 @@ function checkPlain(where, v) {
 /** Stored cell data is never edited in place (writes go through set / updateAll, which the ops guard and the tile redraw see); dev builds freeze it so a stray write throws */
 const seal = d => DEV ? Object.freeze(d) : d;
 
+/** @experimental */
 export class Layer {
   /** @internal */
   constructor(grid, name, opts = {}) {
@@ -36,7 +37,7 @@ export class Layer {
     /** @internal bumped on every change */ this._ver = 0;
   }
   /** @internal */
-  _guard(what) { DEV && this.grid.engine.ops._guard(`grid layer ${this.grid.name}.${this.name}.${what}`); }
+  _guard(what) { DEV && this.grid.engine.ops.guard(`grid layer ${this.grid.name}.${this.name}.${what}`); }
   /**
    * Data of a cell, or undefined. Read only (frozen in dev builds): change it with set / clear / updateAll
    * @example farm.layer('soil').get([3, 5])?.watered

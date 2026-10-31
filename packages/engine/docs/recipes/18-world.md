@@ -1,9 +1,9 @@
 # World data: things that must be saved, grow, and keep changing while far away
 
-Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need `interactions()`, the inventory needs `inventory()`. The API list is in `../api/world.md`; this page explains how to use it and what the rules are.
+Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need `interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory()`. The API list is in `../api/world.md`; this page explains how to use it and what the rules are.
 
 Anything in the game that "must remember its state, survive level changes, and keep changing while far away" (chests, NPCs, zombies, crops, trees the player planted, the player itself) is one **plain data record** in `engine.world`: a stable id, a kind, a position, plus your own fields. The model is just how it looks when the camera is near; unloading a chunk / level tears down only the model and never loses the data; a save stores only data; far away, with no model, the data is still simulated.
-A decorative rock or a particle effect is still `engine.add(mesh)`; it does not need to go into world.
+A decorative rock is a props entry in `content/props.js` (an authored record, saved only if play moves or removes it); `engine.add(mesh)` is for transient effects. Everything placed in a level comes from content, so a new game equals the content (in dev, start warns about records code created before it).
 Many copies of one interactive object (chests, beds, campfires) with the same model, interaction and container: define it once as a content template and place instances (recipe 30-templates.md); the template is the shared read-only definition, the record holds only the instance state.
 
 ## 1. Three steps: data, look, change
@@ -36,7 +36,7 @@ W.simulate('zombie', {
 ## 3. Example: a crop grows with game time, press E to harvest when ripe
 The key idea: **don't accumulate every step; record the time it was planted, `plantedAt = clock.now`, and growth = now - planted time**. Whether the player walked away, loaded a save, or fast-forwarded with `engine.step(60)`, the result is right, and no simulate is needed.
 ```js
-import { THREE, makeMaterial } from 'threedog';
+import { presets, THREE, makeMaterial } from 'threedog';
 
 const GROW = 120;                                                // ripe after 120 game seconds (the unit of clock.now)
 const growth = rec => Math.min(1, (engine.clock.now - rec.plantedAt) / GROW);   // 0..1
@@ -79,6 +79,7 @@ When placement should be "random but identical on every start", use `engine.rand
 const rnd = engine.random.seeded(7);
 for (let i = 0; i < 20; i++) engine.world.add({ id: `rock-${i}`, kind: 'rock', position: { x: rnd.range(-40, 40), z: rnd.range(-40, 40) } }, { initial: true });
 ```
+These loops show what content loaders do. In a game, put such entries in `content/props.js` (a loop inside the content file is fine): each then gets a source line (`engine.world.origin(id).definedAt` in dev builds) and a new game stays equal to the content.
 Gameplay randomness (drops, lightning, wander turns) still uses `engine.random` (saved; after loading it continues the same sequence). Records generated at runtime (planted by the player, spawned) are saved whole; `add(def, { save: false })` is not saved (temporary things). The rules are described at the top of `modules/world/persist.js`.
 
 ## 5. Example: something that wanders
@@ -100,8 +101,9 @@ function wander(rec, dt) {
 ## 6. Near, far, camera, player
 - **Near / far is decided by the gameplay anchor `world.anchor`**: by default the position of the player record (`engine.focus` when there is no player). A cutscene or photo mode moves the camera away, but the player's surroundings are still simulated as near: gameplay results do not depend on the camera. For a top-down strategy game centered on a base, set `W.anchor = baseObject`; set it back to `null` to restore the default.
 - **The player is a record too**: the id and kind added by `createPlayer` are both `'player'`; position, facing, motion state (vx, vz, vy, facing, grounded...) and which vehicle it is on (vehicle) live in the record and are saved, and it is never torn down by walking away. Only the character's mover changes the position and then writes it back to the record; **move the player with `player.placeAt(position)`, not `world.move('player')`** (the mover would overwrite it on the next step). On load the player is put back from the record.
-- **Models are built around the load sources `engine.load`** (section 10): by default the player (`engine.load.player`, follows `world.anchor`) and the camera focus (`engine.load.camera`). Built inside the radius of any source, torn down beyond 1.25x of all of them, with an error of at most 8 meters; at most `world.buildPerFrame` are built per frame (default 8, unlimited while loading), and `ready` waits until all are built. Tearing a model down never touches its record.
+- **Models are built around the stream sources** (section 10): by default the player (`engine.stream.player`, follows `world.anchor`) and the camera focus (`engine.stream.camera`). Built inside the radius of any source, torn down beyond 1.25x of all of them, with an error of at most 8 meters; at most `world.buildPerFrame` are built per frame (default 8, unlimited while loading), and `ready` waits until all are built. Tearing a model down never touches its record.
 - `positionFrom: 'view'` (the model moves itself, for example an NPC driven by the character mover): near simulation builds the model on the spot and copies the model position back to the data at the end of every fixed step; when not simulated near, the data decides and the model follows the data.
+  A model moved by a physics body saves its position, not the physics solver state: after a load, resting bodies settle again and can differ by ~0.01 mm, so replays that must match exactly should not depend on physics props.
 - Radius: present / simulate each take their own `radius` (meters or a function); without it they follow `world.radius` (default 60).
 
 ## 7. Time and ordering rules (nothing lost, nothing doubled, loading a save is bit-identical)
@@ -125,33 +127,33 @@ For things that query neighbors every step (hundreds of zombies avoiding each ot
 - A record can carry a `zone` (for example the level name); once `world.zone` is set, records with a different zone get no model and no near simulation, and the data stays when the level changes.
 - Data must be plain values (numbers, strings, booleans, arrays, plain objects): in development, putting a three.js object or a function in it throws immediately and explains the fix — models go in present, logic goes in simulate.
 
-## 10. Load sources: what is loaded where (teleport, far camera)
-Three things are kept apart: **what is shown** (terrain chunks, models, stream entries, hlod), **what has colliders** (rigid terrain colliders, chunk collision), and **world data** (records and their near / far simulation, which follows `world.anchor` and never unloads). Every loader reads the same list, `engine.load`:
+## 10. Stream sources: what is loaded where (teleport, far camera)
+Three things are kept apart: **what is shown** (terrain chunks, models, stream entries, hlod), **what has colliders** (rigid terrain colliders, chunk collision), and **world data** (records and their near / far simulation, which follows `world.anchor` and never unloads). Every loader reads the same list, the sources of `engine.stream`:
 
 | Source | Shows | Colliders |
 |---|---|---|
-| `engine.load.player` (built in: `world.anchor`, else the player, else `engine.focus`) | full | yes |
-| `engine.load.camera` (built in: `engine.focus`) | full | no |
-| `engine.load.source(p, { radius, detail, physics, until })` | `detail: 'full'` (default) or `'simple'` (terrain and hlod proxies only) | `physics` (default true for `'full'`) |
+| `engine.stream.player` (built in: `world.anchor`, else the player, else `engine.focus`) | full | yes |
+| `engine.stream.camera` (built in: `engine.focus`) | full | no |
+| `engine.stream.source(p, { radius, detail, physics, until })` | `detail: 'full'` (default) or `'simple'` (terrain and hlod proxies only) | `physics` (default true for `'full'`) |
 
 ```js
 // teleport: the player moves only after the destination's terrain, collision and nearby models are ready
-await engine.load.teleport([800, 0, 300]);
+await engine.stream.teleport([800, 0, 300]);
 
 // the same by hand (for a door animation or a fade while it loads)
-const dest = engine.load.source([800, 0, 300], { radius: 64 });
+const dest = engine.stream.source([800, 0, 300], { radius: 64 });
 await dest.whenReady;
 engine.player.placeAt([800, 0, 300]);
 dest.remove();
 
 // a photo camera far away: a picture, no colliders; removed when photo mode ends
-engine.load.source(photoCam, { physics: false, until: () => !photoMode.active });
+engine.stream.source(photoCam, { physics: false, until: () => !photoMode.active });
 
 // a far view from a tower: terrain and hlod proxies only
-const vista = engine.load.source(towerTop, { detail: 'simple', radius: 600 });
+const vista = engine.stream.source(towerTop, { detail: 'simple', radius: 600 });
 ```
-- `radius` caps every loader's own range around that source (terrain view distance, present radius, `stream` range); without it each loader uses its own.
+- `radius` caps every loader's own range around that source (terrain view distance, present radius, `stream.radius`); without it each loader uses its own.
 - `source.ready` is checked at the end of each frame; a new source counts after one full frame, so every loader has seen it. Fixed steps must run (collision takes effect on a tick), so do not wait while `engine.pause()` is on without stepping.
 - Leaving a place and coming back is safe: models unload, but records (an opened chest, a dropped item, a removed rock) stay in `engine.world` and the models are rebuilt from them.
-- Module authors with their own distance-based loader: read `engine.load.list({ detail: 'full' })` / `list({ physics: true })` and `engine.load.reach(s, range)`, and register `engine.load.readyCheck(name, s => ...)`. Do not read `engine.focus` or the player position for loading.
+- Module authors with their own distance-based loader: read `engine.stream.sources({ detail: 'full' })` / `sources({ physics: true })` and `s.reach(range)`, and register `engine.stream.readyCheck(name, s => ...)`. Do not read `engine.focus` or the player position for loading.
 

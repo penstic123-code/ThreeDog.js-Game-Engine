@@ -19,7 +19,6 @@ Hand-built level (level() module)
 ## Methods and properties
 - `level.marker(name: string) → LevelMarker | null` — Get a marker, null if none
 - `level.markersWith(prefix: string) → LevelMarker[]` — Get all markers whose names start with prefix, e.g. markersWith('npc_')
-- `level.staticTrimeshes() → { positions, indices }[]` — Triangles of the walkable mesh (for physics)
 - `level.unload()` — Unload the level (the scene is fully deleted with engine.remove; collision, ray registrations and things registered with track are removed together)
 - `level.load(urlOrScene: string | Object3D) → Promise<void>` — Change level: unload the current one, load the new one (glTF path/asset name, or a THREE object), and emit level:loaded when done. When a load changes level, the save system waits for it
 - `level.track(handle: T) → T` — Register things that belong to the current level and need not be kept (the { remove() } handles of triggers...); they are deleted automatically on level change / unload; returns the same handle. world data that keeps state (NPCs, pickups, props) needs no registration: with a zone, a level change only tears down the model

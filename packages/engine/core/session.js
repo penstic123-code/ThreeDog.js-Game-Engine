@@ -12,11 +12,24 @@
 // and the camera starts over on 'session:start'. Listeners and hooks the game registered at boot stay: they belong to the game, not the playthrough.
 // Events: 'session:end' (before the reset; flow returns to its start state), 'session:start' { kind: 'new' | 'load', slot? } (after; flow goes to 'playing').
 import { codedError } from './errorHints.js';
+import { DEV as IS_DEV, warnOnce } from './validate.js';
 
 const DEV = {
   early: 'engine.session.{fn}() was called before engine.start() finished: the new-game state is captured when loading completes. Call it from a button or after `await engine.start()`.',
   badHandle: 'engine.session.track(handle): handle must have remove(), like the result of engine.events.on / onFixed / clock.after. Got {got}.',
+  placed: '[session] {n} world record(s) were created or removed by code before the game started ({ids}): a new game should equal the content. '
+    + 'Move them to content (content/props.js with an id and a template from content/templates.js), or create them during play inside an op',
 };
+
+/**
+ * Dev check on the new-game state: authored things come from content, so a new game has no runtime records but the player and removes nothing.
+ * Changed fields are not checked: simulation may already move authored records (an NPC walking its schedule) while loading runs in real time. @internal
+ */
+function codePlaced(parts) {
+  const w = parts?.world; if (!w) return;
+  const ids = [...Object.entries(w.records || {}).filter(([, r]) => r.kind !== 'player').map(([id]) => id), ...(w.removed || [])];
+  if (ids.length) warnOnce(DEV.placed.replace('{n}', String(ids.length)).replace('{ids}', ids.slice(0, 8).join(', ') + (ids.length > 8 ? ', …' : '')));
+}
 
 /**
  * The fixed-step hook behind saves.autosave: saves 'auto' every `every` fixed seconds of play; outside play (session.playing false, or a gameplay error) it counts from zero again.
@@ -57,7 +70,9 @@ export class Session {
 
   /** @internal Called by start() once the world is ready: what newGame returns to */
   _capture() {
-    this._base = JSON.stringify(this.engine.saves.collect());
+    const base = this.engine.saves.collect();
+    if (IS_DEV) codePlaced(base.parts);
+    this._base = JSON.stringify(base);
     this._timers = this.engine.clock.snapshotFnTimers();
   }
 

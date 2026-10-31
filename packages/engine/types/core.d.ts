@@ -1,7 +1,7 @@
 // Engine core: the Engine class, events, input, i18n, saves, assets, audio, the ground interface, module definitions.
 import type { Object3D, Vector3, Vector2, Color, Texture, BufferGeometry, Handle, PositionLike, Vec3Like } from './common';
 import type { Style } from './style';
-import type { Terrain, Vegetation, Sky, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, Budget, BudgetLimits, BudgetReport } from './world';
+import type { Terrain, Vegetation, Sky, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport } from './world';
 import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
 import type { Grids } from './generated/modules/grid/index';
@@ -9,8 +9,7 @@ import type { Collision, RigidBodies, CameraRig, CameraKind, CameraShotEvent, An
 import type { Nav } from './nav';
 import type { Stream } from './generated/core/Stream';
 import type { Batching } from './generated/core/Batching';
-import type { Load } from './generated/core/Load';
-import type { Raycast } from './generated/core/Raycast';
+import type { Rays } from './generated/core/Rays';
 import type { I18n } from './generated/core/I18n';
 import type { Audio } from './generated/core/Audio';
 import type { Input } from './generated/core/Input';
@@ -50,7 +49,7 @@ declare global {
  */
 export interface EventMap extends GameEvents {
   /** Loading finished; the world is playable */
-  'world:ready': [];
+  'engine:ready': [];
   /** Audio can play (after the player's first click / key press) */
   'audio:ready': [];
   /** UI language changed; the argument is the new language */
@@ -59,11 +58,11 @@ export interface EventMap extends GameEvents {
   'input:rebind': [{ action: string | null; keys: string[] | null }];
   'input:context': [{ stack: string[] }];
   /** Save written to disk; the argument is the slot name (not emitted when the write fails, a toast is shown instead) */
-  'save': [slot: string];
+  'save:written': [slot: string];
   /** Restore from a save file (saves.importFile) finished; the argument is the slot name. Attachments in the file (such as photos) are written to storage too */
   'save:imported': [slot: string];
-  /** Load finished; the argument is the slot name */
-  'load': [slot: string];
+  /** A save was loaded onto the running playthrough (saves.load / session.load); the argument is the slot name */
+  'save:loaded': [slot: string];
   /** A window was opened (the argument is the window id, e.g. 'inventory') */
   'ui:open': [id: string];
   /** A window was closed */
@@ -77,7 +76,7 @@ export interface EventMap extends GameEvents {
   /** A water body was removed */
   'water:remove': [body: WaterBody];
   /** A new day (the argument is the day number, starting at 1; needs the sky module) */
-  'day:new': [day: number];
+  'day:start': [day: number];
   /** Season changed (the argument is the season name, e.g. 'autumn') */
   'season:change': [season: string];
   /** engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran */
@@ -314,22 +313,13 @@ export interface AssetManifest {
   /** Sounds: name -> path */
   sounds?: Record<string, AssetEntry>;
 }
-/** Skeletal animation controller (old form; assets.animate now returns an Animator, which supports these members) */
-export interface AnimationHandle {
-  /** three.js AnimationMixer */
-  mixer: any;
-  /** Play by clip name (fade is the transition in seconds); returns null if there is no such clip */
-  play(name: string, fade?: number): any;
-  /** Stop per-frame updates when no longer needed */
-  dispose(): void;
-}
 
 export interface Assets {
   /** Register the asset manifest (can be called several times). opts.name labels it as the source in engine.loading (default 'manifest#1', '#2'...) */
   manifest(m: AssetManifest, opts?: { name?: string }): this;
   /** Preload (onProgress(0–1, current name)). Code-generated models are only generated up front if marked preload. failed includes entries now showing their fallback */
   preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }): Promise<{ loaded: number; failed: string[]; ok: boolean }>;
-  /** Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.raycaster (builds ray acceleration) */
+  /** Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray acceleration) */
   model(nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean }): Promise<Object3D>;
   /**
    * A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs
@@ -417,12 +407,65 @@ export interface Loading {
 // Audio
 // ======================================================================
 
-/** Channel: 'volume' is the master volume */
-export type AudioChannel = 'ambience' | 'sfx' | 'music';
-/** A playing sound */
-export interface SoundHandle { source: any; gain: any; stop(fadeOut?: number): void }
-/** Synthesized sound effect function: (audio, variant, synthesis parameters from the style pack) */
-export type SynthFn = (audio: Audio, variant: any, params: Record<string, any>) => void;
+/** Built-in bus names; a game adds its own with createEngine({ audio: { levels: { voice: 1 } } }) or audio.addBus */
+export type AudioBus = 'master' | 'music' | 'sfx' | 'ambience' | 'ui' | (string & {});
+/** A playing sound (returned by audio.sfx / audio.play): stop(fade), fade(to, seconds), setPosition(at) */
+import type { SoundHandle } from './generated/core/audioVoice';
+export type { SoundHandle };
+/** One sounds entry in full form. src: a file or variants (random, no immediate repeat); synth: a registered synth name (default: the entry's own name) */
+export interface SoundDef {
+  src?: string | string[];
+  synth?: string;
+  /** Passed to the synth (merged over its registered defaults) */
+  params?: Record<string, any>;
+  /** Bus it plays on (default 'sfx', or the synth's registered bus) */
+  bus?: AudioBus;
+  volume?: number;
+  /** Playback rate multiplier (1 = as recorded); synths get it as params.pitch */
+  pitch?: number;
+  /** Random spread per play, as a fraction: { pitch: 0.08 } = +-8% */
+  jitter?: { volume?: number; pitch?: number };
+  /** Seconds before the same sound can start again (calls inside it return null) */
+  cooldown?: number;
+  /** Most voices of this sound at once; the oldest stops for a new one (default unlimited) */
+  voices?: number;
+  loop?: boolean;
+  /** 3D falloff for sfx(name, { at }): ref meters at full volume (2), max meters (60), rolloff (1) */
+  distance?: { ref?: number; max?: number; rolloff?: number };
+}
+/** A sounds entry: a file, variants, 'synth' (the synth registered under the same name) or the full form */
+export type SoundSource = string | string[] | SoundDef;
+/** A rule's condition: an object whose keys all hold ({ time: 'night', zone: 'cave', weather: ['rain'], state: 'combat' }) or a function */
+export type AudioCondition = Record<string, any> | ((e: Engine, ...extra: any[]) => boolean);
+/** One ambience rule: while `when` holds, `sound` plays at `volume`. With `every` it is a one-shot repeated at random gaps, else a loop */
+export interface AmbienceRule {
+  sound: string;
+  when?: AudioCondition;
+  /** 0-1, or a function of the moment (e, ambience) => 0-1 (wind by weather, water by distance) */
+  volume?: number | ((e: Engine, ambience: import('./gameplay').Ambience) => number);
+  /** Fade seconds when the rule turns on / off (1) */
+  fade?: number;
+  /** One-shot: [shortest, longest] seconds between plays */
+  every?: number[];
+  /** Bus (default 'ambience') */
+  bus?: AudioBus;
+}
+/** Synthesized sound: connect to `out` and return the length in seconds, or { stop(time) } for a loop (params.loop is true then) */
+export type SynthFn = (audio: Audio, params: Record<string, any>, out: any) => number | void | { stop(time: number): void };
+
+/** The game's sound config: createEngine({ audio }), read back as engine.audio.config. Sounds are not part of a style pack */
+export interface AudioConfig {
+  /** Sound name -> file / variants / 'synth' / SoundDef */
+  sounds?: Record<string, SoundSource>;
+  /** ambience() rule table */
+  ambience?: AmbienceRule[];
+  /** music() defaults: tracks, rules, fade seconds, duckDialogue (how low the music bus ducks during dialogue) */
+  music?: { tracks?: Record<string, import('./gameplay').MusicTrack>; rules?: import('./gameplay').MusicRule[]; fade?: number; duckDialogue?: number | false; duckFade?: number; hold?: number; interval?: number };
+  /** Ground type (terrain groundType or level material name) -> sound name; 'water' while swimming; default for unmapped types (else 'footstep') */
+  footsteps?: Record<string, string>;
+  /** Volume per bus 0-1, default { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 }; an extra key adds a bus */
+  levels?: Record<string, number>;
+}
 
 
 // ======================================================================
@@ -532,7 +575,7 @@ export interface Ground {
   forEachCollider?(x: number, z: number, range: number, fn: (cx: number, cz: number, r: number) => void): void;
   /** Optional: chunk edge length (meters) */
   chunkSize?: number;
-  /** Optional: how far (meters) the ground is shown around a load source now; stream entries build within it by default (else fogFar) */
+  /** Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else fogFar) */
   viewRange?(): number;
   /** Optional: collision data of a chunk (used by the physics module) */
   chunkCollision?(cx: number, cz: number): any;
@@ -584,6 +627,8 @@ export interface ModuleDef<Api = any> {
   init?(e: Engine): void | Promise<void>;
   /** The loading screen waits until this returns true before disappearing (the hook is called isReady; in the engine ready is always a boolean property) */
   isReady?(e: Engine): boolean;
+  /** After a save loaded: rebuild what the loaded state needs nearby; gameplay waits frozen until the returned Promise resolves */
+  afterLoad?(e: Engine): void | Promise<void>;
   /** Fixed step (60 times per second); dt is in seconds */
   fixed?(dt: number, e: Engine): void;
   /** Once per frame; dt is in seconds */
@@ -623,7 +668,7 @@ export type ModuleInput = ModuleDef | ModuleInput[] | false | null | undefined;
 export interface EngineOptions {
   /** Canvas element (required), e.g. document.getElementById('view') */
   canvas: HTMLCanvasElement | HTMLElement;
-  /** Style pack (all art data), e.g. import lowpoly from '../styles/lowpoly/index.js' */
+  /** Style pack (all art: colors, materials, models, sky, lighting, UI look), e.g. import lowpoly from '@threedog/style-lowpoly'. Without one: neutral gray placeholders */
   style?: Style;
   /** Real-time shadows, default true */
   shadows?: boolean;
@@ -643,7 +688,7 @@ export interface EngineOptions {
    */
   ui?: Record<string, UIPartValue>;
   /** Volume of each channel, 0–1 */
-  audio?: { volume?: number; ambience?: number; sfx?: number; music?: number };
+  audio?: AudioConfig;
   /** Camera field of view (degrees), default 55 */
   fov?: number;
   /** Camera near clipping plane (meters), default 0.3 */
@@ -654,7 +699,7 @@ export interface EngineOptions {
   locale?: string;
   /** Override / add UI strings: { 'zh-CN': { key: text } } */
   strings?: StringTables;
-  /** Override default key bindings: { interact: ['KeyF'] } */
+  /** Keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions, e.g. { interact: ['KeyE'], run: ['ShiftLeft'] }; a module's define() keeps these keys */
   bindings?: Record<string, string[]>;
   /** Default gamepad buttons: { jump: 'PadA' } */
   padBindings?: Record<string, string>;
@@ -676,7 +721,7 @@ export interface EngineOptions {
   seed?: number;
   /** Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default { radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 } */
   movement?: Partial<MovementProfile>;
-  /** Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created) */
+  /** Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created) @experimental */
   threads?: 'auto' | number | false;
   /** Gameplay waits while the window is in the background or the tab is hidden; default true (engine.page) */
   pauseOnBlur?: boolean;
@@ -688,7 +733,7 @@ export interface EngineOptions {
 export interface MovementProfile { radius: number; height: number; maxSlope: number; stepHeight: number; readonly slopeRatio: number }
 
 // ======================================================================
-// Rays engine.raycast / pick / raycaster
+// Rays engine.raycast / pick / rays
 // ======================================================================
 
 /** Parameters of engine.raycast() */
@@ -711,6 +756,35 @@ export interface RayHit {
   face: any;
   entry?: any;
   kind?: string;
+  /**
+   * Point -> thing, computed when read: the world record the hit belongs to (a batched instance resolves to its original), where it was authored and what to edit.
+   * @example const t = engine.pick(0, 0)?.thing;   // { id: 'chest-home', kind: 'chest', template: 'chest', definedAt: 'content/props.js:14', ... }
+   */
+  readonly thing?: HitThing;
+}
+/** What a ray hit is (RayHit.thing, engine.inspect(id).thing). id is null for scenery that is no world record (only mesh and material are known then) */
+export interface HitThing {
+  id: string | null;
+  kind: string | null;
+  /** template name when the record is a content template instance */
+  template: string | null;
+  /** 'content/props.js:14' in dev and test builds (null in release, or when not from a content file) */
+  definedAt: string | null;
+  /** where the template itself is defined ('content/templates.js:3') */
+  templateAt?: string | null;
+  /** a level-model node record: level file name and node name */
+  level?: string;
+  node?: string;
+  /** a record made during play: the op that made it and the tick */
+  spawned?: { op: string | null; tick: number };
+  model: any;
+  mesh?: string | null;
+  material?: string | null;
+  position?: { x: number; y: number; z: number };
+  /** the record's own fields (state you can change with world.set or an op) */
+  fields: Record<string, any>;
+  /** one sentence: where to change it for good */
+  edit: string | null;
 }
 /** A module merging in hits: (origin, direction, max distance) => hit or null */
 export type RayProvider = (origin: Vector3, dir: Vector3, far: number) => RayHit | null;
@@ -762,8 +836,8 @@ export interface StreamEntryOptions {
   /** Build order: larger first (nearer first within the same priority), default 0 */
   priority?: number;
 }
-/** Options of engine.load.source() */
-export interface LoadSourceOptions {
+/** Options of engine.stream.source() */
+export interface StreamSourceOptions {
   /** Reach in meters: caps every loader's range around this source (default: each loader's own range) */
   radius?: number;
   /** 'full' (default): models, stream entries, terrain, colliders; 'simple': terrain and hlod proxies only (a far view) */
@@ -775,8 +849,8 @@ export interface LoadSourceOptions {
   /** Label for describe and errors */
   name?: string;
 }
-/** A load source returned by engine.load.source() (also engine.load.player / engine.load.camera) */
-export interface LoadSource {
+/** A stream source returned by engine.stream.source() (also engine.stream.player / engine.stream.camera) */
+export interface StreamSource {
   name: string;
   radius: number | null;
   detail: 'full' | 'simple';
@@ -790,16 +864,18 @@ export interface LoadSource {
   readonly whenReady: Promise<void>;
   /** Move the source (a live Object3D / Vector3, a function returning a position, or a fixed position) */
   at(position: PositionLike | (() => PositionLike)): this;
+  /** A loader's range for this source: the loader's own range, capped by the source radius */
+  reach(range: number): number;
   /** Stop loading for this source */
   remove(): void;
 }
 /** Handle returned by stream.add(): object is the generated object (null while not generated) */
 export interface StreamHandle { def: StreamEntryOptions; object: Object3D | null; built: boolean; remove(): void }
 /**
- * Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished,
+ * Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, compileMs shader compilation before the first frame,
  * modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded
  */
-export interface StartupReport { totalMs: number; startMs: number; preloadMs: number; streamMs: number | null; modules: Record<string, { init?: number; ready?: number }> }
+export interface StartupReport { totalMs: number; startMs: number; preloadMs: number; streamMs: number | null; compileMs: number; modules: Record<string, { init?: number; ready?: number }> }
 
 // ======================================================================
 // Setting up a scenario engine.applyState
@@ -927,12 +1003,12 @@ export declare class Engine {
   /** Performance budget (off by default) */
   budget: Budget;
   /** Ray registry (what engine.raycast hits) */
-  raycaster: Raycast;
+  rays: Rays;
   /** Frame-spread job scheduler */
   jobs: Jobs;
   /** Background results that affect gameplay take effect on a fixed tick (chunk collision, spread jobs with apply...), see Commits */
   commits: Commits;
-  /** Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays. Results that affect gameplay go through commits */
+  /** Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays. Results that affect gameplay go through commits @experimental */
   threads: Threads;
   /** One entry point for actions players and NPCs decide to do: define / run / can / list / recent, see Ops and recipes/23-ops.md */
   ops: Ops;
@@ -940,12 +1016,10 @@ export declare class Engine {
   readonly tick: number;
   /** Seeded random numbers (use for gameplay randomness: reproducible and saved with the game) */
   random: Random;
-  /** Spatial stream-in */
+  /** Spatial stream-in and the stream sources (where the world is loaded: terrain, colliders, models, stream entries; built-in player and camera sources, add one for a teleport destination) */
   stream: Stream;
   /** Automatic batching: the same static model placed many times in a cell is drawn as one InstancedMesh (createEngine({ batching })) */
   batching: Batching;
-  /** Load sources: where the world is loaded (terrain, colliders, models, stream entries); built-in player and camera sources, add one for a teleport destination */
-  load: Load;
   /** Startup timing report (null until start() completes) */
   startup: StartupReport | null;
   /**
@@ -976,9 +1050,9 @@ export declare class Engine {
   water?: Water;
   /** World data (world() module): things that must be saved, survive level changes and keep changing while far away; the model is built only when nearby */
   world?: World;
-  /** Co-op multiplayer (net() module): host authority, clients mirror the state and request ops; see recipes/27-net.md */
+  /** Co-op multiplayer (net() module): host authority, clients mirror the state and request ops; see recipes/27-net.md @experimental */
   net?: Net;
-  /** Placement grids: world <-> cell, occupancy derived from world records, per-cell layers, placement preview (grids() module) */
+  /** Placement grids: world <-> cell, occupancy derived from world records, per-cell layers, placement preview (grids() module) @experimental */
   grids?: Grids;
   /** Lightweight collision (collision() module): no clipping while walking, the camera is not blocked */
   collision?: Collision;
@@ -1026,8 +1100,10 @@ export declare class Engine {
   debug?: DebugPanel;
   /** Navmesh (nav() module) */
   nav?: Nav;
-  /** HLOD, merged distant geometry (hlod() module) */
+  /** HLOD, merged distant geometry (hlod() module) @experimental */
   hlod?: Hlod;
+  /** Light pool: many light sources, a fixed number of real lights (lightPool() module) */
+  lightPool?: LightPool;
   /** Content loading (content() module) */
   content?: Content;
   /** Game flow and scene transitions (flow() module) */
@@ -1040,8 +1116,6 @@ export declare class Engine {
   use(...mods: ModuleInput[]): this;
   /** Whether a module is installed */
   has(name: string): boolean;
-  /** Display name of a module */
-  moduleName(m: ModuleDef): string;
 
   // ---------- Ground ----------
   /** Set the ground (called by the terrain and level modules); missing parts fall back to flat ground */
@@ -1132,7 +1206,7 @@ export declare class Engine {
   step(seconds: number, opts?: { render?: boolean; frameEvery?: number; describe?: boolean }): GameState | null;
   /**
    * Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step.
-   * clock.after / every, sky.at / daily / between, day:new and season:change fire in time order as if stepped (each crossing once);
+   * clock.after / every, sky.at / daily / between, day:start and season:change fire in time order as if stepped (each crossing once);
    * world records with far catch up the span in one far(rec, dt). onFixed, module fixed hooks, physics and near simulation do not run;
    * engine.elapsed does not move. Input is locked and gameplay frozen during the skip; emits time:skip.
    * fade 0 (default): the time has moved when skip returns. fade > 0: fade out, jump, save, fade in; the Promise resolves after the fade in (it needs frames).
@@ -1162,16 +1236,19 @@ export declare class Engine {
    * at: a world record id (that actor), [x, z] / { x, z } (a spot, ops as the player), or nothing (the player). radius default 10 m.
    * @example engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, reason: 'noMoney', why: 'Not enough gold' }] }
    * @example engine.inspect('enemy_3');   // why is this enemy not attacking: its ops and their reasons
+   * @example engine.inspect('chest-home').thing.definedAt   // 'content/props.js:14': edit that line to change the level for good
+   * thing (when at is a record id): the record as a thing to change, with where it was authored (see HitThing).
    */
-  inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): { actor: string; at: { x: number; z: number }; near: any[]; ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[] };
+  inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): { actor: string; at: { x: number; z: number }; near: any[]; ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[]; thing?: HitThing };
   /**
    * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it (reason first);
    * detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one.
    * Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }.
    * @example engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'
    * @example engine.explain({ quest: 'first-light' }).text   // which step it waits on
+   * An op whose args.id names a world record also says where that record was authored (text ends with "defined in content/props.js:14: edit it there…"; thing has the rest).
    */
-  explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): { ok: boolean; reason?: string | null; text: string; detail?: string; recent?: any[]; events?: string[] };
+  explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): { ok: boolean; reason?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing };
   /** Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per rendered frame } and resets, or null when not on */
   profile(on: boolean): this;
   profile(): Record<string, number> | null;

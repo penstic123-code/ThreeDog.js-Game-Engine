@@ -10,6 +10,8 @@
 // Determinism: in engine.step() and headless loading frames, jobs ignore the real-time budget and drain the queue (see Jobs.js),
 // and stream's synchronous builds are attached to the scene before step returns: same input and same seed (engine.random) give the same result.
 import { reportError } from './errors.js';
+import { DEV } from './validate.js';
+import { watchLights } from './lightWatch.js';
 
 const STEP = 1 / 60;   // fixed step length: 60 per second
 // Most real time one frame may turn into fixed steps (6 steps). A longer hitch slows the game for that frame
@@ -46,14 +48,16 @@ export const loopMethods = {
   _frameHooks(dt, deterministic = false) {
     for (const f of this._frame) safe(this, STRINGS.onFrame, f, null, undefined, dt);
     this._runHooks('frame', dt);
-    safe(this, 'stream.update', this.stream.update, SOFT, this.stream);
+    safe(this, 'stream.update', this.stream._update, SOFT, this.stream);
     this.jobs.run({ deterministic });
-    safe(this, 'load.update', this.load.update, SOFT, this.load);   // after every loader ran: readiness of load sources
+    safe(this, 'stream.settle', this.stream._settle, SOFT, this.stream);   // after every loader ran: readiness of stream sources
     safe(this, 'batching.update', this.batching.update, SOFT, this.batching);   // last before rendering: picks up everything built this frame
+    safe(this, 'audio.tick', this.audio._tick, SOFT, this.audio);   // positional sounds follow their objects (returns at once when there are none)
   },
   _render(dt) {
     this.renderer.info.reset();
     this.post.render(dt);
+    if (DEV && this.ready) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
     if (this._prof) this._prof.frames++;
   },
   _runHooks(kind, dt) {

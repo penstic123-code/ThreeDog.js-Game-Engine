@@ -10,7 +10,6 @@ Particles (particles() module)
 - `particles.attach(name: string, object3d: THREE.Object3D, opts?: { rate?, offset?, overrides? }) → ParticleEmitter` — Keep emitting while following an object: rate per second, offset in the object's local coordinates [x, y, z] (meters). Returns a handle { remove(), rate, active } (active = false pauses)
 - `particles.count(name?: string) → number` — Live particle count (no name = all)
 - `particles.clear(name?: string)` — Clear one effect's (or all) particles
-- `particles.update(dt: number)` — Update all effects every frame (called by the module each frame)
 - Properties:
   - `effects: Map<string, ParticleEffect>` Defined effects
 

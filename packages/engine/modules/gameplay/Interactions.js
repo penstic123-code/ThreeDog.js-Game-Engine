@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { worldToScreen } from '../../ui/UI.js';
 import { promptPart } from './interactionPrompt.js';
 import { checkOptions } from '../../core/validate.js';
+import { codedError } from '../../core/errorHints.js';
 import { vec3 } from '../../core/math.js';
 
 const PICKS = ['nearest', 'facing', 'aim'];
@@ -18,9 +19,16 @@ const FACING_COS = 0.5;   // 'facing': within 60° either side of where the acto
 const AIM_WIDTH = 0.75;   // 'aim': meters the object may sit off the screen-center ray (an object is a vertical segment from its base up to its prompt height)
 const V = new THREE.Vector3(), W = new THREE.Vector3(), O = new THREE.Vector3(), D = new THREE.Vector3();
 
+const SETUP_FIX = "e.g. engine.use(interactions({ ...presets.interactions.nearest })) (import { presets } from 'threedog'), or interactions({ pick: 'nearest' | 'facing' | 'aim' | fn, keys: ['KeyE'] })";
+
 export class Interactions {
-  constructor(engine, { action = 'interact', promptHeight, radius = 2.5, pick = 'nearest' } = {}) {
+  constructor(engine, { action = 'interact', promptHeight, radius = 2.5, pick, keys } = {}) {
+    // No default pick and no default key: which object counts as "in front of you" and which key uses it are the game's choices (genericity rule:
+    // core carries no preset). presets.interactions.* bundle common pairs, so the fix is one spread.
+    if (pick === undefined) throw codedError('interaction-setup', `interactions(): no pick given; ${SETUP_FIX}`);
     if (typeof pick !== 'function' && !PICKS.includes(pick)) throw new Error(`interactions({ pick }): '${pick}' is not a pick mode. Use ${PICKS.map(p => `'${p}'`).join(' | ')} or a function (candidates, ctx) => candidate`);
+    if (keys) engine.input.define(action, keys, 'input.interact');
+    else if (!engine.input.actions.has(action)) throw codedError('interaction-setup', `interactions(): the '${action}' action has no keys; pass keys: ['KeyE'] (or bind it: createEngine({ bindings: { ${action}: ['KeyE'] } })); ${SETUP_FIX}`);
     this.engine = engine;
     this.action = action;
     this.radius = radius;
@@ -49,13 +57,14 @@ export class Interactions {
    * radius defaults to interactions({ radius }) (2.5 m). Add two with different actions to give one object two verbs. Returns a handle { remove() }.
    * @example engine.interactions.add(crop, { label: '浇水', onUse: water });
    * engine.interactions.add(crop, { label: '收获', action: 'harvest', enabled: () => ripe, onUse: harvest });   // F (define the 'harvest' key action first)
+   * @example // onUse may return a result; interaction.use hands it back as value: const r = engine.ops.run('interaction.use'); if (r.ok && r.value?.ok === false) say(r.value.reason)   // 'full' for a pickup
    */
   add(target, opts = {}) {
     checkOptions('interactions.add()', opts, ['id', 'label', 'radius', 'action', 'onUse', 'enabled', 'height']);
     const { label = '', radius = this.radius, action = this.action, onUse, enabled = () => true, height } = opts;
     // stable id for the interaction.use op: given, else the world record being built (pickup, NPC, entity), else a running number
     let id = opts.id ?? this.engine.world?.buildingId ?? 'interaction' + (++this._seq);
-    if (this.byId(id)) id += '#' + (++this._seq);
+    if (this.get(id)) id += '#' + (++this._seq);
     let object = target;
     if (!target?.isObject3D) { object = new THREE.Object3D(); vec3(target, object.position); }
     // a fixed position never moves: its world position is known now; an object is measured once per pass (_at)
@@ -66,7 +75,7 @@ export class Interactions {
   }
 
   /** The interaction with this id (null if none). @param {string} id */
-  byId(id) { return this.items.find(x => x.id === id) ?? null; }
+  get(id) { return this.items.find(x => x.id === id) ?? null; }
 
   /** The interaction actor would use now for action (any action when omitted), by the pick mode; null if none in range. @internal */
   pick(actor = this.engine.actor, action) {
@@ -121,7 +130,7 @@ export class Interactions {
     if (!list.length) return null;
     list.sort((a, b) => a.distance - b.distance);
     const c = fn(list, { engine: this.engine, actor, position: pos, action });
-    return c ? this.byId(c.id) : null;
+    return c ? this.get(c.id) : null;
   }
   /** Fixed step: each action's key fires that action's pick (input snapshot, frame-rate independent; picked on the spot, not from last frame). @internal */
   fixed() {
@@ -177,18 +186,20 @@ const labelOf = it => typeof it.label === 'function' ? it.label() : it.label;
 
 /**
  * Interactions module. Installs engine.interactions.
- * radius: default reach of add() in meters (2.5); pick: how the interaction in front of the actor is chosen —
- * 'nearest' (default, top-down and third person), 'facing' (only what the actor faces, within 60°: souls-likes, the door behind you stays dark),
+ * pick and keys are required (the engine picks neither; presets.interactions.* bundle them). radius: default reach of add() in meters (2.5); pick: how the interaction in front of the actor is chosen —
+ * 'nearest' (top-down and third person), 'facing' (only what the actor faces, within 60°: souls-likes, the door behind you stays dark),
  * 'aim' (closest to the screen-center ray: first person and shooters), or a function (candidates, ctx) => one of candidates | null,
  * where candidates are the enabled ones in range ({ id, object, action, label, distance }, nearest first) and ctx is { engine, actor, position, action }.
- * @example engine.use(interactions({ pick: 'aim', radius: 2 }));                                  // first person
- * engine.use(interactions({ pick: (list) => list.find(c => c.id.startsWith('npc')) ?? list[0] }));   // people before things
- * @param {{ action?: string, promptHeight?: number, radius?: number, pick?: 'nearest' | 'facing' | 'aim' | ((candidates: any[], ctx: any) => any) }} [opts]
+ * keys: the action's keys (default action 'interact'); leave it out only when the game already bound the action (createEngine({ bindings })).
+ * @example engine.use(interactions({ ...presets.interactions.nearest }));                       // E, the nearest one
+ * engine.use(interactions({ pick: 'aim', keys: ['KeyF'], radius: 2 }));                           // first person
+ * engine.use(interactions({ pick: (list) => list.find(c => c.id.startsWith('npc')) ?? list[0], keys: ['KeyE'] }));   // people before things
+ * @param {{ action?: string, promptHeight?: number, radius?: number, pick: 'nearest' | 'facing' | 'aim' | ((candidates: any[], ctx: any) => any), keys?: string[] }} opts
  */
-export function interactions(opts = {}) {
+export function interactions(opts) {
   let i = null;
   return { name: 'interactions', label: 'Interactions', stage: 'gameplay',
-    install(e) { checkOptions('interactions()', opts, ['action', 'promptHeight', 'radius', 'pick']); i = new Interactions(e, opts); defineUse(e, i); return i; },
+    install(e) { checkOptions('interactions()', opts ?? {}, ['action', 'promptHeight', 'radius', 'pick', 'keys']); i = new Interactions(e, opts); defineUse(e, i); return i; },
     fixed() { i.fixed(); }, frame() { i.update(); },
     // interactions are "weak" info: when an NPC, pickup or entity already reported the same object, only add "interactable: xxx"
     describe(e, ctx) {
@@ -199,7 +210,7 @@ export function interactions(opts = {}) {
 
 /** The engine op interaction.use { id?, action? }: what the interact key, the prompt click, the dev bridge and tests all run */
 function defineUse(e, i) {
-  const find = (id, action, ctx) => id !== undefined ? i.byId(id) : i.pick(ctx.actor, action);
+  const find = (id, action, ctx) => id !== undefined ? i.get(id) : i.pick(ctx.actor, action);
   e.ops.define('interaction.use', {
     desc: 'Use an interaction (talk, pick up, open...); without id, the one the actor would pick now (optionally for one action)',
     args: { id: 'string?', action: 'string?' },
@@ -212,7 +223,7 @@ function defineUse(e, i) {
       const p = e.actorPosition(ctx.actor);
       return p && it.object.getWorldPosition(V).distanceTo(W.set(p.x, p.y ?? 0, p.z)) >= it.radius ? 'tooFar' : true;
     },
-    run(e, { id, action }, ctx) { const it = find(id, action, ctx); it.onUse?.(it.object); },
+    run(e, { id, action }, ctx) { const it = find(id, action, ctx); return it.onUse?.(it.object); },   // onUse's return value is the op's value: pickups give { ok:false, reason:'full' } when the bag is full
     offers(e, ctx) { const it = find(undefined, undefined, ctx); return it ? [{ id: it.id }] : []; },
     reasons: { unknown: 'No interaction with this id', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', inputLocked: 'A window or dialogue locks input' },
   });

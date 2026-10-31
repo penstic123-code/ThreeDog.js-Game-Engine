@@ -3,7 +3,7 @@
 import { NetHost } from './Host.js';
 import { NetClient } from './Client.js';
 
-/** engine.net (installed by net()): role, who this machine is, connection state and counters. Changes go through engine.ops, never through net. */
+/** engine.net (installed by net()): role, who this machine is, connection state and counters. Changes go through engine.ops, never through net. @experimental */
 export class Net {
   /** @internal */
   constructor(e, o) {

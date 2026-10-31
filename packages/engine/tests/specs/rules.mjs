@@ -41,5 +41,5 @@ const page = (name, url) => ({
 
 export const specs = [
   page('open world', '/'),
-  page('town', '/city.html'),
+  page('town', '/tests/city/index.html'),
 ];

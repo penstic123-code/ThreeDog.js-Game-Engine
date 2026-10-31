@@ -60,17 +60,17 @@ export const ERROR_CODES = {
   'skip-amount': {
     docs: ['recipes/06-clock-events.md', 'api/engine.md'],
     fix: 'engine.skip takes { to: \'06:00\' } (needs the sky module) or { seconds: 600 } (game seconds, > 0).' },
-  'load-timeout': {
-    docs: ['recipes/18-world.md', 'api/load.md'],
+  'stream-timeout': {
+    docs: ['recipes/18-world.md', 'api/stream.md'],
     fix: 'The teleport destination did not finish loading in time (terrain, colliders, nearby models). Read describe().loading or ' +
       '`threedog loading`; raise { timeout } or check the place exists.' },
-  'load-removed': {
-    docs: ['recipes/18-world.md', 'api/load.md'],
-    fix: 'A load source was removed (remove(), its until, or engine.dispose) before it was ready, so its whenReady rejects. Await ' +
+  'stream-removed': {
+    docs: ['recipes/18-world.md', 'api/stream.md'],
+    fix: 'A stream source was removed (remove(), its until, or engine.dispose) before it was ready, so its whenReady rejects. Await ' +
       'whenReady only on a source you keep.' },
-  'load-option': {
-    docs: ['recipes/18-world.md', 'api/load.md'],
-    fix: 'load.source(position, { detail }) takes \'full\' or \'simple\'.' },
+  'stream-option': {
+    docs: ['recipes/18-world.md', 'api/stream.md'],
+    fix: 'stream.source(position, { detail }) takes \'full\' or \'simple\'.' },
   'op-misuse': {
     docs: ['recipes/23-ops.md', 'api/engine.md'],
     fix: 'Ops are defined with ops.define(name, { can, run }) and run with ops.run(name, args); args are plain data and can() only ' +
@@ -114,7 +114,24 @@ export const ERROR_CODES = {
   'module-dispose': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'A module\'s dispose(e) threw; the other modules and core were still cleaned up. Fix that module\'s dispose.' },
+  'player-control': {
+    docs: ['recipes/01-new-game.md', 'api/characters.md'],
+    fix: "createPlayer() has no default feel: give control. Usually createPlayer({ ...presets.player.thirdPerson, spawn }); else control: 'camera' | " +
+      "'none' | (player, input, dt) => ({ x, z }), plus runKeys / jumpKeys / cameraFollow as wanted." },
+  'interaction-setup': {
+    docs: ['recipes/02-npc.md', 'api/interactions.md'],
+    fix: 'interactions() has no default pick or key: use interactions({ ...presets.interactions.nearest }) or interactions({ pick, keys: ' +
+      "['KeyE'] }); keys may be left out only when createEngine({ bindings }) already binds the action." },
+  'open-world-camera': {
+    docs: ['recipes/21-camera.md', 'api/openWorld.md'],
+    fix: "openWorld() installs no camera on its own: pass camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | a camera module | false." },
   'engine-misuse': {
     docs: ['api/engine.md'],
     fix: 'An engine call got an argument it cannot use; the message names the call and the accepted forms.' },
+  'light-recompile': {
+    docs: ['recipes/09-style-pack.md', 'api/lightPool.md'],
+    fix: 'The number of lights changed during play, so three.js compiled new shader programs (a long frame). Keep the light ' +
+      'count fixed: engine.use(lightPool({ point: 8 })) before engine.start() and register torches / lamps with ' +
+      'engine.lightPool.add(...), or create your own lights before start and fade them with intensity instead of adding, ' +
+      'removing or hiding them.' },
 };

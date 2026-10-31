@@ -86,4 +86,25 @@ export const specs = [
       check('sky.sun / hemi 就是 engine.lights 的两盏，场景里只有一盏方向光', s.same && s.n === 1, JSON.stringify(s));
     },
   },
+  {
+    name: '[guard] the engine ships no art: no style pack, model or generator gives gray placeholders (capsule, box, flat ground at y = 0, plain lights) and one warning each with the fix',
+    url: '/tests/placeholders/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const W = window.placeholderWarns, has = s => W.filter(w => w.includes(s)).length;
+        const hs = [[0, 0], [37, -81], [-120, 64]].map(([x, z]) => engine.surface(x, z));
+        const obj = window.gemPickup.object;
+        let box = ''; obj?.traverse?.(o => { if (o.isMesh) box = o.geometry.type; });
+        const chunk = [...engine.terrain.chunks.values()].find(c => c.terrain), col = chunk?.terrain.geometry.attributes.color;
+        const gray = !!col && [...col.array.slice(0, 30)].every((v, i, a) => Math.abs(v - a[i - i % 3]) < 1e-6);
+        let caps = 0; engine.player.root.traverse(o => { if (o.isMesh && o.geometry.type === 'CapsuleGeometry') caps++; });
+        return { hs, type: engine.groundType(5, 5), box, gray, caps, shadow: engine.lights.sun.castShadow, tone: engine.renderer.toneMapping,
+          warns: { style: has('no style pack given'), terrain: has('terrain(): no height function'), chars: has('characters: no style pack / model given'), pickups: has('pickups: no style pack / model given') } };
+      });
+      check('flat ground at y = 0 everywhere, ground type "default"', r.hs.every(h => h === 0) && r.type === 'default', JSON.stringify(r.hs) + ' ' + r.type);
+      check('player is one gray capsule, the pickup a box, the ground one neutral gray', r.caps === 1 && r.box === 'BoxGeometry' && r.gray, JSON.stringify(r));
+      check('placeholder lights: no shadows, no tone mapping', r.shadow === false && r.tone === 0, JSON.stringify(r));
+      check('each missing piece warns exactly once (style, terrain, characters, pickups)', Object.values(r.warns).every(n => n === 1), JSON.stringify(r.warns));
+    },
+  },
 ];

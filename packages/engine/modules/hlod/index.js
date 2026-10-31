@@ -3,10 +3,10 @@
 //   engine.hlod.add(group, { cell: 64, near: 160 }); // or register manually
 // How: split into cells of `cell` meters (default = engine.stream cell size); per cell, meshes sharing a material are baked to world space and merged into one proxy mesh;
 // a node named xxx_LOD1 is a simplified xxx and is preferred when merging (it stays hidden itself). Merging runs in engine.jobs, spread over frames, so startup does not hitch.
-// Every 0.25 s, switch by distance from the full-detail engine.load sources: cell center farther than `near` meters from all of them shows the proxy and hides originals; with terrain, uses chunk-ring distance (same measure as terrain LOD).
+// Every 0.25 s, switch by distance from the full-detail engine.stream sources: cell center farther than `near` meters from all of them shows the proxy and hides originals; with terrain, uses chunk-ring distance (same measure as terrain LOD).
 // Owns far: batching (engine.batching) owns repeated near props; a mesh hlod registers is marked userData.hlod and batching skips it, and a mesh already
 // batched (userData.batched) is skipped here, so the two never fight. Skips vegetation (it has its own instancing and LOD); no mesh simplification; proxies are not raycast (rays only hit originals): originals hidden when far get userData.rayVisible,
-// so engine.raycast still hits far buildings (see core/Raycast.js).
+// so engine.raycast still hits far buildings (see core/Rays.js).
 // Skips meshes whose material moves vertices (wind and other shadow: true patches): that code reads object space (height above the
 // model origin, phase from the origin), so a world-space proxy would sway far more on high ground and every merged object in lockstep.
 // Those meshes stay as they are (always drawn) and keep their own sway.
@@ -43,17 +43,18 @@ const FULL = { detail: 'full' };
  * HLOD (merge far buildings into a few meshes) -> engine.hlod
  * @param {HlodOptions} [opts]
  * @returns {ModuleDef<Hlod>}
+ * @experimental
  */
 export function hlod(opts = {}) {
   const { level: autoLevel = true, ...defaults } = opts;
   let e = null, timer = 0, levelHandle = null;
   const handles = new Set();
 
-  /** Far from every full-detail load source (a 'simple' source keeps the proxy): chunk-ring difference with terrain, else horizontal distance (meters); a source radius caps near */
+  /** Far from every full-detail stream source (a 'simple' source keeps the proxy): chunk-ring difference with terrain, else horizontal distance (meters); a source radius caps near */
   function isFar(c, near) {
     const CH = e.terrain?.CHUNK;
-    for (const f of e.load.list(FULL)) {
-      const n = e.load.reach(f, near);
+    for (const f of e.stream.sources(FULL)) {
+      const n = f.reach(near);
       if (CH ? Math.max(Math.abs(Math.floor(c.center.x / CH) - Math.floor(f.x / CH)), Math.abs(Math.floor(c.center.z / CH) - Math.floor(f.z / CH))) <= Math.ceil(n / CH)
         : Math.hypot(c.center.x - f.x, c.center.z - f.z) <= n) return false;
     }
@@ -139,7 +140,7 @@ export function hlod(opts = {}) {
       timer = Infinity;   // switch by distance on the next frame
       return h;
     },
-    /** Switch by the current load sources right now (normally runs automatically every 0.25 s) */
+    /** @internal Switch by the current stream sources right now (normally runs automatically every 0.25 s) */
     update() {
       for (const h of handles) for (const c of h.cells) if (c.proxy.length) setFar(c, isFar(c, h.near));
     },

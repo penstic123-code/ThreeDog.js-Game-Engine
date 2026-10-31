@@ -28,7 +28,7 @@ const STRINGS = {
 /** A step's text; a parallel step without its own text lists its required parts */
 const stepText = st => st.text ?? st.all.filter(p => !p.optional).map(p => p.text).join(' / ');
 export class Quests {
-  constructor(engine, { action = 'quests', keys = ['KeyJ'], padKeys = ['PadSelect'], checkInterval = 0.5, notify = true } = {}) {
+  constructor(engine, { action = 'quests', keys = ['KeyJ'], pad = ['PadSelect'], checkInterval = 0.5, notify = true } = {}) {
     this.engine = engine;
     this.defs = new Map();
     this.state = {};       // id -> { step, done, failed?, parts? (parts done in the current parallel step), got? (parts met in finished parallel steps) }
@@ -37,7 +37,7 @@ export class Quests {
     this.action = action; this.checkInterval = checkInterval;
     this.notify = notify;   // true toast (kind 'quest') · false silent · function ({ type, id, text }) => void
     engine.i18n.add(STRINGS);
-    engine.input.define(action, keys, 'quests.action', { pad: padKeys });
+    engine.input.define(action, keys, 'quests.action', { pad });
     this.win = questLogWindow(engine, this);   // { open, toggle, refresh } over engine.ui
     // counters live in engine.vars
     // saved by stable step ids (questSave.js); version 1 saved positions
@@ -101,7 +101,7 @@ export class Quests {
   start(id) {
     if (!this.defs.has(id)) { warnMissing('quest', id, [...this.defs.keys()]); return; }
     if (this.state[id] && !this.state[id].failed) return;   // a failed quest may be taken again (a daily order, a retry)
-    DEV && this.engine.ops._guard('quests.start');
+    DEV && this.engine.ops.guard('quests.start');
     this.state[id] = { step: 0, done: false };
     this._say('start', id, this.engine.t('quests.new', { title: this.defs.get(id).title }));
     this.engine.events.emit('quest:start', { id });
@@ -115,10 +115,6 @@ export class Quests {
   isDone(id) { return !!this.state[id]?.done; }
   isActive(id) { const s = this.state[id]; return !!s && !s.done && !s.failed; }
   isFailed(id) { return !!this.state[id]?.failed; }
-  /** @deprecated engine.vars.counter is the one entry for counters */
-  counter(name) { return this.engine.vars.counter(name); }
-  /** @deprecated engine.vars.bump is the one entry for counters */
-  bump(name, n = 1) { return this.engine.vars.bump(name, n); }
 
   check() {
     const e = this.engine;
@@ -127,7 +123,7 @@ export class Quests {
       const d = this.defs.get(id); if (!d) continue;
       if (d.fail?.(e)) { this._fail(id, s, d); continue; }
       let advanced = false;
-      while (s.step < d.steps.length && this._stepDone(id, s, d.steps[s.step])) { DEV && e.ops._guard('quests.advance'); s.step++; delete s.parts; advanced = true; e.events.emit('quest:step', { id, step: s.step }); }
+      while (s.step < d.steps.length && this._stepDone(id, s, d.steps[s.step])) { DEV && e.ops.guard('quests.advance'); s.step++; delete s.parts; advanced = true; e.events.emit('quest:step', { id, step: s.step }); }
       if (s.step >= d.steps.length) {
         s.done = true; d.reward?.(this.engine);
         this._say('done', id, this.engine.t('quests.done', { title: d.title })); this.engine.events.emit('quest:done', { id });
@@ -142,7 +138,7 @@ export class Quests {
     let left = false;
     st.all.forEach((p, k) => {
       if (!s.parts[k] && p.done(this.engine)) {
-        DEV && this.engine.ops._guard('quests.advance');
+        DEV && this.engine.ops.guard('quests.advance');
         s.parts[k] = true; this.engine.events.emit('quest:part', { id, step: s.step, part: k }); this.win.refresh();
       }
       if (!s.parts[k] && !p.optional) left = true;
@@ -152,7 +148,7 @@ export class Quests {
   }
   /** @internal */
   _fail(id, s, d) {
-    DEV && this.engine.ops._guard('quests.fail');
+    DEV && this.engine.ops.guard('quests.fail');
     s.failed = true;
     d.onFail?.(this.engine);
     this._say('fail', id, this.engine.t('quests.failed', { title: d.title }));
@@ -166,7 +162,7 @@ export function quests(opts = {}) {
   let q = null;
   return {
     name: 'quests', label: 'Quests',
-    install(e) { checkOptions('quests()', opts, ['action', 'keys', 'padKeys', 'checkInterval', 'notify']); q = new Quests(e, opts); return q; },
+    install(e) { checkOptions('quests()', opts, ['action', 'keys', 'pad', 'checkInterval', 'notify']); q = new Quests(e, opts); return q; },
     // Check quests in the fixed step (game time; not while frozen or flow is paused, so no rewards are granted while paused)
     fixed(dt) { q._t -= dt; if (q._t <= 0) { q._t = q.checkInterval; q.check(); } },
     frame(dt, e) { toggleOnKey(e, q.win, q.action); },

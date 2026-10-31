@@ -83,7 +83,7 @@ export class Saves {
     /**
      * Save into a slot (default 'auto'). Returns Promise<boolean>
      * (resolves after the write to IndexedDB: true on success, false with a toast and console error on failure).
-     * The in-memory save updates immediately, so a following load / list / export sees it at once; the 'save' event fires only after the write succeeds.
+     * The in-memory save updates immediately, so a following load / list / export sees it at once; the 'save:written' event fires only after the write succeeds.
      * If any part's save() throws, nothing is written and the slot keeps its previous save (false). A failed write keeps the previous save too.
      * Show "saved" only after the result is true.
      * @param {string} [slot]
@@ -92,7 +92,7 @@ export class Saves {
      */
     save(slot?: string): Promise<boolean>;
     /**
-     * Load a slot onto the running playthrough (a quick load: what the game added during play stays) and resolve true on success; the 'load' event fires on success.
+     * Load a slot onto the running playthrough (a quick load: what the game added during play stays) and resolve true on success; the 'save:loaded' event fires on success.
      * A missing slot resolves false; a corrupt / too new / unmigratable save resolves false with a toast and changes nothing; a part whose load throws rolls the game back.
      * To continue or retry with nothing of the current playthrough left over, use engine.session.load(slot).
      * @param {string} [slot]

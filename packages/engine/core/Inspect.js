@@ -4,6 +4,7 @@
 //   engine.inspect([x, z])         things around a spot, ops as the player
 //   engine.explain({ op: 'shop.buy', args })   why an op can / cannot run now (text: reason + fix first; detail: its last attempt and the events around it)
 //   engine.explain({ quest: 'first-light' })  any other key is answered by the module whose definition has explain: { quest(e, id) {...} }
+//   engine.pick(x, y).thing        point -> thing: the world record a ray hit belongs to, with where it was authored (thingOf)
 // Built on ops because a failed op already carries its reason; explain turns that into a sentence instead of making the AI read can().
 import { closest } from './validate.js';
 import { codedError } from './errorHints.js';
@@ -29,7 +30,42 @@ export function inspect(e, at, { radius = 10 } = {}) {
   const near = e.describe({ radius, center: { x: p.x, z: p.z } }).nearby;
   const ops = e.ops.list({ available: true, actor }).sort((a, b) => b.ok - a.ok).slice(0, OPS_MAX)
     .map(o => ({ op: o.name, args: o.args, ok: o.ok, ...(o.ok ? {} : { reason: o.reason, why: note(e, o.name, o.reason) ?? null }) }));
-  return { actor, at: { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 }, near, ops };
+  const thing = typeof at === 'string' && e.world?.get(at) ? recordThing(e, at) : null;
+  return { actor, at: { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 }, near, ops, ...(thing && { thing }) };
+}
+
+const SAY = {
+  defined: 'defined in {at}: edit it there to change the level for good (ops change only this session)',
+  node: 'level {level} node {node}: change it in the level model',
+  spawned: 'made during play{op}: not in content, saved whole',
+};
+const NOT_FIELDS = new Set(['id', 'kind', 'position', 'zone', 'floor', 'offsetY']);
+
+/**
+ * A world record as a thing to change: id, kind, template, where it was authored (definedAt / level node / spawned by which op), model and its fields.
+ * @param {any} e @param {string} id @internal
+ */
+function recordThing(e, id) {
+  const rec = e.world.get(id); if (!rec) return null;
+  const o = e.world.origin(id) ?? {}, fields = {};
+  for (const k in rec) if (!NOT_FIELDS.has(k)) fields[k] = rec[k];
+  const how = o.definedAt ? SAY.defined.replace('{at}', o.definedAt) : o.node ? SAY.node.replace('{level}', o.level).replace('{node}', o.node)
+    : o.spawned ? SAY.spawned.replace('{op}', o.spawned.op ? ` by op ${o.spawned.op} at tick ${o.spawned.tick}` : '') : null;
+  return { id, kind: rec.kind, template: o.template ?? null, definedAt: o.definedAt ?? null, ...(o.templateAt && { templateAt: o.templateAt }),
+    ...(o.node && { level: o.level, node: o.node }), ...(o.spawned && { spawned: o.spawned }), model: o.model ?? rec.model ?? null,
+    position: { ...rec.position }, fields, edit: how };
+}
+
+/**
+ * Point -> thing: what a ray hit is. A hit on a batched instance resolves to its original object first (engine.batching.item).
+ * Returns the record's thing (recordThing) plus the mesh and material names; for scenery that is no record, id is null and only those are known.
+ * @param {any} e @param {any} obj the hit object @param {{ instanceId?: number }} [hit] @internal
+ */
+export function thingOf(e, obj, hit) {
+  if (obj?.isInstancedMesh && hit?.instanceId != null) obj = e.batching.item(obj, hit.instanceId) ?? obj;
+  const id = e.world?.idOf(obj) ?? null, mat = Array.isArray(obj?.material) ? obj.material[0] : obj?.material;
+  const look = { mesh: obj?.name || null, material: mat?.name || null };
+  return id ? { ...recordThing(e, id), ...look } : { id: null, kind: null, template: null, definedAt: null, model: null, fields: {}, edit: null, ...look };
 }
 const hintIds = (e, id) => { const c = e.world && closest(String(id), e.world.query({}).map(r => r.id)); return c ? ` (did you mean '${c}'?)` : ''; };
 
@@ -53,7 +89,8 @@ function explainOp(e, { op, args = {}, actor }) {
   // events within a step of the last attempt: what else changed when it ran / failed
   const events = last ? e.events.recent().filter(h => Math.abs((h.tick ?? 0) - last.tick) <= 1).slice(-8).map(h => h.name) : [];
   const why = now.ok ? 'can run now' : `cannot run now: ${now.reason}${note(e, op, now.reason) ? ` (${note(e, op, now.reason)})` : ''}`;
+  const target = typeof args.id === 'string' && e.world?.get(args.id) ? recordThing(e, args.id) : null;   // the thing it acts on: where to change it for good
   const before = last ? `last attempt at tick ${last.tick} (${last.source}, ${last.actor}): ${last.ok ? 'ok' : last.reason}${last.count > 1 ? ` x${last.count}` : ''}` : 'never run';
   const detail = before + (events.length ? `; events around it: ${events.join(', ')}` : '');
-  return { ok: now.ok, reason: now.reason ?? null, text: `${op} ${JSON.stringify(args)} ${why}`, detail, recent, events };
+  return { ok: now.ok, reason: now.reason ?? null, text: `${op} ${JSON.stringify(args)} ${why}${target?.edit ? ` · ${args.id} ${target.edit}` : ''}`, detail, recent, events, ...(target && { thing: target }) };
 }

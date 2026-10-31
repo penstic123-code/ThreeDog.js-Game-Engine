@@ -1,9 +1,10 @@
-// Style pack (style): all the data for how the engine "looks and sounds". Every item is optional; the engine falls back to neutral gray for what is omitted.
-// For an example see packages/engine/styles/lowpoly/index.js.
+// Style pack (style): all the data for how the engine looks (colors, materials, models, sky, lighting, post, UI look). Every item is optional;
+// the engine ships no art and falls back to neutral gray placeholders for what is omitted. Sounds are not here: createEngine({ audio }) (AudioConfig).
+// Example: the optional @threedog/style-lowpoly package (packages/styles/lowpoly/index.js).
 import type { ColorLike, BufferGeometry, Object3D, Material, Loose } from './common';
 import type { Engine } from './core';
 import type { TerrainConfig, SteepRule, WeatherPreset } from './world';
-import type { ParticleOptions, CharacterRig, MusicTrack } from './gameplay';
+import type { ParticleOptions, CharacterRig } from './gameplay';
 
 /** Material finish: 'lambert' matte | 'phong' with highlights | 'standard' realistic | 'physical' | 'toon' cel-shaded steps | 'basic' unlit */
 export type MaterialType = Loose<'lambert' | 'phong' | 'standard' | 'physical' | 'toon' | 'basic'>;
@@ -91,8 +92,8 @@ export interface StyleWeather {
   rain?: { color?: ColorLike; opacity?: number; length?: number; speed?: number; slant?: number; texture?: string | null; size?: number; maxSize?: number };
   /** Snow: color, opacity, size, max pixels, fall speed (m/s), snowflake texture */
   snow?: { color?: ColorLike; opacity?: number; size?: number; maxSize?: number; speed?: number; texture?: string | null };
-  /** Add / override weather presets */
-  presets?: Record<string, Partial<WeatherPreset>>;
+  /** Retune the look of weather types the game has (e.g. a darker storm); never adds a type: the list is the game's weather({ types }) */
+  types?: Record<string, Partial<WeatherPreset>>;
 }
 
 export interface StyleWater {
@@ -189,30 +190,6 @@ export interface StyleUI {
   [cssVar: string]: any;
 }
 
-/** Sound files: a path, or an array (one is picked at random), or by variant: { grass: [...], sand: '...' } */
-export type SoundSource = string | string[] | Record<string, string | string[]>;
-export interface StyleSounds {
-  /** Parameters for procedurally synthesized sounds: { footstep: { volume, surfaces }, thunder: { freq, volume, duration }, shutter: { freq, volume } } */
-  synth?: Record<string, Record<string, any>>;
-  /** Sound name → file (footstep, shutter, thunder…) */
-  [name: string]: SoundSource | Record<string, Record<string, any>> | undefined;
-}
-
-/** Ambience source: 'synth' procedural | file path (or array) | false off */
-export type AmbienceSource = 'synth' | string | string[] | false;
-export interface StyleAmbience {
-  wind?: AmbienceSource;
-  rain?: AmbienceSource;
-  water?: AmbienceSource;
-  birds?: AmbienceSource;
-  crickets?: AmbienceSource;
-  /** Looping background-noise files for day / night */
-  day?: AmbienceSource;
-  night?: AmbienceSource;
-  /** Synthesis parameters: windVolume, rainVolume, waterVolume, birdPitch [low, high] Hz, birdGap [shortest, longest] seconds, waterRadius meters… */
-  synth?: Record<string, any>;
-}
-
 export interface Style {
   /** Style pack name */
   name?: string;
@@ -222,7 +199,7 @@ export interface Style {
   toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>;
   /** Background color (when there is no sky module) */
   background?: ColorLike;
-  /** Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from 'threedog/styles/lowpoly' */
+  /** Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/style-lowpoly' */
   post?: import('./generated/render/PostFX').PostEffect[];
   /** Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material */
   materials?: Record<string, MaterialSpec | import('three').Material | ((params: Record<string, any>, purpose: string) => import('three').Material)>;
@@ -246,14 +223,6 @@ export interface Style {
   pickup?: { color?: ColorLike; size?: number; lift?: number; model?: (item: any, o: { color: ColorLike; size: number }) => Object3D | BufferGeometry };
   /** Default character: colors palette; create(engine, colors) returns the procedural character (without it a gray capsule); model names a registered model asset every character uses unless it passes its own model (the procedural body shows until it loads); animation.fade skeletal animation transition seconds */
   character?: { model?: string; colors?: { body?: ColorLike; skin?: ColorLike; legs?: ColorLike; hair?: ColorLike }; create?: (engine: Engine, colors: Record<string, ColorLike>) => CharacterRig | null | undefined; animation?: { fade?: number } };
-  /** Ground type → footstep type */
-  footstepMap?: Record<string, string>;
-  /** Sound files */
-  sounds?: StyleSounds;
-  /** Ambience */
-  ambience?: StyleAmbience;
-  /** Background music: tracks list, fade fade seconds, duckDialogue how low it ducks during dialogue */
-  music?: { tracks?: Record<string, MusicTrack>; fade?: number; duckDialogue?: number | false; duckFade?: number; hold?: number; interval?: number };
   /** UI colors, fonts, templates */
   ui?: StyleUI;
   /** Particle presets: name → parameters; default is the fallback for all effects */

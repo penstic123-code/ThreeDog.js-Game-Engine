@@ -3,7 +3,7 @@
 export const specs = [
   {
     name: 'S1 perf: collision grid index gives exactly the same callback sequence as a linear scan with many colliders (including add / remove), and is faster (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
@@ -53,7 +53,7 @@ export const specs = [
   },
   {
     name: 'S1 perf: Events.historySize = 0 records no history, default 200 unchanged (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         const E = engine.events, size0 = E.historySize;
@@ -74,7 +74,7 @@ export const specs = [
   },
   {
     name: 'S1 perf: engine.counts() includes world / rigid / particles, and nothing grows over 10 save -> load cycles (small town)',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();

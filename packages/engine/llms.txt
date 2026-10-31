@@ -38,3 +38,4 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [28-terrain](docs/recipes/28-terrain.md): Terrain: your own generator, digging, raising and painting the ground
 - [29-grid](docs/recipes/29-grid.md): Grid placement: farming, furniture, crates, building
 - [30-templates](docs/recipes/30-templates.md): Templates: reusable objects, definition vs instance state
+- [31-audio](docs/recipes/31-audio.md): Sound: buses, sounds by name, ambience rules, music, footsteps, ducking

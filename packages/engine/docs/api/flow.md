@@ -3,7 +3,7 @@
 Game flow and scene transitions (flow() module)
 
 - Options `FlowOptions`:
-  - `start?: string` Starting state, default 'playing'; other states are entered on world:ready (so you can define after use())
+  - `start?: string` Starting state, default 'playing'; other states are entered on engine:ready (so you can define after use())
 
 ## Methods and properties
 - `flow.define(name: string, def: FlowStateDef)` — Define a state (built-in 'playing', 'paused')

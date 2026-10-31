@@ -8,4 +8,5 @@ export default [
   { model: 'rock', place: 'home', x: -5, z: 6, rot: 2.1, scale: 0.6 },
   { model: ['flower', 0xf2d16b], place: 'home', x: 1.6, z: 3.4 },
   { model: ['flower', 0xe08aa0], place: 'home', x: -1.6, z: 3.4 },
+  { id: 'cabin', template: 'cabin', place: 'home', x: 0, z: 0, y: -0.05 },   // a template instance (templates.js); new entries go at the end so index ids above stay stable
 ];

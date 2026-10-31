@@ -60,12 +60,6 @@ export class Particles {
      * @returns {void}
      */
     clear(name?: string): void;
-    /**
-     * Update all effects every frame (called by the module each frame)
-     * @param {number} dt
-     * @returns {void}
-     */
-    update(dt: number): void;
 }
 import type { ModuleDef } from '../../../core';
 import type { ParticleEffect } from '../../../gameplay';

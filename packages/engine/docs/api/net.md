@@ -1,6 +1,6 @@
 # engine.net — net()
 
-Co-op multiplayer (net() module): host authority, clients mirror the state and request ops; see recipes/27-net.md
+(experimental) Co-op multiplayer (net() module): host authority, clients mirror the state and request ops; see recipes/27-net.md
 
 
 ## Methods and properties

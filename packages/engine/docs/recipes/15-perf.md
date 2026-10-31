@@ -41,7 +41,7 @@ engine.profile(false);
 | Stutter while walking | Put generation work in `engine.jobs.add(function* () { ...; yield; })` or `engine.stream.add`; chunk upload budget `engine.terrain.applyBudgetMs` |
 | Slow start | Look at which is slowest in `engine.startup.modules`; `npm run bake` for large models; preload only the necessary assets |
 | Slow physics | Keep dynamic rigid bodies within a few hundred (the `rigidBodies` budget); `rigid({ terrainRing: 1 })` |
-| Too much loaded at once | Each `engine.load` source loads its own surroundings: remove sources you no longer need, give a far camera `physics: false` and a `radius`, use `detail: 'simple'` for a distant view (recipe 18 section 10) |
+| Too much loaded at once | Each `engine.stream` source loads its own surroundings: remove sources you no longer need, give a far camera `physics: false` and a `radius`, use `detail: 'simple'` for a distant view (recipe 18 section 10) |
 
 **Main thread busy with simulation or pure computation: use workers.** `createEngine({ threads: 'auto' | n | false })`, default 'auto';
 false = all on the main thread, same results.

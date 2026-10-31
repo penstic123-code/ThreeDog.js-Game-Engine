@@ -8,7 +8,9 @@ import dialogues from './dialogues.js';
 import quests from './quests.js';
 import actions from './actions.js';
 import vegetation from './vegetation.js';
+import templates from './templates.js';
 import props from './props.js';
+import bodies from './bodies.js';
 import rules from './rules.js';
 
-export default { places, items, startItems, containers, pickups, npcs, dialogues, quests, actions, vegetation, props, rules };
+export default { places, items, startItems, containers, pickups, npcs, dialogues, quests, actions, vegetation, templates, props, bodies, rules };

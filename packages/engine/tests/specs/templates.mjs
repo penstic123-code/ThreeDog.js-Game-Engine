@@ -26,8 +26,10 @@ export const specs = [
   {
     name: 'Templates: two chests of one template share the model, opened state and goods are per instance, save / load restores each; definitions are frozen',
     url: '/?cutscene=skip',
+    expectErrors: /tchest\.bad|frozen-definition/,   // the deliberate write to a definition inside an op
     async run({ page, check, ev }) {
       const mid = await ev(async (src) => {
+        'use strict';   // game modules are strict: a write to a frozen definition throws there (sloppy page code would fail silently)
         engine.pause();
         const { x, z } = (0, eval)(src)();
         const W = engine.world, I = engine.inventory, played = [];
@@ -37,30 +39,31 @@ export const specs = [
         const shared = { both: !!va && !!vb, distinct: va !== vb, geo: mesh(va)?.geometry === mesh(vb)?.geometry, mat: mesh(va)?.material === mesh(vb)?.material,
           solid: va?.userData.colliders.length };
         const use = engine.ops.run('interaction.use', { id: 'tc-a' }); engine.step(0.1);
-        const moved = engine.ops._allowing(() => I.transfer('tc-a', 'player', 'berry', 1));
-        const spawned = engine.ops._allowing(() => engine.content.spawn('tchest', { x: x - 6, z }, { opened: true, items: { stick: 3 } }));
+        const moved = engine.ops.allow(() => I.transfer('tc-a', 'player', 'berry', 1));
+        const spawned = engine.ops.allow(() => engine.content.spawn('tchest', { x: x - 6, z }, { opened: true, items: { wood: 3 } }));
         engine.step(0.1);
         const after = {
           a: W.get('tc-a').opened, b: W.get('tc-b').opened, lidA: W.view('tc-a')?.userData.lid, lidB: W.view('tc-b')?.userData.lid,
           aBerry: I.container('tc-a').count('berry'), bBerry: I.container('tc-b').count('berry'), bFeather: I.container('tc-b').count('feather'),
-          sId: spawned.id, sKind: spawned.kind, sOpen: spawned.opened, sStick: I.container(spawned.id).count('stick'), sCap: I.container(spawned.id).capacity,
+          sId: spawned.id, sKind: spawned.kind, sOpen: spawned.opened, sWood: I.container(spawned.id).count('wood'), sCap: I.container(spawned.id).capacity,
           use: use.ok, moved, played,
         };
         // definition vs instance: the definition did not move, writes to it throw, instance state copies are not shared
         const def = engine.content.template('tchest'), errs = {};
         for (const [k, f] of Object.entries({
           state: () => { def.state.opened = true; }, items: () => { def.container.items.berry = 9; }, add: () => { def.extra = 1; },
-          item: () => { I.def('berry').stack = 1; },
+          item: () => { I.item('berry').stack = 1; },
           override: () => engine.content.load({ props: [{ template: 'tchest', id: 'tc-x', x, z, model: 'pine' }] }),
           unknown: () => engine.content.load({ props: [{ template: 'tchets', x, z }] }),
           noOp: () => engine.content.load({ templates: { bad: { model: 'rock', interact: { label: 'x' } } } }),
         })) { try { f(); errs[k] = null; } catch (e) { errs[k] = e.message; } }
         const defs = { opened: def.state.opened, items: JSON.stringify(def.container.items), frozen: Object.isFrozen(def.state), stateShared: W.get('tc-a').state };
         engine.saves.save('tpl'); await engine.saves.flush();
-        return { shared, after, errs, defs, label: engine.interactions.byId('tc-a')?.label() };
+        return { shared, after, errs, defs, label: engine.interactions.get('tc-a')?.label() };
       }, setup.toString());
       await reload(page);
       const r = await ev(async (src) => {
+        'use strict';   // game modules are strict: a write to a frozen definition throws there (sloppy page code would fail silently)
         engine.pause();
         (0, eval)(src)();
         const W = engine.world, I = engine.inventory;
@@ -70,26 +73,26 @@ export const specs = [
         const out = {
           a: W.get('tc-a').opened, b: W.get('tc-b').opened, lidA: W.view('tc-a')?.userData.lid, lidB: W.view('tc-b')?.userData.lid,
           aBerry: I.container('tc-a').count('berry'), bBerry: I.container('tc-b').count('berry'), bFeather: I.container('tc-b').count('feather'),
-          sId: s?.id, sOpen: s?.opened, sStick: s && I.container(s.id).count('stick'), sCap: s && I.container(s.id).capacity,
+          sId: s?.id, sOpen: s?.opened, sWood: s && I.container(s.id).count('wood'), sCap: s && I.container(s.id).capacity,
           def: engine.content.template('tchest').state.opened,
         };
         // a write to a definition inside gameplay halts with the hint that names the fix
         engine.ops.define('tchest.bad', { run: e => { e.content.template('tchest').state.opened = true; } });
         const bad = engine.ops.run('tchest.bad', {});
-        out.bad = bad.reason; out.hint = engine.error?.docs?.includes('recipes/30-templates.md') && /world record/.test(engine.error.cause);
+        out.bad = bad.reason; out.hint = engine.error?.docs?.includes('recipes/30-templates.md') && /world record/.test(engine.error.fix ?? '');
         return out;
       }, setup.toString());
       const a = mid.after;
       check('two instances share the prototype model (same geometry and material), each its own object; collide builds collision', mid.shared.both && mid.shared.distinct && mid.shared.geo && mid.shared.mat && mid.shared.solid === 1, JSON.stringify(mid.shared));
       check('using chest A (interaction.use -> template op) opens only A; animate follows each record; label reads the record; use sound played', mid.after.use && a.a === true && a.b === false && a.lidA === 1 && a.lidB === 0 && mid.label === 'Close' && a.played.includes('ding'), JSON.stringify({ ...a, label: mid.label }));
       check('goods are per instance: taking a berry from A leaves B alone; a placement items override replaces the starting goods', a.moved === 1 && a.aBerry === 1 && a.bBerry === 0 && a.bFeather === 1, JSON.stringify(a));
-      check('content.spawn: runtime instance, kind = template name, own state override and container (capacity from the template)', a.sKind === 'tchest' && a.sOpen === true && a.sStick === 3 && a.sCap === 4, JSON.stringify(a));
+      check('content.spawn: runtime instance, kind = template name, own state override and container (capacity from the template)', a.sKind === 'tchest' && a.sOpen === true && a.sWood === 3 && a.sCap === 4, JSON.stringify(a));
       check('definition unchanged and frozen; writes to a template or item definition throw', mid.defs.opened === false && mid.defs.items === '{"berry":2}' && mid.defs.frozen && mid.defs.stateShared === undefined
         && ['state', 'items', 'add', 'item'].every(k => /read only|not extensible/.test(mid.errs[k] ?? '')), JSON.stringify({ defs: mid.defs, errs: mid.errs }));
       check('wrong placements say how to fix: definition field per instance, unknown template (did you mean), interact without op',
         /belongs to the definition/.test(mid.errs.override ?? '') && /tchest/.test(mid.errs.unknown ?? '') && /needs op/.test(mid.errs.noOp ?? ''), JSON.stringify(mid.errs));
       check('after reload + load: each chest restores its own opened state and goods; the look follows', r.a === true && r.b === false && r.lidA === 1 && r.lidB === 0 && r.aBerry === 1 && r.bBerry === 0 && r.bFeather === 1, JSON.stringify(r));
-      check('after load: the runtime instance is back with its state, goods and template container capacity', r.sId === a.sId && r.sOpen === true && r.sStick === 3 && r.sCap === 4, JSON.stringify(r));
+      check('after load: the runtime instance is back with its state, goods and template container capacity', r.sId === a.sId && r.sOpen === true && r.sWood === 3 && r.sCap === 4, JSON.stringify(r));
       check('writing a definition inside an op halts with the frozen-definition hint (keep state on the world record)', r.def === false && r.bad === 'error' && r.hint === true, JSON.stringify(r));
     },
   },

@@ -18,6 +18,7 @@ const planar = v => (Array.isArray(v) && v.length === 2 ? v : xzOf(v));
  * farm.toCell(engine.player.position);            // [3, 5]
  * farm.can('crop', [3, 5]);                       // true or a reason: 'occupied' 'outOfBounds' 'notFlat' 'wrongGround' 'notTilled' ...
  * engine.ops.run('grid.place', { grid: 'farm', item: 'crop', cell: [3, 5] });
+ * @experimental
  */
 export class Grid {
   /** @internal */

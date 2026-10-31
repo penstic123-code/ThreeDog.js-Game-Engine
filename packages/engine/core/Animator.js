@@ -42,9 +42,14 @@ export class Animator {
     this._return = null;        // state to return to when an action() one-shot ends
     this._driven = null;        // state currently posed by sync(); go() and action() leave it alone
     this._t = 0;                // last gameplay time passed to sync (describe)
-    this._check();
-    this.mixer.addEventListener('finished', ev => this._finished(ev.action));
-    this._hook = engine.onFrame(dt => this.update(dt));
+    // A static model (a procedural prop, a model exported without clips) has nothing to play: no dev warnings, no per-frame hook; go() / action() just return null.
+    this.hasClips = this.clips.length > 0;
+    this._hook = null;
+    if (this.hasClips) {
+      this._check();
+      this.mixer.addEventListener('finished', ev => this._finished(ev.action));
+      this._hook = engine.onFrame(dt => this.update(dt));
+    }
   }
   /** Dev check of the mapping: every clip a state names must exist in the model, every `then` must be a state. */
   _check() {
@@ -87,6 +92,7 @@ export class Animator {
   }
   /** Switch unconditionally (go after its guards, and sync). */
   _enter(state, fade) {
+    if (!this.hasClips) return null;   // static model: nothing to play, nothing to warn about
     const def = this.states[state];
     if (!def) { warnMissing('animState', state, Object.keys(this.states)); return null; }
     const actions = (def.blend ? def.blend.map(b => b.clip) : [def.clip]).map(clip => ({ a: this._action(clip), clip }));
@@ -113,7 +119,7 @@ export class Animator {
   action(name, fade) {
     const prev = this.state, def = this.states[name];
     if (!def) {
-      if (!findClip(this.clips, name)) { warnMissing('clip', name, this.clips.map(c => short(c.name))); return null; }
+      if (!findClip(this.clips, name)) { if (this.hasClips) warnMissing('clip', name, this.clips.map(c => short(c.name))); return null; }
       this.states[name] = { clip: name, loop: false, lock: true };
     }
     const a = this.go(name, fade);
@@ -177,7 +183,7 @@ export class Animator {
     if (next) this.go(next);
   }
 
-  /** Per frame: advance fades, split blend-tree weights by parameter, sync stride, then advance the mixer (the engine calls it). */
+  /** @internal Per frame: advance fades, split blend-tree weights by parameter, sync stride, then advance the mixer (the engine calls it). */
   update(dt) {
     let j = 0;   // fade, stop faded-out layers and compact in place (no arrays per frame)
     for (const l of this._layers) {
@@ -223,5 +229,5 @@ export class Animator {
       driven: !!l?.driven, ...(l?.driven && { t: r3(this._t) }), weights: Object.fromEntries(this._layers.map(x => [x.name, r3(x.w / total)])) };
   }
   /** Call when no longer needed to stop per-frame updates. */
-  dispose() { this._hook.remove(); this.mixer.stopAllAction(); }
+  dispose() { this._hook?.remove(); this.mixer.stopAllAction(); }
 }

@@ -2,7 +2,7 @@
 //   floor 80×80 (y=0) · stairs_low (0.4 high, x 6→10) · stairs_high (1 high, x 6→10, z 8→12)
 //   car (spawns at (-15, 1.5, -15), nose toward +Z) · skinned dummy window.makeRig() (two bones + Idle/Walk/Run/Wave clips)
 //   ?mover=rapier the player uses the Rapier character controller
-import { createEngine, world, sky, collision, rigid, followCamera, characters, THREE } from '../../index.js';
+import { createEngine, presets, world, sky, collision, rigid, followCamera, characters, THREE } from '../../index.js';
 import { level } from '../../modules/level/index.js';
 import { interactions } from '../../modules/gameplay/Interactions.js';
 
@@ -16,7 +16,7 @@ const spawn = new THREE.Object3D(); spawn.name = 'spawn'; spawn.position.set(0, 
 
 const mover = new URLSearchParams(location.search).get('mover') || 'simple';
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Vehicle test' } }, adaptiveResolution: false });
-engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false }), interactions(), level({ scene: root }));
+engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false }), interactions({ ...presets.interactions.nearest }), level({ scene: root }));
 
 // Car: body + four wheels (wheels are children of the body; addVehicle makes them follow suspension and steering)
 function makeCar() {
@@ -44,8 +44,8 @@ window.makeRig = () => {
   return model;
 };
 
-engine.events.on('world:ready', () => {
-  engine.characters.createPlayer({ spawn: { x: 0, z: 0 }, mover });
+engine.events.on('engine:ready', () => {
+  engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: 0, z: 0 }, mover });
   const { car, wheels } = makeCar();
   window.car = engine.rigid.addVehicle(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 16, height: 2 } });
 });

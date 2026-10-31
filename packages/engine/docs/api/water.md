@@ -23,7 +23,6 @@ Water surface (water() module)
   - `material?: import('./style').StyleWater['material']` Replace the whole surface material, same as style.water.material
 
 ## Methods and properties
-- `water.update(focus: THREE.Vector3, dt: number)` — Per-frame update: global water snaps to the focus grid, normal map scrolls (called by the module itself each frame)
 - Properties:
   - `material: THREE.Material` Water material (shared by all water)
   - `bodies: Map<WaterBody, THREE.Mesh>` Water body → mesh

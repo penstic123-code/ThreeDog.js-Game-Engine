@@ -3,7 +3,7 @@
 - `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required; style is the style pack
 - Options `EngineOptions`:
   - `canvas: HTMLCanvasElement | HTMLElement` Canvas element (required), e.g. document.getElementById('view')
-  - `style?: Style` Style pack (all art data), e.g. import lowpoly from '../styles/lowpoly/index.js'
+  - `style?: Style` Style pack (all art: colors, materials, models, sky, lighting, UI look), e.g. import lowpoly from '@threedog/style-lowpoly'. Without one: neutral gray placeholders
   - `shadows?: boolean` Real-time shadows, default true
   - `antialias?: boolean` MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices
   - `post?: Record<string, boolean>` Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices)
@@ -11,13 +11,13 @@
   - `adaptiveResolution?: boolean` Automatically lower resolution when the frame rate is too low, default true
   - `targetFps?: number` Target frame rate for automatic resolution lowering, default 55
   - `ui?: Record<string, UIPartValue>` UI parts: replace or turn off any piece of screen UI (loading, toast, title, hud.marker, hud.counter, hud.bar). Default title screen is off. Example: `createEngine({ canvas, ui: { loading: { title: 'My Game' }, title: { title: 'My Game' }, toast: false } })`
-  - `audio?: { volume?, ambience?, sfx?, music? }` Volume of each channel, 0–1
+  - `audio?: AudioConfig` Volume of each channel, 0–1
   - `fov?: number` Camera field of view (degrees), default 55
   - `near?: number` Camera near clipping plane (meters), default 0.3
   - `fogFar?: number` Default fog distance (meters), default 600
   - `locale?: string` UI language: 'auto' (default) follows the browser (a language starting with zh gives 'zh-CN', anything else 'en'); or force 'zh-CN' / 'en' / your own
   - `strings?: StringTables` Override / add UI strings: { 'zh-CN': { key: text } }
-  - `bindings?: Record<string, string[]>` Override default key bindings: { interact: ['KeyF'] }
+  - `bindings?: Record<string, string[]>` Keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions, e.g. { interact: ['KeyE'], run: ['ShiftLeft'] }; a module's define() keeps these keys
   - `padBindings?: Record<string, string>` Default gamepad buttons: { jump: 'PadA' }
   - `saveKey?: string` Save name prefix; must differ when several games share one site, default 'game'
   - `joystick?: 'auto' | boolean` On-screen joystick: 'auto' (only on touch devices) / true / false
@@ -28,7 +28,7 @@
   - `urlState?: boolean` Set up a scenario from URL parameters (?time=18:30&weather=rain&pos=40,-20), default on only in development
   - `seed?: number` Seed for engine.random; default 1 in headless mode (reproducible), the current time for live runs (different every game)
   - `movement?: Partial<MovementProfile>` Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default { radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 }
-  - `threads?: 'auto' | number | false` Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created)
+  - `threads?: 'auto' | number | false` (experimental) Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created)
   - `pauseOnBlur?: boolean` Gameplay waits while the window is in the background or the tab is hidden; default true (engine.page)
   - `batching?: false | BatchingOptions` Automatic instancing of repeated static models (engine.batching): false turns it off; default { minCount: 8, cell: engine.stream.cellSize }
 
@@ -37,7 +37,6 @@
 - `engine.setCamera(kind: CameraKind, opts?: object) → CameraRig` — Switch the camera at runtime (only exists with a camera module installed): the target and horizontal heading carry over; the first-person camera hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for switching back. Passing opts rebuilds this kind of camera with the new parameters. A wrong kind throws and lists the available options. Example: `engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' : 'follow'); });`
 - `engine.use(...mods: ModuleInput[])` — Install one or more modules (in order; dependencies must be installed first)
 - `engine.has(name: string) → boolean` — Whether a module is installed
-- `engine.moduleName(m: ModuleDef) → string` — Display name of a module
 - `engine.setGround(g: Partial<Ground>)` — Set the ground (called by the terrain and level modules); missing parts fall back to flat ground
 - `engine.surface(x: number, z: number, refY?: number) → number` / `surface(at: PositionLike, refY?: number) → number` — Ground height (meters) at (x, z); a position or object also works: engine.surface(mesh.position). For multi-layer ground (bridges, caves, interiors) pass a reference height refY: returns the highest layer not above refY + one step (0.45 m), so standing under a bridge gives the ground and standing on it gives the deck; without it the highest layer is used (as before). Procedural terrain and flat ground have one layer and ignore refY
 - `engine.slope(x: number, z: number) → number` / `slope(at: PositionLike) → number` — Slope at (x, z); a position or object also works
@@ -64,10 +63,10 @@
 - `engine.freeze(owner?: string)` — Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame hooks and rendering continue and the UI works. So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's name, default 'game'
 - `engine.unfreeze(owner?: string)` — Release the freeze of owner (gameplay resumes only when all freezers are released)
 - `engine.step(seconds: number, opts?: { render?, frameEvery?, describe? }) → GameState | null` — Advance seconds of fixed-step time synchronously (60Hz; when timeScale is not 1, game seconds clock.now and sky time of day run faster or slower than it; frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()). jobs ignore real time and finish every frame; results of stream's synchronous build are attached to the scene before returning. When render is true (default) one frame is rendered at the end. Returns the describe() result after advancing
-- `engine.skip(opts: SkipOptions) → Promise<{ seconds: number; clock:…` — Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step. clock.after / every, sky.at / daily / between, day:new and season:change fire in time order as if stepped (each crossing once); world records with far catch up the span in one far(rec, dt). onFixed, module fixed hooks, physics and near simulation do not run; engine.elapsed does not move. Input is locked and gameplay frozen during the skip; emits time:skip. fade 0 (default): the time has moved when skip returns. fade > 0: fade out, jump, save, fade in; the Promise resolves after the fade in (it needs frames). session.newGame / load / quit cancel a running skip: it resolves null. Example: `await engine.skip({ to: '06:00' })`
+- `engine.skip(opts: SkipOptions) → Promise<{ seconds: number; clock:…` — Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step. clock.after / every, sky.at / daily / between, day:start and season:change fire in time order as if stepped (each crossing once); world records with far catch up the span in one far(rec, dt). onFixed, module fixed hooks, physics and near simulation do not run; engine.elapsed does not move. Input is locked and gameplay frozen during the skip; emits time:skip. fade 0 (default): the time has moved when skip returns. fade > 0: fade out, jump, save, fade in; the Promise resolves after the fade in (it needs frames). session.newGame / load / quit cancel a running skip: it resolves null. Example: `await engine.skip({ to: '06:00' })`
 - `engine.describeText(opts?: { radius?, full?, path? }) → string` — The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, one line per module with its key counts), ending with how to expand. { path: 'world.byKind' } returns one part of describe() as JSON; { full: true } returns everything (all nearby things, every module's full data). Example: `engine.describeText()   engine.describeText({ path: 'quests' })   engine.describeText({ full: true })`
-- `engine.inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }) → { actor, at, near, ops }` — What is around an actor or a spot, and what that actor can do now (each op offer checked with can, possible first, at most 8; failed ones carry reason and the op's reasons note). at: a world record id (that actor), [x, z] / { x, z } (a spot, ops as the player), or nothing (the player). radius default 10 m. Example: `engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, reason: 'noMoney', why: 'Not enough gold' }] }`
-- `engine.explain(q: { op, args?, actor? } | Record<string, any>) → { ok, reason?, text, detail?, recent?, events? }` — Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it (reason first); detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one. Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }. Example: `engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'`
+- `engine.inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }) → { actor, at, near, ops, thing? }` — What is around an actor or a spot, and what that actor can do now (each op offer checked with can, possible first, at most 8; failed ones carry reason and the op's reasons note). at: a world record id (that actor), [x, z] / { x, z } (a spot, ops as the player), or nothing (the player). radius default 10 m. Example: `engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, reason: 'noMoney', why: 'Not enough gold' }] }`
+- `engine.explain(q: { op, args?, actor? } | Record<string, any>) → { ok, reason?, text, detail?, recent?, events?, … }` — Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it (reason first); detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one. Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }. Example: `engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'`
 - `engine.profile(on: boolean)` / `profile() → Record<string, number> | null` — Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per rendered frame } and resets, or null when not on
 - `engine.dispose()` — Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then reclaim listeners, timers, audio, UI and GPU memory (scene, assets cache, post-processing, renderer). After that no callbacks fire and step() returns null. Safe to call repeatedly. Don't use it for level changes; use level.track(handle)
 - `engine.counts() → EngineCounts` — Counts for leak hunting: they should not keep growing after repeatedly entering / leaving levels or opening / closing windows. geometries / textures come from three.js renderer.info.memory (counted only after rendering)
@@ -114,16 +113,15 @@
 - `clock: Clock` Game clock: game seconds now, after / every (clock-time / season timers are on engine.sky)
 - `vars: Vars` Story flags and counters (autosaved)
 - `budget: Budget` Performance budget (off by default)
-- `raycaster: Raycast` Ray registry (what engine.raycast hits)
+- `rays: Rays` Ray registry (what engine.raycast hits)
 - `jobs: Jobs` Frame-spread job scheduler
 - `commits: Commits` Background results that affect gameplay take effect on a fixed tick (chunk collision, spread jobs with apply...), see Commits
-- `threads: Threads` Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays. Results that affect gameplay go through commits
+- `threads: Threads` (experimental) Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays. Results that affect gameplay go through commits
 - `ops: Ops` One entry point for actions players and NPCs decide to do: define / run / can / list / recent, see Ops and recipes/23-ops.md
 - `tick: number` Fixed-step count (the gameplay timeline: does not advance while frozen; commits due times, event history and the operation log use it)
 - `random: Random` Seeded random numbers (use for gameplay randomness: reproducible and saved with the game)
-- `stream: Stream` Spatial stream-in
+- `stream: Stream` Spatial stream-in and the stream sources (where the world is loaded: terrain, colliders, models, stream entries; built-in player and camera sources, add one for a teleport destination)
 - `batching: Batching` Automatic batching: the same static model placed many times in a cell is drawn as one InstancedMesh (createEngine({ batching }))
-- `load: Load` Load sources: where the world is loaded (terrain, colliders, models, stream entries); built-in player and camera sources, add one for a teleport destination
 - `startup: StartupReport | null` Startup timing report (null until start() completes)
 - `elapsed: number` Run seconds: unaffected by the sky time scale, does not advance while frozen or paused; for presentation animation (swaying, floating). The other two "times": game seconds engine.clock.now (= fixed-step seconds x clock.timeScale, saved); sky time of day engine.sky.timeOfDay (0–1, one day = dayLength game seconds)
 - `uniforms: EngineUniforms` This engine's shader uniforms, read by the built-in effects (wind, clouds, season, water, sky, rain). Share these objects in your own ShaderMaterial or patch instead of making your own uTime. Weather and sky write them; uTime follows engine.elapsed. Example: `new THREE.ShaderMaterial({ uniforms: { uTime: engine.uniforms.uTime }, vertexShader, fragmentShader });`
@@ -150,6 +148,7 @@
   - `install(e: Engine) → Api` — Install: create and return the object the game uses (engine.name)
   - `init(e: Engine) → void | Promise<void>` — Called at startup (download things, wait for assets); may be async
   - `isReady(e: Engine) → boolean` — The loading screen waits until this returns true before disappearing (the hook is called isReady; in the engine ready is always a boolean property)
+  - `afterLoad(e: Engine) → void | Promise<void>` — After a save loaded: rebuild what the loaded state needs nearby; gameplay waits frozen until the returned Promise resolves
   - `fixed(dt: number, e: Engine)` — Fixed step (60 times per second); dt is in seconds
   - `frame(dt: number, e: Engine)` — Once per frame; dt is in seconds
   - `afterRender(dt: number, e: Engine)` — After rendering
@@ -160,7 +159,7 @@
   - `dispose(e: Engine)` — Optional: called on engine.dispose() (in reverse install order). Only clean up what the core cannot: Workers, the physics world, real-time timers, Audio nodes you connected yourself. Events, onFixed / onFrame, clock timers, jobs, stream, ray registrations and GPU memory in the scene are reclaimed by the core; DOM listeners attached to engine.signal and UI attached to engine.uiRoot are cleaned up automatically too
 
 ## Data structures
-- **Handle** Handle: returned by every "add / register / listen / attach" API (events.on, onFrame, clock.after, collision.addBox, interactions.add, raycaster.addStatic…), call remove() to undo that registration (removes the listener, collider, timer…; safe to call repeatedly). Some handles carry extra fields (such as setTarget on hud.marker)
+- **Handle** Handle: returned by every "add / register / listen / attach" API (events.on, onFrame, clock.after, collision.addBox, interactions.add, rays.addStatic…), call remove() to undo that registration (removes the listener, collider, timer…; safe to call repeatedly). Some handles carry extra fields (such as setTarget on hud.marker)
   - `remove()`
 - **StateParams** Scenario parameters (can also go in the URL: ?time=18:30&weather=rain&pos=40,-20&cutscene=skip&state=name)
   - `state?: string` A group of parameters named with defineState
@@ -170,9 +169,10 @@
   - `save?: string` Which save slot to load
   - `wait?: number` How many seconds to advance (fixed-step seconds, not multiplied by clock.timeScale)
   - `cutscene?: 'skip' | 'keep'` Opening cutscene: 'skip' skips it / 'keep' plays it as usual
-- **StartupReport** Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded
+- **StartupReport** Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, compileMs shader compilation before the first frame, modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded
   - `totalMs: number`
   - `startMs: number`
   - `preloadMs: number`
   - `streamMs: number | null`
+  - `compileMs: number`
   - `modules: Record<string, { init?: number; ready?: number }>`

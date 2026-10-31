@@ -15,7 +15,7 @@ import { warnMissing, missingText } from '../../core/validate.js';
 import { parseClock } from '../../core/dayTime.js';
 import { CONDITIONS, EFFECTS } from './rules.js';
 import { loadContent, BUILTIN_TESTS, BUILTIN_RUNS } from './loader.js';
-import { templateOf, spawnTemplate } from './templates.js';
+import { templateOf, spawnTemplate, placeTemplate } from './templates.js';
 
 const list = v => (Array.isArray(v) ? v : [v]);
 
@@ -26,6 +26,7 @@ export function content() {
   const st = {
     triggers: {}, subs: null, startOn: new Map(), ops: new Set(), kinds: {},
     templates: new Map(), templateViews: new Set(),   // template name -> frozen definition; names whose presenter is registered
+    templateSrc: new Map(),                           // dev: template name -> 'content/templates.js:12'
     levelPlace: name => !!name && !(name in places) && !!e.level?.marker(name),
     wait: p => { pending.add(p); p.catch(err => console.error('[content]', err)).finally(() => pending.delete(p)); },
   };
@@ -42,7 +43,7 @@ export function content() {
     /** Load content data. places: place name -> position; models: model name -> generator function (default: style pack style.models) */
     load(data, { places: pl = {}, models = e.style.models || {} } = {}) {
       Object.assign(places, pl);
-      e.ops._allowing(() => loadContent(e, api, data, models, st));   // loading data is setup, not a gameplay action (ops guard)
+      e.ops.allow(() => loadContent(e, api, data, models, st));   // loading data is setup, not a gameplay action (ops guard)
       st.checkOps?.();
       return api;
     },
@@ -86,6 +87,13 @@ export function content() {
      * @returns {import('../world/World.js').WorldRecord}
      */
     spawn(name, at, fields) { return spawnTemplate(e, st, name, at, fields); },
+    /**
+     * @internal A level-model node with the custom property template: an authored instance with id `<level>/<node>` (level module).
+     * entry is a props-style entry ({ template, id, x, z, floor, rot, scale, state fields }); origin = { level, node }
+     */
+    placeNode(entry, zone, origin) { placeTemplate(e, api, st, entry, 0, zone, null, origin); },
+    /** @internal dev: where a template is defined ('content/templates.js:12'), null if unknown */
+    templateSource(name) { return st.templateSrc.get(name) ?? null; },
     /** Place name -> position { x, z } plus y when the place has a height (level markers, places given with y); null if not found */
     place(name) {
       const p = places[name] ?? e.level?.marker(name)?.position;
@@ -110,14 +118,14 @@ export function content() {
   };
   return {
     name: 'content', label: 'Content',
-    optional: ['level', 'sky', 'inventory', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions'],
+    optional: ['level', 'sky', 'inventory', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions', 'grids', 'rigid'],
     install(engine) {
       e = engine;
       // content may name ops that main.js defines after load: check once everything is set up, and again for loads after that
       const check = () => {
         for (const name of st.ops) if (!e.ops.defs.has(name)) throw new Error(`content: ${missingText('op', name, [...e.ops.defs.keys()])} (used in { op } / { can })`);
       };
-      e.events.on('world:ready', check);
+      e.events.on('engine:ready', check);
       st.checkOps = () => { if (e.ready) check(); };
       return api;
     },

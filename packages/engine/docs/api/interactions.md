@@ -6,11 +6,12 @@ Interaction prompts (interactions() module)
   - `action?: string` Default action name, default 'interact'
   - `promptHeight?: number` How high the prompt floats (meters)
   - `radius?: number` Default reach of add() in meters, default 2.5
-  - `pick?: InteractionPick` How the interaction in front of the actor is chosen, default 'nearest'. Example: `interactions({ pick: 'aim', radius: 2 }) // first person`
+  - `pick: InteractionPick` Required, no default: how the interaction in front of the actor is chosen. presets.interactions.* fill it. Example: `interactions({ pick: 'aim', keys: ['KeyE'], radius: 2 }) // first person`
+  - `keys?: string[]` Keys of the action; required unless the game bound the action already (createEngine({ bindings: { interact: [...] } }) or input.define)
 
 ## Methods and properties
 - `interactions.add(target: Object3D | PositionLike, opts?: InteractionOptions) → Handle` — Add an interaction: passing an object makes it follow the object, passing a position (Vector3 / [x, y, z] / { x, y, z }) makes a fixed point. Returns a handle { remove() }
-- `interactions.byId(id: string) → any` — The interaction with this id, or null. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick)
+- `interactions.get(id: string) → any` — The interaction with this id, or null. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick)
 - Properties:
   - `promptHeight: number` How high the prompt floats (meters)
   - `items: any[]` All interactions

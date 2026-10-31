@@ -8,21 +8,21 @@
   - `historySize: number` How many history entries to keep, default 200; 0 records nothing
 
 ## Event table (engine.events.on(name, (args…) => …), the [] lists the callback arguments)
-- `world:ready` [] Loading finished; the world is playable
+- `engine:ready` [] Loading finished; the world is playable
 - `audio:ready` [] Audio can play (after the player's first click / key press)
 - `i18n:change` [locale: string] UI language changed; the argument is the new language
 - `input:rebind` [{ action: string | null; keys: string[] | null }] Key bindings changed; action null means everything was reset to defaults
 - `input:context` [{ stack: string[] }] 
-- `save` [slot: string] Save written to disk; the argument is the slot name (not emitted when the write fails, a toast is shown instead)
+- `save:written` [slot: string] Save written to disk; the argument is the slot name (not emitted when the write fails, a toast is shown instead)
 - `save:imported` [slot: string] Restore from a save file (saves.importFile) finished; the argument is the slot name. Attachments in the file (such as photos) are written to storage too
-- `load` [slot: string] Load finished; the argument is the slot name
+- `save:loaded` [slot: string] A save was loaded onto the running playthrough (saves.load / session.load); the argument is the slot name
 - `ui:open` [id: string] A window was opened (the argument is the window id, e.g. 'inventory')
 - `ui:close` [id: string] A window was closed
 - `settings:shadows` [on: boolean] Shadows were toggled
 - `settings:change` [values: Record<string, any>] A value in the settings menu changed (the argument is all setting values)
 - `water:add` [body: WaterBody] A water body was added
 - `water:remove` [body: WaterBody] A water body was removed
-- `day:new` [day: number] A new day (the argument is the day number, starting at 1; needs the sky module)
+- `day:start` [day: number] A new day (the argument is the day number, starting at 1; needs the sky module)
 - `season:change` [season: string] Season changed (the argument is the season name, e.g. 'autumn')
 - `time:skip` [{ seconds: number }] engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran
 - `weather:lightning` [] Lightning strike (weather module)

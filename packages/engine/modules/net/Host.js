@@ -29,7 +29,7 @@ export class NetHost {
     const e = this.e, o = this.o;
     const peer = { id, actor: o.actorFor(id), tokens: o.burst, results: [], posTick: e.tick };
     this.peers.set(id, peer);
-    e.ops._allowing(() => o.join(e, peer));   // setting up the peer's avatar / bag is host bookkeeping, not a gameplay action
+    e.ops.allow(() => o.join(e, peer));   // setting up the peer's avatar / bag is host bookkeeping, not a gameplay action
     e.events.emit('net:join', { peer: id, actor: peer.actor });
     this.snapshot(peer);
   }
@@ -37,7 +37,7 @@ export class NetHost {
     const e = this.e, peer = this.peers.get(id);
     if (!peer) return;
     this.peers.delete(id);
-    e.ops._allowing(() => this.o.leave(e, peer));
+    e.ops.allow(() => this.o.leave(e, peer));
     e.events.emit('net:leave', { peer: id, actor: peer.actor });
   }
   snapshot(peer) {
@@ -90,7 +90,7 @@ export class NetHost {
     const dt = Math.min(0.25, Math.max(STEP, (e.tick - peer.posTick) * STEP));   // idle time earns no long jump peer.posTick = e.tick;
     const c = rec.position, dx = p[0] - c.x, dy = p[1] - c.y, dz = p[2] - c.z, d = Math.hypot(dx, dy, dz), max = this.o.maxSpeed * dt + 0.5;
     const k = d > max ? max / d : 1;
-    e.ops._allowing(() => {
+    e.ops.allow(() => {
       e.world.move(peer.actor, { x: c.x + dx * k, y: c.y + dy * k, z: c.z + dz * k });
       const f = m.f && typeof m.f === 'object' ? m.f : {};
       for (const key of this.o.avatarFields) if (key in f && plainScalar(f[key])) rec[key] = f[key];

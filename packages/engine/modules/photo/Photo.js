@@ -6,8 +6,8 @@
 // When the photo key's op is refused the module emits photo:denied { reason } (the game shows it; a button reads r.reason itself).
 // subject is what is in the middle of the frame { name, kind, distance }: NPC (kind 'npc'), entity ('entity'), named object ('object'),
 // vegetation ('vegetation'; after hitting an instanced mesh, vegetation.instanceAt looks up the kind); null when it hits the sky or an unnamed ground.
-// Photo key defaults to P, gamepad RB (action 'photo'); can be changed at install: photo({ keys: ['KeyC'], padKeys: ['PadX'] }); pass keys: [] for no key
-// Shutter sound: style pack style.sounds.shutter supplies a file, otherwise a synthesized fallback
+// Photo key defaults to P, gamepad RB (action 'photo'); can be changed at install: photo({ keys: ['KeyC'], pad: ['PadX'] }); pass keys: [] for no key
+// Shutter sound: the game's createEngine({ audio: { sounds: { shutter } } }) supplies a file, otherwise a synthesized fallback
 import { checkOptions } from '../../core/validate.js';
 import { toast } from '../../ui/UI.js';
 const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
@@ -92,7 +92,7 @@ export class Photo {
       return v ? { name: v.species, kind: 'vegetation', distance } : null;
     }
     for (let o = hit.object; o; o = o.parent) {
-      const npc = e.npcs?.list.find(n => n.root === o);
+      const npc = e.npcs?.list().find(n => n.root === o);
       if (npc) return { name: npc.name, kind: 'npc', distance };
       if (o.userData.entity != null) return { name: e.entities?.get(o.userData.entity)?.type ?? String(o.userData.entity), kind: 'entity', distance };
       if (o.userData.name || o.name) return { name: o.userData.name ?? o.name, kind: 'object', distance };
@@ -107,15 +107,18 @@ const STRINGS = { 'zh-CN': { 'photo.action': '拍照' }, en: { 'photo.action': '
 
 /** Photo module. Once installed: engine.ops.run('photo.take') takes a photo through photo.canTake; engine.photo.take() captures without checks */
 export function photo(all = {}) {
-  const { keys = ['KeyP'], padKeys = ['PadRB'], ...opts } = all;
+  const { keys = ['KeyP'], pad = ['PadRB'], ...opts } = all;
   let ph = null;
   return {
     name: 'photo', label: 'Photo mode', optional: ['cameraRig', 'sky', 'vegetation', 'entities'],
     install(e) {
-      checkOptions('photo()', all, ['keys', 'padKeys', 'maxAlbum', ...TAKE_KEYS]);
+      checkOptions('photo()', all, ['keys', 'pad', 'maxAlbum', ...TAKE_KEYS]);
       e.i18n.add(STRINGS);
-      if (keys.length) { e.input.define('photo', keys, 'photo.action', { pad: padKeys }); e.input.touchButton('photo', 'photo.action'); }
-      e.audio.register('shutter', (audio, v, p) => { audio.noiseBurst({ dur: 0.03, type: 'highpass', freq: p.freq ?? 3000, vol: p.volume ?? 0.4 }); audio.noiseBurst({ dur: 0.05, type: 'bandpass', freq: 1800, vol: (p.volume ?? 0.4) * 0.75, delay: 0.07 }); });
+      if (keys.length) { e.input.define('photo', keys, 'photo.action', { pad }); e.input.touchButton('photo', 'photo.action'); }
+      e.audio.register('shutter', (audio, p, out) => {
+        audio.noiseBurst({ dur: 0.03, type: 'highpass', freq: p.freq ?? 3000, vol: p.volume ?? 0.4, out });
+        audio.noiseBurst({ dur: 0.05, type: 'bandpass', freq: 1800, vol: (p.volume ?? 0.4) * 0.75, delay: 0.07, out }); return 0.15;
+      }, { builtIn: true });
       ph = new Photo(e, opts);
       ph.restore();                                  // read photos taken last time back from storage
       e.ops.define('photo.take', {

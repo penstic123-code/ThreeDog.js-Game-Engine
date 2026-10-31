@@ -40,12 +40,6 @@ export class Timeline {
      * @returns {void}
      */
     skip(run?: any): void;
-    /**
-     * Update every frame (called by the module each frame)
-     * @param {number} dt
-     * @returns {void}
-     */
-    frame(dt: number): void;
 }
 import type { TimelineOptions } from '../../../gameplay';
 import type { ModuleDef } from '../../../core';

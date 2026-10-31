@@ -1,6 +1,6 @@
 {
   // 只用来做类型检查（npm run types），不编译、不输出文件。
-  // 检查范围：游戏代码（games/*、引擎示例 packages/engine/examples/）与风格包（packages/engine/styles/）。
+  // 检查范围：游戏代码（games/*、引擎示例 packages/engine/examples/）与风格包（packages/styles/<名字>/，npm 名 @threedog/style-<名字>）。
   // three.js 的类型来自 @types/three（引擎包的依赖，版本跟 three 对齐），THREE.* 是真类型，不是 any。
   // 引擎自己的 .js 不检查，游戏代码通过 packages/engine/index.d.ts 拿到引擎接口的类型
   // （games 里 import 'threedog'，经 workspace 链接和 package.json 的 types 找到它；示例用相对路径 ../../index.js）。
@@ -23,7 +23,7 @@
   },
   "include": [
     "packages/engine/examples/**/*.js",
-    "packages/engine/styles/**/*.js",
+    "packages/styles/*/*.js",
     "games/*/*.js",
     "games/*/*.d.ts",
     "games/*/content/**/*.js",

@@ -207,7 +207,7 @@ export class NPCManager {
     return undefined;
   }
   /** All NPCs (kind 'npc' records in world, including far ones and those in other levels) */
-  get list() {
+  list() {
     const W = this.engine.world, out = [];
     if (W) for (const r of W.records.values()) if (r.kind === KIND) out.push(this._handle(r.id));
     return out;

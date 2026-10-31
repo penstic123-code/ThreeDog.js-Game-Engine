@@ -18,7 +18,11 @@ import { contentLine, templateLines, gridLines, declaredEvents, eventLines, read
 const MAX_LINES = 220, API_DIR = join(ENGINE, 'docs', 'api'), RECIPES = join(ENGINE, 'docs', 'recipes'), INDEX_JS = join(ENGINE, 'index.js');
 const RULES_DOC = docRef('docs/recipes/20-content-actions-save.md'), API_MD = docRef('docs/API.md'), CODEMAP = docRef('docs/CODEMAP.md');
 import { questLines } from './gamemap/quests.mjs';
+import { placementLines, unusedLines } from './gamemap/placements.mjs';
 import { kindMapLines } from './content-check/kinds.mjs';
+
+/** Module names in openWorld's return list: part('collision') entries and direct calls; the camera is a variable (cam), so it is not listed */
+const presetParts = body => [...(balanced(body, 'return [') || '').matchAll(/part\('(\w+)'\)|(\w+)\(/g)].map(x => x[1] ?? x[2]).filter(x => !['part', 'filter', 'on'].includes(x));
 
 async function buildMap(dir) {
   const { data: c } = await loadGame(dir);
@@ -58,7 +62,7 @@ async function buildMap(dir) {
     const args = m[2].replace(/\s+/g, ' ').trim();
     if (m[1] === 'openWorld') {
       const src = read(INDEX_JS), body = src.slice(src.indexOf('export function openWorld('));
-      const list = uniq([...(balanced(body, 'return [') || '').matchAll(/(\w+)\(/g)].map(x => x[1]).filter(x => x !== 'on'));
+      const list = uniq(presetParts(body).filter(x => x !== 'on'));
       const off = [...args.matchAll(/(\w+): false/g)].map(x => x[1]);
       mods.push(`- openWorld preset (${cut(args, 100)}) → ${list.filter(x => !off.includes(x)).join(', ')}`);
     } else mods.push(`- ${m[1]}${args ? ` (${cut(args, 100)})` : ''}`);
@@ -74,13 +78,14 @@ async function buildMap(dir) {
     if (fn !== 'openWorld') return fn ? [fn] : [];
     const src = read(INDEX_JS), body = src.slice(src.indexOf('export function openWorld('));
     const off = [...arg.matchAll(/(\w+): false/g)].map(x => x[1]);
-    return ['openWorld', ...uniq([...(balanced(body, 'return [') || '').matchAll(/(\w+)\(/g)].map(x => x[1])).filter(x => x !== 'on' && !off.includes(x))];
+    return ['openWorld', ...uniq(presetParts(body)).filter(x => x !== 'on' && !off.includes(x))];
   }));
   sec('Engine modules (engine.use)', mods);
   // Docs for the modules this game installs, and nothing else
   const recipes = existsSync(RECIPES) ? readdirSync(RECIPES).filter(f => f.endsWith('.md')).sort().map(f => [f, read(join(RECIPES, f))]) : [];
   sec(`Read for this game (per installed module: recipe · api page; core API: \`${docRef('docs/api/engine.md')}\`)`,
     readForLines(installed.filter(f => f !== 'openWorld'), apiPage, recipes, docRef));
+  md.push('', 'Not used yet (check these before writing the system yourself):', '', ...(unusedLines(installed, c, code, docRef).join('\n') || '- (all the common systems are in use)').split('\n'));
 
   // Files
   // The generic description at the top of content/*.js is the same in every game, so it is not repeated: only the file name and line count
@@ -144,14 +149,8 @@ async function buildMap(dir) {
   const grids = gridLines(gameFiles, g);
   if (grids.length) sec('Grids (engine.grids)', grids);
 
-  // Props: counted by model, not listed one by one (template placements are counted under their template)
-  const props = c.props || [];
-  if (props.length) {
-    const byModel = props.reduce((a, p) => { const m = p.template ? `template ${p.template}` : [p.model].flat()[0]; a[m] = (a[m] || 0) + 1; return a; }, {});
-    const places = uniq(props.map(p => p.place ?? 'world coordinates'));
-    sec('Props (content/props.js, streamed in on demand)', [`- ${props.length} in total: ${Object.entries(byModel).map(([m, n]) => `${m}×${n}`).join(', ')}`,
-      `- Positions relative to: ${places.join(', ')}; with collision: ${props.filter(p => p.collide).length}`]);
-  }
+  // Where the level comes from: authored placements per content file, and placements game code makes at startup (rule R33)
+  sec('Placements (the level is content; counts per content file)', placementLines(c, gameFiles, g));
 
   // Timed events (engine.clock, engine.sky; between lists both clock times)
   const tm = [];

@@ -120,7 +120,7 @@ export function rigModule(kind, opts) {
         old.onExit?.(); cache.clear();
         e.camera.fov = fov0; e.camera.updateProjectionMatrix();
         c = e.cameraRig = make(kind, opts);
-        c.onEnter?.(false); c.follow(e.player?.root ?? null); fresh = true;
+        c.onEnter?.(false); c.follow(e.player?.cameraFollow ? e.player.root : null); fresh = true;   // follows the player only if the game asked (createPlayer({ cameraFollow }))
         e.events.emit('camera:change', { kind, previous: old.kind });   // settings re-apply the player's sensitivity / fov to the new rig
       });
       // The camera module places position/orientation every frame: warn once (in dev) if the game changed them between frames

@@ -14,9 +14,9 @@
 // Web (DOM) errors (such as el.style.opacity = 0.5 given a number, or window.game not existing on Window) are only shown as "hints", not failures —
 // they run fine in the browser and have nothing to do with the engine API. The --strict-dom flag turns them into errors too.
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, relative, dirname, sep } from 'node:path';
+import { join, relative, dirname, sep, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
@@ -31,9 +31,13 @@ const rel = p => relative(ROOT, p).split(sep).join('/');
 function defaultConfig() {
   const f = join(ROOT, '.threedog', 'tsconfig.types.json');
   mkdirSync(dirname(f), { recursive: true });
-  writeFileSync(f, JSON.stringify({ compilerOptions: { target: 'ES2022', lib: ['ES2022', 'DOM', 'DOM.Iterable'], module: 'ESNext', moduleResolution: 'bundler',
-    allowJs: true, checkJs: true, noEmit: true, strict: false, skipLibCheck: false, resolveJsonModule: true, types: [] },
-    include: ['../**/*.js', '../**/*.d.ts'], exclude: ['../**/node_modules', '../**/dist', '../.threedog', '../**/vite.config.js', '../**/tests'] }, null, 2));
+  // the game's own sources only (package.json "threedog": { src, exclude }, paths.mjs gameSources)
+  // lib ESNext: dependency typings use newer globals (Rapier's Symbol.dispose); skipLibCheck: dependency .d.ts files are not the game's to fix
+  const s = P.gameSources(), up = p => '../' + (P.rel(p) || '.');
+  const include = s ? s.src.flatMap(p => existsSync(p) && statSync(p).isFile() ? [up(p)] : [up(p) + '/**/*.js', up(p) + '/**/*.d.ts']) : ['../**/*.js', '../**/*.d.ts'];
+  writeFileSync(f, JSON.stringify({ compilerOptions: { target: 'ES2022', lib: ['ESNext', 'DOM', 'DOM.Iterable'], module: 'ESNext', moduleResolution: 'bundler',
+    allowJs: true, checkJs: true, noEmit: true, strict: false, skipLibCheck: true, resolveJsonModule: true, types: [] },
+    include, exclude: ['../**/node_modules', '../**/dist', '../.threedog', '../**/vite.config.js', '../**/tests', ...(s ? s.exclude.map(up) : [])] }, null, 2));
   return f;
 }
 
@@ -53,7 +57,7 @@ if (P.MODE === 'monorepo') {
 }
 
 // Game files checked (the project .js files listed by --listFiles)
-const checked = out.split('\n').map(s => s.trim()).filter(s => s && !s.includes('(') && s.endsWith('.js') && !s.includes('node_modules')).map(s => rel(s));
+const checked = out.split('\n').map(s => s.trim()).filter(s => s && !s.includes('(') && s.endsWith('.js') && !s.includes('node_modules')).map(s => rel(s)).filter(f => !P.notGameSource(P.abs(f), P.ROOT, false));   // dependencies (vendor/, file: folders) are not game files
 
 // Error: file(line,col): error TSxxxx: message; the indented lines after it are extra explanation
 const diags = [];
@@ -168,6 +172,7 @@ function isDom(d) {
 
 const errors = [], hints = [];
 for (const d of diags) {
+  if (d.line && P.notGameSource(resolve(P.ROOT, d.file), P.ROOT, false)) continue;   // an error inside a dependency is not the game's
   const at = d.line ? `${d.file}:${d.line}` : d.file;
   const text = d.code ? translate(d) : d.msg;
   if (!STRICT_DOM && d.code && isDom(d)) hints.push(`${at}  ${text}`);

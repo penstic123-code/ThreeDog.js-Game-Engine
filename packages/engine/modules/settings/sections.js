@@ -14,22 +14,34 @@ export const formatValue = (key, v) => key.startsWith('vol.') || key === 'densit
   : key === 'pixelRatio' || key === 'camera.sensitivity' ? '×' + (+v).toFixed(2) : key === 'camera.fov' ? v + '°' : String(v);
 
 /** One row: text on the left, control on the right */
-export const row = (label, ctl, esc) => `<div class="threedog-row threedog-set-row"><span class="threedog-set-label">${esc(label)}</span><span class="threedog-set-ctl">${ctl}</span></div>`;
+const row = (label, ctl, esc) => `<div class="threedog-row threedog-set-row"><span class="threedog-set-label">${esc(label)}</span><span class="threedog-set-ctl">${ctl}</span></div>`;
 
 /** Toggle button */
-export const toggle = (key, on, { esc, t }) =>
+const toggle = (key, on, { esc, t }) =>
   `<button type="button" class="threedog-btn threedog-set-toggle${on ? ' is-active' : ''}" aria-pressed="${!!on}" data-set="${esc(key)}" data-value="${!on}">${esc(t(on ? 'common.on' : 'common.off'))}</button>`;
 
 /** Slider */
-export const range = (key, v, min, max, step, { esc }) =>
+const range = (key, v, min, max, step, { esc }) =>
   `<input class="threedog-range" type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-range="${esc(key)}" aria-label="${esc(key)}"><span class="threedog-set-val" data-val="${esc(key)}">${esc(formatValue(key, v))}</span>`;
 
 /** A group of mutually exclusive buttons: options = [[value, text], ...]; a disabled value is display-only (e.g. "custom") */
-export const segmented = (key, cur, options, { esc }, disabled = []) =>
+const segmented = (key, cur, options, { esc }, disabled = []) =>
   `<span class="threedog-seg">${options.map(([v, label]) => {
     const on = v === cur, off = disabled.includes(v);
     return `<button type="button" class="threedog-btn${on ? ' is-active' : ''}" aria-pressed="${on}"${off ? ' disabled' : ` data-set="${esc(key)}" data-value="${esc(JSON.stringify(v))}"`}>${esc(label)}</button>`;
   }).join('')}</span>`;
+
+/** The tools argument of a tab's render(tools, e, s): esc / t plus the control helpers, already bound (return HTML) */
+export function settingsTools(engine, esc) {
+  const base = { esc, t: (k, p) => engine.t(k, p) };
+  return {
+    ...base,
+    row: (label, ctl) => row(label, ctl, esc),
+    toggle: (key, on) => toggle(key, on, base),
+    range: (key, v, min, max, step) => range(key, v, min, max, step, base),
+    segmented: (key, cur, options, disabled = []) => segmented(key, cur, options, base, disabled),
+  };
+}
 
 export const BUILTIN_SECTIONS = {
   graphics: {
@@ -44,7 +56,7 @@ export const BUILTIN_SECTIONS = {
       if (e.post.get('bloom')) h += row(t('settings.bloom'), toggle('bloom', v.bloom, tools), esc);
       if (e.post.get('ao')) h += row(t('settings.ao'), toggle('ao', v.ao, tools), esc);
       if (e.adaptive) h += row(t('settings.adaptive'), toggle('adaptive', v.adaptive, tools), esc);
-      if (e.terrain?.setViewDistance) h += row(t('settings.viewDistance'), range('viewDistance', v.viewDistance, 2, 8, 1, tools), esc);
+      if (e.terrain?.setViewChunks) h += row(t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools), esc);
       if (e.terrain?.setDensity) h += row(t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools), esc);
       return h;
     },
@@ -53,7 +65,9 @@ export const BUILTIN_SECTIONS = {
     order: 20, title: e => e.t('settings.audio'), when: () => true,
     render(tools, e, s) {
       const { esc, t } = tools;
-      return ['volume', 'music', 'sfx', 'ambience'].map(ch => row(t('settings.vol.' + ch), range('vol.' + ch, s.values['vol.' + ch] ?? 1, 0, 1, 0.05, tools), esc)).join('');
+      // every bus of engine.audio (master first); a game's own bus is labeled by its key settings.vol.<bus>, else by its name
+      return Object.keys(e.audio.levels).map(b => row(e.i18n.has('settings.vol.' + b) ? t('settings.vol.' + b) : b,
+        range('vol.' + b, s.values['vol.' + b] ?? 1, 0, 1, 0.05, tools), esc)).join('');
     },
   },
   controls: {

@@ -49,7 +49,7 @@ formatClock(engine.sky.timeOfDay);                                        // '17
 - Turning time **back** does not fire; it only resets the baseline: `applyState({ time })` to an earlier time, or lowering `sky.timeOfDay` (19:00 -> 05:50 is going back within the same day, not "a night passed").
 - Loading a save does not fire; it only resets the baseline (trigger points between the save and the load are not made up).
 So "applyState to 05:50, then wait until 06:00" fires the 06:00 `at`, but after "applyState back to 17:50" the lamp will not switch itself off: use `between` for states like a lamp.
-Length of a day: `openWorld({ dayLength: 600 })` / `sky({ dayLength })` (game seconds); `engine.clock.timeScale` speeds things up temporarily (see the table above).
+Length of a day: `openWorld({ camera: 'follow', dayLength: 600 })` / `sky({ dayLength })` (game seconds); `engine.clock.timeScale` speeds things up temporarily (see the table above).
 For "which time" or "has this been done" in a story, use `engine.vars.bump / setFlag`; don't keep your own variables (vars are saved automatically).
 
 ## 2. Skipping time (sleep until morning, wait an hour)
@@ -61,7 +61,7 @@ await engine.skip({ to: '06:00', fade: 0.6, save: 'auto' }); // fade out, jump, 
 engine.events.on('time:skip', ({ seconds }) => engine.vars.bump('restSeconds', seconds));   // after the jump
 ```
 What catches up, and how:
-- `clock.after / every`, `sky.at / daily / between`, `day:new`, `season:change` fire **in time order, once per crossing, as if stepped** (a 3-day sleep fires `daily` 3 times; `catchUp` does not apply). Inside a callback `clock.now` and `sky.timeOfDay` already read the callback's own moment.
+- `clock.after / every`, `sky.at / daily / between`, `day:start`, `season:change` fire **in time order, once per crossing, as if stepped** (a 3-day sleep fires `daily` 3 times; `catchUp` does not apply). Inside a callback `clock.now` and `sky.timeOfDay` already read the callback's own moment.
 - World records with `far` catch up the whole span in **one** `far(rec, dt)` at the end (dt in fixed seconds = game seconds / `timeScale`), near ones included; kinds with only `near` are not made up. Growth and respawns measured with `clock.now` (entities, pickups, vegetation, the crop example in recipe 18) are exact; a far function that accumulates dt matches stepping within one far turn (`world.farEvery`); schedule NPCs end at the same place within one far turn of walking.
 - Not run while skipping: `onFixed`, module `fixed` hooks, physics, near simulation. Fixed seconds (`engine.elapsed`, `engine.tick`, cooldowns) do not move. So anything that must advance during a sleep is measured in game seconds (`clock.now`) or lives in a world record with `far`.
 - Input is locked and gameplay frozen for the whole skip (keys pressed during the fade do nothing). With `fade: 0` (default) the time has moved when `skip` returns; with a fade the Promise resolves after the fade in, which needs frames (in a paused test keep calling `engine.step`).

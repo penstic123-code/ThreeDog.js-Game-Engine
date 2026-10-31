@@ -19,11 +19,11 @@ import { UIParts } from '../ui/Parts.js';
 import { defineCoreParts } from '../ui/defaults.js';
 import { applyUIStyle } from '../ui/theme.js';
 import { describeApi } from './Describe.js';
-import { setValidate, checkOptions, DEV } from './validate.js';
+import { setValidate, checkOptions, warnOnce, DEV } from './validate.js';
 import { Clock } from './Clock.js';
 import { Vars } from './Vars.js';
 import { Budget } from './Budget.js';
-import { Raycast } from './Raycast.js';
+import { Rays } from './Rays.js';
 import { UrlState } from './UrlState.js';
 import { Jobs } from './Jobs.js';
 import { Threads } from './Threads.js';
@@ -31,7 +31,6 @@ import { Commits } from './Commits.js';
 import { Ops } from './Ops.js';
 import { Stream } from './Stream.js';
 import { Batching } from './Batching.js';
-import { Load } from './Load.js';
 import { Random } from './Random.js';
 import { loopMethods } from './loop.js';
 import { startupMethods } from './startup.js';
@@ -48,20 +47,26 @@ const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'antialias', 'post', 'pixe
   'fov', 'near', 'fogFar',
   'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching'];
 
+const NO_STYLE = 'createEngine(): no style pack given, so everything is a neutral gray placeholder: plain lights (one white hemisphere + one neutral '
+  + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look. '
+  + "Pass one: import lowpoly from '@threedog/style-lowpoly'; createEngine({ canvas, style: lowpoly }) (or your own pack, recipes/09-style-pack.md)";
+
 export class Engine {
   /**
    * @param o
    *   canvas        <canvas> (required)
-   *   style         style pack (art data: colors, models, sky, particle looks, sounds...); modules read their look from it
+   *   style         style pack (art only: colors, materials, models, sky, lighting, particle looks, UI colors), e.g. @threedog/style-lowpoly.
+   *                 The engine ships no art: without one everything is a neutral gray placeholder (dev warning)
    *   shadows       real-time shadows, default true
    *   antialias     MSAA edges, default style.antialias, else on for desktop and off for low-tier devices (phones, integrated GPUs); settings can switch it
    *   post          style post effects on/off by name, e.g. { bloom: false }; default each effect's own (costly ones off on low-tier devices)
    *   pixelRatio    render resolution, default min(device pixel ratio, 1.5)
    *   adaptiveResolution / targetFps   lower resolution automatically when the frame rate is short, default on / 55
    *   ui            UI parts { name: false | true | options | (engine, options) => part }: { loading: { title }, title: { title }, toast: false }; see ui/Parts.js
-   *   audio         per-channel volume { volume, ambience, sfx, music }
+   *   audio         the game's sound config { sounds, ambience, music, footsteps, levels } (engine.audio.config; levels = volume per bus
+   *                 { master, music, sfx, ambience, ui, ...your own }). Nothing plays that is not named here
    *   locale / strings   UI language ('auto' | 'zh-CN' | 'en' | your own) and override string tables. Default 'auto': a browser language starting with zh gives 'zh-CN', anything else 'en'; pass a locale to force one
-   *   bindings      override default keys { interact: ['KeyF'] }
+   *   bindings      keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions { interact: ['KeyE'], run: ['ShiftLeft'] }; a module's define() keeps these keys
    *   saveKey       save-name prefix; must differ between games on one site, default 'game'
    *   fov / near / fogFar   camera field of view, near plane, default fog distance
    *   headless      headless mode: no real-time loop, no per-frame render, advances only on step() (tests, screenshots; reproducible).
@@ -86,12 +91,13 @@ export class Engine {
     this.THREE = THREE;
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
     this.style = style;
+    if (!opts.style) warnOnce(NO_STYLE);
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.tier = detectTier(r);                 // 'low' | 'high': device tier, decides default quality
     r.setPixelRatio(pixelRatio ?? Math.min(devicePixelRatio || 1, this.tier === 'low' ? 1 : 1.5));
     r.setSize(innerWidth, innerHeight, false);
     const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
-    r.toneMapping = TONE[style.toneMapping ?? 'neutral'];   // neutral fallback; the look (ACES, exposure) is the style pack's
+    r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
     r.toneMappingExposure = style.exposure ?? 1;
     r.shadowMap.enabled = shadows;
     r.shadowMap.type = THREE.PCFShadowMap;
@@ -147,7 +153,7 @@ export class Engine {
     this.vars = new Vars(this);                // story flags and counters
     this.budget = new Budget(this);            // performance budget (default off)
     if (budget) this.budget.enable(budget);
-    this.raycaster = new Raycast(this);        // ray registry: engine.raycast / pick
+    this.rays = new Rays(this);        // ray registry: engine.raycast / pick
     Object.assign(this, describeApi(this));     // describe / describeText / inspect / explain, see Describe.js
     this.random = new Random(seed ?? (headless ? 1 : Date.now()));   // wall-clock: differs per run when no seed is given
     this.saves.register('random', { save: () => this.random.toJSON(), load: d => this.random.fromJSON(d) });
@@ -159,8 +165,7 @@ export class Engine {
     defineSkipOp(this);                        // 'time.skip', behind engine.skip (skip.js)
     this.jobs = new Jobs(this);                // frame-spread job scheduler
     this.threads = new Threads(threads);       // worker pool (see Threads.js); workers start only when a lane is used
-    this.load = new Load(this);                // load sources: where the world is loaded (stream, models, terrain, colliders read it)
-    this.stream = new Stream(this);            // spatial stream-in
+    this.stream = new Stream(this);            // spatial stream-in and the stream sources (where the world is loaded: stream, models, terrain, colliders read them)
     this.batching = new Batching(this, batching);   // repeated static models drawn as InstancedMesh batches (Batching.js)
     this.startup = null;                       // startup timing report (set once start() finishes)
     this._prof = null;                         // module hook timing (profile(true) turns it on)
@@ -184,10 +189,10 @@ export class Engine {
   t(key, params) { return this.i18n.t(key, params); }
   /** Elapsed fixed-step seconds (ignores clock.timeScale; stops while frozen or paused), for presentation animation (sway, bobbing). Game seconds are clock.now (= fixed-step seconds × timeScale); sky time of day is sky.timeOfDay */
   get elapsed() { return this._elapsed; }
-  /** Ray cast: the nearest hit or null, see Raycast.js */
-  raycast(origin, dir, opts) { return this.raycaster.cast(origin, dir, opts); }
+  /** Ray cast: the nearest hit or null, see Rays.js */
+  raycast(origin, dir, opts) { return this.rays.cast(origin, dir, opts); }
   /** Cast a ray from screen coordinates (-1..1) */
-  pick(ndcX, ndcY, opts) { return this.raycaster.pick(ndcX, ndcY, opts); }
+  pick(ndcX, ndcY, opts) { return this.rays.pick(ndcX, ndcY, opts); }
   /** Set up a scenario: { time, weather, pos, save, wait, cutscene, state }, see UrlState.js */
   applyState(params) { return this._urlState.apply(params); }
   /** Scenario ready: start() has finished and the URL parameters / latest applyState are applied (tests and screenshots wait for it) */
@@ -201,7 +206,7 @@ export class Engine {
   remove(...objs) {
     for (const o of objs) {
       o.removeFromParent();
-      this.raycaster.forget(o);
+      this.rays.forget(o);
       this.assets.forget(o);
       const shared = this.assets.shared, held = this.batching.held;   // a batch still drawing the same geometry / material keeps it alive
       o.traverse(c => {
@@ -240,7 +245,7 @@ export class Engine {
     this.camera.far = d + 150; this.camera.updateProjectionMatrix();
   }
 
-  /** Display name of a module (loading screen): module.<name> from the string table, else the module's own label */
+  /** @internal Display name of a module (loading screen): module.<name> from the string table, else the module's own label */
   moduleName(m) { return this.i18n.has('module.' + m.name) ? this.t('module.' + m.name) : (m.label || m.name); }
 
   // ---------- pause and deterministic stepping (tests, screenshots, AI checks) ----------

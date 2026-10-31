@@ -28,7 +28,7 @@ export type Ease = EaseName | ((t: number) => number);
 /** A few known names (with autocomplete), other strings are accepted too (a style pack is a plain object, its strings are not treated as fixed values) */
 export type Loose<T extends string> = T | (string & {});
 /**
- * Handle: returned by every "add / register / listen / attach" API (events.on, onFrame, clock.after, collision.addBox, interactions.add, raycaster.addStatic…),
+ * Handle: returned by every "add / register / listen / attach" API (events.on, onFrame, clock.after, collision.addBox, interactions.add, rays.addStatic…),
  * call remove() to undo that registration (removes the listener, collider, timer…; safe to call repeatedly). Some handles carry extra fields (such as setTarget on hud.marker)
  */
 export interface Handle { remove(): void }

@@ -2,7 +2,7 @@
 
 - `assets.manifest(m: AssetManifest, opts?: { name?: string })` — Register the asset manifest (can be called several times). opts.name labels it as the source in engine.loading (default 'manifest#1', '#2'...)
 - `assets.preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }) → Promise<{ loaded: number; failed:…` — Preload (onProgress(0–1, current name)). Code-generated models are only generated up front if marked preload. failed includes entries now showing their fallback
-- `assets.model(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Promise<Object3D>` — Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.raycaster (builds ray acceleration)
+- `assets.model(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Promise<Object3D>` — Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray acceleration)
 - `assets.modelNow(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Object3D | null` — A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs. Example: `const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');`
 - `assets.geometry(nameOrUrl: string) → Promise<BufferGeometry>` — Get the geometry of the first mesh in a model
 - `assets.texture(nameOrUrl: string, opts?: { color?, pixelated?, repeat? }) → Promise<Texture>` — Get a texture (.ktx2 compressed textures also work)
@@ -50,5 +50,4 @@
   - `action(name: string, fade?: number) → any` — One-shot clip: state name or clip name, returns to then or the previous state when done; go() cannot interrupt it while playing
   - `sync(state: string | null, t?: number) → any` — Gameplay drives the clock: show state at gameplay time t (fixed-step seconds) through its timing. The clip never advances or ends by itself and go() leaves it alone; sync(null) hands control back
   - `describe() → AnimatorInfo` — What is showing: state, clip, clip time, progress, driven, weights
-  - `update(dt: number)` — Advance every frame (called automatically by the engine)
   - `dispose()` — Stop the per-frame update when no longer needed

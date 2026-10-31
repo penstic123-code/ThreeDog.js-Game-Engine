@@ -36,7 +36,7 @@ export const lifecycleMethods = {
       try { m.dispose(this); } catch (err) { console.error(coded('module-dispose', STRINGS.failed.replace('{name}', m.name)), err); }
     }
     this._abort.abort();
-    for (const part of [this.saves, this.audio, this.clock, this.commits, this.jobs, this.threads, this.stream, this.batching, this.load, this.raycaster, this.events]) part.dispose();
+    for (const part of [this.saves, this.audio, this.clock, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
     this._fixed = []; this._frame = []; this._hooks = { fixed: [], frame: [], afterRender: [], skip: [] }; this._afterTick = null;
     this.scene.traverse(disposeObject);
     for (const t of [this.scene.background, this.scene.environment]) if (t?.isTexture) t.dispose();
@@ -58,7 +58,7 @@ export const lifecycleMethods = {
     const mem = this.renderer.info.memory;
     const c = {
       listeners: this.events.size, fixed: this._fixed.length, frame: this._frame.length, timers: this.clock.size,
-      statics: this.raycaster.statics.size, streamEntries: this.stream.entries.size, jobs: this.jobs.pending, commits: this.commits.pending,
+      statics: this.rays.statics.size, streamEntries: this.stream.entries.size, jobs: this.jobs.pending, commits: this.commits.pending,
       geometries: mem.geometries, textures: mem.textures,
     };
     for (const m of this.modules.values()) if (m.counts) c[m.name] = m.counts(this);

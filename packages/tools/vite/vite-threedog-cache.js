@@ -18,7 +18,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { resolve, relative, dirname, extname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isLocalRequest } from './local.js';
-import { ROOT as REPO, abs, rel, ENGINE, ENGINE_PKG, INDEX_JS_REL, STYLES_REL, BAKED_REL, ENGINE_CODE_DIRS_REL } from '../paths.mjs';
+import { ROOT as REPO, abs, rel, ENGINE, ENGINE_PKG, INDEX_JS_REL, STYLES_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, styleName, styleDir } from '../paths.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.threedog', 'public', 'shots', '.git']);
 // When looking for generator source the engine source is not searched (generators live in the game or the style pack)
@@ -43,7 +43,7 @@ function makeReader() {
 
 /** Hash helpers for generators (shared by the dev server, the build check and npm run bake). root is the workspace directory (engine package or a game) */
 export function keyMaker(root) {
-  // Directories to search: this workspace; a game also adds the engine's style packs (models from the style pack a game uses must be hashable and bakeable too)
+  // Directories to search: this workspace; a game also adds the style packs (models from the style pack a game uses must be hashable and bakeable too)
   const roots = root === ENGINE ? [root] : [root, STYLES];
   const read = makeReader();
   let list = null, listAt = 0;
@@ -62,7 +62,7 @@ export function keyMaker(root) {
   const resolveSpec = (file, spec) => {
     let p;
     if (spec === ENGINE_PKG) p = BARREL;                                                        // a game's import 'threedog'
-    else if (spec.startsWith(ENGINE_PKG + '/styles/')) p = resolve(STYLES, spec.slice(ENGINE_PKG.length + 8), 'index.js');
+    else if (styleName(spec)) p = resolve(styleDir(styleName(spec)), 'index.js');            // a style pack package (@threedog/style-<name>)
     else if (!/^\.{1,2}\/|^\//.test(spec)) return null;
     else p = spec.startsWith('/') ? resolve(root, '.' + spec) : resolve(dirname(file), spec);
     if (!extname(p) && existsSync(p + '.js')) p += '.js';

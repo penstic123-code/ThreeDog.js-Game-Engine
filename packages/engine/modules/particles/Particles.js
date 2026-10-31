@@ -144,6 +144,7 @@ export class Particles {
    * Update all effects every frame (called by the module each frame)
    * @param {number} dt
    * @returns {void}
+   * @internal
    */
   update(dt) {
     const pr = this.engine.renderer.getPixelRatio(), scale = innerHeight * pr / (2 * Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2));

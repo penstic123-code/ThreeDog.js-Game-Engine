@@ -47,12 +47,14 @@ export class World {
     /** @internal */ this._removed = new Set();  // ids of removed initial records (tombstones, saved)
     /** @internal */ this._pending = new Map();  // changes from a save whose content has not been added yet: id → { set: changed fields, del: removed fields }
     /** @internal */ this._unsaved = new Set();  // ids added with save: false
+    /** @internal */ this._origin = new Map();   // dev only: id → where the record comes from (world.origin); empty in release builds
+    /** @internal */ this._levels = new Set();   // levels whose nodes were registered (setOrigin { level }): `<level>/<node>` diffs count as orphans only after that
     /** @internal */ this._v = new Views(this);
     /** @internal */ this._s = new Sim(this);
   }
 
   /**
-   * Gameplay simulation center (near / far is measured from it): null (default) = where engine.actor is (engine.actorPosition(): the player, or engine.focus when there is no player). The built-in load source engine.load.player follows the player too (models and colliders around it); the camera source engine.load.camera adds models only.
+   * Gameplay simulation center (near / far is measured from it): null (default) = where engine.actor is (engine.actorPosition(): the player, or engine.focus when there is no player). The built-in stream source engine.stream.player follows the player too (models and colliders around it); the camera source engine.stream.camera adds models only.
    * For another center (a strategy game's base) set a Vector3 / object / { x, z } / [x, y, z]; set null to restore. Read once at the start of each fixed step
    * @example engine.world.anchor = baseObject
    * @type {any}
@@ -80,7 +82,7 @@ export class World {
    * @returns {WorldRecord | null}
    */
   add(def, opts) {
-    DEV && this.engine.ops._guard('world.add');
+    DEV && this.engine.ops.guard('world.add');
     if (!def?.kind) throw new Error(STRINGS.noKind);
     if (DEV) { checkOptionsArg('world.add(def, opts)', opts, ['initial', 'save']); checkPlain({ ...def, position: undefined }, def.kind); }
     const { id: given, kind, position, ...rest } = def, initial = !!opts?.initial;
@@ -96,7 +98,55 @@ export class World {
     }
     if (have) throw new Error(fmt(STRINGS.dupId, { id }));
     if (opts?.save === false) this._unsaved.add(id);
+    if (DEV) this._origin.set(id, { spawned: { op: this.engine.ops.running, tick: this.engine.tick } });   // who made it (inspect / pick)
     return this._insert(rec, true);
+  }
+  /**
+   * Where a record comes from (filled in dev and test builds; null in release): { definedAt: 'content/props.js:14' } for a content entry,
+   * { level, node } for a level-model node, { template } when it is a template instance, { spawned: { op, tick } } for a record created during play.
+   * engine.inspect(id) and engine.pick(...).thing show it, so you know which file to edit to change the level for good.
+   * @example engine.world.origin('chest-home')   // { definedAt: 'content/props.js:14', template: 'chest' }
+   * @param {string} id
+   * @returns {{ definedAt?: string, level?: string, node?: string, template?: string, spawned?: { op: string | null, tick: number } } | null}
+   */
+  origin(id) { return this._origin.get(id) ?? null; }
+  /**
+   * @internal An authored record's resting place, known only once its model is built (a physics body lifted to sit on the ground): when the record is
+   * still where its content put it (within tolerance meters), the content position moves there too, so the record stays out of the save. A record that was moved is left alone.
+   */
+  rest(id, position, tolerance = 0) {
+    const rec = this.records.get(id), base = this._base.get(id); if (!rec) return;
+    const a = rec.position, b = base?.position;
+    const same = !!b && Math.abs(a.x - b.x) <= tolerance && Math.abs(a.y - b.y) <= tolerance && Math.abs(a.z - b.z) <= tolerance;
+    putPos(`world.rest("${id}")`, position, rec.position); this._index(rec);
+    if (same) base.position = { ...rec.position };
+  }
+  /** @internal Content / level loaders say where an authored record was defined (dev only; merged into what is there) */
+  setOrigin(id, info) {
+    if (info?.level != null) this._levels.add(info.level);
+    if (DEV) this._origin.set(id, { ...this._origin.get(id), ...info });
+  }
+  /**
+   * The id of the record whose model contains obj (obj itself or one of its parents is a built model), else null. A ray hit on a model names its record this way.
+   * @example const h = engine.pick(0, 0); const id = h && engine.world.idOf(h.object);
+   * @param {any} obj  a THREE.Object3D (a mesh of the model is fine)
+   * @returns {string | null}
+   */
+  idOf(obj) {
+    for (let o = obj; o; o = o.parent) { const id = this._v.byObj.get(o); if (id !== undefined) return id; }
+    return null;
+  }
+  /**
+   * @internal Saved changes or removals whose id no authored entry produces any more (content renamed or deleted it). They are kept in the save
+   * (a reverted content change gets its data back); a `<level>/<node>` id counts only after that level has been shown.
+   * @returns {string[]}
+   */
+  orphans() {
+    const out = [], known = id => this._base.has(id) || this.records.has(id);
+    const due = id => { const i = id.indexOf('/'); return i < 0 || this._levels.has(id.slice(0, i)); };
+    for (const id of this._pending.keys()) if (!known(id) && due(id)) out.push(id);
+    for (const id of this._removed) if (!known(id) && !this._base.has(id) && due(id)) out.push(id);
+    return out;
   }
   /**
    * Get a record by id (undefined if missing, like a Map)
@@ -113,7 +163,7 @@ export class World {
    * @returns {WorldRecord}
    */
   set(id, patch) {
-    DEV && this.engine.ops._guard('world.set');
+    DEV && this.engine.ops.guard('world.set');
     const rec = this._need(id, 'set');
     if (DEV) { if ('id' in patch || 'kind' in patch) throw new Error(fmt(STRINGS.setKey, { id })); checkPlain({ ...patch, position: undefined }, id); }
     const { position, ...rest } = patch;
@@ -132,7 +182,7 @@ export class World {
    * @returns {void}
    */
   move(id, position) {
-    DEV && this.engine.ops._guard('world.move');
+    DEV && this.engine.ops.guard('world.move');
     const rec = this._need(id, 'move');
     putPos(`world.move("${id}")`, position, rec.position);
     this._index(rec);
@@ -143,14 +193,14 @@ export class World {
    * @returns {void}
    */
   remove(id) {
-    DEV && this.engine.ops._guard('world.remove');
+    DEV && this.engine.ops.guard('world.remove');
     const rec = this.records.get(id); if (!rec) return;
     this._v.unview(id);
     this._cells.delete(rec);
     this.records.delete(id);
     this._s.removed(id);
     this._unsaved.delete(id);
-    if (this._base.has(id)) this._removed.add(id);
+    if (this._base.has(id)) this._removed.add(id); else this._origin.delete(id);
     this.engine.events.emit('world:remove', { id, kind: rec.kind });
   }
   /**
@@ -182,7 +232,7 @@ export class World {
   forEachNear(center, radius, fn) { this._cells.forEach(centerOf(center), radius, fn); }
 
   /**
-   * Register how a kind of thing looks: models are built automatically within radius meters of any full-detail load source (engine.load: player, camera focus, teleport destination) and torn down when far from all of them (radius × 1.25); tearing down never touches the record. Callbacks:
+   * Register how a kind of thing looks: models are built automatically within radius meters of any full-detail stream source (engine.stream: player, camera focus, teleport destination) and torn down when far from all of them (radius × 1.25); tearing down never touches the record. Callbacks:
    *   build(rec) → three.js object (may be async). world adds it to the scene and places it at rec.position; if it throws / fails / returns a non-object: reported once, does not block ready, retried when you leave and come back.
    *   update(rec, obj, dt): called every frame for records that have a model (change the look from the data, e.g. an opened chest swaps texture).
    *   dispose(rec, obj): called on teardown (record first, model second); if omitted, engine.remove(obj).
@@ -203,12 +253,12 @@ export class World {
    * @returns {any}
    */
   view(id) { return this._v.map.get(id)?.obj ?? null; }
-  /** All models that should exist near the load sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to wait yourself, await world.whenReady @type {boolean} */
+  /** All models that should exist near the stream sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to wait yourself, await world.whenReady @type {boolean} */
   get ready() { return this._v.ready; }
   /** Promise that resolves when ready becomes true @type {Promise<void>} */
   get whenReady() { return this._v.whenReady; }
   /**
-   * Build / tear down models for the load sources right now (normally automatic every frame, with a per-frame limit). Use it right after add when you need the model: sync builds are available via view(id) after the call, for async ones also await world.whenReady
+   * Build / tear down models for the stream sources right now (normally automatic every frame, with a per-frame limit). Use it right after add when you need the model: sync builds are available via view(id) after the call, for async ones also await world.whenReady
    * @example engine.world.add({ id: 'gate', kind: 'gate', position: p }); engine.world.refresh(); engine.world.view('gate')
    * @returns {void}
    */
@@ -220,7 +270,7 @@ export class World {
    * With only far (crops), near also advances via far; with only near, far records are not simulated and owed time is not made up.
    * Both dt are accumulated fixed-step seconds (not multiplied by clock.timeScale). For things measured in game clock (grows over days) store engine.clock.now and compare.
    * radius defaults to the present radius ('view' widened by 1.25), or world.radius without present; may also be a function.
-   * worker: true runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must then be self-contained:
+   * worker: true (experimental) runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must then be self-contained:
    * it is recompiled from source and sees only (rec, dt) and globals like Math; an outside variable throws naming it (threads on or off alike).
    * @example engine.world.simulate('zombie', { near: (rec, dt) => chase(rec, dt), far: (rec, dt) => wander(rec, dt), farEvery: 2 })
    * @example engine.world.simulate('crop', { far: (rec, dt) => { rec.growth = Math.min(1, rec.growth + dt / 600); }, worker: true })
@@ -240,7 +290,7 @@ export class World {
     this._s.fixed(dt, centerOf(a));
     this._v.pull();
   }
-  /** Every frame: build / tear down models by load sources, sync positions, call update @internal */
+  /** Every frame: build / tear down models by stream sources, sync positions, call update @internal */
   frame(dt) { this._v.frame(dt); }
   /** Save content (rules at the top of persist.js) @internal */
   toJSON() { return saveWorld(this); }

@@ -13,7 +13,7 @@ const STRINGS = {
   paused: ', paused', headless: ', headless', notReady: ', still loading',
   waiting: 'Loading: {waiting} ({pending} pending, {done}/{total} done)', loadFailed: 'Load failed{blocked}: {list}', blocked: ' (start blocked)',
   loadWarn: 'Loaded with missing references: {list}',
-  time: 'Time: {clock}, day {day}, {season}, {dayNight}',
+  time: 'Time: {clock}, day {day}{season}, {dayNight}',
   day: 'daytime', night: 'night',
   weather: 'Weather: {name}{changing} (rain {rain}, snow {snow}, fog {fog}){shown}',
   weatherShown: ', on screen: {what}', rainShown: 'raindrops', snowShown: 'snowflakes',
@@ -92,7 +92,7 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   if (ld.failed.length) L.push(fmt(STRINGS.loadFailed, { blocked: ld.blocked ? STRINGS.blocked : '', list: ld.failed.map(f => `${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}${f.fallback ? ` -> ${f.fallback}` : ''}`).join('; ') }));
   if (ld.warnings.length) L.push(fmt(STRINGS.loadWarn, { list: ld.warnings.map(w => `"${w.name}" missing ${w.missing.join(', ')}`).join('; ') }));
   if (d.disabledModules?.length) L.push(fmt(STRINGS.disabled, { list: d.disabledModules.join(', ') }));
-  if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: tr('season', t.season), dayNight: t.isDay ? STRINGS.day : STRINGS.night }));
+  if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day : STRINGS.night }));
   const w = d.weather;
   if (w) L.push(fmt(STRINGS.weather, { name: w.label ?? w.name, rain: n1(w.rain), snow: n1(w.snow), fog: n1(w.fog),
     changing: w.progress < 1 ? fmt(STRINGS.changing, { pct: Math.round(w.progress * 100) }) : '',

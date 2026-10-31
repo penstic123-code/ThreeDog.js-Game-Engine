@@ -207,7 +207,7 @@ export async function checkGame(dir) {
   for (const [kind, where, f] of flagsUsed) if (!flagsSet.has(f)) warn(kind,
     `${where} checks story flag ${f}, but nothing sets it (setFlag or flags.${f} = … in code), so this condition can never be met`);
   for (const [kind, where, k] of countersUsed) if (!countersBumped.has(k)) warn(kind,
-    `${where} checks counter ${k}, but nothing increases it (bump or quests.bump('${k}') in code), so this condition can never be met`);
+    `${where} checks counter ${k}, but nothing increases it (bump or vars.bump('${k}') in code), so this condition can never be met`);
 
   return { errors, warnings };
 }

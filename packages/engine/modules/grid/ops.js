@@ -16,7 +16,7 @@ const REASONS = {
 const RESERVED = ['id', 'kind', 'grid', 'position', 'rot'];
 
 /** The placed-record fields for a footprint @internal */
-function placed(g, rule, item, cell, rotation) {
+export function placed(g, rule, item, cell, rotation) {
   return {
     position: g.toWorld(cell, rule.size, rotation), rot: rotation * Math.PI / 2,
     grid: { id: g.name, cell: [cell[0], cell[1]], size: [rule.size[0], rule.size[1]], rotation, ...(item ? { item } : {}) },
@@ -30,14 +30,14 @@ export function defineGridOps(e, grids) {
       desc: 'Place an item on a grid: creates a world record whose footprint occupies cells. item = name from engine.grids.define; rotation = quarter turns',
       args: { grid: 'string', item: 'string', cell: 'any', rotation: 'int?', fields: 'any?', id: 'string?' },
       can(e, { grid, item, cell, rotation = 0, id, fields }) {
-        const g = grids.get(grid, false);
+        const g = grids.get(grid);
         if (fields && RESERVED.some(k => k in fields)) return 'badFields';
         if (!g) return 'noGrid';
         if (id && e.world.get(id)) return 'idTaken';
         return g.can(item, cell, { rotation });
       },
       run(e, { grid, item, cell, rotation = 0, fields, id }) {
-        const g = grids.get(grid), rule = grids._rule(item);
+        const g = grids._must(grid), rule = grids._rule(item);
         const rec = e.world.add({ ...(id ? { id } : {}), kind: rule.kind ?? item, ...structuredClone(rule.fields ?? {}), ...fields, ...placed(g, rule, item, cell, rotation) });
         return rec.id;
       },
@@ -57,12 +57,12 @@ export function defineGridOps(e, grids) {
         const r = e.world.get(id);
         if (!r) return 'unknown';
         if (!r.grid) return 'notPlaced';
-        const g = grids.get(grid ?? r.grid.id, false);
+        const g = grids.get(grid ?? r.grid.id);
         if (!g) return 'noGrid';
         return g.can(r.grid.item ?? r.grid.size, cell, { rotation: rotation ?? r.grid.rotation, ignore: id });
       },
       run(e, { id, cell, rotation, grid }) {
-        const r = e.world.get(id), g = grids.get(grid ?? r.grid.id), rule = { size: r.grid.size };
+        const r = e.world.get(id), g = grids._must(grid ?? r.grid.id), rule = { size: r.grid.size };
         e.world.set(id, placed(g, rule, r.grid.item, cell, rotation ?? r.grid.rotation));
         return id;
       },

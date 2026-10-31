@@ -9,19 +9,26 @@
 //    Which one wins: the `Cancel convention:` line under `## Interface conventions` in .claude/rules/api-design.md.
 //    If that file, section or line is missing, or the line names none of the three, the rule reports an error (it never skips silently).
 //    Methods returning void / this / numbers (not something to cancel with) are not checked here.
-// C. Members named list / get / has are methods (engine.npcs.list() and engine.entities.list.length must not both exist). Warning.
+// C. Members named list / get / has are methods (engine.npcs.list() and engine.entities.list.length must not both exist). Error.
 // D. Methods named tick / update / apply on public types are module plumbing the module calls itself: they must be @internal (or _x), so an
-//    AI does not call weather.apply() to "apply weather". Module definitions (hooks) and ALLOW are exempt. Warning.
+//    AI does not call weather.apply() to "apply weather". Module definitions (hooks) and ALLOW are exempt. Error.
 // E. Shape-based cancel check: any method (whatever its name, e.g. grids.preview) returning an object with stop() or cancel() but no remove()
 //    breaks the handle convention. Media / promise types where stop() is the natural verb are on ALLOW_STOP. Warning.
+// G. No Engine member named after a three.js class (raycaster, loader, mixer, composer: engine.rays is not a THREE.Raycaster) or after a verb that
+//    names other APIs (load: saves.load, session.load, level.load...). Error.
+// H. Every [file, name] in STABILITY.experimental (paths.mjs) has @experimental in the JSDoc right above its declaration. Error.
 // Limitation: B only looks at the shape of the return type; it cannot know about methods that "return void but should be removable" (such as spawnPickup, which has no way to delete).
-import { ts, dtsProgram, dtsFiles, abs, rel, read } from './_lib.mjs';
+import { ts, dtsProgram, dtsFiles, abs, rel, read, P } from './_lib.mjs';
 
 const PREFIX = /^(add|attach|spawn|marker|register)/;
 // Allowlist: ['Type.member', reason]
-const ALLOW = [];
+const ALLOW = [
+  ['Saves.apply', 'applies save data the game holds (an import, a test fixture); a game-facing verb, not a per-frame hook'],
+  ['CameraRigBase.update', 'a custom camera rig implements update; the game writes it, the engine calls it'],
+];
 const COLLECTION = new Set(['list', 'get', 'has']);   // count / find are also common data fields (ItemEntry.count), so they are left out
 const PLUMBING = new Set(['tick', 'update', 'apply']);
+const ENGINE_BANNED = new Map([['raycaster', 'engine.rays'], ['loader', 'engine.assets'], ['mixer', 'engine.assets.animate'], ['composer', 'engine.post'], ['load', 'engine.stream (sources) or saves / session / content load']]);
 const HOOK_OWNERS = /^(ModuleDef|Module\w*Def|\w*Hooks|UIPart|Animator)$/;   // hooks the game implements (module definitions, UI parts) and user-driven objects (Animator, like AnimationMixer)
 // Return types where stop() / cancel() is the right verb: ['TypeName', reason]
 const ALLOW_STOP = [['SoundHandle', 'media: a playing sound stops'], ['TweenPromise', 'a promise is cancelled'], ['MusicHandle', 'media: music stops']];
@@ -79,12 +86,15 @@ export default {
           readies.push({ who, kind, ...at(m) });
         }
         const isMethod = ts.isMethodSignature(m) || ts.isMethodDeclaration(m);
+        // G
+        if (o.name.text === 'Engine' && ENGINE_BANNED.has(name))
+          shape.push({ level: 'error', ...at(m), msg: `Engine.${name} reads like a three.js class or a verb used by other APIs`, fix: `use ${ENGINE_BANNED.get(name)} instead` });
         // C
         if (COLLECTION.has(name) && !isMethod && !isFn(checker.getTypeOfSymbol(sym)))
-          shape.push({ level: 'warn', ...at(m), msg: `${who} is a property; list / get / has / count / find are methods everywhere else`, fix: `make it ${name}() (keep a deprecated getter for one release if needed)` });
+          shape.push({ level: 'error', ...at(m), msg: `${who} is a property; list / get / has / count / find are methods everywhere else`, fix: `make it ${name}()` });
         // D
         if (PLUMBING.has(name) && isMethod && !isInternalDoc(m) && !HOOK_OWNERS.test(o.name.text))
-          shape.push({ level: 'warn', ...at(m), msg: `${who}() is module plumbing on a public type`, fix: 'tag it @internal (or rename it _x) and call it from the module hook only' });
+          shape.push({ level: 'error', ...at(m), msg: `${who}() is module plumbing on a public type`, fix: 'tag it @internal (or rename it _x) and call it from the module hook only' });
         // E
         if (isMethod) {
           const sig = checker.getSignatureFromDeclaration(m), ret = sig && checker.getNonNullableType(sig.getReturnType());
@@ -108,6 +118,16 @@ export default {
       });
     }
     const out = [...new Map(shape.map(x => [x.msg, x])).values()];
+    // H
+    for (const [file, name] of P.STABILITY.experimental) {
+      let lines; try { lines = read(file).split('\n'); } catch { out.push({ level: 'error', file, line: 0, msg: `STABILITY lists ${file}, which does not exist`, fix: 'fix the entry in packages/tools/paths.mjs' }); continue; }
+      const decl = new RegExp(String.raw`^\s*(export\s+)?((async\s+)?(function|class|interface)\s+${name}\b|(async\s+)?${name}\s*\(|${name}\??:)`);
+      const hits = lines.flatMap((l, i) => decl.test(l) ? [i] : []), at = hits[0] ?? -1;
+      const tagged = d => { for (let i = d - 1; i >= 0 && i >= d - 30; i--) { if (lines[i].includes('@experimental')) return true; if (!/^\s*(\/\*\*|\*)/.test(lines[i])) return false; } return false; };
+      const ok = hits.some(tagged);   // any declaration of that name (a file may declare it twice, e.g. a handle's enable() and the class's)
+      if (!ok) out.push({ level: 'error', file, line: at + 1, msg: at < 0 ? `STABILITY lists ${name}, not declared in ${file}` : `${name} is listed as experimental but its JSDoc has no @experimental`,
+        fix: 'add @experimental to the JSDoc right above it (or remove it from STABILITY.experimental in packages/tools/paths.mjs)' });
+    }
     // A
     const kinds = [...new Set(readies.map(r => r.kind))];
     if (kinds.length > 1) {

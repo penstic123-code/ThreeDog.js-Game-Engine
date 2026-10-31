@@ -24,6 +24,8 @@ export const CHARACTER_KEYS = ['colors', 'speed', 'runSpeed', 'radius', 'canSwim
 const FACE_MODES = ['move', 'camera', 'target', 'manual'];
 
 // Neutral placeholder when the style pack draws no character: one gray capsule, no limbs (the shape belongs to style packs)
+const NO_CHARACTER = 'characters: no style pack / model given, so characters are gray capsules (a placeholder). Pass one: a model '
+  + "(createPlayer({ model: 'hero' }) or style.character.model), or a style pack whose style.character.create builds one, e.g. createEngine({ style: lowpoly }) with lowpoly from '@threedog/style-lowpoly'";
 function capsule(color) {
   const body = new THREE.Group(); body.position.y = 0.85;
   const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), makeMaterial('character', { color }));
@@ -76,7 +78,9 @@ export class Character {
     model ??= engine.style.character?.model ?? null;
     if (model && typeof model !== 'string') { this._useModel(model, clips, animation); return; }
     // style-pack procedural character: rig = { root, body?, head?, joints?: { name: Group }, limbs: [{ joint, offset: 0 | Math.PI, amp, kind: 'arm'|'leg', side? }] }
-    this._useRig(engine.style.character?.create?.(engine, c) || capsule(c.body));
+    const rig = engine.style.character?.create?.(engine, c);
+    if (!rig && !model) warnOnce(NO_CHARACTER);
+    this._useRig(rig || capsule(c.body));
     if (model) this._whenReady = loadAssetModel(this, model, m => this._useModel(m, clips, animation));
   }
   _useModel(model, clips, animation) {
@@ -137,7 +141,7 @@ export class Character {
     this.vehicle = vehicle; vehicle.driver = this;
     if (e.player === this) this._driveCtx = e.input.push('vehicle', { pass: true });   // driving: brake lives in this context, walking-only keys are shadowed
     this.root.visible = false; this.velocity.set(0, 0); this.vy = 0; this.swimming = false; this.state = 'drive'; this._store();
-    if (e.player === this) e.cameraRig?.follow(vehicle.object, vehicle.camera);   // driving: forward/back keys throttle, left/right steer, brake key (action brake)
+    if (e.player === this && this.cameraFollow) e.cameraRig?.follow(vehicle.object, vehicle.camera);   // only when the game asked the camera to follow the player (createPlayer({ cameraFollow })). driving: forward/back keys throttle, left/right steer, brake key (action brake)
     e.events.emit('vehicle:enter', { character: this, vehicle });
   }
   /** Exit: step out beside the door, camera returns to the character */
@@ -147,7 +151,7 @@ export class Character {
     v.drive(0, 0, 1); v.driver = null; this.vehicle = null;
     this._driveCtx?.remove(); this._driveCtx = null;
     this.placeAt(v.exitPosition()); this.root.visible = true; this.grounded = true; this.state = 'idle';
-    if (e.player === this) e.cameraRig?.follow(this.root);
+    if (e.player === this && this.cameraFollow) e.cameraRig?.follow(this.root);
     e.events.emit('vehicle:exit', { character: this, vehicle: v });
   }
   /** Dispose this character completely: exit the vehicle first, release animation and mover, remove from the scene and dispose geometries and materials (engine.remove) */
@@ -181,12 +185,11 @@ export class Character {
     else warnOnce(STRINGS.noClip.replace('{name}', name));
   }
 
-  /** Ground type under the feet (from the ground API, mapped via the style pack footstepMap; 'water' while swimming) */
+  /** Ground type under the feet (terrain groundType or level material name); 'water' while swimming. Footstep sounds map it via audio.footsteps */
   groundType() {
-    if (this.swimming) return this.engine.style.footstepMap?.water ?? 'water';
-    const p = this.root.position, t = this.engine.groundType(p.x, p.z);
-    const map = this.engine.style.footstepMap || {};
-    return map[t] ?? t;
+    if (this.swimming) return 'water';
+    const p = this.root.position;
+    return this.engine.groundType(p.x, p.z);
   }
 
   /**
@@ -199,7 +202,7 @@ export class Character {
     this.root.rotation.y = this.facing;
   }
 
-  /** Call every frame: play animation */
+  /** @internal Call every frame: play animation */
   animate(dt) {
     const sp = this.moveAmount, t = this.engine.elapsed, st = this.state;
     this.phase += dt * (2.2 + sp * 1.25);

@@ -2,7 +2,7 @@
 // Finds the running dev server (vite-threedog-bridge.js) through <workspace>/.threedog/dev.json and forwards the primitives to it; the commands themselves are in commands.mjs.
 //   threedog describe                   on the engine package example
 //   threedog describe -w my-farm        pick a workspace (or just run it inside the game directory)
-//   --page /city.html              pick the page path (default: the real page that last got focus, otherwise a headless /)
+//   --page /tests/city/index.html              pick the page path (default: the real page that last got focus, otherwise a headless /)
 import { pickWorkspace } from '../paths.mjs';
 import { run, COMMANDS } from './commands.mjs';
 import { devServer, bridgeDriver, errorText, scenario } from './connect.mjs';

@@ -4,11 +4,11 @@ import { openWorld, rtsCamera } from '../../index.js';
 export const specs = [
   {
     name: 'E openWorld camera 选项、describe.add 登记游戏状态、random.seeded 独立随机（小城）',
-    url: '/city.html',
+    url: '/tests/city/index.html',
     async run({ check, ev }) {
       // openWorld just returns a module array, so inspect it in node (the test page is a bundle and cannot reach the raw modules)
       const rigOf = opts => openWorld(opts).filter(m => m && m.name === 'cameraRig');
-      const rigs = [{}, { camera: 'firstPerson' }, { camera: 'rts' }, { camera: 'fixed' }, { camera: rtsCamera({ height: 60 }) }].map(o => rigOf(o).length);
+      const rigs = [{ camera: 'follow' }, { camera: 'firstPerson' }, { camera: 'rts' }, { camera: 'fixed' }, { camera: rtsCamera({ height: 60 }) }].map(o => rigOf(o).length);
       let bad = ''; try { openWorld({ camera: 'sky' }); } catch (err) { bad = err.message; }
       const r = await ev(async () => {
         engine.pause();

@@ -31,7 +31,7 @@ export class TerrainEdits {
   attach() { this.mgr.T.useEdits(this.h, this.t); }
 
   edit(position, o = {}) {
-    DEV && this.e.ops._guard('terrain.edit');
+    DEV && this.e.ops.guard('terrain.edit');
     checkOptions('terrain.edit()', o, EDIT_KEYS);
     const ops = ['raise', 'lower', 'flatten'].filter(k => o[k] != null);
     if (!ops.length && !('paint' in o)) throw new Error(STRINGS.none);

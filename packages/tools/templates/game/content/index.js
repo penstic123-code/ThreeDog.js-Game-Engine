@@ -2,5 +2,8 @@
 import places from './places.js';
 import items, { startItems } from './items.js';
 import pickups from './pickups.js';
+import actions from './actions.js';
+import templates from './templates.js';
+import props from './props.js';
 
-export default { places, items, startItems, pickups };
+export default { places, items, startItems, pickups, actions, templates, props };

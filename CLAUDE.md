@@ -1,15 +1,16 @@
 # CLAUDE.md — rules for developing threedog.js
 
-threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no React) in three layers: **core** (every game needs it) -> **modules** (installed on demand with `engine.use`) -> **style packs** (all art). Details of each area load from `.claude/rules/` when you touch matching files. How to *use* the engine is in `packages/engine/docs/AI.md` (shipped with the package).
+threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no React) in three layers: **core** (every game needs it) -> **modules** (installed on demand with `engine.use`) -> **style packs** (all art, separate optional packages). Details of each area load from `.claude/rules/` when you touch matching files. How to *use* the engine is in `packages/engine/docs/AI.md` (shipped with the package).
 
 ## Hard rules (`npm run check` verifies them)
-1. **The engine provides mechanisms, never hard-coded art.** Colors, models, sky, particle looks, sounds and UI colors all come from `engine.style`; the engine may only use a neutral gray fallback. Style packs may create three.js materials directly; engine modules and games go through `makeMaterial` (dev-only debug overlays, such as the trigger wireframes, may use a plain line material whose color still comes from the style pack).
+1. **The engine provides mechanisms, never hard-coded art.** Colors, models, sky, lighting, particle looks and UI colors all come from `engine.style` (an optional style pack; the engine ships none and shows neutral gray placeholders without one). Sounds are the game's (`createEngine({ audio })`). Style packs may create three.js materials directly; engine modules and games go through `makeMaterial` (dev-only debug overlays, such as the trigger wireframes, may use a plain line material whose color still comes from the style pack).
 2. **Core never depends on modules.** `packages/engine/core` must not import `packages/engine/modules`; module dependencies go in `requires`, optional ones are used as `engine.xxx?.` and listed in `optional`.
 3. **Game content never enters the engine.** Dialogue, quests, items and map layout live in `games/<game>/` (data in `content/`; engine examples in `packages/engine/examples/`); no game's name or data appears in the engine.
 
 ## Repository layout
 ```
-packages/engine/   threedog: core/ modules/ (one folder per module) render/ ui/ styles/lowpoly/ examples/ docs/ tests/ types/
+packages/engine/   threedog: core/ modules/ (one folder per module) render/ ui/ examples/ docs/ tests/ types/ (no art)
+packages/styles/   optional style packs, one package each: lowpoly/ = @threedog/style-lowpoly (visuals + a terrain preset)
 packages/tools/    @threedog/tools: CLI `threedog`, paths.mjs (single source of truth for paths), rules/ (R1...), generators, templates/
 games/<game>/      private/example games, one workspace each (they will move to a private repo)
 ```
