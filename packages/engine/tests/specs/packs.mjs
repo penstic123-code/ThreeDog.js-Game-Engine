@@ -1,4 +1,4 @@
-// 三种包（docs/plans/packs-design.md）各配一条"不许绕开"的守护：
+// 三种包（packages/engine/docs/recipes/09-style-pack.md）各配一条"不许绕开"的守护：
 //   风格包只放外观（lowpoly 默认导出里没有 models、没有 sky.hoursPerDay），部件列表按规矩深合并且不改原包；
 //   资源包靠 manifest 的 name / base 登记，名字解析到文件或生成函数（content 只能经 assets 找模型，不再读 style.models）；
 //   内容包一次 load 多包时同一 id 两包都写就报错，模型写路径会警告、写函数会抛错。

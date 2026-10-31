@@ -1,6 +1,6 @@
 # Templates: reusable objects, definition vs instance state
 
-Requires `world()` (in `openWorld()`); a template with `interact` needs `interactions({ ...presets.interactions.nearest })`, with `container` needs `inventory()`. The code is `modules/content/templates.js`.
+Requires `world()` (in `openWorld()`); a template with `interact` needs `interactions({ ...presets.interactions.nearest })`, with `container` needs `inventory({ ...presets.keys.inventory })`. The code is `modules/content/templates.js`.
 
 A **template** describes one kind of object once: its model, collision, interaction, container, sound, animation and the default values of its saved state. Every chest, campfire or bed you place is an **instance**: a world record that names the template (its `kind` is the template name) and holds only its own state. There is no inheritance and no variant layer; a different look or behaviour is another template.
 
@@ -45,7 +45,8 @@ Loading a save then moves its changes, removal, owed time and container goods fr
 
 **Physics props.** `body: { shape: 'box' | 'ball' | 'hull', mass, friction?, restitution?, damping?, angularDamping? }` in a definition makes each copy a rigid body (needs `rigid()`). The copy rests on the ground asleep until something hits it; then the record follows the model, so a pushed crate's place is saved like any other change.
 ```js
-export const crateDefs = { crate: { model: 'crate', body: { shape: 'box', mass: 2 } } };
+// content/templates.js
+export default { crate: { model: 'crate', body: { shape: 'box', mass: 2 } } };
 ```
 
 **Grid items and level nodes.** A props entry `{ id: 'bed-home', grid: 'farm', item: 'bed', cell: [4, 4], rotation: 1 }` is the record `grid.place` would make, as authored data (the grid comes from the content key `grids`, `{ farm: { cell: 1, origin: [0, 0], size: [16, 12] } }`, or `engine.grids.add`). In a level model, a node with the Blender custom property `template = 'door'` becomes an instance of that template (its other custom properties fill the template's state), and one with `id = true` becomes a record of kind `levelNode` whose model is the node itself. Their id is `<level file name>/<node name>`, for example `town/door_front` (recipe 10).
@@ -80,8 +81,6 @@ const t = engine.pick(0, 0)?.thing;   // what is in the middle of the screen
 engine.world.origin('chest-home');     // the same source info for an id
 ```
 `hit.thing` is on every `engine.pick` / `engine.raycast` hit (computed when read); a hit on a batched copy resolves to its original object. `engine.inspect(id).thing` and `engine.explain({ op, args: { id } })` say the same. A record made during play shows the op and tick that spawned it (`spawned`), a level node its level and node name. Source lines exist in dev and test builds only (a Vite transform tags `content/*.js` with their line numbers); a release build has none and pays nothing. From a terminal or an MCP client: `npx threedog pick 480,270` (screen pixels from the canvas top-left) or the MCP tool `pick { x, y }`.
-
-`tests/specs/templates.mjs`: two chests of one template share the model, open / goods per instance, save and reload restores each, the definition never changes.
 
 ## 6. Levels are content; code holds only rules
 Everything that stands in a level comes from content: a template in `content/templates.js` plus a placement with an `id` in `content/props.js` (or `pickups`, `npcs`, `containers`, a game kind from `rules.js`, the level model). Game code keeps the rules: ops, `world.simulate` / `world.present`, conditions and UI. Something that appears during play is created inside an op with `engine.content.spawn`. Loading the same content then gives the same world, and a save holds only what play changed.

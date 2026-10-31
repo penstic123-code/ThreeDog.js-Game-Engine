@@ -22,12 +22,12 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Game content data, content packs | `engine.content.load(data, { places })` or several packs `load([base, dlc])` (an id in two packs is an error); own data kinds in `content/rules.js` | `recipes/20-content-actions-save.md` |
 | NPCs and what they do | content `npcs` (`behavior`: `schedule` / `wander`), `engine.npcs.behavior(name, { near, far })` | `recipes/02-npc.md` |
 | Dialogue | content `dialogues`, `engine.dialogue` | `recipes/02-npc.md` |
-| Items, pickups, inventory | content `items` / `pickups`, `engine.inventory` | `recipes/03-items-pickups.md` |
+| Items, pickups, inventory | content `items` / `pickups`, `engine.inventory` (swap one for another: `inventory.trade(take, give)`) | `recipes/03-items-pickups.md` |
 | Chests, corpses, shelves, transfers | `engine.inventory.container(id, { capacity, items })`, `inventory.transfer(from, to, item, n)` | `recipes/22-shop-gold.md` |
 | Shops, gold | currency item + ops | `recipes/22-shop-gold.md` |
 | Quests, objective markers | content `quests` (a step's `target` is marked automatically), `engine.quests`, `engine.hud.marker(target)` | `recipes/04-quests.md` |
 | Story flags, counters | `engine.vars` (`setFlag / flag / bump / counter`, saved) | `recipes/20-content-actions-save.md` |
-| Player actions, UI buttons that change state | `engine.ops.define('noun.verb', { can, run })`, `engine.ops.run(name, args)` | `recipes/23-ops.md` |
+| Player actions, UI buttons that change state | `engine.ops.define('noun.verb', { can, run, undo })`, `engine.ops.run(name, args)`, `engine.ops.undo(name, args, value)` | `recipes/23-ops.md` |
 | Why can't / what can the player do here | `engine.explain(...)`, `engine.inspect(at?)`, scenario tests `tests/scenarios/*.json` | `recipes/23-ops.md` |
 | Interaction prompts (talk, pick up, open) | `engine.interactions` (`interactions({ ...presets.interactions.nearest })` or `{ pick, keys }`; no default pick or key) | `recipes/20-content-actions-save.md` |
 | Trigger zones | content `triggers`, `engine.triggers` | `recipes/20-content-actions-save.md` |
@@ -68,7 +68,7 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Photo mode | `engine.photo` | `recipes/26-ui-parts.md` |
 | Set up a scenario, dev bridge | `engine.applyState({...})`, `engine.defineState(name, params)`, `npx threedog describe / step / op` | `recipes/16-dev-bridge.md` |
 | Drive the game from an MCP client (Claude Code, Cursor) | `claude mcp add threedog -- npx threedog mcp` (snap returns an image; `js` only with `--allow-js`) | `recipes/16-dev-bridge.md` §10 |
-| Your own module | `{ name, install, fixed, frame, describe }` + `engine.use` | `recipes/14-custom-module.md` |
+| Your own module | `{ name, install, fixed, frame, describe, afterLoad }` + `engine.use` | `recipes/14-custom-module.md` |
 | Heavy loops, workers, background results | `engine.jobs.add(function* () {})`, `engine.threads.lane(...)` (worker file: `import { serve } from 'threedog/worker'`), `engine.commits` | `recipes/15-perf.md` |
 | Performance budget, debug panel | `engine.budget`, `engine.debug`, `describe().perf` | `recipes/15-perf.md` |
 | Gameplay randomness | `engine.random` (saved; never `Math.random`) | `recipes/23-ops.md` |

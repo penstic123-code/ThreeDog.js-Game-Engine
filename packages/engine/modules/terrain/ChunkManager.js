@@ -1,8 +1,10 @@
 // Chunk streaming: chunks around the engine.stream sources (player, camera focus, teleport destination...) are generated on engine.threads workers,
 // uploaded to the GPU when in view, released when far from all sources.
 // LOD is split by ring from the nearest source: the chunk a source stands in plus the one ring around it is ring 1, and so on.
-// Visuals and gameplay take effect separately: a finished model is uploaded and shown at once; tree collision (forEachCollider, chunkCollision) only takes effect at the tick set by engine.commits (c.solid),
-// and is generated on the main thread on the spot if not done by then -- machine speed never changes whether the player bumps into a tree (see core/Commits.js).
+// Visuals and gameplay take effect separately: a finished model is uploaded and shown at once; tree collision (forEachCollider, chunkCollision) only takes
+// effect at the tick set by engine.commits (c.solid),
+// and is generated on the main thread on the spot if not done by then -- machine speed never changes whether the player bumps into a tree (see
+// core/Commits.js).
 import * as THREE from 'three';
 import { createTerrain } from './terrainGen.js';
 import { chunkHandler } from './chunkJob.js';
@@ -27,7 +29,8 @@ export class ChunkManager {
     this.inFlight = 0;
     this.ready = [];
     this._want = [];                              // chunks not yet dispatched (nearest first)
-    this._ver = 0;                                // +1 when the chunk table is cleared / deleted from (update uses it to decide whether to rebuild the pending list)
+    // +1 when the chunk table is cleared / deleted from (update uses it to decide whether to rebuild the pending list)
+    this._ver = 0;
     this._wantFor = [-1, -1];                     // view distance and _ver the pending list was last built for
     this.gen = 0;
     this.stats = { builtThisFrame: 0, applyMs: 0, queued: 0 };
@@ -36,7 +39,8 @@ export class ChunkManager {
     this._frustum = new THREE.Frustum();
     this._m = new THREE.Matrix4();
 
-    // one lane of chunk workers (engine.threads); with threads: false or no Worker the same handler runs on the main thread, and a crashed worker falls back to it
+    // one lane of chunk workers (engine.threads); with threads: false or no Worker the same handler runs on the main thread, and a crashed worker falls back to
+    // it
     this.lane = engine.threads.lane({ create: () => new Worker(new URL('./chunkWorker.js', import.meta.url), { type: 'module' }), local: chunkHandler });
     this.lane.broadcast({ type: 'init', terrain: terrainCfg, species: {} }, 'init');
     /** @internal edit records (saved with the save) */ this.edits = new TerrainEdits(engine, this);
@@ -81,7 +85,10 @@ export class ChunkManager {
     this.lane.run(job).then(r => { this.inFlight--; this.ready.push(r); this._pump(); });
   }
 
-  /** View distance (in chunks). Also moves the camera far plane out to it; the fog distance follows only with terrain({ viewFog: true }) (the game's fog is its own) */
+  /**
+   * View distance (in chunks). Also moves the camera far plane out to it; the fog distance follows only with terrain({ viewFog: true }) (the game's fog is its
+   * own)
+   */
   setViewChunks(n) {
     this.viewChunks = n;
     const d = (n - 0.3) * this.T.CHUNK, e = this.engine;
@@ -103,9 +110,11 @@ export class ChunkManager {
   _ring(c) { return chunkRing(c.cx, c.cz, this.centers, this.viewChunks); }
 
   /**
-   * Build a queued chunk entry and register the tick when its collision takes effect. Registered when the chunk is first needed (decided by stream source positions),
+   * Build a queued chunk entry and register the tick when its collision takes effect. Registered when the chunk is first needed (decided by stream source
+   * positions),
    * not when actually sent to the worker (which depends on how busy the worker is) -- so the effect time depends on gameplay only.
-   * Effect delay: ring 1, which the loading screen waits for, takes effect the moment play starts (lag 0); farther rings get more worker time, so on-the-spot generation is rarely needed
+   * Effect delay: ring 1, which the loading screen waits for, takes effect the moment play starts (lag 0); farther rings get more worker time, so on-the-spot
+   * generation is rarely needed
    */
   _queue(cx, cz, key) {
     const c = { cx, cz, key, state: 'queued', group: null, veg: {}, colliders: {}, pendingDetail: false, level: -1, sphere: null, solid: false, gen: this.gen };
@@ -113,13 +122,17 @@ export class ChunkManager {
     const ring = this._ring(c);
     c.ticket = this.engine.commits.request({
       lag: !this.engine.ready && ring <= 1 ? 0 : COLLIDER_LAG * (1 + ring),
-      apply: () => { c.solid = true; c.colToken = {}; },   // collision counts from this step on (a new token makes the physics module build this chunk's collision)
+      // collision counts from this step on (a new token makes the physics module build this chunk's collision)
+      apply: () => { c.solid = true; c.colToken = {}; },
       fallback: () => this._forceReady(c),
       valid: () => this.chunks.get(c.key) === c && c.gen === this.gen,
     });
     return c;
   }
-  /** Dispatch tasks from the queue until maxInFlight are running; while the loading screen is up send all of them (a main-thread frame is long, waiting for replies would idle the worker) */
+  /**
+   * Dispatch tasks from the queue until maxInFlight are running; while the loading screen is up send all of them (a main-thread frame is long, waiting for
+   * replies would idle the worker)
+   */
   _pump() {
     const species = (this.engine.vegetation || NO_VEG).baseNames(), max = this.engine.ready ? Math.max(this.maxInFlight, 2 * this.lane.size) : Infinity;
     while (this.inFlight < max && this._want.length) {
@@ -165,7 +178,8 @@ export class ChunkManager {
     this._pump();
     this.stats.queued = this._want.length;
 
-    // 2. upload worker results within the time budget; while the loading screen is up, first-screen chunks (the ring around the player) ignore the budget and all upload in one frame
+    // 2. upload worker results within the time budget; while the loading screen is up, first-screen chunks (the ring around the player) ignore the budget and
+    // all upload in one frame
     const t0 = performance.now(), loading = !this.engine.ready, later = [];   // measure: upload budget
     let built = 0;
     for (const r of this.ready) {

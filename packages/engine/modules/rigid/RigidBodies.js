@@ -1,14 +1,17 @@
 // Real physics (Rapier): objects that topple, roll, get pushed and float on water.
 //
-// Split from collision() (engine.collision, cheap walking collision covering the whole map): this is dynamic-body physics, more costly, simulated only for chunks within +-terrainRing of each physics engine.stream source (the player, a teleport destination; never a camera-only source).
+// Split from collision() (engine.collision, cheap walking collision covering the whole map): this is dynamic-body physics, more costly, simulated only for
+// chunks within +-terrainRing of each physics engine.stream source (the player, a teleport destination; never a camera-only source).
 // The player is a kinematic capsule: it pushes crates and balls but is not pushed by them.
 //
 // const crate = engine.rigid.addBox(mesh, { mass: 5 });     // crate
 // const ball  = engine.rigid.addBall(mesh, { radius: 0.4, restitution: 0.6 });
 // engine.rigid.impulse(ball, [0, 3, 5]);                     // kick (impulse vector: Vector3 / [x, y, z] / { x, y, z })
-// Returns an entry (handle) { body, collider, mesh (= object, position written by physics), remove() }: remove only deletes the body; the model is yours (shadow settings are untouched too)
+// Returns an entry (handle) { body, collider, mesh (= object, position written by physics), remove() }: remove only deletes the body; the model is yours
+// (shadow settings are untouched too)
 // const car = engine.rigid.addVehicle(carMesh, { wheels: [...] });   // vehicle, see Vehicles.js; engine.player.enter(car) to board; car.remove()
-// Ray: once installed, engine.raycast(origin, direction, { targets: 'all' }) also hits rigid bodies (hit carries entry, kind: 'rigid'); no separate entry point.
+// Ray: once installed, engine.raycast(origin, direction, { targets: 'all' }) also hits rigid bodies (hit carries entry, kind: 'rigid'); no separate entry
+// point.
 //
 // Rapier is downloaded on demand at start() (about 1.5MB); games without physics never load it.
 import * as THREE from 'three';
@@ -20,7 +23,8 @@ const BODY_KEYS = ['mass', 'friction', 'restitution', 'damping', 'angularDamping
 
 export class RigidBodies {
   /** gravity gravity = gravity; terrainRing = chunk rings around each physics stream source that get terrain collision; buoyancy = buoyancy toggle; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
-   *  floatLine / floatDepth： floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth meters deeper; treeColliderHeight = trunk collision cylinder height;
+   * floatLine / floatDepth： floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth
+   * meters deeper; treeColliderHeight = trunk collision cylinder height;
    *  playerCapsule { halfHeight, radius }  playerCapsule { halfHeight, radius } = player capsule size (default derived from engine.movement radius / height) */
   constructor(engine, { gravity = -9.81, terrainRing = 1, buoyancy = true, buoyancyForce = 1.6, waterDrag = 2.5, floatLine = 0.3, floatDepth = 0.8,
     treeColliderHeight = 6, playerCapsule } = {}) {
@@ -104,7 +108,10 @@ export class RigidBodies {
     if (e) { g.computeBoundingBox(); const s = g.boundingBox.getSize(v).multiply(mesh.scale); e.volume = s.x * s.y * s.z * 0.5; }
     return e;
   }
-  /** Vehicle (Rapier vehicle controller): id (stable, for saves; default vehicle1, vehicle2... in creation order), wheels, mass, engineForce, brakeForce, maxSteer, suspension, seat, camera; see Vehicles.js */
+  /**
+   * Vehicle (Rapier vehicle controller): id (stable, for saves; default vehicle1, vehicle2... in creation order), wheels, mass, engineForce, brakeForce,
+   * maxSteer, suspension, seat, camera; see Vehicles.js
+   */
   addVehicle(mesh, o) {
     checkOptions('rigid.addVehicle()', o, VEHICLE_KEYS);
     if (o.id != null && this.vehicles.some(v => v.id === o.id)) throw new Error(`rigid.addVehicle(): id '${o.id}' is already used by another vehicle; ids name the vehicle in saves, pick a unique one`);
@@ -174,7 +181,8 @@ export class RigidBodies {
     }
     this._syncStatics();
     this._syncLevel();
-    // player capsule follows the player (the rapier mover computes collision and writes the position itself); turned off while driving to avoid colliding with the car
+    // player capsule follows the player (the rapier mover computes collision and writes the position itself); turned off while driving to avoid colliding with
+    // the car
     if (e.player) this.playerBody.setNextKinematicTranslation({ x: focus.x, y: focus.y, z: focus.z });
     const onFoot = !e.player?.vehicle;
     if (this.playerCollider.isEnabled() !== onFoot) this.playerCollider.setEnabled(onFoot);
@@ -211,7 +219,8 @@ export class RigidBodies {
     for (const v of this.vehicles) v._sync();
   }
 
-  // Chunks around physics stream sources ([cx, cz, rings] each): terrain uses triangle-mesh colliders (identical to what is drawn), vegetation uses cylinders. Data comes from the ground API ground.chunkCollision
+  // Chunks around physics stream sources ([cx, cz, rings] each): terrain uses triangle-mesh colliders (identical to what is drawn), vegetation uses cylinders.
+  // Data comes from the ground API ground.chunkCollision
   _syncTerrain(src) {
     const e = this.engine, R = this.R, want = new Set();
     for (const [pcx, pcz, n] of src) for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {

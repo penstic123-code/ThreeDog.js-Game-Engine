@@ -3,7 +3,8 @@
 //
 //   checkOptions('npcs.add()', opts, ['name', 'schedule', ...])   // warns once on a key in opts that is not recognized
 //   warnMissing('action', 'jupm', ['jump', 'run'])                // 'action "jupm" does not exist, did you mean `jump`? (available: jump, run)'
-//   ownedProps('sky.sun.intensity', () => sun.intensity, "use engine.sky.modify('layerName', { sun })")   // warns when the game edits a property that is overwritten every frame
+// ownedProps('sky.sun.intensity', () => sun.intensity, "use engine.sky.modify('layerName', { sun })") // warns when the game edits a property that is
+// overwritten every frame
 //
 // On by default; createEngine({ validate: false }) turns it all off (for release builds). Each message warns only once.
 
@@ -29,13 +30,16 @@ const STRINGS = {
   },
 };
 
-/** Fill {name} placeholders from p (an unknown or null one stays as written). The one copy core shares (threadPure.js keeps its own: it must stay import-free). */
+/**
+ * Fill {name} placeholders from p (an unknown or null one stays as written). The one copy core shares (threadPure.js keeps its own: it must stay import-free).
+ */
 export const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 // Page-wide by design: the validate switch, the warn-once set and allowOwned exemptions are shared by every engine on the page
 // (one validate setting per page; tests that run several engines all use the same setting).
 let enabled = true;
 /** Dev mode: npm run dev, or the test bundle built by npm test / npm run shot (vite.config defines import.meta.env.THREEDOG_TEST when THREEDOG_TEST is set). */
-// Written exactly `import.meta.env`: the Vite 8 dev server only rewrites that literal form; `(import.meta).env` stayed undefined there, so every dev check was off under npm run dev
+// Written exactly `import.meta.env`: the Vite 8 dev server only rewrites that literal form; `(import.meta).env` stayed undefined there, so every dev check was
+// off under npm run dev
 // @ts-ignore Vite's import.meta.env (undefined outside Vite)
 const ENV = import.meta.env;
 export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
@@ -101,13 +105,18 @@ export function checkOptions(where, opts, known, { loose = false } = {}) {
   }
 }
 
-/** Options argument under the new API convention: warn if a number or string was passed (most likely the old positional form), otherwise same as checkOptions. */
+/**
+ * Options argument under the new API convention: warn if a number or string was passed (most likely the old positional form), otherwise same as checkOptions.
+ */
 export function checkOptionsArg(where, opts, known) {
   if (opts != null && typeof opts !== 'object') { warnOnce(fmt(STRINGS.notOptions, { where, got: JSON.stringify(opts) }).replace('{{ … }}', '{ … }')); return; }
   checkOptions(where, opts, known);
 }
 
-/** Event name very close to another known event (dev only): warn only when 1 letter differs (2 for long names), to avoid false positives on the game's own events. */
+/**
+ * Event name very close to another known event (dev only): warn only when 1 letter differs (2 for long names), to avoid false positives on the game's own
+ * events.
+ */
 export function checkEventName(name, known) {
   const c = closest(name, known, name.length >= 12 ? 2 : 1), digits = s => s.replace(/\d+/g, '#');
   if (c && digits(c) !== digits(name)) warnOnce(fmt(STRINGS.eventTypo, { name, hint: c }));
@@ -120,7 +129,8 @@ export function requiresText(module, name, installed) {
 }
 
 // ---------- properties overwritten every frame ----------
-// Properties a module recomputes every frame (sky lights, camera position...) are silently overwritten if the game edits them directly. A module calls check() before writing and mark() after:
+// Properties a module recomputes every frame (sky lights, camera position...) are silently overwritten if the game edits them directly. A module calls check()
+// before writing and mark() after:
 // if check() finds a value different from the last mark(), someone changed it in between, and it warns once. Active only in dev with checks on.
 
 const exempt = new Set();

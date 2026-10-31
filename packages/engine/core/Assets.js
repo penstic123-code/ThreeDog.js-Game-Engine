@@ -2,12 +2,14 @@
 //   1. Asset manifest: register every model, texture and sound under a name; code uses names only, so swapping a file means editing the manifest.
 //   2. Preload: load everything marked preload once at startup; the loading screen shows progress.
 //   3. Cache and reuse: one file downloads once; models return independent copies (geometry and materials shared), so you can place many.
-//   4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs below).
+// 4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs
+// below).
 //   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets produces compressed files).
 //   6. Code-generated models: write a function (or { build, params }) in the manifest; it is built on demand and cached automatically, see cached() below.
 //   7. Observable: every load is a task in engine.loading. A registered file that fails falls back (gray placeholder / silence / the entry's fallback)
 //      unless it is critical: true, which stops start() instead (assetEntry.js).
-//   8. Asset packs: a manifest is a plain object, so a folder or an npm package can ship one and a game registers it with one call (recipes/05-props-bake.md "Asset packs").
+// 8. Asset packs: a manifest is a plain object, so a folder or an npm package can ship one and a game registers it with one call (recipes/05-props-bake.md
+// "Asset packs").
 //
 // Put files under public/: public/models/house.glb -> write the path as '/models/house.glb'
 //
@@ -62,11 +64,15 @@ export class Assets {
   }
 
   /**
-   * Register an asset manifest or asset pack (may be called repeatedly; a later entry with the same name replaces the earlier one). A model may be a generator function or { build, params, preload }.
-   * Per entry: critical: true = start() stops if it fails (otherwise it falls back and the game continues); fallback: 'otherName' replaces the gray placeholder.
+   * Register an asset manifest or asset pack (may be called repeatedly; a later entry with the same name replaces the earlier one). A model may be a generator
+   * function or { build, params, preload }.
+   * Per entry: critical: true = start() stops if it fails (otherwise it falls back and the game continues); fallback: 'otherName' replaces the gray
+   * placeholder.
    * name labels the manifest in engine.loading (default 'manifest#1', '#2'...), so a failure says which list it came from.
-   * base (a pack's folder: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url)) resolves the relative paths of this manifest; '/x' and full URLs stay as written.
-   * @example engine.assets.manifest({ name: 'level-1', models: { hero: { url: '/models/hero.glb', critical: true }, bush: { url: '/models/bush.glb', fallback: 'rock' } } });
+   * base (a pack's folder: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url)) resolves the relative paths of this manifest; '/x' and full
+   * URLs stay as written.
+   * @example engine.assets.manifest({ name: 'level-1', models: { hero: { url: '/models/hero.glb', critical: true }, bush: { url: '/models/bush.glb', fallback:
+   * 'rock' } } });
    * @example import forest from 'my-forest-assets'; engine.assets.manifest(forest);   // { name: 'forest', base, models: { oak: 'oak.glb' } }
   */
   manifest(pack = {}) {
@@ -113,7 +119,8 @@ export class Assets {
   _fetch(e) { return fetchEntry(this, e); }
 
   /**
-   * Preload manifest assets (all by default; onlyMarked=true loads only those marked preload). Code-generated models and fonts are loaded ahead only if marked preload (style.ui.fonts loads its own at start()). onProgress(0-1, current name).
+   * Preload manifest assets (all by default; onlyMarked=true loads only those marked preload). Code-generated models and fonts are loaded ahead only if marked
+   * preload (style.ui.fonts loads its own at start()). onProgress(0-1, current name).
    * Finishing is not succeeding: failed lists every entry that failed, including those now showing their fallback (details in engine.loading).
   */
   async preload(onProgress, { onlyMarked = false } = {}) {
@@ -171,7 +178,8 @@ export class Assets {
   }
   /**
    * Get a texture (name or path; .ktx2 works too). Color textures default to sRGB; pass { color: false } for normal/roughness maps.
-   * opts is part of the cache key: the same image fetched with different opts gives two separately configured textures (never silently reuses the first one's settings)
+   * opts is part of the cache key: the same image fetched with different opts gives two separately configured textures (never silently reuses the first one's
+   * settings)
   */
   async texture(nameOrUrl, opts = {}) {
     const base = this._resolve(nameOrUrl, 'texture');

@@ -14,7 +14,7 @@ export default [
   { model: 'crate', place: 'tower', x: 1, floor: 6, y: 0.5 },                        // on the tower's second floor (not its roof), half a meter up
 ];
 ```
-Fields: `id` (stable id, see below), `model`, `place` + `x/z` (relative to the place), `floor` (on multi-layer ground — a second storey, a bridge deck, a lower dungeon level — the reference height of the layer it stands on; a level-marker place lends its own height), `y` (height above that ground), `rot`, `scale`, `collide` (`'box'` / `'circle'` / omitted = does not block), `static: false` (do not register for rays).
+Fields: `id` (stable id, see below), `model`, `place` + `x/z` (relative to the place), `floor` (on multi-layer ground — a second storey, a bridge deck, a lower dungeon level — the reference height of the layer it stands on; a level-marker place lends its own height), `y` (height above that ground), `rot`, `scale`, `collide` (`'box'` / `'circle'` / omitted = does not block), `static: false` (do not register for rays), `batch: false` (see 2b).
 An entry with `template` instead of `model` (`{ template: 'chest', x: 3, z: 1 }`) places an instance of a content template: a reusable object with interaction, container and saved state (recipe 30).
 A model is always an **asset name**, never a path or a function (`npm run check` reports both): register it in a manifest or asset pack first. A generator entry is built through `engine.assets.cached` (params from the array), a file entry through `engine.assets.model`:
 ```js
@@ -48,14 +48,14 @@ engine.assets.manifest({ models: { 'city-block': buildBlock } });     // the fun
 const block = await engine.assets.model('city-block');
 engine.use(level({ url: 'city-block' }));                               // a level reads it by name (the city example does this): baked file and cache both apply, and loading a save can switch back to this map
 ```
-To package a release or edit it in Blender, create `bake.js` in the game folder (`npm run bake -- -w <game>` looks for `bake.js` in that game's folder and for the engine's `styles/*/index.js`):
+To package a release or edit it in Blender, create `bake.js` in the game folder (`npm run bake -- -w <game>` looks for `bake.js` in that game's folder and for the `assets` export of each style pack's `index.js`: `packages/styles/*` in the monorepo, `node_modules/@threedog/style-*` in a game's own repository):
 ```js
 // games/<game>/bake.js
 import { buildBlock } from './block.js';
 export const bake = { 'city-block': () => buildBlock() };
 ```
 `npm run bake` exports to this game's `public/models/baked/<name>.glb` and writes `index.json`; afterwards `assets.model('city-block')` with the same name reads the file.
-If the generating code changes again: during development you are told to "switch to computing it live", and `npm run build` fails to remind you to bake again. To keep editing in Blender, write the manifest entry as `{ build, source: 'file' }`; it is never overwritten afterwards.
+If the generating code changes again: during development you are told to "switch to computing it live", and `npm run build` fails to remind you to bake again. To keep editing in Blender, write that entry in `bake.js` as `{ build, source: 'file' }`; it is never overwritten afterwards.
 
 ## 2b. Many copies of one model: automatic batching
 Nothing to write: the engine (`engine.batching`, core) watches what is added to the scene, so props, `world.present` views, grid items, `stream` builds and anything you `engine.add` are covered. When the same geometry + material (+ shadow flags) appears at least 8 times in one 64 m cell, those meshes are drawn by one real `THREE.InstancedMesh` per cell; fewer stay plain meshes. Each placed object stays in the scene with its own userData, record, collision and interactions; only its meshes are moved to layer 31 (not drawn), so `engine.raycast` / `pick` / photo return the original object, not an instance index.

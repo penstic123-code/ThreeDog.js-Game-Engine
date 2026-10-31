@@ -21,6 +21,7 @@ engine.ops.define('shop.buy', {
   },
   offers: (e, ctx) => [{ shop: 'shop-bakery', item: 'bread' }],   // optional: arg sets possible now (ops list / dev bridge `ops`)
   reasons: { soldOut: 'Shelf is empty', noMoney: 'Not enough gold' },   // optional developer notes
+  // optional: undo(e, args, value, ctx) reverses a finished run; engine.ops.undo('shop.buy', args, r.value) calls it ({ ok: false, reason: 'noUndo' } without one)
 });
 
 const r = engine.ops.run('shop.buy', { shop: 'shop-bakery', item: 'bread' });
@@ -52,6 +53,7 @@ Rules that keep ops replayable and network-ready:
 | `dialogue.advance` | none | `noDialogue` |
 | `dialogue.choose` | `{ index }` (0-based among visible choices) | `noDialogue` `noChoice` |
 | `inventory.transfer` | `{ from, to, item, n? }` (item = item id or entry key `sword#3`) | `noContainer` `notEnough` `full` |
+| `inventory.trade` | `{ take, give, takeN?, giveN?, container? }` (all or nothing in `ctx.actor`'s container; reversible with `engine.ops.undo`, recipe 03) | `noContainer` `notEnough` `full` |
 | `inventory.use` | `{ item }` (from `ctx.actor`'s container; runs the item's `use`, see recipe 03) | `notEnough` `notUsable` or the item's `canUse` reason |
 | `inventory.drop` | `{ item, n? }` (a pickup at the actor's feet, data kept) | `notEnough` `noWorld` `noPosition` |
 | `photo.take` | none (`r.value` is the shot; can = `photo.canTake()`, the key emits `photo:denied { reason }`) | `denied` or yours |
@@ -70,7 +72,7 @@ A thrown `run` freezes gameplay in dev / tests and `engine.error` names `ops.run
 Saved gameplay state (`world.add/set/move/remove`, containers and the inventory, `vars`, quest start / advance) may change only while loading, inside a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `npx threedog js`) prints once per place:
 `[engine] gameplay state changed outside a fixed step or an op: world.set, called at ...`. Fix: turn the write into an op and `engine.ops.run` it, or move simulation into `fixed`. `npm test` lists every place in `.threedog/ops-guard.log`.
 
-A module that owns its own saved state joins the guard (experimental): call `DEV && engine.ops.guard('store.set')` at the top of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.
+A module that owns its own saved state joins the guard (experimental): call `import.meta.env.DEV && engine.ops.guard('store.set')` (a game has no `DEV` import; see `recipes/14-custom-module.md`) at the top of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.
 
 ## 6. Testing
 A test runs the op directly instead of walking, pressing keys and waiting for typing:

@@ -3,7 +3,7 @@
 threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no React) in three layers: **core** (every game needs it) -> **modules** (installed on demand with `engine.use`) -> **style packs** (all art, separate optional packages). Details of each area load from `.claude/rules/` when you touch matching files. How to *use* the engine is in `packages/engine/docs/AI.md` (shipped with the package).
 
 ## Hard rules (`npm run check` verifies them)
-1. **The engine provides mechanisms, never hard-coded art.** Colors, models, sky, lighting, particle looks and UI colors all come from `engine.style` (an optional style pack; the engine ships none and shows neutral gray placeholders without one). Sounds are the game's (`createEngine({ audio })`). Style packs may create three.js materials directly; engine modules and games go through `makeMaterial` (dev-only debug overlays, such as the trigger wireframes, may use a plain line material whose color still comes from the style pack).
+1. **The engine provides mechanisms, never hard-coded art.** Colors, models, sky, lighting, particle looks and UI colors all come from `engine.style` (an optional style pack; the engine ships none and shows neutral gray placeholders without one). Sounds are the game's (`createEngine({ audio })` or a content pack's `audio`). Style packs may create three.js materials directly; engine modules and games go through `makeMaterial` (dev-only debug overlays, such as the trigger wireframes, may use a plain line material whose color still comes from the style pack).
 2. **Core never depends on modules.** `packages/engine/core` must not import `packages/engine/modules`; module dependencies go in `requires`, optional ones are used as `engine.xxx?.` and listed in `optional`.
 3. **Game content never enters the engine.** Dialogue, quests, items and map layout live in `games/<game>/` (data in `content/`; engine examples in `packages/engine/examples/`); no game's name or data appears in the engine.
 
@@ -20,7 +20,7 @@ games/<game>/      private/example games, one workspace each (they will move to 
 `npm run check` after every change (hard rules, rules R1..., types, content, generated docs up to date); `npm test -- name` runs only tests whose name contains it (no match fails); `npm run map` regenerates GAMEMAP / API.md / api/ / CODEMAP; `npm run types`; `npm run dev [-- game]`. The full list is in `packages/engine/docs/COMMANDS.md`.
 
 ## Module hooks
-`fixed(dt, e)`, `frame(dt, e)`, `afterRender(dt, e)` (details in `.claude/rules/engine-core.md`); `skip(dt, e, done)`: called per segment by engine.skip, `done` on the last segment; only modules that keep their own time need it.
+`fixed(dt, e)`, `frame(dt, e)`, `afterRender(dt, e)` (details in `.claude/rules/engine-core.md`); `afterLoad(e)`: after a save loaded, gameplay frozen until its Promise resolves; `skip(dt, e, done)`: called per segment by engine.skip, `done` on the last segment; only modules that keep their own time need it.
 
 ## Docs (each sentence in one place)
 - Layers: `AI.md` is the index (one line per task: API name + recipe) -> `recipes/` teach tasks -> `api/` and the d.ts hold API details, generated from JSDoc only -> `GAMEMAP.md` per game. Recipes link to api pages instead of restating signatures; `CODEMAP.md` and `.claude/rules/` are read when needed.

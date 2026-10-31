@@ -63,11 +63,13 @@ createEngine({ canvas, styel: {} });
 `;
 const TSCONFIG = { compilerOptions: { target: 'ES2022', lib: ['ES2022', 'DOM', 'DOM.Iterable'], module: 'ESNext', moduleResolution: 'bundler',
   allowJs: true, checkJs: true, noEmit: true, skipLibCheck: false,
-  types: [] }, include: ['main.js'] };   // types: [] so unrelated global @types pulled in by tool dependencies are not loaded; @types/three still arrives through 'three' imports
+  // types: [] so unrelated global @types pulled in by tool dependencies are not loaded; @types/three still arrives through 'three' imports
+  types: [] }, include: ['main.js'] };
 
 // npm and node both run without a shell (lib/proc.mjs)
 // A vite build earlier in this process sets NODE_ENV=production, and npm then skips devDependencies (@threedog/tools, vite): install like a fresh shell
-const cleanEnv = () => { const env = { ...process.env }; for (const k of Object.keys(env)) if (k === 'NODE_ENV' || /^npm_config_(omit|production|only)$/i.test(k)) delete env[k]; return env; };
+const cleanEnv = () => { const env = { ...process.env }; for (const k of Object.keys(env)) if (k === 'NODE_ENV'
+  || /^npm_config_(omit|production|only)$/i.test(k)) delete env[k]; return env; };
 const npm = (args, cwd) => npmRun(args, { cwd, timeout: 600000, env: cleanEnv() });
 const node = (args, cwd) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', timeout: 600000 });
 /** The installed threedog CLI in the temp project; async, so a dev server in another process keeps running */
@@ -90,7 +92,8 @@ function tsc(app, project) {
 
 /** Start vite preview and resolve with its base URL once it answers */
 async function preview(app, port) {
-  const proc = spawn(process.execPath, [join(app, 'node_modules/vite/bin/vite.js'), 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'], { cwd: app });
+  const proc = spawn(process.execPath, [join(app, 'node_modules/vite/bin/vite.js'), 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
+    { cwd: app });
   let log = ''; proc.stdout.on('data', d => log += d); proc.stderr.on('data', d => log += d);
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 60; i++) {

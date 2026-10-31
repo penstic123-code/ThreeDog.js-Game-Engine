@@ -1,6 +1,6 @@
 # Shop and gold: buy, sell / consign, gold HUD, saving
 
-Requires modules `inventory()` + `dialogue()` + `content()` (the gold HUD needs `hud()`). The engine has no "shop" module: gold is an ordinary item, a shelf is an ordinary container, and buying and selling are two small ops that dialogue choices (or your own shop window) run.
+Requires modules `inventory({ ...presets.keys.inventory })` + `dialogue()` + `content()` (the gold HUD needs `hud()`). The engine has no "shop" module: gold is an ordinary item, a shelf is an ordinary container, and buying and selling are two small ops that dialogue choices (or your own shop window) run.
 
 ## 1. Where to keep gold (pick one)
 | Form | Fits | Trade-off |
@@ -15,7 +15,7 @@ The rest is written for A.
 ```js
 export default {
   gold: { name: '金币', icon: '🪙', stack: 99999 },   // currency: one slot however much
-  bread: { name: '面包', icon: '🍞' },
+  bread: { name: '面包', icon: '🍞', price: 5 },   // price: read by the shop ops below
 };
 export const startItems = { gold: 12 };
 ```
@@ -76,7 +76,7 @@ export default {
 };
 ```
 - The shelf id (`'shop-bakery'`) is any string, and the shelf contents are saved. A "shop window" is your own UI drawn from `shelf.list()`; its buttons call `engine.ops.run('shop.buy', { shop, item })` and grey out with `engine.ops.can(...)`.
-- Prices live on the item: `bread: { ..., price: 5 }`, read with `e.inventory.item('bread').price`.
+- Prices live on the item (`price` in items.js above), read with `e.inventory.item('bread').price`; an item without one costs 1 here.
 - Items with their own data (a used sword with `durability`, recipe 03): pass the entry key as `item` (`'sword#3'`, from `shelf.list()[i].key`); `transfer` moves exactly that piece with its data, and `e.inventory.container(shop).get(item)` reads the data for a price (`def.price * data.durability / 100`).
 - Show a failure reason to the player through your own i18n string (`e.t('shop.' + r.reason)`); the engine shows nothing itself.
 - `npx threedog ops` lists what can be bought right now if you add `offers` (see recipe 23); `npx threedog op shop.buy shop=shop-bakery item=bread` buys from the terminal.

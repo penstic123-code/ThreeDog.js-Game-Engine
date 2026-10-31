@@ -1,6 +1,7 @@
 // Engine core: what every 3D web game needs (rendering and post, main loop, events, input, assets, audio, saves, UI basics, loading screen, ground API).
 // No terrain, sky or characters, and no art; everything else is a module installed with engine.use(...) (see recipes/14-custom-module.md).
-// Split: main loop and step in loop.js, start() in startup.js, ground API in ground.js, module install in modules.js, dispose and counts in lifecycle.js (all mixed into Engine.prototype).
+// Split: main loop and step in loop.js, start() in startup.js, ground API in ground.js, module install in modules.js, dispose and counts in lifecycle.js (all
+// mixed into Engine.prototype).
 import * as THREE from 'three';
 import { Events } from './Events.js';
 import { Input } from './Input.js';
@@ -42,90 +43,18 @@ import { reportListenerError } from './errors.js';
 import { createMovement } from './movement.js';
 import { moduleMethods } from './modules.js';
 import { skipMethods, defineSkipOp } from './skip.js';
-import { styleFrom } from './styleParts.js';
+import { styleFrom, NO_STYLE } from './styleParts.js';
+import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
+import { sceneMethods } from './sceneMethods.js';
 // Options createEngine accepts (must match the constructor destructuring)
 const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',
   'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching'];
 
-const NO_STYLE = 'createEngine(): no style pack given, so everything is a neutral gray placeholder: plain lights (one white hemisphere + one neutral '
-  + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look. '
-  + "Pass one: import lowpoly from '@threedog/style-lowpoly'; createEngine({ canvas, style: lowpoly }) (or your own pack, recipes/09-style-pack.md)";
-
-const _size = new THREE.Vector2();
-const NO_CSS_SIZE = 'createEngine(): the canvas has no CSS size of its own (it would take its size from its pixel buffer), so the engine sizes it to the window. '
-  + 'To embed it in a page section, split layout or editor panel, give it a CSS size, e.g. canvas { width: 100%; height: 100%; display: block } inside a sized parent';
-/**
- * The canvas's CSS box in CSS pixels (what the page layout gave it). The drawing buffer is this times the pixel ratio (setSize(w, h, false) leaves the CSS alone).
- * Two cases fall back to the window: a canvas outside the page (headless tests often make one with createElement) has no box, so the aspect
- * is never 0 / 0; and a canvas without a CSS size (e.auto, see sizeMode) takes its box from its own buffer, which would grow by the pixel
- * ratio on every resize, so the engine sets its CSS size to the window instead (what such a page got before).
- */
-function canvasBox(e) {
-  const c = e.renderer.domElement;
-  if (c.isConnected && e._autoSize === undefined) sizeMode(e);
-  const w = c.clientWidth, h = c.clientHeight;
-  return !e._autoSize && w > 0 && h > 0 ? { w, h } : { w: innerWidth || 1, h: innerHeight || 1 };
-}
-/** Once, when the canvas is first in the page: does its CSS box follow its width / height attributes on both axes (no CSS size at all)? Then e._autoSize = true and the engine sizes it.
- *  The probe doubles both attributes (same aspect): a box that follows them on both axes doubles, which is the case that would grow by the pixel ratio.
- *  One CSS axis plus an auto one (width: 100%; height: auto, or aspect-ratio) only takes the attributes' aspect, which the engine keeps, so its box stays and is used */
-function sizeMode(e) {
-  const c = e.renderer.domElement, w0 = c.width, h0 = c.height, cw = c.clientWidth, ch = c.clientHeight;
-  c.width = Math.max(1, w0) * 2; c.height = Math.max(1, h0) * 2;
-  e._autoSize = c.clientWidth !== cw && c.clientHeight !== ch;
-  c.width = w0; c.height = h0;
-  if (e._autoSize) warnOnce(NO_CSS_SIZE);
-  if (e.uiRoot?.parentElement === document.body && c.parentElement && c.nextElementSibling !== e.uiRoot) c.after(e.uiRoot);   // canvas put in the page after createEngine
-}
-/**
- * Lay the UI root over the canvas box. Its children are position: fixed, and contain: layout makes the root their containing block,
- * so inset: 0 means "the canvas", not "the window". A fixed canvas gets a fixed root at its viewport rect; any other canvas an absolute root
- * at its offset position in the same offset parent, so the two scroll together.
- */
-function placeUI(e) {
-  const c = e.renderer.domElement, s = e.uiRoot.style;
-  if (!c.isConnected || !e.uiRoot.isConnected) return;
-  const fixed = getComputedStyle(c).position === 'fixed', b = fixed ? c.getBoundingClientRect() : null;
-  // set only once the root is placed: a root with contain but no box (canvas outside the page) would shrink every fixed child to 0 x 0.
-  // pointer-events: the root itself lets clicks through to the canvas; its children take them again (theme.js :where rule)
-  s.contain = 'layout'; s.pointerEvents = 'none';
-  s.position = fixed ? 'fixed' : 'absolute';
-  s.left = (fixed ? b.left + c.clientLeft : c.offsetLeft + c.clientLeft) + 'px';
-  s.top = (fixed ? b.top + c.clientTop : c.offsetTop + c.clientTop) + 'px';
-  s.width = c.clientWidth + 'px'; s.height = c.clientHeight + 'px';
-}
-
 export class Engine {
   /**
-   * @param o
-   *   canvas        <canvas> (required)
-   *   style         style pack (looks only: render/post, materials, sky, lighting, particle looks, UI look), e.g. @threedog/style-lowpoly,
-   *                 or a list of parts deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }] (rules in core/styleParts.js)
-   *                 The engine ships no art: without one everything is a neutral gray placeholder (dev warning)
-   *   shadows       real-time shadows, default true
-   *   antialias     MSAA edges, default style.antialias, else on for desktop and off for low-tier devices (phones, integrated GPUs); settings can switch it
-   *   post          style post effects on/off by name, e.g. { bloom: false }; default each effect's own (costly ones off on low-tier devices)
-   *   pixelRatio    render resolution, default min(device pixel ratio, 1.5)
-   *   adaptiveResolution / targetFps   lower resolution automatically when the frame rate is short, default on / 55
-   *   ui            UI parts { name: false | true | options | (engine, options) => part }: { loading: { title }, title: { title }, toast: false }; see ui/Parts.js
-   *   audio         the game's sound config { sounds, ambience, music, footsteps, levels } (engine.audio.config; levels = volume per bus
-   *                 { master, music, sfx, ambience, ui, ...your own }). Nothing plays that is not named here
-   *   locale / strings   UI language ('auto' | 'zh-CN' | 'en' | your own) and override string tables. Default 'auto': a browser language starting with zh gives 'zh-CN', anything else 'en'; pass a locale to force one
-   *   bindings      keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions { interact: ['KeyE'], run: ['ShiftLeft'] }; a module's define() keeps these keys
-   *   saveKey       save-name prefix; must differ between games on one site, default 'game'
-   *   fov / near / fogFar   camera field of view, near plane, default fog distance
-   *   headless      headless mode: no real-time loop, no per-frame render, advances only on step() (tests, screenshots; reproducible).
-   *                 adding ?threedog-headless to the URL also turns it on
-   *   validate      runtime check of option names and misspelled names (console says "did you mean `xxx`?"), default true; may be off in a release
-   *   decoders      Draco/KTX2 decoder directory (e.g. a CDN URL holding draco/ and basis/). Usually omit: the decoders bundled with three are packed by vite
-   *   budget        performance budget limits { drawCalls, fps, ... }, only the given categories are checked; default off
-   *   urlState      read URL parameters to set up a scenario (?time=18:30&pos=40,-20), default on in development only
-   *   seed          seed of engine.random; default 1 in headless mode (reproducible), current time when running live
-   *   threads       worker pool size for engine.threads: 'auto' (default, cores - 1, max 4), a number, or false (everything on the main thread; same results)
-   *   pauseOnBlur   gameplay waits while the window is in the background or the tab is hidden, default true (engine.page, page.js)
-   *   batching      automatic instancing of repeated static models (core/Batching.js): false turns it off, { minCount 8, cell } tunes it
-   *   movement      one shared "can walk there" setting { radius 0.4, height 1.8, maxSlope 48 (degrees), stepHeight 0.45 }, exposed read-only as engine.movement
+   * @param o  createEngine options: each option, its default and meaning is documented once on EngineOptions (types/core.d.ts).
+   *   style can also be a list of parts deep-merged left to right (rules in core/styleParts.js). ENGINE_OPTIONS and the destructuring below must match it.
    */
   constructor(opts = {}) {
     setValidate(opts.validate);
@@ -161,12 +90,16 @@ export class Engine {
     this.shadows = shadows;
     this.ground = flatGround;
     this.player = null;
-    /** World record id of the one the local user controls (default 'player'): interactions, trigger zones, markers and ops (ctx.actor) use it. Set it to hand control to a vehicle or squad member @type {string} */
+    /**
+     * World record id of the one the local user controls (default 'player'): interactions, trigger zones, markers and ops (ctx.actor) use it. Set it to hand
+     * control to a vehicle or squad member @type {string}
+     */
     this.actor = 'player';
     this.ready = false;
     this.disposed = false;                     // true after dispose()
     this._abort = new AbortController();
-    this.signal = this._abort.signal;          // attach DOM listeners to it: addEventListener(type, fn, { signal: engine.signal }); dispose cancels them together
+    // attach DOM listeners to it: addEventListener(type, fn, { signal: engine.signal }); dispose cancels them together
+    this.signal = this._abort.signal;
     this.uiRoot = document.createElement('div');   // engine and module UI elements live here (not on body); dispose removes the whole root
     // the UI root sits right after the canvas and covers exactly its box (placeUI): HUD, windows and prompts line up with the canvas
     // whether it fills the window, sits in a page section, a split layout or an editor panel
@@ -184,7 +117,10 @@ export class Engine {
     this.error = null;                         // gameplay error in dev/test: { where, message, cause?, docs? }; gameplay is frozen (see errors.js)
     this.disabledModules = new Set();          // presentation modules disabled after they threw
     this._elapsed = 0;                          // engine.elapsed: fixed seconds, advanced per fixed step and copied into uniforms.uTime
-    /** This engine's shader uniforms (uTime, uWind, uCloud, season tints...); share these objects in your own ShaderMaterial or patch @type {import('../types/core').EngineUniforms} */
+    /**
+     * This engine's shader uniforms (uTime, uWind, uCloud, season tints...); share these objects in your own ShaderMaterial or patch @type
+     * {import('../types/core').EngineUniforms}
+     */
     this.uniforms = createUniforms(style);
     bindUniforms(r, this.uniforms);             // built-in shader effects read this engine's uniforms when compiled by this renderer
     this._materials = registerEngine(this);    // makeMaterial without an engine argument uses the first live engine's style pack
@@ -216,7 +152,8 @@ export class Engine {
     defineSkipOp(this);                        // 'time.skip', behind engine.skip (skip.js)
     this.jobs = new Jobs(this);                // frame-spread job scheduler
     this.threads = new Threads(threads);       // worker pool (see Threads.js); workers start only when a lane is used
-    this.stream = new Stream(this);            // spatial stream-in and the stream sources (where the world is loaded: stream, models, terrain, colliders read them)
+    // spatial stream-in and the stream sources (where the world is loaded: stream, models, terrain, colliders read them)
+    this.stream = new Stream(this);
     this.batching = new Batching(this, batching);   // repeated static models drawn as InstancedMesh batches (Batching.js)
     this.startup = null;                       // startup timing report (set once start() finishes)
     this._prof = null;                         // module hook timing (profile(true) turns it on)
@@ -246,7 +183,10 @@ export class Engine {
   // ---------- common ----------
   /** Get a UI string (i18n) */
   t(key, params) { return this.i18n.t(key, params); }
-  /** Elapsed fixed-step seconds (ignores clock.timeScale; stops while frozen or paused), for presentation animation (sway, bobbing). Game seconds are clock.now (= fixed-step seconds × timeScale); sky time of day is sky.timeOfDay */
+  /**
+   * Elapsed fixed-step seconds (ignores clock.timeScale; stops while frozen or paused), for presentation animation (sway, bobbing). Game seconds are clock.now
+   * (= fixed-step seconds × timeScale); sky time of day is sky.timeOfDay
+   */
   get elapsed() { return this._elapsed; }
   /** Ray cast: the nearest hit or null, see Rays.js */
   raycast(origin, dir, opts) { return this.rays.cast(origin, dir, opts); }
@@ -258,51 +198,10 @@ export class Engine {
   get stateApplied() { return this.ready && this._urlState.applied; }
   /** Name a set of scenario parameters, then use applyState({ state: name }) or the URL ?state=name */
   defineState(name, params) { this._urlState.define(name, params); return this; }
-  add(...objs) { this.scene.add(...objs); return objs[0]; }
-  /** Detach from the parent only (no GPU release; use when you will add it back). Use remove for objects you are done with */
-  detach(...objs) { for (const o of objs) o.removeFromParent(); }
-  /** Delete an object for good: detach it, unregister its rays and dispose geometries and materials (textures are kept). Geometry and materials shared by assets model clones are only decremented in use count (see Assets.js) */
-  remove(...objs) {
-    for (const o of objs) {
-      o.removeFromParent();
-      this.rays.forget(o);
-      this.assets.forget(o);
-      const shared = this.assets.shared, held = this.batching.held;   // a batch still drawing the same geometry / material keeps it alive
-      o.traverse(c => {
-        if (c.geometry && !shared.has(c.geometry) && !held.has(c.geometry)) c.geometry.dispose();
-        for (const m of [].concat(c.material || [])) if (!shared.has(m) && !held.has(m)) m.dispose();
-      });
-    }
-  }
   /** Fixed-step logic (60 per second): movement, timers, gameplay keys. Returns a handle { remove() } */
   onFixed(fn) { this._fixed.push(fn); return { remove: () => { this._fixed = this._fixed.filter(f => f !== fn); } }; }
   /** Once per frame: animation, camera, UI. Returns a handle { remove() } */
   onFrame(fn) { this._frame.push(fn); return { remove: () => { this._frame = this._frame.filter(f => f !== fn); } }; }
-
-  // ---------- settings ----------
-  setPixelRatio(p) { this.renderer.setPixelRatio(p); this.post.setPixelRatio(p); }
-  /**
-   * Master shadow switch. Off: remember each light's castShadow (the game's choice) then turn it off; on: restore only the lights that cast before (lights the game turned off stay off).
-   * Lights added while off are left alone (the renderer has shadows off, so it makes no difference).
-   */
-  setShadows(on) {
-    this.shadows = on;
-    this.renderer.shadowMap.enabled = on;
-    this.scene.traverse(o => {
-      if (o.isLight && o.shadow) {
-        const u = o.userData;
-        if (!on) { if (!('threedogCastShadow' in u)) u.threedogCastShadow = o.castShadow; o.castShadow = false; }
-        else if ('threedogCastShadow' in u) { o.castShadow = u.threedogCastShadow; delete u.threedogCastShadow; }
-      }
-      if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true);
-    });
-    this.events.emit('settings:shadows', on);
-  }
-  setFogFar(d) {
-    this.fogFar = d;
-    if (this.scene.fog) { this.scene.fog.far = d; this.scene.fog.near = d * 0.3; }
-    this.camera.far = d + 150; this.camera.updateProjectionMatrix();
-  }
 
   /** @internal Display name of a module (loading screen): module.<name> from the string table, else the module's own label */
   moduleName(m) { return this.i18n.has('module.' + m.name) ? this.t('module.' + m.name) : (m.label || m.name); }
@@ -312,26 +211,17 @@ export class Engine {
   pause() { this.paused = true; return this; }
   /** Resume the real-time loop (in headless mode this starts live running) */
   resume() { if (!this.disposed) { this.paused = false; this._loop(); } return this; }
-  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, game clock and engine.elapsed all stop) while frame hooks and rendering go on, so the picture and UI stay alive.
+  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, game clock and engine.elapsed all stop) while frame hooks and rendering go on, so
+  // the picture and UI stay alive.
   // Gameplay logic (quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame (see the top of loop.js).
-  // Unlike pause(), which stops rendering too and is for tests and step(). owner is the freezer's name; play resumes only when all have unfrozen. step() obeys freezes as well.
+  // Unlike pause(), which stops rendering too and is for tests and step(). owner is the freezer's name; play resumes only when all have unfrozen. step() obeys
+  // freezes as well.
   freeze(owner = 'game') { this._freezers.add(owner); return this; }
   unfreeze(owner = 'game') { this._freezers.delete(owner); return this; }
   /** True while someone has frozen gameplay */
   get frozen() { return this._freezers.size > 0; }
-
-  _resize() {
-    const { w, h } = canvasBox(this);
-    placeUI(this);
-    const now = this.renderer.getSize(_size);
-    if (now.x === w && now.y === h) return;   // ResizeObserver and the window event can both fire for one change
-    this.renderer.setSize(w, h, !!this._autoSize);
-    this.post.setSize(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-  }
 }
 
 // Mix in by property descriptor (Object.assign would evaluate getters on the spot and lose them)
-for (const part of [loopMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods])
+for (const part of [loopMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods, resizeMethods, sceneMethods])
   Object.defineProperties(Engine.prototype, Object.getOwnPropertyDescriptors(part));

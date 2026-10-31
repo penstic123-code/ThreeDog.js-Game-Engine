@@ -14,10 +14,12 @@
 //   ], { skippable: true, letterbox: true, lockInput: true });
 //
 // Options: skippable (default true); letterbox black bars top and bottom (default false); lockInput locks player controls (default true)
-// Skip: the back key Esc (the cutscene is in the UI focus stack, Esc goes only to the top; see ui/Focus.js), the action 'skip' (default Esc / Backspace; not Space, which is dialogue "continue"), or click the hint on the letterbox.
+// Skip: the back key Esc (the cutscene is in the UI focus stack, Esc goes only to the top; see ui/Focus.js), the action 'skip' (default Esc / Backspace; not
+// Space, which is dialogue "continue"), or click the hint on the letterbox.
 // While frozen (engine.freeze / flow 'paused') wait, tweens, camera and paths do not advance; they resume after unfreezing.
 //   On skip all running tweens jump to their end and the remaining steps finish instantly (do steps still run, so state matches a normal playthrough).
-// Camera takeover: a camera step sets engine.cameraOverride (see camera/common.js) and restores the previous value and view after the whole run; the camera module then resumes.
+// Camera takeover: a camera step sets engine.cameraOverride (see camera/common.js) and restores the previous value and view after the whole run; the camera
+// module then resumes.
 //   To hand the camera back midway: { camera: { release: true } }
 // General tween (usable anywhere in a game): await engine.timeline.tween(mesh, { 'position.y': 2, 'material.opacity': 0 }, 1, 'outCubic')
 // Events: timeline:start, timeline:end { skipped }
@@ -67,7 +69,8 @@ export class Timeline {
   get playing() { return this.runs.size > 0; }
 
   /**
-   * General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, 1, 'outCubic'); duration in seconds. Returns a Promise (with finish()/cancel())
+   * General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, 1, 'outCubic'); duration in seconds.
+   * Returns a Promise (with finish()/cancel())
    * @param {any} target
    * @param {TweenTo} to
    * @param {number} [duration]
@@ -132,7 +135,8 @@ export class Timeline {
   frame(dt) {
     if (!this.engine.frozen) this._tweener.update(dt);   // wait and tweens do not advance while frozen
     const inp = this.engine.input;
-    // skip keys other than Esc (e.g. Backspace): Esc is already dispatched by the UI focus stack, so do not handle it twice; the first frame of a run does not count
+    // skip keys other than Esc (e.g. Backspace): Esc is already dispatched by the UI focus stack, so do not handle it twice; the first frame of a run does not
+    // count
     if (!this.runs.size || !inp.pressedRaw('skip') || inp.pressedRaw('cancel')) return;
     for (const r of this.runs) if (r.skippable && !r.focus.fresh) this.skip(r);
   }
@@ -230,7 +234,8 @@ export class Timeline {
 
   /** Path: { object, points, duration, ease, lookAhead, ground, closed, curve: 'catmullrom'|'centripetal'|'chordal', tension } @internal */
   _path(p, run) {
-    const e = this.engine, chr = p.object?.root?.isObject3D ? p.object : null, obj = chr ? chr.root : p.object;   // a character (Character) can be passed directly
+    // a character (Character) can be passed directly
+    const e = this.engine, chr = p.object?.root?.isObject3D ? p.object : null, obj = chr ? chr.root : p.object;
     if (!obj || !p.points?.length) return Promise.resolve();
     const pts = p.points.map(x => v3(x));
     if (pts.length === 1) pts.unshift(obj.position.clone());
@@ -257,7 +262,8 @@ export class Timeline {
         if (isCam) st.override.focus.copy(pos);
       },
     }).then(r => {
-      // the path moved the model, not the mover: the character's world record (the player's) catches up once, so a save right after the cutscene has the new place
+      // the path moved the model, not the mover: the character's world record (the player's) catches up once, so a save right after the cutscene has the new
+      // place
       if (chr?.recordId && chr.syncRecord) e.ops.allow(() => chr.syncRecord());
       return r;
     });
@@ -329,7 +335,8 @@ export function timeline(opts = {}) {
     name: 'timeline', label: 'Timeline', stage: 'control', before: ['cameraRig'],   // before the camera, so the takeover applies on the same frame
     install(e) {
       checkOptions('timeline()', opts, ['skipKeys']); e.i18n.add(STRINGS); t = new Timeline(e, opts); e.cameraOverride ??= null;
-      e.events.on('session:end', () => { if (t.runs.size) t.skip(); });   // a running cutscene ends with its playthrough (session waits one macrotask for its steps to settle)
+      // a running cutscene ends with its playthrough (session waits one macrotask for its steps to settle)
+      e.events.on('session:end', () => { if (t.runs.size) t.skip(); });
       return t;
     },
     frame(dt) { t.frame(dt); },

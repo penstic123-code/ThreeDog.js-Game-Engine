@@ -36,8 +36,8 @@ engine.setFogFar(300);                    // base fog distance (meters); weather
 The calendar is the game's: `sky()` alone keeps one time of day (dungeon, arena, space); a day-night cycle is `sky({ dayLength: 360 })` or `sky(presets.calendar.cycle)` (`presets.calendar.fourSeasons` includes it); `hoursPerDay` changes the clock face. An audio rule's `time` condition takes `'day'`, `'night'` or a range `['18:00', '06:00']`; anything else warns once.
 Seasons are off by default (`engine.sky.season` is `null`, no `season:change`); name them to turn them on:
 ```js
-sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 });     // or the preset: openWorld({ camera: 'follow', sky: presets.calendar.fourSeasons })
-sky({ seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }] });          // seasons of their own length
+sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28, dayLength: 360 });   // days advance only with a dayLength; or the preset: openWorld({ camera: 'follow', sky: presets.calendar.fourSeasons })
+sky({ seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }], dayLength: 360 });   // seasons of their own length
 ```
 **Don't modify directly** `sky.sun.intensity / color`, `sky.hemi`, `scene.fog`: the sky recomputes them every frame and overwrites your change (the console warns about it during development).
 To darken or tint everything (a cave, a horror segment), write a modifier layer of your own; it stacks with the weather's 'weather' layer without overwriting it:

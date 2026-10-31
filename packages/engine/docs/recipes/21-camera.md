@@ -1,6 +1,6 @@
 # Camera: first / third person, top-down strategy, fixed shots, switched at runtime
 
-Four cameras; the kind names are always: `'follow'` third-person follow (default) · `'firstPerson'` first person · `'rts'` top-down strategy · `'fixed'` fixed shots.
+Four cameras; the kind names are always: `'follow'` third-person follow · `'firstPerson'` first person · `'rts'` top-down strategy · `'fixed'` fixed shots.
 Pick one at the start: `openWorld({ camera: 'firstPerson' })`, or by hand `engine.use(followCamera({ distance: 10 }))` / `firstPersonCamera({ height: 1.7 })` / `rtsCamera()` / `fixedCamera({ shots })`.
 **There is exactly one entry point for changing camera in the game: `engine.setCamera(kind, options?)`**, no restart needed.
 
@@ -54,6 +54,7 @@ import { presets, pickTarget, switchTarget } from 'threedog';
 
 // who moves the player: 'camera' (keys relative to the camera) | 'none' (you call move) | (player, input, dt) => ({ x, z, run?, speed? }) | null
 const player = engine.characters.createPlayer({ ...presets.player.none, cameraFollow: true, runKeys: ['ShiftLeft'] });   // runKeys: moveInput().run reads it
+engine.input.define('lockOn', ['KeyQ'], 'Lock on').define('switchTarget', ['KeyR'], 'Switch target');   // no key is bound by itself
 let lock = null, hitStun = 0, knockX = 0, knockZ = 0;
 const enemies = () => engine.world.query({ kind: 'enemy', near: player.position, radius: 20 });
 

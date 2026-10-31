@@ -1,10 +1,14 @@
-// NPC-vs-NPC avoidance (near NPCs, every fixed step, called from goTo): nearby NPCs push each other apart to at least the sum of their radii; the player is an obstacle (NPCs yield, the player is never pushed).
+// NPC-vs-NPC avoidance (near NPCs, every fixed step, called from goTo): nearby NPCs push each other apart to at least the sum of their radii; the player is an
+// obstacle (NPCs yield, the player is never pushed).
 // Why it is written this way: a continuous run and a save-then-load of the same scenario must give bit-identical positions:
-//  1. Each NPC pushes only itself and reads neighbours' positions as of the start of this step (stamped), so a neighbour that already moved this step does not matter and order is irrelevant;
-//  2. Neighbour pushes are rounded before summing (neighbour iteration order changes after load; float addition order would differ in the last bit, integer addition does not);
+// 1. Each NPC pushes only itself and reads neighbours' positions as of the start of this step (stamped), so a neighbour that already moved this step does not
+// matter and order is irrelevant;
+// 2. Neighbour pushes are rounded before summing (neighbour iteration order changes after load; float addition order would differ in the last bit, integer
+// addition does not);
 //  3. No randomness, no state kept in data (start is a per-step scratch value, cleared on load).
 // Push is capped (strength m/s * dt), stronger with more overlap, then constrained by engine.collision (if installed) so NPCs are not pushed into walls.
-// With nav({ crowd: true }) the Recast agents decide and this adds nothing. Only near NPCs with a model; far NPCs are simulated from data without per-NPC avoidance (too costly).
+// With nav({ crowd: true }) the Recast agents decide and this adds nothing. Only near NPCs with a model; far NPCs are simulated from data without per-NPC
+// avoidance (too costly).
 import { checkOptions } from '../../core/validate.js';
 
 const KEYS = ['on', 'radius', 'strength'];
@@ -14,9 +18,13 @@ const Q = 1048576;   // rounding scale before summing (2^20)
 
 const cellKey = (x, z) => (x + 1048576) * 2097152 + z + 1048576;
 
-/** Push from one neighbour (offset (dx, dz) from me, distance d, wanted separation min), rounded and added to acc; exactly overlapping picks the direction by tie (±1) */
+/**
+ * Push from one neighbour (offset (dx, dz) from me, distance d, wanted separation min), rounded and added to acc; exactly overlapping picks the direction by
+ * tie (±1)
+ */
 function shove(acc, dx, dz, d, min, tie) {
-  const w = Math.min(1, (min - d) / (0.5 * min)), ux = d > 1e-6 ? dx / d : tie, uz = d > 1e-6 ? dz / d : 0;   // more overlap pushes harder, a light touch pushes gently: smooth
+  // more overlap pushes harder, a light touch pushes gently: smooth
+  const w = Math.min(1, (min - d) / (0.5 * min)), ux = d > 1e-6 ? dx / d : tie, uz = d > 1e-6 ? dz / d : 0;
   acc.x += Math.round((ux * COS - uz * SIN) * w * Q); acc.z += Math.round((ux * SIN + uz * COS) * w * Q);
 }
 
@@ -31,16 +39,20 @@ export class NpcAvoid {
     /** @internal ids of NPCs that have a model now (NPCManager keeps it): only they take part, so far NPCs cost nothing per step */ this.built = new Set();
     this._ids = [];
     this._start = new Map();   // id → { k: simulation step count, x, z }: position at the start of this step
-    // fine grid index for this step (cell size = min distance of two NPCs, query 3x3 cells): the world grid is 32 m per cell, so hundreds of NPCs in one or two cells would make per-pair distance checks too costly
+    // fine grid index for this step (cell size = min distance of two NPCs, query 3x3 cells): the world grid is 32 m per cell, so hundreds of NPCs in one or two
+    // cells would make per-pair distance checks too costly
     this._gridN = -1; this._head = new Map(); this._next = new Int32Array(64); this._items = []; this._gx = new Float64Array(64); this._gz = new Float64Array(64);
     engine.events.on('world:remove', ({ id }) => this._start.delete(id));
-    engine.events.on('world:load', () => { this._start.clear(); this._gridN = -1; });   // after load the simulation step count returns to the saved value, so the old grid is stale
+    // after load the simulation step count returns to the saved value, so the old grid is stale
+    engine.events.on('world:load', () => { this._start.clear(); this._gridN = -1; });
   }
 
   /**
-   * Change settings: set(false) off, set(true) on, set({ radius, strength }) tune (pass only what changes; passing it means on). Read current values from on / radius / strength.
+   * Change settings: set(false) off, set(true) on, set({ radius, strength }) tune (pass only what changes; passing it means on). Read current values from on /
+   * radius / strength.
    * @example engine.npcs.avoid.set({ radius: 0.6, strength: 2 });   // a bit sparser, pushed more slowly
-   * @param {boolean | { on?: boolean, radius?: number | null, strength?: number }} opts  radius per-NPC avoid radius (m, null = engine.movement.radius), strength max push speed (m/s, default 3)
+   * @param {boolean | { on?: boolean, radius?: number | null, strength?: number }} opts radius per-NPC avoid radius (m, null = engine.movement.radius),
+   * strength max push speed (m/s, default 3)
    * @returns {this}
    */
   set(opts) {
@@ -62,7 +74,10 @@ export class NpcAvoid {
     else { s.k = n; s.x = p.x; s.z = p.z; }
   }
 
-  /** On the first avoid of this step, put model-bearing NPCs into the fine grid by their step-start positions (each NPC then queries only the surrounding 3x3 cells) */
+  /**
+   * On the first avoid of this step, put model-bearing NPCs into the fine grid by their step-start positions (each NPC then queries only the surrounding 3x3
+   * cells)
+   */
   _build(W, n, min) {
     const head = this._head, items = this._items, ids = this._ids;
     ids.length = 0; for (const id of this.built) ids.push(id);
@@ -86,7 +101,8 @@ export class NpcAvoid {
     if (!own || own.k !== n) return;   // did not enter via NPC.js (goTo called directly): no avoidance
     if (this._gridN !== n) this._build(W, n, min);
     const head = this._head, nx = this._next, items = this._items, gx = this._gx, gz = this._gz, min2 = min * min;
-    const acc = this._acc; acc.x = acc.z = 0;   // accumulate integers: float addition depends on order and neighbour order changes after load; rounded integer addition is exact and order-independent
+    // accumulate integers: float addition depends on order and neighbour order changes after load; rounded integer addition is exact and order-independent
+    const acc = this._acc; acc.x = acc.z = 0;
     const cx = Math.floor(own.x / min), cz = Math.floor(own.z / min);
     for (let x = cx - 1; x <= cx + 1; x++) for (let z = cz - 1; z <= cz + 1; z++) {
       for (let i = head.get(cellKey(x, z)) ?? -1; i >= 0; i = nx[i]) {
@@ -106,6 +122,8 @@ export class NpcAvoid {
     const k = this.strength * dt / Math.max(1, len), p = ch.root.position;
     const mx = ax * k, mz = az * k;
     p.x += mx; p.z += mz;
-    if (mx * mx + mz * mz > 2.5e-5) e.collision?.resolve(p, ch.radius);   // skip collision for pushes under half a centimetre (the mover keeps it out of walls next step); in a crowd every NPC is nudged every step, so this saves most collision queries
+    // skip collision for pushes under half a centimetre (the mover keeps it out of walls next step); in a crowd every NPC is nudged every step, so this saves
+    // most collision queries
+    if (mx * mx + mz * mz > 2.5e-5) e.collision?.resolve(p, ch.radius);
   }
 }

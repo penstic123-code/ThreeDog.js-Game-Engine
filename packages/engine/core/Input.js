@@ -1,20 +1,26 @@
 // Input: read by "action", not by "key". Games and modules ask "did the player press interact", not "did they press E".
 // Why: keys can be rebound in settings, and on-screen key hints follow automatically.
 //
-// engine.input.define('jump', ['Space'], 'Jump');       // a module/game registers its own action. Redefining: the later one overrides keys and label (warns once in dev); keys the player rebound are kept
-// engine.input.define('inventory', ['KeyI'], 'inv.open', { pad: 'PadY' })   // the module that registers an action supplies its default gamepad key (or write 'PadY' straight into the key array)
+// engine.input.define('jump', ['Space'], 'Jump'); // a module/game registers its own action. Redefining: the later one overrides keys and label (warns once in
+// dev); keys the player rebound are kept
+// engine.input.define('inventory', ['KeyI'], 'inv.open', { pad: 'PadY' }) // the module that registers an action supplies its default gamepad key (or write
+// 'PadY' straight into the key array)
 // engine.input.down('run')      held
 // engine.input.pressed('jump')  just pressed; engine.input.released('jump') just released
-// Gameplay (onFixed, module fixed) reads a snapshot taken at the start of each fixed step: reads within one step agree, and "just pressed" counts exactly once, never lost, whatever the frame rate.
+// Gameplay (onFixed, module fixed) reads a snapshot taken at the start of each fixed step: reads within one step agree, and "just pressed" counts exactly once,
+// never lost, whatever the frame rate.
 // UI keys and camera (onFrame, module frame) read this frame's latest state. Gameplay keys (jump, attack, fire, interact) are always read in fixed
-// Contexts: engine.input.push('vehicle') groups/shadows actions (inputContext.js); menus, dialogue and cutscenes push an opaque one. Window blur / tab hide (page:blur from core/page.js) releases every held key
+// Contexts: engine.input.push('vehicle') groups/shadows actions (inputContext.js); menus, dialogue and cutscenes push an opaque one. Window blur / tab hide
+// (page:blur from core/page.js) releases every held key
 // engine.input.label('interact') -> "E" (for UI hints; 'interact' exists only once the game bound it)
-// engine.input.rebind('interact', ['KeyF'])   rebind a key (this session only; with the settings module installed it saves to the browser and restores next time)
+// engine.input.rebind('interact', ['KeyF']) rebind a key (this session only; with the settings module installed it saves to the browser and restores next time)
 // engine.input.axis -> { x, y }  movement direction (moveLeft/Right/Forward/Back + mobile stick)
 //
-// Mouse buttons are keys too: 'Mouse0' left / 'Mouse1' middle / 'Mouse2' right (real mouse only; touch taps do not count). Bind them in actions and read in fixed steps, independent of frame rate:
+// Mouse buttons are keys too: 'Mouse0' left / 'Mouse1' middle / 'Mouse2' right (real mouse only; touch taps do not count). Bind them in actions and read in
+// fixed steps, independent of frame rate:
 //   engine.input.define('attack', ['KeyJ', 'Mouse0'], 'Attack');  engine.onFixed(() => { if (engine.input.pressed('attack')) … });
-// input.pointer = { x, y, ndcX, ndcY, down, clicked } (x / y pixels and ndc -1..1 relative to the canvas box, not the window): for UI and ground picking (click-to-move via screenToGround); clicked is true only on this frame and a drag does not count,
+// input.pointer = { x, y, ndcX, ndcY, down, clicked } (x / y pixels and ndc -1..1 relative to the canvas box, not the window): for UI and ground picking
+// (click-to-move via screenToGround); clicked is true only on this frame and a drag does not count,
 //   gameplay (fire, attack) must not read it; bind a Mouse0 action instead
 
 /** @import { Pointer, Autopilot } from '../types/core' */
@@ -23,26 +29,9 @@ import { warnMissing, warnOnce } from './validate.js';
 import { touchButton } from './inputTouch.js';
 import { bindPointer } from './inputPointer.js';
 import { pollPad, keyLabel } from './inputPad.js';
+import { DEFAULT_ACTIONS, BOUND_LABELS, PAD_DEFAULTS, fmtRedefine } from './inputDefaults.js';
 import { initContexts, pushContext, readableMap, applyContexts } from './inputContext.js';
 
-// Only neutral input lives here: the direction axis (input.axis, the touch stick) and menu confirm / cancel. Nothing in it does anything until a game or module reads it.
-// Gameplay keys (run, interact, jump...) are not core defaults: the game binds them (createEngine({ bindings }), input.define, a module's keys option or a preset such as
-// presets.player.thirdPerson / presets.interactions.nearest), so no game inherits another game's Shift-to-run or E-to-use.
-const DEFAULT_ACTIONS = {
-  moveForward: [['KeyW', 'ArrowUp'], 'input.moveForward'],
-  moveBack: [['KeyS', 'ArrowDown'], 'input.moveBack'],
-  moveLeft: [['KeyA', 'ArrowLeft'], 'input.moveLeft'],
-  moveRight: [['KeyD', 'ArrowRight'], 'input.moveRight'],
-  confirm: [['Space', 'Enter'], 'input.confirm'],
-  cancel: [['Escape'], 'input.cancel'],
-};
-// display names for actions a game creates through createEngine({ bindings }) before the module that reads them defines its label
-const BOUND_LABELS = { run: 'input.run', interact: 'input.interact', jump: 'input.jump' };
-// Default gamepad keys for the neutral menu actions only (confirm / cancel / menu): added when the action is registered (override in createEngine({ padBindings })).
-// Gameplay actions (jump, run, interact, inventory...) get pad keys the same way as keyboard keys: from the game or a preset (presets.player.*, presets.keys.*)
-const PAD_DEFAULTS = { confirm: 'PadA', cancel: 'PadB', menu: 'PadStart' };
-const STRINGS = { redefine: 'Input action "{action}" defined twice: it already had keys {from}, now {to}; the later definition overrides. Ignore this if the change is intended; to change only the label, pass the same keys' };
-const fmtRedefine = (action, from, to) => STRINGS.redefine.replace('{action}', action).replace('{from}', from.join(', ')).replace('{to}', to.join(', '));
 
 /** Input: read by "action", not by "key". Key names are the browser's KeyboardEvent.code, e.g. 'KeyE', 'Space', 'ShiftLeft'; gamepad keys are 'PadA' etc. */
 export class Input {
@@ -101,13 +90,16 @@ export class Input {
 
   // ---------- actions ----------
   /**
-   * Register an action. keys is a key name or array (gamepad keys such as 'PadY' can go in directly); labelKey is the display name (a string-table key or text).
-   * opts.pad: the default gamepad key for this action (gameplay-specific actions get it from the registering module; createEngine({ padBindings }) takes precedence).
+   * Register an action. keys is a key name or array (gamepad keys such as 'PadY' can go in directly); labelKey is the display name (a string-table key or
+   * text).
+   * opts.pad: the default gamepad key for this action (gameplay-specific actions get it from the registering module; createEngine({ padBindings }) takes
+   * precedence).
    * If the action exists, the later definition overrides (warns once in dev when the keys differ); keys the player rebound in settings are kept
    * @param {string} action
    * @param {string | string[]} keys
    * @param {string} [labelKey]
-   * opts.context: the input context the action belongs to (default 'gameplay'); it is readable only while that context is on the stack and not shadowed, see push().
+   * opts.context: the input context the action belongs to (default 'gameplay'); it is readable only while that context is on the stack and not shadowed, see
+   * push().
    * @param {{ pad?: string | string[], context?: string }} [opts]
    * @returns {this}
    * @example engine.input.define('openMap', 'KeyM', 'input.openMap', { pad: 'PadY' });
@@ -118,7 +110,8 @@ export class Input {
     const { pad, context } = opts;
     this._readable = null;
     keys = [].concat(this._bound[action] ?? keys);   // createEngine({ bindings }) wins over the keys a module passes
-    if (pad && !this.padDefaults[action]) keys = [...keys, ...[].concat(pad).filter(p => !keys.includes(p))];   // a createEngine({ padBindings }) entry takes precedence
+    // a createEngine({ padBindings }) entry takes precedence
+    if (pad && !this.padDefaults[action]) keys = [...keys, ...[].concat(pad).filter(p => !keys.includes(p))];
     const cur = this.actions.get(action), want = this._withPad(action, keys);
     if (!cur) { this.actions.set(action, { keys: want, labelKey: labelKey || action, custom: false, defined: true, context }); return this; }
     if (labelKey) cur.labelKey = labelKey;
@@ -135,7 +128,10 @@ export class Input {
   /** @internal */
   _withPad(action, keys) { const p = this.padDefaults[action]; return p && !keys.includes(p) ? [...keys, p] : keys; }
 
-  /** Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the language changes) @param {string} action @param {string} labelKey */
+  /**
+   * Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the
+   * language changes) @param {string} action @param {string} labelKey
+   */
   touchButton(action, labelKey) { touchButton(this, action, labelKey); }
 
   /**
@@ -169,21 +165,29 @@ export class Input {
   /** Held (a snapshot of this step in fixed, the latest state in frame) @param {string} action @returns {boolean} */
   down(action) { return this._has(action, 'keys'); }
   /**
-   * Just pressed. Read in onFixed / module fixed: pressed since the previous fixed step, true only for this step (counted once however the frame rate varies, never lost);
+   * Just pressed. Read in onFixed / module fixed: pressed since the previous fixed step, true only for this step (counted once however the frame rate varies,
+   * never lost);
    * read in onFrame / module frame: pressed this frame (UI keys only). Read gameplay keys in fixed
    * @param {string} action @returns {boolean}
    * @example engine.onFixed(() => { if (engine.input.pressed('jump')) player.jump(); });
   */
   pressed(action) { return this._has(action, 'pressed'); }
-  /** Just released (which copy is read is the same as pressed; for things like release-to-fire after charging) @param {string} action @returns {boolean} @example if (engine.input.released('fire')) shoot(charge); */
+  /**
+   * Just released (which copy is read is the same as pressed; for things like release-to-fire after charging) @param {string} action @returns {boolean}
+   * @example if (engine.input.released('fire')) shoot(charge);
+   */
   released(action) { return this._has(action, 'released'); }
-  /** Just pressed, ignoring input contexts (for menus and dialogue themselves, which run while a context blocks the game) @param {string} action @returns {boolean} */
+  /**
+   * Just pressed, ignoring input contexts (for menus and dialogue themselves, which run while a context blocks the game) @param {string} action @returns
+   * {boolean}
+   */
   pressedRaw(action) { this._known(action); const S = (this._inFixed ? this._fx : this._live).pressed; return this.keysOf(action).some(k => S.has(k)); }
 
   /**
    * Push an input context (an action group, like a Unity Action Map). The top context shadows lower actions bound to the same key.
    * Opaque by default (nothing below is readable: menus, dialogue, cutscenes); { pass: true } lets unrelated lower actions keep working (vehicle, build mode).
-   * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., { context }); menu keys: pressedRaw.
+   * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., {
+   * context }); menu keys: pressedRaw.
    * @param {string} name e.g. 'vehicle', 'menu', 'build' (the base context is 'gameplay')
    * @param {{ pass?: boolean }} [opts]
    * @returns {{ name: string, remove(): void }} remove() pops it (safe to call twice)
@@ -193,10 +197,15 @@ export class Input {
   push(name, opts) { return pushContext(this, name, opts); }
   /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
   get contexts() { return this._stack.map(c => c.name); }
-  /** False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean} */
+  /**
+   * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean}
+   */
   get enabled() { return this._stack.every(c => c.pass); }
 
-  /** Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame) @returns {{ x: number, y: number }} */
+  /**
+   * Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame) @returns {{ x: number,
+   * y: number }}
+   */
   get axis() {
     if (!this.enabled) return { x: 0, y: 0 };
     if (this._inFixed) return { x: this._fx.x, y: this._fx.y };

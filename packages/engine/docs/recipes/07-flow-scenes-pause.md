@@ -18,7 +18,7 @@ engine.flow.define('title', {
 engine.flow.define('ending', { freeze: true, lockInput: true, enter: () => toast(engine, '完') });
 startBtn.onclick = () => engine.flow.go('playing');
 
-engine.input.define('pause', ['KeyO'], '暂停');   // read by action name; Esc is the back key (see below), P is photo mode, I/J/E are taken too (see the key table in GAMEMAP)
+engine.input.define('pause', ['KeyO'], '暂停');   // read by action name; Esc is the back key (see below); presets.keys / presets.interactions bind P, I, J, E (see the key table in GAMEMAP)
 engine.onFrame(() => {
   if (engine.input.pressedRaw('pause')) engine.flow.go(engine.flow.state === 'paused' ? 'playing' : 'paused');   // paused pushes an opaque input context, so use pressedRaw
 });
@@ -54,7 +54,7 @@ An NPC like that is not deleted: its data (in `engine.world`, with zone = level 
 Things the game builds itself that belong to this map are registered with `engine.level.track(handle)` (`{ remove() }`) and deleted together when the map changes.
 Loading a save across levels: the save records the level name, so `await engine.saves.load('slot1')` first switches back to that map, waits for it to finish loading, and then puts the player and everything else back (the level must be loaded by name, `level({ url })`; a code-built `level({ scene })` can't be recorded).
 
-Saves live in the browser's IndexedDB (no 5 MB limit; when it is unavailable it falls back to localStorage and tells you once; old localStorage saves are moved over on first launch). `save()` / `remove()` return a Promise (awaiting is optional; a failed write shows a notice), while `list()` / `load()` / `export()` are still synchronous (saves are read into memory at startup). Photos are stored separately as Blobs and are not part of the world save.
+Saves live in the browser's IndexedDB (no 5 MB limit; when it is unavailable it falls back to localStorage and tells you once; old localStorage saves are moved over on first launch). `save()` / `remove()` / `load()` return a Promise (awaiting is optional; a failed write shows a notice), while `list()` / `export()` are synchronous (saves are read into memory at startup). Photos are stored separately as Blobs and are not part of the world save.
 Backup: `engine.saves.exportFile('slot1')` downloads a .json (including all binary attachments such as photos; `{ files: false }` gives only the world save), and `await engine.saves.importFile(file)` restores it into a save slot (without a file, a file picker opens); the "Saves" page of the settings menu has matching buttons.
 For just a fade-to-black, without locking input or saving: `await fadeScreen(engine, 1, 0.5); ...; await fadeScreen(engine, 0, 0.5);` (import from `threedog`).
 Fades inside a cutscene use the timeline steps `{ fade: 0.5 }`, `{ fade: 0.5, to: 0 }`.

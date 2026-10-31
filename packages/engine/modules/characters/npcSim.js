@@ -1,12 +1,17 @@
-// NPC simulation (gameplay logic, runs in world.simulate('npc')): pick a stop from the schedule; with a model, pathfind + move the model via the mover; without a model, walk in a straight line.
-// Reads/writes only world data (plain objects) and the passed-in character (presentation), keeps no state of its own, because models are torn down when far and load replaces all data:
-// state kept elsewhere (path, current stop, velocity) would go out of sync. It all lives in data (rec.nav, rec.motion), so after load the NPC continues exactly as if it had kept running.
+// NPC simulation (gameplay logic, runs in world.simulate('npc')): pick a stop from the schedule; with a model, pathfind + move the model via the mover; without
+// a model, walk in a straight line.
+// Reads/writes only world data (plain objects) and the passed-in character (presentation), keeps no state of its own, because models are torn down when far and
+// load replaces all data:
+// state kept elsewhere (path, current stop, velocity) would go out of sync. It all lives in data (rec.nav, rec.motion), so after load the NPC continues exactly
+// as if it had kept running.
 // See the top of NPC.js for record fields.
 
 /** Fixed steps an NPC waits for a findPathAsync answer before asking again (answers normally land 4 steps later; a long queue adds perStep batches) */
 const PATH_WAIT = 300;
 
-/** Which stop to go to now (index): the latest stop at or before time t (0-1); before the first stop counts as the previous day's last stop; null if no schedule */
+/**
+ * Which stop to go to now (index): the latest stop at or before time t (0-1); before the first stop counts as the previous day's last stop; null if no schedule
+ */
 export function stopIndex(schedule, t) {
   if (!schedule.length) return null;
   let cur = schedule.length - 1;
@@ -17,9 +22,11 @@ export function stopIndex(schedule, t) {
 export const timeOfDay = e => e.sky ? e.sky.timeOfDay : 0;
 
 /**
- * Walk without a model (far, or near but model not built yet): head in a straight line to the current scheduled stop; stop at the stop if reached, otherwise at the interpolated point on the line.
+ * Walk without a model (far, or near but model not built yet): head in a straight line to the current scheduled stop; stop at the stop if reached, otherwise at
+ * the interpolated point on the line.
  * seconds seconds is the world simulation dt (accumulated fixed-step seconds, same scale as the near mover, may be large): distance = speed * seconds;
- * when several stop-change times are crossed, walk in segments, each toward that segment's stop (day progress = seconds * clock.timeScale / dayLength, same as the sky clock).
+ * when several stop-change times are crossed, walk in segments, each toward that segment's stop (day progress = seconds * clock.timeScale / dayLength, same as
+ * the sky clock).
  */
 export function advance(e, W, rec, seconds) {
   const s = rec.schedule;
@@ -40,7 +47,8 @@ export function advance(e, W, rec, seconds) {
       for (const st of s) { const a = st.at > t ? st.at : st.at + 1; if (a < next) next = a; }
       const seg = Math.min(left, next - t);
       walk(stopIndex(s, t), seg * perDay);
-      left -= seg; t = seg === next - t ? next % 1 : t + seg;   // when landing exactly on a change time take that value, so float error does not leave it on the previous stop
+      // when landing exactly on a change time take that value, so float error does not leave it on the previous stop
+      left -= seg; t = seg === next - t ? next % 1 : t + seg;
     }
   }
   const idx = stopIndex(s, timeOfDay(e)), g = s[idx];
@@ -48,14 +56,18 @@ export function advance(e, W, rec, seconds) {
   settle(e, W, rec, x, z, Math.hypot(g.x - x, g.z - z) > rec.arriveDistance);
 }
 
-/** Settle without a model: write the computed x, z back to data (position, facing, animation state); shared by every behaviour's far. The path is for the model, so it is re-found at the new position after the model is built */
+/**
+ * Settle without a model: write the computed x, z back to data (position, facing, animation state); shared by every behaviour's far. The path is for the model,
+ * so it is re-found at the new position after the model is built
+ */
 export function settle(e, W, rec, x, z, moving) {
   const p = rec.position, nav = rec.nav; nav.path = null; nav.repath = 0;
   const m = rec.motion ??= {};
   const facing = x !== p.x || z !== p.z ? Math.atan2(x - p.x, z - p.z) : m.facing ?? 0;
   Object.assign(m, { vx: 0, vz: 0, vy: 0, amount: 0, facing, grounded: true, swimming: false, coyote: 0 });
   rec.state = moving ? 'walk' : 'idle';
-  const here = rec.zone == null || W.zone == null || rec.zone === W.zone;   // NPC of another level: this level's ground height is meaningless for it, keep its y
+  // NPC of another level: this level's ground height is meaningless for it, keep its y
+  const here = rec.zone == null || W.zone == null || rec.zone === W.zone;
   W.move(rec.id, { x, y: here ? e.surface(x, z) : p.y, z });
 }
 
@@ -70,9 +82,11 @@ export function nearStep(e, W, rec, ch, dt) {
 }
 
 /**
- * With a model, take one step toward goal ({ x, z }, null = stand): pathfind, move the model via the character's mover, then copy position and motion state back to data; shared by every behaviour's near.
+ * With a model, take one step toward goal ({ x, z }, null = stand): pathfind, move the model via the character's mover, then copy position and motion state
+ * back to data; shared by every behaviour's near.
  * Standing when in conversation (rec.busy), arrived (distance < arriveDistance) or no goal.
- * Pathfinding goes through the single entry engine.characters.findPath; a goal too far (>120 m) first walks straight 100 m, then pathfinds exactly, to avoid one huge search.
+ * Pathfinding goes through the single entry engine.characters.findPath; a goal too far (>120 m) first walks straight 100 m, then pathfinds exactly, to avoid
+ * one huge search.
  */
 export function goTo(e, W, rec, ch, goal, dt) {
   const nav = rec.nav, p = ch.root.position;
@@ -104,17 +118,21 @@ export function goTo(e, W, rec, ch, goal, dt) {
     }
   }
   if (!e.nav?.crowd) e.npcs.avoid.push(rec, ch, dt);   // keep clear of other NPCs and the player (with crowd, the agents handle it)
-  // position belongs to the mover: copy the model position back to data here (world also copies at the end of each fixed step; copying now means later simulation and saves this step see the latest)
+  // position belongs to the mover: copy the model position back to data here (world also copies at the end of each fixed step; copying now means later
+  // simulation and saves this step see the latest)
   rec.motion = ch.saveMotion(rec.motion ?? {});
   rec.state = ch.state;
   W.move(rec.id, p);
 }
 
-// Crowd avoidance (nav({ crowd: true })): Recast agents steer around other NPCs (smarter than the simple push in npcAvoid.js); the NPC reads the agent velocity and walks itself.
-// The agent belongs to the model (stored on the character) and is deleted with it (dispose in NPC.js); the agent itself does not guarantee identical results after load.
+// Crowd avoidance (nav({ crowd: true })): Recast agents steer around other NPCs (smarter than the simple push in npcAvoid.js); the NPC reads the agent velocity
+// and walks itself.
+// The agent belongs to the model (stored on the character) and is deleted with it (dispose in NPC.js); the agent itself does not guarantee identical results
+// after load.
 function crowdMove(e, ch, goal, dt) {
   const nav = e.nav, crowd = nav.crowd, p = ch.root.position;
-  if (ch._agent && ch._navVersion !== nav.version) { ch._agent = null; ch._agentGoal = null; }   // nav mesh was rebuilt: the old agent was destroyed with the old crowd
+  // nav mesh was rebuilt: the old agent was destroyed with the old crowd
+  if (ch._agent && ch._navVersion !== nav.version) { ch._agent = null; ch._agentGoal = null; }
   ch._navVersion = nav.version;
   if (!ch._agent) ch._agent = crowd.addAgent({ x: p.x, y: p.y, z: p.z }, { radius: ch.radius, height: e.movement.height, maxSpeed: ch.speed, maxAcceleration: ch.acceleration * ch.speed });
   const a = ch._agent;

@@ -21,7 +21,7 @@ The average is capped by the display refresh rate, so this shows headroom exists
 - Test page (engine repository) `packages/engine/tests/perf/index.html?mode=...`:
   - `native`: plain three.js, 2000 cubes (shared geometry and material) + a ground + 1 directional light with shadows (2048 pixels, covering +-70 m) + a hemisphere light, `renderer.render` every frame.
   - `engine`: the same scene inside `createEngine()` (**no modules installed**), running the same sequence as the real-time loop each frame: fixed step -> frame hooks (including stream/jobs) -> render -> budget sampling -> afterRender.
-  - `world`: `openWorld()` fully on (debug panel, music and ambience off), with the same seed, the same flat ground and the same vegetation as the open-world example, without NPCs/quests or other content; `engine.profile()` times `fixed/frame/afterRender` for each module.
+  - `world`: `openWorld()` plus the gameplay modules it used to bundle (interactions, dialogue, inventory, quests, timeline, triggers, entities, particles, hud; debug panel, music and ambience off), with the same seed, the same flat ground and the same vegetation as the open-world example, without NPCs/quests or other content; `engine.profile()` times `fixed/frame/afterRender` for each module.
   - `props`: `n` repeated props over 4 models placed through `world.present`, with a directional shadow; `batch=0` turns `engine.batching` off (section 3c).
   - `city`: used by the C group of feature tests (HLOD, scenario parameters, settings freeze); not timed.
 - Shadows: `renderer.shadowMap.render` is wrapped to count "how many times shadows were really updated" and the draw calls per update.

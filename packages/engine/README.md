@@ -1,11 +1,12 @@
 # threedog
 
-A low-poly web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand) -> **style pack** (all art).
+A web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand) -> **style pack** (all art).
 
 ## Install
 ```sh
 npm install threedog three@~0.187.0
 npm install @threedog/style-lowpoly          # optional: the low-poly style pack (the engine ships no art)
+npm install @threedog/terrain-noise          # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
 npm install -D vite @threedog/tools   # optional: the vite preset and the threedog command line
 ```
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.

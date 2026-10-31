@@ -65,13 +65,14 @@ anim.dispose();                                                     // no longer
 ```
 **Gameplay timing never reads the animation**: the mixer advances per frame and `anim:end` is emitted per frame, so dropped frames, fast-forward (step's frameEvery) and a model being torn down when it is far away all make it drift from game time. When an attack lands, cooldowns, recovery and "finish the swing before moving" are timed in fixed steps:
 ```js
+engine.input.define('attack', ['KeyF', 'Mouse0'], 'Attack');      // no module binds it for you
 let t = -1;                                                         // seconds since the swing started (-1 = not swinging); put it in a world record if it must be saved
 engine.onFixed(dt => {
   if (t < 0) { if (!engine.input.pressed('attack')) return; t = 0; }
   const before = t; t += dt;
   if (before < 0.3 && t >= 0.3) hitEnemiesInFront();               // hit check at 0.3 s
   if (t >= 0.6) t = -1;                                             // can swing again after 0.6 s
-  anim.sync(t < 0 ? null : 'swing', t);                             // the animation follows t (section 5)
+  engine.player.anim.sync(t < 0 ? null : 'attack', t);               // the animation follows t (the attack state of section 5)
 });
 ```
 ## 5. Gameplay controls progress: `sync(state, t)`

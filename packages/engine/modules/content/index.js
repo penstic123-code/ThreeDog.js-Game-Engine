@@ -1,4 +1,5 @@
-// Content loader: hands the plain data in the game's content/*.js to the engine (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger zones, props).
+// Content loader: hands the plain data in the game's content/*.js to the engine (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger
+// zones, props).
 //   engine.use(content());
 //   engine.assets.manifest(lowpolyAssets);                      // models content names (an asset pack; content never holds paths or code)
 //   engine.content.load(data, { places: { home: { x, z } } });  // or several packs at once: load([base, dlc, level]) (packs.js)
@@ -6,12 +7,17 @@
 // a game's own actions are ops, called from content with { op: ['noun.verb', args] } and tested with { can: [...] }.
 // Op names used in content are checked when the game becomes ready (did you mean...).
 // Templates (content/templates.js): reusable objects placed from props.js ({ template, x, z }) or engine.content.spawn; see templates.js.
-// Props (content/props.js) and pickups (pickups.js) are stored in engine.world (requires world(); openWorld() includes it; see props.js for the stable id rule),
-// models and collision are built only near the focus; move / remove with engine.world.move / remove, saved with the save. Procedural models of vegetation and props go through engine.assets.cached (name = model name):
-// baked files from npm run bake are read from file, otherwise cached automatically in dev. Models arrive asynchronously: the loading screen of start() waits for them (isReady) before the game counts as ready.
+// Props (content/props.js) and pickups (pickups.js) are stored in engine.world (requires world(); openWorld() includes it; see props.js for the stable id
+// rule),
+// models and collision are built only near the focus; move / remove with engine.world.move / remove, saved with the save. Procedural models of vegetation and
+// props go through engine.assets.cached (name = model name):
+// baked files from npm run bake are read from file, otherwise cached automatically in dev. Models arrive asynchronously: the loading screen of start() waits
+// for them (isReady) before the game counts as ready.
 // Repeated load: a quest's startOn and a trigger's enter/exit effects do not attach listeners twice (the later load overrides the same name).
-// Pickups, props and NPCs are initial world data: the save records only changes and removals, so content.load before or after loading a save gives the same result.
-// Positions that use level markers belong to the current level: the data carries a zone, and a level change only tears down models (pickups taken and removals are remembered); trigger zones are removed on level change.
+// Pickups, props and NPCs are initial world data: the save records only changes and removals, so content.load before or after loading a save gives the same
+// result.
+// Positions that use level markers belong to the current level: the data carries a zone, and a level change only tears down models (pickups taken and removals
+// are remembered); trigger zones are removed on level change.
 import { warnMissing, missingText } from '../../core/validate.js';
 import { reportError } from '../../core/errors.js';
 import { parseClock } from '../../core/dayTime.js';
@@ -43,7 +49,8 @@ export function content() {
     /** marker markers added by the marker effect: id -> hud marker */
     markers: new Map(),
     /**
-     * Load content data: one pack (the object of content/index.js) or a list of packs loaded together in order, where an id defined by two packs is an error (packs.js).
+     * Load content data: one pack (the object of content/index.js) or a list of packs loaded together in order, where an id defined by two packs is an error
+     * (packs.js).
      * Models are asset names (engine.assets.manifest / an asset pack), never paths. places: place name -> position
      * @example engine.content.load([baseContent, forestDlc], { places: { home: { x: 0, z: 0 } } })
      * @param {any} data

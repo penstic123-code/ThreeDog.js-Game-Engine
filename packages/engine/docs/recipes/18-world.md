@@ -1,6 +1,6 @@
 # World data: things that must be saved, grow, and keep changing while far away
 
-Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need `interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory()`. The API list is in `../api/world.md`; this page explains how to use it and what the rules are.
+Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need `interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory({ ...presets.keys.inventory })`. The API list is in `../api/world.md`; this page explains how to use it and what the rules are.
 
 Anything in the game that "must remember its state, survive level changes, and keep changing while far away" (chests, NPCs, zombies, crops, trees the player planted, the player itself) is one **plain data record** in `engine.world`: a stable id, a kind, a position, plus your own fields. The model is just how it looks when the camera is near; unloading a chunk / level tears down only the model and never loses the data; a save stores only data; far away, with no model, the data is still simulated.
 A decorative rock is a props entry in `content/props.js` (an authored record, saved only if play moves or removes it); `engine.add(mesh)` is for transient effects. Everything placed in a level comes from content, so a new game equals the content (in dev, start warns about records code created before it).

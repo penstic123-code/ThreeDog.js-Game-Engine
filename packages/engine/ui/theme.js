@@ -91,7 +91,8 @@ export function applyUIStyle(engine, ui = {}) {
   const t = { ...DEFAULT_UI, ...ui }, r = engine.uiRoot.style;
   for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'number') r.setProperty('--threedog-' + kebab(k), String(t[k]));
   const nodes = [];
-  const add = (tag, props) => { const n = Object.assign(document.createElement(tag), props); n.dataset.threedogPack = ''; document.head.appendChild(n); nodes.push(n); };
+  const add = (tag, props) => { const n = Object.assign(document.createElement(tag),
+    props); n.dataset.threedogPack = ''; document.head.appendChild(n); nodes.push(n); };
   if (ui.css) add('style', { textContent: ui.css });
   return {
     remove() {
@@ -101,11 +102,12 @@ export function applyUIStyle(engine, ui = {}) {
     },
   };
 }
-// A style holds looks, never files (docs/plans/packs-design.md): a font file is an asset, so the style names it. The old forms carried
+// A style holds looks, never files (packages/engine/docs/recipes/09-style-pack.md): a font file is an asset, so the style names it. The old forms carried
 // paths (fontFaces[].url, a fontCSS stylesheet URL) and are refused with the new form, so a pack cannot slip a file back in.
 function checkFonts(ui) {
   if (ui.fontFaces || ui.fontCSS) throw new Error(`style.ui.${ui.fontFaces ? 'fontFaces' : 'fontCSS'} is gone: a style names fonts, an asset pack holds the files. `
-    + "Register them with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }), then style.ui: { fonts: ['pixel'], font: '\"pixel\", system-ui' }");
+    + "Register them with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }), then style.ui: { fonts: ['pixel'], font: '\"pixel\", " +
+      "system-ui' }");
   if (ui.fonts != null && !(Array.isArray(ui.fonts) && ui.fonts.every(n => typeof n === 'string' && !/[/\.]/.test(n))))
     throw new Error(`style.ui.fonts must be a list of font asset names, got ${JSON.stringify(ui.fonts)}. Example: fonts: ['pixel'] with `
       + "engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } })");

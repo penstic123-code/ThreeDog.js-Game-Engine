@@ -14,28 +14,41 @@ export class World {
     });
     /** All records: id → record (read-only; use set to change fields, move to change position) @type {Map<string, WorldRecord>} */
     records: Map<string, WorldRecord>;
-    /** Default distance (meters) for building models and counting as near; present / simulate can override it. Changing it at runtime affects those without their own radius @type {number} */
+    /**
+     * Default distance (meters) for building models and counting as near; present / simulate can override it. Changing it at runtime affects those without
+     * their own radius @type {number}
+     */
     radius: number;
     /** Default interval (seconds) between far simulations, same unit as dt @type {number} */
     farEvery: number;
-    /** Max far simulations per fixed step; the rest queue for the next step (dt accumulates, no time is lost). Counted by records, not milliseconds, so results do not depend on machine speed @type {number} */
+    /**
+     * Max far simulations per fixed step; the rest queue for the next step (dt accumulates, no time is lost). Counted by records, not milliseconds, so results
+     * do not depend on machine speed @type {number}
+     */
     farMaxPerTick: number;
     /** Max models built per frame; the rest continue next frame (ready waits for all of them; loading is not limited) @type {number} */
     buildPerFrame: number;
     set anchor(a: any);
     /**
-     * Gameplay simulation center (near / far is measured from it): null (default) = where engine.actor is (engine.actorPosition(): the player, or engine.focus when there is no player). The built-in stream source engine.stream.player follows the player too (models and colliders around it); the camera source engine.stream.camera adds models only.
+     * Gameplay simulation center (near / far is measured from it): null (default) = where engine.actor is (engine.actorPosition(): the player, or engine.focus
+     * when there is no player). The built-in stream source engine.stream.player follows the player too (models and colliders around it); the camera source
+     * engine.stream.camera adds models only.
      * For another center (a strategy game's base) set a Vector3 / object / { x, z } / [x, y, z]; set null to restore. Read once at the start of each fixed step
      * @example engine.world.anchor = baseObject
      * @type {any}
      */
     get anchor(): any;
     set zone(z: string | null);
-    /** Current zone (e.g. level name, set by the level module on level change): once set, records of another zone get no model and no near simulation; null = no zoning @type {string | null} */
+    /**
+     * Current zone (e.g. level name, set by the level module on level change): once set, records of another zone get no model and no near simulation; null = no
+     * zoning @type {string | null}
+     */
     get zone(): string | null;
     /**
-     * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind#1, kind#2…, saved; `#` never appears in an authored id, so the two can never collide).
-     * opts.initial: initial record written in content (needs an id); saves only keep its changes and removal; if the id already exists the existing one is returned (content may load twice);
+     * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind#1, kind#2…, saved; `#` never appears in an
+     * authored id, so the two can never collide).
+     * opts.initial: initial record written in content (needs an id); saves only keep its changes and removal; if the id already exists the existing one is
+     * returned (content may load twice);
      * returns null if the save removed it (it is not added back). opts.save: false: not saved (temporary things).
      * @example engine.world.add({ id: 'shop_owner', kind: 'npc', position: [12, 0, -30], name: '店主', mood: 'calm' }, { initial: true })
      * @param {{ kind: string, id?: string, position?: any, [field: string]: any }} def
@@ -70,7 +83,8 @@ export class World {
         };
     } | null;
     /**
-     * The id of the record whose model contains obj (obj itself or one of its parents is a built model), else null. A ray hit on a model names its record this way.
+     * The id of the record whose model contains obj (obj itself or one of its parents is a built model), else null. A ray hit on a model names its record this
+     * way.
      * @example const h = engine.pick(0, 0); const id = h && engine.world.idOf(h.object);
      * @param {any} obj  a THREE.Object3D (a mesh of the model is fine)
      * @returns {string | null}
@@ -101,13 +115,15 @@ export class World {
      */
     move(id: string, position: any): void;
     /**
-     * Remove a record (its model is torn down too) and emit the world:remove event. Does nothing if the id does not exist. Removing an initial record is saved, so it stays gone after loading
+     * Remove a record (its model is torn down too) and emit the world:remove event. Does nothing if the id does not exist. Removing an initial record is saved,
+     * so it stays gone after loading
      * @param {string} id
      * @returns {void}
      */
     remove(id: string): void;
     /**
-     * Query records; returns an array. With near only nearby cells are scanned and results are sorted nearest first (radius defaults to 30 m); where filters further. For neighbor queries every step use forEachNear
+     * Query records; returns an array. With near only nearby cells are scanned and results are sorted nearest first (radius defaults to 30 m); where filters
+     * further. For neighbor queries every step use forEachNear
      * @example engine.world.query({ kind: 'zombie', near: engine.player, radius: 30, where: z => !z.dead })
      * @param {{ kind?: string, near?: any, radius?: number, where?: (rec: WorldRecord) => boolean, zone?: string | null }} [opts]
      * @returns {WorldRecord[]}
@@ -120,7 +136,8 @@ export class World {
         zone?: string | null;
     }): WorldRecord[];
     /**
-     * Call fn(rec, d2) for each record within radius meters (horizontal distance) of center; d2 is the squared distance. Unsorted, no allocation: use it for per-step neighbor queries (hundreds of zombies avoiding each other).
+     * Call fn(rec, d2) for each record within radius meters (horizontal distance) of center; d2 is the squared distance. Unsorted, no allocation: use it for
+     * per-step neighbor queries (hundreds of zombies avoiding each other).
      * Don't add / remove / move in the callback (moving into a cell not yet visited visits it again): record the change and apply it after the loop
      * @example engine.world.forEachNear(rec.position, 5, (o, d2) => { if (o !== rec && o.kind === 'zombie') n++; })
      * @param {any} center  Vector3 / object / { x, z }
@@ -130,16 +147,22 @@ export class World {
      */
     forEachNear(center: any, radius: number, fn: (rec: WorldRecord, d2: number) => void): void;
     /**
-     * Register how a kind of thing looks: models are built automatically within radius meters of any full-detail stream source (engine.stream: player, camera focus, teleport destination) and torn down when far from all of them (radius × 1.25); tearing down never touches the record. Callbacks:
-     *   build(rec) → three.js object (may be async). world adds it to the scene and places it at rec.position; if it throws / fails / returns a non-object: reported once, does not block ready, retried when you leave and come back.
+     * Register how a kind of thing looks: models are built automatically within radius meters of any full-detail stream source (engine.stream: player, camera
+     * focus, teleport destination) and torn down when far from all of them (radius × 1.25); tearing down never touches the record. Callbacks:
+     * build(rec) → three.js object (may be async). world adds it to the scene and places it at rec.position; if it throws / fails / returns a non-object:
+     * reported once, does not block ready, retried when you leave and come back.
      *   update(rec, obj, dt): called every frame for records that have a model (change the look from the data, e.g. an opened chest swaps texture).
      *   dispose(rec, obj): called on teardown (record first, model second); if omitted, engine.remove(obj).
      *   show(rec) → false: this record has no model right now (picked up, waiting to respawn); re-evaluated when world.set changes records of this kind.
-     * radius: meters, or a function (for distances that change, like terrain view distance); defaults to world.radius. Registering the same kind again: old models are torn down with the old dispose and rebuilt with the new one.
-     * positionFrom: 'record' (default, the model follows the record every frame) or 'view' (the model moves itself, e.g. driven by a character mover; model position is copied back to the record at the end of each fixed step).
-     * @example engine.world.present('chest', { build: rec => new THREE.Mesh(boxGeo, makeMaterial('prop')), dispose: (rec, obj) => engine.remove(obj), show: rec => !rec.looted })
+     * radius: meters, or a function (for distances that change, like terrain view distance); defaults to world.radius. Registering the same kind again: old
+     * models are torn down with the old dispose and rebuilt with the new one.
+     * positionFrom: 'record' (default, the model follows the record every frame) or 'view' (the model moves itself, e.g. driven by a character mover; model
+     * position is copied back to the record at the end of each fixed step).
+     * @example engine.world.present('chest', { build: rec => new THREE.Mesh(boxGeo, makeMaterial('prop')), dispose: (rec, obj) => engine.remove(obj), show: rec
+     * => !rec.looted })
      * @param {string} kind
-     * @param {{ build: (rec: WorldRecord) => any, update?: (rec: WorldRecord, obj: any, dt: number) => void, dispose?: (rec: WorldRecord, obj: any) => void, show?: (rec: WorldRecord) => boolean, radius?: number | (() => number), positionFrom?: 'record' | 'view' }} opts
+     * @param {{ build: (rec: WorldRecord) => any, update?: (rec: WorldRecord, obj: any, dt: number) => void, dispose?: (rec: WorldRecord, obj: any) => void,
+     * show?: (rec: WorldRecord) => boolean, radius?: number | (() => number), positionFrom?: 'record' | 'view' }} opts
      * @returns {{ remove(): void }}
      */
     present(kind: string, opts: {
@@ -158,29 +181,38 @@ export class World {
      * @returns {any}
      */
     view(id: string): any;
-    /** All models that should exist near the stream sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to wait yourself, await world.whenReady @type {boolean} */
+    /**
+     * All models that should exist near the stream sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to
+     * wait yourself, await world.whenReady @type {boolean}
+     */
     get ready(): boolean;
     /** Promise that resolves when ready becomes true @type {Promise<void>} */
     get whenReady(): Promise<void>;
     /**
-     * Build / tear down models for the stream sources right now (normally automatic every frame, with a per-frame limit). Use it right after add when you need the model: sync builds are available via view(id) after the call, for async ones also await world.whenReady
+     * Build / tear down models for the stream sources right now (normally automatic every frame, with a per-frame limit). Use it right after add when you need
+     * the model: sync builds are available via view(id) after the call, for async ones also await world.whenReady
      * @example engine.world.add({ id: 'gate', kind: 'gate', position: p }); engine.world.refresh(); engine.world.view('gate')
      * @returns {void}
      */
     refresh(): void;
     /**
-     * Register how a kind of thing changes (gameplay logic goes here, runs in the fixed step); near / far is split by distance from world.anchor (default: the player):
+     * Register how a kind of thing changes (gameplay logic goes here, runs in the fixed step); near / far is split by distance from world.anchor (default: the
+     * player):
      * near(rec, dt, obj): within radius, once per fixed step (obj is the model, may be null if not built yet; gameplay must not depend on it);
-     * far(rec, dt): farther away, once every farEvery seconds; dt is the seconds accumulated since the last simulation (can catch up a long time at once); on the far → near step, far runs first to pay back the owed time.
+     * far(rec, dt): farther away, once every farEvery seconds; dt is the seconds accumulated since the last simulation (can catch up a long time at once); on the
+     * far → near step, far runs first to pay back the owed time.
      * With only far (crops), near also advances via far; with only near, far records are not simulated and owed time is not made up.
-     * Both dt are accumulated fixed-step seconds (not multiplied by clock.timeScale). For things measured in game clock (grows over days) store engine.clock.now and compare.
+     * Both dt are accumulated fixed-step seconds (not multiplied by clock.timeScale). For things measured in game clock (grows over days) store engine.clock.now
+     * and compare.
      * radius defaults to the present radius ('view' widened by 1.25), or world.radius without present; may also be a function.
-     * worker: true (experimental) runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must then be self-contained:
+     * worker: true (experimental) runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must
+     * then be self-contained:
      * it is recompiled from source and sees only (rec, dt) and globals like Math; an outside variable throws naming it (threads on or off alike).
      * @example engine.world.simulate('zombie', { near: (rec, dt) => chase(rec, dt), far: (rec, dt) => wander(rec, dt), farEvery: 2 })
      * @example engine.world.simulate('crop', { far: (rec, dt) => { rec.growth = Math.min(1, rec.growth + dt / 600); }, worker: true })
      * @param {string} kind
-     * @param {{ near?: (rec: WorldRecord, dt: number, obj: any) => void, far?: (rec: WorldRecord, dt: number) => void, farEvery?: number, radius?: number | (() => number), worker?: boolean }} opts
+     * @param {{ near?: (rec: WorldRecord, dt: number, obj: any) => void, far?: (rec: WorldRecord, dt: number) => void, farEvery?: number, radius?: number | (()
+     * => number), worker?: boolean }} opts
      * @returns {{ remove(): void }}
      */
     simulate(kind: string, opts: {

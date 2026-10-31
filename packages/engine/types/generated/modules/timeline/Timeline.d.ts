@@ -17,7 +17,8 @@ export class Timeline {
      */
     get playing(): boolean;
     /**
-     * General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, 1, 'outCubic'); duration in seconds. Returns a Promise (with finish()/cancel())
+     * General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, 1, 'outCubic'); duration in seconds.
+     * Returns a Promise (with finish()/cancel())
      * @param {any} target
      * @param {TweenTo} to
      * @param {number} [duration]

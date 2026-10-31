@@ -1,4 +1,5 @@
-// Vegetation module: defines what to plant, where, how far before switching to low-poly, and how far before not drawing. Models (the look) come from the game or style pack.
+// Vegetation module: defines what to plant, where, how far before switching to low-poly, and how far before not drawing. Models (the look) come from the game
+// or style pack.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeMaterial, applyEffects } from '../../render/materials.js';
@@ -10,13 +11,15 @@ import { GroundChunks } from './groundChunks.js';
 const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
 
-// Single-instance removal/restore (chop a tree, mine a rock): records are owned by vegetation and saved with the save (save key 'vegetation', entry 'veg:<name>:<cx>,<cz>:<id>'), and reapplied when a chunk reloads.
+// Single-instance removal/restore (chop a tree, mine a rock): records are owned by vegetation and saved with the save (save key 'vegetation', entry
+// 'veg:<name>:<cx>,<cz>:<id>'), and reapplied when a chunk reloads.
 // The id is this tree's stable number (independent of quality and vegetation density), not its index in the instance array.
 //   const hit = engine.vegetation.instanceAt(position, { radius: 2, species: '松树' });   // → { species, cx, cz, id, position } or null
 //   engine.vegetation.removeInstance(hit.species, hit.cx, hit.cz, hit.id, { regrowSeconds: 300 });  // grows back after 300 game seconds
 //   engine.vegetation.restoreInstance(...)   // restore immediately
 // Hiding: scale this instance's matrix to 0 (count unchanged) and drop it from the chunk's collision circles.
-// Regrowth: the record stores the expiry time (engine.clock game seconds), checked once per second; the clock is saved, so the countdown continues after reload.
+// Regrowth: the record stores the expiry time (engine.clock game seconds), checked once per second; the clock is saved, so the countdown continues after
+// reload.
 const KEY_RE = /^veg:(.*):(-?\d+),(-?\d+):(\d+)$/;
 const ZERO16 = new Float32Array(16);
 const hashName = s => { let h = 7; for (const ch of s) h = (Math.imul(h, 31) + ch.codePointAt(0)) | 0; return h & 0x7fffffff; };
@@ -79,7 +82,8 @@ export class Vegetation {
    * @param {object} o
    *   geometry      high-detail model (this or model is required)
    *   model         Object3D with one material per mesh (e.g. assets.model('oak')): trunk and leaves keep their own materials, still one draw per part
-   *   lodGeometry   low-detail model (optional), used beyond the lodRing ring; with model it is a geometry (drawn with the first material) or an Object3D with the same mesh order
+   * lodGeometry low-detail model (optional), used beyond the lodRing ring; with model it is a geometry (drawn with the first material) or an Object3D with the
+   * same mesh order
    *   rule          placement rule: perChunk attempts per chunk, minHeight/maxHeight, maxSlope, cluster('forest'|'meadow'|'none'),
    *                 scale[min,max], stretch[min,max], sink, tintJitter, tints[{color:[r,g,b],chance}]
    *   wind          wind sway amplitude (0 disables)
@@ -109,7 +113,10 @@ export class Vegetation {
     this.host.registerSpecies(name, sp.rule);
     return sp;
   }
-  /** Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically */
+  /**
+   * Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed
+   * automatically
+   */
   rebuild() { this.host.rebuild(); }
   get(name) { return this.species.get(name); }
   list() { return [...this.species.values()]; }
@@ -157,7 +164,10 @@ export class Vegetation {
     for (const d of due) this.restoreInstance(...d);
   }
 
-  /** Nearest instance within radius meters (default 2) of position (loaded chunks only; species restricts to one kind): { species, cx, cz, id, position } or null */
+  /**
+   * Nearest instance within radius meters (default 2) of position (loaded chunks only; species restricts to one kind): { species, cx, cz, id, position } or
+   * null
+   */
   instanceAt(position, opts = {}) {
     checkOptionsArg('vegetation.instanceAt()', opts, ['radius', 'species']);
     const [x, z] = xzOf(position), { radius = 2, species = null } = typeof opts === 'object' && opts ? opts : {};
@@ -263,7 +273,8 @@ const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
  * rule.biomes (a level's ground type is the mesh's groundType property or its material name).
  * @param {{ chunkSize?: number, viewChunks?: number, density?: number, area?: { min: number[], max: number[] }, seed?: number }} [opts]
  *   only without terrain: chunkSize meters (default 32), viewChunks rings drawn around each stream source (default 3), density multiplier (default 1),
- *   area { min: [x, z], max: [x, z] } where it may grow (default: a level's walkable bounds when a level provides the ground, else anywhere), seed placement seed (default 1)
+ * area { min: [x, z], max: [x, z] } where it may grow (default: a level's walkable bounds when a level provides the ground, else anywhere), seed placement seed
+ * (default 1)
  * @example
  * engine.use(level({ url: '/levels/town.glb' }), vegetation({ area: { min: [-80, -80], max: [80, 80] } }));
  * engine.vegetation.add('grass', { geometry, nearOnly: true, rule: { perChunk: 400, biomes: { lawn: 1 } } });   // only on 'lawn' surfaces

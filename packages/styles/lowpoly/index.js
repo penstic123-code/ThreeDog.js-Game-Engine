@@ -1,4 +1,4 @@
-// Lowpoly (@threedog/style-lowpoly): an optional package holding two separate things (docs/plans/packs-design.md):
+// Lowpoly (@threedog/style-lowpoly): an optional package holding two separate things (packages/engine/docs/recipes/09-style-pack.md):
 //   default export   the style pack, LOOKS ONLY: colors, materials, sky, lighting, post effects, the default character / pickup shapes, UI look.
 //                    createEngine({ style: lowpoly }), or mixed with other parts: createEngine({ style: [lowpoly, { sky: mySky }] })
 //   assets           an asset pack: the procedural models (trees, rocks, grass, flowers) under names content refers to.

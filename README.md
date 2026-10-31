@@ -21,7 +21,7 @@ Data-driven gameplay — Define items, NPCs, dialogue, quests, and world content
 
 Modular systems — Install the systems your game needs, with explicit dependencies.
 
-Separate art and gameplay — Keep visual and audio choices in style packs.
+Separate art and gameplay — Keep visual choices in style packs, sounds in the game's own config or content packs.
 
 Direct three.js access — Work with native three.js scenes, cameras, meshes, and materials.
 
@@ -123,7 +123,7 @@ import lowpoly from '@threedog/style-lowpoly';                    // optional: w
 import { terrainPreset } from '@threedog/terrain-noise';         // optional: without it the ground is flat
 
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly });
-engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));          // terrain seed and generator (without one the ground is flat); the preset installs only world and environment, add gameplay modules (dialogue, inventory, quests, photo...) yourself; or install just what you need: engine.use(sky(), collision(), followCamera(), characters())
+engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));          // terrain seed and generator (without one the ground is flat); the preset installs only world and environment, add gameplay modules (dialogue, inventory, quests, photo...) yourself; or install just what you need: engine.use(world(), sky(), collision(), followCamera(), characters())
 engine.characters.createPlayer({ ...presets.player.thirdPerson });
 engine.start();
 ```

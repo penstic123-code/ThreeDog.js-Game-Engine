@@ -7,9 +7,15 @@
 export function sky(opts?: SkyOptions): ModuleDef<Sky>;
 /** engine.sky */
 export class Sky {
-    /** Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed @type {number} */
+    /**
+     * Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds
+     * (unaffected by timeScale) are engine.elapsed @type {number}
+     */
     timeOfDay: number;
-    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never moves @type {number} */
+    /**
+     * Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never
+     * moves @type {number}
+     */
     dayLength: number;
     /** Day number (1-based) @type {number} */
     day: number;
@@ -25,13 +31,18 @@ export class Sky {
     sun: any;
     /** Sun direction (unit vector toward the sun) @type {Vector3} */
     sunDir: THREE.Vector3;
-    /** Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }} */
+    /**
+     * Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }}
+     */
     orbit: {
         tilt: number;
         sway: number;
         distance: number;
     };
-    /** Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead: number }} */
+    /**
+     * Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead:
+     * number }}
+     */
     readonly shadow: {
         bias: number;
         normalBias: number;
@@ -44,7 +55,8 @@ export class Sky {
     /** Composite of all modifier layers (read-only; use modify to adjust brightness) @readonly @type {SkyModifiers} */
     readonly modifiers: SkyModifiers;
     /**
-     * Write a modifier layer (only the given fields; unwritten fields have no effect); values null removes the layer. Weather uses the 'weather' layer, games use their own layer name.
+     * Write a modifier layer (only the given fields; unwritten fields have no effect); values null removes the layer. Weather uses the 'weather' layer, games use
+     * their own layer name.
      * Layers composite every frame: sun / ambient / fog multiply; tint blends weighted by tintAmount; flash takes the max
      * @example engine.sky.modify('cave', { sun: 0.3, ambient: 0.4 });  engine.sky.modify('cave', null);
      * @param {string} owner
@@ -77,7 +89,8 @@ export class Sky {
     get totalDays(): number;
     /**
      * Call fn every day at a clock time: at('18:00', fn) or at(0.75, fn).
-     * Fires only when time moves forward across the clock time: natural flow, step fast-forward and setting timeOfDay later all count; crossing several triggers at once is replayed per catchUp;
+     * Fires only when time moves forward across the clock time: natural flow, step fast-forward and setting timeOfDay later all count; crossing several triggers
+     * at once is replayed per catchUp;
      * rewinding time and loading a save do not fire, they only reset the baseline. To hold a state during a time range (lights, shop door) use between
      * @param {string | number} clock  'HH:MM' @param {string | number} clock  'HH:MM' or 0-1
      * @param {(day: number) => void} fn

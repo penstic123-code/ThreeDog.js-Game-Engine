@@ -20,7 +20,8 @@
 //   ], { hold: 2, fade: 3 });
 //   engine.music.override('boss')    // pick by hand, pausing the rules; override(null) hands control back
 // Tracks and rules may also come from createEngine({ audio: { music: { tracks, rules, fade } } }). Ducking is engine.audio.duck({ music: 0.3 });
-// music({ duckDialogue: 0.35 }) does that during dialogue (off by default: whether dialogue lowers the music is the game's call). Before the first click play() is remembered and starts once audio is usable.
+// music({ duckDialogue: 0.35 }) does that during dialogue (off by default: whether dialogue lowers the music is the game's call). Before the first click play()
+// is remembered and starts once audio is usable.
 //
 // Events: music:change { from, to }, music:stinger { name }
 
@@ -103,7 +104,8 @@ export class Music {
   get ruled() { return !!this._rules; }
   /**
    * State (for debugging and tests): gain is the playing track's fade level, stems each stem's level
-   * @returns {{ current: string | null, playing: string | null, pending: string | null, override: string | null, intensity: number, gain: number, stems: number[] }}
+   * @returns {{ current: string | null, playing: string | null, pending: string | null, override: string | null, intensity: number, gain: number, stems:
+   * number[] }}
    */
   get state() {
     const p = this.playing;
@@ -204,7 +206,8 @@ export class Music {
 
   // ---------- rules ----------
   /**
-   * Set the auto track rules (null turns them off). opts: hold how many seconds a new result must be stable before switching, fade switch fade seconds, interval check interval
+   * Set the auto track rules (null turns them off). opts: hold how many seconds a new result must be stable before switching, fade switch fade seconds,
+   * interval check interval
    * @param {MusicRule[] | null} list
    * @param {{ hold?: number, fade?: number, interval?: number }} [opts]
    * @returns {this}
@@ -289,7 +292,8 @@ export class Music {
 }
 
 /**
- * Background music -> engine.music. tracks; rules; fade: default fade seconds (2); duckDialogue: duck the music bus to this level during dialogue (default false = off; e.g. 0.35); duckFade; hold: rule debounce seconds (2)
+ * Background music -> engine.music. tracks; rules; fade: default fade seconds (2); duckDialogue: duck the music bus to this level during dialogue (default
+ * false = off; e.g. 0.35); duckFade; hold: rule debounce seconds (2)
  * @param {MusicOptions} [opts]
  * @returns {ModuleDef<Music>}
  * @example engine.use(music({ tracks: { explore: '/music/explore.ogg' }, rules: [{ track: 'explore' }] }));

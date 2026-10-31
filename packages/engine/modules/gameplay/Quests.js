@@ -1,4 +1,5 @@
-// Quests module: made of steps, each with a completion condition (function), checked every half second (game time, in the fixed step; not checked while frozen/paused). Press J by default to open the quest log.
+// Quests module: made of steps, each with a completion condition (function), checked every half second (game time, in the fixed step; not checked while
+// frozen/paused). Press J by default to open the quest log.
 //
 // quests.define('first-photo', {
 //   title: '第一张照片', desc: '…',
@@ -12,7 +13,8 @@
 // A step can be parallel goals { text?, all: [{ text, done, target, optional }] } (done when every non-optional part is done, in any order);
 // a quest can fail: fail: e => bool is checked while it is active, then onFail runs, quest:fail fires, and start(id) may begin it again.
 // Saves name steps and parts by id (step / part id: 'mayor'), else by position; give them ids once the game ships, so inserting a step later
-// does not move players to another step. Save shape (version 2): { state: { questId: { step?: stepId, done?, failed?, parts?: [partId met], got?: { stepId: [partId] } } } }.
+// does not move players to another step. Save shape (version 2): { state: { questId: { step?: stepId, done?, failed?, parts?: [partId met], got?: { stepId:
+// [partId] } } } }.
 // The log window is the UI part 'questLog' (questLog.js): replace it or turn it off with engine.ui.set('questLog', ...) (recipes/26-ui-parts.md).
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
@@ -84,7 +86,9 @@ export class Quests {
     for (const [id, q] of Object.entries(d?.state || {})) { const def = this.defs.get(id); if (def) this.state[id] = fromSaved(id, def, q); else this._saved[id] = q; }
     this.win.refresh();
   }
-  /** Quest list (for custom UI): unfinished first. A parallel step has parts [{ text, target, done, optional }]; its text defaults to the required parts joined. */
+  /**
+   * Quest list (for custom UI): unfinished first. A parallel step has parts [{ text, target, done, optional }]; its text defaults to the required parts joined.
+   */
   list() {
     return Object.entries(this.state).filter(([id]) => this.defs.has(id)).sort((a, b) => a[1].done - b[1].done).map(([id, s]) => {
       const d = this.defs.get(id), live = !s.done && !s.failed;
@@ -158,7 +162,10 @@ export class Quests {
   }
 }
 
-/** Quests module. Installs engine.quests. keys / pad open the quest log: required (keys: [] for none; presets.keys.quests has J / gamepad Select) @example engine.use(quests({ ...presets.keys.quests })) */
+/**
+ * Quests module. Installs engine.quests. keys / pad open the quest log: required (keys: [] for none; presets.keys.quests has J / gamepad Select) @example
+ * engine.use(quests({ ...presets.keys.quests }))
+ */
 export function quests(opts = {}) {
   let q = null;
   return {

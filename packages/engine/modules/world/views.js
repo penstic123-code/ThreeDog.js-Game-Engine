@@ -1,6 +1,8 @@
-// Presentation layer of world: build / tear down models by distance from the full-detail stream sources (engine.stream sources: player, camera focus, teleport destination...),
+// Presentation layer of world: build / tear down models by distance from the full-detail stream sources (engine.stream sources: player, camera focus, teleport
+// destination...),
 // sync positions, decide ready. The public API is in World.js (present / view / ready / refresh); this is the implementation.
-// It only decides "which records have a model" and never affects gameplay: simulation follows the gameplay anchor (sim.js), and how fast models are built, or whether they are built, does not change simulation results.
+// It only decides "which records have a model" and never affects gameplay: simulation follows the gameplay anchor (sim.js), and how fast models are built, or
+// whether they are built, does not change simulation results.
 import { reportError } from '../../core/errors.js';
 import { DEV, checkOptionsArg, warnOnce } from '../../core/validate.js';
 
@@ -26,7 +28,8 @@ export class Views {
     this.byObj = new WeakMap();    // built model → record id (world.idOf: a ray hit on the model names its record)
     this.radii = new Map();        // presentation → radius at the last refresh (used to decide whether a moving record needs another refresh)
     this.moving = new Set();       // ids of built positionFrom 'view' models (each fixed step scans only these, not thousands of props)
-    this.dirty = true;             // models need to be re-decided (a record crossed the build / teardown distance, zone changed, new registration, last frame unfinished)
+    // models need to be re-decided (a record crossed the build / teardown distance, zone changed, new registration, last frame unfinished)
+    this.dirty = true;
     this.memo = {};                // stream sources at the last refresh (memo.at: [{ x, z, s }])
     this.waiters = [];
   }
@@ -46,7 +49,10 @@ export class Views {
     return { remove: () => { if (this.presenters.get(kind) !== p) return; this.presenters.delete(kind); this.forget(p); } };
   }
   forget(p) { for (const [id, v] of this.map) if (v.p === p) this.unview(id); }
-  /** Distance for building models: a number, or a function (asked at each refresh; write it as a function for distances that change at runtime, like terrain view distance) */
+  /**
+   * Distance for building models: a number, or a function (asked at each refresh; write it as a function for distances that change at runtime, like terrain
+   * view distance)
+   */
   radius(p) { const r = p.radius; return typeof r === 'function' ? r() : r ?? this.w.radius; }
   /** A source was added / removed or moved more than min(cell / 4, 8 m) since the last refresh: refresh (that is the error of "build within radius") */
   moved() { return this.w.engine.stream.changed(this.memo, Math.min(this.w._cells.size / 4, 8), FULL, false); }
@@ -61,7 +67,10 @@ export class Views {
     }
     return best;
   }
-  /** A record moved: if it crossed the build / teardown distance (zone changed, or show changed via set) make the next frame refresh. Called on every move, costs a few multiplications */
+  /**
+   * A record moved: if it crossed the build / teardown distance (zone changed, or show changed via set) make the next frame refresh. Called on every move,
+   * costs a few multiplications
+   */
   track(rec) {
     if (this.dirty) return;
     const p = this.presenters.get(rec.kind); if (!p) return;
@@ -128,7 +137,10 @@ export class Views {
       if (!keep || !W._inZone(rec) || v.p.show && !v.p.show(rec)) this.unview(id);
     }
   }
-  /** Build one model. Sync throw, async failure, or a non-object result: reported once (once per kind) and marked "stop waiting", ready is not blocked; retried when you leave and come back */
+  /**
+   * Build one model. Sync throw, async failure, or a non-object result: reported once (once per kind) and marked "stop waiting", ready is not blocked; retried
+   * when you leave and come back
+   */
   build(rec, p) {
     const v = { obj: null, pending: true, p }, e = this.w.engine;
     this.map.set(rec.id, v);
@@ -152,7 +164,10 @@ export class Views {
     if (v.obj) this.byObj.delete(v.obj);
     if (v.obj) this.drop(this.w.records.get(id), v.p, v.obj);
   }
-  /** Tear down a model. A dispose error is reported on its own (naming the kind's dispose) and not thrown outward — otherwise loading a save would report it as "world load failed" */
+  /**
+   * Tear down a model. A dispose error is reported on its own (naming the kind's dispose) and not thrown outward — otherwise loading a save would report it as
+   * "world load failed"
+   */
   drop(rec, p, obj) {
     if (!p.dispose) { this.w.engine.remove(obj); return; }
     try { p.dispose(rec, obj); } catch (err) { reportError(this.w.engine, err, say(STRINGS.disposeFailed, rec.kind), { soft: true }); }

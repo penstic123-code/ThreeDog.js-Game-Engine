@@ -1,5 +1,7 @@
-// Content loading: hands the plain data of content/*.js to the modules (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger zones, props).
-// Position notation: { place: 'home', x: 1, z: 5 } = offset from place home; places come from the places argument of load or level markers; without place it is a world coordinate.
+// Content loading: hands the plain data of content/*.js to the modules (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger zones,
+// props).
+// Position notation: { place: 'home', x: 1, z: 5 } = offset from place home; places come from the places argument of load or level markers; without place it is
+// a world coordinate.
 // Optional floor (reference height on multi-layer ground) and y (meters above that ground): see content.where.
 import { toast } from '../../ui/UI.js';
 import { parseClock } from '../../core/dayTime.js';
@@ -46,11 +48,14 @@ const markerId = raw => raw.id ?? (typeof raw === 'string' ? raw : raw.place ?? 
 /**
  * Load one content pack. c is the merged object of content/index.js (or one pack of a list); api is engine.content; ids is the IdCheck shared by every pack of
  * this load call (ids.js); st is the content module's load state (shared across repeated load calls):
- *   { triggers: merged trigger table, subs: listener handles, startOn: quest id -> listener handle, pending: set of model Promises being generated, levelPlace(name) }
+ * { triggers: merged trigger table, subs: listener handles, startOn: quest id -> listener handle, pending: set of model Promises being generated,
+ * levelPlace(name) }
  * Order: vocabulary -> key actions -> vegetation -> items -> containers -> pickups -> NPCs -> dialogues -> quests -> trigger zones -> templates -> props.
  * Pickups, props and NPCs are initial world data: the save records only changes and removals, independent of load order (rules at the top of world/World.js).
- * Positions that use level markers (not in places) belong to the current level: pickup, prop and NPC data carry a zone (= current level name, engine.world.zone),
- * a level change only tears down models and they are rebuilt on return, with taken / moved / removed state intact; trigger zones are not data and are removed on level change (level.track).
+ * Positions that use level markers (not in places) belong to the current level: pickup, prop and NPC data carry a zone (= current level name,
+ * engine.world.zone),
+ * a level change only tears down models and they are rebuilt on return, with taken / moved / removed state intact; trigger zones are not data and are removed
+ * on level change (level.track).
  */
 export function loadContent(e, api, c, st, ids) {
   const { where } = api;
@@ -78,7 +83,8 @@ export function loadContent(e, api, c, st, ids) {
   // twice never stacks its rules (a fresh key per load did); two different unnamed objects both keep theirs
   if (c.audio) e.audio.contentPack(c.name ? 'pack:' + c.name : c, c.name ? `pack "${c.name}"` : 'pack (no name)', c.audio);
 
-  // vegetation: generator models go through assets.cached (baked file -> dev cache -> compute), file models give their first mesh's geometry; register all kinds at the same moment once all models are ready
+  // vegetation: generator models go through assets.cached (baked file -> dev cache -> compute), file models give their first mesh's geometry; register all
+  // kinds at the same moment once all models are ready
   // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them
   const veg = [];
   each(c.vegetation, (name, { model: m, lod, ...rest }) => {
@@ -90,9 +96,11 @@ export function loadContent(e, api, c, st, ids) {
 
   each(c.items, (id, d) => e.inventory.define(id, d));
   each(c.startItems, (id, n) => e.inventory.add(id, n, { silent: true }));
-  // containers: starting goods are placed only the first time (if the save already has the container, the save wins; no refill after it was emptied and reloaded)
+  // containers: starting goods are placed only the first time (if the save already has the container, the save wins; no refill after it was emptied and
+  // reloaded)
   each(c.containers, (id, d) => { ids.claim(id, `containers.${id}`); e.inventory.container(id, { capacity: d.capacity, items: d.items }); });
-  // pickups: data goes into world (kind 'pickup'). id: the written id if given, else `pickup:<item>:<index in the pickups array>` (stable for the same content; when inserting in the middle, give existing entries an id)
+  // pickups: data goes into world (kind 'pickup'). id: the written id if given, else `pickup:<item>:<index in the pickups array>` (stable for the same content;
+  // when inserting in the middle, give existing entries an id)
   if (c.pickups?.length) needWorld(e);
   c.pickups?.forEach((p, i) => {
     const id = pickupId(p, i);
@@ -139,7 +147,8 @@ export function loadContent(e, api, c, st, ids) {
     if (q.startOn) st.startOn.set(id, e.events.on(q.startOn, () => e.quests.start(id)));
   });
 
-  // trigger zones: fromLevel = the level's trigger_<tag> marker; otherwise placed by position. Enter/exit effects look up the merged table, and the listener is attached only once
+  // trigger zones: fromLevel = the level's trigger_<tag> marker; otherwise placed by position. Enter/exit effects look up the merged table, and the listener is
+  // attached only once
   if (c.triggers) {
     Object.assign(st.triggers, c.triggers);
     if (Object.values(c.triggers).some(t => t.fromLevel)) e.triggers.fromMarkers();

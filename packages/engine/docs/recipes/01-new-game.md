@@ -13,8 +13,8 @@ The name may only contain lowercase letters, digits and dashes; an existing dire
 2. Creates the `node_modules/@threedog/my-farm` link and updates the workspace entry in `package-lock.json` (if offline, only a warning).
 3. Runs `map` (generates GAMEMAP.md), `check` and the game's smoke test in turn. Any failing step stops and says why.
 
-The generated game is a minimal open world: `openWorld` + `interactions / inventory / content / hud`, 3 apples on the ground and one stash (a template in `content/templates.js` placed by `content/props.js`, searched through the op `stash.search`); its `main.js` also shows the game's own state registered with `describe.add` and `saves.register`, an op with `can` / `run`, and the `onFixed` / `onFrame` split; `--blank` uses `templates/blank/`, without inventory and content. The structure is the same as the manual one below.
-To change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` default / `firstPerson` / `rts` / `fixed`, or pass a camera module directly).
+The generated game is a minimal open world: `openWorld` + `interactions / inventory / content / hud`, 3 apples on the ground and one stash (a template in `content/templates.js` placed by `content/props.js`, searched through the op `stash.search`); its `main.js` also shows the game's own state registered with `describe.add` and `saves.register`, an op with `can` / `run`, and the `onFixed` / `onFrame` split; `--blank` copies the same template without `content/` and replaces `main.js` with `templates/blank/main.js` (no inventory, no content). The structure is the same as the manual one below.
+To change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` / `firstPerson` / `rts` / `fixed`, or pass a camera module directly; there is no default).
 - The comments in `main.js` list further gameplay modules you can add; usage is in `../api/<module>.md`.
 - To change the starting point of new games, edit the real files in `packages/tools/templates/game/`.
 - `DESIGN.md` is an empty template: write your gameplay ideas there. `CLAUDE.md` only points the way (read `node_modules/threedog/docs/AI.md` first, then GAMEMAP, DESIGN) and does not copy engine rules.
@@ -23,19 +23,19 @@ To change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` default /
 ## 1. Creating the files by hand (to learn what each file is, or when the template doesn't fit)
 | File | Content |
 |---|---|
-| `games/farm/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game farm`) and set `name` to `@threedog/farm` (dependencies `"threedog": "*"`, `"@threedog/tools": "*"`; scripts dev/build/test/map) |
+| `games/farm/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game farm`) and set `name` to `@threedog/farm` (dependencies `threedog`, `@threedog/tools`, plus `@threedog/style-lowpoly` and `@threedog/terrain-noise` when `main.js` imports them; scripts dev/build/preview/test/check/map) |
 | `games/farm/vite.config.js` | One line: `export default gameConfig(import.meta.dirname)` (imported from `@threedog/tools/vite`); *.html files in the directory are bundled automatically, no `input` needed. Without `@threedog/tools`, a plain vite config needs `worker: { format: 'es' }` (the engine's Workers are ES modules) or `vite build` fails; `threedog dev / build` on a folder with no vite config uses the preset |
 | `games/farm/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §5 for embedding |
 | `games/farm/main.js` | Install modules, compute places, `content.load`, game-specific logic |
 | `games/farm/content/index.js` | Combines the content files into one object |
-| `games/farm/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation templates props rules, plus the game's own kinds (rules.js) |
+| `games/farm/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation props templates audio grids renames rules, plus the game's own kinds (rules.js) |
 | `games/farm/DESIGN.md` | Hand-written design decisions (a few lines of `- **decision**: reason`), copied into GAMEMAP.md |
 | `games/farm/CLAUDE.md` | A few lines: read `node_modules/threedog/docs/AI.md`, then this directory's GAMEMAP.md and DESIGN.md (copy the template's) |
 | `games/farm/public/` | This game's art assets (URL `/models/...`); keep Blender source files in `games/farm/art/models/`, `npm run assets -- -w farm` compresses them over |
 
 After creating them, run `npm install` once at the repository root (this links the new game into the workspaces so `threedog` can find it).
 
-Outside the engine repository, a game installs `threedog` and `three` (plus `@threedog/tools` as a dev dependency for the CLI and the vite preset). To use an engine folder on disk instead of npm, install it with `npm install --install-links <folder>`: a plain link skips the engine's own dependencies (Rapier, Recast) and the build cannot resolve them.
+Outside the engine repository, a game installs `threedog` and `three` (plus `@threedog/style-lowpoly` / `@threedog/terrain-noise` if it imports them, and `@threedog/tools` as a dev dependency for the CLI and the vite preset). To use an engine folder on disk instead of npm, install it with `npm install --install-links <folder>`: a plain link skips the engine's own dependencies (Rapier, Recast) and the build cannot resolve them.
 
 In a game's own repository, `threedog check`, `types` and `map` read only the game's sources: `node_modules`, a `vendor/` folder and every `file:` / `link:` dependency are skipped. To narrow it further, list the sources in the game's `package.json`: `"threedog": { "src": ["main.js", "src", "content"], "exclude": ["notes"] }` (paths relative to the game folder; `src` defaults to the whole folder). The template's `tsconfig.json` checks the game files only (`checkJs`), with `lib` ESNext + DOM (dependency typings such as Rapier's use `Symbol.dispose`) and `skipLibCheck: true`; without a tsconfig, `threedog types` writes the same settings to `.threedog/tsconfig.types.json`.
 
@@ -62,11 +62,11 @@ engine.use(openWorld({ camera: 'follow', seed: 42, terrain: terrainPreset(), tim
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 }); // the terrain is generated: find flat ground as "home" at the start (give your own height range to avoid beach and peaks)
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: home });
 engine.content.load(data, { places: { home } });                           // content places things relative to it with { place: 'home', x, z }
-engine.start();
-window.engine = engine;                                                    // tests, screenshots and the console all rely on it
+window.engine = engine;                                                    // tests, screenshots and the console all rely on it (before start, so the dev bridge can wait for it)
+await engine.start();
 ```
 Every `openWorld` part takes `false` (leave it out) or its module's own options object, so you never have to drop the preset for one setting: `openWorld({ seed: 42, camera: 'follow', sky: { seasons: ['wet', 'dry'], daysPerSeason: 28 }, characters: { npcs: false }, rigid: false, ambience: false, debug: false })`; `camera` is required (no default camera) and takes `'follow'` / `'firstPerson'` / `'rts'` / `'fixed'`, a camera module such as `followCamera({ shoulder: 0.7 })`, or `false`. A game that wants only a few parts (an arena without terrain) turns the rest off the same way: `openWorld({ camera: 'follow', terrain: false, vegetation: false, weather: false, water: false })`.
-`saveKey` must differ per game, otherwise saves overwrite each other. The UI language follows the player's browser (Chinese browser -> Chinese, otherwise English) unless you set `createEngine({ locale })`. A game without terrain (the city test page in the engine repository does this): register the level generator function in `assets.manifest`, use `level({ url: name })` and pick your own modules, then create the player and install content in `level:loaded`.
+`saveKey` must differ per game, otherwise saves overwrite each other. The UI language follows the player's browser (Chinese browser -> Chinese, otherwise English) unless you set `createEngine({ locale })`. A game without terrain (the city test page in the engine repository does this): register the level generator function under `models` in `engine.assets.manifest({ name, models })`, use `level({ url: name })` and pick your own modules, then create the player and install content in `level:loaded`.
 
 `games/farm/content/index.js`:
 ```js
@@ -94,7 +94,7 @@ engine.use(sky(presets.calendar.fourSeasons), weather({ ...presets.weather.tempe
 engine.use(interactions({ ...presets.interactions.facing }));   // nearest / facing / aim, each with E
 const player = engine.characters.createPlayer({ ...presets.player.lockOn, faceTarget: boss });   // none / thirdPerson / lockOn / aim / sideScroller
 ```
-`presets.player.thirdPerson` is `{ control: 'camera', faceMode: 'move', runKeys: Shift, jumpKeys: Space, cameraFollow: true }`; written out by hand the same player is `createPlayer({ control: 'camera', runKeys: ['ShiftLeft'], jumpKeys: ['Space'], cameraFollow: true })`. Keys for any action can also come from `createEngine({ bindings: { interact: ['KeyF'] } })`; those win over the keys a module or preset passes.
+`presets.player.thirdPerson` is `{ control: 'camera', faceMode: 'move', runKeys: Shift, jumpKeys: Space, cameraFollow: true }`; written out by hand the same player is `createPlayer({ control: 'camera', faceMode: 'move', runKeys: ['ShiftLeft', 'ShiftRight', 'PadLB'], jumpKeys: ['Space', 'PadA'], cameraFollow: true })`. Keys for any action can also come from `createEngine({ bindings: { interact: ['KeyF'] } })`; those win over the keys a module or preset passes.
 
 ## 5. Canvas size: full window, a page section, a split layout or an editor panel
 The engine follows the canvas's own CSS box (a `ResizeObserver` on the canvas), not the window: renderer size, camera aspect, `input.pointer` (`x / y` pixels and `ndcX / ndcY` relative to the canvas), `engine.pick`, `screenToGround`, `worldToScreen` and the HUD all use that box, and the engine's UI root is laid exactly over it. So the layout decides:

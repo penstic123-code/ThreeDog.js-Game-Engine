@@ -1,11 +1,16 @@
-// Props (each item of content/props.js): data is a plain record in engine.world with kind 'prop'; model and collision are "presentation that exists only when near".
+// Props (each item of content/props.js): data is a plain record in engine.world with kind 'prop'; model and collision are "presentation that exists only when
+// near".
 //   record: { id, kind: 'prop', position: {x,y,z}, model, rot?, scale?, collide?, offsetY?, static?, batch?, zone? } (plain values only)
-//   Initial world data (initial: true on add): the save records only moves / removals, independent of content.load running before or after loading a save; positions using level markers carry a zone (data is kept across level changes).
+// Initial world data (initial: true on add): the save records only moves / removals, independent of content.load running before or after loading a save;
+// positions using level markers carry a zone (data is kept across level changes).
 //   id: the written id if content gives one; otherwise `prop:<model name>:<index in this props array>` (same on every load of the same content, no collisions).
 //       To insert new entries in the middle later, give existing ones an id; otherwise later indexes shift and no longer match moves / removals in old saves.
-//   move / remove: engine.world.move(id, { x, z }) / engine.world.remove(id), included in the save automatically; height y is computed from the ground both on add and when the model is built, so ignore it.
-//   models: one prototype per model name (same-name props share geometry and material), each placement clones it; built when near (within view distance), torn down when far, only detached while keeping the prototype.
-//   collision: built / torn down with the model (only things near the player need to block), so props beyond the collision radius take no space in the collision table.
+// move / remove: engine.world.move(id, { x, z }) / engine.world.remove(id), included in the save automatically; height y is computed from the ground both on
+// add and when the model is built, so ignore it.
+// models: one prototype per model name (same-name props share geometry and material), each placement clones it; built when near (within view distance), torn
+// down when far, only detached while keeping the prototype.
+// collision: built / torn down with the model (only things near the player need to block), so props beyond the collision radius take no space in the collision
+// table.
 //   An entry with template (instead of model) is an instance of a content template: see templates.js.
 import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
@@ -17,7 +22,10 @@ import { DEV, fmt } from '../../core/validate.js';
 /** Stable id of a prop: the written id if given, otherwise "model name + array index" */
 const propId = (p, i) => p.id ?? `prop:${list(p.model)[0]}:${i}`;
 
-/** Add the props array as initial world data (existing same-id records are kept, ones removed in the save are not re-added). zoneOf(p) gives the level an item belongs to (null = everywhere); ids: this load's IdCheck */
+/**
+ * Add the props array as initial world data (existing same-id records are kept, ones removed in the save are not re-added). zoneOf(p) gives the level an item
+ * belongs to (null = everywhere); ids: this load's IdCheck
+ */
 export function addProps(e, api, props, st, zoneOf, ids) {
   const world = needWorld(e);
   presentProps(e, api, world, st);
@@ -45,7 +53,9 @@ const GRID_STRINGS = {
   keys: "props[{i}] (grid item): unknown key '{key}'. A grid item takes id, grid, item, cell, rotation and fields (record fields of this copy)",
 };
 
-/** A props entry { id, grid, item, cell, rotation?, fields? }: the same record grid.place makes, added as authored data (moves / pick-ups are saved as a diff) */
+/**
+ * A props entry { id, grid, item, cell, rotation?, fields? }: the same record grid.place makes, added as authored data (moves / pick-ups are saved as a diff)
+ */
 function placeGridItem(e, p, i, zone, ids, at) {
   for (const k of Object.keys(p)) if (!['id', 'grid', 'item', 'cell', 'rotation', 'fields'].includes(k)) throw new Error(fmt(GRID_STRINGS.keys, { i, key: k }));
   if (p.id == null) throw new Error(fmt(GRID_STRINGS.noId, { i, grid: p.grid, item: p.item ?? 'bed' }));
@@ -68,7 +78,8 @@ function presentProps(e, api, world, st) {
   if (st.propsPresenter) return;
 
   st.propsPresenter = world.present('prop', {
-    radius: () => Math.max(world.radius, e.stream.activeRadius),   // build by view distance: follows the terrain view distance (fog distance if no terrain), also when changed at runtime
+    // build by view distance: follows the terrain view distance (fog distance if no terrain), also when changed at runtime
+    radius: () => Math.max(world.radius, e.stream.activeRadius),
     build: rec => buildModel(e, api, rec, rec.model, rec),   // a failed model generation is reported by world (does not block loading), retried when near again
     // moved / rot or scale changed (world.move sends no event, so compare here): world already put the model at the new position; collision and rays follow
     update(rec, o) { if (o.userData.fit !== fitKey(rec)) settle(e, rec, o, rec); },

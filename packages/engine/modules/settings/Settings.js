@@ -1,4 +1,5 @@
-// Settings menu module: Esc opens it in game (when the UI focus stack is empty: no window, dialogue or cutscene open; see ui/Focus.js); tabs for graphics, audio, keys, language, saves (export / import save files).
+// Settings menu module: Esc opens it in game (when the UI focus stack is empty: no window, dialogue or cutscene open; see ui/Focus.js); tabs for graphics,
+// audio, keys, language, saves (export / import save files).
 // Changes apply at once and autosave to the browser (localStorage), restored on the next launch.
 //
 //   engine.use(settings());                        // install after other modules (so it sees terrain, audio, etc.)
@@ -24,7 +25,8 @@
 //   CSS classes  .threedog-win-settings .threedog-tabs .threedog-tab .threedog-set-row .threedog-set-label .threedog-set-ctl .threedog-seg .threedog-range
 //           .threedog-set-val .threedog-key(.is-waiting/.is-conflict) .threedog-set-note .threedog-set-foot .is-active — override with style.ui.css
 //   Replace it whole: style.ui.templates.settings({ sections, current, body, values }, { esc, t, icon }) returns HTML;
-//           controls just carry the attributes data-tab / data-set+data-value / data-range / data-rebind / data-reset / data-locale / data-save-export / data-save-import (see sections.js)
+// controls just carry the attributes data-tab / data-set+data-value / data-range / data-rebind / data-reset / data-locale / data-save-export / data-save-import
+// (see sections.js)
 import { makeWindow, injectUICSS, uiFocus } from '../../ui/UI.js';
 import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
@@ -181,7 +183,10 @@ export class Settings extends SettingsView {
   }
 
   // ---------- applying ----------
-  /** @internal The chunk table that "view distance" and "vegetation density" drive: the terrain's, or vegetation's own over a level / code-built ground; null without either */
+  /**
+   * @internal The chunk table that "view distance" and "vegetation density" drive: the terrain's, or vegetation's own over a level / code-built ground; null
+   * without either
+   */
   chunkHost() { return this.engine.terrain ?? this.engine.vegetation?.host ?? null; }
   _currentValues() {
     const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: !!e.shadows };
@@ -259,7 +264,8 @@ export class Settings extends SettingsView {
       if (code && !inp.keysOf('cancel').includes(code)) { const a = this.capturing; this.capturing = null; this.rebind(a, code); }
       return;
     }
-    // When the menu key and the back key are the same (default Esc) the UI focus stack handles it all; with another key: close if open, open when the focus stack is empty
+    // When the menu key and the back key are the same (default Esc) the UI focus stack handles it all; with another key: close if open, open when the focus
+    // stack is empty
     if (!inp.pressedRaw(this.action) || inp.pressedRaw('cancel')) return;
     if (this.win.open) this.close();
     else if (this.focus.top === null) this.open();
@@ -270,7 +276,8 @@ export class Settings extends SettingsView {
     this.close();
   }
   /**
-   * freezeWorld: gameplay pauses while the menu is open. Pausing has one entry point: with flow installed it switches to flow's 'paused' state (back to the previous state on close),
+   * freezeWorld: gameplay pauses while the menu is open. Pausing has one entry point: with flow installed it switches to flow's 'paused' state (back to the
+   * previous state on close),
    * without flow it calls engine.freeze('settings') directly (rendering continues)
    */
   _pause(on) {
@@ -287,8 +294,9 @@ export class Settings extends SettingsView {
 /**
  * Settings menu module. Installs engine.settings. Install it after the other modules.
  * @param opts action/keys action that opens the menu (default 'menu' = Esc); storageKey storage key; presets override graphics presets;
- *             sections which tabs: true (default) graphics, audio, controls, language, saves; a list picks by name, including the optional 'game' (resume, load, back to title) and 'camera' (sensitivity, invert Y, field of view); false for none;
- *             freezeWorld pause gameplay while the menu is open (with flow it switches to flow's 'paused', otherwise engine.freeze; rendering continues), default false
+ * sections which tabs: true (default) graphics, audio, controls, language, saves; a list picks by name, including the optional 'game' (resume, load, back to
+ * title) and 'camera' (sensitivity, invert Y, field of view); false for none;
+ * freezeWorld pause gameplay while the menu is open (with flow it switches to flow's 'paused', otherwise engine.freeze; rendering continues), default false
  */
 export function settings(opts = {}) {
   let s = null;

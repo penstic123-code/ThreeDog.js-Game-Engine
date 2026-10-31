@@ -2,7 +2,7 @@
 
 **The engine ships no art.** No default style, character model, terrain look or terrain generator: with no style pack and no model everything is a plain neutral placeholder (a gray capsule for characters, a gray box for props and pickups, flat gray ground at y = 0, one white hemisphere light plus one neutral directional light without shadows or tone mapping), and the console says once in dev what is missing and how to fix it.
 
-A style pack is a plain object passed in as `createEngine({ style })`. It holds **looks only**: colors, the default character / pickup shapes, materials and shaders, sky and lighting, post effects, UI look. Not part of it: model / texture / sound files and procedural models content names (an **asset pack**, `engine.assets.manifest`, recipe 05 "Asset packs"), sounds (section 5), gameplay data and timing (a **content pack**, recipe 20; `sky({ hoursPerDay })`). The split and its reasons: `docs/plans/packs-design.md` in the repository. Which key is read by whom is in the "style pack keys" table of `../CODEMAP.md`; the field list is in `../api/style.md`. Every entry can be omitted; omitted entries are the neutral placeholders above (the city example passes no style pack at all).
+A style pack is a plain object passed in as `createEngine({ style })`. It holds **looks only**: colors, the default character / pickup shapes, materials and shaders, sky and lighting, post effects, UI look. Not part of it: model / texture / sound files and procedural models content names (an **asset pack**, `engine.assets.manifest`, recipe 05 "Asset packs"), sounds (section 5), gameplay data and timing (a **content pack**, recipe 20; `sky({ hoursPerDay })`). Which key is read by whom is in the "style pack keys" table of `../CODEMAP.md`; the field list is in `../api/style.md`. Every entry can be omitted; omitted entries are the neutral placeholders above (the city example passes no style pack at all).
 
 ## 0. Installing the lowpoly style pack
 The low-poly look is an optional package, `@threedog/style-lowpoly` (source in the monorepo: `packages/styles/lowpoly/`):
@@ -16,7 +16,7 @@ import { terrainPreset, terrainStrings } from '@threedog/terrain-noise';        
 const engine = createEngine({ canvas, style: lowpoly, strings: terrainStrings });   // terrainStrings: names of the preset's ground types
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));   // noise terrain (hills, rivers, biomes) that lowpoly colors, see recipes/28
 ```
-Besides the style object it exports `assets` (an asset pack of procedural trees, rocks, grass, flowers: `engine.assets.manifest(assets)`; the same generators as a plain map are `models`)and the post effects `bloom` `outline` `ao`. The terrain generator `terrainPreset` / `riverAt` / `BIOMES` / `terrainStrings` is a separate package, `@threedog/terrain-noise`: the shape of the world is gameplay, so a style pack keeps only the colors of its ground types (`terrain.colors`, `biomeColors`).
+Besides the style object it exports `assets` (an asset pack of procedural trees, rocks, grass, flowers: `engine.assets.manifest(assets)`; the same generators as a plain map are `models`) and the post effects `bloom` `outline` `ao`. The terrain generator `terrainPreset` / `riverAt` / `BIOMES` / `terrainStrings` is a separate package, `@threedog/terrain-noise`: the shape of the world is gameplay, so a style pack keeps only the colors of its ground types (`terrain.colors`, `biomeColors`).
 
 ## 0b. Composing a style from parts
 `style` may be a list of parts, deep-merged left to right into `engine.style`, so one pack's materials, another pack's sky and the game's own colors mix without copying whole packs:
@@ -66,7 +66,7 @@ flash.set({ intensity: 8 }); /* next frame */ flash.set({ intensity: 0 });   // 
 ## 2. Using your own models instead of procedural ones
 Models are assets, not style keys: content names them, an asset pack maps the names to files or generators. Register a later manifest with the same name to swap one:
 ```js
-engine.assets.manifest(lowpolyAssets);                                         // pine, rock, flower... built in code
+engine.assets.manifest(lowpolyAssets);   // import { assets as lowpolyAssets } from '@threedog/style-lowpoly': pine, rock, flower... built in code
 engine.assets.manifest({ name: 'mine', models: { pine: () => myPineGeometry(), well: '/models/well.glb' } });   // replaces pine, adds well
 ```
 Vegetation takes a geometry (`geometry: await engine.assets.geometry('pine')`, the first mesh in the model) or a whole model with one material per mesh, e.g. bark trunk + alpha-cut leaf cards:

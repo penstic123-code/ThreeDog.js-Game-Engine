@@ -15,9 +15,9 @@ Two fixed names: **fixed seconds** (fixed-step seconds: the `dt` of `onFixed` / 
 | Toast and loading fade-out, music volume fades | real time (they never affect gameplay) | keeps running | unchanged |
 | `saves.autosave(minutes)` | fixed seconds of play (only while a playthrough runs: not on the title screen, not during newGame / load) | stops | unchanged |
 
-Rules that follow: gameplay timing is in fixed seconds unless it is a thing the world does by itself over days (growth, respawn, calendar), which is in game seconds. At `timeScale = 0` game seconds stop (no `clock.after` fires, crops stop), but movement and cooldowns still run; a game that freezes the sky time of day (e.g. `clock.timeScale = 0`) must not use `clock.after` for gameplay delays. Conversion: 1 sky hour = `dayLength / 24` game seconds, 1 sky minute = `dayLength / 1440` game seconds (default `dayLength = 360`: 1 sky hour = 15 game seconds). With `timeScale = 10`, `step(10)` advances 100 game seconds = 6.7 sky hours. The docs say "game seconds" and "N sky hours/minutes", never "game minutes".
+Rules that follow: gameplay timing is in fixed seconds unless it is a thing the world does by itself over days (growth, respawn, calendar), which is in game seconds. At `timeScale = 0` game seconds stop (no `clock.after` fires, crops stop), but movement and cooldowns still run; a game that freezes the sky time of day (e.g. `clock.timeScale = 0`) must not use `clock.after` for gameplay delays. Conversion: 1 sky hour = `dayLength / 24` game seconds, 1 sky minute = `dayLength / 1440` game seconds (with `dayLength = 360`, as in `presets.calendar.cycle`: 1 sky hour = 15 game seconds). With `timeScale = 10`, `step(10)` advances 100 game seconds = 6.7 sky hours. The docs say "game seconds" and "N sky hours/minutes", never "game minutes".
 Neither fixed seconds nor `engine.elapsed` is saved; to keep a cooldown across a save, store it in a world record. Don't use `setTimeout` / `setInterval` / `performance.now()` (they ignore pause, are not saved, and can't be tested with fast-forward). The engine itself runs on the fixed step except the real-time items in the last table row.
-"After how long / every how long" uses `engine.clock` (part of the core); "at what time every day / within a time window / when the season changes" uses `engine.sky` (needs the `sky()` module).
+"After how long / every how long" uses `engine.clock` (part of the core); "at what time every day / within a time window / when the season changes" uses `engine.sky` (needs the `sky()` module with a `dayLength`; at a fixed time of day these never fire).
 
 ## 1. Where to write it
 Game logic goes in `games/<game>/main.js` (or the game's own module); a one-off story timer can also be started by a dialogue / quest effect and then call `after` in code.
@@ -37,7 +37,7 @@ engine.events.on('bread:ready', ({ oven }) => engine.inventory?.add('bread', 1))
 
 engine.clock.every(30, () => spawnBird());                           // every 30 game seconds (not 30 sky seconds)
 engine.sky.daily(day => console.log('day', day));              // every day at 00:00
-engine.sky.onSeason('winter', () => engine.weather?.set('snow', 20));
+engine.sky.onSeason('winter', () => engine.weather?.set('snow', 20));   // needs seasons (presets.calendar.fourSeasons) and a 'snow' weather (presets.weather.temperate)
 
 // Clock conversion: 'HH:MM' <-> fraction of a day 0-1
 engine.sky.timeOfDay = parseClock('17:30');                               // jump straight to 17:30 (see the catch-up rules below)
@@ -55,7 +55,7 @@ For "which time" or "has this been done" in a story, use `engine.vars.bump / set
 ## 2. Skipping time (sleep until morning, wait an hour)
 `engine.skip` moves game seconds and the sky clock forward without running every fixed step, so even a game with a real-length day can sleep through the night instantly.
 ```js
-await engine.skip({ to: '06:00' });                          // until the sky clock next reads 06:00 (at 06:00 exactly: a full day)
+await engine.skip({ to: '06:00' });                          // until the sky clock next reads 06:00 (at 06:00 exactly: a full day; throws when sky has no dayLength)
 engine.skip({ seconds: 600 });                               // 600 game seconds
 await engine.skip({ to: '06:00', fade: 0.6, save: 'auto' }); // fade out, jump, save, fade in (through flow.transition when flow is installed)
 engine.events.on('time:skip', ({ seconds }) => engine.vars.bump('restSeconds', seconds));   // after the jump

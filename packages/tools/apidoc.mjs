@@ -20,11 +20,14 @@ import {
 
 const recipeNames = readdirSync(abs(RECIPES_REL)).filter(f => f.endsWith('.md')).map(f => f.replace(/\.md$/, '')).sort();
 idx.push('# Engine API index (generated, do not edit by hand; produced by npm run map)', '',
-  '> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): ' + recipeNames.join(' · '),
-  '> The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types are in `types/*.d.ts`.',
+  '> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): '
+    + recipeNames.join(' · '),
+  '> The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types ' +
+    'are in `types/*.d.ts`.',
   '> With no matching recipe: read this page first: the core everyday API + one line per core object / module (listing method names). ' +
     'For the one you need, **read only that page** `api/<name>.md` (methods, parameters, properties and data structures are all in it).',
-  '> Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from \'threedog\'` (the engine package\'s own examples use relative paths); ' +
+  '> Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from \'threedog\'` (the engine ' +
+    'package\'s own examples use relative paths); ' +
     'a module that is not installed is undefined, so use `engine.xxx?.method()`.', '');
 
 // ---------- Core: engine ----------
@@ -148,7 +151,8 @@ for (const p of engProps) {
   pages.get('content').push('', '## Condition words / effect words in content files (generated from modules/content/rules.js)',
     'Conditions are used in quest step done, dialogue option if and line variant if; effects in dialogue do, quest reward and trigger zone onEnter / onExit. ' +
     'Several entries in one object = all must hold / run in order; an array works too. ' +
-    'A game\'s own condition words go in content/rules.js (or content.condition); a game\'s own actions are ops, called with { op: [...] } (recipes/23-ops.md). ' +
+    'A game\'s own condition words go in content/rules.js (or content.condition); a game\'s own actions are ops, called with { op: [...] } ' +
+      '(recipes/23-ops.md). ' +
     'The format of actions.js and how to write loading are in recipes/20-content-actions-save.md.',
     '- Condition words:', ...Object.entries(CONDITIONS).map(row), '- Effect words:', ...Object.entries(EFFECTS).map(row),
     '- Files content/ recognizes:', ...Object.entries(CONTENT_FILES).map(([k, d]) => `  - \`${k}.js\` ${d}`),
@@ -176,7 +180,8 @@ for (const p of engProps) {
   // Exported classes and functions not written above (index.d.ts exports every declaration of types/*.d.ts with export *)
   const exported = n => n.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
   const rest = [...decls].filter(([name,
-    [n]]) => !shown.has(name) && exported(n) && (!n.getSourceFile().fileName.startsWith(GEN) || reexported.has(name)) && (ts.isClassDeclaration(n) || ts.isFunctionDeclaration(n)));
+    [n]]) => !shown.has(name) && exported(n) && (!n.getSourceFile().fileName.startsWith(GEN) || reexported.has(name))
+      && (ts.isClassDeclaration(n) || ts.isFunctionDeclaration(n)));
   if (rest.length) {
     L.push('', '## Other exported classes and functions');
     for (const [name, [n]] of rest) {
@@ -195,9 +200,11 @@ idx.push('');
 // ---------------------------------------------------------------------
 // llms.txt at the package root (llmstxt.org convention): where an AI starts, the reading order, one line per recipe from its title
 const LLMS = join(ENGINE, 'llms.txt');
-const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain three.js, no React): core, modules installed with engine.use, and style packs for all art.', '',
+const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain three.js, no React): core, modules installed with engine.use, and style ' +
+  'packs for all art.', '',
   "Reading order: docs/AI.md (the index: one line per task) -> the recipe for the task -> docs/api/<module>.md for details -> the game's GAMEMAP.md.", '',
-  '## Start', '', '- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions', '- [API.md](docs/API.md): API index; one page per module in docs/api/', '',
+  '## Start', '', '- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions',
+    '- [API.md](docs/API.md): API index; one page per module in docs/api/', '',
   '## Recipes', '', ...recipeNames.map(r => `- [${r}](docs/recipes/${r}.md): ${readFileSync(join(abs(RECIPES_REL), r + '.md'), 'utf8').split('\n')[0].replace(/^#\s*/, '')}`), ''].join('\n');
 const outputs = new Map([[OUT, idx.join('\n')], [LLMS, llms]]);
 for (const [file, lines] of pages) outputs.set(join(PAGES, file + '.md'), [...lines, ''].join('\n'));

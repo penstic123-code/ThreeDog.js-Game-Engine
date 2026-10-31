@@ -7,7 +7,8 @@
 // window.bench.run(frames, { move }) → { cpuMs, renderMs, drawCalls, triangles, shadowRenders, shadowCalls, modules }
 // Under software rendering (cloud swiftshader) GPU time counts as CPU time, so use the numbers only for relative comparison.
 import * as THREE from 'three';
-import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, quests, timeline, triggers, entities, particles, hud, level, sky, weather, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial } from '../../index.js';
+import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, quests, timeline, triggers, entities, particles,
+  hud, level, sky, weather, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial } from '../../index.js';
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
@@ -53,11 +54,14 @@ function propsScene(engine) {
   engine.use(world());
   const mat = c => new THREE.MeshLambertMaterial({ color: c });
   const part = (geo, m, y) => { const p = new THREE.Mesh(geo, m); p.position.y = y; p.castShadow = p.receiveShadow = true; return p; };
-  const lamp = new THREE.Group(); lamp.add(part(new THREE.CylinderGeometry(0.08, 0.1, 4, 6), mat(0x555555), 2), part(new THREE.BoxGeometry(0.5, 0.25, 0.5), mat(0xeeeecc), 4.1));
-  const models = { lamp, fence: part(new THREE.BoxGeometry(2, 1, 0.1), mat(0x8a6a4a), 0.5), crate: part(new THREE.BoxGeometry(0.8, 0.8, 0.8), mat(0xa08050), 0.4),
+  const lamp = new THREE.Group(); lamp.add(part(new THREE.CylinderGeometry(0.08, 0.1, 4, 6), mat(0x555555), 2),
+    part(new THREE.BoxGeometry(0.5, 0.25, 0.5), mat(0xeeeecc), 4.1));
+  const models = { lamp, fence: part(new THREE.BoxGeometry(2, 1, 0.1), mat(0x8a6a4a), 0.5),
+    crate: part(new THREE.BoxGeometry(0.8, 0.8, 0.8), mat(0xa08050), 0.4),
     ac: part(new THREE.BoxGeometry(0.9, 0.6, 0.5), mat(0xcccccc), 0.3) };
   const names = Object.keys(models), side = Math.ceil(Math.sqrt(N));
-  for (let i = 0; i < N; i++) engine.world.add({ kind: 'thing', model: names[i % 4], position: [(i % side - side / 2) * 2.6, 0, (Math.floor(i / side) - side / 2) * 2.6], rot: i * 0.7 }, { save: false });
+  for (let i = 0; i < N; i++) engine.world.add({ kind: 'thing', model: names[i % 4],
+    position: [(i % side - side / 2) * 2.6, 0, (Math.floor(i / side) - side / 2) * 2.6], rot: i * 0.7 }, { save: false });
   engine.world.present('thing', { radius: 1000, build: rec => { const o = models[rec.model].clone(); o.rotation.y = rec.rot; return o; } });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400).rotateX(-Math.PI / 2), mat(0x9a9a9a));
   ground.receiveShadow = true; engine.add(ground);
@@ -97,14 +101,18 @@ if (mode === 'native') {
       const t0 = performance.now();
       for (let i = 0; i < frames; i++) renderer.render(scene, camera);
       const ms = (performance.now() - t0) / frames;
-      return { cpuMs: r2(ms), renderMs: r2(ms), drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, shadowRenders: sc.renders, shadowCalls: Math.round(sc.calls / Math.max(1, sc.renders)) };
+      return { cpuMs: r2(ms), renderMs: r2(ms), drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, shadowRenders: sc.renders,
+        shadowCalls: Math.round(sc.calls / Math.max(1, sc.renders)) };
     },
   };
   window.engine = { ready: true };   // "ready" signal for the test scripts
 } else {
-  const engine = window.engine = createEngine({ canvas, style: mode === 'world' ? lowpoly : {}, batching: q.get('batch') === '0' ? false : undefined, headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, post: mode === 'world' ? { bloom: false } : undefined, saveKey: 'perf-' + mode });
+  const engine = window.engine = createEngine({ canvas, style: mode === 'world' ? lowpoly : {}, batching: q.get('batch') === '0' ? false : undefined,
+    headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, post: mode === 'world' ? { bloom: false } : undefined,
+    saveKey: 'perf-' + mode });
   if (mode === 'city') {
-    engine.use(level({ scene: block() }), sky({ time: 0.45, dayLength: 360 }), weather(presets.weather.temperate), hlod(), settings({ freezeWorld: true, storageKey: 'perf-city-settings' }));
+    engine.use(level({ scene: block() }), sky({ time: 0.45, dayLength: 360 }), weather(presets.weather.temperate), hlod(),
+      settings({ freezeWorld: true, storageKey: 'perf-city-settings' }));
     aim(engine.camera);
   } else if (mode === 'world') {
     // Same seed, flat area and vegetation as the open-world example, but no game content such as NPCs or quests
@@ -114,9 +122,11 @@ if (mode === 'native') {
       const a = r * 0.37, x = Math.cos(a) * r, z = Math.sin(a) * r, h = T.surface(x, z);
       if (h > 4 && h < 10 && T.slope(x, z) < 0.2 && riverAt(x, z, T.noise) === 0) { home = { x, z }; break; }
     }
-    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360, weather: presets.weather.temperate, debug: false, ambience: false });
+    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
+      weather: presets.weather.temperate, debug: false, ambience: false });
     // The preset only builds the world; add back the gameplay modules it used to bundle so timings stay comparable with earlier runs (music stays off)
-    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), quests({ ...presets.keys.quests }), timeline(), triggers(), entities(), particles(), hud());
+    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }),
+      quests({ ...presets.keys.quests }), timeline(), triggers(), entities(), particles(), hud());
     const geo = m => [].concat(m).length > 1 ? lowpolyModels[m[0]](...m.slice(1)) : lowpolyModels[m]();
     for (const [name, v] of Object.entries(vegetationDefs)) {
       const { model, lod, ...rest } = v;
@@ -134,7 +144,8 @@ if (mode === 'native') {
   let renderMs = 0;
   engine._render = dt => { const t0 = performance.now(); render(dt); renderMs += performance.now() - t0; };
   const sc = shadowCounter(engine.renderer);
-  // Does what one real-time loop frame (Engine._loop) does: 1 fixed step + frame hooks + render + budget sampling + afterRender (step() also runs describe once more)
+  // Does what one real-time loop frame (Engine._loop) does: 1 fixed step + frame hooks + render + budget sampling + afterRender (step() also runs describe once
+  // more)
   const DT = 1 / 60;
   const frame = () => {
     engine.input.poll(DT); engine._fixedStep(); engine._frameHooks(DT); engine._render(DT);
@@ -156,10 +167,12 @@ if (mode === 'native') {
       const modules = engine.profile();
       engine.profile(false);
       const info = engine.renderer.info.render;
-      return { cpuMs: r2(ms), renderMs: r2(renderMs / frames), drawCalls: info.calls, triangles: info.triangles, shadowRenders: sc.renders, shadowCalls: Math.round(sc.calls / Math.max(1, sc.renders)), modules };
+      return { cpuMs: r2(ms), renderMs: r2(renderMs / frames), drawCalls: info.calls, triangles: info.triangles, shadowRenders: sc.renders,
+        shadowCalls: Math.round(sc.calls / Math.max(1, sc.renders)), modules };
     },
   };
   engine.start();
 }
 window.bench = bench;
-window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine, injectUICSS, lowpoly, lowpolyAssets, sky };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine,
+  injectUICSS, lowpoly, lowpolyAssets, sky };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

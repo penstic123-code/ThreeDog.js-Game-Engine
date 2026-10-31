@@ -100,3 +100,22 @@ export function packAudio(audio, data, from) {
   const sounds = Object.fromEntries(Object.entries(data.sounds || {}).filter(([n, v]) => !hasFn(v) || (warnOnce(fmt(STRINGS.fn, { from, what: `sounds.${n}` })), false)));
   return { sounds, footsteps: { ...data.footsteps }, ambience: dataOnly(data.ambience, 'ambience'), music: { tracks: { ...music.tracks }, rules: dataOnly(music.rules, 'music.rules') } };
 }
+
+/** Re-apply every active duck to the bus duck nodes, fading over fade seconds (Audio._applyDucks) */
+export function applyDucks(a, fade) {
+  if (!a.ctx) return;
+  const t = a.ctx.currentTime;
+  for (const [bus, node] of Object.entries(a._duckNodes)) {
+    let v = 1; for (const d of a._ducks) v *= d.levels[bus] ?? 1;
+    const g = node.gain; g.cancelScheduledValues(t);
+    if (fade > 0) { g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(v, t + fade); } else g.value = v;
+  }
+}
+
+/** What is playing: bus levels, duck multipliers, live voices per sound name (Audio.info) */
+export function audioInfo(a) {
+  const ducks = {}, voices = {};
+  for (const [b, n] of Object.entries(a._duckNodes)) ducks[b] = +n.gain.value.toFixed(3);
+  for (const [name, list] of a._voices) { const n = list.filter(v => v.playing).length; if (n) voices[name] = n; }
+  return { running: a.running, state: a.state, levels: { ...a.levels }, ducks, voices };
+}

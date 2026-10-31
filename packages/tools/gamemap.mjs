@@ -22,7 +22,8 @@ import { placementLines, unusedLines } from './gamemap/placements.mjs';
 import { kindMapLines } from './content-check/kinds.mjs';
 
 /** Module names in openWorld's return list: part('collision') entries and direct calls; the camera is a variable (cam), so it is not listed */
-const presetParts = body => [...(balanced(body, 'return [') || '').matchAll(/part\('(\w+)'\)|(\w+)\(/g)].map(x => x[1] ?? x[2]).filter(x => !['part', 'filter', 'on'].includes(x));
+const presetParts = body => [...(balanced(body, 'return [') || '').matchAll(/part\('(\w+)'\)|(\w+)\(/g)].map(x => x[1] ?? x[2]).filter(x => !['part', 'filter',
+  'on'].includes(x));
 
 async function buildMap(dir) {
   const { data: c } = await loadGame(dir);
@@ -85,7 +86,8 @@ async function buildMap(dir) {
   const recipes = existsSync(RECIPES) ? readdirSync(RECIPES).filter(f => f.endsWith('.md')).sort().map(f => [f, read(join(RECIPES, f))]) : [];
   sec(`Read for this game (per installed module: recipe · api page; core API: \`${docRef('docs/api/engine.md')}\`)`,
     readForLines(installed.filter(f => f !== 'openWorld'), apiPage, recipes, docRef));
-  md.push('', 'Not used yet (check these before writing the system yourself):', '', ...(unusedLines(installed, c, code, docRef).join('\n') || '- (all the common systems are in use)').split('\n'));
+  md.push('', 'Not used yet (check these before writing the system yourself):', '',
+    ...(unusedLines(installed, c, code, docRef).join('\n') || '- (all the common systems are in use)').split('\n'));
 
   // Files
   // The generic description at the top of content/*.js is the same in every game, so it is not repeated: only the file name and line count
@@ -190,7 +192,8 @@ async function buildMap(dir) {
   const sk = code.match(/saveKey: '([^']+)'/); sv.push(`- Save prefix saveKey: ${sk ? sk[1] : 'default'}`);
   const slots = uniq([...code.matchAll(/saves\.(?:save|load)\('([^']+)'\)/g)].map(m => m[1])); if (slots.length) sv.push(`- Save slots: ${slots.join(', ')}`);
   const auto = code.match(/saves\.autosave\(([^)]*)\)/); if (auto) sv.push(`- Autosave: every ${auto[1] || 'default'} minutes`);
-  const reg = uniq([...code.matchAll(/saves\.register\('([^']+)'/g)].map(m => m[1])); if (reg.length) sv.push(`- Save entries the game registers itself: ${reg.join(', ')}`);
+  const reg = uniq([...code.matchAll(/saves\.register\('([^']+)'/g)].map(m => m[1])); if (reg.length) sv.push(`- Save entries the game registers itself: ' +
+    '${reg.join(', ')}`);
   sv.push('- Content-related saves handled by the engine: story flags and counters (engine.vars), inventory, quest progress, ' +
     'timers (clock, after registered by event name), pickups (world), felled trees (vegetation)');
   sec('Saves', sv);
@@ -200,7 +203,8 @@ async function buildMap(dir) {
   const style = ce?.match(/style: (\w+)/); st.push(`- Style pack: ${style ? style[1] : 'none (all neutral fallback look)'}`);
   const vegModels = Object.values(c.vegetation || {}).flatMap(v => [[v.model].flat()[0], v.lod].filter(Boolean));
   const tplModels = Object.values(c.templates || {}).map(t => [t?.model].flat()[0]).filter(m => typeof m === 'string');
-  const models = uniq([...code.matchAll(/\.models\.(\w+)/g)].map(m => m[1]).concat(vegModels, tplModels, (c.props || []).filter(p => !p.template).map(p => [p.model].flat()[0])));
+  const models = uniq([...code.matchAll(/\.models\.(\w+)/g)].map(m => m[1]).concat(vegModels, tplModels,
+    (c.props || []).filter(p => !p.template).map(p => [p.model].flat()[0])));
   if (models.length) st.push(`- Models (asset names): ${models.join(', ')}`);
   const used = uniq([...code.matchAll(/particles\.(?:emit|attach)\('(\w+)'/g)].map(m => m[1]).concat(JSON.stringify(c).match(/"particles":\{"name":"(\w+)"/g)?.map(s => s.split('"')[5]) || []));
   const defined = uniq([...code.matchAll(/particles\.define\('(\w+)'/g)].map(m => m[1]));

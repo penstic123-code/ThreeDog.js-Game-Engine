@@ -45,12 +45,16 @@
 //   staticTrimeshes()  walkable-mesh triangles (world space), for building Rapier static colliders
 //   load(path/asset name or THREE object)   switch level (unload current, load new, emit level:loaded when done); returns a Promise
 //   unload()      unload (also removes everything registered via track)
-//   track(handle) register things that belong to the current level and need no keeping (handles with remove(): trigger zones...); auto-removed on level switch / unload.
-//                 World data that must keep state (NPCs, pickups, props) is not tracked: records carry zone (= level name), a level switch only tears down models.
+// track(handle) register things that belong to the current level and need no keeping (handles with remove(): trigger zones...); auto-removed on level switch /
+// unload.
+// World data that must keep state (NPCs, pickups, props) is not tracked: records carry zone (= level name), a level switch only tears down models.
 //                 triggers.fromMarkers and content (when positions use level markers) are tracked automatically
-// Rays: all meshes are registered in engine.rays (builds BVH); col_ meshes and non-walkable meshes (buildings, walls) also occlude the camera (collision's cameraOcclusion).
-// Save: the current level (path or asset name) goes into the save; on load, switch back first and wait for it before loading the rest (save key level comes first, load returns a Promise);
-//   scenes built in code (scene) cannot be saved, loading does not switch level -- to support cross-level loading, register the builder in the assets manifest and use level({ url: name }).
+// Rays: all meshes are registered in engine.rays (builds BVH); col_ meshes and non-walkable meshes (buildings, walls) also occlude the camera (collision's
+// cameraOcclusion).
+// Save: the current level (path or asset name) goes into the save; on load, switch back first and wait for it before loading the rest (save key level comes
+// first, load returns a Promise);
+// scenes built in code (scene) cannot be saved, loading does not switch level -- to support cross-level loading, register the builder in the assets manifest
+// and use level({ url: name }).
 // Event: level:loaded { root, markers, spawn }
 // Look: the level module draws nothing itself, the scene looks entirely like your model, so it does not read the style pack.
 import * as THREE from 'three';
@@ -126,7 +130,8 @@ export function level(opts = {}) {
     async load(urlOrScene) {
       api.unload(); done = false;
       e.commits.invalidate();   // background results requested for the old level must not land on the new one
-      // world-data zone = level name: other levels' NPCs etc. only lose models, data stays and is rebuilt on return (code-built scenes have no name, record null, no zoning)
+      // world-data zone = level name: other levels' NPCs etc. only lose models, data stays and is rebuilt on return (code-built scenes have no name, record
+      // null, no zoning)
       if (e.world) e.world.zone = typeof urlOrScene === 'string' ? urlOrScene : null;
       if (typeof urlOrScene === 'string') {
         current = urlOrScene;
@@ -139,7 +144,8 @@ export function level(opts = {}) {
 
   function loaded() {
     addColliders();                    // if the collision module is installed after level, add colliders here
-    e.ops.allow(placeNodes);           // nodes tagged template / id become world records (loading is setup, not a gameplay action) before anyone (hlod...) sees level:loaded
+    // nodes tagged template / id become world records (loading is setup, not a gameplay action) before anyone (hlod...) sees level:loaded
+    e.ops.allow(placeNodes);
     done = true;
     e.assets.trim();                   // old level's models have no copies in use: return GPU memory
     e.events.emit('level:loaded', { root: api.root, markers: api.markers, spawn: api.spawn });
@@ -156,7 +162,8 @@ export function level(opts = {}) {
     root.traverse(o => {
       if (MARKER_RE.test(o.name)) { markerObjs.push(o); return; }
       if (!o.isMesh) return;
-      if (o.parent && chainHas(o.parent, root, p => MARKER_RE.test(p.name))) { if (hideMarkers) o.visible = false; return; }   // placeholder models under a marker
+      // placeholder models under a marker
+      if (o.parent && chainHas(o.parent, root, p => MARKER_RE.test(p.name))) { if (hideMarkers) o.visible = false; return; }
       if (chainHas(o, root, p => COL_RE.test(p.name))) { cols.push(o); o.visible = false; return; }
       meshes.push(o);
     });
@@ -197,7 +204,10 @@ export function level(opts = {}) {
     addColliders();
   }
 
-  /** Nodes tagged with the custom property template or id (Blender custom property -> glTF extras -> userData): taken out of the level root, world transform kept */
+  /**
+   * Nodes tagged with the custom property template or id (Blender custom property -> glTF extras -> userData): taken out of the level root, world transform
+   * kept
+   */
   function takeNodes(root) {
     taken.length = 0;
     const walk = o => {
@@ -301,7 +311,8 @@ export function level(opts = {}) {
       });
       if (scene) process(scene);
       // on load, switch back to the saved level (code-built scenes have no name, record null, no switch)
-      // load returns a Promise: the save system waits for the new level (old level's trigger zones are already removed by unload) before reading player position etc.
+      // load returns a Promise: the save system waits for the new level (old level's trigger zones are already removed by unload) before reading player
+      // position etc.
       e.saves.register('level', { first: true, save: () => current, load: d => { if (typeof d === 'string' && d !== current) return api.load(d); } });
       return api;
     },

@@ -82,6 +82,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - audioRules.js: The data side of audio rules: condition keys, measures (com…
 - audioVoice.js: One playing sound (a "voice") of engine.audio.sfx / play: s…
 - batchGroups.js: InstancedMesh side of engine.batching (core/Batching.js): b…
+- canvasBox.js: The canvas's CSS box and the UI root laid over it (split ou…
 - dayTime.js: Clock-time conversion (pure functions): sky time of day `ti…
 - describeText.js: engine.describeText(): write describe() as plain English fo…
 - easing.js: Easing functions: input progress 0..1, output 0..1 (back/el…
@@ -91,6 +92,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - events.generated.js: Generated, do not edit by hand: npm run map generates it fr…
 - ground.js: Ground API (part of Engine, mixed into Engine.prototype): w…
 - inputContext.js: Input contexts (like Unity's Action Maps): a stack of named…
+- inputDefaults.js: Input defaults and strings (split out of Input.js): neutral…
 - inputPad.js: Gamepad (standard layout) button names; like keyboard key n…
 - inputPointer.js: The mouse / touch pointer part of input: drag to look, whee…
 - inputTouch.js: The touch part of input: which on-screen controls the game …
@@ -111,6 +113,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - saveIds.js: Record ids inside save data, for upgrade steps (saves.regis…
 - saveVersions.js: Save format and per-part versions
 - scatter.js: Scatter by rule: where instances go in one ground chunk (pl…
+- sceneMethods.js: Scene and render settings on the engine (split out of Engin…
 - screenToGround.js: Screen point -> ground point: what clicking the ground mean…
 - session.js: engine.session: one playthrough, from "new game" or "load" …
 - skip.js: Skipping time (part of Engine, mixed into Engine.prototype)…
@@ -126,7 +129,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 **modules/** (one line per folder: what it does; its files)
 - ambience/ Ambience module: a rule table of background sounds — Ambience.js
 - camera/ Camera module collection — FirstPersonCamera.js, FixedCamera.js, FollowCamera.js, RtsCamera.js, common.js, index.js
-- characters/ Characters module: player (keyboard/stick control, camera follow, footsteps, en… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, index.js, movers/common.js, movers/rapier.js, movers/simple.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, proceduralRig.js
+- characters/ Characters module: player (keyboard/stick control, camera follow, footsteps, en… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, footsteps.js, index.js, moveHelpers.js, movers/common.js, movers/rapier.js, movers/simple.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, playerStrings.js, proceduralRig.js
 - collision/ Lightweight collision: characters are upright cylinders, trees/rocks are circle… — Collision.js, grid.js
 - content/ Content loader: hands the plain data in the game's content/*.js to the engine (… — ids.js, index.js, loader.js, models.js, packs.js, props.js, rules.js, templates.js
 - debug/ Performance panel + time/weather debugging + stress test — DebugPanel.js
@@ -228,7 +231,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | session:end | core/session.js | core/skip.js, flow, gameplay, hud, music, timeline, triggers |
 | session:start | core/session.js | camera, flow |
 | settings:change | settings | — |
-| settings:shadows | core/Engine.js | terrain |
+| settings:shadows | core/sceneMethods.js | terrain |
 | state:applied | core/UrlState.js | — |
 | time:skip | core/skip.js | — |
 | timeline:end | timeline | — |
@@ -253,12 +256,12 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 
 | Action | Default keys | Text key | Registered at |
 |---|---|---|---|
-| moveForward | ['KeyW', 'ArrowUp'] | input.moveForward | core/Input.js |
-| moveBack | ['KeyS', 'ArrowDown'] | input.moveBack | core/Input.js |
-| moveLeft | ['KeyA', 'ArrowLeft'] | input.moveLeft | core/Input.js |
-| moveRight | ['KeyD', 'ArrowRight'] | input.moveRight | core/Input.js |
-| confirm | ['Space', 'Enter'] | input.confirm | core/Input.js |
-| cancel | ['Escape'] | input.cancel | core/Input.js |
+| moveForward | ['KeyW', 'ArrowUp'] | input.moveForward | core/inputDefaults.js |
+| moveBack | ['KeyS', 'ArrowDown'] | input.moveBack | core/inputDefaults.js |
+| moveLeft | ['KeyA', 'ArrowLeft'] | input.moveLeft | core/inputDefaults.js |
+| moveRight | ['KeyD', 'ArrowRight'] | input.moveRight | core/inputDefaults.js |
+| confirm | ['Space', 'Enter'] | input.confirm | core/inputDefaults.js |
+| cancel | ['Escape'] | input.cancel | core/inputDefaults.js |
 | rotateLeft | rotateKeys.left//['KeyQ'] | camera.rotateLeft | camera |
 | rotateRight | rotateKeys.right//['KeyR'] | camera.rotateRight | camera |
 | jump | opts.jumpKeys | input.jump | characters |
@@ -281,7 +284,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - core/page.js: page.* (2)
 - core/saveFiles.js: saves.* (7)
 - modules/camera/common.js: camera.* (2)
-- modules/characters/index.js: npc.* (1), input.* (2)
+- modules/characters/playerStrings.js: npc.* (1), input.* (2)
 - modules/debug/DebugPanel.js: debug.* (1)
 - modules/entities/Entities.js: entities.* (1)
 - modules/gameplay/Dialogue.js: dialogue.* (2)

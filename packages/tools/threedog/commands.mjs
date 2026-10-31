@@ -19,7 +19,10 @@ const READY = async () => {
   return window.engine;
 };
 
-/** One-line scenario: player position / time and weather / nearby / quest (runs in the page). Picks only what best tells "what is going on now"; ask describe for details */
+/**
+ * One-line scenario: player position / time and weather / nearby / quest (runs in the page). Picks only what best tells "what is going on now"; ask describe
+ * for details
+ */
 const BRIEF = e => {
   const d = e.describe(), p = d.player, t = d.time, w = d.weather, flags = [];
   if (d.cutscene) flags.push('in cutscene');
@@ -107,7 +110,8 @@ const PAGE = {
     const conv = (v, t) => t === 'int' || t === 'number' ? Number(v) : t === 'bool' ? v === 'true' : t === 'position' ? v.split(',').map(Number)
       : t === 'string' || t === 'id' ? v : (() => { try { return JSON.parse(v); } catch { return v; } })();
     for (const [k, v] of a.pairs) args[k] = conv(v, shape[k]?.type);
-    if (a.explain) { const x = e.explain({ op: a.name, args }); return { ok: x.ok, text: x.text, detail: x.detail }; }   // explain op: same arg conversion, nothing runs
+    // explain op: same arg conversion, nothing runs
+    if (a.explain) { const x = e.explain({ op: a.name, args }); return { ok: x.ok, text: x.text, detail: x.detail }; }
     const r = e.ops.run(a.name, args, { source: 'bridge' });
     if (e.paused) e._render(1 / 60);   // show the result without advancing game time
     const bag = e.inventory ? 'Bag ' + (e.inventory.list().slice(0, 6).map(x => `${x.id}×${x.count}`).join(' ') || 'empty') : '';
@@ -141,7 +145,8 @@ const PAGE = {
     const t = h.thing, p = h.point, f = Object.entries(t.fields || {}).slice(0, 6).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ');
     const head = t.id ? `${t.id} (kind ${t.kind}${t.template ? ', template ' + t.template : ''})` : `scenery mesh "${t.mesh ?? '?'}" (no world record)`;
     return { ok: true, text: [`✓ ${head} at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}) · material ${t.material ?? '-'}${t.model ? ' · model ' + JSON.stringify(t.model) : ''}`,
-      t.edit ?? (t.id ? 'no source known (a record added from code)' : 'part of a level model or added with engine.add'), f && 'fields ' + f].filter(Boolean).join('\n'), thing: t };
+      t.edit ?? (t.id ? 'no source known (a record added from code)' : 'part of a level model or added with engine.add'), f && 'fields '
+        + f].filter(Boolean).join('\n'), thing: t };
   },
   // loading: the same view as describe().loading, or one task with its source; formatted in node so the hint table applies
   loading: (a, e) => (a.name ? { task: e.loading.get(a.name) } : { view: e.loading.view(), ready: e.ready }),
@@ -192,7 +197,8 @@ export const COMMANDS = {
   press: 'press a key or action: press interact / press KeyE / press e (held 0.1 s, then renders 1/60 s; --for 0.02 shortens the hold)',
   hold: 'hold for N seconds: hold moveForward 1.5',
   state: 'change the scenario: state time=18:30 weather=rain pos=40,-20',
-  eval: 'evaluate an expression in the page (engine is available, await works; multi-line statements need their own return): eval "engine.sky.timeOfDay"; long scripts: eval --file path',
+  eval: 'evaluate an expression in the page (engine is available, await works; multi-line statements need their own return): eval ' +
+    '"engine.sky.timeOfDay"; long scripts: eval --file path',
   js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.sky.timeOfDay" / js --file path',
   'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
   snap: 'save a screenshot to .threedog/shots/name.png (snap name)',
@@ -214,7 +220,8 @@ function loadingText({ view: v, ready }) {
     : `… ${v.blocked ? 'BLOCKED, ' : ''}waiting: ${v.waiting} (${c.pending} pending, ${c.done}/${c.total} done)`;
   const fail = v.failed.map(f => `${f.critical ? '✗ critical' : '! fell back'} ${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}${f.fallback ? ` -> ${f.fallback}` : ''}`);
   const warn = v.warnings.map(w => `! "${w.name}" missing ${w.missing.join(', ')}`);
-  const h = v.failed.length ? hintFor(v.blocked ? 'Startup blocked: 1 critical item' : 'Asset failed to load') : v.warnings.length ? hintFor('Asset loaded with missing references') : null;
+  const h = v.failed.length ? hintFor(v.blocked ? 'Startup blocked: 1 critical item' : 'Asset failed to load') : v.warnings.length
+    ? hintFor('Asset loaded with missing references') : null;
   const lines3 = [head, [...fail, ...warn].join(' · ').slice(0, 300), h && `-> Possible cause: ${h.cause.slice(0, 160)} Read: ${h.docs.join(', ')}`];
   return { ok: v.ok && !v.blocked, text: lines3.filter(Boolean).join('\n') };
 }
@@ -261,7 +268,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     }
     case 'snap-describe': {
       const [mode, name] = rest, snapDir = join(dir, 'tests', 'snapshots');
-      if (!['save', 'diff'].includes(mode) || !name) throw new Error('Usage: threedog snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5], e.g. snap-describe save market-noon --only player,quests');
+      if (!['save', 'diff'].includes(mode) || !name) throw new Error('Usage: threedog snap-describe save|diff name [--only a,b] [--ignore x.y] ' +
+        '[--tolerance 0.5], e.g. snap-describe save market-noon --only player,quests');
       const d = await ev(driver, 'raw', {}), o = { only: opt.only, ignore: opt.ignore, tolerance: opt.tolerance };
       if (mode === 'save') { saveSnapshot(snapDir, name, d, o); return { ok: true, text: `✓ Baseline saved: tests/snapshots/${name}.describe.json` }; }
       const r = compareSnapshot(snapDir, name, d, o);
@@ -277,7 +285,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
         const end = page.findIndex((l, i) => i > 0 && /^\s*at /.test(l)), msg = page.slice(1, end < 0 ? undefined : end).join('\n');
         const h = hintFor(msg.replace(/\n\s*(Possible cause|Read):.*/g, ''));
         const code = msg.match(/\[([a-z][\w-]*)\]/)?.[1];   // coded engine errors end their message with [code]
-        return ((code ? `[${code}] ` : '') + `${head.trim()} ${page[0] ?? ''} ${msg.split('\n')[0]}`).slice(0, 160) + (h ? `\n  -> Possible cause: ${h.cause} Read: ${h.docs.join(', ')}` : '');
+        return ((code ? `[${code}] ` : '') + `${head.trim()} ${page[0] ?? ''} ${msg.split('\n')[0]}`).slice(0, 160)
+          + (h ? `\n  -> Possible cause: ${h.cause} Read: ${h.docs.join(', ')}` : '');
       };
       const more = list.length > 2 ? `\n…${list.length - 2} more, see .threedog/errors.log` : '';
       return { ok: false, text: `✗ ${list.length} new errors\n` + list.slice(0, 2).map(one).join('\n') + more };
@@ -290,7 +299,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'ops':
       return { ok: true, text: lines(await ev(driver, 'ops', {}), 3) };
     case 'op': {
-      if (!rest[0]) throw new Error('Usage: threedog op name key=value …, e.g. threedog op shop.buy shop=bakery item=bread (threedog ops lists what is possible)');
+      if (!rest[0]) throw new Error('Usage: threedog op name key=value …, e.g. threedog op shop.buy shop=bakery item=bread (threedog ops lists what is ' +
+        'possible)');
       const r = await ev(driver, 'op', { name: rest[0], pairs: opPairs(rest.slice(1)) });
       return { ok: r.ok, text: lines(r.text, 3) };
     }
@@ -300,7 +310,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     }
     case 'pick': {
       const m = /^(-?[\d.]+),(-?[\d.]+)$/.exec(rest[0] ?? '');
-      if (!m) throw new Error('Usage: threedog pick x,y (screen pixels from the canvas top-left), e.g. threedog pick 480,270 (in PowerShell quote it: "480,270")');
+      if (!m) throw new Error('Usage: threedog pick x,y (screen pixels from the canvas top-left), e.g. threedog pick 480,270 (in PowerShell quote it: ' +
+        '"480,270")');
       const r = await ev(driver, 'pick', { x: Number(m[1]), y: Number(m[2]) });
       return { ok: r.ok, text: lines(r.text, 3) };
     }
@@ -308,7 +319,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light');
       const r = rest[0] === 'op' ? await ev(driver, 'op', { name: rest[1], explain: true, pairs: opPairs(rest.slice(2)) })
         : await ev(driver, 'explain', { key: rest[0], value: rest[1] });
-      return { ok: r.ok, text: (r.ok ? '✓ ' : '✗ ') + lines(r.text, 3) + (opt.full && r.detail ? '\n' + String(r.detail).slice(0, max) : '') };   // --full adds the detail (last attempt, events around it)
+      // --full adds the detail (last attempt, events around it)
+      return { ok: r.ok, text: (r.ok ? '✓ ' : '✗ ') + lines(r.text, 3) + (opt.full && r.detail ? '\n' + String(r.detail).slice(0, max) : '') };
     }
     case 'loading': {
       if (!rest[0]) return loadingText(await evAttached(driver, 'loading', {}));

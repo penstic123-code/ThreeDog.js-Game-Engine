@@ -7,7 +7,10 @@
 export function weather(opts?: WeatherOptions): ModuleDef<Weather>;
 /** engine.weather */
 export class Weather {
-    /** The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string, WeatherPreset>} */
+    /**
+     * The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string,
+     * WeatherPreset>}
+     */
     types: Record<string, WeatherPreset>;
     /** Current (mid-transition) weather parameters @type {WeatherPreset} */
     current: WeatherPreset;

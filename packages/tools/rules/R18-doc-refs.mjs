@@ -40,7 +40,8 @@ export function docFiles() {
   if (P.MODE === 'game') return P.gameDirs().flatMap(game);
   const D = P.DOCS_REL;
   return [...['AI', 'COMMANDS', 'CONVENTIONS', 'THREE', 'PERF'].map(n => `${D}/${n}.md`).filter(f => existsSync(abs(f))),
-    ...walk(P.RECIPES_REL, ['.md']), ...['README.md', 'README.zh-CN.md', `${P.ENGINE_REL}/README.md`, `${P.TOOLS_REL}/README.md`].filter(f => existsSync(abs(f))),
+    ...walk(P.RECIPES_REL, ['.md']), ...['README.md', 'README.zh-CN.md', `${P.ENGINE_REL}/README.md`,
+      `${P.TOOLS_REL}/README.md`].filter(f => existsSync(abs(f))),
     ...walk(`${P.TOOLS_REL}/templates`, ['.md']), ...P.gameDirs().flatMap(game)];
 }
 
@@ -68,7 +69,9 @@ export async function context() {
   const specsOf = async f => { try { return (await import(pathToFileURL(f).href)).specs.map(s => s.name); } catch { return []; } };
   if (P.MODE === 'monorepo' && existsSync(P.ENGINE_SPECS)) tests.push(...await specsOf(P.ENGINE_SPECS));
   for (const d of P.workspaces()) {
-    if (d !== P.ENGINE) { const f = join(d, 'tests', 'specs.mjs'); if (existsSync(f)) tests.push(...await specsOf(f)); else tests.push(`smoke: ${basename(d)}`); tests.push(`pack: ${rel(d)}`, `pack: dist of ${rel(d)}`); }
+    if (d !== P.ENGINE) { const f = join(d, 'tests',
+      'specs.mjs'); if (existsSync(f)) tests.push(...await specsOf(f)); else tests.push(`smoke: ${basename(d)}`); tests.push(`pack: ${rel(d)}`,
+      `pack: dist of ${rel(d)}`); }
     const sc = join(d, 'tests', 'scenarios');
     if (existsSync(sc)) tests.push(...readdirSync(sc).filter(f => f.endsWith('.json')).map(f => `scenario: ${f.slice(0, -5)}`));
   }
@@ -79,7 +82,8 @@ export async function context() {
   const bin = await import(pathToFileURL(join(P.TOOLS, 'bin', 'threedog.mjs')).href);
   const cli = new Set([...bin.BRIDGE, ...Object.keys(bin.SCRIPTS), ...bin.VITE, 'map']);
   const scripts = new Set();
-  for (const f of [join(P.ROOT, 'package.json'), join(P.ENGINE, 'package.json'), join(P.TOOLS, 'templates', 'game', 'package.json'), ...games.map(d => join(d, 'package.json'))])
+  for (const f of [join(P.ROOT, 'package.json'), join(P.ENGINE, 'package.json'), join(P.TOOLS, 'templates', 'game', 'package.json'),
+    ...games.map(d => join(d, 'package.json'))])
     if (existsSync(f)) Object.keys(JSON.parse(readFileSync(f, 'utf8')).scripts || {}).forEach(s => scripts.add(s));
   // events
   const events = new Set();
@@ -96,7 +100,8 @@ export async function context() {
   const api = engineApi();
   const fns = new Set([...api.exports, ...GLOBALS]);
   for (const f of dtsFiles()) for (const m of read(f).matchAll(/\b([A-Za-z_$][\w$]*)\??\s*[(:<]/g)) fns.add(m[1]);
-  for (const f of [...[P.STYLES_REL, ...P.ADDONS_REL].flatMap(d => walk(d, ['.d.ts', '.js'])), ...walk(P.TOOLS_REL, ['.mjs']).filter(f => !f.includes('/tests/'))]) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
+  for (const f of [...[P.STYLES_REL, ...P.ADDONS_REL].flatMap(d => walk(d, ['.d.ts', '.js'])),
+    ...walk(P.TOOLS_REL, ['.mjs']).filter(f => !f.includes('/tests/'))]) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
   for (const t of gameCode.values()) for (const m of t.matchAll(/function\s+(\w+)|(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|\w+\s*=>|function)/g)) fns.add(m[1] || m[2]);
   // files that can be referenced
   const known = walk(P.ENGINE_REL, ['.md', '.js', '.mjs', '.json', '.d.ts', '.html']).map(f => fwd(relative(P.ENGINE, abs(f))));
@@ -112,7 +117,8 @@ function checkPath(doc, tok, ctx) {
   // runtime output (.threedog/…) and command lines are not file references
   if (/\s/.test(p) || p.startsWith('.threedog/')) return null;
   if (!/\/./.test(p) || !/\.(md|js|mjs|json|d\.ts|html)$/.test(p) || /^[a-z]+:\/\//.test(p) || PLACEHOLDER.test(p)) return null;
-  if (shipped(doc) && /^packages\//.test(p)) return { level: 'error', msg: `\`${tok}\` is a monorepo path in a shipped doc`, fix: 'write it relative to the package (recipes/…, api/…, core/…) or node_modules/threedog/…' };
+  if (shipped(doc) && /^packages\//.test(p)) return { level: 'error', msg: `\`${tok}\` is a monorepo path in a shipped doc`,
+    fix: 'write it relative to the package (recipes/…, api/…, core/…) or node_modules/threedog/…' };
   const g = p.match(/^games\/([\w-]+)\//);
   if (g && !ctx.games.some(d => basename(d) === g[1])) return null;   // an example game name (games/farm/…)
   const cands = [];
@@ -121,7 +127,8 @@ function checkPath(doc, tok, ctx) {
   else cands.push(resolve(dirname(abs(doc)), p), ...ctx.bases.map(b => join(b, p)));
   if (cands.some(existsSync)) return null;
   const near = closest(p, ctx.known, 6);
-  return { level: 'error', msg: `path \`${tok}\` does not exist${near ? `; did you mean \`${near}\`?` : ''}`, fix: 'fix the path, or mark an intentional example with <!-- r18-ignore-line -->' };
+  return { level: 'error', msg: `path \`${tok}\` does not exist${near ? `; did you mean \`${near}\`?` : ''}`,
+    fix: 'fix the path, or mark an intentional example with <!-- r18-ignore-line -->' };
 }
 
 function checkTests(tok, ctx) {
@@ -132,7 +139,8 @@ function checkTests(tok, ctx) {
     const a = args[i];
     if (a === '-w' || a === '--workspace') { i++; continue; }
     if (a.startsWith('-') || PLACEHOLDER.test(a) || /^[|#;]/.test(a) || a === 'name' || /^(and|or|e\.g\.)$/.test(a)) { if (/^[|#;]/.test(a)) break; continue; }
-    if (!ctx.tests.some(t => t.includes(a))) out.push({ level: 'error', msg: `\`npm test -- ${a}\` matches no test${nearest(a, ctx.tests, 2).length ? `; close: ${nearest(a, ctx.tests, 2).map(t => `"${t}"`).join(', ')}` : ''}`,
+    if (!ctx.tests.some(t => t.includes(a))) out.push({ level: 'error',
+      msg: `\`npm test -- ${a}\` matches no test${nearest(a, ctx.tests, 2).length ? `; close: ${nearest(a, ctx.tests, 2).map(t => `"${t}"`).join(', ')}` : ''}`,
       fix: 'use a fragment of a real test name (they are listed by npm test)' });
   }
   return out;
@@ -154,7 +162,8 @@ function checkEvents(doc, item, ctx) {
   for (const m of item.text.matchAll(/\b(?:on|once|emit|off)\(\s*'([a-z][A-Za-z]*:[a-z][A-Za-z]*)'/g)) names.push(m[1]);
   return [...new Set(names)].filter(n => !ctx.events.has(n) && !allowed(doc, n) && !/^(https?|wss?|data|blob|file|node|npm)$/.test(n.split(':')[0])).map(n => {
     const near = closest(n, [...ctx.events]);
-    return { level: 'warn', msg: `event \`${n}\` is not in EventMap, a game's GameEvents or game code${near ? `; did you mean \`${near}\`?` : ''}`, fix: 'fix the name, or declare the game event in its GameEvents' };
+    return { level: 'warn', msg: `event \`${n}\` is not in EventMap, a game's GameEvents or game code${near ? `; did you mean \`${near}\`?` : ''}`,
+      fix: 'fix the name, or declare the game event in its GameEvents' };
   });
 }
 
@@ -165,14 +174,17 @@ function checkMembers(item, ctx) {
     const [, a, b] = m;
     if (PLACEHOLDER.test(a) || (b && PLACEHOLDER.test(b))) continue;
     const sa = checker.getPropertyOfType(engine, a);
-    if (!sa) { const near = closest(a, checker.getPropertiesOfType(engine).map(s => s.name)); out.push({ level: 'warn', msg: `\`engine.${a}\` is not on Engine${near ? `; did you mean \`engine.${near}\`?` : ''}`, fix: 'fix the name (api/engine.md lists the members)' }); continue; }
+    if (!sa) { const near = closest(a, checker.getPropertiesOfType(engine).map(s => s.name)); out.push({ level: 'warn',
+      msg: `\`engine.${a}\` is not on Engine${near ? `; did you mean \`engine.${near}\`?` : ''}`,
+      fix: 'fix the name (api/engine.md lists the members)' }); continue; }
     if (!b) continue;
     const t = typeOf(sa);
     if (!t || t.flags & 1 /* any */ || checker.getIndexInfosOfType(t).length) continue;
     const props = checker.getPropertiesOfType(t);
     if (!props.length || checker.getPropertyOfType(t, b)) continue;
     const near = closest(b, props.map(s => s.name));
-    out.push({ level: 'warn', msg: `\`engine.${a}.${b}\` does not exist${near ? `; did you mean \`engine.${a}.${near}\`?` : ''}`, fix: `fix the name (the members are in api/${a}.md)` });
+    out.push({ level: 'warn', msg: `\`engine.${a}.${b}\` does not exist${near ? `; did you mean \`engine.${a}.${near}\`?` : ''}`,
+      fix: `fix the name (the members are in api/${a}.md)` });
   }
   return out;
 }
@@ -181,7 +193,8 @@ function checkFn(item, ctx) {
   const m = item.span && item.text.match(/^([A-Za-z_$][\w$]*)\((?!s\))/);   // stair(s) is a plural, not a call
   if (!m || ctx.fns.has(m[1]) || PLACEHOLDER.test(m[1]) || ALLOW.some(([, t]) => t === m[1])) return [];
   const near = closest(m[1], [...ctx.api.exports]);
-  return [{ level: 'warn', msg: `\`${m[1]}()\` is not an engine export or a name the d.ts knows${near ? `; did you mean \`${near}()\`?` : ''}`, fix: 'fix the name, or import it from where it lives' }];
+  return [{ level: 'warn', msg: `\`${m[1]}()\` is not an engine export or a name the d.ts knows${near ? `; did you mean \`${near}()\`?` : ''}`,
+    fix: 'fix the name, or import it from where it lives' }];
 }
 
 /** All problems in one doc (exported for the rule tests) */

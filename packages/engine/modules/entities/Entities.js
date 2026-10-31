@@ -12,11 +12,12 @@
 //     ],
 //     update(dt, ent, engine) {},                          // optional: per fixed step (runs only near the player; far entities just catch up on growth)
 //     interact: { label: 'entities.water', action: 'interact', radius: 2.5, enabled: ent => true, onUse: ent => ent.set('watered', true) },
-//     collider: 0.4,                                       // optional: circular collision radius (needs the collision module; built with the model, so near only)
+// collider: 0.4, // optional: circular collision radius (needs the collision module; built with the model, so near only)
 //     save: false,                                         // optional: exclude from saves (temporary things, cleared on load); default true
 //   });
 //   const ent = engine.entities.spawn('sapling', { position: [10, 0, 5], rotation: 0 });   // position as { x, z } (no y) snaps to ground
-//   ent.object  // three.js root (Group) with the model ent.visual under it; exists only when near, null when far. Built the frame after spawn; call engine.world.refresh() to get it immediately.
+// ent.object // three.js root (Group) with the model ent.visual under it; exists only when near, null when far. Built the frame after spawn; call
+// engine.world.refresh() to get it immediately.
 //   ent.state.stage  // current stage index; ent.stageName  // 'seed'
 //   ent.set('watered', true);  ent.remove();
 //   engine.entities.get(ent.id);  engine.entities.byType('sapling');  engine.entities.remove(id);   // ids without spawn({ id }) look like 'entity:sapling-3'
@@ -24,10 +25,14 @@
 //
 // Data and presentation are separate (see modules/world): an entity's facts (position, rotation, state, extra, stage) are a plain record in engine.world,
 // with kind 'entity:<type>' (one kind per type, usable by world.query / present / simulate); the id is the entity id; saved with world.
-// Model, interaction and collision are built only near the player (world.radius, default 60 m) and torn down when far (def.dispose is called then); rebuilt for the current stage on return.
-// ent is a wrapper "view": x / y / z / rotation / state / data read world data by id (still valid after a load swaps the data); ent.object / ent.visual exist only when near.
-// Changing state: ent.set, setStage and stage changes go through world.set (emits world:change, see world's mutation rules); fields changed every step in update can be written to ent.state directly and are still saved.
-// Growth and update are world.simulate: every fixed step when near, caught up in game seconds when far (grows without a model, may cross several stages at once; canGrow is asked both near and far).
+// Model, interaction and collision are built only near the player (world.radius, default 60 m) and torn down when far (def.dispose is called then); rebuilt for
+// the current stage on return.
+// ent is a wrapper "view": x / y / z / rotation / state / data read world data by id (still valid after a load swaps the data); ent.object / ent.visual exist
+// only when near.
+// Changing state: ent.set, setStage and stage changes go through world.set (emits world:change, see world's mutation rules); fields changed every step in
+// update can be written to ent.state directly and are still saved.
+// Growth and update are world.simulate: every fixed step when near, caught up in game seconds when far (grows without a model, may cross several stages at
+// once; canGrow is asked both near and far).
 //
 // Events: entity:spawn / entity:remove / entity:state { ent, key, value, prev } / entity:stage { ent, stage, name }
 // Clock: growth uses engine.clock.now (game seconds, follows clock.timeScale and saves).
@@ -88,7 +93,8 @@ export class Entities {
     const e = this.engine, def = this.types.get(type);
     if (!def) { console.error(missingText('entityType', type, [...this.types.keys()])); return null; }
     checkOptions(`entities.spawn('${type}')`, data, SPAWN_KEYS);
-    const id = data.id;   // none given: world numbers it (entity:<type>#<n>); the counter is saved with world, so a removed entity's id is never handed out again
+    // none given: world numbers it (entity:<type>#<n>); the counter is saved with world, so a removed entity's id is never handed out again
+    const id = data.id;
     if (id != null && this.world.get(id)) this.remove(id);
     const pos = data.position ?? { x: 0, z: 0 }, [x, z] = xzOf(pos);
     const y = pos.isObject3D ? pos.position.y : Array.isArray(pos) ? (pos[1] ?? null) : (pos.y ?? null);   // no y given = snap to ground
@@ -132,7 +138,10 @@ export class Entities {
   }
 
   // ---------- internals ----------
-  /** data -> ent view (same id is always the same view). Getters read data by id (never hold rec: a load swaps in new objects); _root / visual / _handles exist only while a model exists. */
+  /**
+   * data -> ent view (same id is always the same view). Getters read data by id (never hold rec: a load swaps in new objects); _root / visual / _handles exist
+   * only while a model exists.
+   */
   _ent(rec) {
     let ent = this._views.get(rec.id);
     if (ent) return ent;
@@ -165,7 +174,8 @@ export class Entities {
     this.world.set(ent.id, { state: s });   // via world.set: emits world:change and, in dev, checks the value is plain data
     this.engine.events.emit('entity:state', { ent, key: k, value: v, prev });
   }
-  // ent.object is an empty root (rotation and interactions hang on it; position is set by world each frame); the model ent.visual is its child, so a stage model swap replaces only the child
+  // ent.object is an empty root (rotation and interactions hang on it; position is set by world each frame); the model ent.visual is its child, so a stage
+  // model swap replaces only the child
   _build(ent) {
     const e = this.engine, def = ent.def, rec = this.world.get(ent.id), root = new e.THREE.Group();
     rec.position.y ??= e.surface(rec.position.x, rec.position.z);   // initial world records may omit y (snap to ground); computed when the model is first built
@@ -237,7 +247,8 @@ export function entities(opts = {}) {
       return ents;
     },
     describe(e, ctx) {
-      // Report only nearby ones: far entities have data but do not show up in "what's around". Uses the model as the locator so it merges with what the interactions module reports for the same object
+      // Report only nearby ones: far entities have data but do not show up in "what's around". Uses the model as the locator so it merges with what the
+      // interactions module reports for the same object
       for (const rec of ents.world.query({ near: ctx.center, radius: ctx.radius, where: r => r.kind.startsWith(KIND) })) {
         const ent = ents._ent(rec);
         ctx.near(ent.object ?? rec.position, { name: ent.id, kind: 'entity', type: ent.type, stage: ent.stageName });

@@ -4,16 +4,19 @@
 //    in checkOptions but not in d.ts → npm run types reports the correct spelling as a "misspelled option", and the docs cannot find it.
 //    How the matching d.ts type is found: derived from the conventional form of checkOptions' first argument (the label) —
 //      'hud()'                → parameter 1 of hud(opts) in packages/engine/index.d.ts
-//      'npcs.add()'           → the add method of the Engine npcs property type; parameter position = position of the checked variable in the JS function's parameters (if not found, the first object-typed parameter)
+// 'npcs.add()' → the add method of the Engine npcs property type; parameter position = position of the checked variable in the JS function's parameters (if not
+// found, the first object-typed parameter)
 //      "flow.define('x')"     → the quoted part is ignored
 //      'hud.marker().set()'   → the set method of marker's return type
 //      'npcs.add() schedule'  → the schedule field of the parameter type (arrays use the element type); '.rule' likewise
 //    Labels not in this form (e.g. 'timeline step') or types that cannot be resolved are skipped (the output shows the skip count).
 // B. Names destructured from function parameters (function f({ a, b = 1 })) never read in the function body → warning (dead parameter);
-//    only stored as this.x = x while nothing in the project (engine demo styles) reads .x → also a warning (catches things like NPC wander that are "declared but unused").
+// only stored as this.x = x while nothing in the project (engine demo styles) reads .x → also a warning (catches things like NPC wander that are "declared but
+// unused").
 // C. Retired option names (one word per meaning): an options interface field named padKeys / brakePadKeys (→ pad / brakePad), viewDistance
 //    (chunks → viewChunks) or range (a distance → radius) → error.
-// Limitation: A only understands known-key arrays resolvable in the same file (literals, ...constants, ...Object.keys(constant)); B ignores variable shadowing and cannot see reads in a game repo.
+// Limitation: A only understands known-key arrays resolvable in the same file (literals, ...constants, ...Object.keys(constant)); B ignores variable shadowing
+// and cannot see reads in a game repo.
 import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, dtsProgram, dtsFiles, abs, P } from './_lib.mjs';
 
 // Allowlist: [label, key, reason] (part A); [file, name, reason] (part B)

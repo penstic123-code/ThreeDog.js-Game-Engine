@@ -1,4 +1,4 @@
-// R34 style packs hold looks only (docs/plans/packs-design.md): in packages/styles/** (game mode: node_modules/@threedog/style-*),
+// R34 style packs hold looks only (packages/engine/docs/recipes/09-style-pack.md): in packages/styles/** (game mode: node_modules/@threedog/style-*),
 //   · error: a world-shape generator, i.e. a function named height / groundType / terrainPreset / riverAt or an export named BIOMES /
 //     terrainStrings. Where the hills, rivers and biomes are is gameplay: it goes in an add-on package (@threedog/terrain-noise) or the game;
 //   · error: a font written as a file (fontFaces: [{ url }], fontCSS: 'https://...'): fonts are asset-pack entries, style.ui.fonts names them.

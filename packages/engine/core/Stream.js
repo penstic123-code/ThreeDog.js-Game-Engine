@@ -1,13 +1,18 @@
-// Spatial stream-in, engine.stream: entries are only registered, not built at once; build is called only near a full-detail stream source (the player, the camera focus, a teleport destination)
+// Spatial stream-in, engine.stream: entries are only registered, not built at once; build is called only near a full-detail stream source (the player, the
+// camera focus, a teleport destination)
 // and the result unloads when far from all of them. Ten thousand entries build only the nearby ones.
-//   const h = engine.stream.add({ position: [40, 0, -20], radius: 8, build: () => makeHouse() });   // the object build returns is added to the scene automatically
-//   engine.stream.setRadius(200);   // how far from each stream source to build (meters); defaults to the terrain view distance, or the fog distance engine.fogFar without terrain
+// const h = engine.stream.add({ position: [40, 0, -20], radius: 8, build: () => makeHouse() }); // the object build returns is added to the scene automatically
+// engine.stream.setRadius(200); // how far from each stream source to build (meters); defaults to the terrain view distance, or the fog distance engine.fogFar
+// without terrain
 //   h.remove();                     // no longer needed (a built one is unloaded)
 // Stream sources (stream.player, stream.camera, stream.source(...), stream.teleport(...)) are the one list every distance-based loader reads: stream entries,
 // world models, terrain chunks, hlod and rigid colliders (the Source class is in streamSources.js).
-// build runs in engine.jobs spread over frames (nearest first); when build returns an object synchronously it is attached to the scene on the spot inside that job (built / ready are already correct when engine.step returns),
-// and a returned Promise is awaited before attaching. Unloads only beyond radius x unloadFactor (walking back and forth does not rebuild); keep: true never unloads.
-// At startup start() waits for everything registered within radius to finish building before the loading screen goes away. The grid cell size cellSize is shared with hlod.
+// build runs in engine.jobs spread over frames (nearest first); when build returns an object synchronously it is attached to the scene on the spot inside that
+// job (built / ready are already correct when engine.step returns),
+// and a returned Promise is awaited before attaching. Unloads only beyond radius x unloadFactor (walking back and forth does not rebuild); keep: true never
+// unloads.
+// At startup start() waits for everything registered within radius to finish building before the loading screen goes away. The grid cell size cellSize is
+// shared with hlod.
 /** @import { StreamEntryOptions, StreamHandle, StreamSource, StreamSourceOptions } from '../types/core' */
 import { checkOptions } from './validate.js';
 import { xzOf } from './math.js';
@@ -23,7 +28,10 @@ export class Stream {
   /** @internal */
   constructor(engine) {
     /** @internal */ this.engine = engine;
-    /** Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance engine.fogFar without terrain) @type {number | null} */
+    /**
+     * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance
+     * engine.fogFar without terrain) @type {number | null}
+     */
     this.radius = null;
     /** Grid cell edge in meters, shared with hlod, default 64 */
     this.cellSize = 64;
@@ -87,7 +95,8 @@ export class Stream {
   /**
    * Add a stream source: the world around position is loaded (terrain chunks, colliders, nearby models, stream entries) until remove() or until.
    * position may be live (an Object3D or Vector3 that moves) or a function. detail 'simple' loads only terrain and hlod proxies (a far view);
-   * physics defaults to true for 'full'; pass false for a camera that only needs a picture. radius caps every loader's range (default: each loader's own range).
+   * physics defaults to true for 'full'; pass false for a camera that only needs a picture. radius caps every loader's range (default: each loader's own
+   * range).
    * until: a Promise (removed when it settles) or a function checked every frame (removed when it returns true).
    * @example const dest = engine.stream.source([800, 0, 300], { radius: 64 }); await dest.whenReady; engine.player.placeAt([800, 0, 300]); dest.remove();
    * @example engine.stream.source(photoCam, { physics: false, until: () => !photoMode.active });   // follows a camera, no colliders
@@ -160,7 +169,8 @@ export class Stream {
     return /** @type {any} */ (out);
   }
   /**
-   * @internal For loaders that skip work while nothing moves: true when the picked sources were added / removed or one moved more than eps since the last marked call.
+   * @internal For loaders that skip work while nothing moves: true when the picked sources were added / removed or one moved more than eps since the last
+   * marked call.
    * memo is the loader's own object; mark false only peeks (for a ready getter).
    */
   changed(memo, eps, pick, mark = true) {

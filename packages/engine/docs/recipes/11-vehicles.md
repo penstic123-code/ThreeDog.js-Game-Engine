@@ -26,16 +26,16 @@ engine.events.on('engine:ready', () => {
   window.car = v;                                                     // handy for tests and the console
 });
 ```
-`addVehicle` options: `wheels` (at least 3), `mass` in kg, `engineForce` throttle force, `brakeForce`, `maxSteer` in radians, `suspension: { rest, stiffness, damping }`,
+`addVehicle` options: `id` stable id (default `vehicle1`, `vehicle2`... in creation order; give one when that order varies), `wheels` (at least 3), `mass` in kg, `engineForce` throttle force, `brakeForce`, `maxSteer` in radians, `suspension: { rest, stiffness, damping }`,
 `seat` seat position, `camera` camera distance/height while driving, `size` body collision box (by default the model's bounding box, wheels excluded), `friction` grip, `exitOffset` how far from the side of the body the player lands when exiting (meters, default 0.8).
 Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.castShadow = true` yourself if you want a shadow.
 
 ## 2. Boarding and driving
 - Player: press E near the car to board (when interactions is installed); while driving, WASD = throttle/steering; the brake key (action `brake`, only when the game gives one: `characters({ ...presets.keys.brake })` is B / gamepad LT, or `characters({ brakeKeys: ['KeyX'] })`; keep it off Space so it doesn't compete with jumping) brakes, and without one the engine warns once; press E again to exit.
-- Saving: the player save records which vehicle the player is in (its index in `rigid.vehicles`); loading an on-foot save while driving exits the vehicle first, and loading a driving save puts the player back in the car.
+- Saving: the player save records which vehicle the player is in (its `id`); loading an on-foot save while driving exits the vehicle first, and loading a driving save puts the player back in the car.
 - Code: `engine.player.enter(v)`, `engine.player.exit()`; `engine.player.vehicle` is the vehicle being driven (null when on foot); `v.driver` is who is driving.
 - NPCs/scripts driving: `v.drive(throttle -1..1, steer -1..1 (right is positive), brake 0-1)`; the last values set are used on every fixed step.
-- Events: `vehicle:enter`, `vehicle:exit` (`{ character, vehicle }`). Removal: `car.remove()` (anyone inside exits first).
+- Events: `vehicle:enter`, `vehicle:exit` (`{ character, vehicle }`). Removal: `v.remove()` (anyone inside exits first; the model stays, `engine.remove(car)` deletes it).
 - Native objects: `v.body` (Rapier rigid body), `v.controller` (vehicle controller), `v.speed` (m/s, negative when reversing).
 
 ## 3. Verify

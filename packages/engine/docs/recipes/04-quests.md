@@ -64,7 +64,7 @@ content effects can add them too: `{ marker: 'river' }` / `{ clearMarker: 'river
 
 ## 3. Verify
 - `npm run check`: a wrong item / flag / place name / NPC id in a step is an error; "flag is only checked but never set" is a warning. After `npm run map`, GAMEMAP.md has the quest step table.
-- `describe().quests`: `active: [{ id, title, step: current step text }]`, `done: number completed` (in describeText it is a `quests: {...}` line).
+- `describe().quests`: `active: [{ id, title, step: current step text }]`, `done: number completed`, `failed: number failed` (in describeText it is a `quests: {...}` line).
   In more detail: `engine.quests.list()` (each step has `current/done/target`), `engine.quests.isActive(id)`; story flags in `engine.vars.flags`.
 - Objective markers: `describe().hud.markers` has `{ label: quest title, distance: meters, onScreen }`; counters are in `describe().hud.counters`.
 - After advancing a condition you don't have to wait: `engine.quests.check()` checks immediately. Related test: `npm test -- 目标指示`.

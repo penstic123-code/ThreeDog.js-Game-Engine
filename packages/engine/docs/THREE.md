@@ -12,9 +12,9 @@ The scene, camera, lights, characters and models in the engine are **plain three
 | Pickups, entities | `inventory.spawnPickup(...)` returns a handle with `.object` (Mesh); entity `ent.object` (root Group), `ent.visual` (model) |
 | Level | `engine.level.root`; markers `engine.level.marker('spawn').object / .position` |
 | Sun, ambient light, sky dome, fog | `engine.sky.sun` (DirectionalLight), `sky.hemi` (HemisphereLight), `sky.dome`, `engine.scene.fog` |
-| Water | `engine.water.sea` (Mesh), `water.material`, `water.bodies.get(body)` |
+| Water | `engine.water.sea` (Mesh; null when the game sets no water level), `water.material`, `water.bodies.get(body)` |
 | Particles, rain/snow | `.points` (THREE.Points) of the value returned by `particles.define(...)`; rain / snow look in the style pack (`style.weather.rain / snow`) |
-| Rigid bodies | `engine.rigid.addBox(mesh)` returns a handle `{ object, body, remove() }` (object is your mesh; `castShadow` / `receiveShadow` keep the values you set, the engine does not change them) |
+| Rigid bodies | `engine.rigid.addBox(mesh)` returns a handle `{ object, body, remove() }`, or null before Rapier is ready (object is your mesh; `castShadow` / `receiveShadow` keep the values you set, the engine does not change them) |
 | Terrain chunks | `engine.terrain.chunks` (Map; each chunk has `.group` and a `.terrain` mesh) |
 | Models, textures, animation | `await engine.assets.model('name or path')` (an Object3D copy), `assets.texture(...)`, `assets.animate(model).mixer` |
 | Vehicles, navigation, character controller | `engine.rigid.addVehicle(mesh, ...)` returns `{ body, controller }`; `engine.nav.navMesh / query / tileCache / crowd` (they are destroyed and replaced on rebuild; code that caches them compares `engine.nav.version`); `engine.player.mover.controller` (mover: 'rapier') |
@@ -26,7 +26,7 @@ The scene, camera, lights, characters and models in the engine are **plain three
 | Where the mouse points | Ground: `screenToGround(engine, input.pointer.ndcX, ndcY)` -> Vector3; objects: `engine.pick(input.pointer.ndcX, ndcY)` (registered static objects; for any object pass `{ targets: [object] }`) |
 
 Returned positions are all `THREE.Vector3` (the camera's `forward()/right()` are planar directions `{x, z}`; positions in photo records are saveable `{x, z}`).
-Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x, y, z]` / `{ x, z }` all work, and sizes go in an options object (see "Interface conventions" in `AI.md`):
+Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x, y, z]` / `{ x, z }` all work, and sizes go in an options object (see "Interface conventions" in `CONVENTIONS.md`):
 `collision.addCircle(mesh, { radius: 1 })`, `collision.addBox(mesh.position, { halfWidth: 2, halfDepth: 1 })`, `particles.emit('dust', mesh, { count: 20 })`,
 `triggers.add({ position: mesh })`, `entities.spawn(t, { position: v })`, `npcs.add({ position: v })`, `spawnPickup(id, v)`, `interactions.add(v or mesh, ...)`,
 `rigid.impulse(entry, [0, 3, 5])`, `player.placeAt(v)`. Ground sampling `engine.surface(x, z)` also accepts `engine.surface(mesh.position)`.

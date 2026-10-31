@@ -5,7 +5,8 @@
 //
 // engine.weather.set('rain', 20)   // turn to rain over 20 seconds
 // engine.weather.setAuto(true)     // change weather at random (uses engine.random, so step/tests are reproducible and saved)
-// Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with i18n.add.
+// Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with
+// i18n.add.
 import * as THREE from 'three';
 import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
 import { rainVert, rainFrag, snowVert, snowFrag } from './shaders.js';
@@ -38,7 +39,8 @@ const scatter = (n, size) => { const a = new Float32Array(n); for (let i = 0; i 
 /** engine.weather */
 export class Weather {
   /**
-   * start: initial weather (default 'clear', or the table's first type); particles: rain/snow particle count; types: the game's weather table (default only a calm 'clear'; seven temperate ones in presets.weather.temperate)
+   * start: initial weather (default 'clear', or the table's first type); particles: rain/snow particle count; types: the game's weather table (default only a
+   * calm 'clear'; seven temperate ones in presets.weather.temperate)
    * autoPool autoPool: candidates for automatic weather (repeat a name to make it likelier); autoInterval [min, max] seconds
    * @internal
    */
@@ -49,7 +51,10 @@ export class Weather {
     // The style pack only fills fields of types the table has (its look of 'storm'), it never adds a kind of weather to a game.
     if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw new Error(ERR.types.replace('{got}', JSON.stringify(types)));
     const table = types ?? ONLY_CLEAR;
-    /** The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string, WeatherPreset>} */
+    /**
+     * The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string,
+     * WeatherPreset>}
+     */
     this.types = {};
     for (const k of Object.keys(table)) {
       // calm, then the style's look, then the game's own numbers (a preset the game picked counts as the game's)
@@ -181,7 +186,8 @@ export class Weather {
     this.flash = Math.max(0, this.flash - dt * 3);
   }
 
-  // per frame (before sky): weather effects go into the sky's 'weather' modifier layer, which sky composites with the others; rain/snow particles follow the camera
+  // per frame (before sky): weather effects go into the sky's 'weather' modifier layer, which sky composites with the others; rain/snow particles follow the
+  // camera
   /**
    * Write weather effects into the sky modifier layer and make rain/snow particles follow the camera (the module calls this itself every frame)
    * @param {any} camera

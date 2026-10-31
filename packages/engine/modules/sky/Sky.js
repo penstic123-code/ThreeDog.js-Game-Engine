@@ -6,7 +6,8 @@
 // dayLength or picks presets.calendar.cycle / fourSeasons.
 // engine.sky.timeOfDay = 0.75;  engine.clock.timeScale = 10;  engine.sky.clock  // "18:00"
 // Calendar: engine.sky.day (1-based); event day:start. Seasons are the game's choice and off by default (a soulslike or a shooter has none):
-//   sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 }), or each with its own length: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }];
+// sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 }), or each with its own length: [{ name: 'wet', days: 10 }, { name: 'dry', days:
+// 20 }];
 //   then season, seasonProgress (0-1), dayOfSeason and the season:change event. A time of day that never moves (dungeon, space, arena) is the default
 // Season tint: style pack seasons = { spring: { foliage: 0xffffff, ground: 0xffffff }, autumn: { foliage: 0xffb070 }, ... }, blended smoothly at season changes
 // Clouds: style pack sky.clouds = { color, shade, coverage: 1, scale: 0.35, speed: [x, z] } (coverage follows weather)
@@ -45,10 +46,16 @@ export class Sky {
   constructor(engine, { time = 0.33, dayLength = Infinity, day = 1, daysPerSeason = 7, seasons = [], ...over } = {}) {
     /** @internal */ this.engine = engine;
     const st = { ...(engine.style.sky || {}), ...over };
-    /** Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed @type {number} */
+    /**
+     * Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds
+     * (unaffected by timeScale) are engine.elapsed @type {number}
+     */
     this.timeOfDay = time;
     if (!(dayLength > 0)) throw new Error(STRINGS.badDayLength.replace('{got}', String(dayLength)));
-    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never moves @type {number} */
+    /**
+     * Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never
+     * moves @type {number}
+     */
     this.dayLength = dayLength;
     /** Day number (1-based) @type {number} */
     this.day = day;
@@ -102,10 +109,15 @@ export class Sky {
     Object.assign(this.sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 420 });
     /** Sun direction (unit vector toward the sun) @type {Vector3} */
     this.sunDir = new THREE.Vector3();
-    /** Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }} */
+    /**
+     * Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }}
+     */
     this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };   // sun orbit: north-south tilt, east-west swing
     // Shadow update policy (default: every frame, center snapped to 0.5 m)
-    /** Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead: number }} */
+    /**
+     * Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead:
+     * number }}
+     */
     this.shadow = { bias: -0.0006, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0 };
     /** @internal */ this._shadowFrame = 0;
     /** @internal */ this._snapKey = '';
@@ -124,7 +136,8 @@ export class Sky {
   }
 
   /**
-   * Write a modifier layer (only the given fields; unwritten fields have no effect); values null removes the layer. Weather uses the 'weather' layer, games use their own layer name.
+   * Write a modifier layer (only the given fields; unwritten fields have no effect); values null removes the layer. Weather uses the 'weather' layer, games use
+   * their own layer name.
    * Layers composite every frame: sun / ambient / fog multiply; tint blends weighted by tintAmount; flash takes the max
    * @example engine.sky.modify('cave', { sun: 0.3, ambient: 0.4 });  engine.sky.modify('cave', null);
    * @param {string} owner
@@ -186,7 +199,8 @@ export class Sky {
   // ---------- Clock-time / season timers (read sky time of day; for "after N seconds" use engine.clock.after) ----------
   /**
    * Call fn every day at a clock time: at('18:00', fn) or at(0.75, fn).
-   * Fires only when time moves forward across the clock time: natural flow, step fast-forward and setting timeOfDay later all count; crossing several triggers at once is replayed per catchUp;
+   * Fires only when time moves forward across the clock time: natural flow, step fast-forward and setting timeOfDay later all count; crossing several triggers
+   * at once is replayed per catchUp;
    * rewinding time and loading a save do not fire, they only reset the baseline. To hold a state during a time range (lights, shop door) use between
    * @param {string | number} clock  'HH:MM' @param {string | number} clock  'HH:MM' or 0-1
    * @param {(day: number) => void} fn
@@ -222,7 +236,10 @@ export class Sky {
     if (!this.seasons.includes(name)) throw new Error(STRINGS.noSeason.replace('{name}', name).replace('{list}', this.seasons.length ? this.seasons.join(', ') : 'none'));
     return this._sched.onSeason(name, fn);
   }
-  /** Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there; Infinity when the time of day never moves @internal */
+  /**
+   * Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there; Infinity when the time of day never moves
+   * @internal
+   */
   untilMark() { return Number.isFinite(this.dayLength) ? this._sched.untilNext() * this.dayLength : Infinity; }
   /** Number of registered clock-time / season timers, for engine.counts() @internal */
   get scheduled() { return this._sched.size; }

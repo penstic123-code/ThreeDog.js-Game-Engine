@@ -53,8 +53,10 @@ export class Saves {
     this.whenReady = this._init().then(() => { this.ready = true; });
   }
   /**
-   * Register "how to save and load"; key is this part's name in the save. Parts with first: true load first (the level); a load returning a Promise makes later parts wait.
-   * version (default 1): raise it by 1 whenever what save() returns changes shape, and add migrate[oldVersion] = data => newData; load sees only the current shape.
+   * Register "how to save and load"; key is this part's name in the save. Parts with first: true load first (the level); a load returning a Promise makes later
+   * parts wait.
+   * version (default 1): raise it by 1 whenever what save() returns changes shape, and add migrate[oldVersion] = data => newData; load sees only the current
+   * shape.
    * A save whose part is newer than this build's version is refused as a whole (load returns false, the save is kept).
    * A part registered after a save was loaded (a module installed later) is handed its data from that save at once.
    * @param {string} key
@@ -138,8 +140,10 @@ export class Saves {
   /**
    * Apply a save's data (an object from collect(), or save text) onto the running game. Resolves true when every part loaded.
    * Refused before anything changes (false, toast) when the data is corrupt, from a newer build or cannot be migrated.
-   * After every part loaded it runs the modules' afterLoad hooks (gameplay frozen until they resolve), for saves.load, session.newGame / quit and direct calls alike.
-   * If a part's load throws, the game is rolled back to how it was before (every part reloads its pre-load state) and it resolves false; the error goes through the error tiers.
+   * After every part loaded it runs the modules' afterLoad hooks (gameplay frozen until they resolve), for saves.load, session.newGame / quit and direct calls
+   * alike.
+   * If a part's load throws, the game is rolled back to how it was before (every part reloads its pre-load state) and it resolves false; the error goes through
+   * the error tiers.
    * The state changes synchronously unless a part's load is async; only the result is a Promise.
    * @param {any} data
    * @param {string} [slot]  for messages only
@@ -183,8 +187,10 @@ export class Saves {
     return this._put(slot, json, data.savedAt).then(ok => { if (ok) this.engine.events.emit('save:written', slot); return ok; });
   }
   /**
-   * Load a slot onto the running playthrough (a quick load: what the game added during play stays) and resolve true on success; the 'save:loaded' event fires on success.
-   * A missing slot resolves false; a corrupt / too new / unmigratable save resolves false with a toast and changes nothing; a part whose load throws rolls the game back.
+   * Load a slot onto the running playthrough (a quick load: what the game added during play stays) and resolve true on success; the 'save:loaded' event fires
+   * on success.
+   * A missing slot resolves false; a corrupt / too new / unmigratable save resolves false with a toast and changes nothing; a part whose load throws rolls the
+   * game back.
    * To continue or retry with nothing of the current playthrough left over, use engine.session.load(slot).
    * @param {string} [slot]
    * @returns {Promise<boolean>}
@@ -226,7 +232,8 @@ export class Saves {
   /**
    * Restore from a save file into slot (default 'imported', so a shared file never overwrites 'auto'). file is a File / Blob; omit it to open a file picker.
    * Everything is checked first (file marker and format, the save inside, attachments must be data: URLs: nothing is fetched).
-   * Returns the slot name on success, and null if cancelled, the file is invalid or the write failed (a toast was already shown). It restores the slot only and does not load it.
+   * Returns the slot name on success, and null if cancelled, the file is invalid or the write failed (a toast was already shown). It restores the slot only and
+   * does not load it.
    * @param {Blob} [file]
    * @param {string} [slot]
    * @returns {Promise<string | null>}
@@ -235,7 +242,8 @@ export class Saves {
 
   /**
    * Autosave into 'auto' every `minutes` minutes of play: counted in fixed seconds, so it waits while paused, frozen or in a menu that freezes the game,
-   * and it never saves while no playthrough runs (the title screen, during newGame / load / quit) or after a gameplay error. Returns a handle; remove() stops it.
+   * and it never saves while no playthrough runs (the title screen, during newGame / load / quit) or after a gameplay error. Returns a handle; remove() stops
+   * it.
    * Calling it again replaces the previous autosave.
    * @param {number} [minutes]
    * @returns {{ remove(): void }}

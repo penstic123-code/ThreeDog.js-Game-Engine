@@ -26,13 +26,16 @@ export class Input {
     /** Is this a touch device? */
     touch: boolean;
     /**
-     * Register an action. keys is a key name or array (gamepad keys such as 'PadY' can go in directly); labelKey is the display name (a string-table key or text).
-     * opts.pad: the default gamepad key for this action (gameplay-specific actions get it from the registering module; createEngine({ padBindings }) takes precedence).
+     * Register an action. keys is a key name or array (gamepad keys such as 'PadY' can go in directly); labelKey is the display name (a string-table key or
+     * text).
+     * opts.pad: the default gamepad key for this action (gameplay-specific actions get it from the registering module; createEngine({ padBindings }) takes
+     * precedence).
      * If the action exists, the later definition overrides (warns once in dev when the keys differ); keys the player rebound in settings are kept
      * @param {string} action
      * @param {string | string[]} keys
      * @param {string} [labelKey]
-     * opts.context: the input context the action belongs to (default 'gameplay'); it is readable only while that context is on the stack and not shadowed, see push().
+     * opts.context: the input context the action belongs to (default 'gameplay'); it is readable only while that context is on the stack and not shadowed, see
+     * push().
      * @param {{ pad?: string | string[], context?: string }} [opts]
      * @returns {this}
      * @example engine.input.define('openMap', 'KeyM', 'input.openMap', { pad: 'PadY' });
@@ -43,7 +46,10 @@ export class Input {
         pad?: string | string[];
         context?: string;
     }): this;
-    /** Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the language changes) @param {string} action @param {string} labelKey */
+    /**
+     * Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the
+     * language changes) @param {string} action @param {string} labelKey
+     */
     touchButton(action: string, labelKey: string): void;
     /**
      * Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key
@@ -59,20 +65,28 @@ export class Input {
     /** Held (a snapshot of this step in fixed, the latest state in frame) @param {string} action @returns {boolean} */
     down(action: string): boolean;
     /**
-     * Just pressed. Read in onFixed / module fixed: pressed since the previous fixed step, true only for this step (counted once however the frame rate varies, never lost);
+     * Just pressed. Read in onFixed / module fixed: pressed since the previous fixed step, true only for this step (counted once however the frame rate varies,
+     * never lost);
      * read in onFrame / module frame: pressed this frame (UI keys only). Read gameplay keys in fixed
      * @param {string} action @returns {boolean}
      * @example engine.onFixed(() => { if (engine.input.pressed('jump')) player.jump(); });
     */
     pressed(action: string): boolean;
-    /** Just released (which copy is read is the same as pressed; for things like release-to-fire after charging) @param {string} action @returns {boolean} @example if (engine.input.released('fire')) shoot(charge); */
+    /**
+     * Just released (which copy is read is the same as pressed; for things like release-to-fire after charging) @param {string} action @returns {boolean}
+     * @example if (engine.input.released('fire')) shoot(charge);
+     */
     released(action: string): boolean;
-    /** Just pressed, ignoring input contexts (for menus and dialogue themselves, which run while a context blocks the game) @param {string} action @returns {boolean} */
+    /**
+     * Just pressed, ignoring input contexts (for menus and dialogue themselves, which run while a context blocks the game) @param {string} action @returns
+     * {boolean}
+     */
     pressedRaw(action: string): boolean;
     /**
      * Push an input context (an action group, like a Unity Action Map). The top context shadows lower actions bound to the same key.
      * Opaque by default (nothing below is readable: menus, dialogue, cutscenes); { pass: true } lets unrelated lower actions keep working (vehicle, build mode).
-     * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., { context }); menu keys: pressedRaw.
+     * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., {
+     * context }); menu keys: pressedRaw.
      * @param {string} name e.g. 'vehicle', 'menu', 'build' (the base context is 'gameplay')
      * @param {{ pass?: boolean }} [opts]
      * @returns {{ name: string, remove(): void }} remove() pops it (safe to call twice)
@@ -87,9 +101,14 @@ export class Input {
     };
     /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
     get contexts(): string[];
-    /** False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean} */
+    /**
+     * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean}
+     */
     get enabled(): boolean;
-    /** Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame) @returns {{ x: number, y: number }} */
+    /**
+     * Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame) @returns {{ x: number,
+     * y: number }}
+     */
     get axis(): {
         x: number;
         y: number;

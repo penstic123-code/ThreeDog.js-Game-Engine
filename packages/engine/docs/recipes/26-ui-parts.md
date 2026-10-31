@@ -41,7 +41,7 @@ What each part receives:
 | `hud.marker` | per marker | `update({ x, y, onScreen, arrow, angle, label, icon, distance })` every frame · `hide()` · `dispose()` |
 | `hud.counter` | per counter | `update({ id, label, icon, value, max })` · `dispose()` |
 | `hud.bar` | per bar | `update({ id, label, value, max })` · `dispose()` |
-| `inventory` | once (on first open; opened by its key or `engine.ui.open('inventory')`) | `show(d)` · `update(d)` while open · `hide()`; `d = { title, hint, items: [{ key, id, count, data, def }], capacity, used, weight, maxWeight }`; buttons run `inventory.use / drop / transfer` ops (recipe 03) |
+| `inventory` | once (on first open; opened by the key from `inventory({ keys })` or `engine.ui.open('inventory')`) | `show(d)` · `update(d)` while open · `hide()`; `d = { title, hint, items: [{ key, id, count, data, def }], capacity, used, weight, maxWeight }`; buttons run `inventory.use / drop / transfer` ops (recipe 03) |
 | `touch` | once, if wanted (1) | `show(view)` · `update(view)` (buttons or language changed) |
 | `prompt` | once | `update({ id, action, key, label, text, x, y, onScreen, use(), options })` every frame in reach · `hide()` |
 | `questLog` | once, full screen (2) | `show(view)` · `update(view)` (quests changed while open) · `hide()` |
@@ -49,7 +49,7 @@ What each part receives:
 
 (1) Only when a stick (`createEngine({ joystick })`: `'auto'` on touch devices, `true` always) or a touch button is wanted.
 `view = { stick, buttons: [{ action, label }], move(x, y), press(action), release(action) }`.
-(2) The quest key opens it, Esc and the key close it. `view = { title, key, quests: engine.quests.list(), close() }`.
+(2) The quest key (`quests({ keys })`, e.g. `...presets.keys.quests`) opens it, Esc and the key close it. `view = { title, key, quests: engine.quests.list(), close() }`.
 
 Every view hands back functions (`advance`, `choose`, `use`, `close`, `move`, `press`...) instead of making your part call engine internals:
 they run the same ops and input path as keys, so tests, the dev bridge and replays see one path.
@@ -59,7 +59,7 @@ With every part off (`false`) the engine draws no DOM at all and the logic keeps
 ```js
 toast(engine, 'Saved', { kind: 'save' });           // your own message (the engine comes first)
 engine.ui.set('toast', (engine) => ({ show: ({ text, kind }) => { if (kind !== 'quest') myBanner(text); } }));
-engine.use(quests({ notify: false }));               // or only silence quest messages; notify: ({ type, id, text }) => ... shows them your way
+engine.use(quests({ ...presets.keys.quests, notify: false }));               // or only silence quest messages; notify: ({ type, id, text }) => ... shows them your way
 ```
 
 ## 4. Dialogue box: your own look, your own fields

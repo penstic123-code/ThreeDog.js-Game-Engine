@@ -1,6 +1,6 @@
 # Commands and debugging details
 
-The scripts in `package.json` all forward to the CLI `threedog` (from `@threedog/tools`); `npm run xxx` and `npx threedog xxx` are equivalent. The tools find every path through their `paths.mjs`, in the engine repository and in a game installed from npm alike.
+The scripts in `package.json` forward to the CLI `threedog` (from `@threedog/tools`; the root `build` runs each workspace's own `build`); `npm run xxx` and `npx threedog xxx` are equivalent. The tools find every path through their `paths.mjs`, in the engine repository and in a game installed from npm alike.
 
 ## Running one game only
 After `-w` write the directory or the package name (inside a game directory a plain `npm run ...` does the same):
@@ -57,8 +57,8 @@ export const specs = [{
 - `modules/` modules, one folder each, installed with `engine.use`; list in `CODEMAP.md`.
 - `render/ ui/` material factory, post-processing; UI basics (windows, UI focus stack, toast, fadeScreen, worldToScreen).
 - `index.js index.d.ts types/` entry and API declarations (`types/generated/` is generated from source JSDoc, never edited by hand).
-- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly package: `index.js` holds the style pack (all look parameters) and exports the asset pack `assets`, `models.js` the procedural models in it, `terrain.js` the terrain preset.
+- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly package: `index.js` holds the style pack (all look parameters) and exports the asset pack `assets`, `models.js` the procedural models in it, `shapes.js` the default humanoid and pickup shapes, `post.js` the bloom / outline / ao effects. The terrain preset `terrainPreset()` is a separate package, `packages/terrain-noise/` (`@threedog/terrain-noise`).
 - `examples/world/` is the engine example (open world `/`, content-only placement). The small city (level, no terrain, no style pack, top-down) and the co-op page are test pages in the engine repository (`tests/city/`, `tests/coop/`), opened at `/tests/city/index.html` and `/tests/coop/index.html`.
 - `tests/` specs.mjs + specs/ test list, `<name>/index.html` test pages, fixtures/ test assets. `public/` art for the examples.
-- Each game `games/<game>/`: package.json, vite.config.js (one line, gameConfig), index.html, main.js, `content/` (items npcs dialogues quests pickups containers props triggers actions places level vegetation rules; only these file names are read), `public/` (art; Blender source files go in `art/models/`), DESIGN.md, GAMEMAP.md (generated), CLAUDE.md.
+- Each game `games/<game>/`: package.json, vite.config.js (one line, gameConfig), index.html, main.js, `content/` (items npcs dialogues quests pickups containers props templates triggers actions places level vegetation audio grids renames rules, plus the game's own kinds registered in `content/rules.js`; only these file names are read), `public/` (art; Blender source files go in `art/models/`), DESIGN.md, GAMEMAP.md (generated), CLAUDE.md.
 - Each workspace has its own `.threedog/` (browser error log errors.log, screenshots shots/, generated cache) and `dist/`; neither is committed.

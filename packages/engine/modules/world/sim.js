@@ -1,14 +1,19 @@
-// Simulation layer of world: near records every fixed step, far records in id buckets taking turns under a per-step cap. The public API is in World.js (simulate / anchor); this is the implementation.
+// Simulation layer of world: near records every fixed step, far records in id buckets taking turns under a per-step cap. The public API is in World.js
+// (simulate / anchor); this is the implementation.
 // Time: the dt of both near and far is "accumulated fixed-step seconds" (same ruler as every engine hook's dt, not multiplied by clock.timeScale).
 // For one record going near, far, near again, the dts add up to the elapsed time:
 //   far dt = seconds accumulated since the last simulation; on the far → near step, far first pays back the owed time, then near runs.
-//   A kind with only far (crops) does not split near / far and always advances at far's pace; a kind with only near is not simulated while far and its owed time is not made up.
+// A kind with only far (crops) does not split near / far and always advances at far's pace; a kind with only near is not simulated while far and its owed time
+// is not made up.
 // Owed time is saved: it is paid back after loading, so simulate code never tracks time itself.
-// Determinism: near / far is split by the gameplay anchor (world.anchor), far work is capped by count with the rest queued first for the next step, and buckets follow the step count (saved) —
+// Determinism: near / far is split by the gameplay anchor (world.anchor), far work is capped by count with the rest queued first for the next step, and buckets
+// follow the step count (saved) —
 // so the result depends only on data and step count, not on machine speed, frame rate or whether models are built.
 // Far with worker: true goes through simFar.js (batched to engine.threads, written back on a fixed later step through commits).
-// Near order: at the start of each step collect records inside the radius, then simulate them sorted by id — order inside a cell depends on insertion order and changes after loading;
-// when near records affect each other (avoiding each other, fighting over the same thing), sorting by id keeps "kept running" and "saved then loaded" bit-identical.
+// Near order: at the start of each step collect records inside the radius, then simulate them sorted by id — order inside a cell depends on insertion order and
+// changes after loading;
+// when near records affect each other (avoiding each other, fighting over the same thing), sorting by id keeps "kept running" and "saved then loaded"
+// bit-identical.
 
 import { DEV, checkOptionsArg } from '../../core/validate.js';
 import { FarFlights } from './simFar.js';
@@ -34,7 +39,8 @@ export class Sim {
     this.dt = 0;
     this.list = [];           // records to simulate near this step (reused, not allocated each step)
     this.flights = new FarFlights(this);   // far with worker: true (simFar.js)
-    this._pick = (rec, d2) => { const s = this.sims.get(rec.kind); if (s && d2 <= s.r2 && this.w._inZone(rec)) this.list.push(this.ents.get(rec.id)); };   // created once, no closure per step
+    // created once, no closure per step
+    this._pick = (rec, d2) => { const s = this.sims.get(rec.kind); if (s && d2 <= s.r2 && this.w._inZone(rec)) this.list.push(this.ents.get(rec.id)); };
   }
 
   simulate(kind, opts) {
@@ -75,7 +81,8 @@ export class Sim {
     this.at.x = anchor.x; this.at.z = anchor.z; this.dt = dt;
     if (!this.sims.size) return;
     let maxR2 = -1;
-    for (const [kind, s] of this.sims) { s.r2 = s.near ? this.radius(kind, s) ** 2 : -1; if (s.r2 > maxR2) maxR2 = s.r2; }   // radius may be a function: asked once per kind per step
+    // radius may be a function: asked once per kind per step
+    for (const [kind, s] of this.sims) { s.r2 = s.near ? this.radius(kind, s) ** 2 : -1; if (s.r2 > maxR2) maxR2 = s.r2; }
     if (maxR2 >= 0) {
       const L = this.list; L.length = 0;
       W._cells.forEach(this.at, Math.sqrt(maxR2), this._pick);

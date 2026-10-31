@@ -37,7 +37,7 @@ engine.inventory.add('coin', 2);                // give directly; returns the en
 engine.inventory.remove('coin', 1);             // returns false if there isn't enough
 engine.inventory.has('coin', 2);                // at least 2?
 engine.inventory.spawnPickup('ammo', [8, 0, 2], { count: 30, auto: true, radius: 1.2 });   // taken on touch, no key, no prompt
-engine.events.on('item:pickup', ({ id, x, z }) => engine.particles?.emit('dust', { x, y: engine.surface(x, z), z }, { count: 10 }));   // events: item:add / item:remove / item:pickup / item:use
+engine.events.on('item:pickup', ({ id, x, z }) => engine.particles?.emit('dust', { x, y: engine.surface(x, z), z }, { count: 10 }));   // events: item:add / item:remove / item:pickup / item:use ('dust' = a particle the game defined)
 ```
 The default reach of pickups is `inventory({ pickupRadius: 2 })`; each pickup can set its own `radius`.
 
@@ -61,7 +61,7 @@ I.setData('tomato#4', { quality: 1 }, 2);       // only 2 of that stack change: 
 Data and keys are saved with the container. Which piece a player means is chosen by key (a click on a row of `list()`), so ops take `item` as an id or a key.
 
 ## Limits (all optional, none by default)
-`inventory({ capacity, maxWeight })` for the player and `inventory.container(id, { capacity, maxWeight })` for others: `capacity` = slots (an entry uses `ceil(count / stack)`), `maxWeight` = sum of item `weight` × count. `room(item)` says how many more fit; `weight` and `slotsUsed` read the totals. Locks, prices and "only one equipped" are game rules: check them in your op's `can`.
+`inventory({ ...presets.keys.inventory, capacity, maxWeight })` for the player and `inventory.container(id, { capacity, maxWeight })` for others: `capacity` = slots (an entry uses `ceil(count / stack)`), `maxWeight` = sum of item `weight` × count. `room(item)` says how many more fit; `weight` and `slotsUsed` read the totals. Locks, prices and "only one equipped" are game rules: check them in your op's `can`.
 
 ## Using and dropping (ops)
 ```js
@@ -81,9 +81,9 @@ engine.inventory.trade('rusty_key', 'gold_key');                                
 **Why a pickup failed**: a pickup's `interaction.use` returns the reason as the op value: `const r = engine.ops.run('interaction.use'); if (r.ok && r.value?.ok === false) say(r.value.reason);   // 'full'` (the item stays on the ground).
 
 ## The inventory window (UI part `inventory`)
-`inventory({ pauseGame: true })` freezes gameplay (`engine.freeze`, the same mechanism as flow's `paused`) while the window is open; default `false` (the world keeps running behind the window). Switchable at runtime: `engine.inventory.pauseGame = true`.
+`inventory({ ...presets.keys.inventory, pauseGame: true })` freezes gameplay (`engine.freeze`, the same mechanism as flow's `paused`) while the window is open; default `false` (the world keeps running behind the window). Switchable at runtime: `engine.inventory.pauseGame = true`.
 
-The window is a UI part (recipe 26): the engine opens and closes it (I key, Esc, input lock), the part only draws `{ title, hint, items: list(), capacity, used, weight, maxWeight }`.
+The window is a UI part (recipe 26): the engine opens and closes it (the key from `inventory({ keys })`, Esc, input lock), the part only draws `{ title, hint, items: list(), capacity, used, weight, maxWeight }`.
 ```js
 engine.ui.set('inventory', false);                         // no window at all (the key does nothing, no DOM)
 engine.ui.set('inventory', { drop: true });               // default window plus a Drop button per row (Use appears for items with use)

@@ -49,7 +49,8 @@ const WORKER_GLOBALS = new Set(('Math JSON Number String Boolean Array Object Sy
   + 'Uint8ClampedArray Uint16Array Uint32Array BigInt64Array BigUint64Array ArrayBuffer DataView structuredClone console encodeURIComponent '
   + 'decodeURIComponent atob btoa TextEncoder TextDecoder Intl').split(' '));
 /**
- * Names a function's source reads that it neither declares nor gets from the worker-safe globals (a static scan: strings, comments and template text are skipped;
+ * Names a function's source reads that it neither declares nor gets from the worker-safe globals (a static scan: strings, comments and template text are
+ * skipped;
  * property names after '.', object keys and shorthand methods are not reads). Errs on the side of missing a name rather than flagging a valid one.
  * @param {string} src
  */

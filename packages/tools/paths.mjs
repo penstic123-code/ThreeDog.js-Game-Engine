@@ -70,10 +70,14 @@ export const MODULES_REL = `${ENGINE_REL}/modules`;
 export const INDEX_JS_REL = `${ENGINE_REL}/index.js`;
 export const INDEX_DTS_REL = `${ENGINE_REL}/index.d.ts`;
 export const TYPES_REL = `${ENGINE_REL}/types`;
-/** Declarations generated from JSDoc in JS source (npm run map generates them, not edited by hand, committed to git); mirrors the engine source directory layout: generated/ui/UI.d.ts ← ui/UI.js */
+/**
+ * Declarations generated from JSDoc in JS source (npm run map generates them, not edited by hand, committed to git); mirrors the engine source directory
+ * layout: generated/ui/UI.d.ts ← ui/UI.js
+ */
 export const TYPES_GEN_REL = `${TYPES_REL}/generated`;
 /**
- * Source files already migrated to "JSDoc → generated d.ts" (relative to the repo root). To migrate a file: add a line here → write JSDoc in the source → delete the matching declarations from the hand-written d.ts → npm run map.
+ * Source files already migrated to "JSDoc → generated d.ts" (relative to the repo root). To migrate a file: add a line here → write JSDoc in the source →
+ * delete the matching declarations from the hand-written d.ts → npm run map.
  * The path must be inside the engine package (the generated output mirrors its directory layout).
  */
 export const MIGRATED_JS_REL = [
@@ -84,7 +88,9 @@ export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
   `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
 ];
-/** APIs that may still change: each [file, declared name] must carry @experimental in the JSDoc right above it (R07-H); AI.md "Stability" lists them for readers */
+/**
+ * APIs that may still change: each [file, declared name] must carry @experimental in the JSDoc right above it (R07-H); AI.md "Stability" lists them for readers
+ */
 export const STABILITY = {
   experimental: [
     [`${ENGINE_REL}/modules/net/index.js`, 'net'], [`${ENGINE_REL}/modules/net/transports.js`, 'fakeNetwork'], [`${ENGINE_REL}/modules/net/transports.js`, 'webSocket'],
@@ -196,7 +202,10 @@ export const GENERATED = [
 /** Every game folder (with a main.js), absolute paths (see project().gameDirs) */
 export const gameDirs = PROJECT.gameDirs;
 
-/** Workspaces that can be bundled and tested on their own, absolute paths: monorepo = the engine package (examples, test pages) + each game; game mode = the game folder(s) */
+/**
+ * Workspaces that can be bundled and tested on their own, absolute paths: monorepo = the engine package (examples, test pages) + each game; game mode = the
+ * game folder(s)
+ */
 export const workspaces = () => MODE === 'monorepo'
   ? [ENGINE, ...subdirs(GAMES).filter(d => existsSync(join(d, 'package.json')))]
   : gameDirs().filter(d => existsSync(join(d, 'package.json')));
@@ -226,7 +235,8 @@ export function findWorkspace(name) {
 }
 
 /**
- * The workspace a CLI command operates on: `-w name` / `--workspace name` in the arguments wins; otherwise the workspace of the current directory (with npm run xx -w games/a the cwd is that one);
+ * The workspace a CLI command operates on: `-w name` / `--workspace name` in the arguments wins; otherwise the workspace of the current directory (with npm run
+ * xx -w games/a the cwd is that one);
  * otherwise the fallback (the engine package by default). Returns { dir, args }, with the -w arguments removed from args.
  */
 export function pickWorkspace(argv, { cwd = process.cwd(), fallback = ENGINE } = {}) {

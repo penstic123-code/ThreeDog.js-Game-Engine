@@ -4,7 +4,7 @@ Requires module `terrain()` (in the `openWorld()` preset). The API list is in `.
 
 The engine always does the chunks, streaming, workers, collision and vegetation. It has **no built-in landform**: `terrain()` without a generator is flat gray ground at y = 0, with a dev warning. The height and ground type come from your own two functions or a preset, and the player can change the ground during play.
 
-## 0. A ready-made generator: the lowpoly preset
+## 0. A ready-made generator: the noise preset
 ```js
 import { openWorld, createTerrain } from 'threedog';
 import { terrainPreset, riverAt } from '@threedog/terrain-noise';   // optional package: noise hills, rivers, biomes

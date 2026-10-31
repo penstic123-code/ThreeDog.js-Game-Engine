@@ -37,3 +37,8 @@ export function styleFrom(style) {
   }
   return out;
 }
+
+// Dev warning when createEngine gets no style pack (shown once from Engine.js)
+export const NO_STYLE = 'createEngine(): no style pack given, so everything is a neutral gray placeholder: plain lights (one white hemisphere + one neutral '
+  + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look. '
+  + "Pass one: import lowpoly from '@threedog/style-lowpoly'; createEngine({ canvas, style: lowpoly }) (or your own pack, recipes/09-style-pack.md)";

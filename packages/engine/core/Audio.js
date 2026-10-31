@@ -9,7 +9,7 @@
 import { codedError } from './errorHints.js';
 import { missingText, warnOnce, checkOptions } from './validate.js';
 import { SoundHandle, playSound, placeListener, synthNoise, synthTone, loadSound, playFile } from './audioVoice.js';
-import { matchesWhen, volumeOf, checkRuleName, packAudio } from './audioRules.js';
+import { matchesWhen, volumeOf, checkRuleName, packAudio, applyDucks, audioInfo } from './audioRules.js';
 const AUDIO_KEYS = ['levels', 'sounds', 'ambience', 'music', 'footsteps'];
 const DEFAULT_LEVELS = { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 };
 
@@ -19,7 +19,8 @@ export class Audio {
   constructor(engine, opts = {}) {
     checkOptions('createEngine({ audio })', opts, AUDIO_KEYS);
     const { levels = {}, sounds = {}, ambience = [], music = {}, footsteps = {} } = opts;
-    checkOptions('createEngine({ audio: { music } })', music, ['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);   // a typo (trakcs) would just play nothing
+    // a typo (trakcs) would just play nothing
+    checkOptions('createEngine({ audio: { music } })', music, ['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);
     /** @internal */ this.engine = engine;
     /** The browser AudioContext (exists only after the first click) @type {any} */
     this.ctx = null;
@@ -132,15 +133,7 @@ export class Audio {
     return { remove: (f = fade) => { if (this._ducks.delete(entry)) this._applyDucks(f); } };
   }
   /** @internal */
-  _applyDucks(fade) {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    for (const [bus, node] of Object.entries(this._duckNodes)) {
-      let v = 1; for (const d of this._ducks) v *= d.levels[bus] ?? 1;
-      const g = node.gain; g.cancelScheduledValues(t);
-      if (fade > 0) { g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(v, t + fade); } else g.value = v;
-    }
-  }
+  _applyDucks(fade) { applyDucks(this, fade); }
 
   /**
    * Register a synthesized sound: synthFn(audio, params, out) connects its nodes to `out` and returns its length in seconds
@@ -238,12 +231,7 @@ export class Audio {
    * What is playing (for describe and tests): bus levels, the duck multiplier per bus, live voices per sound name
    * @returns {{ running: boolean, state: string | null, levels: Record<string, number>, ducks: Record<string, number>, voices: Record<string, number> }}
    */
-  get info() {
-    const ducks = {}, voices = {};
-    for (const [b, n] of Object.entries(this._duckNodes)) ducks[b] = +n.gain.value.toFixed(3);
-    for (const [name, list] of this._voices) { const n = list.filter(v => v.playing).length; if (n) voices[name] = n; }
-    return { running: this.running, state: this.state, levels: { ...this.levels }, ducks, voices };
-  }
+  get info() { return audioInfo(this); }
 
   /**
    * Synth building block: a burst of filtered noise (footsteps, shutter, rain, thunder). dur seconds, freq Hz, vol 0-1; out: the node to

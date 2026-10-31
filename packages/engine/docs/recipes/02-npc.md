@@ -1,6 +1,6 @@
 # Adding an NPC (schedule + dialogue)
 
-Modules needed: `characters()` (NPCs on by default), `interactions({ ...presets.interactions.nearest })`, `dialogue()`; clock-time schedules need `sky()`. The `openWorld()` preset already installs `characters()` and `sky()` but not `interactions({ ...presets.interactions.nearest })` or `dialogue()`, so add them yourself: `engine.use(openWorld({ camera: 'follow', ...}), interactions({ ...presets.interactions.nearest }), dialogue(), content())`.
+Modules needed: `characters()` (NPCs on by default), `interactions({ ...presets.interactions.nearest })`, `dialogue()`; clock-time schedules need `sky()` with a day cycle (`dayLength`, e.g. `presets.calendar.cycle`: without one the clock never moves and the NPC keeps to one stop). The `openWorld()` preset already installs `characters()` and `sky()` but not `interactions({ ...presets.interactions.nearest })` or `dialogue()`, so add them yourself: `engine.use(openWorld({ camera: 'follow', sky: presets.calendar.cycle, ...}), interactions({ ...presets.interactions.nearest }), dialogue(), content())`.
 
 ## 1. Write data (recommended)
 `games/<game>/content/npcs.js`:
@@ -43,7 +43,7 @@ export default {
   },
 };
 ```
-The words usable in conditions / effects are in the comment at the top of `modules/content/rules.js` (flag notFlag has lacks counter / setFlag give take bump startQuest toast particles marker clearMarker).
+The words usable in conditions / effects are in the comment at the top of `modules/content/rules.js` (flag notFlag has lacks counter can / setFlag give take bump startQuest toast particles marker clearMarker op).
 The items used (coin, bread) must be defined in `items.js`, otherwise validation fails. A `place` name comes from `content.load(data, { places })` or from a level marker (such as `npc_baker`). Add a new content file to `content/index.js`.
 
 ## 2. Add in code (temporary NPCs, dynamic schedules)

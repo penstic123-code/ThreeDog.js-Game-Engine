@@ -1,4 +1,5 @@
-// Container: inventory, chest, corpse and shelf are all this. The player inventory is the container with id 'player'; get or create others with inventory.container(id, opts).
+// Container: inventory, chest, corpse and shelf are all this. The player inventory is the container with id 'player'; get or create others with
+// inventory.container(id, opts).
 // Contents are entries { key, id, count, data }:
 //   items without data share one entry per kind, its key is the item id ('arrow');
 //   items with data (durability, upgrade level, rounds in the magazine, freshness: a plain object) get their own key ('sword#3'):
@@ -70,7 +71,8 @@ export class Container {
 
   /**
    * Add n (default 1) of an item, optionally with data for these pieces. Partial fit places what fits.
-   * Returns the key of the entry they went into ('arrow', or 'sword#3' for an item with data), false if none fit. silent suppresses the toast (only the player inventory toasts).
+   * Returns the key of the entry they went into ('arrow', or 'sword#3' for an item with data), false if none fit. silent suppresses the toast (only the player
+   * inventory toasts).
    * @example engine.inventory.container('chest-1').add('bandage', 2)
    * @example const key = engine.inventory.add('sword', 1, { data: { durability: 80, level: 3 } });   // 'sword#7'
    * @param {string} id
@@ -87,7 +89,8 @@ export class Container {
   }
 
   /**
-   * Remove n (default 1) of an item or of one entry (key); returns false if there aren't enough. By item id, plain pieces go first, then pieces with data, oldest first.
+   * Remove n (default 1) of an item or of one entry (key); returns false if there aren't enough. By item id, plain pieces go first, then pieces with data,
+   * oldest first.
    * @example bag.remove('arrow', 3)  ·  bag.remove('sword#3')   // exactly that sword
    * @param {string} x
    * @param {number} [n]
@@ -137,7 +140,8 @@ export class Container {
 
   /**
    * Replace the data of an entry (null = no data). n pieces (default all of the entry) change; fewer than all splits them into their own entry.
-   * Returns the key now holding the changed pieces: the same key when a whole entry changes, a merged or new key otherwise. Limits are not checked (the pieces are already inside).
+   * Returns the key now holding the changed pieces: the same key when a whole entry changes, a merged or new key otherwise. Limits are not checked (the pieces
+   * are already inside).
    * @example
    * const s = bag.get(key);                                                     // { key, id, count, data, def }
    * bag.setData(key, { ...s.data, durability: s.data.durability - 1 });        // data objects are frozen: always pass a new one
@@ -160,7 +164,8 @@ export class Container {
   }
 
   /**
-   * Listen to changes of this container, returns a handle { remove() }. type 'add' | 'remove', callback gets { id: item, key: entry key, count: change amount, total: current count of the item }
+   * Listen to changes of this container, returns a handle { remove() }. type 'add' | 'remove', callback gets { id: item, key: entry key, count: change amount,
+   * total: current count of the item }
    * @example engine.inventory.container('chest-1').on('remove', ({ id, count }) => console.log('taken', id, count))
    * @param {'add' | 'remove'} type
    * @param {(e: { id: string, key: string, count: number, total: number }) => void} fn
@@ -198,7 +203,10 @@ export class Container {
     if (def.weight > 0) n = Math.min(n, Math.floor((this.maxWeight - this.weight) / def.weight + 1e-9));
     return Math.max(0, n);
   }
-  /** How many of item (id or key) from src would really move here, up to n: a dry run on a copy, so entries that share free slots are not counted twice @internal */
+  /**
+   * How many of item (id or key) from src would really move here, up to n: a dry run on a copy, so entries that share free slots are not counted twice
+   * @internal
+   */
   _accepts(src, item, n) {
     const sim = Object.create(this), inv = this.inv;
     sim._entries = this._entries.map(x => ({ ...x }));

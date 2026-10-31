@@ -9,7 +9,7 @@
 | NPC position | Empty object `npc_店主` |
 | Trigger zone | Empty object `trigger_门口`; the custom properties `shape` (cylinder/sphere/box), `radius`, `height` become trigger zone parameters |
 | Other markers | Empty object `marker_宝箱`; all custom properties go into `userData` unchanged |
-| Things a save must know (a door that opens, a rock that can be removed) | Custom property `template = 'door'` (an instance of a content template; its other custom properties fill the template's state) or `id = true` (the node itself is the model). The node becomes a world record with id `<level file name>/<node name>` (`town/door_front`), saved as a diff; untagged meshes stay static scenery (recipe 30 §2) |
+| Things a save must know (a door that opens, a rock that can be removed) | Custom property `template = 'door'` (an instance of a content template; its other custom properties fill the template's state) or `id = true` (the node itself is the model). The node becomes a world record with id `<level file name>/<node name>` (`town/door_front`), saved as a diff (needs `world()` installed, and `content()` for `template`); untagged meshes stay static scenery (recipe 30 §2) |
 
 Export glTF/GLB (tick "Custom Properties") into `art/models/` (create it if missing).
 
@@ -20,7 +20,7 @@ Export glTF/GLB (tick "Custom Properties") into `art/models/` (create it if miss
 ```js
 import { createEngine, presets, level, collision, followCamera, characters, interactions, dialogue, triggers, content, hlod } from 'threedog';
 engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), characters(), interactions({ ...presets.interactions.nearest }), dialogue(), triggers(), content(), hlod());
-engine.events.on('level:loaded', () => {
+engine.events.once('level:loaded', () => {   // once: level:loaded fires again on every level change
   engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: engine.level.spawn });
   engine.content.load(data);                       // a place in content can be a marker name directly: { place: 'npc_店主' }
 });
@@ -42,7 +42,7 @@ engine.use(level({ url: '/models/town.glb' }), vegetation({ area: { min: [-80, -
 engine.vegetation.add('grass', { geometry: grassGeo, nearOnly: true, rule: { perChunk: 500, biomes: { lawn: 1 } } });
 engine.vegetation.add('tree', { model: oak, rule: { perChunk: 6, biomes: { lawn: 0.6, park: 1 }, maxSlope: 0.4, collider: 0.4 } });
 ```
-Chunks stream around `engine.stream` sources and stay one InstancedMesh per species per chunk (LOD, shadows and felling work as on terrain: `instanceAt` / `removeInstance`, saved). Collision and path planning see the trees through `engine.ground.forEachCollider`; a new level or `setGround` re-places them; after changing a ground function behind the same provider call `engine.vegetation.rebuild()`. Heights are unlimited unless the rule sets `minHeight / maxHeight`. Content `vegetation` works the same way. With `terrain()` installed, `vegetation()` takes no options (density and view distance are terrain options). Rapier (`rigid()`) bodies do not collide with these plants yet.
+Chunks stream around `engine.stream` sources and stay one InstancedMesh per species per chunk (LOD, shadows and felling work as on terrain: `instanceAt` / `removeInstance`, saved). Collision and path planning see the trees through `engine.ground.forEachCollider`; a new level or `setGround` re-places them; after changing a ground function behind the same provider call `engine.vegetation.rebuild()`. Heights are unlimited unless the rule sets `minHeight / maxHeight`. Content `vegetation` works the same way. With `terrain()` installed, `vegetation()` takes no options (density and view distance are terrain options). Rapier (`rigid()`) bodies collide with them too (cylinders from `engine.ground.forEachCollider`, gone when felled).
 
 ## 5. Verify
 - `npm run assets` prints each file's size before and after compression; a browser 404 appears in `.threedog/errors.log` (asset load failure).

@@ -43,7 +43,8 @@ const STRINGS = {
   state: { idle: 'standing', walk: 'walking', run: 'running', jump: 'jumping', fall: 'falling', swim: 'swimming' },
   kind: { npc: 'NPC', pickup: 'pickup', interactable: 'interactable', trigger: 'trigger', entity: 'entity' },
   dir: { N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest' },
-  rel: { front: 'ahead', 'front-right': 'ahead right', right: 'right', 'back-right': 'behind right', back: 'behind', 'back-left': 'behind left', left: 'left', 'front-left': 'ahead left' },
+  rel: { front: 'ahead', 'front-right': 'ahead right', right: 'right', 'back-right': 'behind right', back: 'behind', 'back-left': 'behind left', left: 'left',
+    'front-left': 'ahead left' },
   season: { spring: 'spring', summer: 'summer', autumn: 'autumn', winter: 'winter' },
   camType: { follow: 'follow camera', first: 'first person', fixed: 'fixed camera', rts: 'top-down strategy camera' },
 };
@@ -85,35 +86,47 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   if (path) return atPath(d, path);
   const L = [], t = d.time;
   const flags = (t.paused ? STRINGS.paused : '') + (t.headless ? STRINGS.headless : '') + (d.loading.done ? '' : STRINGS.notReady);
-  if (d.error) L.push(fmt(STRINGS.error, d.error) + (d.error.fix ? fmt(STRINGS.errorHint, { code: d.error.code, fix: d.error.fix, docs: d.error.docs.join(', ') }) : ''));
+  if (d.error) L.push(fmt(STRINGS.error, d.error)
+    + (d.error.fix ? fmt(STRINGS.errorHint, { code: d.error.code, fix: d.error.fix, docs: d.error.docs.join(', ') }) : ''));
   L.push(fmt(STRINGS.head, { s: t.elapsed, flags }));
   const ld = d.loading;
   if (!ld.done) L.push(fmt(STRINGS.waiting, { waiting: ld.waiting, pending: ld.counts.pending, done: ld.counts.done, total: ld.counts.total }));
-  if (ld.failed.length) L.push(fmt(STRINGS.loadFailed, { blocked: ld.blocked ? STRINGS.blocked : '', list: ld.failed.map(f => `${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}${f.fallback ? ` -> ${f.fallback}` : ''}`).join('; ') }));
+  if (ld.failed.length) L.push(fmt(STRINGS.loadFailed,
+    { blocked: ld.blocked ? STRINGS.blocked : '',
+    list: ld.failed.map(f => `${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}${f.fallback ? ` -> ${f.fallback}` : ''}`).join('; ') }));
   if (ld.warnings.length) L.push(fmt(STRINGS.loadWarn, { list: ld.warnings.map(w => `"${w.name}" missing ${w.missing.join(', ')}`).join('; ') }));
   if (d.disabledModules?.length) L.push(fmt(STRINGS.disabled, { list: d.disabledModules.join(', ') }));
-  if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day : STRINGS.night }));
+  if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day
+    : STRINGS.night }));
   const w = d.weather;
   if (w) L.push(fmt(STRINGS.weather, { name: w.label ?? w.name, rain: n1(w.rain), snow: n1(w.snow), fog: n1(w.fog),
     changing: w.progress < 1 ? fmt(STRINGS.changing, { pct: Math.round(w.progress * 100) }) : '',
-    shown: w.rainVisible || w.snowVisible ? fmt(STRINGS.weatherShown, { what: [w.rainVisible && STRINGS.rainShown, w.snowVisible && STRINGS.snowShown].filter(Boolean).join(', ') }) : '' }));
+    shown: w.rainVisible || w.snowVisible ? fmt(STRINGS.weatherShown,
+      { what: [w.rainVisible && STRINGS.rainShown, w.snowVisible && STRINGS.snowShown].filter(Boolean).join(', ') }) : '' }));
   const p = d.player;
   const water = p?.inWater ? STRINGS.inWater : STRINGS.dry;
   L.push(p ? fmt(STRINGS.player, { ...p, ground: p.groundName ?? p.ground, water, state: tr('state', p.state) }) : STRINGS.noPlayer);
   const c = d.camera;
-  L.push(fmt(STRINGS.camera, { type: tr('camType', c.type), x: c.x, y: c.y, z: c.z, fx: c.focus.x, fz: c.focus.z, over: c.override ? fmt(STRINGS.override, { owner: c.override }) : '' }));
+  L.push(fmt(STRINGS.camera, { type: tr('camType', c.type), x: c.x, y: c.y, z: c.z, fx: c.focus.x, fz: c.focus.z, over: c.override
+    ? fmt(STRINGS.override, { owner: c.override }) : '' }));
   if (d.cutscene) L.push(fmt(STRINGS.cutscene, { n: d.cutscene.count, skip: d.cutscene.skippable ? STRINGS.skippable : '' }));
   const dl = d.ui.dialogue;
-  if (dl) L.push(fmt(STRINGS.dialogue, { speaker: dl.speaker, text: dl.text, choices: dl.choices.length ? fmt(STRINGS.choices, { list: dl.choices.map((x, i) => `${i + 1}. ${x}`).join(' ') }) : '' }));
-  if (d.ui.windows.length || d.ui.inputLocked) L.push(fmt(STRINGS.windows, { list: d.ui.windows.join(', ') || STRINGS.none }) + (d.ui.inputLocked ? STRINGS.inputLocked : ''));
+  if (dl) L.push(fmt(STRINGS.dialogue, { speaker: dl.speaker, text: dl.text, choices: dl.choices.length
+    ? fmt(STRINGS.choices, { list: dl.choices.map((x, i) => `${i + 1}. ${x}`).join(' ') }) : '' }));
+  if (d.ui.windows.length || d.ui.inputLocked) L.push(fmt(STRINGS.windows, { list: d.ui.windows.join(', ') || STRINGS.none })
+    + (d.ui.inputLocked ? STRINGS.inputLocked : ''));
   const r = d.nearbyRadius;
   L.push(d.nearby.length ? fmt(STRINGS.nearHead, { r, n: d.nearby.length }) : fmt(STRINGS.nearNone, { r }));
   const near = full ? d.nearby : d.nearby.slice(0, NEAR_SUMMARY);
-  for (const it of near) L.push(fmt(STRINGS.nearItem, { name: it.name, kind: tr('kind', it.kind), dist: it.dist, dir: tr('dir', it.dir), rel: tr('rel', it.rel), use: it.use ? fmt(STRINGS.use, { label: it.use }) : '' }));
+  for (const it of near) L.push(fmt(STRINGS.nearItem,
+    { name: it.name, kind: tr('kind', it.kind), dist: it.dist, dir: tr('dir', it.dir), rel: tr('rel', it.rel), use: it.use ? fmt(STRINGS.use, { label: it.use })
+    : '' }));
   if (near.length < d.nearby.length) L.push(fmt(STRINGS.nearMore, { n: d.nearby.length - near.length }));
-  if (d.actions) L.push(fmt(STRINGS.actions, { list: d.actions.map(a => `${a.ok ? '✓' : '✗'} ${a.op}${a.args && Object.keys(a.args).length ? ' ' + argText(a.args) : ''}${a.ok ? '' : ` (${a.reason})`}`).join(' · ') }));
+  if (d.actions) L.push(fmt(STRINGS.actions,
+    { list: d.actions.map(a => `${a.ok ? '✓' : '✗'} ${a.op}${a.args && Object.keys(a.args).length ? ' ' + argText(a.args) : ''}${a.ok ? '' : ` (${a.reason})`}`).join(' · ') }));
   const pf = d.perf;
-  L.push(fmt(STRINGS.perf, { fps: pf.fps ?? '-', cpu: pf.cpuMs ?? '-', calls: pf.drawCalls, tris: pf.triangles, chunks: pf.chunks ? fmt(STRINGS.chunks, pf.chunks) : '' }));
+  L.push(fmt(STRINGS.perf, { fps: pf.fps ?? '-', cpu: pf.cpuMs ?? '-', calls: pf.drawCalls, tris: pf.triangles, chunks: pf.chunks
+    ? fmt(STRINGS.chunks, pf.chunks) : '' }));
   L.push(fmt(STRINGS.modules, { list: d.modules.join(', ') }));
   for (const k in d) if (!SHOWN.has(k)) L.push(fmt(STRINGS.extra, { name: k, json: full ? JSON.stringify(d[k]) : summary(d[k]) }));
   if (full) return L.join('\n');

@@ -25,7 +25,7 @@ engine.nav.dispose();                                // unload the navmesh; afte
 Native Recast objects: `engine.nav.navMesh / query / tileCache / crowd` (crowd needs `nav({ crowd: true })`).
 
 ## 3. Verify
-- `describe().nav`: `{ ready: true, obstacles: number of obstacles }`; in `describeText()` it is the "nav: {...}" line.
+- `describe().nav`: `{ ready: true, version, obstacles: number of obstacles }`; in `describeText()` it is the "nav: {...}" line.
 - In a test: after `engine.pause()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`, `engine.step(0.1)` and query again: the path should switch sides.
 - Did the NPC arrive: after `engine.step(30)`, check `engine.npcs.get('信使').position`.
 - To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `npm test -- 导航网格` (test page in the engine repository: `packages/engine/tests/nav/`).

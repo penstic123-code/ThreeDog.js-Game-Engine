@@ -6,9 +6,9 @@ Note: cloud tests use software rendering (SwiftShader), so the numbers are for *
 ## 1. Where things stand
 - **F3 panel** (`debug()` module, included in openWorld, collapsed by default, press F3 to open): frame rate, CPU ms/frame, draw calls, triangles, chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
   with a budget set it also shows over-limit items and startup time; the "20-second stress test" makes the player run forward fast automatically and reports the average frame rate and the worst frame at the end.
-- **Text**: `engine.describe().perf` = `{ fps, cpuMs, drawCalls, triangles, pixelRatio, budget, startup, stream, jobs, chunks? }`;
+- **Text**: `engine.describe().perf` = `{ fps, cpuMs, drawCalls, triangles, pixelRatio, budget, startup, stream, batching, jobs, commits, chunks?, vegetation? }`;
   the perf line of `npm run shot -- / --describe-only` (in headless mode fps/cpu are `-`; look at draw calls and triangles).
-- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, modules: { name: { init, ready } } }`; `npm test` also prints a startup line (with the slowest module) for each item.
+- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, modules: { name: { init, ready } } }`; `npm test` also prints a startup line (with the slowest module) for each item.
 
 ## 2. Set a budget (so going over reports itself)
 Off by default and costs nothing. The game gives the limits in `createEngine` (only the given categories are checked):
@@ -37,7 +37,7 @@ engine.profile(false);
 | Symptom | Fix |
 |---|---|
 | Many draw calls | Use `vegetation` / InstancedMesh for repeated objects; install `hlod()` for a block of buildings; share geometry and materials between copies of a model (`assets.model` shares by default) |
-| Expensive shadows | Style pack `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; `vegetation.setShadowRing(name, 1)` stops far vegetation casting shadows |
+| Expensive shadows | Style pack `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows |
 | Stutter while walking | Put generation work in `engine.jobs.add(function* () { ...; yield; })` or `engine.stream.add`; chunk upload budget `engine.terrain.applyBudgetMs` |
 | Slow start | Look at which is slowest in `engine.startup.modules`; `npm run bake` for large models; preload only the necessary assets |
 | Slow physics | Keep dynamic rigid bodies within a few hundred (the `rigidBodies` budget); `rigid({ terrainRing: 1 })` |
