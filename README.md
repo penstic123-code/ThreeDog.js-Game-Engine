@@ -1,5 +1,11 @@
 # ThreeDog.js-Game-Engine
-<img width="1254" height="1254" alt="threedog-logo" src="https://github.com/user-attachments/assets/1f8c2da7-0ffe-433f-b3db-eec7f2eabac6" />
+<p align="center">
+  <img
+    src="https://github.com/user-attachments/assets/1f8c2da7-0ffe-433f-b3db-eec7f2eabac6"
+    alt="threedog-logo"
+    width="160"
+  />
+</p>
 
 A modular 3D game engine built on three.js, designed for AI-assisted game development.
 
