@@ -7,7 +7,7 @@
   />
 </p>
 
-A modular 3D game engine built on three.js, designed for AI-assisted game development.
+An AI-Native Game Development Engine built on three.js, designed for AI-assisted game development.
 
 Build games with modular systems, data-driven content, and interchangeable style packs. Inspect game state as structured data, reproduce scenarios, and validate changes through automated checks.
 
