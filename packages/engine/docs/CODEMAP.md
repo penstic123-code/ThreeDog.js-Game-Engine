@@ -15,7 +15,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | timeline | modules/timeline/Timeline.js | — | — | control | before cameraRig |
 | level | modules/level/index.js | — | world, content | world | after terrain |
 | terrain | modules/terrain/index.js | — | vegetation | world | — |
-| vegetation | modules/vegetation/Vegetation.js | — | terrain, level | world | after terrain, level |
+| vegetation | modules/vegetation/index.js | — | terrain, level | world | after terrain, level |
 | world | modules/world/index.js | — | — | world | — |
 | sky | modules/sky/Sky.js | — | — | environment | — |
 | water | modules/water/Water.js | — | — | environment | after sky |
@@ -153,7 +153,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - terrain/ Terrain module: chunked, streamed ground built from a height function (or a hei… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, index.js, mountTerrain.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainMesh.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zone module: invisible regions in the world that notify you when the pl… — index.js
-- vegetation/ Vegetation module: defines what to plant, where, how far before switching to lo… — Vegetation.js, groundChunks.js
+- vegetation/ Vegetation module factory: engine.use(vegetation(...)) — Vegetation.js, groundChunks.js, index.js, modelGeometry.js
 - water/ Water module: draws the global water plane (sea, big lakes; snaps to a grid fol… — Water.js
 - weather/ Weather: the game's table of weather types (weather({ types })); without one on… — Weather.js, shaders.js
 - world/ world() module: installed as engine.world (world data, see World.js) — World.js, cells.js, index.js, persist.js, pos.js, records.js, sim.js, simFar.js, views.js

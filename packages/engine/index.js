@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { Engine } from './core/Engine.js';
 import { terrain } from './modules/terrain/index.js';
-import { vegetation } from './modules/vegetation/Vegetation.js';
+import { vegetation } from './modules/vegetation/index.js';
 import { sky } from './modules/sky/Sky.js';
 import { weather } from './modules/weather/Weather.js';
 import { water } from './modules/water/Water.js';

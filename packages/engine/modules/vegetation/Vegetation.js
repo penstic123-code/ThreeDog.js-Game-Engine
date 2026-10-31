@@ -1,9 +1,8 @@
 // Vegetation module: defines what to plant, where, how far before switching to low-poly, and how far before not drawing. Models (the look) come from the game
 // or style pack.
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { fromModel } from './modelGeometry.js';
 import { makeMaterial, applyEffects } from '../../render/materials.js';
-import { copyPatches } from '../../render/patches.js';
 import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
 import { GroundChunks } from './groundChunks.js';
@@ -23,24 +22,6 @@ const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', '
 const KEY_RE = /^veg:(.*):(-?\d+),(-?\d+):(\d+)$/;
 const ZERO16 = new Float32Array(16);
 const hashName = s => { let h = 7; for (const ch of s) h = (Math.imul(h, 31) + ch.codePointAt(0)) | 0; return h & 0x7fffffff; };
-// Multi-material model (bark trunk + alpha-cut leaf cards) -> one geometry with a group per mesh + a material array, so a species stays
-// one InstancedMesh: instance matrices, felling and LOD swaps work unchanged for every part. Only attributes all meshes share are kept.
-function fromModel(root, label) {
-  root.updateMatrixWorld(true);
-  const inv = root.matrixWorld.clone().invert(), geos = [], mats = [];
-  root.traverse(n => {
-    if (!n.isMesh) return;
-    if (Array.isArray(n.material)) throw new Error(`${label}: model mesh '${n.name}' has several materials; split it into one mesh per material`);
-    geos.push(n.geometry.clone().applyMatrix4(n.matrixWorld.clone().premultiply(inv)));
-    mats.push(copyPatches(n.material, n.material.clone()));   // the clone keeps the model material's own shader patches
-  });
-  if (!geos.length) throw new Error(`${label}: model has no meshes`);
-  const names = Object.keys(geos[0].attributes).filter(k => geos.every(g => g.attributes[k]));
-  const indexed = geos.every(g => g.index);
-  const ready = geos.map(g => { const h = indexed ? g : g.toNonIndexed(); for (const k in h.attributes) if (!names.includes(k)) h.deleteAttribute(k); return h; });
-  return { geometry: mergeGeometries(ready, true), materials: mats };
-}
-
 // stable id -> instance index (built once per InstancedMesh)
 function slotOf(im, id) {
   if (!im.userData.slot) { im.userData.slot = new Map(); const ids = im.userData.ids; if (ids) for (let i = 0; i < ids.length; i++) im.userData.slot.set(ids[i], i); }
@@ -269,40 +250,4 @@ export class Vegetation {
     }
     if (before !== c.colliders[name]) c.colToken = {};   // tell the physics module to rebuild this chunk's collision
   }
-}
-
-const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
-/**
- * Vegetation module. Provides engine.vegetation.add(name, {...}) once installed.
- * With terrain() installed first it grows on the terrain chunks and takes no options (density and view distance are terrain options).
- * Without terrain it grows on its own chunks over whatever provides the ground: a level model (engine.level), a code-built ground
- * (engine.setGround), or the flat default. Rules read engine.surface / slope / groundType, so a level's named surfaces are picked with
- * rule.biomes (a level's ground type is the mesh's groundType property or its material name).
- * @param {{ chunkSize?: number, viewChunks?: number, density?: number, area?: { min: number[], max: number[] }, seed?: number }} [opts]
- *   only without terrain: chunkSize meters (default 32), viewChunks rings drawn around each stream source (default 3), density multiplier (default 1),
- * area { min: [x, z], max: [x, z] } where it may grow (default: a level's walkable bounds when a level provides the ground, else anywhere), seed placement seed
- * (default 1)
- * @example
- * engine.use(level({ url: '/levels/town.glb' }), vegetation({ area: { min: [-80, -80], max: [80, 80] } }));
- * engine.vegetation.add('grass', { geometry, nearOnly: true, rule: { perChunk: 400, biomes: { lawn: 1 } } });   // only on 'lawn' surfaces
- */
-export function vegetation(opts = {}) {
-  checkOptions('vegetation()', opts, OPTS);
-  let v = null, own = null, cols = null, ready = null;
-  return { name: 'vegetation', label: 'Vegetation', stage: 'world', after: ['terrain', 'level'], optional: ['terrain', 'level'],
-    install(e) {
-      v = new Vegetation(e, opts);
-      if (v.host !== e.terrain) {
-        own = v.host;
-        cols = e.addGroundColliders((x, z, range, fn) => own.forEachCollider(x, z, range, fn));   // collision and path planning see the trees
-        ready = e.stream.readyCheck('vegetation', s => own.isReadyAround(s));
-      }
-      return v;
-    },
-    // terrain installed after vegetation would leave two chunk tables: say where to put it
-    init(e) { if (own && e.terrain) throw new Error('vegetation() was installed before terrain(): put terrain() first, vegetation then grows on its chunks'); },
-    frame(dt, e) { own?.update(e.stream.sources(), e.camera); },
-    fixed(dt) { v.tick(dt); }, skip(dt, e, done) { if (done) v.tick(1); },
-    describe(e, ctx) { if (own) ctx.out.perf.vegetation = { loaded: own.stats.loaded, visible: own.stats.visible, queued: own.stats.queued }; },
-    dispose() { own?.dispose(); cols?.remove(); ready?.remove(); } };
 }

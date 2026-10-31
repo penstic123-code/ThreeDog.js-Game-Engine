@@ -922,7 +922,8 @@ export interface FindSpawnOptions { minH?: number; maxH?: number; maxSlope?: num
 export interface CharactersOptions {
   /** Whether to enable NPCs (engine.npcs), default true */
   npcs?: boolean;
-  /** Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix); presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump) */
+  /** Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix);
+   *  presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump) */
   brakeKeys?: string[];
   /** Gamepad button for braking, none by default; presets.keys.brake has ['PadLT'] */
   brakePad?: string[];
@@ -1006,7 +1007,8 @@ export interface InteractionCandidate { id: string; object: Object3D; action: st
  * 'nearest' | 'facing' (within 60° of where the actor faces) | 'aim' (closest to the screen-center ray) | a function choosing one candidate (nearest
  * first) or null
  */
-export type InteractionPick = 'nearest' | 'facing' | 'aim' | ((candidates: InteractionCandidate[], ctx: { engine: Engine; actor: string; position: Vector3; action?: string }) => InteractionCandidate | null | undefined);
+export type InteractionPick = 'nearest' | 'facing' | 'aim'
+  | ((candidates: InteractionCandidate[], ctx: { engine: Engine; actor: string; position: Vector3; action?: string }) => InteractionCandidate | null | undefined);
 export interface InteractionsOptions {
   /** Default action name, default 'interact' */
   action?: string;
@@ -1802,7 +1804,8 @@ export interface Hud {
   marker(target: HudTarget, opts?: HudMarkerOptions): HudMarker;
   /** Counter (calling again with the same id = update; calling every frame is fine), e.g. counter('fish', { label: '鱼', value: 2, max: 5 }) */
   counter(id: string, opts: { label?: string; icon?: string; value?: number; max?: number }): void;
-  /** Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged), value/max 0–max */
+  /** Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged),
+   *  value/max 0–max */
   bar(id: string, opts: { value: number; max?: number; label?: string }): void;
   /** Delete a counter or progress bar */
   remove(id: string): void;
