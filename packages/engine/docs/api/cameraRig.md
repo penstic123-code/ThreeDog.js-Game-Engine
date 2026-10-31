@@ -1,0 +1,118 @@
+# engine.cameraRig — followCamera(opts?: FollowCameraOptions) / firstPersonCamera(opts?: FirstPersonCameraOptions) / fixedCamera(opts?: FixedCameraOptions) / rtsCamera(opts?: RtsCameraOptions)
+
+Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamera)
+
+- followCamera options `FollowCameraOptions`:
+  - `yaw?: number` Which side of the focus the camera sits on (radians), default 0.8: camera = focus + (sin yaw, cos yaw) × distance, it looks along forward() = -(sin yaw, cos yaw). Behind a character facing f: yaw = f + PI
+  - `pitch?: number` Pitch angle (radians), default 0.42
+  - `distance?: number` Distance (meters), default 13
+  - `minDistance?: number` Zoom range (meters)
+  - `maxDistance?: number`
+  - `height?: number` How high above the character to look at (meters), default 1.4
+  - `smoothing?: number` Follow smoothing, default 10
+  - `sensitivity?: number` Drag sensitivity, default 1
+  - `minPitch?: number` Pitch range (radians)
+  - `maxPitch?: number`
+  - `zoomStep?: number` Zoom ratio per wheel notch, default 0.1
+  - `groundClearance?: number` Minimum camera height above the ground (meters), default 1.2
+  - `invertY?: boolean` Invert vertical
+  - `lockPitch?: boolean` Lock the pitch angle (top-down games)
+  - `shoulder?: number` Over-the-shoulder offset: meters to the right of the target the camera aims (negative = left shoulder), default 0
+  - `pointerLock?: boolean` Click locks the mouse; mouse motion turns the view without dragging (Esc releases), default false
+- firstPersonCamera options `FirstPersonCameraOptions`:
+  - `height?: number` Eye height above the feet (meters), default 1.6
+  - `sensitivity?: number` Mouse sensitivity, default 1
+  - `fov?: number | null` Field of view (degrees); unchanged if omitted
+  - `headBob?: number` Walking bob amplitude (meters), 0 off, default 0.04
+  - `bobFrequency?: number` Bobs per meter
+  - `hideTarget?: boolean` Hide the character itself (its shadow remains), default true
+  - `hideLayer?: number` Layer number used for hiding 0–31
+  - `pointerLock?: boolean` Click to lock the mouse, default true
+  - `yaw?: number` Initial heading (radians)
+  - `pitch?: number`
+  - `minPitch?: number` Look down / up limit (radians)
+  - `maxPitch?: number`
+  - `yawLimits?: number[] | null` Turn range left / right [min, max] (radians), unlimited by default
+  - `smoothing?: number` Smoothing of the camera following the body
+  - `invertY?: boolean` Invert vertical
+- fixedCamera options `FixedCameraOptions`:
+  - `shots?: Record<string, CameraShot>` Shots: name → shot
+  - `start?: string | null` Initial shot name
+  - `auto?: false | 'nearest'` Automatic switching: false / 'nearest' (pick the one nearest to the player)
+  - `autoInterval?: number` Check interval for automatic switching (seconds)
+  - `hysteresis?: number` How many meters closer a new shot must be to switch (prevents flipping back and forth)
+  - `triggerBlend?: number` Transition seconds for trigger-zone switches (0 = hard cut)
+  - `trackHeight?: number` How high above the character a track shot looks (meters)
+  - `trackSmoothing?: number` Head-follow smoothing
+  - `holdDirection?: boolean` Keep the direction when switching shots until the direction key is released
+  - `ease?: Ease` Transition easing
+- rtsCamera options `RtsCameraOptions`:
+  - `height?: number` Camera height above the focus (meters), default 30
+  - `minHeight?: number` Zoom range (meters)
+  - `maxHeight?: number`
+  - `angle?: number` Pitch down angle (radians, π/2 = straight down), default 0.95
+  - `yaw?: number` Initial horizontal heading (radians)
+  - `panSpeed?: number` Pan speed multiplier
+  - `dragPan?: boolean` Drag with the mouse to pan, default true
+  - `edgePan?: boolean` Pan at the screen edge, default false
+  - `edgeSize?: number` Edge width (fraction of the screen)
+  - `bounds?: { minX?, maxX?, minZ?, maxZ? } | null` Focus range (meters)
+  - `rotateKeys?: { left?: string[]; right?: string[] } | false` Rotate keys, false turns rotation off
+  - `rotateSpeed?: number` Rotation speed (radians/second)
+  - `zoomStep?: number` Zoom ratio per wheel notch
+  - `smoothing?: number` Smoothing
+  - `fov?: number | null` Field of view (degrees); unchanged if omitted
+  - `followLock?: boolean` Manual panning is not allowed while following
+  - `start?: PositionLike | null` Initial focus (position)
+
+## Methods and properties
+- `cam.follow(obj: Object3D | null, opts?: { distance?, height? })` — Follow someone (called automatically when the player is created), null to cancel. opts temporarily changes distance / height (used while driving), restored when the target changes
+- `cam.forward() → DirXZ` — The "forward" direction on the horizontal plane (player movement is relative to it)
+- `cam.right() → DirXZ` — The "right" direction on the horizontal plane
+- `cam.focusPoint() → Vector3` — Where the world loads around
+- `cam.update(dt: number, input: Input)` — Update the camera every frame
+- `cam.onOverride(on: boolean)` — Called when a cutscene takeover starts / ends
+- `cam.onEnter(switched?: boolean)` — Called when this camera is switched in (switched: switched at runtime)
+- `cam.onExit()` — Called when this camera is switched out
+- Properties:
+  - `kind: CameraKind` Current kind (the first argument of engine.setCamera)
+  - `target: Object3D | null` The object being followed
+- followCamera only: every item of the options (the options of `followCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
+  - `cam.frame(target: Object3D | Vec3Like | null, opts?: { strength?: number })` — Lock-on framing: turn yaw each frame toward "behind the followed object, looking at target"; mouse yaw is ignored meanwhile; null hands yaw back. strength default 6 (1/s)
+  - `focus: Vector3` Smoothed follow point
+  - `lockPitch?: boolean`
+  - `avoidOcclusion?: boolean` false: no occlusion handling
+  - `framing: { target: Object3D | Vec3Like; strength: number } | null` Lock-on framing set by frame()
+- firstPersonCamera only: every item of the options (the options of `firstPersonCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
+  - `cam.lookAt(position: PositionLike)` — Turn toward a world position (Vector3 / object / [x, y, z] / { x, y, z })
+  - `eye: Vector3` Eye position
+- fixedCamera only: 
+  - `cam.add(name: string, shot: CameraShot)` — Add / replace a shot
+  - `cam.cut(name: string)` — Cut to a shot immediately
+  - `cam.blend(name: string, seconds?: number, ease?: Ease) → Promise<void>` — Transition smoothly to a shot (over seconds seconds); the Promise resolves when done
+  - `cam.nearest(p: Vector3) → string | null` — Name of the shot nearest to a point
+  - `shots: Record<string, any>` All shots
+  - `current: string | null` Current shot name
+  - `auto: false | 'nearest'`
+  - `autoInterval: number`
+  - `hysteresis: number`
+  - `triggerBlend: number`
+  - `trackHeight: number`
+  - `trackSmoothing: number`
+  - `holdDirection: boolean`
+  - `ease: Ease`
+- rtsCamera only: every item of the options (the options of `rtsCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
+  - `cam.moveTo(position: PositionLike, opts?: { instant?: boolean })` — Move the view to position (instant: true skips smoothing)
+  - `cam.screenToGround(ndcX: number, ndcY: number) → Vector3 | null` — Screen coordinates (-1..1) → a point on the ground, null if nothing is hit
+  - `following: boolean` Is it following target
+  - `focus: Vector3` Focus (on the ground)
+  - `rotate: boolean` Can it rotate
+
+## Data structures
+- **CameraShot** Fixed shot
+  - `position: Vec3Like` Camera position
+  - `lookAt?: Vec3Like` Fixed point to look at (if omitted, it turns its head with the player)
+  - `track?: boolean` Turn its head with the player
+  - `fov?: number` Field of view (degrees)
+  - `at?: Vec3Like` Position used to judge the "nearest shot", defaults to position
+  - `trackHeight?: number` How high above the character to look at (meters)

@@ -1,0 +1,40 @@
+# threedog
+
+> A web 3D game engine on three.js 0.187 (plain three.js, no React): core, modules installed with engine.use, and style packs for all art.
+
+Reading order: docs/AI.md (the index: one line per task) -> the recipe for the task -> docs/api/<module>.md for details -> the game's GAMEMAP.md.
+
+## Start
+
+- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions
+- [API.md](docs/API.md): API index; one page per module in docs/api/
+
+## Recipes
+
+- [01-new-game](docs/recipes/01-new-game.md): Starting a new game (a workspace under games/)
+- [02-npc](docs/recipes/02-npc.md): Adding an NPC (schedule + dialogue)
+- [03-items-pickups](docs/recipes/03-items-pickups.md): Adding items and pickups
+- [04-quests](docs/recipes/04-quests.md): Adding quests (with HUD objective markers)
+- [05-props-bake](docs/recipes/05-props-bake.md): Props and baking
+- [06-clock-events](docs/recipes/06-clock-events.md): Scheduling events on the game clock
+- [07-flow-scenes-pause](docs/recipes/07-flow-scenes-pause.md): Scene transitions and pause (flow)
+- [08-weather-sky](docs/recipes/08-weather-sky.md): Add weather or change the sky
+- [09-style-pack](docs/recipes/09-style-pack.md): Changing the art / writing a style pack
+- [10-blender-level](docs/recipes/10-blender-level.md): Importing Blender models and levels
+- [11-vehicles](docs/recipes/11-vehicles.md): Vehicles and boarding
+- [12-navmesh](docs/recipes/12-navmesh.md): Navigation mesh (nav)
+- [13-animation](docs/recipes/13-animation.md): Animation state machine (skeletal animation)
+- [14-custom-module](docs/recipes/14-custom-module.md): Custom module
+- [15-perf](docs/recipes/15-perf.md): Performance investigation (F3, budget, profile, describe().perf)
+- [16-dev-bridge](docs/recipes/16-dev-bridge.md): Dev bridge: operate the running game from the terminal (npx threedog describe / step / press / op...)
+- [18-world](docs/recipes/18-world.md): World data: things that must be saved, grow, and keep changing while far away
+- [19-shooting-picking](docs/recipes/19-shooting-picking.md): Shooting and picking (first person; cast a ray from the screen center / mouse position)
+- [20-content-actions-save](docs/recipes/20-content-actions-save.md): Content vocabulary, key actions in actions.js, saving and loading at startup
+- [21-camera](docs/recipes/21-camera.md): Camera: first / third person, top-down strategy, fixed shots, switched at runtime
+- [22-shop-gold](docs/recipes/22-shop-gold.md): Shop and gold: buy, sell / consign, gold HUD, saving
+- [23-ops](docs/recipes/23-ops.md): Ops: one entry point for what players and NPCs do (engine.ops)
+- [26-ui-parts](docs/recipes/26-ui-parts.md): UI parts: replace or turn off any piece of the engine's screen UI
+- [27-net](docs/recipes/27-net.md): Co-op multiplayer: net() (host authority + state sync)
+- [28-terrain](docs/recipes/28-terrain.md): Terrain: your own generator, digging, raising and painting the ground
+- [29-grid](docs/recipes/29-grid.md): Grid placement: farming, furniture, crates, building
+- [30-templates](docs/recipes/30-templates.md): Templates: reusable objects, definition vs instance state

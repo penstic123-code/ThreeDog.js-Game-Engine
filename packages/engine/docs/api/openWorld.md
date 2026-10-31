@@ -1,0 +1,24 @@
+# openWorld() preset — installs the open-world world and environment modules in one go
+
+- `openWorld(opts?: OpenWorldOptions) → ModuleDef[]` — Open-world preset: world, terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only). Every part takes false or its own options: openWorld({ seed: 7, sky: { daysPerSeason: 28 }, rigid: false }). Add gameplay modules yourself
+- Options `OpenWorldOptions`:
+  - `seed?: number` Terrain random seed
+  - `viewDistance?: number` View distance (in chunks)
+  - `density?: number` Vegetation density multiplier
+  - `flatten?: FlattenZone[]` Flatten a plot (for a house)
+  - `time?: number` Start time 0-1
+  - `dayLength?: number` Game seconds per day (default 360)
+  - `weather?: WeatherName | (string & {}) | Part<typeof weather>` Starting weather name, false (no weather module) or weather() options
+  - `autoWeather?: boolean` Automatic weather changes
+  - `camera?: 'follow' | 'firstPerson' | 'rts' | 'fixed' | ModuleDef | false` Camera: 'follow' (default) / 'firstPerson' / 'rts' / 'fixed', a camera module with options (e.g. followCamera({ shoulder: 0.7 })), or false
+  - `world?: Part<typeof world>`
+  - `terrain?: Part<typeof terrain>`
+  - `vegetation?: Part<typeof vegetation>`
+  - `sky?: Part<typeof sky>`
+  - `water?: Part<typeof water>`
+  - `collision?: Part<typeof collision>`
+  - `rigid?: Part<typeof rigid>`
+  - `characters?: Part<typeof characters>`
+  - `ambience?: Part<typeof ambience>`
+  - `settings?: Part<typeof settings>`
+  - `debug?: Part<typeof debug>` Default: installed in dev builds only; true also in release builds

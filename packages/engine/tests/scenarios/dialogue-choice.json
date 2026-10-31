@@ -1,0 +1,61 @@
+{
+  "name": "dialogue choice: talk to the fisher and pick the barter line (the op runs inside the choice)",
+  "url": "/",
+  "state": {
+    "pos": "@fisher",
+    "cutscene": "skip"
+  },
+  "steps": [
+    {
+      "op": "interaction.use"
+    },
+    {
+      "expect": {
+        "ui.dialogue.speaker": "老渔夫"
+      }
+    },
+    {
+      "op": "dialogue.advance"
+    },
+    {
+      "op": "dialogue.advance"
+    },
+    {
+      "op": "dialogue.advance"
+    },
+    {
+      "expect": {
+        "ui.dialogue.choices": [
+          "日落",
+          "森林",
+          "用胶卷换点野莓",
+          "没想好，随便走走"
+        ]
+      }
+    },
+    {
+      "op": "dialogue.choose",
+      "args": {
+        "index": 2
+      }
+    },
+    {
+      "expect": {
+        "ui.dialogue.text": "一卷换一把，刚摘的。",
+        "inventory.items.berry": 1,
+        "inventory.items.film": 11
+      }
+    },
+    {
+      "op": "dialogue.advance"
+    },
+    {
+      "op": "dialogue.advance"
+    },
+    {
+      "expect": {
+        "ui.dialogue": null
+      }
+    }
+  ]
+}

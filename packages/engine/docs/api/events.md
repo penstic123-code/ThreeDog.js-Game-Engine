@@ -1,0 +1,89 @@
+# engine.events (Events) — engine.events: the event bus; modules "shout" and whoever cares listens
+
+- `events.recent(name?: string) → { tick, name, data }[]` — Recent events (old -> new); with name, only that kind: { tick = which fixed step, name, data = summary (simple values only; objects become '…') }. For "why did it not fire", first check whether it happened at all. Example: `engine.events.recent('item:add');`
+- `events.on(name: K, fn: (args) => void) → Handle` — Listen to an event; returns a handle { remove() }. Example: `const h = engine.events.on('item:add', ({ id, count }) => console.log(id, count)); h.remove();`
+- `events.once(name: K, fn: (args) => void) → Handle` — Listen once; returns a handle { remove() } (can be removed before it fires)
+- `events.emit(name: K, ...args: EventArgs<K & string>)` — Emit an event. Example: `engine.events.emit('item:add', { id: 'fish', count: 1 });`
+- Properties:
+  - `historySize: number` How many history entries to keep, default 200; 0 records nothing
+
+## Event table (engine.events.on(name, (args…) => …), the [] lists the callback arguments)
+- `world:ready` [] Loading finished; the world is playable
+- `audio:ready` [] Audio can play (after the player's first click / key press)
+- `i18n:change` [locale: string] UI language changed; the argument is the new language
+- `input:rebind` [{ action: string | null; keys: string[] | null }] Key bindings changed; action null means everything was reset to defaults
+- `input:context` [{ stack: string[] }] 
+- `save` [slot: string] Save written to disk; the argument is the slot name (not emitted when the write fails, a toast is shown instead)
+- `save:imported` [slot: string] Restore from a save file (saves.importFile) finished; the argument is the slot name. Attachments in the file (such as photos) are written to storage too
+- `load` [slot: string] Load finished; the argument is the slot name
+- `ui:open` [id: string] A window was opened (the argument is the window id, e.g. 'inventory')
+- `ui:close` [id: string] A window was closed
+- `settings:shadows` [on: boolean] Shadows were toggled
+- `settings:change` [values: Record<string, any>] A value in the settings menu changed (the argument is all setting values)
+- `water:add` [body: WaterBody] A water body was added
+- `water:remove` [body: WaterBody] A water body was removed
+- `day:new` [day: number] A new day (the argument is the day number, starting at 1; needs the sky module)
+- `season:change` [season: string] Season changed (the argument is the season name, e.g. 'autumn')
+- `time:skip` [{ seconds: number }] engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran
+- `weather:lightning` [] Lightning strike (weather module)
+- `camera:shot` [CameraShotEvent] The fixed-shot camera switched shots
+- `camera:change` [{ kind: string; previous: string }] engine.setCamera switched the camera kind; settings that belong to the camera (sensitivity, invert Y, field of view) are re-applied on it
+- `character:jump` [{ character: Character }] A character jumped
+- `character:model` [{ character: Character; model: Object3D }] A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set)
+- `character:land` [{ character: Character; impact: number }] A character landed; impact is the landing speed (m/s), the larger the harder the fall
+- `dialogue:start` [speaker: string] Dialogue started; the argument is the dialogue script name
+- `dialogue:line` [{ script: string; node: string; speaker: string; text: string; data:… A dialogue line started (after its do ran): data is the node's own fields (portrait, voice...), {} when none. Use it for voice, portraits, camera shots without replacing the UI part
+- `dialogue:end` [speaker: string] Dialogue ended; the argument is the dialogue script name
+- `item:add` [ItemEvent] An item was added to the inventory
+- `item:remove` [ItemEvent] An item was removed from the inventory
+- `container:add` [ContainerEvent] An item was added to a non-player container (chest, corpse...); container is the container id
+- `container:remove` [ContainerEvent] An item was removed from a non-player container
+- `item:pickup` [PickupEvent] An item on the ground was picked up
+- `item:use` [ItemUseEvent] An item was used through the inventory.use op (after use ran)
+- `quest:start` [{ id: string }] A quest started
+- `quest:step` [{ id: string; step: number }] A quest moved to the next step; step is the new step index (starting at 0)
+- `quest:done` [{ id: string }] A quest completed
+- `quest:part` [{ id: string; step: number; part: number }] A part of a parallel quest step was met; step and part are indexes (starting at 0)
+- `quest:fail` [{ id: string }] A quest failed (its fail condition held); quests.start(id) may begin it again
+- `photo:taken` [PhotoShot] A photo was taken
+- `photo:denied` [{ reason: string }] The photo key was pressed but the op photo.take was refused (reason from photo.canTake(), 'denied' when it returned false)
+- `trigger:enter` [TriggerEvent] Entered a trigger zone
+- `trigger:exit` [TriggerEvent] Left a trigger zone
+- `level:loaded` [LevelLoadedEvent] Level finished loading
+- `timeline:start` [{ id: number }] A cutscene started
+- `timeline:end` [{ id: number; skipped: boolean }] A cutscene ended; skipped tells whether it was skipped
+- `entity:spawn` [Entity] An entity was spawned
+- `entity:remove` [Entity] An entity was removed
+- `entity:state` [EntityStateEvent] A state value of an entity changed
+- `entity:stage` [EntityStageEvent] An entity entered a new growth stage
+- `ground:change` [{ x0: number; z0: number; x1: number; z1: number }] The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale
+- `vegetation:remove` [VegetationRemoveEvent] A vegetation instance was chopped / removed
+- `vegetation:restore` [VegetationRemoveEvent] A vegetation instance was restored
+- `music:change` [MusicChangeEvent] Background music changed track (null means silence)
+- `music:stinger` [{ name: string }] A stinger was played
+- `state:applied` [StateParams] Scenario parameters were applied (URL parameters or engine.applyState)
+- `anim:end` [{ root: Object3D; state: string }] A one-shot action of the animation state machine finished
+- `world:add` [{ id: string; kind: string }] A record was added to world
+- `world:change` [{ id: string; kind: string; keys: string[] }] world.set changed fields (keys lists which)
+- `world:remove` [{ id: string; kind: string }] A record was removed from world
+- `world:load` [{ count: number }] world finished loading a save (the data is now the save's; caches holding a rec object should refresh on this, count is the record count after loading)
+- `net:join` [{ peer: number; actor: string }] Host (net): a peer connected; actor is its world record / container id
+- `net:leave` [{ peer: number; actor: string }] Host (net): a peer disconnected (its bag stays; a reconnect with its key gets the same actor)
+- `net:open` [{}] Client (net): connected to the host (the first snapshot follows)
+- `net:close` [{}] Client (net): connection lost
+- `net:sync` [{ tick: number; full: boolean }] Client (net): host state applied (full: a whole snapshot, else a diff); redraw UI from state here
+- `net:result` [{ seq: number; name: string; ok: boolean; reason: string | null; val… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
+- `engine:error` [EngineError] A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error)
+- `module:disabled` [{ name: string; message: string }] A presentation module errored and was disabled (the game continues)
+- `vehicle:enter` [{ character: Character; vehicle: Vehicle }] A character boarded a vehicle
+- `vehicle:exit` [{ character: Character; vehicle: Vehicle }] A character exited a vehicle
+- `flow:change` [{ from: string; to: string }] Game flow state changed
+- `flow:transition` [{ phase: 'start' | 'end' }] Scene transition: phase 'start' begins fading to black, 'end' finishes fading back in
+- `session:end` [] A playthrough ends (engine.session.newGame / load / quit), before the reset
+- `session:start` [{ kind: 'new' | 'load'; slot?: string }] A playthrough started from a clean slate: kind 'new' (newGame) or 'load' (session.load, with the slot)
+- `page:blur` [{ focused: boolean; visible: boolean }] The page went away: the window lost focus or the tab was hidden (engine.page)
+- `page:focus` [{ focused: boolean; visible: boolean }] The page came back: focused and visible again
+- `page:pointerlock` [{ locked: boolean }] The mouse lock on the canvas started or ended (Esc, alt-tab); cameras with pointerLock lock again on the next click
+- `page:contextlost` [] The WebGL context was lost: gameplay waits and the player sees a message
+- `page:contextrestored` [] The WebGL context is back: gameplay resumes
+- Other names work too (the game's own events, such as 'door:open'), their arguments are just not checked

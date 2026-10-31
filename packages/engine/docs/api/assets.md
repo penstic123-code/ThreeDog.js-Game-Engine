@@ -1,0 +1,54 @@
+# engine.assets (Assets)
+
+- `assets.manifest(m: AssetManifest, opts?: { name?: string })` — Register the asset manifest (can be called several times). opts.name labels it as the source in engine.loading (default 'manifest#1', '#2'...)
+- `assets.preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }) → Promise<{ loaded: number; failed:…` — Preload (onProgress(0–1, current name)). Code-generated models are only generated up front if marked preload. failed includes entries now showing their fallback
+- `assets.model(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Promise<Object3D>` — Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.raycaster (builds ray acceleration)
+- `assets.modelNow(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Object3D | null` — A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs. Example: `const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');`
+- `assets.geometry(nameOrUrl: string) → Promise<BufferGeometry>` — Get the geometry of the first mesh in a model
+- `assets.texture(nameOrUrl: string, opts?: { color?, pixelated?, repeat? }) → Promise<Texture>` — Get a texture (.ktx2 compressed textures also work)
+- `assets.release(name: string)` — Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is removed with engine.remove
+- `assets.trim() → string[]` — Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() / cached() are not released automatically. Returns the released names
+- `assets.users(name: string) → number` — How many copies of this model are in use now (taken with model() and not yet removed with engine.remove)
+- `assets.forget(obj: Object3D)` — Called when an object is fully removed (engine.remove already calls it, normally you don't need to): decrements the use count of the model copies under it
+- `assets.cached(name: string, build: (params?: any) => T | Promise<T>, params?: any) → Promise<T>` — Code-generated model: generated only once per name + params, returns a copy (for geometry, the same one). Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or a file it imports changes) -> compute now. When the generator is newer than the baked file during development, it computes now and prints a one-time hint "run npm run bake once it is final"
+- `assets.animate(root: Object3D, config?: AnimatorOptions) → Animator` — Create an animation state machine for a skinned model (without config it is simple play-by-name)
+- Properties:
+  - `cacheMinMs: number` Generations faster than this many milliseconds are not written to the automatic cache (reading the file would be slower), default 20
+  - `shared: WeakSet<object>` Geometry and materials shared by model copies (engine.remove does not release them, use release)
+  - `memory: { geometries: number; textures: number }` Current GPU memory usage (number of geometries and textures)
+  - `gltf: any` three.js GLTFLoader (Meshopt installed; Draco and KTX2 are installed the first time they are needed)
+  - `draco: any` three.js DRACOLoader (created only the first time Draco compression is met, null before; the decoder defaults to the one bundled with three, vite packs it automatically)
+  - `ktx2: any` three.js KTX2Loader (created only the first time a KTX2 texture is met, null before)
+
+## Data structures
+- **AssetManifest**
+  - `models?: Record<string, AssetEntry>` Models (.glb / .gltf, Draco/Meshopt compression also works): name -> path or generator function
+  - `textures?: Record<string, AssetEntry>` Textures: name -> path
+  - `sounds?: Record<string, AssetEntry>` Sounds: name -> path
+- **AnimatorOptions** Animation state machine parameters
+  - `fade?: number` Default transition seconds, default 0.25 (style pack style.character.animation.fade)
+  - `states?: Record<string, AnimatorState>` States: name → state
+  - `transitions?: Record<string, number>` Transition seconds for specific pairs: { 'jump>fall': 0.1, '*>idle': 0.3 }
+  - `params?: Record<string, number>` Initial parameter values
+- **AnimatorState** An animation state: clip is the clip name; or blend is a blend tree (blends several clips by the param parameter); loop: false is a one-shot clip
+  - `clip?: string` Clip name (the clip name in the glTF)
+  - `blend?: { clip: string; at: number }[]` Blend tree: at the parameter value at it is fully this clip, in between they blend proportionally, e.g. [{ clip: 'Walk', at: 1.5 }, { clip: 'Run', at: 6 }]
+  - `param?: string` Which parameter the blend tree reads (set by anim.set), default 'speed'
+  - `sync?: boolean` Align the strides of blended clips, default true
+  - `loop?: boolean` Loop, default true; with false the anim:end event fires when it finishes
+  - `then?: string` Which state a one-shot clip goes to when it finishes
+  - `lock?: boolean` go() cannot interrupt it while playing
+  - `timing?: number | [number, number][]` For sync(): gameplay seconds -> clip seconds. A number = the gameplay length the whole clip is stretched over; [[gameT, clipT], ...] = piecewise linear (land the swing on the hit phase). Without it clip seconds = t
+- **Animator** Skeletal animation state machine (returned by engine.assets.animate(model, config))
+  - `mixer: any` three.js AnimationMixer
+  - `actions: Map<string, any>` clip name → three.js AnimationAction
+  - `state: string | null` Current state name
+  - `states: Record<string, AnimatorState>` State configuration (states can be added directly)
+  - `params: Record<string, number>` Parameters (used by blend trees)
+  - `set(param: string, value: number)` — Set a parameter, e.g. set('speed', 3)
+  - `go(state: string, fade?: number) → any` — Switch to a state (fade is the transition seconds); null (dev warning) if there is no such state / clip; ignored while sync() drives a state
+  - `action(name: string, fade?: number) → any` — One-shot clip: state name or clip name, returns to then or the previous state when done; go() cannot interrupt it while playing
+  - `sync(state: string | null, t?: number) → any` — Gameplay drives the clock: show state at gameplay time t (fixed-step seconds) through its timing. The clip never advances or ends by itself and go() leaves it alone; sync(null) hands control back
+  - `describe() → AnimatorInfo` — What is showing: state, clip, clip time, progress, driven, weights
+  - `update(dt: number)` — Advance every frame (called automatically by the engine)
+  - `dispose()` — Stop the per-frame update when no longer needed

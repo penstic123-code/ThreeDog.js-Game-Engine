@@ -1,0 +1,142 @@
+// Built-in tabs of the settings menu: graphics, audio, keys, language.
+// Each tab is { title: engine => text, render: (tools, engine, settings) => HTML, bind?: (element, engine, settings) => void, when?: engine => show or not, order }
+// Controls bind no events directly; they carry data-* attributes that Settings.js handles in one place (a style pack's whole-page template can use the same attributes):
+//   data-tab="graphics"                   switch tab
+//   data-set="shadows" data-value="true"  click sets the setting shadows to true (value parsed as JSON, falls back to a string)
+//   data-range="vol.music"                slider <input type="range">; applies live while dragging, saves on release
+//   data-rebind="interact"                click to enter the "press a key" state
+//   data-reset="controls"                 restore default keys
+//   data-locale="en"                      switch language
+
+const pct = v => Math.round(v * 100) + '%';
+/** Value shown beside a slider */
+export const formatValue = (key, v) => key.startsWith('vol.') || key === 'density' ? pct(v)
+  : key === 'pixelRatio' || key === 'camera.sensitivity' ? '×' + (+v).toFixed(2) : key === 'camera.fov' ? v + '°' : String(v);
+
+/** One row: text on the left, control on the right */
+export const row = (label, ctl, esc) => `<div class="threedog-row threedog-set-row"><span class="threedog-set-label">${esc(label)}</span><span class="threedog-set-ctl">${ctl}</span></div>`;
+
+/** Toggle button */
+export const toggle = (key, on, { esc, t }) =>
+  `<button type="button" class="threedog-btn threedog-set-toggle${on ? ' is-active' : ''}" aria-pressed="${!!on}" data-set="${esc(key)}" data-value="${!on}">${esc(t(on ? 'common.on' : 'common.off'))}</button>`;
+
+/** Slider */
+export const range = (key, v, min, max, step, { esc }) =>
+  `<input class="threedog-range" type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-range="${esc(key)}" aria-label="${esc(key)}"><span class="threedog-set-val" data-val="${esc(key)}">${esc(formatValue(key, v))}</span>`;
+
+/** A group of mutually exclusive buttons: options = [[value, text], ...]; a disabled value is display-only (e.g. "custom") */
+export const segmented = (key, cur, options, { esc }, disabled = []) =>
+  `<span class="threedog-seg">${options.map(([v, label]) => {
+    const on = v === cur, off = disabled.includes(v);
+    return `<button type="button" class="threedog-btn${on ? ' is-active' : ''}" aria-pressed="${on}"${off ? ' disabled' : ` data-set="${esc(key)}" data-value="${esc(JSON.stringify(v))}"`}>${esc(label)}</button>`;
+  }).join('')}</span>`;
+
+export const BUILTIN_SECTIONS = {
+  graphics: {
+    order: 10, title: e => e.t('settings.graphics'),
+    render(tools, e, s) {
+      const { esc, t } = tools, v = s.values;
+      const opts = ['low', 'medium', 'high', 'custom'].map(k => [k, t('settings.quality.' + k)]);
+      let h = row(t('settings.quality'), segmented('quality', v.quality, opts, tools, ['custom']), esc);
+      h += row(t('settings.pixelRatio'), range('pixelRatio', v.pixelRatio, 0.5, 2, 0.05, tools), esc);
+      h += row(t('settings.shadows'), toggle('shadows', v.shadows, tools), esc);
+      h += row(t('settings.antialias'), toggle('antialias', v.antialias, tools), esc);
+      if (e.post.get('bloom')) h += row(t('settings.bloom'), toggle('bloom', v.bloom, tools), esc);
+      if (e.post.get('ao')) h += row(t('settings.ao'), toggle('ao', v.ao, tools), esc);
+      if (e.adaptive) h += row(t('settings.adaptive'), toggle('adaptive', v.adaptive, tools), esc);
+      if (e.terrain?.setViewDistance) h += row(t('settings.viewDistance'), range('viewDistance', v.viewDistance, 2, 8, 1, tools), esc);
+      if (e.terrain?.setDensity) h += row(t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools), esc);
+      return h;
+    },
+  },
+  audio: {
+    order: 20, title: e => e.t('settings.audio'), when: () => true,
+    render(tools, e, s) {
+      const { esc, t } = tools;
+      return ['volume', 'music', 'sfx', 'ambience'].map(ch => row(t('settings.vol.' + ch), range('vol.' + ch, s.values['vol.' + ch] ?? 1, 0, 1, 0.05, tools), esc)).join('');
+    },
+  },
+  controls: {
+    order: 30, title: e => e.t('settings.controls'),
+    render(tools, e, s) {
+      const { esc, t } = tools;
+      const rows = s.actionList().map(a => {
+        const waiting = s.capturing === a.action;
+        const keys = waiting ? t('settings.pressKey') : (a.label || t('settings.unbound'));
+        return `<div class="threedog-row threedog-set-row threedog-set-bind"><span class="threedog-set-label">${esc(a.name)}</span>`
+          + `<span class="threedog-set-ctl"><button type="button" class="threedog-btn threedog-key${waiting ? ' is-waiting' : ''}" data-rebind="${esc(a.action)}">${esc(keys)}</button></span></div>`;
+      }).join('');
+      return `<div class="threedog-list">${rows}</div><p class="threedog-set-note">${esc(t('settings.rebindHint'))}</p>`
+        + `<div class="threedog-set-foot"><button type="button" class="threedog-btn" data-reset="controls">${esc(t('settings.resetKeys'))}</button></div>`;
+    },
+  },
+  language: {
+    order: 40, title: e => e.t('settings.language'), when: e => e.i18n.languages.length > 1,
+    render(tools, e) {
+      const { esc, t } = tools, cur = e.i18n.locale;
+      const btns = e.i18n.languages.map(l => {
+        const name = e.i18n.has('settings.langName.' + l) ? t('settings.langName.' + l) : l;
+        return `<button type="button" class="threedog-btn${l === cur ? ' is-active' : ''}" aria-pressed="${l === cur}" data-locale="${esc(l)}">${esc(name)}</button>`;
+      }).join('');
+      return row(t('settings.language'), `<span class="threedog-seg">${btns}</span>`, esc);
+    },
+  },
+  // Save backup: an "Export" per save slot (downloads .json, attachments included) and an "Import" at the bottom (pick a file to restore). A safety net for when mobile browsers clear site data
+  saves: {
+    order: 50, title: e => e.t('settings.saves'),
+    render(tools, e) {
+      const { esc, t } = tools, list = e.saves.list();
+      const rows = list.map(s => row(`${s.slot}  ${new Date(s.savedAt).toLocaleString()}`,
+        `<button type="button" class="threedog-btn" data-save-export="${esc(s.slot)}">${esc(t('settings.exportSave'))}</button>`, esc)).join('')
+        || `<p class="threedog-set-note">${esc(t('settings.noSaves'))}</p>`;
+      return `${rows}<p class="threedog-set-note">${esc(t('settings.saveHint'))}</p>`
+        + `<div class="threedog-set-foot"><button type="button" class="threedog-btn" data-save-import>${esc(t('settings.importSave'))}</button></div>`;
+    },
+  },
+};
+
+// Optional tabs: not in the default menu (a game with no use for them should not show them). Turn on with
+// settings({ sections: ['graphics', 'audio', 'controls', 'game', 'camera'] }) or engine.settings.addSection('camera').
+// setup(s) runs once when the tab is added and registers the tab's own settings (saved like any other).
+export const OPTIONAL_SECTIONS = {
+  // Resume / load a slot / back to title (only when the game turned the title part on)
+  game: {
+    order: 5, title: e => e.t('settings.game'),
+    render(tools, e) {
+      const { esc, t } = tools;
+      const btn = (act, label, extra = '') => `<button type="button" class="threedog-btn" data-game="${act}"${extra}>${esc(label)}</button>`;
+      let h = row(t('settings.resume'), btn('resume', t('settings.resume')), esc);
+      for (const s of e.saves.list()) {
+        h += row(`${s.slot}  ${new Date(s.savedAt).toLocaleString()}`, btn('load', t('settings.load'), ` data-slot="${esc(s.slot)}"`), esc);
+      }
+      if (e.ui.describe().title !== 'off') h += row(t('settings.toTitle'), btn('title', t('settings.toTitle')), esc);
+      return h;
+    },
+    bind(el, e, s) {
+      for (const b of el.querySelectorAll('[data-game]')) b.onclick = async () => {
+        const act = b.dataset.game;
+        s.close();
+        if (act === 'load') await e.session.load(b.dataset.slot);   // a clean playthrough from the save, not a quick load onto this one
+        else if (act === 'title') await e.session.quit();
+      };
+    },
+  },
+  // Mouse sensitivity, invert Y, field of view: written to the current camera (engine.cameraRig)
+  camera: {
+    order: 25, title: e => e.t('settings.camera'), when: e => !!e.cameraRig,
+    setup(s) {
+      const e = s.engine, rig = () => e.cameraRig;
+      s.define('camera.sensitivity', rig()?.sensitivity ?? 1, v => { if (rig() && 'sensitivity' in rig()) rig().sensitivity = v; });
+      s.define('camera.invertY', rig()?.invertY ?? false, v => { if (rig() && 'invertY' in rig()) rig().invertY = v; });
+      s.define('camera.fov', e.camera.fov, v => { if (e.camera.fov !== v) { e.camera.fov = v; e.camera.updateProjectionMatrix(); } });
+      // a new rig starts from its own defaults (and setCamera resets the fov): put the player's choices back on it
+      e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); });
+    },
+    render(tools, e, s) {
+      const { esc, t } = tools, v = s.values;
+      return row(t('settings.sensitivity'), range('camera.sensitivity', v['camera.sensitivity'], 0.2, 3, 0.05, tools), esc)
+        + row(t('settings.invertY'), toggle('camera.invertY', v['camera.invertY'], tools), esc)
+        + row(t('settings.fov'), range('camera.fov', v['camera.fov'], 40, 100, 1, tools), esc);
+    },
+  },
+};

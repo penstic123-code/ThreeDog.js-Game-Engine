@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>小城 · 引擎示例</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#141a17;color:#e9ece0;font:13px system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  .bar{position:fixed;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;align-items:flex-end;z-index:5}
+  #strip{display:flex;gap:6px;max-width:60vw;overflow-x:auto}
+  #strip img{height:56px;border:2px solid #f4efe2;border-radius:4px;cursor:pointer}
+  #shoot{font:inherit;font-weight:700;background:#f0b450;color:#1b1408;border:0;border-radius:50%;width:56px;height:56px;cursor:pointer}
+  #help{position:fixed;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));background:rgba(17,23,20,.75);padding:8px 12px;border-radius:8px;color:#a2ad9b}
+  #help kbd{font-family:ui-monospace,Menlo,monospace;color:#e9ece0;border:1px solid #445;border-radius:4px;padding:0 4px}
+  #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .35s;z-index:30}
+  #viewer{position:fixed;inset:0;background:rgba(10,12,11,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:40}
+  #viewer[hidden]{display:none}
+  #viewer img{max-width:92vw;max-height:80vh;border:6px solid #f4efe2}
+  #viewer button{font:inherit;padding:8px 16px;border-radius:8px;border:0;cursor:pointer}
+  @media (pointer:coarse){#help{display:none}}
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="flash"></div>
+<div id="help"><kbd>WASD</kbd> 移动 · <kbd>Shift</kbd> 跑 · 拖动转视角 · 滚轮缩放 · <kbd>E</kbd> 交互 · <kbd>F</kbd> 推箱子 · <kbd>F3</kbd> 性能面板 · <a href="/" style="color:inherit">回到开放世界示例</a></div>
+
+
+<script type="module" src="/examples/city/main.js"></script>
+</body>
+</html>

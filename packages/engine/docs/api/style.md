@@ -1,0 +1,124 @@
+# Style pack Style — createEngine({ style }), all the look (example: styles/lowpoly/index.js)
+
+- **Style** fields (all optional):
+  - `name?: string` Style pack name
+  - `exposure?: number` Exposure, default 1 (lowpoly: 1.05)
+  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping, default 'neutral' (lowpoly: 'aces')
+  - `background?: ColorLike` Background color (when there is no sky module)
+  - `post?: import('./generated/render/PostFX').PostEffect[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from 'threedog/styles/lowpoly'
+  - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
+  - `antialias?: boolean` Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier; createEngine({ antialias }) wins
+  - `seasons?: Record<string, { foliage?: ColorLike; ground?: ColorLike }>` Seasonal tint (multiplied onto the base color): { spring: { foliage, ground }, ... }
+  - `clouds?: { shadow?: number; scale?: number; speed?: number[] }` Cloud shadow: shadow darkest level 0–1 (default 0 = no cloud shadows; lowpoly 0.55), scale cloud size (smaller means bigger clouds), speed [x, z]
+  - `wind?: { frequency?: number }` Wind: frequency sway frequency multiplier
+  - `terrain?: StyleTerrain` Terrain colors etc.
+  - `sky?: StyleSky` Sky
+  - `weather?: StyleWeather` Weather look
+  - `water?: StyleWater` Water look
+  - `pickup?: { color?, size?, lift?, model? }` Default look of pickups on the ground: color (the item's own color wins), size (meters), lift height above ground (meters), model(item, { color, size }) builds the shape (a geometry gets materials.pickup; without model a plain box)
+  - `character?: { model?, colors?, create?, animation? }` Default character: colors palette; create(engine, colors) returns the procedural character (without it a gray capsule); model names a registered model asset every character uses unless it passes its own model (the procedural body shows until it loads); animation.fade skeletal animation transition seconds
+  - `footstepMap?: Record<string, string>` Ground type → footstep type
+  - `sounds?: StyleSounds` Sound files
+  - `ambience?: StyleAmbience` Ambience
+  - `music?: { tracks?, fade?, duckDialogue?, duckFade?, hold?, interval? }` Background music: tracks list, fade fade seconds, duckDialogue how low it ducks during dialogue
+  - `ui?: StyleUI` UI colors, fonts, templates
+  - `particles?: Record<string, ParticleOptions>` Particle presets: name → parameters; default is the fallback for all effects
+  - `triggers?: { debugColor?: ColorLike; debugOpacity?: number }` Trigger zone debug wireframe
+  - `grid?: { ok?, bad?, previewOpacity?, previewHeight?, tileLift?, tiles? }` Grid placement (grids() module): preview ok / bad colors and opacity, tile lift (m), and per-layer tile colors { layer: { field: color } } (first truthy field of a cell's data wins)
+  - `models?: Record<string, (...args: any[]) => BufferGeometry | Object3…` Procedural models: name → generator function (e.g. lowpoly.models.pine())
+
+## Sub-structures
+- **StyleSky**
+  - `keyframes?: SkyKeyframe[]` Colors and light intensities at each time of day
+  - `sunSize?: number` Larger means a smaller sun, default 900
+  - `sunGlow?: number` Sun glow, default 0.18
+  - `sunBrightness?: number` Sun brightness, default 6
+  - `moonSize?: number` Larger means a smaller moon
+  - `moonColor?: ColorLike`
+  - `moonBrightness?: number`
+  - `orbitTilt?: number` North-south tilt of the sun path
+  - `orbitSway?: number` East-west swing of the sun path
+  - `hoursPerDay?: number` Hours per day (for the displayed clock), default 24
+  - `starDensity?: number` Star density
+  - `starScale?: number` Larger means smaller and more numerous stars
+  - `gradientCurve?: number` Gradient curve from zenith to horizon
+  - `groundTint?: ColorLike` Ground bounce color of the ambient light
+  - `clouds?: { color?, shade?, coverage?, scale?, speed? }` Clouds in the sky (cloud cover follows the weather)
+  - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path
+  - `shadow?: StyleShadow` Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow
+- **StyleShadow** Sun shadow parameters (defaults are the current look)
+  - `mapSize?: number` Shadow resolution (pixels), default 2048
+  - `extent?: number` Coverage radius (meters), default 70
+  - `distance?: number` Distance of the light from the shadow center (meters), default 160
+  - `bias?: number` Anti shadow-acne bias, default -0.0006
+  - `normalBias?: number` Normal-offset anti-acne, default 0.04
+  - `updateEvery?: number` Update shadows every N frames, default 1 (every frame); larger saves more, still updates promptly when the focus moves
+  - `snap?: number | 'texel'` Shadow center snapping grid (meters), default 0.5; 'texel' snaps to shadow pixels (shadow edges do not shimmer while moving)
+  - `ahead?: number` How far ahead of the view direction the shadow center is shifted (meters), default 0
+  - `low?: Omit<StyleShadow, 'low'>` Overrides used on low-tier devices (engine.tier 'low'), default { mapSize: 1024 }. updateEvery above 1 saves more but makes wind-swayed shadows step visibly. sky({ shadow }) options replace the whole shadow block, low included.
+- **StyleWeather**
+  - `area?: number` Rain / snow coverage (meters, centered on the camera)
+  - `overcastColor?: ColorLike` Target color the sky turns to when overcast
+  - `lightningBrightness?: number` Lightning brightness multiplier
+  - `rain?: { color?, opacity?, length?, speed?, slant?, texture?, … }` Rain: color, opacity, streak length (meters), fall speed (m/s), slant; texture uses a textured raindrop instead
+  - `snow?: { color?, opacity?, size?, maxSize?, speed?, texture? }` Snow: color, opacity, size, max pixels, fall speed (m/s), snowflake texture
+  - `presets?: Record<string, Partial<WeatherPreset>>` Add / override weather presets
+- **StyleWater**
+  - `material?: (engine, ctx) => Material` Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch and the scrolling normal map (null without one). Example: `material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })`
+  - `color?: ColorLike`
+  - `opacity?: number` Opacity 0–1
+  - `flat?: boolean` Flat shading (low poly)
+  - `waveHeight?: number` Wave height multiplier
+  - `waveScale?: number`
+  - `waveSpeed?: number`
+  - `fresnel?: number` Grazing-angle reflection strength 0–1
+  - `normalMap?: string` Normal map (asset name or path)
+  - `normalScale?: number`
+  - `normalRepeat?: number`
+  - `normalSpeed?: number[]` Normal map flow speed [x, z]
+  - `shininess?: number`
+  - `specular?: ColorLike`
+  - `size?: number` Global water mesh size (meters) and segment count
+  - `segments?: number`
+  - `level?: number` Global water level (meters); if omitted, the terrain's water level is used
+  - `sea?: boolean` false: do not draw the global water
+- **StyleTerrain**
+  - `colors?: Record<string, ColorLike>` Palette: color name → color (e.g. sand, meadowA, rock)
+  - `biomeColors?: Record<string, string[]>` Landform → palette color name (two names are blended by noise)
+  - `steep?: SteepRule[]` Color rule for steep slopes
+  - `config?: Partial<TerrainConfig>` Default terrain parameters (overridden by terrain({...}))
+  - `material?: Material | ((engine: Engine) => Material)` Whole ground material: a Material or (engine) => Material (uv = world xz / chunk size; terrain({ material }) wins)
+  - `detail?: { texture: string; scale?: number; strength?: number }` Ground detail texture: texture asset name, scale repeats per meter, strength 0–1
+- **StyleUI**
+  - `bg?: string` Background color
+  - `fg?: string` Text color
+  - `muted?: string` Secondary text color
+  - `accent?: string` Accent color
+  - `good?: string` Color for good news such as "done"
+  - `line?: string` Divider color
+  - `font?: string` Font (CSS font-family)
+  - `radius?: string` Corner radius (CSS, e.g. '12px')
+  - `loadingBg?: string` Loading screen background
+  - `shadow?: string` Window shadow (CSS)
+  - `promptHeight?: number` Height of the interaction prompt above the object (meters)
+  - `fadeBg?: string` Fade color for scene transitions (CSS), default '#000'
+  - `hudBg?: string` Background / text / accent colors of objective markers, counters and progress bars (CSS)
+  - `hudFg?: string`
+  - `hudAccent?: string`
+  - `fontFaces?: { family, url, weight?, style? }[]` Font files
+  - `fontCSS?: string` Web font stylesheet URL. A third-party URL (e.g. Google Fonts) makes the player's browser contact that server; ship the font files with fontFaces when that matters (privacy, offline)
+  - `css?: string` Extra CSS (overrides .threedog-* classes)
+  - `templates?: Record<string, UITemplate>` Replace the content of a window wholesale: inventory, quests, settings, loading, hudMarker, hudCounter, hudBar…
+- **StyleAmbience**
+  - `wind?: AmbienceSource`
+  - `rain?: AmbienceSource`
+  - `water?: AmbienceSource`
+  - `birds?: AmbienceSource`
+  - `crickets?: AmbienceSource`
+  - `day?: AmbienceSource` Looping background-noise files for day / night
+  - `night?: AmbienceSource`
+  - `synth?: Record<string, any>` Synthesis parameters: windVolume, rainVolume, waterVolume, birdPitch [low, high] Hz, birdGap [shortest, longest] seconds, waterRadius meters…
+- **MaterialSpec** Material parameters for one role (other fields are set on the three.js material as is, e.g. roughness, shininess, specular)
+  - `type?: MaterialType` Material type, default 'lambert'
+  - `steps?: number` Number of light/dark steps for the toon type, default 3
+  - `color?: ColorLike`

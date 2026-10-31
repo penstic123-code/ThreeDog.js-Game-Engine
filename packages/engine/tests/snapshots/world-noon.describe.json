@@ -1,0 +1,32 @@
+{
+ "player": {
+  "ground": "forest",
+  "state": "idle",
+  "inWater": false
+ },
+ "weather": {
+  "name": "clear"
+ },
+ "ui": {
+  "dialogue": null,
+  "inputContexts": [
+   "gameplay"
+  ],
+  "inputLocked": false,
+  "parts": {
+   "dialogue": "default",
+   "hud.bar": "default",
+   "hud.counter": "default",
+   "hud.marker": "default",
+   "inventory": "default",
+   "loading": "default",
+   "prompt": "default",
+   "questLog": "default",
+   "title": "off",
+   "toast": "default",
+   "touch": "default"
+  },
+  "windows": []
+ },
+ "cutscene": null
+}

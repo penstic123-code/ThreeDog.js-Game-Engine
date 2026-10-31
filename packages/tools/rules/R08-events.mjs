@@ -1,0 +1,73 @@
+// R8 single source of event names: interface EventMap in packages/engine/types/core.d.ts is the only event table.
+//   ✗ a name in xxx.events.emit('name') in the engine that is not in EventMap (packages/engine/docs/api/events.md cannot list it, and game listeners get no completion or argument types) → error
+//   ! an event in EventMap that nothing in the engine emits (a dead event, or a misspelled name) → warning
+//   ✗ if packages/engine/core/Events.js still has a hand-written event-name array (for spell checking), it must match EventMap exactly → a mismatch is an error
+//     (once it is generated from EventMap, this check skips itself: with no array whose elements are mostly EventMap names, nothing is checked)
+// Criteria: the syntax tree is searched for `<…events>.emit(first argument)`; the argument counts if it is a string literal, or `cond ? 'a' : 'b'` with both sides literals.
+// Limitation: names held in variables (such as the { event: name } timed events of clock) are not found; those names come from the game anyway.
+import { ts, parse, visit, engineFiles, lineOf, strValue, dtsFiles, read, E, P } from './_lib.mjs';
+
+// Allowlist: [event name, reason]
+const ALLOW_UNDECLARED = [];
+const ALLOW_UNEMITTED = [];
+
+/** EventMap keys → line numbers (whichever d.ts holds interface EventMap) */
+function eventMap() {
+  for (const f of dtsFiles()) {
+    const sf = parse(f);
+    for (const s of sf.statements) if (ts.isInterfaceDeclaration(s) && s.name.text === 'EventMap')
+      return { file: f, keys: new Map(s.members.filter(m => m.name).map(m => [m.name.text ?? m.name.getText().replace(/['"]/g, ''), lineOf(m)])) };
+  }
+  return null;
+}
+
+const literalNames = n => {
+  const v = strValue(n);
+  if (v != null) return [v];
+  if (n && ts.isConditionalExpression(n)) { const a = strValue(n.whenTrue), b = strValue(n.whenFalse); if (a != null && b != null) return [a, b]; }
+  if (n && ts.isParenthesizedExpression(n)) return literalNames(n.expression);
+  return null;
+};
+
+export default {
+  id: 'R8', title: 'Single source of event names',
+  run() {
+    const out = [], map = eventMap();
+    if (!map) return [{ level: 'error', file: P.CORE_DTS_REL, line: 0, msg: 'interface EventMap not found', fix: 'declare EventMap in the d.ts (event name → arguments)' }];
+    const emitted = new Map();   // name → where it first appears
+    for (const f of engineFiles()) {
+      visit(parse(f), n => {
+        if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression) || n.expression.name.text !== 'emit') return;
+        const recv = n.expression.expression.getText();
+        if (!/(^|\.)events$/.test(recv)) return;            // only the event bus counts (particles.emit and the like are not events)
+        const names = literalNames(n.arguments[0]);
+        if (!names) return;
+        for (const name of names) {
+          if (!emitted.has(name)) emitted.set(name, `${f}:${lineOf(n)}`);
+          if (!map.keys.has(name) && !ALLOW_UNDECLARED.some(([a]) => a === name))
+            out.push({ level: 'error', file: f, line: lineOf(n), msg: `emits event '${name}', but it is not in EventMap in ${map.file}`,
+              fix: `add a line '${name}': [args…] to EventMap with a doc comment (packages/engine/docs/api/events.md is generated from it, then npm run map)` });
+        }
+      });
+    }
+    for (const [name, line] of map.keys) {
+      if (emitted.has(name) || ALLOW_UNEMITTED.some(([a]) => a === name)) continue;
+      out.push({ level: 'warn', file: map.file, line, msg: `EventMap has '${name}', but nothing in the engine calls events.emit('${name}')`,
+        fix: 'find out who should emit it; if nobody does, delete it from EventMap (or the name differs at the emit site)' });
+    }
+    // hand-written list (Events.js)
+    const ev = E('core/Events.js');
+    let sf; try { sf = parse(ev); } catch { sf = null; }
+    if (sf) visit(sf, n => {
+      if (!ts.isVariableDeclaration(n) || !n.initializer || !ts.isArrayLiteralExpression(n.initializer)) return;
+      const vals = n.initializer.elements.map(strValue).filter(v => v != null);
+      if (vals.length < 5 || vals.filter(v => map.keys.has(v)).length < vals.length / 2) return;
+      const set = new Set(vals);
+      const missing = [...map.keys.keys()].filter(k => !set.has(k)), extra = vals.filter(v => !map.keys.has(v));
+      if (missing.length || extra.length) out.push({ level: 'error', file: ev, line: lineOf(n),
+        msg: `hand-written event list ${n.name.getText()} differs from EventMap: ${missing.length ? `missing ${missing.join(', ')}` : ''}${missing.length && extra.length ? '; ' : ''}${extra.length ? `extra ${extra.join(', ')}` : ''}`,
+        fix: 'best to generate it from EventMap (npm run map writes an events name file); align by hand for now' });
+    });
+    return out;
+  },
+};

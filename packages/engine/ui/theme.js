@@ -1,0 +1,111 @@
+// UI theme and default CSS in <head> (part of ui/UI.js): the --threedog-* variables from style.ui, the engine's base classes, module
+// defaults, the style pack's css and fonts. The classes use only var(--threedog-*), never a color of their own.
+/** @import { StyleUI } from '../types/style' */
+
+const DEFAULT_UI = {
+  bg: 'rgba(28,28,30,.92)', fg: '#ededed', muted: '#a0a0a0', accent: '#d0d0d0', good: '#c8c8c8', line: 'rgba(255,255,255,.15)',
+  font: 'system-ui,"PingFang SC","Microsoft YaHei",sans-serif', radius: '12px', loadingBg: '#202022', shadow: '0 20px 60px rgba(0,0,0,.35)',
+  fadeBg: '#000', hudBg: 'rgba(28,28,30,.75)', hudFg: '#ededed', hudAccent: '#d0d0d0',
+};
+
+const BASE_CSS = `
+.threedog-ui{font:14px/1.55 var(--threedog-font);color:var(--threedog-fg)}
+.threedog-win{box-sizing:border-box;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(480px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;
+  background:var(--threedog-bg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);padding:16px 18px;z-index:25;box-shadow:var(--threedog-shadow)}
+.threedog-win-head{margin:0 0 10px;font-size:16px;color:var(--threedog-accent);letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.threedog-win-hint{color:var(--threedog-muted);font-weight:400;font-size:12px}
+.threedog-btn{background:none;border:1px solid var(--threedog-line);border-radius:8px;color:var(--threedog-fg);font:inherit;padding:4px 10px;cursor:pointer}
+.threedog-btn:hover,.threedog-btn:focus-visible{border-color:var(--threedog-accent);outline:none}
+.threedog-close{border:0;color:var(--threedog-muted);font-size:13px}
+.threedog-empty{color:var(--threedog-muted)}
+.threedog-list{display:flex;flex-direction:column}
+.threedog-row{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--threedog-line)}
+.threedog-icon{width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:22px;flex:none}
+.threedog-icon img{width:100%;height:100%;object-fit:contain}
+.threedog-row-main{flex:1;min-width:0}.threedog-row-sub{color:var(--threedog-muted);font-size:12px}
+.threedog-count{font-variant-numeric:tabular-nums;font-weight:700}
+.threedog-quest{margin-bottom:12px}.threedog-quest-title{font-weight:700}.threedog-quest.is-done .threedog-quest-title{color:var(--threedog-muted)}
+.threedog-steps{margin:6px 0 0;padding-left:20px}.threedog-step{color:var(--threedog-muted)}.threedog-step.is-current{color:var(--threedog-fg)}.threedog-step.is-done{color:var(--threedog-good)}
+.threedog-toasts{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;z-index:35;pointer-events:none}
+.threedog-toast{background:var(--threedog-bg);border:1px solid var(--threedog-accent);border-radius:999px;
+  padding:6px 14px;animation:threedogIn .25s ease-out;transition:opacity .4s}
+.threedog-prompt{position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:6px 10px;border-radius:8px;background:var(--threedog-bg);color:var(--threedog-fg);font:13px var(--threedog-font);cursor:pointer;z-index:15;white-space:nowrap}
+.threedog-dlg{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));
+  width:min(640px,calc(100vw - 32px));
+  background:var(--threedog-bg);color:var(--threedog-fg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);padding:14px 18px 16px;font:15px/1.6 var(--threedog-font);z-index:20;cursor:pointer}
+.threedog-dlg-name{display:block;color:var(--threedog-accent);font-size:13px;margin-bottom:4px;letter-spacing:.05em;font-weight:700}
+.threedog-dlg-opts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.threedog-dlg-opts .threedog-btn{text-align:left}
+.threedog-dlg-hint{position:absolute;right:14px;bottom:8px;font-size:12px;opacity:.6}
+.threedog-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--threedog-loading-bg);color:var(--threedog-fg);z-index:100;transition:opacity .6s;font-family:var(--threedog-font)}
+.threedog-loading-box{display:flex;flex-direction:column;gap:14px;align-items:center;width:min(360px,80vw)}
+.threedog-loading-title{font-weight:600;font-size:20px;letter-spacing:.08em}
+.threedog-loading-track{width:100%;height:4px;background:var(--threedog-line);border-radius:2px;overflow:hidden}
+.threedog-loading-bar{height:100%;width:0;background:var(--threedog-accent);transition:width .2s}
+.threedog-loading-msg{font-size:13px;color:var(--threedog-muted);min-height:1.5em}
+.threedog-stick{position:fixed;left:calc(24px + env(safe-area-inset-left,0px));bottom:calc(28px + env(safe-area-inset-bottom,0px));width:110px;height:110px;border-radius:50%;
+  background:var(--threedog-bg);opacity:.7;border:1px solid var(--threedog-line);touch-action:none;z-index:5}
+.threedog-touch-bar{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(96px + env(safe-area-inset-bottom,0px));display:flex;flex-wrap:wrap-reverse;gap:10px;justify-content:flex-end;width:160px;z-index:6}
+.threedog-touch-btn{width:64px;height:64px;border-radius:50%;border:1px solid var(--threedog-line);background:var(--threedog-bg);
+  color:var(--threedog-fg);font:600 13px var(--threedog-font);touch-action:none}
+.threedog-touch-btn:active{border-color:var(--threedog-accent)}
+.threedog-stick-knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:var(--threedog-accent)}
+.threedog-fade{position:fixed;inset:0;background:var(--threedog-fade-bg);opacity:var(--threedog-fade,0);pointer-events:none;z-index:90}
+.threedog-fade.is-on{pointer-events:auto}
+@keyframes threedogIn{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.threedog-toast{animation:none}}
+`;
+
+// <head> styles. Engine and module defaults go before every style pack's CSS, so style.ui.css wins ties of equal specificity
+// whatever order modules inject their defaults in. Defaults are deduped by text and shared by every engine on the page (removed
+// with the last one); a pack's CSS, fonts and theme variables belong to their engine and go with its dispose().
+const defaults = new Map();   // css text -> its <style>
+const live = new Set();       // engines whose style.ui is applied
+const kebab = k => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+/**
+ * Add default CSS (engine or module look, built only from var(--threedog-*)) once per page, ahead of the style packs' CSS
+ * @internal
+ */
+export function injectUICSS(css = '') {
+  for (const text of [BASE_CSS, css]) {
+    if (!text || defaults.has(text)) continue;
+    const el = document.createElement('style'); el.dataset.threedog = 'default'; el.textContent = text;
+    document.head.insertBefore(el, document.head.querySelector('[data-threedog-pack]'));   // no pack yet: appended
+    defaults.set(text, el);
+  }
+}
+/**
+ * Apply an engine's style.ui: theme variables (--threedog-*) on engine.uiRoot, style.ui.css after every default, and fonts
+ * (style.ui.fontFaces: [{ family: 'PixelFont', url: '/fonts/pixel.woff2', weight: 400 }], or a web font stylesheet
+ * style.ui.fontCSS, then used in style.ui.font, e.g. '"PixelFont", system-ui'). The returned handle removes them (engine.dispose).
+ * @internal
+ * @param {{ uiRoot: HTMLElement }} engine
+ * @param {StyleUI} [ui]
+ * @returns {{ remove(): void }}
+ */
+export function applyUIStyle(engine, ui = {}) {
+  live.add(engine);
+  injectUICSS();
+  const t = { ...DEFAULT_UI, ...ui }, r = engine.uiRoot.style;
+  for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'number') r.setProperty('--threedog-' + kebab(k), String(t[k]));
+  const nodes = [];
+  const add = (tag, props) => { const n = Object.assign(document.createElement(tag), props); n.dataset.threedogPack = ''; document.head.appendChild(n); nodes.push(n); };
+  if (ui.fontCSS) add('link', { rel: 'stylesheet', href: ui.fontCSS });
+  if (ui.fontFaces?.length) add('style', { textContent: ui.fontFaces.map(fontFace).join('\n') });
+  if (ui.css) add('style', { textContent: ui.css });
+  return {
+    remove() {
+      for (const n of nodes.splice(0)) n.remove();
+      live.delete(engine);
+      if (!live.size) { for (const el of defaults.values()) el.remove(); defaults.clear(); }
+    },
+  };
+}
+// One @font-face rule; family and url go into CSS strings, so characters that would end the string or the rule are refused
+function fontFace(f) {
+  for (const k of ['family', 'url']) if (typeof f[k] !== 'string' || /["'();\\<>]/.test(f[k]))
+    throw new Error(`style.ui.fontFaces: ${k} ${JSON.stringify(f[k])} must be a plain string without quotes, brackets, ';' or '\\', `
+      + "e.g. { family: 'PixelFont', url: '/fonts/pixel.woff2' }");
+  const style = ['italic', 'oblique'].includes(f.style) ? f.style : 'normal';
+  return `@font-face{font-family:"${f.family}";src:url("${f.url}");font-weight:${+(f.weight ?? 400)};font-style:${style};font-display:swap}`;
+}

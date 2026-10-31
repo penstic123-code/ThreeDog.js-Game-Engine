@@ -1,0 +1,43 @@
+// 运行时切换相机 engine.setCamera：身体显示、视角、鼠标锁定、参数保留、写错报错。页面是 tests/cameras（follow 起步）。
+
+export const specs = [
+  {
+    name: '相机切换：follow ↔ firstPerson ↔ rts，目标和朝向接着走、身体显示 / 视角恢复、切回参数还在、写错名字列出可选项',
+    url: '/tests/cameras/index.html?cam=follow',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.pause();
+        const P = engine.player, meshes = [];
+        P.root.traverse(o => { if (o.isMesh) meshes.push(o); });
+        const visible = () => meshes.length > 0 && meshes.every(m => engine.camera.layers.test(m.layers));
+        const fov0 = engine.camera.fov;
+        engine.step(0.3);
+        engine.cameraRig.distance = 20; engine.cameraRig.yaw = 1.1;
+        const out = { kind0: engine.cameraRig.kind, vis0: visible() };
+        engine.setCamera('firstPerson', { fov: 80, height: 1.7 });
+        engine.step(0.3);
+        out.kind1 = engine.cameraRig.kind; out.vis1 = visible(); out.fov1 = engine.camera.fov;
+        out.target1 = engine.cameraRig.target === P.root; out.yaw1 = +engine.cameraRig.yaw.toFixed(3);
+        out.desc1 = engine.describe().camera.type;
+        out.eye = +(engine.camera.position.y - P.position.y).toFixed(1);
+        engine.setCamera('rts');
+        engine.step(0.3);
+        out.kind2 = engine.cameraRig.kind; out.vis2 = visible(); out.fov2 = engine.camera.fov === fov0;
+        engine.setCamera('follow');
+        engine.step(0.3);
+        out.kind3 = engine.cameraRig.kind; out.vis3 = visible(); out.fov3 = engine.camera.fov === fov0;
+        out.distance3 = engine.cameraRig.distance;
+        out.fwdOk = Math.abs(engine.cameraRig.forward().x + Math.sin(1.1)) < 1e-6;
+        try { engine.setCamera('thirdPerson'); out.err = ''; } catch (e) { out.err = e.message; }
+        out.kindAfterErr = engine.cameraRig.kind;
+        return out;
+      });
+      check('起步是 follow，身体可见', r.kind0 === 'follow' && r.vis0, JSON.stringify(r));
+      check('切 firstPerson：种类、跟随目标、朝向接着、视角用新参数、身体从相机里藏起来', r.kind1 === 'firstPerson' && r.target1 && r.yaw1 === 1.1 && r.fov1 === 80 && !r.vis1 && r.desc1 === 'firstPerson', JSON.stringify(r));
+      check('眼睛高度用新参数 1.7', Math.abs(r.eye - 1.7) < 0.2, JSON.stringify(r));
+      check('切 rts：身体显示回来、视角恢复', r.kind2 === 'rts' && r.vis2 && r.fov2, JSON.stringify(r));
+      check('切回 follow：身体可见、视角恢复、缩放距离还是 20、朝向接着', r.kind3 === 'follow' && r.vis3 && r.fov3 && r.distance3 === 20 && r.fwdOk, JSON.stringify(r));
+      check('种类写错报错列出可选项；失败时相机不变', /firstPerson/.test(r.err) && /thirdPerson/.test(r.err) && r.kindAfterErr === 'follow', JSON.stringify(r));
+    },
+  },
+];

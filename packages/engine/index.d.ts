@@ -1,0 +1,264 @@
+// Type declarations for the engine API (hand-written).
+//
+// Why: when game code does import ... from 'threedog', TypeScript reads this file instead of index.js,
+// so `npm run types` reports a wrong parameter name, a misspelled module name or a call to a missing method on the spot.
+// No runtime effect (browsers and Vite use only .js).
+//
+// File layout:
+//   packages/engine/types/common.d.ts    shared small types (position, color, easing names)
+//   packages/engine/types/core.d.ts      Engine class, event map EventMap, input, i18n, saves, assets, audio, module definition
+//   packages/engine/types/style.d.ts     style pack Style
+//   packages/engine/types/world.d.ts     terrain, vegetation, sky, weather, water
+//   packages/engine/types/physics.d.ts   collision, Rapier physics, the four cameras
+//   packages/engine/types/gameplay.d.ts  timeline, level, trigger zones, entities, particles, settings, music, character/NPC, interactions, dialogue, inventory, quests, photo mode,
+//                               clock, story variables, content, flow, objective markers...
+//   packages/engine/types/nav.d.ts       navmesh
+//   packages/engine/types/generated/    generated from the JSDoc in the JS sources (npm run map, do not edit by hand): ui/UI.js Focus.js Parts.js, render/materials.js PostFX.js, modules/ water sky weather particles ambience music timeline debug hlod hud flow; re-exported below with export { ... } from
+// three.js types come from @types/three (a dependency of this package, version-locked to three), so THREE.* is fully checked.
+//
+// When the engine's public API changes (new export, changed parameter), update this file too; `npm run types` checks that every export of index.js is declared.
+
+import type { Engine, EngineOptions, ModuleDef, ModuleInput } from './types/core';
+import type { Ease, EaseName, BufferGeometry, ColorLike, Material, Vector3, PositionLike } from './types/common';
+import type {
+  TerrainOptions, TerrainConfig, TerrainGen, Terrain, Vegetation, Sky, SkyOptions, Weather, WeatherOptions, WeatherPreset,
+  WeatherName, Water, WaterOptions, FlattenZone, Hlod, HlodOptions,
+} from './types/world';
+import type { Nav, NavOptions } from './types/nav';
+import type {
+  CollisionOptions, Collision, RigidOptions, RigidBodies, CameraRig, FollowCameraOptions, FirstPersonCameraOptions,
+  FixedCameraOptions, RtsCameraOptions,
+} from './types/physics';
+import type {
+  CharactersApi, CharactersOptions, Interactions, InteractionsOptions, Dialogue, DialogueOptions, Inventory, InventoryOptions,
+  Quests, QuestsOptions, Photo, PhotoOptions, Ambience, AmbienceOptions, DebugPanel, Level, LevelOptions, Triggers, TriggersOptions,
+  Entities, Particles, Settings, SettingsOptions, SettingsTools, Music, MusicOptions,
+  Timeline, TimelineOptions, Character, NPC, UIWindow, WindowOptions,
+  Content, Flow, FlowOptions, Hud, HudOptions, ScreenPoint, UIFocus, FocusHandle,
+} from './types/gameplay';
+import type { Style, StyleUI } from './types/style';
+// Local bindings for the generated module factories (export { x } from re-exports below do not create them), used by OpenWorldOptions
+import type { sky } from './types/generated/modules/sky/Sky';
+import type { weather } from './types/generated/modules/weather/Weather';
+import type { water } from './types/generated/modules/water/Water';
+import type { world } from './types/generated/modules/world/index';
+import type { ambience } from './types/generated/modules/ambience/Ambience';
+import type { debug } from './types/generated/modules/debug/DebugPanel';
+
+// Types are exported too, so game code can write JSDoc: /** @type {import('threedog').DialogueScript} */
+export * from './types/common';
+export * from './types/core';
+export * from './types/style';
+export * from './types/world';
+export * from './types/physics';
+export * from './types/gameplay';
+export * from './types/nav';
+
+// ======================================================================
+// Core
+// ======================================================================
+
+/** three.js itself (the same instance the engine uses; typed by @types/three) */
+export * as THREE from 'three';
+
+/** Create an engine (core only). canvas is required; style is the style pack */
+export function createEngine(opts: EngineOptions): Engine;
+
+/** One openWorld part: false leaves the module out, true / omitted uses defaults, an object is that module's own options */
+type Part<F extends (...a: any) => any> = boolean | NonNullable<Parameters<F>[0]>;
+/**
+ * openWorld() options: shorthands (seed... go to terrain, time / dayLength to sky, weather / autoWeather to weather) and one entry per part.
+ * Gameplay modules (dialogue, inventory, quests, photo mode...) are not in the preset; engine.use them yourself
+ */
+export interface OpenWorldOptions {
+  /** Terrain random seed */
+  seed?: number;
+  /** View distance (in chunks) */
+  viewDistance?: number;
+  /** Vegetation density multiplier */
+  density?: number;
+  /** Flatten a plot (for a house) */
+  flatten?: FlattenZone[];
+  /** Start time 0-1 */
+  time?: number;
+  /** Game seconds per day (default 360) */
+  dayLength?: number;
+  /** Starting weather name, false (no weather module) or weather() options */
+  weather?: WeatherName | (string & {}) | Part<typeof weather>;
+  /** Automatic weather changes */
+  autoWeather?: boolean;
+  /** Camera: 'follow' (default) / 'firstPerson' / 'rts' / 'fixed', a camera module with options (e.g. followCamera({ shoulder: 0.7 })), or false */
+  camera?: 'follow' | 'firstPerson' | 'rts' | 'fixed' | ModuleDef | false;
+  world?: Part<typeof world>;
+  terrain?: Part<typeof terrain>;
+  vegetation?: Part<typeof vegetation>;
+  sky?: Part<typeof sky>;
+  water?: Part<typeof water>;
+  collision?: Part<typeof collision>;
+  rigid?: Part<typeof rigid>;
+  characters?: Part<typeof characters>;
+  ambience?: Part<typeof ambience>;
+  settings?: Part<typeof settings>;
+  /** Default: installed in dev builds only; true also in release builds */
+  debug?: Part<typeof debug>;
+}
+/**
+ * Open-world preset: world, terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only).
+ * Every part takes false or its own options: openWorld({ seed: 7, sky: { daysPerSeason: 28 }, rigid: false }). Add gameplay modules yourself
+ */
+export function openWorld(opts?: OpenWorldOptions): ModuleDef[];
+
+// ======================================================================
+// Modules (each function returns a module for engine.use())
+// ======================================================================
+
+/** Procedural terrain -> engine.terrain */
+export function terrain(opts?: TerrainOptions): ModuleDef<Terrain>;
+/** Vegetation -> engine.vegetation (install terrain first) */
+export function vegetation(): ModuleDef<Vegetation>;
+// Migrated: sky() is generated from the JSDoc in modules/sky/Sky.js
+export { sky } from './types/generated/modules/sky/Sky';
+// Migrated: weather() and WEATHER_PRESETS are generated from the JSDoc in modules/weather/Weather.js
+export { weather, WEATHER_PRESETS } from './types/generated/modules/weather/Weather';
+// Migrated: water() is generated from the JSDoc in modules/water/Water.js
+export { water } from './types/generated/modules/water/Water';
+// Migrated: world() is generated from the JSDoc in modules/world/index.js
+export { world } from './types/generated/modules/world/index';
+export type { World, WorldRecord } from './types/generated/modules/world/World';
+// Migrated: net() and its transports are generated from the JSDoc in modules/net/
+export { net, fakeNetwork, webSocket } from './types/generated/modules/net/index';
+export type { Net } from './types/generated/modules/net/Net';
+// grids() is generated from the JSDoc in modules/grid/index.js
+export { grids } from './types/generated/modules/grid/index';
+export type { Grids } from './types/generated/modules/grid/index';
+export type { Grid, GridRule } from './types/generated/modules/grid/Grid';
+export type { Layer } from './types/generated/modules/grid/Layer';
+/** Lightweight collision -> engine.collision */
+export function collision(opts?: CollisionOptions): ModuleDef<Collision>;
+/** Real physics (Rapier) -> engine.rigid (install collision first) */
+export function rigid(opts?: RigidOptions): ModuleDef<RigidBodies>;
+/** Third-person follow camera -> engine.cameraRig */
+export function followCamera(opts?: FollowCameraOptions): ModuleDef<CameraRig>;
+/** First-person camera -> engine.cameraRig */
+export function firstPersonCamera(opts?: FirstPersonCameraOptions): ModuleDef<CameraRig>;
+/** Fixed-shot camera -> engine.cameraRig */
+export function fixedCamera(opts?: FixedCameraOptions): ModuleDef<CameraRig>;
+/** Strategy top-down camera -> engine.cameraRig */
+export function rtsCamera(opts?: RtsCameraOptions): ModuleDef<CameraRig>;
+/** Characters: player engine.characters, NPCs engine.npcs */
+export function characters(opts?: CharactersOptions): ModuleDef<CharactersApi>;
+/** Interaction prompts -> engine.interactions */
+export function interactions(opts?: InteractionsOptions): ModuleDef<Interactions>;
+/** Dialogue -> engine.dialogue */
+export function dialogue(opts?: DialogueOptions): ModuleDef<Dialogue>;
+/** Inventory -> engine.inventory */
+export function inventory(opts?: InventoryOptions): ModuleDef<Inventory>;
+/** Quests -> engine.quests */
+export function quests(opts?: QuestsOptions): ModuleDef<Quests>;
+/** Photo mode -> engine.photo */
+export function photo(opts?: PhotoOptions): ModuleDef<Photo>;
+// Migrated: ambience() is generated from the JSDoc in modules/ambience/Ambience.js
+export { ambience } from './types/generated/modules/ambience/Ambience';
+// Migrated: debug() is generated from the JSDoc in modules/debug/DebugPanel.js
+export { debug } from './types/generated/modules/debug/DebugPanel';
+/** Hand-built level -> engine.level */
+export function level(opts?: LevelOptions): ModuleDef<Level>;
+/** Trigger zones -> engine.triggers */
+export function triggers(opts?: TriggersOptions): ModuleDef<Triggers>;
+/** Entities -> engine.entities */
+export function entities(): ModuleDef<Entities>;
+// Migrated: particles() is generated from the JSDoc in modules/particles/Particles.js
+export { particles } from './types/generated/modules/particles/Particles';
+/** Settings menu -> engine.settings */
+export function settings(opts?: SettingsOptions): ModuleDef<Settings>;
+// Migrated: music() is generated from the JSDoc in modules/music/Music.js
+export { music } from './types/generated/modules/music/Music';
+// Migrated: timeline() is generated from the JSDoc in modules/timeline/Timeline.js
+export { timeline } from './types/generated/modules/timeline/Timeline';
+/** Navmesh (Recast, for levels) -> engine.nav; once installed, characters.findPath uses it automatically */
+export function nav(opts?: NavOptions): ModuleDef<Nav>;
+/** Content loading (the game's pure-data content/*.js) -> engine.content */
+export function content(): ModuleDef<Content>;
+// Migrated: hlod(), flow() and hud() are generated from the JSDoc in modules/hlod/index.js, flow/index.js, hud/index.js
+export { hlod } from './types/generated/modules/hlod/index';
+export { flow } from './types/generated/modules/flow/index';
+export { hud } from './types/generated/modules/hud/index';
+
+// ======================================================================
+// Utilities
+// ======================================================================
+
+/** Screen coordinates (-1..1) -> point on the ground; null if the ray misses the ground */
+export function screenToGround(engine: Engine, ndcX: number, ndcY: number, opts?: { maxDistance?: number }): Vector3 | null;
+/** All easing functions: name -> function */
+export const EASINGS: Record<EaseName, (t: number) => number>;
+/** Name or function -> easing function */
+export function ease(e: Ease): (t: number) => number;
+/**
+ * Warn (once, in development) about unknown keys in an options object, with a "did you mean" hint. For your own modules.
+ * where names the call ('stamina()'); known lists the keys your code reads; loose only warns on near-misses (data with game-specific fields).
+ * @example checkOptions('stamina()', opts, ['max', 'drain', 'regen']);
+ */
+export function checkOptions(where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean }): void;
+// The Character, NPC and Engine classes are exported by the export * above (tweens use engine.timeline.tween, pathfinding uses engine.characters.findPath)
+
+/** Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed }).surface(x, z) */
+export function createTerrain(cfg?: Partial<TerrainConfig>): TerrainGen;
+/** Default biome name list */
+export const BIOMES: string[];
+
+// ---------- Materials ----------
+// Migrated: declarations are generated from the JSDoc in packages/engine/render/materials.js (npm run map), not written by hand here
+export { terrainMaterial, mergeColored, applyEffects, MATERIAL_PURPOSES, makeMaterial } from './types/generated/render/materials';
+export { materialPatches } from './types/generated/render/patches';
+
+// ---------- Settings page controls ----------
+/** One row: text on the left, control on the right (returns HTML) */
+export function row(label: string, ctl: string, esc: (s: any) => string): string;
+/** Toggle button */
+export function toggle(key: string, on: boolean, tools: SettingsTools): string;
+/** Slider */
+export function range(key: string, v: number, min: number, max: number, step: number, tools: SettingsTools): string;
+/** A group of mutually exclusive buttons */
+export function segmented(key: string, cur: any, options: [any, string][], tools: SettingsTools, disabled?: any[]): string;
+
+// ---------- UI ----------
+// Migrated: declarations are generated from the JSDoc in packages/engine/ui/UI.js and Focus.js (npm run map), not written by hand here
+export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './types/generated/ui/UI';
+// Type PostFX (class in render/PostFX.js): used by engine.post in Engine, and exported publicly
+export type { PostFX } from './types/generated/render/PostFX';
+export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleItem } from './types/core';
+
+// ---------- Clock ----------
+/** Clock time -> fraction of the day: parseClock('18:30') = 0.77; a number or numeric string ('0.25') is converted as is. hoursPerDay is hours per day, default 24 */
+export function parseClock(clock: string | number, hoursPerDay?: number): number;
+/** Fraction of the day -> 'HH:MM': formatClock(0.75) = '18:00' */
+export function formatClock(t: number, hoursPerDay?: number): string;
+/** Is time t (0-1, e.g. sky.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by sky.between and music's when.time */
+export function inRange(t: number, from: string | number, to: string | number, hoursPerDay?: number): boolean;
+
+// ---------- Target selection (core/targeting.js, pure functions) ----------
+/**
+ * Options of pickTarget / switchTarget: radius meters (15); cone half-angle in radians (1.4); close meters inside which angle is ignored (2.5);
+ * angleWeight meters per radian off the view (6); blocked(c) true skips c (occlusion); at(c) reads a candidate's position (default c.position ?? c)
+ */
+export interface TargetOptions<T> { radius?: number; cone?: number; close?: number; angleWeight?: number; blocked?: (c: T) => boolean; at?: (c: T) => PositionLike }
+/**
+ * Best target in front: lowest "distance + angle off view × angleWeight" inside radius and cone.
+ * view is a direction { x, z } (cameraRig.forward()) or a facing angle. Returns the candidate or null
+ */
+export function pickTarget<T>(from: PositionLike, view: { x: number; z: number } | number, candidates: Iterable<T>, opts?: TargetOptions<T>): T | null;
+/** Next target to the right (side 1) or left (-1) of current as seen along view, wrapping; current missing → the leftmost. Returns a candidate or null */
+export function switchTarget<T>(from: PositionLike, view: { x: number; z: number } | number, current: T | null, candidates: Iterable<T>, side: 1 | -1,
+  opts?: Pick<TargetOptions<T>, 'radius' | 'blocked' | 'at'>): T | null;
+
+// ======================================================================
+// Globals
+// ======================================================================
+declare global {
+  interface Window {
+    /** Convention in the examples: window.engine = engine, for debugging in the browser console */
+    engine?: any;
+  }
+}
+

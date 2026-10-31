@@ -1,0 +1,255 @@
+// Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional light, hemisphere ambient light and fog, all driven by time.
+// Look (per-time colors, sun size, star density...) comes from style.sky in the style pack; the engine only holds neutral fallbacks.
+//
+// engine.use(sky({ time: 0.3, dayLength: 360, daysPerSeason: 7 }));
+// engine.sky.timeOfDay = 0.75;  engine.clock.timeScale = 10;  engine.sky.clock  // "18:00"
+// Calendar: engine.sky.day (1-based), season ('spring'...), seasonProgress (0-1), dayOfSeason; events day:new, season:change
+// Season tint: style pack seasons = { spring: { foliage: 0xffffff, ground: 0xffffff }, autumn: { foliage: 0xffb070 }, ... }, blended smoothly at season changes
+// Clouds: style pack sky.clouds = { color, shade, coverage: 1, scale: 0.35, speed: [x, z] } (coverage follows weather)
+// three.js objects: engine.sky.sun (DirectionalLight; moonlight at night, shadows live on it), hemi (HemisphereLight ambient), dome (dome Mesh),
+//   sunDir (Vector3 toward the sun). Light color/intensity is recomputed every frame; adjust brightness via modifier layers, not by editing directly:
+//   engine.sky.modify('cave', { sun: 0.3, ambient: 0.4 })   // weather uses the 'weather' layer, games their own layer name
+//   engine.sky.modify('cave', null)                          // removes it
+//   engine.sky.modifiers is the composite of all layers (read-only)
+// Skybox: style pack sky.skybox = '/textures/sky.jpg' (equirectangular panorama) replaces the gradient sky; brightness follows time
+import * as THREE from 'three';
+import { vert, frag, NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms } from './shader.js';
+import { shadowMethods, shadowFor } from './shadow.js';
+import { layerMethods, blankLayer } from './layers.js';
+import { updateSky, watchOwned } from './frame.js';
+import { checkOptions } from '../../core/validate.js';
+import { parseClock, formatClock } from '../../core/dayTime.js';
+import { Schedule } from './schedule.js';
+/** @import { ModuleDef } from '../../types/core' */
+/** @import { Object3D, Vector3 } from '../../types/common' */
+/** @import { SkyOptions, SkyModifiers, SkyLayer, SkyAtOptions, SkyBetweenOptions } from '../../types/world' */
+/** @import { Handle } from '../../types/common' */
+/** @import { StyleShadow } from '../../types/style' */
+// Options sky() accepts: calendar + look overrides of style pack style.sky
+const SKY_OPTIONS = ['time', 'dayLength', 'day', 'daysPerSeason', 'seasons', 'keyframes', 'groundTint', 'sunSize', 'sunGlow', 'sunBrightness', 'moonBrightness',
+  'moonSize', 'moonColor', 'clouds', 'starDensity', 'starScale', 'gradientCurve', 'skybox', 'shadow', 'orbitTilt', 'orbitSway', 'hoursPerDay'];
+
+/** engine.sky */
+export class Sky {
+  /** @internal */
+  constructor(engine, { time = 0.33, dayLength = 360, day = 1, daysPerSeason = 7, seasons = ['spring', 'summer', 'autumn', 'winter'], ...over } = {}) {
+    /** @internal */ this.engine = engine;
+    const st = { ...(engine.style.sky || {}), ...over };
+    /** Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed @type {number} */
+    this.timeOfDay = time;
+    /** Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds) @type {number} */
+    this.dayLength = dayLength;
+    /** Day number (1-based) @type {number} */
+    this.day = day;
+    /** Days per season @type {number} */
+    this.daysPerSeason = daysPerSeason;
+    /** Season names @type {string[]} */
+    this.seasons = seasons;
+    /** @internal */ this.seasonStyle = engine.style.seasons || null;
+    /** @internal */ this._season = this.season;
+    /** @internal */ this._sched = new Schedule(this);
+    if (st.keyframes) checkKeyframes(st.keyframes);
+    /** @internal */ this.kf = (st.keyframes || NEUTRAL_KEYFRAMES).map(k => [k[0], new THREE.Color(k[1]), new THREE.Color(k[2]), new THREE.Color(k[3]), k[4], k[5]]);
+    /** @internal */ this.groundTint = new THREE.Color(st.groundTint ?? 0x4a4a4a);
+    const scene = engine.scene;
+
+    /** @internal */ this.uniforms = makeSkyUniforms(st, engine.uniforms);
+    /** Dome mesh @type {Object3D} */
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
+      new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+    this.dome.frustumCulled = false; this.dome.renderOrder = -1000; this.dome.userData.budgetTag = 'sky';
+    this.dome.onBeforeRender = (r, s, cam) => {
+      this.dome.position.copy(cam.position); this.dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); this.dome.updateMatrixWorld();
+    };
+    scene.add(this.dome);
+    // Skybox (panorama): replaces the gradient sky when present
+    /** @internal */ this.skybox = null;
+    if (st.skybox) {
+      this.dome.visible = false;
+      engine.assets.texture(st.skybox).then(t => { t.mapping = THREE.EquirectangularReflectionMapping; scene.background = t; this.skybox = t; })
+        .catch(err => console.warn(err.message));
+    }
+
+    scene.fog = new THREE.Fog(0xcccccc, engine.fogFar * 0.3, engine.fogFar);
+    /** Hemisphere ambient light (engine.lights.hemi, driven by the sky) @type {any} */
+    this.hemi = engine.lights.hemi;
+    /** Sun directional light (engine.lights.sun driven by the sky; moonlight at night, shadows live on it) @type {any} */
+    this.sun = engine.lights.sun;
+    this.sun.castShadow = engine.shadows;
+    const sh = shadowFor(engine.tier, engine.style.sky?.shadow, over.shadow);
+    this.sun.shadow.mapSize.set(sh.mapSize ?? 2048, sh.mapSize ?? 2048);
+    const ext = sh.extent ?? 70;
+    Object.assign(this.sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 420 });
+    /** Sun direction (unit vector toward the sun) @type {Vector3} */
+    this.sunDir = new THREE.Vector3();
+    /** Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }} */
+    this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };   // sun orbit: north-south tilt, east-west swing
+    // Shadow update policy (default: every frame, center snapped to 0.5 m)
+    /** Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead: number }} */
+    this.shadow = { bias: -0.0006, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0 };
+    /** @internal */ this._shadowFrame = 0;
+    /** @internal */ this._snapKey = '';
+    this.setShadow(sh);
+    /** Hours per day @type {number} */
+    this.hoursPerDay = st.hoursPerDay ?? 24;
+    // Modifier layers: weather and games each write their own layer (modify); sky composites them into modifiers every frame
+    // and applies them on top of its own result (layers.js)
+    /** @internal */ this._layers = new Map();
+    /** @internal */ this._checked = new Map();   // owner -> the values object whose keys were last checked (layers.js)
+    /** Composite of all modifier layers (read-only; use modify to adjust brightness) @readonly @type {SkyModifiers} */
+    this.modifiers = blankLayer();
+    /** @internal */ this._lightDir = new THREE.Vector3();
+    // Per-frame recomputed properties: direct edits by games get overwritten, so warn once in dev (frame.js)
+    /** @internal */ this._owned = watchOwned(this);
+  }
+
+  /**
+   * Write a modifier layer (only the given fields; unwritten fields have no effect); values null removes the layer. Weather uses the 'weather' layer, games use their own layer name.
+   * Layers composite every frame: sun / ambient / fog multiply; tint blends weighted by tintAmount; flash takes the max
+   * @example engine.sky.modify('cave', { sun: 0.3, ambient: 0.4 });  engine.sky.modify('cave', null);
+   * @param {string} owner
+   * @param {SkyLayer | null} values
+   * @returns {this}
+   */
+  modify(owner, values) { return layerMethods.modify.call(this, owner, values); }
+
+  /**
+   * Shadow resolution (pixels)
+   * @returns {number}
+   */
+  get shadowMapSize() { return this.sun.shadow.mapSize.x; }
+
+  /** Clock text, e.g. "18:00" */
+  get clock() { return formatClock(this.timeOfDay, this.hoursPerDay); }
+  /** Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon). Day/night is computed only here; other modules read isDay / daylight */
+  get sunHeight() { return Math.sin((this.timeOfDay - 0.25) * Math.PI * 2); }
+  /** Whether it is daytime (sun above the horizon) */
+  get isDay() { return this.sunHeight > 0; }
+  /** Daylight amount 0-1 (0 at night, 1 at noon); ambience etc. fade by it */
+  get daylight() { return Math.max(0, this.sunHeight); }
+
+  // ---------- Calendar ----------
+  /** Current season index */
+  get seasonIndex() { return Math.floor((this.day - 1) / this.daysPerSeason) % this.seasons.length; }
+  /** Current season name, e.g. 'spring' */
+  get season() { return this.seasons[this.seasonIndex]; }
+  /** Day within the season (1-based) */
+  get dayOfSeason() { return ((this.day - 1) % this.daysPerSeason) + 1; }
+  /** Fraction of the season elapsed, 0-1 (includes time of day) */
+  get seasonProgress() { return (((this.day - 1) % this.daysPerSeason) + this.timeOfDay) / this.daysPerSeason; }
+  /** Total game time in days (fractional), for growth, cooldowns and the like */
+  get totalDays() { return this.day - 1 + this.timeOfDay; }
+
+  /**
+   * Advance time (called by the module every fixed step)
+   * @param {number} dt
+   * @returns {void}
+   */
+  tick(dt) {
+    const t = this.timeOfDay + dt * this.engine.clock.timeScale / this.dayLength;
+    if (t >= 1) {
+      this.timeOfDay = t % 1; this.day += Math.floor(t);
+      this.engine.events.emit('day:new', this.day);
+      if (this.season !== this._season) { this._season = this.season; this.engine.events.emit('season:change', this.season); }
+    } else this.timeOfDay = t;
+    this._sched.tick();
+  }
+
+  // ---------- Clock-time / season timers (read sky time of day; for "after N seconds" use engine.clock.after) ----------
+  /**
+   * Call fn every day at a clock time: at('18:00', fn) or at(0.75, fn).
+   * Fires only when time moves forward across the clock time: natural flow, step fast-forward and setting timeOfDay later all count; crossing several triggers at once is replayed per catchUp;
+   * rewinding time and loading a save do not fire, they only reset the baseline. To hold a state during a time range (lights, shop door) use between
+   * @param {string | number} clock  'HH:MM' @param {string | number} clock  'HH:MM' or 0-1
+   * @param {(day: number) => void} fn
+   * @param {SkyAtOptions} [opts]
+   * @returns {Handle}
+   */
+  at(clock, fn, opts) { return this._sched.at(clock, fn, opts); }
+  /**
+   * Time-range switch: on() while clock time is in [from, to), otherwise off() (from > to wraps midnight).
+   * Aligns once immediately on registration, new game, load, applying a scenario and time rewind; afterwards it calls on/off when crossing a boundary
+   * @example engine.sky.between('18:00', '06:00', { on: () => lamp.on(), off: () => lamp.off() })
+   * @param {string | number} from
+   * @param {string | number} to
+   * @param {SkyBetweenOptions} opts
+   * @returns {Handle}
+   */
+  between(from, to, opts) { return this._sched.between(from, to, opts); }
+  /**
+   * Call fn(day) at the start of each day (00:00)
+   * @param {(day: number) => void} fn
+   * @param {SkyAtOptions} [opts]
+   * @returns {Handle}
+   */
+  daily(fn, opts) { return this._sched.at(0, fn, opts); }
+  /**
+   * Call fn(seasonName) on entering season name
+   * @param {string} name
+   * @param {(season: string) => void} fn
+   * @returns {Handle}
+   */
+  onSeason(name, fn) { return this._sched.onSeason(name, fn); }
+  /** Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there @internal */
+  untilMark() { return this._sched.untilNext() * this.dayLength; }
+  /** Number of registered clock-time / season timers, for engine.counts() @internal */
+  get scheduled() { return this._sched.size; }
+
+  /**
+   * Update sky, lights and fog every frame (called by the module each frame)
+   * @param {Vector3} focus
+   * @returns {void}
+   */
+  update(focus) { updateSky(this, focus); }
+
+  // Public shadow methods: implemented in shadow.js, forwarded here (declared in the class so type and doc tools see them);
+  // other internal shadow.js methods are mixed in at the end of the file
+  /**
+   * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
+   * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view
+   * @param {Pick<StyleShadow, 'bias' | 'normalBias' | 'updateEvery' | 'snap' | 'ahead'>} [opts]
+   * @returns {this}
+   */
+  setShadow(opts) { return shadowMethods.setShadow.call(this, opts); }
+  /**
+   * Change shadow resolution (raise temporarily for photo mode)
+   * @param {number} n  @param {number} n  pixels
+   * @returns {void}
+   */
+  setShadowMapSize(n) { return shadowMethods.setShadowMapSize.call(this, n); }
+}
+// Mixed in from shadow.js and layers.js; methods already defined in the class (the public ones above) are not overwritten
+for (const [k, f] of Object.entries({ ...shadowMethods, ...layerMethods })) if (!Object.hasOwn(Sky.prototype, k)) Sky.prototype[k] = f;
+
+/**
+ * Sky, day/night, calendar -> engine.sky
+ * @param {SkyOptions} [opts]
+ * @returns {ModuleDef<Sky>}
+ */
+export function sky(opts = {}) {
+  let s = null;
+  return {
+    name: 'sky', label: 'Sky', stage: 'environment',
+    install(e) {
+      checkOptions('sky()', opts, SKY_OPTIONS);
+      s = new Sky(e, opts);
+      e.saves.register('sky', { save: () => ({ time: s.timeOfDay, day: s.day }),
+        load: d => { if (d) { s.timeOfDay = d.time ?? s.timeOfDay; s.day = d.day ?? 1; s._season = s.season; } s._sched.rebase(); } });
+      return s;
+    },
+    counts() { return { timers: s.scheduled }; },   // engine.counts().sky
+    fixed(dt) { s.tick(dt); },
+    // engine.skip: segments end at clock marks, so each tick crosses at most one mark and one midnight; a skip right after loading
+    // counts from now (a step would only reset the baseline)
+    skip(dt) { s._sched.last ??= s.totalDays; s.tick(dt); },
+    frame(dt, e) { s.update(e.focus); },
+    afterRender() { s.afterRender(); },
+    dispose() { s._sched.dispose(); },
+    // scenario param time: 'HH:MM' or 0-1 (text in the URL)
+    applyState(e, { time }) { if (time != null) s.timeOfDay = parseClock(time, s.hoursPerDay) % 1; },
+    describe(e, ctx) {
+      Object.assign(ctx.out.time, { clock: s.clock, day: s.day, season: s.season, isDay: s.isDay, timeOfDay: Math.round(s.timeOfDay * 1000) / 1000,
+        dayLength: s.dayLength, timeScale: e.clock.timeScale });
+    },
+  };
+}

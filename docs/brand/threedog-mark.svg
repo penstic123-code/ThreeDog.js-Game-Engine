@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="ThreeDog.js">
+  <title>ThreeDog.js</title>
+  <circle cx="128" cy="128" r="124" fill="#F7B520"/>
+  <g stroke="#1E3264" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- back: blue merle, pointy ears, big muzzle, tongue out -->
+    <path d="M84 72 Q70 30 76 16 Q100 30 118 52 Z" fill="#1E3264"/>
+    <path d="M172 72 Q186 30 180 16 Q156 30 138 52 Z" fill="#1E3264"/>
+    <path d="M88 62 Q82 40 84 32 Q98 42 108 54 Z" fill="#F6C99A" stroke="none"/>
+    <path d="M168 62 Q174 40 172 32 Q158 42 148 54 Z" fill="#F6C99A" stroke="none"/>
+    <path d="M70 92 Q70 46 128 46 Q186 46 186 92 Q186 136 128 138 Q70 136 70 92 Z" fill="#8FA6D1"/>
+    <path d="M128 50 Q112 76 104 96 L152 96 Q144 76 128 50 Z" fill="#FFFFFF" stroke="none"/>
+    <ellipse cx="128" cy="114" rx="34" ry="24" fill="#FFFFFF"/>
+    <path d="M98 88 q8 -9 16 0" fill="none"/>
+    <path d="M142 88 q8 -9 16 0" fill="none"/>
+    <ellipse cx="128" cy="104" rx="10" ry="7.5" fill="#1E3264"/>
+    <path d="M116 120 q12 12 24 0" fill="none" stroke-width="4"/>
+    <path d="M120 124 q8 26 16 0 Z" fill="#EE6F6F" stroke-width="3.5"/>
+
+    <!-- front left: orange curly, big floppy ears -->
+    <ellipse cx="34" cy="186" rx="20" ry="36" fill="#D9762B"/>
+    <ellipse cx="112" cy="186" rx="20" ry="36" fill="#D9762B"/>
+    <path d="M32 174 Q30 140 52 134 Q58 120 73 124 Q88 120 94 134 Q116 140 114 174 Q114 214 73 216 Q32 214 32 174 Z" fill="#F2A65A"/>
+    <ellipse cx="73" cy="190" rx="24" ry="17" fill="#FFF1DE"/>
+    <path d="M52 168 q8 -9 16 0" fill="none"/>
+    <path d="M78 168 q8 -9 16 0" fill="none"/>
+    <ellipse cx="73" cy="182" rx="8" ry="6" fill="#1E3264"/>
+    <path d="M63 194 q10 10 20 0" fill="none" stroke-width="4"/>
+    <path d="M67 197 q6 20 12 0 Z" fill="#EE6F6F" stroke-width="3"/>
+
+    <!-- front right: black and tan, long ears -->
+    <ellipse cx="146" cy="194" rx="15" ry="36" fill="#1C1A20" transform="rotate(14 146 194)"/>
+    <ellipse cx="230" cy="194" rx="15" ry="36" fill="#1C1A20" transform="rotate(-14 230 194)"/>
+    <path d="M148 176 Q148 136 188 136 Q228 136 228 176 Q228 214 188 216 Q148 214 148 176 Z" fill="#2E2C33"/>
+    <ellipse cx="188" cy="194" rx="25" ry="17" fill="#D27C32"/>
+    <circle cx="172" cy="156" r="5" fill="#D27C32" stroke="none"/>
+    <circle cx="204" cy="156" r="5" fill="#D27C32" stroke="none"/>
+    <path d="M164 170 q8 -9 16 0" fill="none" stroke="#FFF1DE" stroke-width="5"/>
+    <path d="M196 170 q8 -9 16 0" fill="none" stroke="#FFF1DE" stroke-width="5"/>
+    <ellipse cx="188" cy="186" rx="8" ry="6" fill="#0F0F14" stroke="none"/>
+    <path d="M178 198 q10 10 20 0" fill="none" stroke="#0F0F14" stroke-width="4"/>
+    <path d="M182 201 q6 20 12 0 Z" fill="#EE6F6F" stroke="#0F0F14" stroke-width="3"/>
+  </g>
+</svg>

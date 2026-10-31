@@ -1,0 +1,39 @@
+{
+  "name": "inventory transfer: put film into the basket, refuse more than the bag has",
+  "url": "/",
+  "state": {
+    "cutscene": "skip"
+  },
+  "steps": [
+    {
+      "op": "inventory.transfer",
+      "args": {
+        "from": "player",
+        "to": "fisher-basket",
+        "item": "film",
+        "n": 2
+      }
+    },
+    {
+      "op": "inventory.transfer",
+      "args": {
+        "from": "player",
+        "to": "fisher-basket",
+        "item": "film",
+        "n": 99
+      },
+      "expect": "notEnough"
+    },
+    {
+      "expect": {
+        "inventory.items.film": 10
+      }
+    },
+    {
+      "snapshot": "transfer-basket",
+      "only": [
+        "inventory"
+      ]
+    }
+  ]
+}

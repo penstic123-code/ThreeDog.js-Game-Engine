@@ -1,0 +1,52 @@
+{
+  "name": "barter: buy berries from the fisher's basket with film until it is sold out",
+  "url": "/",
+  "state": {
+    "cutscene": "skip"
+  },
+  "steps": [
+    {
+      "op": "barter.buy",
+      "args": {
+        "shop": "fisher-basket",
+        "item": "berry"
+      }
+    },
+    {
+      "op": "barter.buy",
+      "args": {
+        "shop": "fisher-basket",
+        "item": "berry"
+      }
+    },
+    {
+      "op": "barter.buy",
+      "args": {
+        "shop": "fisher-basket",
+        "item": "berry"
+      }
+    },
+    {
+      "op": "barter.buy",
+      "args": {
+        "shop": "fisher-basket",
+        "item": "berry"
+      },
+      "expect": "soldOut"
+    },
+    {
+      "op": "barter.buy",
+      "args": {
+        "shop": "fisher-basket",
+        "item": "feather"
+      }
+    },
+    {
+      "expect": {
+        "inventory.items.berry": 3,
+        "inventory.items.feather": 1,
+        "inventory.items.film": 7
+      }
+    }
+  ]
+}

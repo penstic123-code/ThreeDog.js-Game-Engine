@@ -1,0 +1,34 @@
+// Skeletal animation test scene: a real CC0 glTF character (public/king.glb, see public/ASSETS.md) on a flat floor.
+//   The player uses the model; its states map game names to the asset's clip names ('CharacterArmature|Sword_Slash' is found as 'Sword_Slash').
+//   window.swing is a gameplay action timeline (fixed-step seconds): windup 0.16, active 0.12, recovery 0.34. Its timing pairs
+//   put the clip's down-swing (measured: the right wrist peaks at clip ~0.24 s and comes down by ~0.5 s) inside the active phase.
+//   ?swing=1 keeps swinging (sync driven by a fixed-step counter) to look at it.
+import { createEngine, world, sky, collision, followCamera, characters, THREE } from '../../index.js';
+import { level } from '../../modules/level/index.js';
+
+const root = new THREE.Group(); root.name = 'animLevel';
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x8a8a8a })); floor.name = 'floor'; root.add(floor);
+const spawn = new THREE.Object3D(); spawn.name = 'spawn'; root.add(spawn);
+
+window.THREE = THREE;   // the test reads bone positions
+const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Animation test' } }, adaptiveResolution: false });
+engine.use(world(), sky({ time: 0.45 }), collision(), followCamera({ distance: 4, pitch: 0.25, height: 1.2 }), characters({ npcs: false }), level({ scene: root }));
+engine.assets.manifest({ models: { king: new URL('./public/king.glb', import.meta.url).href } });
+
+window.swing = { phases: [['windup', 0, 0.16], ['active', 0.16, 0.28], ['recovery', 0.28, 0.62]], duration: 0.62 };
+window.STATES = {
+  idle: { clip: 'Idle_Sword' }, walk: { clip: 'Walk' }, run: { clip: 'Run' },
+  attack: { clip: 'Sword_Slash', loop: false, timing: [[0, 0], [0.16, 0.24], [0.28, 0.5], [0.62, 1]] },
+  roll: { clip: 'Roll', loop: false, timing: 0.62 }, hurt: { clip: 'HitRecieve', loop: false, timing: 0.45 }, death: { clip: 'Death', loop: false },
+};
+
+engine.events.on('world:ready', async () => {
+  const model = await engine.assets.model('king');
+  engine.characters.createPlayer({ spawn: { x: 0, z: 0 }, model, animation: { states: { ...window.STATES } } });
+  window.ready = true;
+  if (new URLSearchParams(location.search).get('swing')) {
+    let t = 0;
+    engine.onFixed(dt => { t = (t + dt) % 1.2; if (t < window.swing.duration) engine.player.anim.sync('attack', t); else engine.player.anim.sync(null); });
+  }
+});
+engine.start();

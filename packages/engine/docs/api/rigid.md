@@ -1,0 +1,83 @@
+# engine.rigid — rigid(opts?: RigidOptions)
+
+Real physics, Rapier (rigid() module, needs collision)
+
+- Options `RigidOptions`:
+  - `gravity?: number` Gravity (m/s², negative points down), default -9.81
+  - `terrainRing?: number` How many rings of chunks around the player get terrain colliders, default 1
+  - `buoyancy?: boolean` Whether there is buoyancy, default true
+  - `buoyancyForce?: number` Buoyancy strength (1 = just floats), default 1.6
+  - `waterDrag?: number` Drag in water, default 2.5
+  - `floatLine?: number` Buoyancy "waterline": an object starts floating when its center is this many meters below the water surface, default 0.3
+  - `floatDepth?: number` Buoyancy reaches its maximum this many meters further down, default 0.8
+  - `treeColliderHeight?: number` Height (meters) of vegetation collision pillars (tree trunks), default 6
+  - `playerCapsule?: { halfHeight: number; radius: number }` Player capsule size (meters), default computed from engine.movement radius / height
+
+## Methods and properties
+- `rigid.addBox(mesh: Object3D, opts?: RigidBoxOptions) → RigidEntry | null` — Add a box (crate). Returns null if not ready
+- `rigid.addBall(mesh: Object3D, opts?: RigidBallOptions) → RigidEntry | null` — Add a ball
+- `rigid.addHull(mesh: Object3D, opts?: RigidBodyOptions) → RigidEntry | null` — Add a convex hull (irregular objects such as rocks and barrels)
+- `rigid.impulse(entry: RigidEntry, impulse: Vec3Like)` — Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5])
+- `rigid.setPosition(entry: RigidEntry, position: PositionLike)` — Teleport to position (velocity is zeroed)
+- `rigid.groundReady(position: PositionLike) → boolean` — Is the physics ground under position built (always true without chunked terrain; with mover: 'rapier' and not yet built, 'simple' is used temporarily)
+- `rigid.addVehicle(mesh: Object3D, opts: VehicleOptions) → Vehicle | null` — Turn a model into a drivable car (Rapier vehicle controller); remove it with vehicle.remove() (anyone inside gets out first). Returns null if not ready
+- Properties:
+  - `ready: boolean` Is the physics engine ready (downloaded and initialized at start())
+  - `bodies: RigidEntry[]` All physics bodies
+  - `R: any` Rapier library
+  - `world: any` Rapier world
+  - `playerBody: any` The player's Rapier kinematic body and capsule collider (follow the player position every step; used for collision when mover: 'rapier'; the capsule is off while driving)
+  - `playerCapsule: { halfHeight: number; radius: number }` Player capsule size (meters)
+  - `vehicles: Vehicle[]` All vehicles
+  - `stats: { bodies: number; active: number; colliders: number }` Statistics
+
+## Data structures
+- **RigidBodyOptions** Parameters for adding a physics body
+  - `mass?: number` Mass (kilograms), default 1
+  - `friction?: number` Friction, default 0.7
+  - `restitution?: number` Restitution 0–1, default 0.1
+  - `damping?: number` Linear damping, default 0.05
+  - `angularDamping?: number` Angular damping, default 0.1
+  - `fixed?: boolean` Fixed in place (only blocks other things)
+- **RigidEntry** (extends Handle) A physics body (the handle returned by addBox / addBall / addHull)
+  - `body: any` Rapier rigid body (translation(), mass(), setLinvel()…)
+  - `collider: any` Rapier collider
+  - `mesh: Object3D` The matching three.js model (position is written by physics every step)
+  - `object: Object3D` Same as mesh (the name consistent with player.object, ent.object)
+  - `enabled: boolean` Whether it is being simulated (frozen when too far from the player)
+  - `volume: number` Volume (cubic meters, used for buoyancy)
+  - `damping: number`
+  - `angularDamping: number`
+  - `wet?: boolean`
+  - `remove()` — Remove this rigid body (the model was passed in by you and is not deleted; call engine.remove(entry.object) when done). Casting / receiving shadows follows the model's own castShadow / receiveShadow
+- **VehicleOptions** Parameters of rigid.addVehicle()
+  - `id?: string` Stable id (default 'vehicle1', 'vehicle2'... in creation order): saves name the player's vehicle by it; give one when the creation order varies
+  - `wheels: VehicleWheel[]` Wheels (at least 3)
+  - `mass?: number` Mass (kilograms)
+  - `engineForce?: number` Throttle force, default 800
+  - `brakeForce?: number` Brake force, default 20
+  - `maxSteer?: number` Max steering angle (radians), default 0.5
+  - `suspension?: { rest?: number; stiffness?: number; damping?: number }` Suspension: rest natural length (meters), stiffness, damping
+  - `seat?: Vec3Like` Seat (relative to the body, meters): the player gets out beside it
+  - `camera?: { distance?: number; height?: number }` Camera distance and height while driving (meters)
+  - `size?: number[]` Body collision box size [width, height, depth] (meters); if omitted, taken from the model's bounding box (wheels excluded)
+  - `friction?: number` Tire grip, default 1.5
+  - `exitOffset?: number` Distance from the side of the body when getting out (meters), default 0.8
+- **VehicleWheel** A wheel: position relative to the body (meters), radius (meters), steer can steer, drive is powered, object is the wheel model that spins
+  - `position: Vec3Like`
+  - `radius: number`
+  - `steer?: boolean`
+  - `drive?: boolean`
+  - `object?: Object3D`
+- **Vehicle** (extends RigidEntry) A vehicle (returned by rigid.addVehicle, faces the model's +Z). player.enter(vehicle) gets in; with interactions installed, press the interact key nearby to get in / out
+  - `id: string` Stable id (rigid.addVehicle({ id })); saves name the player's vehicle by it
+  - `object: Object3D` Body model (the mesh you passed in)
+  - `body: any` Rapier rigid body
+  - `controller: any` Rapier vehicle controller (DynamicRayCastVehicleController)
+  - `wheels: VehicleWheel[]`
+  - `speed: number` Current speed (m/s)
+  - `driver: Character | null` Who is driving (null if nobody)
+  - `camera?: { distance?: number; height?: number }` Camera parameters while driving
+  - `drive(throttle: number, steer: number, brake?: number)` — Controls: throttle -1..1, steer -1..1 (right is positive), brake 0–1
+  - `seatPosition() → Vector3` — World position of the seat
+  - `exitPosition() → Vector3` — Where to get out (outside the door on the driver's side, world coordinates)

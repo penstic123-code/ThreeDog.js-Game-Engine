@@ -1,0 +1,82 @@
+// MCP server test: npm test -- "MCP server"
+// Starts `threedog mcp` over stdio (through the real bin), talks JSON-RPC to it, and calls describe / snap against a real dev server (photo-life,
+//   started in this process the same way as the bridge test).
+import { createServer } from 'vite';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+import { TOOLS, ROOT, findWorkspace } from '../paths.mjs';
+
+export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
+
+const BIN = join(TOOLS, 'bin/threedog.mjs');
+const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'press', 'reload', 'resume', 'scenario', 'snap', 'snap_describe', 'state', 'step'];
+
+/** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
+function mcp(...args) {
+  const child = spawn(process.execPath, [BIN, 'mcp', ...args], { cwd: ROOT, stdio: ['pipe', 'pipe', 'inherit'] });
+  const waiting = new Map();
+  let id = 0;
+  createInterface({ input: child.stdout }).on('line', line => { const m = JSON.parse(line); waiting.get(m.id)?.(m); waiting.delete(m.id); });
+  const rpc = (method, params) => new Promise((res, rej) => {
+    const n = ++id, t = setTimeout(() => rej(new Error(`no answer to ${method} within 120 s`)), 120000);
+    waiting.set(n, m => { clearTimeout(t); m.error ? rej(new Error(m.error.message)) : res(m.result); });
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: n, method, params }) + '\n');
+  });
+  const init = rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
+    .then(r => { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n'); return r; });
+  return { init, rpc, close: () => { child.stdin.end(); child.kill(); } };
+}
+const names = r => r.tools.map(t => t.name).sort();
+
+export async function run({ check }) {
+  const plain = mcp('-w', 'photo-life');
+  try { await steps(check, plain); } finally { plain.close(); }
+}
+
+async function steps(check, plain) {
+  // 1. initialize + tools/list: the expected tools, each with a schema and a description; js only with --allow-js
+  const withJs = mcp('-w', 'photo-life', '--allow-js');
+  try {
+    const info = await plain.init, list = await plain.rpc('tools/list');
+    check('initialize: answers with the protocol version, the tools capability and the server name',
+      info.protocolVersion === '2025-06-18' && info.capabilities.tools && info.serverInfo.name === 'threedog', JSON.stringify(info).slice(0, 200));
+    check('tools/list: one tool per bridge command, each with an object schema and a description',
+      JSON.stringify(names(list)) === JSON.stringify(EXPECTED) && list.tools.every(t => t.inputSchema.type === 'object' && t.description.length > 20), names(list).join(', '));
+    await withJs.init;
+    const js = (await withJs.rpc('tools/list')).tools.find(t => t.name === 'js');
+    const denied = await plain.rpc('tools/call', { name: 'js', arguments: { code: '1 + 1' } });
+    check('js: absent without --allow-js (calling it says how to enable it); with the flag it is listed and marked dangerous',
+      !names(list).includes('js') && denied.isError && denied.content[0].text.includes('--allow-js') && /DANGEROUS/.test(js?.description), denied.content[0].text);
+    const unknown = await plain.rpc('nope/method').then(() => 'answered', e => e.message);
+    check('unknown method: JSON-RPC "Method not found" error', unknown.includes('Method not found'), unknown);
+  } finally { withJs.close(); }
+
+  // 2. No dev server: a tool call says how to fix it (use a workspace nobody is running dev for)
+  const idle = ['pig-delivery', 'builder'].find(n => !existsSync(join(findWorkspace(n), '.threedog/dev.json')));
+  if (idle) {
+    const s = mcp('-w', idle);
+    try {
+      await s.init;
+      const r = await s.rpc('tools/call', { name: 'describe', arguments: {} });
+      check('without a dev server the tool result is an error that says npm run dev', r.isError && r.content[0].text.includes('npm run dev'), r.content[0].text);
+    } finally { s.close(); }
+  }
+
+  // 3. Against a running dev server: describe returns text, snap returns an image
+  const dir = findWorkspace('photo-life');
+  const server = await createServer({ root: dir, configFile: join(dir, 'vite.config.js'), server: { port: 5392, strictPort: false }, logLevel: 'error' });
+  await server.listen();
+  try {
+    const d = await plain.rpc('tools/call', { name: 'describe', arguments: {} });
+    check('describe: text content with the scene summary', !d.isError && d.content[0].type === 'text' && d.content[0].text.includes('Player'), JSON.stringify(d).slice(0, 300));
+    const p = await plain.rpc('tools/call', { name: 'describe', arguments: { path: 'time.clock' } });
+    check('describe path: one field', /\d\d:\d\d/.test(p.content[0].text), p.content[0].text);
+    const s = await plain.rpc('tools/call', { name: 'snap', arguments: { name: 'mcp-test' } });
+    const img = s.content.find(c => c.type === 'image');
+    check('snap: an MCP image (PNG) next to the text', !s.isError && img?.mimeType === 'image/png' && Buffer.from(img.data, 'base64').subarray(1, 4).toString() === 'PNG', JSON.stringify(s).slice(0, 200));
+  } finally {
+    await server.close();
+  }
+}

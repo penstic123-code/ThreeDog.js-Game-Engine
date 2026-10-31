@@ -1,0 +1,34 @@
+// Story flags and counters, engine.vars (saved automatically under the save key vars):
+//   engine.vars.setFlag('metBaker');  engine.vars.flag('metBaker')   // true
+//   engine.vars.bump('fish', 2);      engine.vars.counter('fish')    // 2
+// Dialogue state.flags and quest counter/bump all point here. Writes go through the ops guard (dev): outside loading, fixed steps and ops they are reported. Loading replaces the contents in place; the flags / counters objects themselves stay the same.
+
+import { DEV } from './validate.js';
+
+export class Vars {
+  constructor(engine) {
+    this.engine = engine;
+    this.flags = {};
+    this.counters = {};
+    engine.saves.register('vars', {
+      save: () => ({ flags: { ...this.flags }, counters: { ...this.counters } }),   // copy: save data must not share objects with the live state
+      load: d => { this.replace(d?.flags, d?.counters); },
+    });
+  }
+  /** Read a flag */
+  flag(k) { return this.flags[k]; }
+  /** Set a flag (default true) */
+  setFlag(k, v = true) { DEV && this.engine.ops._guard('vars.setFlag'); this.flags[k] = v; }
+  /** Read a counter (0 if absent) */
+  counter(k) { return this.counters[k] ?? 0; }
+  /** Add n to a counter (default 1) and return the new value */
+  bump(k, n = 1) { DEV && this.engine.ops._guard('vars.bump'); return (this.counters[k] = this.counter(k) + n); }
+  /** Replace wholesale (for loading); a kind passed as undefined stays unchanged */
+  replace(flags, counters) {
+    DEV && this.engine.ops._guard('vars.replace');
+    // same object: already it, skip (clearing first would lose the data). Own keys only, never "__proto__": a save must not swap the prototype
+    const set = (o, v) => { if (o === v) return; for (const k of Object.keys(o)) delete o[k]; for (const k of Object.keys(v || {})) if (k !== '__proto__') o[k] = v[k]; };
+    if (flags !== undefined) set(this.flags, flags);
+    if (counters !== undefined) set(this.counters, counters);
+  }
+}

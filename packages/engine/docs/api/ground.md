@@ -1,0 +1,14 @@
+# engine.ground (Ground) — Ground: whoever provides the ground height is the "terrain" (terrain module, level module, or the default flat y=0)
+
+- `ground.height(x: number, z: number, refY?: number) → number` — Ground height (meters) at (x, z). For multi-layer ground (bridges, caves) pass refY: takes the highest layer not above refY + one step (0.45 m); without it the highest layer is used. Single-layer ground ignores refY
+- `ground.slope(x: number, z: number) → number` — Slope at (x, z) (height difference / horizontal distance)
+- `ground.type(x: number, z: number) → string` — Ground type at (x, z) (landform name, e.g. 'meadow')
+- `ground.forEachCollider(x: number, z: number, range: number, fn: (cx, cz, r) => void)` — Optional: iterate the circular colliders (tree trunks etc.) within range meters of (x, z)
+- `ground.viewRange() → number` — Optional: how far (meters) the ground is shown around a load source now; stream entries build within it by default (else fogFar)
+- `ground.chunkCollision(cx: number, cz: number) → any` — Optional: collision data of a chunk (used by the physics module)
+- `ground.staticTrimeshes() → { positions, indices }[]` — Optional: static triangle mesh (the level module provides it for physics)
+- `ground.staticVersion() → number` — Optional: version number of the static mesh; rebuild when it changes
+- `ground.navGeometry() → { positions, indices }` — Optional: triangle mesh for building the navmesh (walkable surfaces + obstacle volumes), used by the nav module
+- Properties:
+  - `waterLevel: number` Global water level (meters); -Infinity when there is no water
+  - `chunkSize?: number` Optional: chunk edge length (meters)

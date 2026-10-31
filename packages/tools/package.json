@@ -1,0 +1,56 @@
+{
+  "name": "@threedog/tools",
+  "version": "0.4.0",
+  "description": "Tools shared by the engine and games: the threedog command line, vite preset, test runner, rules, doc generators, bake",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git",
+    "directory": "packages/tools"
+  },
+  "homepage": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine#readme",
+  "bugs": {
+    "url": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine/issues"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "type": "module",
+  "bin": {
+    "threedog": "./bin/threedog.mjs"
+  },
+  "exports": {
+    "./vite": "./vite/gameConfig.js",
+    "./paths": "./paths.mjs",
+    "./describe-snapshot": "./describe-snapshot.mjs",
+    "./scenario": "./scenario.mjs"
+  },
+  "files": [
+    "*.mjs",
+    "*.js",
+    "*.html",
+    "apidoc",
+    "bin",
+    "content-check",
+    "lib",
+    "gamemap",
+    "rules",
+    "templates",
+    "threedog",
+    "vite"
+  ],
+  "peerDependencies": {
+    "threedog": "^0.4.0",
+    "@gltf-transform/cli": "^4.5.1"
+  },
+  "peerDependenciesMeta": {
+    "@gltf-transform/cli": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "playwright": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5"
+  }
+}

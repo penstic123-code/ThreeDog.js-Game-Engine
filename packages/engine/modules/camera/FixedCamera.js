@@ -1,0 +1,155 @@
+// Fixed-shot camera (classic Resident Evil / horror style): several shots placed in the scene, switched as the situation changes.
+//   - cut('name') switches at once; blend('name', seconds) transitions smoothly
+//   - Auto switching: auto: 'nearest' picks the shot closest to the player; or a trigger zone (triggers module) emits the trigger:enter event,
+//     and a tag 'camera:<shot name>' switches to that shot (triggerBlend decides how)
+//   - A shot can look at a fixed point (lookAt) or turn with the player via track: true
+//   - Movement direction follows the current view: pressing "up" walks into the screen. If a direction key is still held at a shot change, the old direction is kept until release
+// Cutscene takeover: when engine.cameraOverride is set the camera is left alone (see common.js).
+//
+//   engine.use(fixedCamera({
+//     shots: {
+//       hall:   { position: [0, 6, 12], lookAt: [0, 0, 0], fov: 50 },
+//       garden: { position: [30, 4, 0], track: true, at: [24, 0, 0] },   // at: position used for the "nearest shot" test, defaults to position
+//     },
+//     start: 'hall', auto: 'nearest',
+//   }));
+//   engine.cameraRig.blend('garden', 1.5);
+import * as THREE from 'three';
+import { rigModule, defineRig, viewForward, rightOf } from './common.js';
+import { vec3 } from '../../core/math.js';
+import { ease as easing } from '../../core/easing.js';
+import { checkOptions, warnMissing } from '../../core/validate.js';
+
+export class FixedCamera {
+  /**
+   * shots { name: { position, lookAt | track: true, fov, at, trackHeight } }; start initial shot;
+   * auto false | 'nearest' (every autoInterval seconds pick the nearest shot); hysteresis how many meters closer a new shot must be to win (avoids flip-flopping);
+   * triggerBlend transition seconds for trigger-zone switches (0 = hard cut); trackHeight how high on the character a track shot looks; trackSmoothing head-tracking smoothness;
+   * holdDirection keep the direction at a shot change until the key is released (classic fixed-camera controls)
+   */
+  constructor(engine, { shots = {}, start = null, auto = false, autoInterval = 0.25, hysteresis = 2, triggerBlend = 0,
+    trackHeight = 1.2, trackSmoothing = 8, holdDirection = true, ease = 'inOutCubic' } = {}) {
+    Object.assign(this, { engine, auto, autoInterval, hysteresis, triggerBlend, trackHeight, trackSmoothing, holdDirection, ease });
+    this.shots = {};
+    for (const [n, s] of Object.entries(shots)) this.add(n, s);
+    this.target = null;
+    this.current = null;
+    this._blend = null; this._autoT = 0; this._held = null;
+    this._look = new THREE.Vector3();
+    this._baseFov = engine.camera.fov;
+    this._dir = { f: { x: 0, z: -1 }, r: { x: 1, z: 0 } };
+    engine.events.on('trigger:enter', p => {
+      const tag = p.tag;
+      const m = typeof tag === 'string' && tag.match(/^camera:(.+)$/);
+      if (m && this.shots[m[1]]) this.triggerBlend > 0 ? this.blend(m[1], this.triggerBlend) : this.cut(m[1]);
+    });
+    const first = start || Object.keys(this.shots)[0];
+    if (first) this.cut(first);
+  }
+
+  /** Add or replace a shot */
+  add(name, s) {
+    checkOptions(`fixedCamera shots.${name}`, s, ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight']);
+    this.shots[name] = {
+      position: vec3(s.position), lookAt: s.lookAt ? vec3(s.lookAt) : null, track: !!s.track || !s.lookAt,
+      fov: s.fov ?? null, at: s.at ? vec3(s.at) : null, trackHeight: s.trackHeight,
+    };
+    return this;
+  }
+  follow(obj) { this.target = obj; }
+  /** Cut to a shot at once */
+  cut(name) {
+    const s = this.shots[name]; if (!s) { warnMissing('shot', name, Object.keys(this.shots)); return; }
+    const changed = this.current !== name;
+    this.current = name;
+    this._blend?.res(); this._blend = null;   // interrupt a running blend: its Promise still resolves (await blend() never hangs)
+    this._lookTarget(s, this._look);
+    this._place(s.position, this._look, s.fov ?? this._baseFov);
+    if (changed) { this._latchDirection(); this.engine.events.emit('camera:shot', { name }); }
+  }
+  /** Blend smoothly to a shot; returns a Promise that resolves when the blend ends */
+  blend(name, seconds = 1, ease = this.ease) {
+    const s = this.shots[name]; if (!s) { warnMissing('shot', name, Object.keys(this.shots)); return Promise.resolve(); }
+    if (seconds <= 0 || !this.current) { this.cut(name); return Promise.resolve(); }
+    const cam = this.engine.camera;
+    return new Promise(res => {
+      this._blend?.res();
+      this._blend = { from: cam.position.clone(), fromLook: this._look.clone(), fromFov: cam.fov, t: 0, dur: seconds, ease, res };
+      this.current = name;
+      this._latchDirection();
+      this.engine.events.emit('camera:shot', { name });
+    });
+  }
+
+  // Direction: follows the current view; if a direction key is held at a shot change, keep the old direction
+  forward() { return (this._held || this._dir).f; }
+  right() { return (this._held || this._dir).r; }
+  focusPoint() { return this.target ? this.target.position : this._look; }
+
+  update(dt, input) {
+    const s = this.shots[this.current];
+    if (!s) return;
+    if (this.auto === 'nearest' && this.target && (this._autoT -= dt) <= 0) {
+      this._autoT = this.autoInterval;
+      const n = this.nearest(this.target.position);
+      if (n && n !== this.current) {
+        const p = this.target.position, d = k => (this.shots[k].at || this.shots[k].position).distanceTo(p);
+        if (d(n) + this.hysteresis < d(this.current)) this.triggerBlend > 0 ? this.blend(n, this.triggerBlend) : this.cut(n);
+      }
+    }
+    const want = this._lookTarget(this.shots[this.current], this._want ??= new THREE.Vector3());   // scratch vectors: no per-frame allocation
+    const fov = this.shots[this.current].fov ?? this._baseFov;
+    if (this._blend) {
+      const b = this._blend; b.t += dt;
+      const k = easing(b.ease)(Math.min(1, b.t / b.dur));
+      const sh = this.shots[this.current];
+      const pos = (this._bp ??= new THREE.Vector3()).copy(b.from).lerp(sh.position, k), look = (this._bl ??= new THREE.Vector3()).copy(b.fromLook).lerp(want, k);
+      this._look.copy(look);
+      this._place(pos, look, b.fromFov + (fov - b.fromFov) * k);
+      if (b.t >= b.dur) { this._blend = null; b.res(); }
+    } else {
+      if (this.shots[this.current].track) this._look.lerp(want, 1 - Math.exp(-this.trackSmoothing * dt));
+      else this._look.copy(want);
+      this._place(this.shots[this.current].position, this._look, fov);
+    }
+    // Direction: release the hold once no direction key is pressed
+    const a = input.axis;
+    if (this._held && Math.abs(a.x) < 0.05 && Math.abs(a.y) < 0.05) this._held = null;
+    const f = viewForward(this.engine.camera, this._dir.f);
+    this._dir = { f, r: rightOf(f) };
+  }
+
+  /** Name of the shot nearest a point */
+  nearest(p) {
+    let best = null, bd = Infinity;
+    for (const [n, s] of Object.entries(this.shots)) { const d = (s.at || s.position).distanceTo(p); if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+
+  _lookTarget(s, out) {
+    if (!s.track && s.lookAt) return out.copy(s.lookAt);
+    if (this.target) { out.copy(this.target.position); out.y += s.trackHeight ?? this.trackHeight; return out; }
+    return s.lookAt ? out.copy(s.lookAt) : out.set(s.position.x, s.position.y, s.position.z - 1);
+  }
+  _place(pos, look, fov) {
+    const cam = this.engine.camera;
+    cam.position.copy(pos); cam.lookAt(look);
+    if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
+  }
+  _latchDirection() {
+    if (!this.holdDirection) return;
+    const a = this.engine.input.axis;
+    if (Math.abs(a.x) > 0.05 || Math.abs(a.y) > 0.05) this._held ??= { f: this._dir.f, r: this._dir.r };
+  }
+}
+
+/**
+ * Fixed-shot camera module. Installs engine.cameraRig (pick it or followCamera).
+ * fixedCamera({ shots: { name: { position, lookAt | track: true, fov } }, start, auto: 'nearest' })
+ * A trigger zone tag 'camera:<name>' switches to that shot on enter. A camera:shot { name } event fires on every switch.
+ */
+export function fixedCamera(opts = {}) { return rigModule('fixed', opts); }
+defineRig('fixed', (e, opts) => {
+  checkOptions('fixedCamera()', opts, ['shots', 'start', 'auto', 'autoInterval', 'hysteresis', 'triggerBlend', 'trackHeight', 'trackSmoothing', 'holdDirection', 'ease']);
+  return new FixedCamera(e, opts);
+});

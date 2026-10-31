@@ -1,0 +1,40 @@
+// Error tiers: what to do when a module hook, onFixed / onFrame / clock callback or event listener throws (the main loop and the event bus both come here).
+//   Presentation modules (declared presentation: true: particles, ambience, music, objective marker, far scenery...): disable the module (its hooks are no longer called),
+//     log once to the console, emit module:disabled; the game carries on -- a missing effect does not affect gameplay.
+//   Gameplay (all other modules, the game's own callbacks and event listeners): in dev and tests (DEV) fail hard -- freeze gameplay (freeze('error')),
+//     engine.error records where and why, emits engine:error, and describe() / describeText() show it on the first line;
+//     so a half-deducted inventory or half-updated quest does not keep running, and a test does not mistake it for normal. A release build reports once and keeps running (so the player is not stuck for the whole session).
+//   soft (core steps such as rendering and stream.update): report once per site and continue.
+// engine.error is machine-readable: { where, message, code, fix, docs } (code / fix / docs come from the error itself or from the hint table, errorHints.js).
+import { DEV } from './validate.js';
+import { errorInfo, hintText } from './errorHints.js';
+
+const STRINGS = { once: '[engine] {key} threw (later errors at the same place are not reported again)', disabled: '[engine] presentation module {name} threw and was disabled (the game continues)', halted: '[engine] {key} threw and gameplay is frozen (in dev / tests a gameplay error fails hard; see engine.error for details)', listener: 'listener of event {name}' };
+
+/** Handle an error. key: where it happened (for display); module: the module definition that threw (none means a game callback / event listener, counted as gameplay); soft: report only once */
+export function reportError(engine, err, key, { module = null, soft = false } = {}) {
+  if (module?.presentation) return disableModule(engine, module, err);
+  if (!soft && DEV && !engine.error) {
+    const message = String(err?.message ?? err);
+    engine.error = { where: key, message, ...errorInfo(err) };   // code + fix + docs: what to do and which page to read
+    engine.freeze('error');
+    console.error(STRINGS.halted.replace('{key}', key) + hintText(err?.code ? `[${err.code}]` : message), err);
+    engine.events.emit('engine:error', engine.error);
+    return;
+  }
+  if (engine._hookErrors.has(key)) return;
+  engine._hookErrors.add(key);
+  console.error(STRINGS.once.replace('{key}', key), err);
+}
+
+/** An event listener threw (called by the event bus): counted as gameplay */
+export function reportListenerError(engine, name, err) { reportError(engine, err, STRINGS.listener.replace('{name}', name)); }
+
+/** Disable a presentation module: remove its fixed / frame / afterRender hooks */
+function disableModule(engine, m, err) {
+  if (engine.disabledModules.has(m.name)) return;
+  engine.disabledModules.add(m.name);
+  for (const k in engine._hooks) engine._hooks[k] = engine._hooks[k].filter(h => h.name !== m.name);
+  console.error(STRINGS.disabled.replace('{name}', m.name), err);
+  engine.events.emit('module:disabled', { name: m.name, message: String(err?.message ?? err) });
+}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Co-op demo</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; background: #f4f4f4; color: #222; }
+  #panes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  section { background: #fff; border: 1px solid #ccc; padding: 8px 12px; }
+  button { margin: 2px; }
+  pre { font-size: 12px; min-height: 9em; }
+</style>
+</head>
+<body>
+<p>Host + two guests over an in-process network. Latency <input id="latency" type="range" min="0" max="500" value="120"> Loss % <input id="loss" type="range" min="0" max="30" value="0"></p>
+<div id="panes"></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

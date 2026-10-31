@@ -1,0 +1,58 @@
+# Utility functions (imported from threedog)
+
+- `WEATHER_PRESETS: Record<WeatherName, WeatherPreset>` — Built-in weather presets
+- `world(opts?: { cellSize?, radius?, farEvery?, farMaxPerTick?, buildPerFrame? }) → import("../../../core").ModuleDef…` — World data module: installed as engine.world. Put things here that must be saved, survive level changes and keep changing while far away; models are only built while nearby
+- `net(opts?: { role, transport, sync?, syncEvery?, keepAlive?, rate?, … }) → import("../../../core").ModuleDef…` — Optional co-op multiplayer: one host owns the state, clients mirror it and ask for changes through ops. Installed as engine.net. Host: peers' requests run as `ops.run(name, args, { source: 'net', actor })` only for ops defined with net: 'peer', with the op's args shape checked, the optional owner check, and a per-peer rate limit; the result comes back after the state diff that contains it. State: world records, containers, vars and the other save parts are sent as a snapshot on join and as diffs every syncEvery steps. Client: ops.run of a peer op returns { ok: true, pending: true, seq } (watch state or the net:result event, not the return value); its own avatar moves locally and is sent to the host (clamped to maxSpeed); other avatars glide between updates.
+- `fakeNetwork(opts?: { latency?, jitter?, loss?, seed?, manual? }) → { host, connect, advance, now, loss, latency, … }` — An in-process network for tests and offline demos: one host and any number of clients in the same page, with optional latency, jitter and loss. Messages are deep-copied on send (no shared objects, like a real wire). Order per link is kept, as on a WebSocket. manual: true delivers only when you call advance(ms) (deterministic tests); otherwise messages land after real time.
+- `webSocket(url: string, { host, key }?: { host?: boolean; key?: string }) → { send, on, close, key, id }` — WebSocket transport: talks to the relay in packages/tools/net-relay.mjs (`node packages/tools/net-relay.mjs 8787`). The host joins a room with host: true; clients join the same room. The relay assigns peer ids and remembers each client's key for reconnects. Messages are JSON. For a dedicated server or Colyseus, write another transport with the same send / on / close shape instead.
+- `grids() → import("../../../core").ModuleDef…` — Grid placement module: installed as engine.grids. Needs world(). Adds the ops grid.place / grid.remove / grid.move and the save key 'grids' (layers).
+- `screenToGround(engine: Engine, ndcX: number, ndcY: number, opts?: { maxDistance?: number }) → Vector3 | null` — Screen coordinates (-1..1) -> point on the ground; null if the ray misses the ground
+- `EASINGS: Record<EaseName, (t: number) => number>` — All easing functions: name -> function
+- `ease(e: Ease) → (t: number) => number` — Name or function -> easing function
+- `checkOptions(where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean })` — Warn (once, in development) about unknown keys in an options object, with a "did you mean" hint. For your own modules. where names the call ('stamina()'); known lists the keys your code reads; loose only warns on near-misses (data with game-specific fields).
+- `createTerrain(cfg?: Partial<TerrainConfig>) → TerrainGen` — Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed }).surface(x, z)
+- `BIOMES: string[]` — Default biome name list
+- `terrainMaterial(base?: THREE.Material | null, engine?: { style: any; assets: any }) → THREE.Material` — Terrain material: base (default the style's 'terrain' role with vertex colors) + cloud shadows + season tint + optional detail texture (style.terrain.detail). Pass the engine so its style pack and assets are used.
+- `mergeColored(parts: [THREE.BufferGeometry, ColorLike][], { flat }?: { flat?: boolean }) → THREE.BufferGeometry` — Merge several geometries into one vertex-colored geometry (a tree = trunk + canopy in one draw call): [[geometry, color], ...]. flat (default true): one normal per triangle, the faceted low-poly look; false keeps each part's own (smooth) normals. UVs are kept when every part has them, so the merged model can still take a texture.
+- `applyEffects(material: THREE.Material, { wind, clouds, season, patches }?: { wind?, clouds?, season?, patches? }) → THREE.Material` — Add effects to any material (built-in, from a style pack, or third-party); returns the same material. The one entry for shader effects: wind (sway amplitude; the shadow sways too, nothing else to set up), clouds (drifting cloud shadows, default on; how dark is style.clouds.shadow), season ('foliage' / 'ground' seasonal tint), and patches: your own named patches (see ShaderPatch in render/patches.js). The 'world' patch (varying vThreedogWorld, world position) comes with clouds, and is added for any of your patches that lists it in needs.patches. Built-in effects the material cannot take (MeshBasicMaterial has no lighting chunk for clouds) are skipped with a one-time warning; your own patches throw when their anchor is missing. Calling again with the same effect replaces it.
+- `MATERIAL_PURPOSES: string[]` — Material roles the engine itself uses
+- `makeMaterial(purpose?: string, params?: { color?, … }, engine?: { style: any }) → THREE.Material` — Create a material by role: makeMaterial('furniture', { color: 0x8a5a36 }); the look comes from the style pack's materials[role] (unlisted roles use materials.default). Roles the engine uses: default terrain vegetation character water pickup prop (MATERIAL_PURPOSES); a game may pick new names (e.g. 'building'), and a name close to an existing role ('props', 'charcter') warns in dev. A style pack entry has one of three forms; params are then applied to the result (keys the material lacks are skipped):
+- `materialPatches(material: THREE.Material) → string[]` — Names of the patches on a material (in order), e.g. ['clouds', 'tint', 'wind']
+- `row(label: string, ctl: string, esc: (s: any) => string) → string` — One row: text on the left, control on the right (returns HTML)
+- `toggle(key: string, on: boolean, tools: SettingsTools) → string` — Toggle button
+- `range(key: string, v: number, min: number, max: number, step: number, tools: SettingsTools) → string` — Slider
+- `segmented(key: string, cur: any, options: [any, string][], tools: SettingsTools, disabled?: any[]) → string` — A group of mutually exclusive buttons
+- `toast(engine: Engine, text: string, { kind, ms }?: { kind?: string; ms?: number })` — Show a short message through the 'toast' UI part (default: top of the screen, gone after ms). A game restyles it, filters it by kind or turns it off with createEngine({ ui: { toast: false } }). kind says where it came from: 'info' (default), 'quest', 'item', 'save', 'error'.
+- `makeWindow(engine: Engine, opts: WindowOptions) → UIWindow` — A toggleable window
+- `worldToScreen(engine: Engine, pos: PositionLike) → ScreenPoint` — World coordinates (position or object) -> screen pixels { x, y, onScreen, behind }
+- `fadeScreen(engine: Engine, to: number, seconds?: number) → Promise<void>` — Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends
+- `uiFocus(engine: Engine) → UIFocus` — UI focus stack: windows, dialogue and cutscenes push in open order; the back key (Esc) goes to the top only; an empty stack hands it to the settings menu
+- `toggleOnKey(engine: Engine, win: { open, toggle }, action: string)` — Window toggle key: call once per frame in a frame hook; opens on the action when closed, closes on another press when open
+- `parseClock(clock: string | number, hoursPerDay?: number) → number` — Clock time -> fraction of the day: parseClock('18:30') = 0.77; a number or numeric string ('0.25') is converted as is. hoursPerDay is hours per day, default 24
+- `formatClock(t: number, hoursPerDay?: number) → string` — Fraction of the day -> 'HH:MM': formatClock(0.75) = '18:00'
+- `inRange(t: number, from: string | number, to: string | number, hoursPerDay?: number) → boolean` — Is time t (0-1, e.g. sky.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by sky.between and music's when.time
+- `pickTarget(from: PositionLike, view: { x: number; z: number } | number, candidates: Iterable<T>, opts?: TargetOptions<T>) → T | null` — Best target in front: lowest "distance + angle off view × angleWeight" inside radius and cone. view is a direction { x, z } (cameraRig.forward()) or a facing angle. Returns the candidate or null
+- `switchTarget(from: PositionLike, view: { x: number; z: number } | number, current: T | null, candidates: Iterable<T>, side: 1 | -1, opts?: Pick<TargetOptions<T>, 'radius' | '…) → T | null` — Next target to the right (side 1) or left (-1) of current as seen along view, wrapping; current missing → the leftmost. Returns a candidate or null
+- `THREE` — three.js itself (any): `import { THREE } from 'threedog'`
+
+## Data structures
+- **WindowOptions** Parameters of makeWindow()
+  - `id: string` Window name (also the style pack's template name)
+  - `title: () => string` Title
+  - `hintAction?: string` Action name that toggles it (shows the key hint)
+  - `render: (data, tools) => string` Default content: (data, tools) => HTML
+  - `data?: () => any` Template data
+  - `onCancel?: () => void` What to do on the back key (Esc), default closes the window (an open window is on the UI focus stack, and Esc goes only to the topmost)
+- **UIWindow** Window returned by makeWindow()
+  - `el: HTMLElement`
+  - `open: boolean` Whether it is open
+  - `refresh()` — Redraw the content
+  - `toggle(on?: boolean)` — Open / close (toggle if no argument is passed)
+- **ScreenPoint** Result of worldToScreen(): x/y are screen pixels, onScreen is inside the view, behind is behind the camera
+  - `x: number`
+  - `y: number`
+  - `onScreen: boolean`
+  - `behind: boolean`
+
+## Other exported classes and functions
+- `serve(handler: (msg: any) => any)` — Start answering lane messages in a worker. handler is the same function the lane's local() returns on the main thread.

@@ -1,0 +1,7 @@
+# 仓库里的文本文件一律 LF（Windows 上的工具和 AI 助手也不会改成 CRLF）
+* text=auto eol=lf
+*.glb binary
+*.png binary
+*.jpg binary
+*.wasm binary
+*.ktx2 binary

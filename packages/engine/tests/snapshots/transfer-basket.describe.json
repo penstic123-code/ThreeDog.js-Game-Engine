@@ -1,0 +1,15 @@
+{
+ "inventory": {
+  "containers": {
+   "fisher-basket": {
+    "berry": 3,
+    "feather": 1,
+    "film": 2
+   }
+  },
+  "items": {
+   "film": 10
+  },
+  "slots": "1"
+ }
+}

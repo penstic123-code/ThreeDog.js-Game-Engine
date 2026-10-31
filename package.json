@@ -1,0 +1,32 @@
+{
+  "name": "threedog-monorepo",
+  "private": true,
+  "description": "threedog.js monorepo: the engine (packages/engine), its tools (packages/tools) and games (npm workspaces)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git"
+  },
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "games/*"
+  ],
+  "scripts": {
+    "dev": "threedog dev",
+    "build": "npm run build --workspaces --if-present",
+    "check": "threedog check",
+    "types": "threedog types",
+    "test": "threedog test",
+    "map": "threedog map",
+    "shot": "threedog shot",
+    "perf": "threedog perf",
+    "bake": "threedog bake",
+    "assets": "threedog assets",
+    "new-game": "threedog new-game",
+    "doctor": "threedog doctor"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1"
+  }
+}

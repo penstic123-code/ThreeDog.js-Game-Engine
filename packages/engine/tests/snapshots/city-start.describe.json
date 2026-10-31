@@ -1,0 +1,44 @@
+{
+ "player": {
+  "ground": "default",
+  "state": "idle",
+  "inWater": false
+ },
+ "camera": {
+  "type": "follow"
+ },
+ "ui": {
+  "dialogue": null,
+  "inputContexts": [
+   "gameplay"
+  ],
+  "inputLocked": false,
+  "parts": {
+   "dialogue": "default",
+   "loading": "default",
+   "prompt": "default",
+   "title": "off",
+   "toast": "default",
+   "touch": "default"
+  },
+  "windows": []
+ },
+ "modules": [
+  "world",
+  "level",
+  "sky",
+  "collision",
+  "rigid",
+  "cameraRig",
+  "characters",
+  "interactions",
+  "dialogue",
+  "triggers",
+  "particles",
+  "timeline",
+  "settings",
+  "debug",
+  "content",
+  "flow"
+ ]
+}

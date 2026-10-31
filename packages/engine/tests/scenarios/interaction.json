@@ -1,0 +1,37 @@
+{
+  "name": "interaction: an unknown id is refused, the fisher's id starts his dialogue",
+  "url": "/",
+  "state": {
+    "pos": "@fisher",
+    "cutscene": "skip"
+  },
+  "steps": [
+    {
+      "op": "interaction.use",
+      "args": {
+        "id": "nobody"
+      },
+      "expect": "unknown"
+    },
+    {
+      "expect": {
+        "ui.dialogue": null
+      }
+    },
+    {
+      "op": "interaction.use",
+      "args": {
+        "id": "fisher"
+      }
+    },
+    {
+      "step": 0.2
+    },
+    {
+      "expect": {
+        "ui.dialogue.speaker": "老渔夫",
+        "ui.inputLocked": true
+      }
+    }
+  ]
+}

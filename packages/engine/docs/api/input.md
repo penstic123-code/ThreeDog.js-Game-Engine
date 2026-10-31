@@ -1,0 +1,24 @@
+# engine.input (Input) — Input: read by "action", not by "key"
+
+- `input.define(action: string, keys: string | string[], labelKey?: string, opts?: { pad?, context? })` — Register an action. keys is a key name or array (gamepad keys such as 'PadY' can go in directly); labelKey is the display name (a string-table key or text). opts.pad: the default gamepad key for this action (gameplay-specific actions get it from the registering module; createEngine({ padBindings }) takes precedence). If the action exists, the later definition overrides (warns once in dev when the keys differ); keys the player rebound in settings are kept. Example: `engine.input.define('openMap', 'KeyM', 'input.openMap', { pad: 'PadY' });`
+- `input.touchButton(action: string, labelKey: string)` — Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the language changes)
+- `input.simulate(action: any, down?: boolean)` — Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key. Example: `engine.input.simulate('jump'); engine.step(1 / 60); engine.input.simulate('jump', false)`
+- `input.rebind(action: string, keys: string | string[])` — Rebind a key
+- `input.keysOf(action: string) → string[]` — All keys bound to an action
+- `input.label(action: string) → string` — Key name shown in the UI, e.g. "E"
+- `input.down(action: string) → boolean` — Held (a snapshot of this step in fixed, the latest state in frame)
+- `input.pressed(action: string) → boolean` — Just pressed. Read in onFixed / module fixed: pressed since the previous fixed step, true only for this step (counted once however the frame rate varies, never lost); read in onFrame / module frame: pressed this frame (UI keys only). Read gameplay keys in fixed. Example: `engine.onFixed(() => { if (engine.input.pressed('jump')) player.jump(); });`
+- `input.released(action: string) → boolean` — Just released (which copy is read is the same as pressed; for things like release-to-fire after charging). Example: `if (engine.input.released('fire')) shoot(charge);`
+- `input.pressedRaw(action: string) → boolean` — Just pressed, ignoring input contexts (for menus and dialogue themselves, which run while a context blocks the game)
+- `input.push(name: string, opts?: { pass?: boolean }) → { name: string; remove(): void }` — Push an input context (an action group, like a Unity Action Map). The top context shadows lower actions bound to the same key. Opaque by default (nothing below is readable: menus, dialogue, cutscenes); { pass: true } lets unrelated lower actions keep working (vehicle, build mode). Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., { context }); menu keys: pressedRaw. Example: `const h = engine.input.push('vehicle', { pass: true });   // vehicle-context actions (brake) work, and shadow gameplay actions on the same key h.remove();`
+- Properties:
+  - `look: { dx: number; dy: number; zoom: number }` This frame's look-drag amount (pixels) and wheel notches
+  - `pointer: Pointer` Mouse/touch pointer
+  - `stick: { x: number; y: number }` On-screen stick (touch)
+  - `autopilot: Autopilot | null` Auto movement (stress tests, test scripts)
+  - `actions: Map<string, { keys: string[]; labelKey: string }>` action name -> { keys = key list, labelKey = string-table key }
+  - `lastDevice: "keyboard" | "pad" | "touch"` Most recently used device: UI key hints follow it
+  - `touch: boolean` Is this a touch device?
+  - `contexts: string[]` Names of the active contexts, bottom to top (pending switches apply at the next fixed step)
+  - `enabled: boolean` False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom
+  - `axis: { x: number; y: number }` Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame)

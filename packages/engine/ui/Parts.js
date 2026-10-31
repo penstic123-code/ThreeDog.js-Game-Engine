@@ -1,0 +1,195 @@
+// UI parts (engine.ui): every piece of screen UI the engine or a module draws is a named part with a default implementation.
+// A game swaps any part for its own DOM / canvas code, or turns it off, without touching the engine; the engine keeps the behavior
+// (when to show it, the UI focus stack, Esc, input lock, i18n), the part only draws.
+//
+//   createEngine({ ui: { loading: false, title: { title: 'My Game' }, toast: (engine) => ({ show: d => myToast(d.text) }) } })
+//   engine.ui.set('hud.counter', (engine) => {            // replace a part: a function returning { show, update, hide, dispose } (any may be omitted)
+//     const el = document.createElement('div'); engine.uiRoot.appendChild(el);
+//     return { update: d => { el.textContent = `${d.label} ${d.value}`; }, dispose: () => el.remove() };
+//   });
+//   engine.ui.set('hud.marker', false);                    // turn a part off
+//   engine.ui.open('title') / engine.ui.close('title')     // full-screen parts (title): pushes the UI focus stack, locks input, emits ui:open / ui:close
+//
+// Value per name: false = off; true = the default; a plain object = the default with these options; a function (engine, options) => part = your own.
+// Names and the data each part receives are listed in `engine.ui.describe()` and in recipes/26-ui-parts.md.
+import { uiFocus } from './Focus.js';
+/** @import { Engine } from '../types/core' */
+/** @import { UIPart, UIPartFactory, UIPartValue, UIPartDef } from '../types/core' */
+
+const VERBS = ['show', 'update', 'hide', 'dispose'];
+const noop = () => {};
+const DEV = {
+  badValue: "engine.ui.set('{name}', …): pass false (off), true (default), an options object, or a function (engine, options) => ({ show, update, hide, dispose }). Got {got}.",
+  badPart: "ui part '{name}': the function must return an object { show, update, hide, dispose } (any may be omitted). Got {got}.",
+  badVerb: "ui part '{name}': {verb} must be a function.",
+  unknown: "engine.ui.set('{name}'): no UI part has that name. Known parts: {known}. (A module's parts exist only after engine.use(module).)",
+  notModal: "engine.ui.open('{name}'): only full-screen parts can be opened ({known}).",
+};
+const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (_, k) => p[k]);
+const kind = v => v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
+
+/** @internal Fill missing verbs with no-ops so callers never write ?. */
+function normalize(name, p) {
+  if (!p || typeof p !== 'object') throw new Error(fmt(DEV.badPart, { name, got: kind(p) }));
+  for (const v of VERBS) {
+    if (p[v] == null) p[v] = noop;
+    else if (typeof p[v] !== 'function') throw new Error(fmt(DEV.badVerb, { name, verb: v }));
+  }
+  return p;
+}
+
+export class UIParts {
+  /**
+   * @param {Engine} engine
+   * @param {Record<string, UIPartValue>} [values]  createEngine({ ui })
+   * @internal
+   */
+  constructor(engine, values = {}) {
+    this.engine = engine;
+    /** @internal name -> { factory, on, multi, modal } */ this.defs = new Map();
+    /** @internal name -> value given by the game (wins over the default whatever the install order) */ this.values = new Map();
+    /** @internal name -> live singleton */ this.live = new Map();
+    /** @internal name -> { focus } while a full-screen part is open */ this.opened = new Map();
+    /** @internal hide() promises still fading out (see settled) */ this._fading = new Set();
+    for (const [k, v] of Object.entries(values)) this.set(k, v);
+  }
+
+  /**
+   * Declare a part and its default implementation (engine and modules call this in install; games use set).
+   * @param {string} name
+   * @param {UIPartFactory} factory  default implementation (engine, options) => part
+   * @param {UIPartDef} [def]  on: shown unless the game asks (default true); multi: one part per item (markers, counters); modal: full-screen, opened with ui.open
+   * @returns {void}
+   * @example engine.ui.define('hud.ammo', (e, o) => ({ update: d => {...} }), { multi: true })
+   */
+  define(name, factory, { on = true, multi = false, modal = null } = {}) {
+    this.defs.set(name, { factory, on, multi, modal });
+  }
+
+  /**
+   * Replace a part with your own, give the default options, or turn it off. Affects parts created after this call (set before engine.start()).
+   * @param {string} name  e.g. 'loading' 'toast' 'title' 'hud.marker' 'hud.counter' 'hud.bar'
+   * @param {UIPartValue} value  false off · true default · { ...options } default with options · (engine, options) => ({ show, update, hide, dispose })
+   * @returns {void}
+   * @example engine.ui.set('toast', (engine) => ({ show: ({ text, kind }) => { if (kind !== 'quest') myToast(text); } }))
+   */
+  set(name, value) {
+    const t = kind(value);
+    if (t !== 'boolean' && t !== 'function' && t !== 'object') throw new Error(fmt(DEV.badValue, { name, got: t }));
+    this.values.set(name, value);
+  }
+
+  /** @internal value -> { factory, options } or null when off */
+  _resolve(name) {
+    const d = this.defs.get(name), v = this.values.has(name) ? this.values.get(name) : d?.on;
+    if (!d || v === false || v === undefined) return null;
+    if (typeof v === 'function') return { factory: v, options: {} };
+    return { factory: d.factory, options: v === true ? {} : v };
+  }
+  /** @internal */
+  _make(name) {
+    const r = this._resolve(name);
+    if (!r) return null;
+    const p = normalize(name, r.factory(this.engine, r.options)), hide = p.hide;
+    // a hide() that fades out may return a promise; track it so settled() knows when the screen is really clear
+    p.hide = (...a) => {
+      const out = hide.apply(p, a);
+      if (out?.then) { this._fading.add(out); out.finally(() => this._fading.delete(out)); }
+      return out;
+    };
+    return p;
+  }
+
+  /**
+   * Resolves once every part that is hiding has finished fading out (a part's hide() may return a promise for its fade).
+   * Screenshots wait for it so the loading screen is not captured half-transparent.
+   * @example await engine.ui.settled(); renderer.domElement.toDataURL();
+   * @returns {Promise<void>}
+   */
+  settled() { return Promise.all([...this._fading]).then(() => {}); }
+
+  /**
+   * The live single part (loading, toast, title...), built on first use; null when the part is off.
+   * @param {string} name
+   * @returns {UIPart | null}
+   * @example engine.ui.get('loading')?.update({ progress: 0.5, text: '' })
+   */
+  get(name) {
+    if (this.live.has(name)) return this.live.get(name);
+    const p = this._make(name);
+    this.live.set(name, p);
+    return p;
+  }
+
+  /**
+   * A new part for one item of a multi part (a HUD marker, counter, bar); null when the part is off. The caller disposes it.
+   * @param {string} name
+   * @returns {UIPart | null}
+   */
+  create(name) { return this._make(name); }
+
+  /**
+   * Open a full-screen part (the title screen): shows it, pushes the UI focus stack (Esc goes to it), locks gameplay input, emits ui:open.
+   * @param {string} name
+   * @param {object} [data]  passed to the part's show()
+   * @returns {boolean} false when the part is off
+   * @example engine.ui.open('title')
+   */
+  open(name, data) {
+    const d = this.defs.get(name);
+    if (!d?.modal) throw new Error(fmt(DEV.notModal, { name, known: [...this.defs].filter(([, x]) => x.modal).map(([n]) => n).join(', ') }));
+    const p = this.get(name);
+    if (!p) return false;
+    if (this.opened.has(name)) return true;
+    const e = this.engine, m = d.modal;
+    if (m.freeze) e.freeze('ui-' + name);
+    this.opened.set(name, { focus: uiFocus(e).push('ui-' + name, { cancel: m.cancel ? () => m.cancel(e) : null }), ctx: e.input.push('menu') });   // 'menu' context: gameplay actions stop responding
+    p.show({ ...m.data?.(e, this._resolve(name).options), ...data });
+    e.events.emit('ui:open', name);
+    return true;
+  }
+
+  /**
+   * Close a full-screen part opened with open().
+   * @param {string} name
+   * @returns {void}
+   */
+  close(name) {
+    const f = this.opened.get(name);
+    if (!f) return;
+    const e = this.engine;
+    this.opened.delete(name);
+    f.focus.remove(); f.ctx.remove();
+    e.unfreeze('ui-' + name);
+    this.live.get(name)?.hide();
+    e.events.emit('ui:close', name);
+  }
+
+  /**
+   * Whether a full-screen part is open
+   * @param {string} name
+   * @returns {boolean}
+   */
+  isOpen(name) { return this.opened.has(name); }
+
+  /**
+   * Each part: 'default' | 'custom' | 'off'
+   * @returns {Record<string, string>}
+   */
+  describe() {
+    const out = {};
+    for (const [n, d] of this.defs) { const v = this.values.has(n) ? this.values.get(n) : d.on; out[n] = v === false ? 'off' : typeof v === 'function' ? 'custom' : 'default'; }
+    return out;
+  }
+
+  /** @internal start(): every module is installed, so a name the game set but nobody defined is a typo */
+  _check() {
+    for (const n of this.values.keys()) if (!this.defs.has(n)) throw new Error(fmt(DEV.unknown, { name: n, known: [...this.defs.keys()].join(', ') }));
+  }
+  /** @internal engine.dispose() */
+  _dispose() {
+    for (const n of [...this.opened.keys()]) this.close(n);
+    for (const p of this.live.values()) p?.dispose();
+    this.live.clear();
+  }
+}

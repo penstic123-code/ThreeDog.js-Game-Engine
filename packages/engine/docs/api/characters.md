@@ -1,0 +1,140 @@
+# engine.characters — characters(opts?: CharactersOptions)
+
+Characters: createPlayer() (characters() module)
+
+- Options `CharactersOptions`:
+  - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
+  - `brakeKeys?: string[]` Brake key when driving (action brake, registered when rigid is installed), default ['KeyB'] (so it doesn't fight with Space for jump)
+  - `brakePadKeys?: string[]` Gamepad button for braking, default ['PadLT']
+
+## Methods and properties
+- `characters.findSpawn(position?: PositionLike, opts?: FindSpawnOptions) → Vector3` — Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
+- `characters.createPlayer(opts?: PlayerOptions) → Character` — Create a keyboard/joystick-controlled player (the camera follows automatically when a camera module is installed) and set engine.player. An existing player is deleted first
+- `characters.moveInput() → { x, z, run, speed? }` — The default player control as a value: keys / stick relative to the camera, run key, input.autopilot. Reused object; call it inside your own control function to wrap the default
+- `characters.removePlayer()` — Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first
+- `characters.findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }) → PathResult` — Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable
+- `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { cancel(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
+- Properties:
+  - `pathsPerStep: number` How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps
+
+## Character (engine.player / NPC are both Character)
+- `player.push(vx: number, vz: number, seconds: number)` — Move at a fixed velocity (m/s) for seconds, ignoring move()'s direction and without turning (knockback, dodge roll); gravity and collision still apply
+- `player.enter(vehicle: Vehicle)` — Board a vehicle (the vehicle returned by rigid.addVehicle)
+- `player.exit()` — Exit the vehicle
+- `player.playAction(name: string)` — Play a one-shot action (e.g. 'wave'); skipped if the model has no such clip
+- `player.dispose()` — Fully delete this character: exits the vehicle first, releases animation and movement, removes it from the scene and releases geometry and materials (used by npcs.remove / removePlayer)
+- `player.jump()` — Request a jump
+- `player.addTo(scene?: any)` — Add to the scene
+- `player.placeAt(position: PositionLike)` — Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z })
+- `player.syncRecord()` — After moving root yourself (a cutscene path, a scripted pose): write position and motion back to its world record (the player's), so a save right after has it
+- `player.move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number)` — Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1), run to run, dt in seconds
+- `player.groundType() → string` — Ground type underfoot ('water' while swimming)
+- `player.face(target: PositionLike | number)` — Turn at once to a position, or to an angle in radians (0 = +Z)
+- `player.animate(dt: number)` — Play animation every frame
+- `player.saveMotion(out?: CharacterMotion) → CharacterMotion` — Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
+- `player.loadMotion(m: CharacterMotion | null | undefined)` — Restore the motion state from the plain object of saveMotion
+- Properties:
+  - `root: Object3D` Root node (this is what gets added to the scene)
+  - `object: Object3D` Same as root: add children, change visible and scale on it
+  - `position: Vector3` Position (= root.position)
+  - `velocity: Vector2` Horizontal velocity (x, y map to world x, z)
+  - `facing: number` Heading (radians): 0 faces +Z, forward = (sin facing, cos facing); increasing turns toward +X (rotation about the Y axis, consistent with root.rotation.y)
+  - `vy: number` Vertical velocity (m/s)
+  - `grounded: boolean` Whether standing on the ground
+  - `swimming: boolean` Whether swimming
+  - `state: CharacterState` Current action state
+  - `moveAmount: number` Current movement speed (m/s)
+  - `faceMode: FaceMode` Facing mode, change at any time; see CharacterOptions.faceMode
+  - `faceTarget: PositionLike | null` What faceMode 'target' faces
+  - `control?: PlayerControl` Player only: who moves it each fixed step (see PlayerOptions.control)
+  - `onStep: ((groundType: string) => void) | null` Called when a foot lands (the argument is the ground type underfoot)
+  - `onLand: ((impact: number) => void) | null` Called on landing (the argument is the landing speed)
+  - `mover: { name, controller?, body?, collider?, move, dispose? }` Movement method; name is 'simple' / 'rapier', controller is the native Rapier character controller (when rapier)
+  - `anim: Animator | null` Skeletal animation state machine (when there is a glTF model; null while a model named by asset is still loading)
+  - `ready: boolean` false while a model named by asset is loading (the placeholder body shows); true otherwise, also after a failed load (placeholder kept)
+  - `whenReady: Promise<void>` Settles (never rejects) when a model named by asset is swapped in or has failed; already settled otherwise. Example: `const npc = new Character(engine, { model: 'villager' }).addTo();   // import { Character } from 'threedog' await npc.whenReady; npc.playAction('Wave');`
+  - `vehicle: Vehicle | null` The vehicle being driven (null when not driving)
+
+## NPC (engine.npcs.add() returns an NPC (extends Character))
+- `npc.setBehavior(name: string, mind?: Record<string, any>)` — Change behavior (stored in the data, restored by saves). mind is the new behavior's parameters / memory (plain values), cleared if omitted. E.g. npc.setBehavior('wander', { radius: 12 })
+- `npc.currentStop() → ScheduleEntry | null` — The stop it should be heading to now
+- `npc.placeAt(position: PositionLike)` — Teleport to the ground at a position (handed to the mover when there is a model, otherwise the data is changed) and re-pathfind
+- `npc.face(position: PositionLike)` — Face a position (when there is a model)
+- `npc.remove() → boolean` — Delete this NPC (data and model together)
+- Properties:
+  - `id: string` Stable id
+  - `data: WorldRecord | undefined` The record in world (a plain object; undefined after deletion). Change fields with engine.world.set(npc.id, {...})
+  - `schedule: ScheduleEntry[]` Schedule (at converted to 0–1, sorted by time)
+  - `behavior: string` Current behavior name
+  - `talk: string | null` Dialogue id
+  - `state: string` Animation state ('idle' / 'walk'...)
+  - `busy: boolean` In dialogue (stopped, not walking)
+  - `character: Character | null` The current character model: exists only when nearby; null when far away, in another level, or not yet built
+  - `root: Object3D | null` Root object of the current model (= character.root), null when there is no model
+  - `object: Object3D | null` Same as root
+  - `position: Vector3` Position: the model's position when there is a model (use it read-only, move with placeAt), a copy of the record's position when there is none
+
+## Data structures
+- **NPCOptions** (extends CharacterOptions) Parameters of engine.npcs.add({...})
+  - `id?: string` Stable id (used by saves, quest targets { npc } and npcs.get); falls back to name if omitted (two NPCs with the same name and no id throw an error). Calling add again with the same id updates the definition and keeps position and state
+  - `initial?: boolean` NPC authored in content (everything added by content): the initial record of world; saves only record changes such as position and state, the schedule follows the content; deleted ones do not reappear after loading
+  - `name?: string` Name
+  - `zone?: string | null` Which zone it belongs to (a level name, see world.zone): when not in this zone only the model is torn down and the data stays; null (default) means it is present everywhere
+  - `schedule?: ScheduleStop[]` Schedule (needs the sky module; without it the first entry is always used)
+  - `behavior?: string` Behavior name: 'schedule' (default, follows the schedule), 'wander' (roams around home) or a name registered with npcs.behavior()
+  - `mind?: Record<string, any>` Behavior parameters and memory (plain values, saved). wander: { radius in meters (8), pause [min, max] seconds ([2, 6]), home { x, z } (defaults to the position when wandering started) }
+  - `talk?: string | null` Dialogue script name (needs the dialogue and interactions modules), triggered by pressing the interact key when close
+  - `talkLabel?: string | (() => string)` Prompt text (text is stored in the data; a function stays in memory only)
+  - `talkRadius?: number` Dialogue distance (meters), default 3.2
+  - `pathStep?: number` Pathfinding grid size (meters), default 2
+  - `repath?: number` Seconds before re-pathfinding after getting stuck, default 2
+  - `arriveDistance?: number` Arrival distance (meters), default 1.2: within 1.2 m of the schedule stop / target counts as arrived and stops, it does not step exactly on the point (call placeAt yourself for an exact spot)
+  - `position?: PositionLike` Initial position (Vector3 / object / [x, y, z] / { x, z }); the current schedule stop is used if omitted
+- **ScheduleStop** One schedule stop (the npcs.add form): at is when to set off, position the destination
+  - `at: number | string` When to set off: clock time 'HH:MM' (e.g. '18:30'), or a time of day 0–1 (0.25 = 6 am)
+  - `position: PositionLike` Destination (Vector3 / object / [x, y, z] / { x, z })
+- **ScheduleEntry** One schedule stop (as stored in npc.schedule after install): at has been converted to 0–1, x/z is the destination (meters)
+  - `at: number`
+  - `x: number`
+  - `z: number`
+- **PlayerOptions** (extends CharacterOptions) Parameters of createPlayer()
+  - `spawn?: PositionLike` Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted
+  - `jumpKeys?: string[]` Jump keys, default ['Space']
+  - `control?: PlayerControl` Who moves the player: true (default keys relative to the camera) / false (call player.move() yourself in onFixed) / (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control
+- **CharacterOptions** Character parameters (shared by the player and NPCs)
+  - `colors?: { body?, skin?, legs?, hair? }` Colors (default from the style pack's style.character.colors)
+  - `speed?: number` Walking speed (m/s), default 4.5
+  - `runSpeed?: number` Running speed (m/s), default 7
+  - `radius?: number` Collision radius (meters), default 0.4
+  - `canSwim?: boolean` Whether it can swim, default true
+  - `swimDepth?: number` Water depth (meters) at which swimming starts, default 1
+  - `swimSpeed?: number` Swimming speed multiplier, default 0.45
+  - `turnSpeed?: number` How fast it turns, default 10
+  - `acceleration?: number` How fast it starts / stops, default 12
+  - `gravity?: number` Gravity (m/s², negative), default -24
+  - `jumpSpeed?: number` Jump speed (m/s), default 8
+  - `stepHeight?: number` Step height it can climb directly (meters), default 0.45
+  - `airControl?: number` Air control, 0–1
+  - `coyoteTime?: number` How long after walking off an edge a jump is still allowed (seconds)
+  - `canJump?: boolean` Whether it can jump, default true
+  - `model?: Object3D | string | null` glTF model: what engine.assets.model() returned, or the name of a registered model asset (default style.character.model). A name builds the character at once with the placeholder body and swaps in a copy of the asset when it loads (see Character.ready / whenReady, event 'character:model'). Example: `engine.characters.createPlayer({ model: 'hero' })   // after engine.assets.manifest({ models: { hero: '/models/hero.glb' } })`
+  - `clips?: { idle?, walk?, run?, swim?, jump?, fall?, … } | null` Action name mapping { idle, walk, run, swim, jump, fall } (shorthand for animation)
+  - `animation?: AnimatorOptions | null` Skeletal animation state machine config (states, blend trees, one-shot actions), see AnimatorOptions
+  - `mover?: 'simple' | 'rapier'` Movement method: 'simple' built into the engine (default) / 'rapier' Rapier character controller (needs the rigid module)
+  - `faceMode?: FaceMode` Which way it turns each move: 'move' (default, toward its velocity) / 'camera' (along cameraRig.forward()) / 'target' (toward faceTarget) / 'manual' (only face() turns it)
+  - `faceTarget?: PositionLike | null` What faceMode 'target' faces (lock-on)
+- **FindSpawnOptions** Parameters of findSpawn(): minH/maxH height range (meters, default unlimited), maxSlope maximum slope (default 0.3), waterMargin minimum meters above the water (default 0.5)
+  - `minH?: number`
+  - `maxH?: number`
+  - `maxSlope?: number`
+  - `waterMargin?: number`
+
+## engine.npcs (installed together with characters())
+- `npcs.add(opts: NPCOptions) → NPC` — Add an NPC, returns a handle
+- `npcs.remove(npc: NPC | string) → boolean` — Delete an NPC (pass a handle, id or name): the data is deleted, and the model and dialogue interaction are torn down together. Returns false if not found
+- `npcs.behavior(name: string, impl: { near?, far? })` — Register an NPC behavior: near(rec, dt, npc) once per fixed step when nearby, far(rec, dt) simulated from the data when far (dt is accumulated seconds); selected through behavior in the data
+- `npcs.get(idOrName: string) → NPC | undefined` — Find by id or name (id first)
+- `npcs.character(id: string) → Character | null` — The current character model of an NPC, null if none
+- Properties:
+  - `list: NPC[]` All NPCs (including far ones and ones in other levels)
+  - `avoid: { on, radius, strength, set, push }` Nearby NPCs avoid each other (on by default): pushed apart to no less than the sum of their radii, the player counts as an obstacle (NPCs yield to the player), then constrained back to walkable places by engine.collision; deterministic and cheap, with identical results after loading. With nav({ crowd: true }) crowd takes over. Example: `engine.npcs.avoid.set({ radius: 0.6, strength: 2 });   // set(false) turns it off`

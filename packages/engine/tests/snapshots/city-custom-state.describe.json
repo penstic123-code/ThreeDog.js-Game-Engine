@@ -1,0 +1,15 @@
+{
+ "snapDemo": {
+  "score": 3,
+  "targets": [
+   {
+    "hp": 10,
+    "name": "crate"
+   },
+   {
+    "hp": 5,
+    "name": "barrel"
+   }
+  ]
+ }
+}

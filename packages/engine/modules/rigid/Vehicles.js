@@ -1,0 +1,97 @@
+// Vehicle: Rapier ray-cast vehicle controller (DynamicRayCastVehicleController). The chassis is a dynamic body; wheels are downward rays + suspension.
+// Convention: the front faces the model's +Z (like characters); wheel position is relative to the chassis origin.
+//
+// const car = engine.rigid.addVehicle(carMesh, { wheels: [
+//   { position: [-0.8, 0, 1.2], radius: 0.35, steer: true, object: wheelFL }, { position: [0.8, 0, 1.2], radius: 0.35, steer: true },
+//   { position: [-0.8, 0, -1.2], radius: 0.35, drive: true }, { position: [0.8, 0, -1.2], radius: 0.35, drive: true } ], mass: 800 });
+// engine.player.enter(car);   car.drive(throttle, steer, brake)
+// Native objects: car.body (rigid body), car.controller (vehicle controller).
+import * as THREE from 'three';
+import { vec3 } from '../../core/math.js';
+
+export const VEHICLE_KEYS = ['id', 'wheels', 'mass', 'engineForce', 'brakeForce', 'maxSteer', 'suspension', 'seat', 'camera', 'size', 'friction', 'exitOffset'];
+export const STRINGS = { 'zh-CN': { 'vehicle.enter': '上车', 'vehicle.exit': '下车' }, en: { 'vehicle.enter': 'Get in', 'vehicle.exit': 'Get out' } };
+
+/** Chassis size: model bounding box (wheels excluded), in local coordinates */
+function bodyBox(mesh, wheelObjs) {
+  const box = new THREE.Box3(), q = mesh.quaternion.clone(), p = mesh.position.clone();
+  mesh.quaternion.identity(); mesh.position.set(0, 0, 0); mesh.updateMatrixWorld(true);
+  const skip = o => { for (let x = o; x; x = x.parent) if (wheelObjs.has(x)) return true; return false; };
+  mesh.traverse(o => {
+    if (!o.isMesh || skip(o)) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+  });
+  mesh.quaternion.copy(q); mesh.position.copy(p); mesh.updateMatrixWorld(true);
+  return box;
+}
+
+/** Create a vehicle (called by RigidBodies.addVehicle) */
+export function createVehicle(rigid, mesh, { wheels, mass = 800, engineForce = 800, brakeForce = 20, maxSteer = 0.5, suspension = {}, seat, camera, size, friction = 1.5, exitOffset = 0.8 }) {
+  const e = rigid.engine, R = rigid.R, w = rigid.world;
+  const box = bodyBox(mesh, new Set(wheels.map(x => x.object).filter(Boolean)));
+  const s = size ? new THREE.Vector3().fromArray(size) : box.getSize(new THREE.Vector3()), c = size ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
+  const entry = rigid._add(mesh, R.ColliderDesc.cuboid(s.x / 2, s.y / 2, s.z / 2).setTranslation(c.x, c.y, c.z), { mass, friction: 0.5, damping: 0.1, angularDamping: 0.5 });
+  entry.volume = s.x * s.y * s.z;
+  const ctl = w.createVehicleController(entry.body);
+  ctl.indexUpAxis = 1; ctl.setIndexForwardAxis = 2;   // up = Y, forward = Z
+  const { rest = 0.3, stiffness = 30, damping = 4 } = suspension;
+  wheels.forEach((wh, i) => {
+    const at = vec3(wh.position);
+    ctl.addWheel({ x: at.x, y: at.y, z: at.z }, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, rest, wh.radius);
+    ctl.setWheelSuspensionStiffness(i, stiffness);
+    ctl.setWheelSuspensionCompression(i, damping);
+    ctl.setWheelSuspensionRelaxation(i, damping);
+    ctl.setWheelFrictionSlip(i, friction * 10);
+    ctl.setWheelMaxSuspensionTravel(i, rest);
+    if (wh.object) wh._base = wh.object.position.clone();
+  });
+  const drives = wheels.filter(x => x.drive).length || wheels.length;
+  const seatAt = seat ? vec3(seat) : new THREE.Vector3(c.x, c.y, c.z);
+  let throttle = 0, steerIn = 0, brake = 0;
+
+  const v = Object.assign(entry, {
+    controller: ctl, wheels, driver: null, camera,
+    /** Control: throttle -1..1, steer -1..1 (right positive), brake 0-1 */
+    drive(t, st, b = 0) { throttle = t; steerIn = st; brake = b; if (t || b) entry.body.wakeUp(); },
+    /** Seat world position */
+    seatPosition() { return mesh.localToWorld(seatAt.clone()); },
+    /** Exit position: exitOffset meters outside the driver-side door (default 0.8) */
+    exitPosition() { return mesh.localToWorld(new THREE.Vector3(c.x + (seatAt.x >= c.x ? 1 : -1) * (s.x / 2 + exitOffset), c.y, seatAt.z)); },
+    /** Every fixed step: write controls to the wheels and advance the vehicle controller (called before the physics step) */
+    _update(dt) {
+      wheels.forEach((wh, i) => {
+        ctl.setWheelEngineForce(i, wh.drive || drives === wheels.length ? throttle * engineForce / drives : 0);
+        ctl.setWheelSteering(i, wh.steer ? -steerIn * maxSteer : 0);
+        ctl.setWheelBrake(i, brake * brakeForce);
+      });
+      ctl.updateVehicle(dt);
+    },
+    /** After the physics step: wheel models follow suspension travel, steering and rolling */
+    _sync() {
+      wheels.forEach((wh, i) => {
+        if (!wh.object) return;
+        const o = wh.object;
+        o.position.copy(wh._base); o.position.y -= (ctl.wheelSuspensionLength(i) ?? rest) - rest;
+        o.rotation.set(ctl.wheelRotation(i) ?? 0, ctl.wheelSteering(i) ?? 0, 0, 'YXZ');
+      });
+    },
+  });
+  /** Current speed (m/s, negative when reversing): chassis velocity component along the front direction (0 when asleep) */
+  const fwd = new THREE.Vector3(), q = new THREE.Quaternion();
+  Object.defineProperty(v, 'speed', { get: () => {
+    const b = entry.body; if (b.isSleeping()) return 0;
+    const l = b.linvel(); fwd.set(0, 0, 1).applyQuaternion(q.copy(b.rotation()));
+    return l.x * fwd.x + l.y * fwd.y + l.z * fwd.z;
+  } });
+  // With the interactions module installed: press the interact key near the car to get in, and again while driving to get out
+  if (e.interactions) {
+    v._use = e.interactions.add(mesh, {
+      id: v.id,
+      label: () => e.t(v.driver ? 'vehicle.exit' : 'vehicle.enter'), radius: Math.max(3, s.z / 2 + 1.5),
+      enabled: () => !!e.player && (!v.driver || v.driver === e.player),
+      onUse: () => v.driver ? v.driver.exit() : e.player.enter(v),
+    });
+  }
+  return v;
+}

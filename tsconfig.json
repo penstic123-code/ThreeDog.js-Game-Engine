@@ -1,0 +1,34 @@
+{
+  // 只用来做类型检查（npm run types），不编译、不输出文件。
+  // 检查范围：游戏代码（games/*、引擎示例 packages/engine/examples/）与风格包（packages/engine/styles/）。
+  // three.js 的类型来自 @types/three（引擎包的依赖，版本跟 three 对齐），THREE.* 是真类型，不是 any。
+  // 引擎自己的 .js 不检查，游戏代码通过 packages/engine/index.d.ts 拿到引擎接口的类型
+  // （games 里 import 'threedog'，经 workspace 链接和 package.json 的 types 找到它；示例用相对路径 ../../index.js）。
+  // 目录布局见 packages/tools/paths.mjs；改布局时这里的 include 要一起改。
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    // 不跳过 .d.ts：引擎自己的声明（index.d.ts、types/）也要查——跳过时里面引用了不存在的类型名会悄悄变成 any
+    "skipLibCheck": false,
+    "resolveJsonModule": true,
+    "isolatedModules": false,
+    "types": []
+  },
+  "include": [
+    "packages/engine/examples/**/*.js",
+    "packages/engine/styles/**/*.js",
+    "games/*/*.js",
+    "games/*/*.d.ts",
+    "games/*/content/**/*.js",
+    "packages/engine/index.d.ts",
+    "packages/engine/types/**/*.d.ts"
+  ],
+  "exclude": ["**/node_modules", "**/dist", "**/.threedog", "games/*/vite.config.js", "packages/engine/{core,modules,render,ui}/**/*.js", "packages/engine/index.js"]
+}
