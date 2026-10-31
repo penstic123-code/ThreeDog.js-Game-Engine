@@ -22,5 +22,5 @@ function gltfUrl(texture) {
 const make = (key, extra = {}) => createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'load-' + key, ...extra });
 window.threedogLoad = { make, gltfUrl };
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Loading test' } }, saveKey: 'test-loading', adaptiveResolution: false });
-engine.assets.manifest({ models: { tri: { url: gltfUrl(), preload: true } } }, { name: 'page' });
+engine.assets.manifest({ name: 'page', models: { tri: { url: gltfUrl(), preload: true } } });
 await engine.start();

@@ -5,7 +5,7 @@
 用 three.js 0.187 写的网页 3D 游戏引擎，分三层：**核心**（渲染、主循环、输入、声音、存档、界面）→ **模块**（地形、天空天气、物理、角色、对话、背包、任务……按需安装）→ **风格包**（所有美术，可选）。
 引擎只提供机制，不带任何美术：不给风格包时一切都是中性灰占位。仓库里另有一个可选的低模风格包（`@threedog/style-lowpoly`）和一个示例：开放世界摄影慢生活（`/`），关卡全部写在内容文件里。English: [README.md](README.md)。
 
-仓库是 npm workspaces：`packages/engine`（引擎包 `threedog`）、`packages/tools`（工具 `@threedog/tools`，命令行 `threedog`）、`packages/styles/lowpoly`（可选风格包 `@threedog/style-lowpoly`）、`games/*`（每个游戏一个文件夹）。
+仓库是 npm workspaces：`packages/engine`（引擎包 `threedog`）、`packages/tools`（工具 `@threedog/tools`，命令行 `threedog`）、`packages/styles/lowpoly`（可选风格包 `@threedog/style-lowpoly`）、`packages/terrain-noise`（可选地形生成器 `@threedog/terrain-noise`）、`games/*`（每个游戏一个文件夹）。
 
 ## 特点
 
@@ -39,7 +39,8 @@
 | 特点 | 说明 |
 |---|---|
 | 风格包 | 颜色、形状、光影、后期效果都在可替换的风格包里；引擎本身没有默认画风 |
-| 可选的低模风格包 | `@threedog/style-lowpoly`：低模模型、天空、材质和一个噪声地形预设，想要才装 |
+| 可选的低模风格包 | `@threedog/style-lowpoly`：低模模型、天空、材质、地面颜色，想要才装 |
+| 可选的噪声地形 | `@threedog/terrain-noise`：`terrainPreset()` 丘陵 / 海岛 / 峡谷 / 平原、河流和地貌表（只管世界形状，颜色由所用风格包给） |
 | 昼夜与天空 | 太阳移动、天色随时间变化、云影在地上移动 |
 | 天气与季节 | 雨雪；植物颜色随季节变化 |
 | 风吹草动 | 草和树随风摆动 |

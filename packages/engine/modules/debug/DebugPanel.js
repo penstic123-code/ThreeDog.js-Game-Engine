@@ -17,7 +17,7 @@ export class DebugPanel {
     const el = this.el;
     el.className = 'threedog-debug'; el.hidden = !open;   // collapsed by default so it does not cover the game HUD
     el.innerHTML = `<style>
-      .threedog-debug{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));width:min(290px,calc(100vw - 24px));max-height:calc(100% - 24px);overflow:auto;
+      .threedog-debug{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));width:min(290px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;
         background:rgba(17,23,20,.82);color:#e9ece0;border:1px solid rgba(226,232,214,.14);border-radius:10px;font:12px/1.5 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;z-index:10;backdrop-filter:blur(8px)}
       .threedog-debug .g{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 10px;padding:10px 12px}
       .threedog-debug .s b{display:block;font:600 15px ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
@@ -48,7 +48,7 @@ export class DebugPanel {
     </div>
     <div class="res k" data-k="budget" hidden></div>
     <div class="res k" data-k="startup" hidden></div>
-    <details ${innerWidth > 600 ? 'open' : ''}><summary>Debug</summary><div class="c">
+    <details ${engine.renderer.getSize(new engine.THREE.Vector2()).x > 600 ? 'open' : ''}><summary>Debug</summary><div class="c">
       <div class="r"><label>Time scale</label><input data-i="ts" type="range" min="0" max="60" step="1"><output data-o="ts"></output></div>
       <div class="r"><label>Time</label><input data-i="tod" type="range" min="0" max="1" step="0.005"><output data-o="tod"></output></div>
       <div class="r"><label>Weather</label><select data-s="weather" style="grid-column:span 2;font:inherit;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:3px">

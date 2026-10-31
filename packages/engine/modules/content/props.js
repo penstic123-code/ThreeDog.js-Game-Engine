@@ -10,17 +10,17 @@
 import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
 import { srcOf } from './ids.js';
-import { DEV } from '../../core/validate.js';
+import { list } from './rules.js';
+import { DEV, fmt } from '../../core/validate.js';
 
-const list = v => (Array.isArray(v) ? v : [v]);
 
 /** Stable id of a prop: the written id if given, otherwise "model name + array index" */
 const propId = (p, i) => p.id ?? `prop:${list(p.model)[0]}:${i}`;
 
 /** Add the props array as initial world data (existing same-id records are kept, ones removed in the save are not re-added). zoneOf(p) gives the level an item belongs to (null = everywhere); ids: this load's IdCheck */
-export function addProps(e, api, props, models, st, zoneOf, ids) {
+export function addProps(e, api, props, st, zoneOf, ids) {
   const world = needWorld(e);
-  presentProps(e, api, world, st, models);
+  presentProps(e, api, world, st);
   props.forEach((p, i) => {
     const at = DEV ? srcOf(props, i) : null;
     if (p.template) return placeTemplate(e, api, st, p, i, zoneOf(p), ids, at);   // an instance of a content template (templates.js), not a plain prop
@@ -44,13 +44,12 @@ const GRID_STRINGS = {
   noGrids: 'props[{i}] places on grid "{grid}": install grids() and add the grid first (content/grids.js or engine.grids.add)',
   keys: "props[{i}] (grid item): unknown key '{key}'. A grid item takes id, grid, item, cell, rotation and fields (record fields of this copy)",
 };
-const gfmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 
 /** A props entry { id, grid, item, cell, rotation?, fields? }: the same record grid.place makes, added as authored data (moves / pick-ups are saved as a diff) */
 function placeGridItem(e, p, i, zone, ids, at) {
-  for (const k of Object.keys(p)) if (!['id', 'grid', 'item', 'cell', 'rotation', 'fields'].includes(k)) throw new Error(gfmt(GRID_STRINGS.keys, { i, key: k }));
-  if (p.id == null) throw new Error(gfmt(GRID_STRINGS.noId, { i, grid: p.grid, item: p.item ?? 'bed' }));
-  if (!e.grids) throw new Error(gfmt(GRID_STRINGS.noGrids, { i, grid: p.grid }));
+  for (const k of Object.keys(p)) if (!['id', 'grid', 'item', 'cell', 'rotation', 'fields'].includes(k)) throw new Error(fmt(GRID_STRINGS.keys, { i, key: k }));
+  if (p.id == null) throw new Error(fmt(GRID_STRINGS.noId, { i, grid: p.grid, item: p.item ?? 'bed' }));
+  if (!e.grids) throw new Error(fmt(GRID_STRINGS.noGrids, { i, grid: p.grid }));
   ids.claim(p.id, `props[${i}] (grid ${p.grid} item ${p.item})`);
   const { kind, fields } = e.grids.placement(p.grid, p.item, p.cell, p.rotation ?? 0);
   const rec = e.world.add({ id: p.id, kind, ...fields, ...structuredClone(p.fields ?? {}), ...(zone != null && { zone }) }, { initial: true });
@@ -65,13 +64,12 @@ export function needWorld(e) {
 }
 
 /** Register how props are displayed (once per content) */
-function presentProps(e, api, world, st, models) {
-  st.models = { ...st.models, ...models };   // models tables of repeated loads are merged; the presenter looks up by name
+function presentProps(e, api, world, st) {
   if (st.propsPresenter) return;
 
   st.propsPresenter = world.present('prop', {
     radius: () => Math.max(world.radius, e.stream.activeRadius),   // build by view distance: follows the terrain view distance (fog distance if no terrain), also when changed at runtime
-    build: rec => buildModel(e, api, rec, rec.model, st.models, rec),   // a failed model generation is reported by world (does not block loading), retried when near again
+    build: rec => buildModel(e, api, rec, rec.model, rec),   // a failed model generation is reported by world (does not block loading), retried when near again
     // moved / rot or scale changed (world.move sends no event, so compare here): world already put the model at the new position; collision and rays follow
     update(rec, o) { if (o.userData.fit !== fitKey(rec)) settle(e, rec, o, rec); },
     dispose: (rec, o) => unbuildModel(e, o),

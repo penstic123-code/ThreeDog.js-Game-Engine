@@ -14,15 +14,13 @@
 // body: { shape: 'box' | 'ball' | 'hull', mass?, friction?, restitution?, damping?, angularDamping? } makes each copy a rigid body (needs rigid()):
 //   it can be pushed, the model moves itself and its position is copied back to the record, so a pushed crate's place is saved like any other change.
 // Ids: an instance with state (state / container / interact / body) should have a written id (ids.js); without one dev warns.
-import { checkOptions, freezeDef, missingText, DEV } from '../../core/validate.js';
+import { checkOptions, freezeDef, missingText, fmt, DEV } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
 import { buildModel, settle, fitKey, unbuildModel } from './models.js';
-import { srcOf } from './ids.js';
+import { srcOf, stateful, templateId } from './ids.js';
 
 const DEF_KEYS = ['model', 'collide', 'static', 'interact', 'container', 'sound', 'animate', 'state', 'body'];
 const BODY_KEYS = ['shape', 'mass', 'friction', 'restitution', 'damping', 'angularDamping'];
-/** Instances of this template keep state a save must find again by id */
-const stateful = d => !!(d.state || d.container || d.interact || d.body);
 const OWN_KEYS = ['rot', 'scale', 'y', 'items'];   // what one instance may set besides its state fields
 
 const STRINGS = {
@@ -37,11 +35,9 @@ const STRINGS = {
   noRigid: "template '{name}' has a body: install rigid() (real physics; the openWorld() preset includes it)",
   shape: "template '{name}': body.shape must be 'box', 'ball' or 'hull', e.g. body: { shape: 'box', mass: 2 }",
 };
-const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 
 /** Register template definitions (frozen) and their presenters; a later load replaces a definition of the same name. @internal */
-export function defineTemplates(e, api, st, defs, models) {
-  st.models = { ...st.models, ...models };
+export function defineTemplates(e, api, st, defs) {
   for (const [name, d] of Object.entries(defs)) {
     checkOptions(`template '${name}'`, d, DEF_KEYS);
     if (!d?.model) throw new Error(fmt(STRINGS.noModel, { name }));
@@ -79,7 +75,7 @@ export function templateOf(st, name) {
  * ids: this load's IdCheck (null for level nodes, whose ids the level makes); origin: where it was authored ({ definedAt } or { level, node }), dev only
  */
 export function placeTemplate(e, api, st, p, i, zone, ids, origin) {
-  const name = p.template, d = templateOf(st, name), id = p.id ?? `${name}:${i}`, { x, y, z } = api.where(p), floor = api._floorOf(p);
+  const name = p.template, d = templateOf(st, name), id = templateId(p, i), { x, y, z } = api.where(p), floor = api._floorOf(p);
   const own = instanceFields(name, d, p, ['template', 'id', 'place', 'x', 'z', 'floor']);
   if (floor !== undefined) own.floor = floor;   // same as props: a moved instance lands on the same storey
   if (ids && p.id != null) ids.claim(p.id, `props[${i}] (template ${name})`);
@@ -136,7 +132,7 @@ function present(e, api, st, name) {
     radius: () => Math.max(e.world.radius, e.stream.activeRadius),   // same build distance as props
     positionFrom: body ? 'view' : 'record',
     async build(rec) {
-      const d = def(), o = await buildModel(e, api, rec, d.model, st.models, d.body ? { ...d, static: false, collide: false } : d), id = rec.id;
+      const d = def(), o = await buildModel(e, api, rec, d.model, d.body ? { ...d, static: false, collide: false } : d), id = rec.id;
       if (d.body) addBody(e, rec, o, d.body);
       if (d.interact && e.interactions) o.userData.use = e.interactions.add(o, {
         id, radius: d.interact.radius ?? 2.5, height: d.interact.height, action: d.interact.action,

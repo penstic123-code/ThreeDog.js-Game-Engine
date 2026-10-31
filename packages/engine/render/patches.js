@@ -82,7 +82,7 @@ const sameUniform = (a, b) => a === b || (!!a[ENGINE_UNIFORM] && a[ENGINE_UNIFOR
 const resolveUniform = (u, renderer) => (u?.[ENGINE_UNIFORM] && renderer && BOUND.get(renderer)?.[u[ENGINE_UNIFORM]]) || u;
 
 // Why a patch cannot join the material's list, or '' (composition rules from the header)
-let deriving = false;
+let deriving = false;   // re-entrancy flag, set and cleared inside one synchronous call (never across a frame)
 const CODE = new Map();   // name=cacheKey -> GLSL text, to catch a cacheKey that does not follow the code
 const DATA = ['instancing', 'instancingColor', 'vertexColors', 'skinning', 'batching'];
 function clash(list, p) {

@@ -10,9 +10,10 @@
 //   window         UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via style.ui.templates.inventory(data, { esc, t, icon })
 //   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in style.ui.css)
 //   pickups        style pack style.pickup = { color, size, lift, model: (item, { color, size }) => Object3D | BufferGeometry }, or pass a mesh each time
-import { checkOptions, warnMissing, freezeDef } from '../../core/validate.js';
+import { checkOptions, warnMissing, freezeDef, moduleKeys } from '../../core/validate.js';
 import { Container } from './Container.js';
 import { Containers } from './Containers.js';
+import { followRuntimeIds } from '../../core/saveIds.js';
 import { spawnPickup, nearestPickup, presentPickups, takeAuto } from './pickups.js';
 import { inventoryWindow, windowData, defineInventoryOps } from './inventoryOps.js';
 
@@ -24,7 +25,7 @@ const STRINGS = {
 };
 
 export class Inventory {
-  constructor(engine, { action = 'inventory', keys = ['KeyI'], pad = ['PadY'], capacity = Infinity, maxWeight = Infinity, defaultStack = 99, pickupRadius = 2, bobDistance = 60 } = {}) {
+  constructor(engine, { action = 'inventory', keys, pad, capacity = Infinity, maxWeight = Infinity, defaultStack = 99, pickupRadius = 2, bobDistance = 60 } = {}) {
     this.engine = engine;
     this.defs = new Map();
     this.defaultStack = defaultStack;
@@ -41,8 +42,8 @@ export class Inventory {
     this._seq = 0;              // entry key counter ('sword#7'), saved so keys never repeat
     this.bobDistance = bobDistance;
     engine.i18n.add(STRINGS);
-    engine.input.define(action, keys, 'inventory.action', { pad });
-    engine.input.touchButton(action, 'inventory.action');
+    keys = moduleKeys('inventory()', action, keys, 'inventory', engine.input);   // the game's key or a presets.keys bundle, never a built-in one
+    if (keys.length || pad) { engine.input.define(action, keys, 'inventory.action', { pad }); engine.input.touchButton(action, 'inventory.action'); }
     engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), data: () => windowData(this) } });
     for (const ev of ['i18n:change', 'input:rebind']) engine.events.on(ev, () => this._refresh());
     // pickup state lives in world and is saved with it
@@ -53,7 +54,8 @@ export class Inventory {
       this._seq = Number.isInteger(d?.seq) && d.seq >= top ? d.seq : top;
       this._refresh();
     } });
-    engine.saves.register('containers', { version: 1, save: () => this._containers.save(), load: d => this._containers.load(d) });
+    // version 2: container ids that are runtime record ids (a spawned chest) follow the world part's `kind-n` -> `kind#n` rename (world/persist.js)
+    engine.saves.register('containers', { version: 2, migrate: { 1: followRuntimeIds }, save: () => this._containers.save(), load: d => this._containers.load(d) });
   }
 
   /** Max slots of the player inventory (Infinity = no limit). */
@@ -76,6 +78,12 @@ export class Inventory {
    * @returns {Container}
    */
   container(id, opts) { return this._containers.get(id, opts); }
+  /**
+   * @internal content/renames.js: containers saved under an old authored id move to the new one (content.load calls it before adding containers)
+   * @param {Record<string, string | null>} map
+   * @returns {void}
+   */
+  renameIds(map) { this._containers.rename(map); }
   /**
    * Move n (default 1) of an item, or of one entry by key, between containers (container or id; player inventory is 'player'). Pieces keep their data and key.
    * Moves fewer if the target is full, returns how many moved (0 = none). Players moving items run the op instead: engine.ops.run('inventory.transfer', { from, to, item, n }).
@@ -160,9 +168,9 @@ export class Inventory {
 
 /**
  * Inventory module. Installs engine.inventory, the 'inventory' UI part and the ops inventory.transfer / use / drop / trade; ground pickups need world() and interactions().
- * Options: action / keys / pad (the open key), capacity / maxWeight / defaultStack (bag limits), pickupRadius / bobDistance (ground pickups),
+ * Options: action / keys / pad (the open key: required, keys: [] for none; presets.keys.inventory has I / gamepad Y), capacity / maxWeight / defaultStack (bag limits), pickupRadius / bobDistance (ground pickups),
  * pauseGame (default false): true freezes gameplay while the window is open (monsters, timers and the game clock stop; the picture and UI stay alive).
- * @example engine.use(inventory({ pauseGame: true }))   // opening the bag with I stops the world until it closes
+ * @example engine.use(inventory({ ...presets.keys.inventory, pauseGame: true }))   // opening the bag with I stops the world until it closes
  */
 export function inventory(opts = {}) {
   let inv = null;

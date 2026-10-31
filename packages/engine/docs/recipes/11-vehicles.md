@@ -31,7 +31,7 @@ engine.events.on('engine:ready', () => {
 Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.castShadow = true` yourself if you want a shadow.
 
 ## 2. Boarding and driving
-- Player: press E near the car to board (when interactions is installed); while driving, WASD = throttle/steering; the B key / gamepad LT (action `brake`, registered when rigid is installed; change it with `characters({ brakeKeys: ['KeyX'] })`, so it doesn't compete with Space for jumping) brakes; press E again to exit.
+- Player: press E near the car to board (when interactions is installed); while driving, WASD = throttle/steering; the brake key (action `brake`, only when the game gives one: `characters({ ...presets.keys.brake })` is B / gamepad LT, or `characters({ brakeKeys: ['KeyX'] })`; keep it off Space so it doesn't compete with jumping) brakes, and without one the engine warns once; press E again to exit.
 - Saving: the player save records which vehicle the player is in (its index in `rigid.vehicles`); loading an on-foot save while driving exits the vehicle first, and loading a driving save puts the player back in the car.
 - Code: `engine.player.enter(v)`, `engine.player.exit()`; `engine.player.vehicle` is the vehicle being driven (null when on foot); `v.driver` is who is driving.
 - NPCs/scripts driving: `v.drive(throttle -1..1, steer -1..1 (right is positive), brake 0-1)`; the last values set are used on every fixed step.

@@ -4,7 +4,15 @@
 /** Wire pointer events on the canvas to input (called once when Input is constructed). signal: engine.dispose() cancels all listeners at once */
 export function bindPointer(input, canvas, signal) {
   let drag = null;
+  // pointer x / y are pixels from the canvas content box's top-left, ndc is -1..1 across that box: a canvas in a page section or editor
+  // panel picks the thing under the mouse, not the thing under the same window position. Read on every event (the canvas may have moved)
+  const place = e => {
+    const p = input.pointer, b = canvas.getBoundingClientRect(), w = canvas.clientWidth || b.width || 1, h = canvas.clientHeight || b.height || 1;
+    p.x = e.clientX - b.left - canvas.clientLeft; p.y = e.clientY - b.top - canvas.clientTop;
+    p.ndcX = p.x / w * 2 - 1; p.ndcY = -(p.y / h) * 2 + 1;
+  };
   canvas.addEventListener('pointerdown', e => {
+    place(e);   // a touch tap has no pointermove before it: without this, ndc would still point at the last drag
     input.pointer.down = true; input.pointer.button = e.button;
     if (e.pointerType === 'mouse') input._keyDown('Mouse' + e.button, 'keyboard');
     drag = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: 0 }; canvas.focus();
@@ -13,8 +21,7 @@ export function bindPointer(input, canvas, signal) {
   }, { signal });
   canvas.addEventListener('pointermove', e => {
     const p = input.pointer;
-    p.x = e.clientX; p.y = e.clientY;
-    p.ndcX = e.clientX / innerWidth * 2 - 1; p.ndcY = -(e.clientY / innerHeight) * 2 + 1;
+    place(e);
     if (!drag || drag.id !== e.pointerId) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (document.pointerLockElement === canvas) return;

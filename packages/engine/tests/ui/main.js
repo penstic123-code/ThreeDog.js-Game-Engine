@@ -18,7 +18,7 @@ const ui = mode === 'off' ? Object.fromEntries(PARTS.map(n => [n, false]))
   : { loading: { title: 'UI test' }, title: { title: 'UI test' } };
 
 const engine = createEngine({ canvas: document.getElementById('view'), ui, saveKey: 'test-ui', adaptiveResolution: false, joystick: true });   // joystick: true = the touch part draws a stick on desktop too
-engine.use(world(), collision(), followCamera(), characters(), hud(), quests(), interactions({ ...presets.interactions.nearest }), dialogue(), settings({ sections: ['graphics', 'controls', 'game', 'camera'] }));
+engine.use(world(), collision(), followCamera(), characters(), hud(), quests({ ...presets.keys.quests }), interactions({ ...presets.interactions.nearest }), dialogue(), settings({ sections: ['graphics', 'controls', 'game', 'camera'] }));
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x888888 }));
 engine.add(ground);
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: 0, z: 0 } });

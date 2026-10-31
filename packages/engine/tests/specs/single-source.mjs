@@ -200,4 +200,94 @@ export const specs = [
         r.grid.kind === 'ssfurniture' && JSON.stringify(r.grid.cell) === '[1,1]' && r.grid.occupied === 'bed-home' && !r.grid.inSave0 && r.grid.moved && /needs an id/.test(r.grid.gridErr ?? ''), JSON.stringify(r.grid));
     },
   },
+  {
+    name: 'Single source: runtime ids kind#n and their exact save migration; content renames move saved state; grid layers save a per-cell diff (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async (src) => {
+        'use strict';
+        engine.pause();
+        const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
+        const W = engine.world, I = engine.inventory, { x, z } = (0, eval)(src)(['ss-a']), out = {};
+        const err = f => { try { f(); return null; } catch (e) { return e.message; } };
+        const apply = async d => { await engine.saves.apply(d, '(test)'); engine.events.emit('save:loaded', 'test'); };
+        // 1. a record made during play is numbered kind#n: it can never equal an authored id (those may not contain #)
+        out.made = engine.ops.run('ssbox.make', { x: x + 5, z: z - 4 }).value;
+        // an old (world v2 / containers v1) save: only `<own kind>-<n>` with n <= seq is a runtime id; an n claimed twice, n > seq or another kind is left alone
+        const old = engine.saves.collect(), at = { x: x + 6, y: 0, z: z + 6 };
+        I.container('ss-tmp', { items: { berry: 2 } }); const goods = I._containers.save()['ss-tmp']; I._containers.remove('ss-tmp');
+        old.versions.world = 2; old.versions.containers = 1;
+        W.simulate('ssfar', { far: () => {} });   // owed time is written only for kinds simulated far
+        Object.assign(old.parts.world, { seq: 50, owed: { 'ssfar-8': 3 } });
+        Object.assign(old.parts.world.records, {
+          'ssbox-7': { kind: 'ssbox', position: at, opened: true, owner: 'ssbox-7' }, 'ssfar-8': { kind: 'ssfar', position: { x: 3000, y: 0, z: 3000 } }, 'crate-99': { kind: 'crate', position: at },
+          'ta-5': { kind: 'ta', position: at }, 'tb-5': { kind: 'tb', position: at }, 'ssbox-home': { kind: 'ssbox', position: at }, 'plot-3': { kind: 'crop', position: at },
+        });
+        old.parts.containers = { ...old.parts.containers, 'ssbox-7': goods };
+        await apply(old);
+        out.mig = { rec: W.get('ssbox#7') ?? null, oldGone: !W.get('ssbox-7'), kept: ['crate-99', 'ta-5', 'tb-5', 'ssbox-home', 'plot-3'].filter(id => W.get(id)),
+          box: I._containers.map.has('ssbox#7') ? I.container('ssbox#7').count('berry') : null, owed: Object.keys(engine.saves.collect().parts.world.owed ?? {}).includes('ssfar#8') || null };
+        // 2. renames: a save made before the rename (changes, tombstone, container goods under the old id) loads onto the new id
+        const pre = engine.saves.collect();
+        pre.parts.world.changed['ss-old'] = { set: { opened: true } }; pre.parts.world.removed.push('ss-old2'); pre.parts.world.changed['ss-dropped'] = { set: { opened: true } };
+        pre.parts.containers = { ...pre.parts.containers, 'ss-oldbox': goods };
+        await apply(pre);   // save first, content after
+        engine.content.load({ renames: { 'ss-old': 'ss-new', 'ss-old2': 'ss-new2', 'ss-dropped': null, 'ss-oldbox': 'ss-newbox' },
+          props: [{ template: 'ssbox', id: 'ss-new', x: x + 8, z }, { template: 'ssbox', id: 'ss-new2', x: x + 10, z }] });
+        engine.events.emit('save:loaded', 'test');
+        const orph = () => engine.describe().world.orphans ?? [];
+        out.ren = { opened: W.get('ss-new')?.opened, gone2: !W.get('ss-new2'), orphans: orph(), box: I._containers.map.has('ss-newbox') ? I.container('ss-newbox').count('berry') : null,
+          dropped: !engine.saves.collect().parts.world.changed['ss-dropped'] };
+        await apply(pre);   // content first, save after: the remembered renames apply again
+        out.ren2 = { opened: W.get('ss-new')?.opened, gone2: !W.get('ss-new2'), orphans: orph() };
+        // an orphan near a content id gets the exact renames pair; a rename target nothing defines is named; a target with # throws
+        const typo = engine.saves.collect(); typo.parts.world.changed['ss-nwe'] = { set: { opened: true } };
+        engine.content.load({ renames: { 'ss-x1': 'ss-missing' } });
+        await apply(typo);
+        out.hint = warns.find(w => /renames: \{ 'ss-nwe': 'ss-new' \}/.test(w)) ?? null;
+        out.target = warns.find(w => /ss-missing \(from ss-x1\)/.test(w)) ?? null;
+        out.hashErr = err(() => engine.content.load({ renames: { 'ss-y': 'ssbox#3' } }));
+        console.warn = warn;
+        return out;
+      }, setup.toString());
+      check('a record made during play is numbered <kind>#<n>', /^ssbox#\d+$/.test(r.made ?? ''), r.made);
+      check('world v2 -> v3: an auto id kind-n (n <= seq, own kind, n unique) becomes kind#n with its owed time, its container and fields that name it; nothing else is renamed',
+        r.mig.rec?.opened === true && r.mig.rec?.owner === 'ssbox#7' && r.mig.oldGone && r.mig.kept.length === 5 && r.mig.box === 2 && r.mig.owed, JSON.stringify(r.mig));
+      check('content renames move a save\'s change, tombstone and container goods to the new id; null drops quietly; none of them are orphans',
+        r.ren.opened === true && r.ren.gone2 && r.ren.box === 2 && r.ren.dropped && !r.ren.orphans.some(id => /^ss-(old|dropped)/.test(id)), JSON.stringify(r.ren));
+      check('a save loaded after the content with renames is renamed the same way', r.ren2.opened === true && r.ren2.gone2 && !r.ren2.orphans.some(id => /^ss-old/.test(id)), JSON.stringify(r.ren2));
+      check('an orphan near a content id suggests the renames pair; a rename target nothing defines is named; a # target throws',
+        !!r.hint && !!r.target && /may not contain/.test(r.hashErr ?? ''), JSON.stringify({ hint: r.hint, target: r.target, hashErr: r.hashErr }));
+    },
+  },
+  {
+    name: 'Single source: a grid layer authored in content saves only the cells changed from it; orphan layer diffs kept; v1 grid saves migrate',
+    url: '/tests/level/index.html',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        'use strict';
+        engine.pause();
+        if (!engine.content) engine.use(window.content());
+        if (!engine.grids) engine.use(window.grids());
+        const out = {}, apply = async d => { await engine.saves.apply(d, '(test)'); };
+        // grid layer authored in content: the save keeps only cells changed from it; a diff for a grid this run lacks is kept
+        engine.content.load({ grids: { ssg2: { cell: 1, origin: [-40, -40], size: [4, 4], layers: { soil: [[0, 0, { tilled: true }], [1, 0, { tilled: true }]] } } } });
+        const soil = engine.grids.get('ssg2').layer('soil'), g0 = engine.saves.collect().parts.grids ?? {};
+        engine.ops.allow(() => { soil.set([0, 0], { watered: true }); soil.clear([1, 0]); });
+        const g1 = engine.saves.collect();
+        g1.parts.grids = { ...g1.parts.grids, nogrid: { soil: { set: [[0, 0, { a: 1 }]] } } };
+        await apply(g1);
+        const g2 = engine.saves.collect().parts.grids, watered = soil.get([0, 0])?.watered, cleared = soil.get([1, 0]) ?? null;
+        const v1 = engine.saves.collect(); v1.versions.grids = 1; v1.parts.grids = { ssg2: { soil: [[2, 2, { tilled: true }]] } };   // v1 saved every cell whole
+        await apply(v1);
+        out.grid = { base0: 'ssg2' in g0, diff: g2.ssg2?.soil, watered, cleared, orphanKept: !!g2.nogrid,
+          v1: { a: soil.get([0, 0]) ?? null, b: soil.get([2, 2])?.tilled } };
+        return out;
+      });
+      check('grid layer: authored cells are not in the save; a change saves only that cell (set) and an emptied authored cell (clear); loading restores both',
+        !r.grid.base0 && JSON.stringify(r.grid.diff) === '{"set":[[0,0,{"tilled":true,"watered":true}]],"clear":[[1,0]]}' && r.grid.watered === true && r.grid.cleared === null, JSON.stringify(r.grid));
+      check('grid layer: a diff for a grid this run does not have is kept; a v1 save (every cell whole) loads exactly, authored cells it lacks stay empty',
+        r.grid.orphanKept && r.grid.v1.a === null && r.grid.v1.b === true, JSON.stringify(r.grid));
+    },
+  },
 ];

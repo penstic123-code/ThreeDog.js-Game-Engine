@@ -2,10 +2,10 @@
 // a model is only what gets built while the record is near the camera. It knows nothing about NPCs, zombies or crops: the game (or a larger module) tells them apart by kind and writes its own present / simulate.
 // Usage, examples, the update convention (set / move), saves, near / far and zone: see packages/engine/docs/recipes/18-world.md; the save rules are at the top of persist.js.
 // Data must be plain values (putting a three.js object or a function in it throws in dev); position is a plain { x, y, z }. Don't hold on to rec: loading a save swaps in new objects, so keep the id and use world.get(id).
-import { DEV, checkOptionsArg } from '../../core/validate.js';
+import { DEV, checkOptionsArg, fmt } from '../../core/validate.js';
 import { Views } from './views.js';
 import { Sim } from './sim.js';
-import { saveWorld, loadWorld, checkPlain } from './persist.js';
+import { saveWorld, loadWorld, checkPlain, renamePending } from './persist.js';
 import { Cells } from './cells.js';
 import { putPos, centerOf } from './pos.js';
 
@@ -17,7 +17,6 @@ const STRINGS = {
   setKey: 'world.set("{id}", patch): patch must not contain id / kind (they are the identity of the record). To change the kind, remove then add',
   anchor: 'world.anchor must be null, an Object3D, a Vector3 / { x, z } or [x, y, z]; got {got}',
 };
-const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 
 /** World data (see the top of the file) */
 export class World {
@@ -48,6 +47,7 @@ export class World {
     /** @internal */ this._pending = new Map();  // changes from a save whose content has not been added yet: id → { set: changed fields, del: removed fields }
     /** @internal */ this._unsaved = new Set();  // ids added with save: false
     /** @internal */ this._origin = new Map();   // dev only: id → where the record comes from (world.origin); empty in release builds
+    /** @internal */ this._renames = new Map();  // content/renames.js: old authored id → new id (null = deleted on purpose); applied to every save this world loads
     /** @internal */ this._levels = new Set();   // levels whose nodes were registered (setOrigin { level }): `<level>/<node>` diffs count as orphans only after that
     /** @internal */ this._v = new Views(this);
     /** @internal */ this._s = new Sim(this);
@@ -73,7 +73,7 @@ export class World {
   set zone(z) { if (z !== this._zone) { this._zone = z; this._v.dirty = true; } }   // a zone change must re-decide which models to build (otherwise nothing refreshes while the focus stays still)
 
   /**
-   * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind-1, kind-2…, saved).
+   * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind#1, kind#2…, saved; `#` never appears in an authored id, so the two can never collide).
    * opts.initial: initial record written in content (needs an id); saves only keep its changes and removal; if the id already exists the existing one is returned (content may load twice);
    * returns null if the save removed it (it is not added back). opts.save: false: not saved (temporary things).
    * @example engine.world.add({ id: 'shop_owner', kind: 'npc', position: [12, 0, -30], name: '店主', mood: 'calm' }, { initial: true })
@@ -87,7 +87,7 @@ export class World {
     if (DEV) { checkOptionsArg('world.add(def, opts)', opts, ['initial', 'save']); checkPlain({ ...def, position: undefined }, def.kind); }
     const { id: given, kind, position, ...rest } = def, initial = !!opts?.initial;
     if (initial && given == null) throw new Error(fmt(STRINGS.initialId, { kind }));
-    const id = given ?? `${kind}-${++this._seq}`, have = this.records.get(id), p = { x: 0, y: 0, z: 0 };
+    const id = given ?? `${kind}#${++this._seq}`, have = this.records.get(id), p = { x: 0, y: 0, z: 0 };
     if (position) putPos('world.add()', position, p);
     const rec = { id, kind, position: p, ...rest };
     if (initial) {
@@ -147,6 +147,17 @@ export class World {
     for (const id of this._pending.keys()) if (!known(id) && due(id)) out.push(id);
     for (const id of this._removed) if (!known(id) && !this._base.has(id) && due(id)) out.push(id);
     return out;
+  }
+  /**
+   * @internal content/renames.js (content.load calls this before it adds placements): saved changes, removals and owed time under an old authored id
+   * move to the new id; null drops them. Kept, so a save loaded later is renamed the same way (loadWorld). Returns the old ids that could not move,
+   * each with the reason (still authored, or the new id has saved data of its own), for the dev warning.
+   * @param {Record<string, string | null>} map
+   * @returns {string[]}
+   */
+  renameIds(map) {
+    for (const [a, b] of Object.entries(map)) this._renames.set(a, b);
+    return renamePending(this);
   }
   /**
    * Get a record by id (undefined if missing, like a Map)

@@ -16,7 +16,7 @@
 // The log window is the UI part 'questLog' (questLog.js): replace it or turn it off with engine.ui.set('questLog', ...) (recipes/26-ui-parts.md).
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
-import { checkOptions, warnMissing, DEV } from '../../core/validate.js';
+import { checkOptions, warnMissing, DEV, moduleKeys } from '../../core/validate.js';
 import { codedError } from '../../core/errorHints.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
@@ -28,7 +28,7 @@ const STRINGS = {
 /** A step's text; a parallel step without its own text lists its required parts */
 const stepText = st => st.text ?? st.all.filter(p => !p.optional).map(p => p.text).join(' / ');
 export class Quests {
-  constructor(engine, { action = 'quests', keys = ['KeyJ'], pad = ['PadSelect'], checkInterval = 0.5, notify = true } = {}) {
+  constructor(engine, { action = 'quests', keys, pad, checkInterval = 0.5, notify = true } = {}) {
     this.engine = engine;
     this.defs = new Map();
     this.state = {};       // id -> { step, done, failed?, parts? (parts done in the current parallel step), got? (parts met in finished parallel steps) }
@@ -37,7 +37,8 @@ export class Quests {
     this.action = action; this.checkInterval = checkInterval;
     this.notify = notify;   // true toast (kind 'quest') · false silent · function ({ type, id, text }) => void
     engine.i18n.add(STRINGS);
-    engine.input.define(action, keys, 'quests.action', { pad });
+    keys = moduleKeys('quests()', action, keys, 'quests', engine.input);   // the game's key or a presets.keys bundle, never a built-in one
+    if (keys.length || pad) engine.input.define(action, keys, 'quests.action', { pad });
     this.win = questLogWindow(engine, this);   // { open, toggle, refresh } over engine.ui
     // counters live in engine.vars
     // saved by stable step ids (questSave.js); version 1 saved positions
@@ -157,7 +158,7 @@ export class Quests {
   }
 }
 
-/** Quests module. Installs engine.quests. */
+/** Quests module. Installs engine.quests. keys / pad open the quest log: required (keys: [] for none; presets.keys.quests has J / gamepad Select) @example engine.use(quests({ ...presets.keys.quests })) */
 export function quests(opts = {}) {
   let q = null;
   return {

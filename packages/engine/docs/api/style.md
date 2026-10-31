@@ -21,7 +21,6 @@
   - `particles?: Record<string, ParticleOptions>` Particle presets: name → parameters; default is the fallback for all effects
   - `triggers?: { debugColor?: ColorLike; debugOpacity?: number }` Trigger zone debug wireframe
   - `grid?: { ok?, bad?, previewOpacity?, previewHeight?, tileLift?, tiles? }` Grid placement (grids() module): preview ok / bad colors and opacity, tile lift (m), and per-layer tile colors { layer: { field: color } } (first truthy field of a cell's data wins)
-  - `models?: Record<string, (...args: any[]) => BufferGeometry | Object3…` Procedural models: name → generator function (e.g. lowpoly.models.pine())
 
 ## Sub-structures
 - **StyleSky**
@@ -34,7 +33,6 @@
   - `moonBrightness?: number`
   - `orbitTilt?: number` North-south tilt of the sun path
   - `orbitSway?: number` East-west swing of the sun path
-  - `hoursPerDay?: number` Hours per day (for the displayed clock), default 24
   - `starDensity?: number` Star density
   - `starScale?: number` Larger means smaller and more numerous stars
   - `gradientCurve?: number` Gradient curve from zenith to horizon
@@ -101,8 +99,7 @@
   - `hudBg?: string` Background / text / accent colors of objective markers, counters and progress bars (CSS)
   - `hudFg?: string`
   - `hudAccent?: string`
-  - `fontFaces?: { family, url, weight?, style? }[]` Font files
-  - `fontCSS?: string` Web font stylesheet URL. A third-party URL (e.g. Google Fonts) makes the player's browser contact that server; ship the font files with fontFaces when that matters (privacy, offline)
+  - `fonts?: string[]` Font asset names the UI uses (engine.assets.manifest({ fonts })); loaded at start(), then written in font: '"pixel", system-ui'. A style never holds a font file path
   - `css?: string` Extra CSS (overrides .threedog-* classes)
   - `templates?: Record<string, UITemplate>` Replace the content of a window wholesale: inventory, quests, settings, loading, hudMarker, hudCounter, hudBar…
 - **MaterialSpec** Material parameters for one role (other fields are set on the three.js material as is, e.g. roughness, shininess, specular)

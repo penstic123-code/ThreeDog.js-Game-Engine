@@ -35,6 +35,7 @@ export class RigidBodies {
     this.R = null; this.world = null;
     this.bodies = [];                 // { body, mesh, offset, enabled }
     this.terrain = new Map();         // chunk key -> { colliders: [] }
+    this.groundTrees = new Map();     // 'x,z,r' -> cylinder collider: circles from ground.forEachCollider when the ground has no chunked collision
     this.statics = new Map();         // houses/pillars from Physics.js -> collider
     this.vehicles = [];
     /** @internal numbers vehicles added without an id */ this._vehicleSeq = 0;
@@ -167,7 +168,10 @@ export class RigidBodies {
     const src = e.stream.sources({ physics: true }).map(s => [Math.floor(s.x / CH), Math.floor(s.z / CH), Math.min(this.terrainRing, s.radius == null ? Infinity : Math.max(1, Math.ceil(s.radius / CH)))]);
     const key = src.join(';');
     this._syncT = (this._syncT || 0) + dt;
-    if (chunked && (key !== this._srcKey || this._syncT > 0.5)) { this._syncTerrain(src); this._srcKey = key; this._syncT = 0; }
+    if (key !== this._srcKey || this._syncT > 0.5) {
+      if (chunked) this._syncTerrain(src); else this._syncGroundTrees(src, CH);
+      this._srcKey = key; this._syncT = 0;
+    }
     this._syncStatics();
     this._syncLevel();
     // player capsule follows the player (the rapier mover computes collision and writes the position itself); turned off while driving to avoid colliding with the car
@@ -227,6 +231,21 @@ export class RigidBodies {
       this.terrain.set(key, { ready: true, token: data.token, colliders });
     }
     for (const key of [...this.terrain.keys()]) if (!want.has(key)) this._dropTerrain(key);
+  }
+  // Vegetation on a level model or code-built ground has no chunked collision: its trunks reach us only as circles through
+  // ground.forEachCollider (the same source character collision and path planning read). Make them cylinders around the physics sources
+  _syncGroundTrees(src, CH) {
+    const e = this.engine, G = e.ground, R = this.R, half = this.treeColliderHeight / 2, want = new Set();
+    if (G.forEachCollider) for (const [pcx, pcz, n] of src) {
+      G.forEachCollider((pcx + 0.5) * CH, (pcz + 0.5) * CH, (n + 0.5) * CH * Math.SQRT2, (x, z, r) => {
+        const key = x + ',' + z + ',' + r;
+        want.add(key);
+        if (this.groundTrees.has(key)) return;
+        const h = e.surface(x, z);
+        this.groundTrees.set(key, this.world.createCollider(R.ColliderDesc.cylinder(half, r).setTranslation(x, h + half, z)));
+      });
+    }
+    for (const [key, col] of this.groundTrees) if (!want.has(key)) { this.world.removeCollider(col, false); this.groundTrees.delete(key); }
   }
   _dropTerrain(key) {
     const t = this.terrain.get(key);

@@ -181,12 +181,15 @@ export class Settings extends SettingsView {
   }
 
   // ---------- applying ----------
+  /** @internal The chunk table that "view distance" and "vegetation density" drive: the terrain's, or vegetation's own over a level / code-built ground; null without either */
+  chunkHost() { return this.engine.terrain ?? this.engine.vegetation?.host ?? null; }
   _currentValues() {
     const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: !!e.shadows };
     v.antialias = e.post.antialias;
     for (const k of POST_KEYS) if (e.post.get(k)) v[k] = e.post.get(k).enabled;
     if (e.adaptive) v.adaptive = !!e.adaptive.on;
-    if (e.terrain) { v.viewChunks = e.terrain.viewChunks ?? 4; v.density = e.terrain.density ?? 1; }
+    const H = this.chunkHost();
+    if (H) { v.viewChunks = H.viewChunks ?? 4; v.density = H.density ?? 1; }
     for (const [bus, level] of Object.entries(e.audio.levels)) v['vol.' + bus] = level;   // one slider per bus, the game's own buses too
     this.values = v;
     v.quality = this._matchPreset();
@@ -196,7 +199,7 @@ export class Settings extends SettingsView {
     const v = this.values, e = this.engine;
     for (const [name, p] of Object.entries(this.presets)) {
       const ok = Object.entries(p).every(([k, val]) => {
-        if ((k === 'viewChunks' || k === 'density') && !e.terrain) return true;
+        if ((k === 'viewChunks' || k === 'density') && !this.chunkHost()) return true;
         if (POST_KEYS.includes(k) && !e.post.get(k)) return true;
         return v[k] === val;
       });
@@ -213,8 +216,8 @@ export class Settings extends SettingsView {
         case 'shadows': if (e.shadows !== val) e.setShadows(val); break;
         case 'antialias': case 'bloom': case 'ao': e.post.enable(key, val); break;
         case 'adaptive': if (e.adaptive) { e.adaptive.on = val; if (!val && e.adaptive.max) e.setPixelRatio(e.adaptive.max); } break;
-        case 'viewChunks': if (e.terrain?.setViewChunks && e.terrain.viewChunks !== val) e.terrain.setViewChunks(val); break;
-        case 'density': if (e.terrain?.setDensity && e.terrain.density !== val) e.terrain.setDensity(val); break;
+        case 'viewChunks': { const H = this.chunkHost(); if (H?.setViewChunks && H.viewChunks !== val) H.setViewChunks(val); break; }
+        case 'density': { const H = this.chunkHost(); if (H?.setDensity && H.density !== val) H.setDensity(val); break; }
         default:
           // a saved slider for a bus this build no longer has is skipped, not an error
           if (key.startsWith('vol.')) { if (key.slice(4) in e.audio.levels) e.audio.setVolume(key.slice(4), val); }
@@ -240,8 +243,8 @@ export class Settings extends SettingsView {
     this._ready = true;
     const stored = this.saved.values || {};
     for (const k of ['viewChunks', 'density']) {
-      if (!this.engine.terrain) continue;
-      if (k in stored) this._apply(k, stored[k]); else this.values[k] = this.engine.terrain[k];
+      const H = this.chunkHost(); if (!H) continue;
+      if (k in stored) this._apply(k, stored[k]); else this.values[k] = H[k];
     }
     for (const [key, c] of this.custom) if (!(key in this.values)) this.values[key] = c.def;
     this.values.quality = this._matchPreset();
@@ -290,7 +293,7 @@ export class Settings extends SettingsView {
 export function settings(opts = {}) {
   let s = null;
   return {
-    name: 'settings', label: 'Settings', optional: ['terrain'], stage: 'presentation',
+    name: 'settings', label: 'Settings', optional: ['terrain', 'vegetation'], stage: 'presentation',
     install(e) { checkOptions('settings()', opts, ['action', 'keys', 'storageKey', 'presets', 'sections', 'freezeWorld']); s = new Settings(e, opts); return s; },
     init() { s.init(); },
     frame(dt) { s.frame(dt); },

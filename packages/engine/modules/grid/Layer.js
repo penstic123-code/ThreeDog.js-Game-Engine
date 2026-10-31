@@ -1,6 +1,9 @@
 // A named per-cell data layer on a grid (grid.layer('soil')): plain data per cell, only non-empty cells stored.
 // Why a layer and not world records: a farm has hundreds of tilled / watered cells that are state, not things;
-// one record per cell would cost a model slot, a sim entry and a save entry each. A layer is one Map, saved as [[i, j, data], ...].
+// one record per cell would cost a model slot, a sim entry and a save entry each. A layer is one Map.
+// Save (part 'grids' version 2): only cells that differ from the authored baseline (content/grids.js layers, like world records diff against content):
+//   { set: [[i, j, data], ...] changed or new cells, clear: [[i, j], ...] authored cells the player emptied }. A layer with no baseline saves every cell in set.
+//   Version 1 saved every cell whole; its step turns that into { set, whole: true } (cells not listed are empty, whatever content authors now).
 // Writes are saved gameplay state, so they pass the ops guard like world.set (write inside an op or a fixed step).
 // _ver counts changes so views (tiles) rebuild only when something changed, without events.
 import { DEV } from '../../core/validate.js';
@@ -35,6 +38,8 @@ export class Layer {
     /** @internal */ this.opts = opts;
     /** @internal 'i,j' -> data */ this._cells = new Map();
     /** @internal bumped on every change */ this._ver = 0;
+    /** @internal 'i,j' -> authored data (content/grids.js layers): what the save diffs against */ this._base = new Map();
+    /** @internal the last save diff applied, so a baseline set after the load (content after the save) still gets it */ this._diff = null;
   }
   /** @internal */
   _guard(what) { DEV && this.grid.engine.ops.guard(`grid layer ${this.grid.name}.${this.name}.${what}`); }
@@ -103,10 +108,31 @@ export class Layer {
   }
   /** Number of non-empty cells @returns {number} */
   get count() { return this._cells.size; }
-  /** @internal compact save form */
-  toJSON() { return this.query().map(({ cell, data }) => [cell[0], cell[1], structuredClone(data)]); }
-  /** @internal */
-  fromJSON(rows) { this._cells.clear(); for (const [i, j, d] of rows ?? []) this._cells.set(key(i, j), seal(d)); this._ver++; }
+  /** @internal save form: the diff against the authored baseline */
+  toJSON() {
+    const set = [], clear = [];
+    for (const { cell, data } of this.query()) {
+      const b = this._base.get(key(cell[0], cell[1]));
+      if (!b || JSON.stringify(b) !== JSON.stringify(data)) set.push([cell[0], cell[1], structuredClone(data)]);
+    }
+    for (const k of this._base.keys()) if (!this._cells.has(k)) clear.push(/** @type {[number, number]} */ (k.split(',').map(Number)));
+    return clear.length ? { set, clear } : { set };
+  }
+  /** @internal true when the layer equals its baseline (nothing to save) */
+  get _same() { const d = this.toJSON(); return !d.set.length && !d.clear; }
+  /** @internal a save diff (or null = none): baseline first, then the diff */
+  fromJSON(d) {
+    this._diff = d ?? null;
+    this._cells = new Map(d?.whole ? [] : this._base);
+    for (const [i, j, v] of d?.set ?? []) this._cells.set(key(i, j), seal(v));
+    for (const [i, j] of d?.clear ?? []) this._cells.delete(key(i, j));
+    this._ver++;
+  }
+  /** @internal authored cells ([[i, j, data], ...] from content/grids.js): the baseline; the last loaded diff is applied on top again */
+  _setBase(rows) {
+    for (const [i, j, v] of rows ?? []) { if (DEV) checkPlain(`content grids layer ${this.name}`, v); this._base.set(key(i, j), seal(structuredClone(v))); }
+    this.fromJSON(this._diff);
+  }
 }
 
 /**

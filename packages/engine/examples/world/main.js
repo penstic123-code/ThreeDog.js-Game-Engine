@@ -2,10 +2,10 @@
 // This file only holds rules: installing engine modules, computing place coordinates, handing content/ to the engine, ops and presentation.
 // The level is content: the cabin, props, physics props, items, NPCs, dialogues, quests and vegetation all live in content/ (rule R33).
 import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, quests, photo, timeline, triggers, entities, particles, music, hud, createTerrain, toast } from '../../index.js';
-import lowpoly, { terrainPreset, riverAt, terrainStrings } from '@threedog/style-lowpoly';   // optional style pack: all the art is here, plus a terrain generator
+import lowpoly, { assets as lowpolyAssets } from '@threedog/style-lowpoly';   // optional package: a style pack (looks) and an asset pack (procedural models)
+import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';   // optional package: the terrain generator (world shape, not a look)
 import data from './content/index.js';
 import { cabin, BODIES } from './models.js';
-import audio from './audio.js';   // this game's sounds
 
 // ---------- 0. Pick a flat spot as home ----------
 // Preview the terrain with the same seed, find a good spot, then tell the engine to flatten it
@@ -18,10 +18,10 @@ for (let r = 0; r < 3000; r += 10) {
 }
 
 // core + style pack + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, audio, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
+const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
 // opt-in presets: four seasons and temperate weather (the engine assumes neither)
 engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, sky: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
-  interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests(), photo(), timeline(), triggers(), entities(), particles(), music(), hud(),   // gameplay modules: not in the preset, this game uses them all
+  interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), quests({ ...presets.keys.quests }), photo({ ...presets.keys.photo }), timeline(), triggers(), entities(), particles(), music({ duckDialogue: 0.35 }), hud(),   // gameplay modules: not in the preset, this game uses them all
   content());
 
 // ---------- 1. Places: nearest riverside to the cabin (fisherman goes there in the morning, barrel floats there) ----------
@@ -34,7 +34,8 @@ search: for (let r = 10; r < 400; r += 4) {
 }
 
 // ---------- 2. Cabin: placed by content/props.js (template 'cabin'); its model is built in code and registered by name ----------
-engine.assets.manifest({ models: { cabin } });
+engine.assets.manifest(lowpolyAssets);                  // asset pack: the trees, rocks and flowers content names (pine, rock, ['flower', color])
+engine.assets.manifest({ name: 'world', models: { cabin } });
 // Presentation that follows the clock: chimney smoke while the cabin's model is built, doorway lamp on 18:00-06:00
 // (sky.between re-aligns after start, load, applying a scenario, or rewinding time)
 let lampOn = false, smoke = null, smokeOn = null;
@@ -48,7 +49,7 @@ engine.onFrame(() => {
 
 // ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, templates, props, physics props, custom conditions) ----------
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: home.x + 4, z: home.z + 7 } });
-engine.content.load(data, { places: { home, river, water: waterSpot } });   // models default to the style pack's lowpoly.models
+engine.content.load(data, { places: { home, river, water: waterSpot } });   // content names models only; the asset packs above resolve them
 
 // Show the film count at the top left (hud counter)
 const showFilm = () => engine.hud.counter('film', { icon: '🎞', label: '胶卷', value: engine.inventory.count('film') });

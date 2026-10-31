@@ -3,7 +3,7 @@
 - `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required; style is the style pack
 - Options `EngineOptions`:
   - `canvas: HTMLCanvasElement | HTMLElement` Canvas element (required), e.g. document.getElementById('view')
-  - `style?: Style` Style pack (all art: colors, materials, models, sky, lighting, UI look), e.g. import lowpoly from '@threedog/style-lowpoly'. Without one: neutral gray placeholders
+  - `style?: StyleInput` Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders
   - `shadows?: boolean` Real-time shadows, default true
   - `antialias?: boolean` MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices
   - `post?: Record<string, boolean>` Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices)

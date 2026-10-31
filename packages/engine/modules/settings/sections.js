@@ -56,8 +56,8 @@ export const BUILTIN_SECTIONS = {
       if (e.post.get('bloom')) h += row(t('settings.bloom'), toggle('bloom', v.bloom, tools), esc);
       if (e.post.get('ao')) h += row(t('settings.ao'), toggle('ao', v.ao, tools), esc);
       if (e.adaptive) h += row(t('settings.adaptive'), toggle('adaptive', v.adaptive, tools), esc);
-      if (e.terrain?.setViewChunks) h += row(t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools), esc);
-      if (e.terrain?.setDensity) h += row(t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools), esc);
+      if (s.chunkHost()?.setViewChunks) h += row(t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools), esc);
+      if (s.chunkHost()?.setDensity) h += row(t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools), esc);
       return h;
     },
   },

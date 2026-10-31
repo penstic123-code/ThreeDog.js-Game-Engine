@@ -24,7 +24,7 @@ export default {
   id: 'R26', title: 'Shader code goes through applyEffects, post-processing through engine.post',
   run() {
     const out = [];
-    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js', '.mjs']))];
+    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.ADDONS_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js', '.mjs']))];
     for (const f of files) {
       if (OWNERS.has(f)) continue;
       const game = P.GAME_CODE_DIRS_REL.some(d => P.under(f, d));   // game code: allowed with a warning (three.js is not hidden from games)

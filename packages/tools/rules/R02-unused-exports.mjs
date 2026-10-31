@@ -17,6 +17,7 @@ const ALLOW = [
   [P.CONTENT_RULES_REL, 'mergeRules', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'describeCond', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'describeEffect', 'tools (content check, game map) import it dynamically'],
+  [P.CONTENT_IDS_REL, 'missingIds', 'threedog content ids (content-ids.mjs) imports it dynamically'],
 ];
 
 function exportsOf(sf) {

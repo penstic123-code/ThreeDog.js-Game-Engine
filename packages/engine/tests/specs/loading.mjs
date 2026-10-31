@@ -11,10 +11,10 @@ export const specs = [
       const r = await ev(async () => {
         const E = threedogLoad.make('soft', { ui: { loading: false } });
         const url = location.origin + '/textures/missing-ref.png';
-        E.assets.manifest({
+        E.assets.manifest({ name: 'level-1',
           models: { tri: threedogLoad.gltfUrl(), bush: '/models/missing-bush.glb', refs: threedogLoad.gltfUrl(url), shrub: { url: '/models/missing-shrub.glb', fallback: 'tri' } },
           textures: { grass: '/textures/missing-grass.png' },
-        }, { name: 'level-1' });
+        });
         const pre = await E.assets.preload(null);
         await E.start();
         const v = E.loading.view(), bush = await E.assets.model('bush'), shrub = await E.assets.model('shrub');
@@ -42,7 +42,7 @@ export const specs = [
         const log = [];
         const part = () => ({ show() {}, update: d => log.push({ text: d.text, failed: d.failed?.map(x => x.name) }), hide: () => log.push('hide'), dispose() {} });
         const E = threedogLoad.make('hard', { ui: { loading: part } });
-        E.assets.manifest({ models: { hero: { url: '/models/missing-hero.glb', critical: true }, tri: threedogLoad.gltfUrl() } }, { name: 'main' });
+        E.assets.manifest({ name: 'main', models: { hero: { url: '/models/missing-hero.glb', critical: true }, tri: threedogLoad.gltfUrl() } });
         const msg = await E.start().then(() => 'started', e => e.message);
         return { msg, ready: E.ready, v: E.loading.view(), d: E.describe().loading, text: E.describeText(), log };
       });

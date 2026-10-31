@@ -1,16 +1,20 @@
-// Lowpoly style pack (@threedog/style-lowpoly): an optional package with everything about how a game looks: colors, materials, sky,
-// lighting, post effects, procedural models (trees, rocks, the humanoid character, pickups) and UI colors. The engine ships no art;
-// a game opts in with createEngine({ style: lowpoly }). Sounds and gameplay data are not here: they are the game's (createEngine({ audio })).
+// Lowpoly (@threedog/style-lowpoly): an optional package holding two separate things (docs/plans/packs-design.md):
+//   default export   the style pack, LOOKS ONLY: colors, materials, sky, lighting, post effects, the default character / pickup shapes, UI look.
+//                    createEngine({ style: lowpoly }), or mixed with other parts: createEngine({ style: [lowpoly, { sky: mySky }] })
+//   assets           an asset pack: the procedural models (trees, rocks, grass, flowers) under names content refers to.
+//                    engine.assets.manifest(assets); `models` is the same generators as a plain name -> function map
+// The terrain generator (world shape, gameplay) is its own package, @threedog/terrain-noise; only the colors of its ground types are here.
+// Sounds and gameplay data are not here: they are the game's (createEngine({ audio }), content/).
 // New art style = copy this folder, change values / swap model files; engine code stays untouched.
 //
 // Every entry is optional; omitted parts get neutral engine placeholders (gray).
-// Also exported: terrainPreset / riverAt / BIOMES / terrainStrings (terrain.js, a generator for terrain(); its ground type names match terrain.biomeColors below).
 import { models } from './models.js';
 import { humanoid, pickup } from './shapes.js';
 import { bloom, outline, ao } from './post.js';
 
 export { bloom, outline, ao, models };
-export { terrainPreset, riverAt, BIOMES, terrainStrings } from './terrain.js';
+/** Asset pack of the procedural models: engine.assets.manifest(assets) registers pine, roundTree, rock, flower, grass... as model names */
+export const assets = { name: 'lowpoly', models };
 
 export default {
   name: 'lowpoly',
@@ -39,7 +43,7 @@ export default {
   clouds: { shadow: 0.55, scale: 0.006, speed: [0.012, 0.006] },
   wind: { frequency: 1 },
 
-  // Terrain: color per ground type (flat shading, one color per triangle). Ground type names are those of terrainPreset() (terrain.js)
+  // Terrain: color per ground type (flat shading, one color per triangle). Ground type names are those of terrainPreset() from @threedog/terrain-noise
   terrain: {
     config: { shading: 'flat' },   // faceted ground; material: (engine) => Material swaps the whole ground material
     // detail: { texture: '/textures/grain.png', scale: 0.25, strength: 0.35 },   // ground detail texture (grain, grass)
@@ -78,7 +82,6 @@ export default {
     moonBrightness: 3,
     orbitTilt: 0.45,       // how far the sun path leans south (north)
     orbitSway: 0.8,
-    hoursPerDay: 24,
     starDensity: 0.0025,   // star density
     starScale: 260,        // bigger = smaller, more numerous stars
     gradientCurve: 0.55,   // zenith-to-horizon gradient curve
@@ -116,7 +119,8 @@ export default {
     promptHeight: 2.4,   // how high the interaction prompt floats above the object (m)
     fadeBg: '#000',      // fade color of scene transitions
     hudBg: 'rgba(24,22,18,.75)', hudFg: '#f3eee2', hudAccent: '#f0b450',   // objective marker, counter, progress bar
-    // Font files: fontFaces: [{ family: 'MyFont', url: '/fonts/my.woff2' }], or fontCSS: 'https://fonts.googleapis.com/css2?family=...'
+    // Fonts by asset name (the files sit in an asset pack: engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } })):
+    //   fonts: ['pixel'], font: '"pixel", system-ui'   (loaded at start(); a failed file falls back to the next family)
     // Extra CSS (overrides any .threedog-* class): css: '.threedog-win { width: 600px }'
     // Replace a UI's content whole: templates: { inventory: (data, { esc, t, icon }) => '<div>…</div>' }
     //   Objective marker: templates: { hudMarker: (d, { esc }) => `<b>${esc(d.label)}</b> ${esc(d.distance)}`, hudCounter: …, hudBar: … }
@@ -135,7 +139,4 @@ export default {
   triggers: { debugColor: 0x9a9a9a, debugOpacity: 0.8 },
   // Grid placement (grids() module): preview colors (can place / cannot), and tile colors per layer: first truthy field wins
   grid: { ok: 0x7fd38a, bad: 0xe0675a, previewOpacity: 0.45 },
-
-  // Procedural models (trees, rocks, grass, flowers). Game code gets them via lowpoly.models.pine()
-  models,
 };

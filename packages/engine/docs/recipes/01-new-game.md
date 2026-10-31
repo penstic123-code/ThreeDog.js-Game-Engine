@@ -25,7 +25,7 @@ To change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` default /
 |---|---|
 | `games/farm/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game farm`) and set `name` to `@threedog/farm` (dependencies `"threedog": "*"`, `"@threedog/tools": "*"`; scripts dev/build/test/map) |
 | `games/farm/vite.config.js` | One line: `export default gameConfig(import.meta.dirname)` (imported from `@threedog/tools/vite`); *.html files in the directory are bundled automatically, no `input` needed. Without `@threedog/tools`, a plain vite config needs `worker: { format: 'es' }` (the engine's Workers are ES modules) or `vite build` fails; `threedog dev / build` on a folder with no vite config uses the preset |
-| `games/farm/index.html` | The page: one `<canvas id="view">` + `/main.js` (for more pages put `xxx.html` in the same directory) |
+| `games/farm/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §5 for embedding |
 | `games/farm/main.js` | Install modules, compute places, `content.load`, game-specific logic |
 | `games/farm/content/index.js` | Combines the content files into one object |
 | `games/farm/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation templates props rules, plus the game's own kinds (rules.js) |
@@ -51,12 +51,13 @@ In a game's own repository, `threedog check`, `types` and `map` read only the ga
 ```js
 // Farm example: ... (this first comment line appears in the file table of GAMEMAP.md)
 import { createEngine, presets, openWorld, interactions, dialogue, inventory, quests, entities, content } from 'threedog';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';   // optional style pack + terrain generator (the engine ships neither)
+import lowpoly from '@threedog/style-lowpoly';              // optional style pack (the engine ships no art)
+import { terrainPreset } from '@threedog/terrain-noise';   // optional terrain generator (nor a world shape)
 import data from './content/index.js';
 
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, ui: { loading: { title: '农场' } }, saveKey: 'farm' });
 engine.use(openWorld({ camera: 'follow', seed: 42, terrain: terrainPreset(), time: 0.3 }),                        // the preset only covers world and environment; the debug panel is installed in dev builds only (debug: true forces it in release too)
-  interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests(), entities(),     // add gameplay modules as the game needs (a shooter has no inventory)
+  interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), quests({ ...presets.keys.quests }), entities(),     // add gameplay modules as the game needs (a shooter has no inventory)
   content());
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 }); // the terrain is generated: find flat ground as "home" at the start (give your own height range to avoid beach and peaks)
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: home });
@@ -94,3 +95,11 @@ engine.use(interactions({ ...presets.interactions.facing }));   // nearest / fac
 const player = engine.characters.createPlayer({ ...presets.player.lockOn, faceTarget: boss });   // none / thirdPerson / lockOn / aim / sideScroller
 ```
 `presets.player.thirdPerson` is `{ control: 'camera', faceMode: 'move', runKeys: Shift, jumpKeys: Space, cameraFollow: true }`; written out by hand the same player is `createPlayer({ control: 'camera', runKeys: ['ShiftLeft'], jumpKeys: ['Space'], cameraFollow: true })`. Keys for any action can also come from `createEngine({ bindings: { interact: ['KeyF'] } })`; those win over the keys a module or preset passes.
+
+## 5. Canvas size: full window, a page section, a split layout or an editor panel
+The engine follows the canvas's own CSS box (a `ResizeObserver` on the canvas), not the window: renderer size, camera aspect, `input.pointer` (`x / y` pixels and `ndcX / ndcY` relative to the canvas), `engine.pick`, `screenToGround`, `worldToScreen` and the HUD all use that box, and the engine's UI root is laid exactly over it. So the layout decides:
+```html
+<style>#view{position:fixed;inset:0;width:100%;height:100%;display:block}</style>   <!-- full window (the template) -->
+<section style="position:relative;width:640px;height:360px"><canvas id="view" style="width:100%;height:100%;display:block"></canvas></section>   <!-- in a page -->
+```
+A canvas with no CSS size takes its size from its own pixel buffer, which would grow on every resize; the engine then sizes it to the window and warns once in dev. The pixel ratio (`createEngine({ pixelRatio })`, adaptive resolution) works as before on top of the CSS size.

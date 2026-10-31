@@ -4,9 +4,8 @@
 //   engine.ui.set('inventory', false)                     no inventory window at all (no DOM is ever built)
 //   engine.ui.set('inventory', { drop: true })            default window with a Drop button per row
 //   engine.ui.set('inventory', (engine) => ({ show: d => …, update: d => …, hide: () => …, dispose: () => … }))   your own
-import { esc, injectUICSS } from '../../ui/UI.js';
+import { esc, iconHTML as icon, injectUICSS } from '../../ui/UI.js';
 
-const icon = def => def?.iconUrl ? `<img src="${esc(def.iconUrl)}" alt="">` : esc(def?.icon ?? '·');
 
 /** Data the 'inventory' part receives in show / update @internal */
 export function windowData(inv) {

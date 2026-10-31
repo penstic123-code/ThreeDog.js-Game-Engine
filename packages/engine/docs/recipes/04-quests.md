@@ -1,6 +1,6 @@
 # Adding quests (with HUD objective markers)
 
-Modules needed: `quests()` (quest log, J by default); objective markers need `hud()` (neither is in openWorld, add them yourself: `engine.use(openWorld({ camera: 'follow', ...}), quests(), hud())`).
+Modules needed: `quests({ ...presets.keys.quests })` (quest log; the preset opens it with J / gamepad Select, or pass your own `keys`, `keys: []` for none); objective markers need `hud()` (neither is in openWorld, add them yourself: `engine.use(openWorld({ camera: 'follow', ...}), quests({ ...presets.keys.quests }), hud())`).
 A quest is a list of steps completed in order; each step has one completion condition (or several parallel goals), checked every half second; a quest may also fail. When the current step has a `target`, hud shows a marker and distance above it automatically, and an edge arrow when it is off-screen.
 
 ## 1. Write data (recommended)

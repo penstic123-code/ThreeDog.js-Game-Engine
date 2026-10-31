@@ -96,7 +96,7 @@ export async function context() {
   const api = engineApi();
   const fns = new Set([...api.exports, ...GLOBALS]);
   for (const f of dtsFiles()) for (const m of read(f).matchAll(/\b([A-Za-z_$][\w$]*)\??\s*[(:<]/g)) fns.add(m[1]);
-  for (const f of [...walk(P.STYLES_REL, ['.d.ts', '.js']), ...walk(P.TOOLS_REL, ['.mjs']).filter(f => !f.includes('/tests/'))]) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
+  for (const f of [...[P.STYLES_REL, ...P.ADDONS_REL].flatMap(d => walk(d, ['.d.ts', '.js'])), ...walk(P.TOOLS_REL, ['.mjs']).filter(f => !f.includes('/tests/'))]) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
   for (const t of gameCode.values()) for (const m of t.matchAll(/function\s+(\w+)|(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|\w+\s*=>|function)/g)) fns.add(m[1] || m[2]);
   // files that can be referenced
   const known = walk(P.ENGINE_REL, ['.md', '.js', '.mjs', '.json', '.d.ts', '.html']).map(f => fwd(relative(P.ENGINE, abs(f))));

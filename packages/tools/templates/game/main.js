@@ -2,19 +2,18 @@
 // __NAME__: open-world starter template — a player on generated terrain, a few apples and one searchable stash. Write gameplay ideas in DESIGN.md.
 // main.js holds rules only (modules, ops, state, presentation). Everything placed in the level is content: content/templates.js + content/props.js (rule R33).
 import { createEngine, presets, openWorld, interactions, inventory, content, hud } from 'threedog';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';   // optional style pack: all the art, plus a terrain generator (the engine ships neither)
+import lowpoly, { assets as lowpolyAssets } from '@threedog/style-lowpoly';   // optional: a style pack (looks) and an asset pack (procedural models)
+import { terrainPreset } from '@threedog/terrain-noise';   // optional: a terrain generator (the engine ships none)
 import data from './content/index.js';
 
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style: lowpoly, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__',
-  // the game's sounds ('synth' = the engine's synthesized one) and the ambience rule table (recipes/31-audio.md)
-  audio: { sounds: { footstep: 'synth', wind: 'synth', birds: 'synth' },
-    ambience: [{ sound: 'wind', volume: 0.12 }, { sound: 'birds', when: { time: 'day' }, every: [2, 7] }] } });
+const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style: lowpoly, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
 // openWorld installs the world and environment (terrain, vegetation, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
 // More you can add: dialogue() quests() entities() triggers() timeline() particles() music() photo() grids(), usage in node_modules/threedog/docs/api/<module>.md
-engine.use(openWorld({ camera: 'follow', seed: 42, terrain: terrainPreset(), time: 0.3 }), interactions({ ...presets.interactions.nearest }), inventory(), content(), hud());
+engine.use(openWorld({ camera: 'follow', seed: 42, terrain: terrainPreset(), time: 0.3, sky: presets.calendar.cycle }), interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), content(), hud());
 
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 });   // the terrain is generated: find a flat spot as "home". home is a Vector3, use home.x / home.z, not home[0]
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: home });
+engine.assets.manifest(lowpolyAssets);   // model names content uses (pine, rock...); add your own files as another pack: { name, base, models }
 engine.content.load(data, { places: { home } });   // in content/, place things relative to home with { place: 'home', x, z }
 
 // ---------- The game's own state, inside the engine's systems ----------

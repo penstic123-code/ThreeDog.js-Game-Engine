@@ -91,4 +91,4 @@ if (want('props')) {
   }
 }
 
-server.httpServer.close();
+await server.close();

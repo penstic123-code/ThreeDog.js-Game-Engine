@@ -35,6 +35,18 @@ export default { bread: { needs: { flour: 2 }, makes: 'bread' } };
 Add `recipes` to `content/index.js` like any other file. A file in `content/` that is neither an engine file nor a registered kind is an error,
 and so is `content.load({ enemies })` without the kind: both say how to register it. A kind may not reuse an engine file name.
 
+## 1b. Content packs: several data sets in one load
+A content pack is the same object `content/index.js` exports (`{ items, templates, props, quests, ... }`, optional `name` for messages), shipped as a folder or an npm package: data only, assets by name (never a path or a function; `npm run check` and a dev warning report both). Load several together:
+```js
+import base from './content/index.js';
+import forest from 'forest-content';                        // its props name templates from base and models from the forest asset pack
+engine.assets.manifest(forestAssets);
+engine.content.load([base, forest], { places: { home } });
+```
+- Packs load in list order, so a pack may use what an earlier one defines.
+- Within one call an id may live in one pack only: `items.apple` in two packs, or the same prop / pickup id, is an error naming both packs. A later, separate `load` call still overrides by name on purpose (hot reload, a chapter replacing a quest).
+- A pack may carry its sounds: `audio: { sounds, ambience, music, footsteps }` (`recipes/31-audio.md` section 8). Sounds, footsteps and music tracks are ids like items (two packs, one name: an error); ambience and music rule lists concatenate.
+
 ## 2. actions.js: a game's own key actions
 Format of `content/actions.js`: **action name -> { keys: default keys, label: display text }**. Actions that engine modules bring along (move, inventory I, quests J, photo P...) need not be written; run, jump and interact are not core keys: they come from the game (`presets.player.*`, `interactions({ keys })`, this file or `createEngine({ bindings })`).
 ```js
@@ -104,7 +116,9 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
 - **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. When `save()` changes shape, raise `version` by 1 and add `migrate[oldVersion] = data => newData`; load runs the steps in order on a copy, so `load` only sees the current shape. A part from a newer build, or a missing step, refuses the whole load before anything changes.
 - **Parts nobody owns are kept**: a part in the loaded save whose module is not installed in this run (a feature turned off for a version) is written back unchanged on every save, and handed to the module if it registers later. Only a new game drops it.
 - **Authored baseline + per-id diff**: everything placed in a level comes from content (props, template instances, pickups, NPCs, grid items in `props`, level-model nodes tagged `template` / `id`) with a stable id, and the world part stores only what play changed on top of it, keyed by id: `changed` (fields of an authored record that differ), `removed` (authored records removed), `records` (records created during play, such as `content.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same world, and a new game's world part is empty: in dev, start warns about records that code created or changed before it, naming them.
-- **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written back, never dropped, so reverting the content change gets the data back. Dev warns once with the closest id; `describe().world.orphans` lists them.
+- **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written back, never dropped, so reverting the content change gets the data back. Dev warns once with the closest id and the `content/renames.js` pair that would move it; `describe().world.orphans` lists them. A rename in `content/renames.js` moves the state to the new id (recipe 30, "Writing the ids, renaming them"). <!-- r18-ignore-line -->
+- **Runtime ids and migration**: records made during play are `<kind>#<n>` (world part version 3). An older save's `<kind>-<n>` ids are renamed when it loads, together with the owed time, container goods and fields that name them; only ids the counter could have made are touched (own kind, `n` up to the saved counter, each `n` once), so an authored `crate-2` stays as it is. A migrate step that needs another part gets the whole save as its second argument: `migrate: { 1: (data, save) => … }`.
+- **Grid layers diff too**: cells authored in `content/grids.js` (`farm: { …, layers: { soil: [[i, j, { tilled: true }]] } }`) are the baseline; the `grids` part (version 2) stores only changed cells (`set`) and emptied authored ones (`clear`), and keeps a diff for a grid the run does not have. <!-- r18-ignore-line -->
 - **Stable ids, never positions**: saved data names things by stable ids. The player's vehicle is saved by `rigid.addVehicle(mesh, { id })`; quest progress by step ids (`steps: [{ id: 'talk-mayor', ... }]`, recipe 04). Content edits (a new step, a new prop) then never shift an old save.
 - **Built-in part versions**: `world` 2 (version 1 kept `records` as an array), `quests` 2 (version 1 kept step positions; the migrate step maps them to ids through the quest definitions), every other part 1.
 - The export file wraps the envelope: `{ threedog: 'save', format: 1, game, slot, savedAt, data: <envelope>, files: [{ group, id, at, meta, type, url: 'data:...' }] }`.

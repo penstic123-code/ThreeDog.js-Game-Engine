@@ -49,7 +49,7 @@ formatClock(engine.sky.timeOfDay);                                        // '17
 - Turning time **back** does not fire; it only resets the baseline: `applyState({ time })` to an earlier time, or lowering `sky.timeOfDay` (19:00 -> 05:50 is going back within the same day, not "a night passed").
 - Loading a save does not fire; it only resets the baseline (trigger points between the save and the load are not made up).
 So "applyState to 05:50, then wait until 06:00" fires the 06:00 `at`, but after "applyState back to 17:50" the lamp will not switch itself off: use `between` for states like a lamp.
-Length of a day: `openWorld({ camera: 'follow', dayLength: 600 })` / `sky({ dayLength })` (game seconds); `engine.clock.timeScale` speeds things up temporarily (see the table above).
+Length of a day: `openWorld({ camera: 'follow', dayLength: 600 })` / `sky({ dayLength })` (game seconds; without it the time of day never moves, `presets.calendar.cycle` is 360); `engine.clock.timeScale` speeds things up temporarily (see the table above).
 For "which time" or "has this been done" in a story, use `engine.vars.bump / setFlag`; don't keep your own variables (vars are saved automatically).
 
 ## 2. Skipping time (sleep until morning, wait an hour)

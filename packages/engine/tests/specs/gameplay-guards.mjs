@@ -83,7 +83,7 @@ export const specs = [
         return { ent: ent.id, entIn: ids.includes(ent.id), pickIn: ids.includes(pick.worldId), npc: ids.some(id => engine.world.get(id)?.kind === 'npc'), npcs: engine.world.query({ kind: 'npc' }).length,
           triggerKey: engine.input.actions.has('triggersDebug'), saved, flow: !!engine.flow };
       });
-      check('entity and pickup interactions are named by their record id', r.entIn && r.pickIn && /^entity:g-box-\d+$/.test(r.ent), JSON.stringify(r));
+      check('entity and pickup interactions are named by their record id', r.entIn && r.pickIn && /^entity:g-box#\d+$/.test(r.ent), JSON.stringify(r));
       check('dev builds bind the trigger debug toggle', r.triggerKey, JSON.stringify(r));
       check('transition saves nothing unless asked', !r.flow || r.saved === 0, JSON.stringify(r));
     },

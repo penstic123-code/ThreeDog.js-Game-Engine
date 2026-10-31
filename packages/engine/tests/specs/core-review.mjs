@@ -221,7 +221,7 @@ export const specs = [
       const r = await ev(async () => {
         const { createEngine, quests, world } = threedogThreads;
         const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cr-format' });
-        E.use(world({ farEvery: 0.05 }), quests({ notify: false }));
+        E.use(world({ farEvery: 0.05 }), quests({ keys: [], notify: false }));
         let doneA = false;
         const step = (id, done = () => false) => ({ id, text: id, done });
         E.quests.define('q', { title: 'Q', steps: [step('a', () => doneA), step('b'), step('c')] });
@@ -261,7 +261,7 @@ export const specs = [
       check('a step inserted before the saved one: progress stays on the same step', r.afterInsert === 2, JSON.stringify(r));
       check('a version-1 save (positions) migrates to ids through the definition', r.v1ok === true && r.migratedStep === 2 && r.migratedId === 'b', JSON.stringify(r));
       check('a saved step id the quest no longer has restarts the quest', r.lostStep === 0, JSON.stringify(r));
-      check('world: owed is written only for kinds simulated with far; records are keyed by id (version 2)', r.owed.length > 0 && r.owed.every(id => id.startsWith('crop')) && r.recordsIsObject && r.wVersion === 2, JSON.stringify(r));
+      check('world: owed is written only for kinds simulated with far; records are keyed by id (version 3)', r.owed.length > 0 && r.owed.every(id => id.startsWith('crop')) && r.recordsIsObject && r.wVersion === 3, JSON.stringify(r));
       check('a version-1 world save (records as an array) still loads', r.oldOk === true && r.propsBack === 30, JSON.stringify(r));
     },
   },

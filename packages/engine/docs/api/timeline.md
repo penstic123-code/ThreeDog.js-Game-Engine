@@ -24,7 +24,7 @@ Cutscenes, tweens (timeline() module)
   - `{ do: (engine: Engine, run: any) => any }` — Run a piece of code (may be async)
   - `{ tween: { target: any; to: TweenTo; duration?: number; ease?: Ease } }` — Tween: target is the object, to the target values, duration in seconds
   - `{ camera: { from?, to?, duration?, ease?, fov?, release? } | { release: true } }` — Camera: from/to end points, duration in seconds, fov target field of view; or { release: true } to hand the camera back
-  - `{ path: { object, points, duration?, ease?, lookAhead?, ground?, … } }` — Move an object (or character, or camera) along a path: points are the path points, duration in seconds, lookAhead how far ahead to look (0–1), ground snaps to the ground (a number = height above ground)
+  - `{ path: { object, points, duration?, ease?, lookAhead?, ground?, … } }` — * Move an object (or character, or camera) along a path: points are the path points, duration in seconds, lookAhead how far ahead to look (0–1), ground snaps to the ground (a number = height above ground)
   - `{ fade: number, to? }` — Full-screen fade: fade is the seconds, to is the target cover (0 transparent ... 1 full black, default 1)
   - `{ say: { speaker?, text?, nodes?, node? } }` — Say a line of dialogue (needs the dialogue module) and wait for the dialogue to end
 

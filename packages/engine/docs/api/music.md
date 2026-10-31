@@ -6,7 +6,7 @@ Background music (music() module)
   - `tracks?: Record<string, MusicTrack>` Tracks: name -> path or { url, volume, loop, stems }
   - `rules?: MusicRule[]` Auto track rules (same as engine.music.rules(list))
   - `fade?: number` Default crossfade seconds, default 2
-  - `duckDialogue?: number | false` Duck the music bus during dialogue to this (0-1), false turns it off, default 0.35
+  - `duckDialogue?: number | false` Duck the music bus during dialogue to this (0-1, e.g. 0.35); default false = no duck (the game opts in)
   - `duckFade?: number` Fade seconds for the ducking
   - `hold?: number` Rule debounce seconds, default 2
   - `interval?: number` Rule check interval (seconds), default 1

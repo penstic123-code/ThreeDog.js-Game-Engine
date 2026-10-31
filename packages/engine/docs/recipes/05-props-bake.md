@@ -7,18 +7,20 @@ Large repeated areas (forests, grass) don't use this; use `content/vegetation.js
 `games/<game>/content/props.js` (a list; remember to add it to `content/index.js`):
 ```js
 export default [
-  { model: 'pine', place: 'home', x: -8, z: -6, scale: 1.2, collide: 'circle' },   // name of a generator function in the style pack's models
-  { model: ['flower', 0xf2d16b], place: 'home', x: 1.6, z: 3.4 },                   // with arguments, use an array: models.flower(0xf2d16b)
+  { model: 'pine', place: 'home', x: -8, z: -6, scale: 1.2, collide: 'circle' },   // an asset name (here a generator of the lowpoly asset pack)
+  { model: ['flower', 0xf2d16b], place: 'home', x: 1.6, z: 3.4 },                   // a generator with arguments, use an array: flower(0xf2d16b)
   { model: 'rock', x: 120, z: -40, rot: 0.6, scale: 0.8, collide: 'box' },          // no place = world coordinates; rot in radians
-  { model: 'well', place: 'home', x: 4, z: -4, y: 0, collide: 'box' },              // not a generator name, so it is treated as an asset name: assets.model('well')
+  { model: 'well', place: 'home', x: 4, z: -4, y: 0, collide: 'box' },              // a file asset: assets.model('well')
   { model: 'crate', place: 'tower', x: 1, floor: 6, y: 0.5 },                        // on the tower's second floor (not its roof), half a meter up
 ];
 ```
 Fields: `id` (stable id, see below), `model`, `place` + `x/z` (relative to the place), `floor` (on multi-layer ground — a second storey, a bridge deck, a lower dungeon level — the reference height of the layer it stands on; a level-marker place lends its own height), `y` (height above that ground), `rot`, `scale`, `collide` (`'box'` / `'circle'` / omitted = does not block), `static: false` (do not register for rays).
 An entry with `template` instead of `model` (`{ template: 'chest', x: 3, z: 1 }`) places an instance of a content template: a reusable object with interaction, container and saved state (recipe 30).
-A model name is looked up first in `content.load(data, { models })` (by default the style pack's `style.models`); if not found, `engine.assets.model(name)` is used, so a glTF must be registered in the manifest first:
+A model is always an **asset name**, never a path or a function (`npm run check` reports both): register it in a manifest or asset pack first. A generator entry is built through `engine.assets.cached` (params from the array), a file entry through `engine.assets.model`:
 ```js
-engine.assets.manifest({ models: { well: '/models/well.glb' } });
+import { assets as lowpolyAssets } from '@threedog/style-lowpoly';
+engine.assets.manifest(lowpolyAssets);                                // pine, rock, ['flower', color]...
+engine.assets.manifest({ name: 'props', models: { well: '/models/well.glb' } });
 ```
 Props with the same model share one prototype (geometry and material are built once); each spot gets a clone.
 
@@ -34,7 +36,7 @@ engine.world.view('prop:rock:3');                         // the current model (
 ```
 Props are the world's **initial data**: a save records only moves, changes and deletions, so the result is the same whether `content.load` runs before or after loading a save (a deleted prop never reappears); props added to the content in a game update also show up when an old save is loaded.
 A prop whose position uses a level marker carries a `zone` (= level name): changing level only removes the model, and moves / deletions are still there when you come back.
-Procedural models from the style pack (both props and vegetation) go through `engine.assets.cached(modelName, generator, args)`: if baked, the file in `public/models/baked/` is read; during development the result is cached automatically.
+Procedural models of an asset pack (both props and vegetation) go through `engine.assets.cached(modelName, generator, args)`: if baked, the file in `public/models/baked/` is read; during development the result is cached automatically.
 Models are obtained asynchronously and the loading screen waits for them (`engine.world.ready`: every model that should exist nearby at the start is built); `world.view(id)` works after `start()`; a model built later when the player walks up appears one or two frames late (to wait, `await engine.world.whenReady`).
 If a model fails to generate, world reports it once in the console, does not block loading, and retries when the player walks away and comes back.
 
@@ -76,18 +78,39 @@ Every asset load is a task in `engine.loading` (so are module init / `isReady`, 
 Decide per entry what a failure means:
 ```js
 engine.assets.manifest({
+  name: 'forest',                                                // the source label in engine.loading (default 'manifest#1')
   models: {
     hero: { url: '/models/hero.glb', critical: true },          // the game cannot start without it: start() stops and says why
     bush: '/models/bush.glb',                                    // degradable (default): a gray placeholder, the game continues
     fern: { url: '/models/fern.glb', fallback: 'bush' },        // degradable, shows another entry instead
   },
-}, { name: 'forest' });                                          // the source label in engine.loading (default 'manifest#1')
+});
 const level = await engine.loading.track('level-data', () => fetch('/levels/1.json').then(r => r.json()));   // the game's own step, critical by default
 ```
 - Finished is not succeeded: `describe().loading` has `done` (nothing pending) and `ok` (nothing failed, no missing references); `blocked` is true when a critical item failed before the start. `waiting` names the current item, e.g. `decoding model "hero" (/models/hero.glb, manifest "forest")`.
 - `threedog loading` prints the same view (it answers while `start()` is still running or stuck); `threedog loading hero` shows one task with its source. Failures also go to `.threedog/errors.log` with the likely cause.
 - The loading-screen part gets the current item as `text`; when a critical item fails it gets `failed` and stays up (class `.threedog-loading-failed`).
 - Unregistered paths (`assets.model('/x.glb')`) and code-generated models do not fall back: the error goes to the caller, and the task shows it.
+
+## 3b. Asset packs (a folder or npm package of files)
+An asset pack is a manifest someone else wrote: `{ name, base, models, textures, sounds, fonts }`, names only, no code that runs at load. `base` resolves the pack's relative paths (`'/x'` and full URLs stay as written), so the same pack works from `public/`, a CDN or `node_modules`:
+```js
+// public/packs/forest/pack.js, or the main file of an npm package `forest-assets`
+export default { name: 'forest', base: '/packs/forest/', models: { oak: 'oak.glb', fern: { url: 'fern.glb', fallback: 'oak' } }, sounds: { creek: 'creek.ogg' } };
+// an npm package lets vite find and emit each file: models: { oak: new URL('./oak.glb', import.meta.url).href }
+// (keep such a package out of vite's dependency pre-bundling: optimizeDeps: { exclude: ['forest-assets'] })
+import forest from 'forest-assets';
+engine.assets.manifest(forest);                          // content and code now say 'oak', 'creek'
+engine.assets.manifest({ name: 'mine', models: { oak: '/models/my-oak.glb' } });   // a later pack replaces a name it shares
+```
+A generator function is also an entry (`models: { pine: () => geometry }`): the lowpoly package exports its procedural models this way as `assets`.
+
+Fonts are entries too, and a style names them instead of holding the file (a style is looks only):
+```js
+const engine = createEngine({ canvas, style: [lowpoly, { ui: { fonts: ['pixel', 'pixelBold'], font: '"pixel", system-ui' } }] });
+engine.assets.manifest({ name: 'ui-fonts', base: '/fonts/', fonts: { pixel: 'pixel.woff2', pixelBold: { url: 'pixel-bold.woff2', family: 'pixel', weight: 700 } } });
+```
+`family` defaults to the asset name; the other keys are FontFace descriptors (`weight`, `style`, `unicodeRange`, ...). `start()` loads the fonts `style.ui.fonts` lists (an unknown name stops it with the line to add); other font entries load only on `engine.assets.font(name)` or with `preload: true`. A file that fails falls back to the next family of `style.ui.font` unless it is `critical`.
 
 ## 4. Verify
 - `npm run check`: prop model names and place names are validated. After `npm run map`, GAMEMAP.md has a props table.

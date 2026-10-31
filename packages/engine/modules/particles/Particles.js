@@ -39,6 +39,7 @@ import * as THREE from 'three';
 import { vec3 } from '../../core/math.js';
 import { Effect, NEUTRAL, KEYS } from './effect.js';
 import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.js';
+const _vs = new THREE.Vector2();   // canvas CSS size (particle point scale follows the canvas height, not the window)
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, PositionLike } from '../../types/common' */
 /** @import { ParticleEffect, ParticleEmitter, ParticleOptions } from '../../types/gameplay' */
@@ -147,7 +148,7 @@ export class Particles {
    * @internal
    */
   update(dt) {
-    const pr = this.engine.renderer.getPixelRatio(), scale = innerHeight * pr / (2 * Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2));
+    const pr = this.engine.renderer.getPixelRatio(), scale = this.engine.renderer.getSize(_vs).y * pr / (2 * Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2));
     for (const h of this.emitters) {
       if (!h.active) continue;
       if (!h.object.parent) { h.remove(); continue; }   // object removed from the scene: stop automatically

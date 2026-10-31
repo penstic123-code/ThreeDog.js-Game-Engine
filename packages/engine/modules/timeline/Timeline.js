@@ -46,9 +46,6 @@ function checkStep(s) {
   if (s.camera) for (const k of ['from', 'to']) checkOptions(`timeline camera.${k}`, s.camera[k], SHOT_KEYS);
 }
 
-
-let runId = 0;
-
 /** engine.timeline */
 export class Timeline {
   /** @internal */
@@ -56,6 +53,7 @@ export class Timeline {
     /** @internal */ this.engine = engine;
     /** @internal */ this._tweener = new Tweener();
     /** @internal */ this.runs = new Set();
+    /** @internal numbers the runs of this engine (timeline:start / timeline:end id) */ this._runSeq = 0;
     /** Skip every cutscene immediately (set by scenario param cutscene=skip) @type {boolean} */
     this.skipAll = false;
     engine.input.define('skip', skipKeys, 'timeline.skipAction');
@@ -88,7 +86,7 @@ export class Timeline {
     checkOptions('timeline.play()', opts, ['skippable', 'letterbox', 'lockInput']);
     const { skippable = true, letterbox = false, lockInput = true } = opts;
     const e = this.engine;
-    const run = { id: ++runId, skippable, letterbox, lockInput, skipping: false, cancels: new Set(), cam: null };
+    const run = { id: ++this._runSeq, skippable, letterbox, lockInput, skipping: false, cancels: new Set(), cam: null };
     // enter the UI focus stack: skippable cutscenes skip on Esc, unskippable ones swallow Esc (so it does not open the settings menu)
     run.focus = uiFocus(e).push('timeline', { cancel: skippable ? () => this.skip(run) : null });
     this.runs.add(run);
@@ -286,7 +284,7 @@ export class Timeline {
     injectUICSS(`
 .threedog-letterbox{position:fixed;left:0;right:0;height:0;background:var(--threedog-letterbox-bg,var(--threedog-loading-bg));z-index:18;pointer-events:none;transition:height var(--threedog-letterbox-speed,.5s) ease}
 .threedog-letterbox-top{top:0}.threedog-letterbox-bottom{bottom:0}
-.threedog-letterbox.is-on{height:var(--threedog-letterbox-size,11vh)}
+.threedog-letterbox.is-on{height:var(--threedog-letterbox-size,11%)}
 .threedog-letterbox-skip{position:absolute;right:calc(16px + env(safe-area-inset-right,0px));bottom:12px;font:12px var(--threedog-font);color:var(--threedog-muted);
   background:none;border:0;cursor:pointer;pointer-events:auto;opacity:0;transition:opacity .4s}
 .threedog-letterbox.is-on .threedog-letterbox-skip.is-on{opacity:.8}

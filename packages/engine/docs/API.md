@@ -35,8 +35,8 @@
 - [`engine.clock`](api/clock.md) game seconds and "after how long / every how long": after every
 - [`engine.vars`](api/vars.md) story flags and counters (autosaved): flag setFlag counter bump
 - [`engine.saves`](api/saves.md) engine.saves handles saving: register queue flush collect check apply save load list remove export import exportFile importFile …
-- [`engine.assets`](api/assets.md) Assets: manifest preload model modelNow geometry texture release trim users forget cached animate
-- [`engine.audio`](api/audio.md) buses: addBus setVolume duck register condition matches sfx noiseBurst tone load play
+- [`engine.assets`](api/assets.md) Assets: manifest builder preload font model modelNow geometry texture release trim users forget cached animate
+- [`engine.audio`](api/audio.md) buses: addBus setVolume duck register condition measure value matches volumeOf sfx noiseBurst tone load play
 - [`engine.i18n`](api/i18n.md) string tables: add setLocale has t
 - [`engine.rays`](api/rays.md) engine.rays is the ray registry…: addStatic forget addProvider cast pick
 - [`engine.jobs`](api/jobs.md) engine.jobs queues build work in a binary heap: add run
@@ -47,7 +47,7 @@
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
 - [`engine.terrain`](api/terrain.md) terrain() Procedural terrain: setViewChunks setDensity rebuild edit isReadyAround
-- [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: add get list isRemoved removeInstance restoreInstance instanceAt
+- [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: rebuild add get list isRemoved removeInstance restoreInstance instanceAt
 - [`engine.sky`](api/sky.md) sky() Sky, day/night, calendar: modify at between daily onSeason setShadow setShadowMapSize
 - [`engine.weather`](api/weather.md) weather() Weather: setAuto set label
 - [`engine.water`](api/water.md) water() Water surface

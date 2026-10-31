@@ -32,7 +32,7 @@
 // Events: entity:spawn / entity:remove / entity:state { ent, key, value, prev } / entity:stage { ent, stage, name }
 // Clock: growth uses engine.clock.now (game seconds, follows clock.timeScale and saves).
 // Interaction text: interact.label may be an i18n key (translated if it exists), plain text, or a function ent => text.
-// Appearance: the engine ships no default models - the game supplies create(), usually from engine.style.models.
+// Appearance: the engine ships no default models - the game supplies create(), usually from an asset pack (engine.assets.model / cached).
 import { xzOf } from '../../core/math.js';
 import { checkOptions, checkOptionsArg, missingText, warnOnce, freezeDef } from '../../core/validate.js';
 
@@ -88,7 +88,7 @@ export class Entities {
     const e = this.engine, def = this.types.get(type);
     if (!def) { console.error(missingText('entityType', type, [...this.types.keys()])); return null; }
     checkOptions(`entities.spawn('${type}')`, data, SPAWN_KEYS);
-    const id = data.id;   // none given: world numbers it (entity:<type>-<n>); the counter is saved with world, so a removed entity's id is never handed out again
+    const id = data.id;   // none given: world numbers it (entity:<type>#<n>); the counter is saved with world, so a removed entity's id is never handed out again
     if (id != null && this.world.get(id)) this.remove(id);
     const pos = data.position ?? { x: 0, z: 0 }, [x, z] = xzOf(pos);
     const y = pos.isObject3D ? pos.position.y : Array.isArray(pos) ? (pos[1] ?? null) : (pos.y ?? null);   // no y given = snap to ground

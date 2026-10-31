@@ -21,7 +21,7 @@
 import type { Engine, EngineOptions, ModuleDef, ModuleInput } from './types/core';
 import type { Ease, EaseName, BufferGeometry, ColorLike, Material, Vector3, PositionLike } from './types/common';
 import type {
-  TerrainOptions, TerrainConfig, TerrainGen, Terrain, Vegetation, Sky, SkyOptions, Weather, WeatherOptions, WeatherPreset,
+  TerrainOptions, TerrainConfig, TerrainGen, Terrain, Vegetation, VegetationModuleOptions, Sky, SkyOptions, Weather, WeatherOptions, WeatherPreset,
   WeatherName, Water, WaterOptions, FlattenZone, Hlod, HlodOptions,
 } from './types/world';
 import type { Nav, NavOptions } from './types/nav';
@@ -114,8 +114,8 @@ export function openWorld(opts: OpenWorldOptions): ModuleDef[];
 
 /** Procedural terrain -> engine.terrain */
 export function terrain(opts?: TerrainOptions): ModuleDef<Terrain>;
-/** Vegetation -> engine.vegetation (install terrain first) */
-export function vegetation(): ModuleDef<Vegetation>;
+/** Vegetation -> engine.vegetation: on terrain chunks when terrain() is installed first (no options), else on its own chunks over any ground (a level, setGround) */
+export function vegetation(opts?: VegetationModuleOptions): ModuleDef<Vegetation>;
 // Migrated: sky() is generated from the JSDoc in modules/sky/Sky.js
 export { sky } from './types/generated/modules/sky/Sky';
 // Migrated: weather() is generated from the JSDoc in modules/weather/Weather.js
@@ -126,9 +126,15 @@ export { weather } from './types/generated/modules/weather/Weather';
  */
 export const presets: {
   readonly weather: { readonly temperate: WeatherOptions & Required<Pick<WeatherOptions, 'types' | 'autoPool'>> };
-  readonly calendar: { readonly fourSeasons: SkyOptions; readonly fixedTime: SkyOptions };
+  readonly calendar: { readonly fourSeasons: SkyOptions; readonly cycle: SkyOptions; readonly fixedTime: SkyOptions };
   readonly player: { readonly [K in 'none' | 'thirdPerson' | 'lockOn' | 'aim' | 'sideScroller']: Pick<import('./types/gameplay').PlayerOptions, 'control' | 'faceMode' | 'runKeys' | 'jumpKeys' | 'cameraFollow'> };
   readonly interactions: { readonly [K in 'nearest' | 'facing' | 'aim']: import('./types/gameplay').InteractionsOptions };
+  readonly keys: {
+    readonly inventory: Pick<import('./types/gameplay').InventoryOptions, 'keys' | 'pad'>;
+    readonly quests: Pick<import('./types/gameplay').QuestsOptions, 'keys' | 'pad'>;
+    readonly photo: Pick<import('./types/gameplay').PhotoOptions, 'keys' | 'pad'>;
+    readonly brake: Pick<import('./types/gameplay').CharactersOptions, 'brakeKeys' | 'brakePad'>;
+  };
   readonly camera: { readonly follow: import('./types/physics').FollowCameraOptions; readonly overShoulder: import('./types/physics').FollowCameraOptions };
 };
 // Migrated: water() is generated from the JSDoc in modules/water/Water.js

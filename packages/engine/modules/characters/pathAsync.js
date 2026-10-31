@@ -25,7 +25,7 @@ export class AsyncPaths {
   request(from, to, done, o = {}) {
     if (typeof done !== 'function') throw new Error(NO_DONE);
     const [sx, sz] = xzOf(from), [gx, gz] = xzOf(to);
-    const h = { sx, sz, gx, gz, o, done, canceled: false, cancel() { h.canceled = true; } };
+    const h = { sx, sz, gx, gz, o, done, canceled: false, remove() { h.canceled = true; } };
     this.queue.push(h);
     return h;
   }

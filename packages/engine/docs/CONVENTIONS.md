@@ -30,10 +30,10 @@ const t = engine.commits.request({
   fallback: () => computePath(from, to),     // required: the SAME computation on the main thread
   valid: () => state.gen === myGen,          // still wanted? checked on the due tick
 });
-lane.run(job).then(r => t.resolve(r));       // when the worker replies; t.cancel() if you no longer want it
+lane.run(job).then(r => t.resolve(r));       // when the worker replies; t.remove() if you no longer want it
 ```
 - **The worker result has not come back by the due tick**: the main thread calls `fallback()` right then, `apply` gets that result, and `engine.commits.stats.late` goes up by 1. A worker reply that arrives afterwards is ignored. So `fallback` must give the same result as the worker (use one function for both) and must be fast enough to run inside one fixed step.
-- **Dropping an old result**: `t.cancel()`, or `valid()` returning false on the due tick. A save load (`saves.apply`) or `level.load` drops pending commits that have no `valid` (they were requested for the old world), including `jobs.add(work, { apply })` started before it (`jobs.add` also takes `valid`); a request with `valid` decides itself.
+- **Dropping an old result**: `t.remove()`, or `valid()` returning false on the due tick. A save load (`saves.apply`) or `level.load` drops pending commits that have no `valid` (they were requested for the old world), including `jobs.add(work, { apply })` started before it (`jobs.add` also takes `valid`); a request with `valid` decides itself.
 
 ### Pure functions for workers: `engine.threads.pure(fn, label)`
 A function sent to a worker (`world.simulate(kind, { far, worker: true })`, your own lane) is sent as source text and recompiled in an empty scope. So it **cannot use outside variables, `this` or imports**, and cannot be native, bound, a class, `async` or a generator; it may use its parameters, constants written inside it, and globals such as `Math`. The main thread runs the same recompiled copy, so a mistake fails the same way with threads on or off.
@@ -58,7 +58,7 @@ What is checked when: at registration (`threads.pure` / `simulate`) it checks th
 - **Errors say how to fix it**: passing an old form (a numeric position, etc.) throws and explains the fix.
 
 ## Core conventions
-- Lighting without `sky`: every engine has `engine.lights = { sun, hemi }` (neutral); to light the scene yourself hide or adjust them and add three.js lights. The engine ships no art: the humanoid, pickup shapes, flat shading and the terrain generator live in the optional lowpoly style pack (`@threedog/style-lowpoly`: `shapes.js`, `terrain.js`, `terrain.config.shading: 'flat'`); without a style pack or model the engine shows a gray capsule, a gray box and flat gray ground at y = 0, with a dev warning naming the fix.
+- Lighting without `sky`: every engine has `engine.lights = { sun, hemi }` (neutral); to light the scene yourself hide or adjust them and add three.js lights. The engine ships no art: the humanoid, pickup shapes and flat shading live in the optional lowpoly style pack (`@threedog/style-lowpoly`: `shapes.js`, `terrain.config.shading: 'flat'`); without a style pack or model the engine shows a gray capsule, a gray box and flat gray ground at y = 0, with a dev warning naming the fix.
 - Gameplay state (world, containers, vars, quests) changes only in fixed steps or inside ops; dev warns otherwise (`.threedog/ops-guard.log` after `npm test`). (game side)
 - **One source for "can walk there"**: `createEngine({ movement: { radius, height, maxSlope, stepHeight } })` -> read-only `engine.movement`; collision, the Rapier capsule, navigation, A* and level steps all read it; don't write another 0.4 / 0.45 in a module. A character's position belongs to the Character mover; other systems only request movement (`placeAt` / `move` / vehicle `enter`) and never set `player.position` directly.
 - Units are meters, Y is up, north is -Z. Characters and vehicles face the model's +Z; `facing` 0 = +Z, forward = (sin f, cos f).

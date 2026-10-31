@@ -6,8 +6,8 @@ export class Audio {
     /** Volume per bus 0-1 ('master' is the total). Every key is a bus: levels: { voice: 1 } adds a 'voice' bus @type {Record<string, number>} */
     levels: Record<string, number>;
     /**
-     * The game's sound config from createEngine({ audio }): sounds (name -> file / variants / { src, synth, ... }), ambience (rule list for
-     * ambience()), music (music() tracks and rules), footsteps (ground type -> sound name)
+     * The game's sound config from createEngine({ audio }); sounds and footsteps also hold content packs' (copies: the game's object is never changed).
+     * Content packs' ambience / music rules go to ambience() / music(), not here
      * @type {import('../../core').AudioConfig}
      */
     config: import("../../core").AudioConfig;
@@ -76,13 +76,39 @@ export class Audio {
         remove(): void;
     };
     /**
-     * Does a rule's `when` hold now? An object needs every key to hold; a function gets (engine, ...extra); missing = always.
+     * Add a measure: a number rule data compares (`when: { daylight: { gt: 0.15 } }`; gt / gte / lt / lte) and adds up (`volume: { add: { wind: 0.08 } }`).
+     * sky adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both
+     * @param {string} name
+     * @param {(e: any) => number} fn
+     * @returns {{ remove(): void }}
+     * @example engine.audio.measure('danger', e => e.vars.counter('alarm') / 10);   // data: when: { danger: { gt: 0.5 } }
+     */
+    measure(name: string, fn: (e: any) => number): {
+        remove(): void;
+    };
+    /**
+     * The current value of a measure (debug, tests); undefined when none is registered under that name
+     * @param {string} name
+     * @returns {number | undefined}
+     */
+    value(name: string): number | undefined;
+    /**
+     * Does a rule's `when` hold now? An object needs every key to hold (condition keys, or measure comparisons); a function gets
+     * (engine, ...extra); missing = always.
      * @param {AudioCondition | undefined} when
      * @param {...any} extra
      * @returns {boolean}
-     * @example engine.audio.matches({ time: 'night', zone: 'forest' });
+     * @example engine.audio.matches({ time: 'night', zone: 'forest', rain: { lt: 0.2 } });
      */
     matches(when: AudioCondition | undefined, ...extra: any[]): boolean;
+    /**
+     * A rule's volume now: a number, a function (engine, ...extra), or data { base, add: { measure: factor }, min, max }; missing = 1
+     * @param {AudioVolume | undefined} volume
+     * @param {...any} extra
+     * @returns {number}
+     * @example engine.audio.volumeOf({ base: 0, add: { rain: 0.22 } });   // 0.22 in full rain
+     */
+    volumeOf(volume: AudioVolume | undefined, ...extra: any[]): number;
     /**
      * Play a sound by name from audio.sounds (file, variants, or a synth). Returns a SoundHandle (stop, fade, setPosition), or null when it is
      * silent: not configured, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops.
@@ -145,13 +171,18 @@ export class Audio {
         delay?: number;
         pan?: number;
     }): void;
-    /** Download and decode an audio file (cached) @param {string} url @returns {Promise<any>} */
+    /**
+     * Download and decode an audio file (cached). A sound name registered in an asset pack (manifest sounds) loads that file as an
+     * engine.loading task, so sounds entries and music tracks may name assets instead of paths
+     * @param {string} url  a file path or an asset pack sound name
+     * @returns {Promise<any>}
+     */
     load(url: string): Promise<any>;
     /**
      * Play an audio file by path (no sounds entry needed); resolves to a SoundHandle once the file is decoded
      * @param {string} url
      * @param {{ bus?: string, volume?: number, loop?: boolean, fadeIn?: number, pitch?: number, at?: any }} [opts]
-     * @returns {Promise<SoundHandle>}
+     * @returns {Promise<SoundHandle | null>} null only without Web Audio; called before the first click it still resolves and the sound starts once audio unlocks
      * @example const h = await engine.audio.play('/sfx/door.ogg', { bus: 'ui' }); h.stop(0.5);
     */
     play(url: string, opts?: {
@@ -161,8 +192,9 @@ export class Audio {
         fadeIn?: number;
         pitch?: number;
         at?: any;
-    }): Promise<SoundHandle>;
+    }): Promise<SoundHandle | null>;
 }
 import type { SynthFn } from '../../core';
 import type { AudioCondition } from '../../core';
+import type { AudioVolume } from '../../core';
 import { SoundHandle } from './audioVoice.js';

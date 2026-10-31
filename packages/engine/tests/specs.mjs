@@ -52,6 +52,11 @@ import { specs as specsBatching } from './specs/batching.mjs';
 import { specs as specsAudio } from './specs/audio.mjs';
 import { specs as specsLights } from './specs/lights.mjs';
 import { specs as specsCoreReview } from './specs/core-review.mjs';
+import { specs as specsCanvasBox } from './specs/canvas-box.mjs';
+import { specs as specsVegetationGround } from './specs/vegetation-ground.mjs';
+import { specs as specsPacks } from './specs/packs.mjs';
+import { specs as specsReviewGuards } from './specs/review-guards.mjs';
+
 
 export const specs = [
   {
@@ -65,9 +70,9 @@ export const specs = [
       await page.keyboard.press('Escape'); await frames(2);
       check('Esc 跳过过场且不打开设置菜单', await ev(() => !engine.timeline.playing && !engine.settings.isOpen && !engine.cameraOverride));
       await page.keyboard.press('Escape'); await frames(2);
-      check('再按 Esc 打开设置菜单并锁住输入', await ev(() => engine.settings.isOpen && !engine.input.enabled));
+      check('再按 Esc 打开设置菜单并锁住输入', await ev(() => __t.until(() => engine.settings.isOpen && !engine.input.enabled, 5000).then(() => true, () => false)));   // input contexts apply at the next fixed step
       await page.keyboard.press('Escape'); await frames(2);
-      check('再按 Esc 关闭菜单', await ev(() => !engine.settings.isOpen && engine.input.enabled));
+      check('再按 Esc 关闭菜单', await ev(() => __t.until(() => !engine.settings.isOpen && engine.input.enabled, 5000).then(() => true, () => false)));
 
       // 起跳：暂停实时循环后按空格，再用 step 推进 0.3 游戏秒（和帧率、真实时间无关）
       await ev(() => engine.pause());
@@ -317,5 +322,5 @@ export const specs = [
       check('按 W 沿相机前方移动', moved !== null && moved > 0.9, String(moved));
     },
   })),
-  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview,
+  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards,
 ];

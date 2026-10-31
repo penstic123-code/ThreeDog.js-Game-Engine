@@ -7,7 +7,7 @@ The engine always does the chunks, streaming, workers, collision and vegetation.
 ## 0. A ready-made generator: the lowpoly preset
 ```js
 import { openWorld, createTerrain } from 'threedog';
-import { terrainPreset, riverAt } from '@threedog/style-lowpoly';   // optional package: noise hills, rivers, biomes
+import { terrainPreset, riverAt } from '@threedog/terrain-noise';   // optional package: noise hills, rivers, biomes
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset({ shape: 'island' }) }));   // 'hills' (default) | 'island' | 'canyon' | 'flat'
 const preview = createTerrain({ seed: 7, ...terrainPreset() });                    // same heights before the engine starts
 const dry = (x, z) => riverAt(x, z, preview.noise) === 0;
@@ -22,8 +22,10 @@ terrain({
   height: (x, z, n) => 4 + 30 * n.fbm(x * 0.004, z * 0.004) - 8 * Math.abs(Math.sin(x * 0.01)),
   // a ground type name (null = 'default'); its colors come from biomeColors[type]
   groundType: (x, z, h, slope) => slope > 0.8 ? 'rock' : h < 1 ? 'beach' : 'grass',
+  waterLevel: 0,   // a sea at y = 0; leave it out for no water (the default is -Infinity; terrainPreset() sets 0)
 });
 ```
+The terrain moves the camera's far plane out to its view distance but leaves the fog to the game; `terrain({ viewFog: true })` makes the fog end where the chunks end so the edge fades out (`openWorld()` turns it on).
 Both functions run in workers, so they are **pure**: they see only their parameters and globals like `Math`. Reading a variable from outside (`(x, z) => x * scale`) throws at `terrain()` and names the variable; put the number inside the function, or pass settings as plain data in `terrain({ params })` and read them as `n.params`. `flatten` plots still apply on top. A new type name needs colors: `terrain({ biomeColors: { lava: ['lavaA', 'lavaB'] }, colors: { lavaA: 0xd04010, lavaB: 0xa03008 } })`.
 
 ## 2. Changing the ground: `engine.terrain.edit`

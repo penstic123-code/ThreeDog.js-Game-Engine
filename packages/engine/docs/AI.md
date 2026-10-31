@@ -17,8 +17,9 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | To do | Use | Recipe |
 |---|---|---|
 | New game, project layout | `npm run new-game name`, `createEngine({ canvas, style })`, `engine.use(...)`, `engine.start()` | `recipes/01-new-game.md` |
+| Canvas in a page section, split layout or editor panel | the canvas's CSS box decides (pointer, pick, UI follow it) | `recipes/01-new-game.md` §5 |
 | Preset parts on / off | `openWorld({ camera: 'follow', sky: {...}, debug: false })` (each part takes `false` or its options) | `recipes/01-new-game.md` |
-| Game content data | `engine.content.load(data, { places })`; own data kinds in `content/rules.js` | `recipes/20-content-actions-save.md` |
+| Game content data, content packs | `engine.content.load(data, { places })` or several packs `load([base, dlc])` (an id in two packs is an error); own data kinds in `content/rules.js` | `recipes/20-content-actions-save.md` |
 | NPCs and what they do | content `npcs` (`behavior`: `schedule` / `wander`), `engine.npcs.behavior(name, { near, far })` | `recipes/02-npc.md` |
 | Dialogue | content `dialogues`, `engine.dialogue` | `recipes/02-npc.md` |
 | Items, pickups, inventory | content `items` / `pickups`, `engine.inventory` | `recipes/03-items-pickups.md` |
@@ -36,13 +37,14 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Cutscenes, tweens | `engine.timeline` (`tween(obj, { 'position.y': 2 }, s)`; no other tween class) | `recipes/07-flow-scenes-pause.md` |
 | Time, timers, skipping time | `engine.clock` (game seconds, `after / every`), `await engine.skip({ to: '06:00' })` | `recipes/06-clock-events.md` |
 | Events | `engine.events.on / emit` (`noun:action`; a game declares its own in `GameEvents`) | `recipes/06-clock-events.md` |
-| Day, night, seasons, sky, weather | `engine.sky` (`at / between / daily / onSeason`, `isDay`, `daylight`; seasons off unless `sky({ seasons })`), `engine.weather` (`weather({ types })`, only `clear` without) | `recipes/08-weather-sky.md` |
-| Opt-in feel presets (weather tables, calendars, player movement / keys, interaction pick / key, camera) | `presets` (`presets.weather.temperate`, `presets.calendar.fourSeasons`, `presets.player.thirdPerson`, `presets.interactions.nearest`, `presets.camera.overShoulder`); never applied by the engine | `recipes/01-new-game.md` |
+| Day, night, seasons, sky, weather | `engine.sky` (`at / between / daily / onSeason`, `isDay`, `daylight`; a fixed time of day unless `sky({ dayLength })` or `presets.calendar.cycle`; seasons off unless `sky({ seasons })`), `engine.weather` (`weather({ types })`, only `clear` without) | `recipes/08-weather-sky.md` |
+| Opt-in feel presets (weather tables, calendars and day cycle, player movement / keys, interaction pick / key, module keys, camera) | `presets` (`presets.weather.temperate`, `presets.calendar.cycle` / `fourSeasons`, `presets.player.thirdPerson`, `presets.interactions.nearest`, `presets.keys.inventory` / `quests` / `photo` / `brake`, `presets.camera.overShoulder`); never applied by the engine | `recipes/01-new-game.md` |
 | Water | `engine.water` | `recipes/08-weather-sky.md` |
-| Look, materials, post-processing | style pack (`createEngine({ style })`, e.g. `@threedog/style-lowpoly`; without one gray placeholders), `makeMaterial('role', {...})`, `applyEffects(...)`, `engine.post`, shared shader time / wind in `engine.uniforms` | `recipes/09-style-pack.md` |
+| Look, materials, post-processing, mixing packs | style pack (`createEngine({ style })`, e.g. `@threedog/style-lowpoly`, or parts `style: [lowpoly, { sky }]` deep-merged; without one gray placeholders), `makeMaterial('role', {...})`, `applyEffects(...)`, `engine.post`, shared shader time / wind in `engine.uniforms` | `recipes/09-style-pack.md` |
 | Sound, buses, ambience rules, music, footsteps, ducking | `createEngine({ audio: { sounds, ambience, music, footsteps, levels } })` (the game's), `engine.audio.sfx(name, { at })`, `audio.duck({ music: 0.3 })`, `engine.ambience`, `engine.music` (`rules`, `intensity`) | `recipes/31-audio.md` |
+| Sound config as content data, measures | content pack `audio: { sounds, ambience, music, footsteps }` (sound names from an asset pack, no functions), `when: { daylight: { gt: 0.15 } }`, `volume: { base, add: { rain: 0.22 }, max }`, `engine.audio.measure(name, fn)` | `recipes/31-audio.md` |
 | Text and languages | `engine.t(key)`, `engine.i18n` | `recipes/26-ui-parts.md` |
-| Art assets, loading, what failed | `engine.assets.manifest({ models })`, `engine.loading`, `npx threedog loading` | `recipes/05-props-bake.md` |
+| Art assets, asset packs, fonts, loading, what failed | `engine.assets.manifest({ name, base, models, textures, sounds, fonts })` (`style.ui.fonts` names fonts) (a pack: lowpoly's `assets`), `engine.loading`, `npx threedog loading` | `recipes/05-props-bake.md` |
 | A few props / many repeated objects, deleting objects | content `props` / `vegetation` (`engine.vegetation`), `engine.remove(obj)` | `recipes/05-props-bake.md` |
 | What is this thing, where is it defined (point -> id) | `engine.pick(x, y).thing` (`{ id, kind, template, definedAt, fields }`), `engine.world.origin(id)` / `idOf(obj)`, `npx threedog pick x,y`, MCP `pick` | `recipes/30-templates.md` §5 |
 | Reusable object definitions (prefabs) | content `templates` (model + collision + op + defaults); place with props `{ template, x, z }` or `engine.content.spawn(name, pos)` | `recipes/30-templates.md` |
@@ -50,9 +52,10 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Far detail (HLOD) | `engine.hlod` | `recipes/15-perf.md` |
 | Many lights (torches, lamps, muzzle flashes) without shader stalls | `lightPool({ point })`, `engine.lightPool.add(obj, { color, intensity, distance, flicker, glow })` | `recipes/09-style-pack.md` |
 | Blender level | `engine.level` | `recipes/10-blender-level.md` |
+| Grass and trees on a level or code-built ground (no terrain) | `vegetation({ area })`, rule `biomes` by ground type, `engine.vegetation.rebuild()` | `recipes/10-blender-level.md` §4 |
 | Saved / far-away objects, the player record | `engine.world` (`present` near, `simulate` far), `player.placeAt()` | `recipes/18-world.md` |
 | Stream in, teleport, what is loaded where | `engine.stream.add({ position, build })`, `await engine.stream.teleport(p, { timeout })`, `engine.stream.source(...)` | `recipes/18-world.md` |
-| Terrain generator, ground height, terrain editing | `terrain({ height, groundType })` or a preset (`terrainPreset()` from `@threedog/style-lowpoly`; none = flat), `engine.surface(x, z)`, `engine.snapToGround(obj)`, `engine.ground`, `engine.terrain.edit(...)` (in an op) | `recipes/28-terrain.md` |
+| Terrain generator, ground height, terrain editing | `terrain({ height, groundType })` or a preset (`terrainPreset()` from `@threedog/terrain-noise`; none = flat), `engine.surface(x, z)`, `engine.snapToGround(obj)`, `engine.ground`, `engine.terrain.edit(...)` (in an op) | `recipes/28-terrain.md` |
 | Grid placement, per-cell soil state | `engine.grids.add / define`, ops `grid.place / move / remove` | `recipes/29-grid.md` |
 | Player and characters | `engine.player`, `engine.characters.createPlayer({ ...presets.player.thirdPerson, model })` (control required: `'camera'` / `'none'` / fn; `runKeys`, `jumpKeys`, `cameraFollow`), `faceMode`, `push(...)` | `recipes/13-animation.md` |
 | Skeletal animation | `engine.assets.animate(model, config)`, `anim.sync(state, t)` | `recipes/13-animation.md` |
@@ -91,7 +94,7 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 - **Input**: gameplay keys in the fixed step, UI keys in the frame hook; never `addEventListener('keydown')` or `pointer.clicked` for gameplay.
 - **Gameplay state** (world, containers, vars, quests) changes only in fixed steps or ops.
 - **The engine owns** sky lights, fog and the camera transform every frame; adjust with `engine.sky.modify` / `engine.cameraOverride`.
-- **A level is content, code holds rules**: what stands in a level is a template plus a placement in `content/` (stable ids, saved as changes); code holds ops, `world.simulate` / `present`, conditions and UI, and things made during play come from `engine.content.spawn` inside an op (rule R33, `recipes/30-templates.md`).
+- **A level is content, code holds rules**: what stands in a level is a template plus a placement in `content/` (stable ids, saved as changes; `npx threedog content ids --write` writes missing ones, `content/renames.js` renames them without losing saves); code holds ops, `world.simulate` / `present`, conditions and UI, and things made during play come from `engine.content.spawn` inside an op (rule R33, `recipes/30-templates.md`). <!-- r18-ignore-line -->
 - **Look parameters** belong in the style pack or content, never in logic; materials via `makeMaterial`.
 - **Units** are meters, Y up, north -Z; characters face +Z.
 - **Errors say how to fix it**: an old form throws with the fix.

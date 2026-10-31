@@ -1,6 +1,6 @@
-// Lowpoly style pack - procedural models. No art files needed: trees, rocks, grass and flowers built in code.
-// To use your own models: engine.assets.manifest({ models: { pine: '/models/pine.glb' } }),
-// then geometry: await engine.assets.geometry('pine').
+// Lowpoly procedural models: trees, rocks, grass and flowers built in code, no files. Published as an asset pack (index.js `assets`):
+// engine.assets.manifest(assets) registers each name, and content names them like any file model ({ model: 'pine' }, ['flower', 0xff0000]).
+// To swap one for a file, register the same name later: engine.assets.manifest({ models: { pine: '/models/pine.glb' } }).
 import * as THREE from 'three';
 import { mergeColored } from 'threedog';
 

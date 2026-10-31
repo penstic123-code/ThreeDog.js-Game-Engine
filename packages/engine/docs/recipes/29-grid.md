@@ -44,7 +44,7 @@ ops guard; a record added by hand that overlaps another is reported and the cell
 
 ## 3. Layers: per-cell state (Stardew-style soil)
 ```js
-const soil = farm.layer('soil');                          // created on first use; saved with the game (only non-empty cells)
+const soil = farm.layer('soil');                          // created on first use; saved with the game (only cells that differ from content)
 engine.ops.define('farm.till',  { args: { cell: 'any' },
   can: (e, { cell }) => (!farm.inside(cell) ? 'outOfBounds' : farm.at(cell) ? 'occupied' : true),
   run: (e, { cell }) => soil.set(cell, { tilled: true }) });
@@ -56,6 +56,8 @@ engine.sky.at('06:00', () => engine.ops.run('farm.dry'));                       
 ```
 `get(cell)`, `set(cell, patch)` (merge; a field set to null is deleted), `clear(cell)`, `query(cell?, size?)` -> `[{ cell, data }]`, `updateAll(fn)`, `count`.
 Writes are saved gameplay state: do them inside an op or a fixed step (the guard reports anything else). Data must be plain values.
+Cells that exist from the start go in content: `content/grids.js` `farm: { cell: 1, origin: [0, 0], size: [16, 12], layers: { soil: [[3, 5, { tilled: true }]] } }` <!-- r18-ignore-line -->
+(or `grids.add(name, { layers })`). They are the baseline: a save keeps only cells changed from it, so editing the content later still reaches old saves.
 
 **Tiles.** The game gives a layer its colors: `farm.layer('soil', { tiles: { look: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
 (what the data means is gameplay, so no style pack ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its height (slopes, ramps, level meshes).

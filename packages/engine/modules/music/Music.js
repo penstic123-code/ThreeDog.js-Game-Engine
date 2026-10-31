@@ -20,15 +20,16 @@
 //   ], { hold: 2, fade: 3 });
 //   engine.music.override('boss')    // pick by hand, pausing the rules; override(null) hands control back
 // Tracks and rules may also come from createEngine({ audio: { music: { tracks, rules, fade } } }). Ducking is engine.audio.duck({ music: 0.3 });
-// music({ duckDialogue: 0.35 }) does that during dialogue. Before the first click play() is remembered and starts once audio is usable.
+// music({ duckDialogue: 0.35 }) does that during dialogue (off by default: whether dialogue lowers the music is the game's call). Before the first click play() is remembered and starts once audio is usable.
 //
 // Events: music:change { from, to }, music:stinger { name }
 
 import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
+import { reportError } from '../../core/errors.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
 
-const DEFAULTS = { fade: 2, duckDialogue: 0.35, duckFade: 0.4, hold: 2, interval: 1 };
+const DEFAULTS = { fade: 2, duckDialogue: false, duckFade: 0.4, hold: 2, interval: 1 };
 const RULE_KEYS = ['track', 'when', 'priority'];
 const stemLevel = (st, x) => { const [lo, hi] = st.at ?? [0, 1]; return (st.volume ?? 1) * Math.min(1, Math.max(0, hi > lo ? (x - lo) / (hi - lo) : +(x >= lo))); };
 
@@ -58,10 +59,23 @@ export class Music {
     /** @internal */ this._override = undefined;
     /** @internal */ this._duck = null;
     /** @internal */ this._lastIntensity = -1;
+    /** @internal the game's own rules (rules() / options) and each content pack's: the rule list is both, the game's first */
+    this._base = null;
+    /** @internal */ this._packRules = new Map();
     const rules = opts.rules ?? st.rules;
     if (rules) this.rules(rules);
-    // Duck the music bus during dialogue: music({ duckDialogue: false }) turns it off, or give a 0-1 multiplier
-    if (this.opts.duckDialogue !== false) {
+    // content packs (audio: { music: { tracks, rules } }): tracks by name, rules appended; a pack loaded again replaces its own rules
+    // (createEngine({ audio: { music: { tracks } } }) names are checked by engine.audio.contentPack; music({ tracks }) ones here)
+    const code = new Set(Object.keys(opts.tracks || {}));
+    engine.audio.onPack((key, pack) => {
+      for (const name of Object.keys(pack.music.tracks)) if (code.has(name)) throw new Error(`music track '${name}' is defined both in music({ tracks }) `
+        + `and in content ${pack.from}. One name, one place: keep it in one of them [audio-name-clash]`);
+      this.addTracks(pack.music.tracks);
+      this._packRules.set(key, { from: pack.from, rules: pack.music.rules });
+      this._setRules();
+    });
+    // Duck the music bus during dialogue only when the game asks: music({ duckDialogue: 0.35 }) (0-1 multiplier; false / 1 = no duck)
+    if (this.opts.duckDialogue !== false && this.opts.duckDialogue != null && this.opts.duckDialogue < 1) {
       engine.events.on('dialogue:start', () => { this._duck?.remove(); this._duck = engine.audio.duck({ music: this.opts.duckDialogue }, { fade: this.opts.duckFade }); });
       engine.events.on('dialogue:end', () => { this._duck?.remove(this.opts.duckFade * 2); this._duck = null; });
     }
@@ -197,12 +211,20 @@ export class Music {
    */
   rules(list, opts = {}) {
     checkOptions('music.rules()', opts, ['hold', 'fade', 'interval']);
-    for (const r of list || []) checkOptions('music.rules() rule', r, RULE_KEYS);
-    this._rules = list ? [...list] : null;
+    this._base = list ? [...list] : null;
     this._ruleOpts = opts;
-    this._candidate = undefined; this._candidateT = 0; this._ruleT = 0;
-    if (list) this._evaluate(true);
+    this._setRules();
     return this;
+  }
+  /** @internal the live rule list: the game's rules, then every content pack's (null = no rules at all) */
+  _setRules() {
+    for (const r of this._base || []) checkOptions('music.rules() rule', r, RULE_KEYS);
+    // a pack's rule names its pack in the message, so a typo points at the right data file
+    for (const p of this._packRules.values()) for (const r of p.rules) checkOptions(`content ${p.from} audio.music.rules rule`, r, RULE_KEYS);
+    const all = [...(this._base || []), ...[...this._packRules.values()].flatMap(p => p.rules)];
+    this._rules = all.length || this._base ? all : null;
+    this._candidate = undefined; this._candidateT = 0; this._ruleT = 0;
+    if (this._rules) this._evaluate(true);
   }
   /**
    * Pick a track by hand, pausing the rules; override(null) hands control back
@@ -223,7 +245,7 @@ export class Music {
     let best = null;
     for (const r of this._rules) {
       let ok = false;
-      try { ok = this.engine.audio.matches(r.when, this); } catch (err) { console.error('[music] rule threw', err); }
+      try { ok = this.engine.audio.matches(r.when, this); } catch (err) { reportError(this.engine, err, 'music rule when', { soft: true }); }
       if (ok && (!best || (r.priority ?? 0) > (best.priority ?? 0))) best = r;
     }
     return best ? best.track ?? null : undefined;
@@ -267,7 +289,7 @@ export class Music {
 }
 
 /**
- * Background music -> engine.music. tracks; rules; fade: default fade seconds (2); duckDialogue: duck the music bus during dialogue (0.35, false = off); duckFade; hold: rule debounce seconds (2)
+ * Background music -> engine.music. tracks; rules; fade: default fade seconds (2); duckDialogue: duck the music bus to this level during dialogue (default false = off; e.g. 0.35); duckFade; hold: rule debounce seconds (2)
  * @param {MusicOptions} [opts]
  * @returns {ModuleDef<Music>}
  * @example engine.use(music({ tracks: { explore: '/music/explore.ogg' }, rules: [{ track: 'explore' }] }));

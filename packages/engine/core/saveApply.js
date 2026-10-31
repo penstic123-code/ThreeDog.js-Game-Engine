@@ -76,7 +76,7 @@ export function adoptPart(s, key) {
   const where = fmt(DEV_STRINGS.adoptAt, { k: key });
   try {
     if (v > p.version) throw codedError('save-refused', `save part '${key}' is version ${v}, this build reads up to ${p.version}`);
-    const r = s.engine.ops.allow(() => p.load(upgradePart(key, p, d, v)));
+    const r = s.engine.ops.allow(() => p.load(upgradePart(key, p, d, v, s._foreign.whole)));
     if (r && typeof r.then === 'function') r.catch(err => reportError(s.engine, err, where));
   } catch (err) { reportError(s.engine, err, where); }
 }
@@ -101,16 +101,16 @@ export function loadSlot(s, slot, base) {
       }
     } catch { /* unreadable: apply refuses the text itself with the reason */ }
   }
-  return s.apply(data, slot).then(async ok => {
-    if (ok) await afterLoad(s.engine);
+  return s.apply(data, slot).then(ok => {   // apply already ran the modules' afterLoad hooks
     if (ok) s.engine.events.emit('save:loaded', slot);
     return ok;
   });
 }
 
 /** Modules with an afterLoad hook rebuild what the loaded state needs nearby (models and the colliders their build adds); gameplay waits frozen
- *  until every one resolves, so the first step after `await saves.load()` never runs on missing ground or walls */
-async function afterLoad(e) {
+ *  until every one resolves, so the first step after `await saves.load()` never runs on missing ground or walls.
+ *  Saves.apply runs it (not only saves.load): session.newGame() / quit() apply the base data the same way and need the same rebuild */
+export async function afterLoad(e) {
   const hooks = [...e.modules.values()].filter(m => m.afterLoad);
   if (!hooks.length) return;
   e.freeze('load');

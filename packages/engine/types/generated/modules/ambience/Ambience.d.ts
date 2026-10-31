@@ -29,7 +29,7 @@ export class Ambience {
      * How much of the ground within `radius` meters of the listener is water (0-1), sampled at 6 points: for a water rule's volume
      * @param {number} [radius]
      * @returns {number}
-     * @example { sound: 'river', volume: (e, a) => a.nearWater(12) * 0.12 }
+     * @example { sound: 'river', volume: (e, a) => a.nearWater(20) * 0.12 }   // in data: volume: { add: { nearWater: 0.12 } } (12 m)
      */
     nearWater(radius?: number): number;
     /**

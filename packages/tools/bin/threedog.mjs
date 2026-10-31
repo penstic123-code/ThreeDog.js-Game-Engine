@@ -10,7 +10,7 @@ import { ROOT, TOOLS, MODE, pickWorkspace, findWorkspace, workspaces, rel, ENGIN
 
 /** Commands that run one script of this package (with the remaining arguments) */
 export const SCRIPTS = { test: 'run.mjs', check: 'check.mjs', types: 'types.mjs', shot: 'shot.mjs', perf: 'perf.mjs', bake: 'bake.mjs', assets: 'assets.mjs',
-  doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', relay: 'net-relay.mjs', mcp: 'threedog/mcp.mjs' };
+  doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', content: 'content-ids.mjs', relay: 'net-relay.mjs', mcp: 'threedog/mcp.mjs' };
 /** Dev bridge commands: drive the page running under `npm run dev` (recipes/16-dev-bridge.md) */
 export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'ops', 'scenario', 'inspect', 'explain', 'loading', 'pick'];
 /** vite commands on one workspace */
@@ -18,7 +18,7 @@ export const VITE = ['dev', 'build', 'preview'];
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */
 const MAP = MODE === 'monorepo' ? ['gentypes.mjs', 'codemap.mjs', 'apidoc.mjs', 'gamemap.mjs'] : ['gamemap.mjs'];
 export const USAGE = `Usage: threedog ${VITE.join('|')} [game] · threedog test [-w game] [test name…] · threedog check|types|map · ` +
-  `threedog shot|perf|bake|assets [-w game] … · threedog new-game name · threedog doctor · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
+  `threedog shot|perf|bake|assets [-w game] … · threedog new-game name · threedog content ids [-w game] [--write] · threedog doctor · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
 
 const node = (script, args, cwd = process.cwd()) => spawnSync(process.execPath, [join(TOOLS, script), ...args], { stdio: 'inherit', cwd }).status ?? 1;
 

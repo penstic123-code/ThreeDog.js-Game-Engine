@@ -1,11 +1,13 @@
-// Lowpoly terrain preset: noise hills (or island / canyon / gentle plain), rivers, and a biome rule table (beach, snow, rock, riverbank,
-// wetland, savanna, forest, highland, meadow). The engine has no built-in generator: terrain() alone is flat ground; a game passes this
-// preset (or its own height / groundType functions) explicitly:
-//   import { terrainPreset } from '@threedog/style-lowpoly';
+// @threedog/terrain-noise: an optional terrain generator. Noise hills (or island / canyon / gentle plain), rivers, and a biome rule table
+// (beach, snow, rock, riverbank, wetland, savanna, forest, highland, meadow). The engine has no built-in generator: terrain() alone is flat
+// ground; a game passes this preset (or its own height / groundType functions) explicitly:
+//   import { terrainPreset } from '@threedog/terrain-noise';
 //   engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset({ shape: 'island' }) }));
+// Why its own package and not part of a style pack: the shape of the world (where hills, rivers and forests are) is gameplay, and a style
+// pack holds looks only (docs/plans/packs-design.md). Swapping the look must never move a river. The colors of these ground types belong
+// to whichever style pack the game uses (lowpoly: style.terrain.biomeColors, keyed by the names below).
 // height and groundType run in terrain workers, so they are pure: they read only their parameters (n.params is the options below) and Math.
-// The biome colors are the style pack's (style.terrain.biomeColors); the ground type names are plain strings that vegetation rules and a
-// game's footstep map match by name.
+// The ground type names are plain strings that vegetation rules, style colors and a game's footstep map match by name.
 
 // Biome rules: checked top to bottom, the first match is the biome there (the last has no condition and is the default).
 // Conditions (all optional): minHeight/maxHeight altitude, maxAboveWater height above water, minSlope slope, minTemp/maxTemp temperature 0-1,
@@ -25,7 +27,7 @@ export const BIOMES = [
 /** Display names of the preset's ground types (describe() groundName): createEngine({ strings: terrainStrings }) or engine.i18n.add(terrainStrings) */
 export const terrainStrings = {
   'zh-CN': { 'ground.meadow': '草地', 'ground.forest': '森林', 'ground.beach': '沙滩', 'ground.rock': '岩石', 'ground.snow': '雪地',
-    'ground.wetland': '湿地', 'ground.riverbank': '河岸', 'ground.savanna': '草原', 'ground.highland': '高地', 'ground.tilled': '耕地', 'ground.wet': '湿土' },
+    'ground.wetland': '湿地', 'ground.riverbank': '河岸', 'ground.savanna': '草原', 'ground.highland': '高地' },
   en: { 'ground.meadow': 'meadow', 'ground.forest': 'forest', 'ground.beach': 'beach', 'ground.rock': 'rock', 'ground.snow': 'snow',
     'ground.wetland': 'wetland', 'ground.riverbank': 'riverbank', 'ground.savanna': 'savanna', 'ground.highland': 'highland' },
 };
@@ -105,7 +107,7 @@ export function riverAt(x, z, n) {
 }
 
 /**
- * Lowpoly terrain preset: spread it into terrain() (or openWorld({ terrain })). Options override the defaults above; noise, island and
+ * Noise terrain preset: spread it into terrain() (or openWorld({ terrain })). Options override the defaults above; noise, island and
  * canyon merge field by field.
  * @example engine.use(terrain({ seed: 7, ...terrainPreset({ shape: 'island', rivers: false }) }))
  * @param {Partial<typeof DEFAULTS>} [opts]
@@ -113,5 +115,5 @@ export function riverAt(x, z, n) {
 export function terrainPreset(opts = {}) {
   const params = { ...DEFAULTS, ...opts };
   for (const k of ['noise', 'island', 'canyon']) params[k] = { ...DEFAULTS[k], ...(opts[k] || {}) };
-  return { height, groundType, params };
+  return { waterLevel: 0, height, groundType, params };   // this generator's rivers and coasts are carved toward sea level 0
 }

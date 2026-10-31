@@ -18,7 +18,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { resolve, relative, dirname, extname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isLocalRequest } from './local.js';
-import { ROOT as REPO, abs, rel, ENGINE, ENGINE_PKG, INDEX_JS_REL, STYLES_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, styleName, styleDir } from '../paths.mjs';
+import { ROOT as REPO, abs, rel, ENGINE, ENGINE_PKG, INDEX_JS_REL, STYLES_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry } from '../paths.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.threedog', 'public', 'shots', '.git']);
 // When looking for generator source the engine source is not searched (generators live in the game or the style pack)
@@ -62,7 +62,7 @@ export function keyMaker(root) {
   const resolveSpec = (file, spec) => {
     let p;
     if (spec === ENGINE_PKG) p = BARREL;                                                        // a game's import 'threedog'
-    else if (styleName(spec)) p = resolve(styleDir(styleName(spec)), 'index.js');            // a style pack package (@threedog/style-<name>)
+    else if (optionalEntry(spec)) p = optionalEntry(spec);                                   // a style pack (@threedog/style-<name>) or an add-on (@threedog/terrain-noise)
     else if (!/^\.{1,2}\/|^\//.test(spec)) return null;
     else p = spec.startsWith('/') ? resolve(root, '.' + spec) : resolve(dirname(file), spec);
     if (!extname(p) && existsSync(p + '.js')) p += '.js';

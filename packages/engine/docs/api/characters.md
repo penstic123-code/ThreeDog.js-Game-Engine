@@ -4,8 +4,8 @@ Characters: createPlayer() (characters() module)
 
 - Options `CharactersOptions`:
   - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
-  - `brakeKeys?: string[]` Brake key when driving (action brake, registered when rigid is installed), default ['KeyB'] (so it doesn't fight with Space for jump)
-  - `brakePad?: string[]` Gamepad button for braking, default ['PadLT']
+  - `brakeKeys?: string[]` Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix); presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump)
+  - `brakePad?: string[]` Gamepad button for braking, none by default; presets.keys.brake has ['PadLT']
 
 ## Methods and properties
 - `characters.findSpawn(position?: PositionLike, opts?: FindSpawnOptions) → Vector3` — Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
@@ -13,7 +13,7 @@ Characters: createPlayer() (characters() module)
 - `characters.moveInput() → { x, z, run, speed? }` — The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it inside your own control function to wrap it
 - `characters.removePlayer()` — Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first
 - `characters.findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }) → PathResult` — Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable
-- `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { cancel(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
+- `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { remove(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
 - Properties:
   - `pathsPerStep: number` How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps
 
@@ -99,8 +99,8 @@ Characters: createPlayer() (characters() module)
   - `z: number`
 - **PlayerOptions** (extends CharacterOptions) Parameters of createPlayer()
   - `spawn?: PositionLike` Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted
-  - `jumpKeys?: string[]` Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space']
-  - `runKeys?: string[]` Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift
+  - `jumpKeys?: string[]` Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space', 'PadA']
+  - `runKeys?: string[]` Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift / gamepad LB
   - `control: PlayerControl` Required, no default: 'camera' (keys relative to the camera) / 'none' (call player.move() yourself in onFixed) / (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control. presets.player.* fill it
   - `cameraFollow?: boolean` true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev
 - **CharacterOptions** Character parameters (shared by the player and NPCs)

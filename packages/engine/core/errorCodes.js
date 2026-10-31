@@ -53,6 +53,10 @@ export const ERROR_CODES = {
     docs: ['recipes/05-props-bake.md', 'api/assets.md'],
     fix: 'One name was registered as two asset types (models / textures / sounds). Give each its own name, e.g. grass and ' +
       'grass_tex.' },
+  'audio-name-clash': {
+    docs: ['recipes/31-audio.md', 'api/audio.md'],
+    fix: 'One audio name is defined twice: a sound / footstep in both createEngine({ audio }) and a content pack, or a rule key that ' +
+      'is both a condition and a measure. Keep each name in one place.' },
   'engine-disposed': {
     docs: ['api/engine.md'],
     fix: 'engine.dispose() ran while start() was still loading, so start() stopped. Create a new engine instead of starting a ' +

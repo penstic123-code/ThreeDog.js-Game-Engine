@@ -4,7 +4,22 @@ import { Container } from './Container.js';
 
 /** Container table: implementation of inventory.container() / transfer(); the player inventory is the one with id 'player'. @internal */
 export class Containers {
-  constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); }
+  constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); this.renames = new Map(); }
+
+  /**
+   * content/renames.js: a container saved under an old authored id moves to the new id (null = drop it). Remembered, so a save loaded later
+   * is renamed the same way. Skipped when the new id already holds goods of its own (they cannot merge; the old one stays an orphan).
+   * @param {Record<string, string | null>} [map]  new entries; without it, applies the remembered ones
+   */
+  rename(map) {
+    for (const [a, b] of Object.entries(map || {})) this.renames.set(a, b);
+    for (const [a, b] of this.renames) {
+      const c = this.map.get(a);
+      if (!c || c === this.bag || (b != null && this.map.get(b)?._entries.length)) continue;
+      this.map.delete(a);
+      if (b != null) { c.id = b; this.map.set(b, c); }
+    }
+  }
 
   get(id, opts) {
     if (typeof id !== 'string' || !id) throw new Error(`inventory.container(id): id must be a non-empty string (e.g. the chest's id in world), got ${JSON.stringify(id)}`);
@@ -62,6 +77,10 @@ export class Containers {
   }
   /** A load follows the save: containers missing from the save are cleared; but ones that had starting contents placed (save older than the content, first time seen) keep their current goods */
   load(d) {
+    if (d && this.renames.size) d = Object.fromEntries(Object.entries(d).flatMap(([id, v]) => {   // content/renames.js first (null = dropped)
+      const b = this.renames.has(id) ? this.renames.get(id) : id;
+      return b == null || (b !== id && b in d) ? (b == null ? [] : [[id, v]]) : [[b, v]];
+    }));
     for (const c of this.map.values()) if (c !== this.bag && !(c.seeded && !(c.id in (d || {})))) c._entries = [];
     for (const [id, list] of Object.entries(d || {})) { const c = this.get(id); c._load(list); c.seeded = true; }
     // entry keys are numbered across all containers: never hand out a key a loaded container already holds

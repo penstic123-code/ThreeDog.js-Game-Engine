@@ -144,8 +144,11 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
     },
     /** Ground type at the nearest grid point */
     type(x, z) {
-      const i = Math.round((x - minX) / cell), j = Math.round((z - minZ) / cell);
-      if (i < 0 || j < 0 || i > maxI || j > maxJ) return 'default';
+      const fx = (x - minX) / cell, fz = (z - minZ) / cell;
+      // same bounds as height / slope: rounding alone would give a point up to half a cell outside the grid the edge's type while
+      // height already says "outside", and a rule picking that type would plant on the outside plane next to the floor
+      if (!(fx >= 0 && fz >= 0 && fx <= maxI && fz <= maxJ)) return 'default';
+      const i = Math.round(fx), j = Math.round(fz);
       return types[T[j * nx + i]];
     },
   };

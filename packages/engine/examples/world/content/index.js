@@ -12,5 +12,6 @@ import templates from './templates.js';
 import props from './props.js';
 import bodies from './bodies.js';
 import rules from './rules.js';
+import audio from './audio.js';
 
-export default { places, items, startItems, containers, pickups, npcs, dialogues, quests, actions, vegetation, templates, props, bodies, rules };
+export default { places, items, startItems, containers, pickups, npcs, dialogues, quests, actions, vegetation, templates, props, bodies, rules, audio };

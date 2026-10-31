@@ -12,7 +12,7 @@ export const specs = [
         engine.pause();
         const { Character } = window, A = engine.assets, style = engine.style.character ??= {};
         const kingUrl = A.entries.get('king').url;   // king is already loaded by the page; king3 / king4 are fresh (uncached) names for the placeholder sections
-        A.manifest({ models: { king2: kingUrl, king3: kingUrl + '?spec=3', king4: kingUrl + '?spec=4', broken: new URL('/tests/anim/public/broken.glb', location.href).href } }, { name: 'character-model-spec' });
+        A.manifest({ models: { king2: kingUrl, king3: kingUrl + '?spec=3', king4: kingUrl + '?spec=4', broken: new URL('/tests/anim/public/broken.glb', location.href).href }, name: 'character-model-spec' });
         const events = []; engine.events.on('character:model', ({ character }) => events.push(character));
         const make = o => { const c = new Character(engine, o).addTo(); c.placeAt({ x: 2, z: 0 }); engine.onFrame(dt => c.animate(dt)); return c; };
         const hasModel = c => !!c.root.children.find(o => o.userData.animations?.length);

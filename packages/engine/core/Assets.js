@@ -2,40 +2,46 @@
 //   1. Asset manifest: register every model, texture and sound under a name; code uses names only, so swapping a file means editing the manifest.
 //   2. Preload: load everything marked preload once at startup; the loading screen shows progress.
 //   3. Cache and reuse: one file downloads once; models return independent copies (geometry and materials shared), so you can place many.
-//   4. Release: models count usage per copy (model() adds one, engine.remove of a copy subtracts one). release(name) frees only when the last copy is removed;
-//      trim() frees every model with no copy in use (level calls it after a level change). Geometry handed out by geometry() / cached() is not counted, so such models are freed only by release.
+//   4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs below).
 //   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets produces compressed files).
 //   6. Code-generated models: write a function (or { build, params }) in the manifest; it is built on demand and cached automatically, see cached() below.
-//   7. Observable: every load is a task in engine.loading (phase, error with path + HTTP status, which manifest). A registered file that fails
-//      falls back (gray placeholder / silence, or the entry's fallback asset) unless it is critical: true, which stops start() instead.
+//   7. Observable: every load is a task in engine.loading. A registered file that fails falls back (gray placeholder / silence / the entry's fallback)
+//      unless it is critical: true, which stops start() instead (assetEntry.js).
+//   8. Asset packs: a manifest is a plain object, so a folder or an npm package can ship one and a game registers it with one call (recipes/05-props-bake.md "Asset packs").
 //
 // Put files under public/: public/models/house.glb -> write the path as '/models/house.glb'
 //
 // engine.assets.manifest({
+//   name: 'main',                                        // shown as the source manifest in engine.loading
 //   models:   { house: '/models/house.glb', hero: { url: '/models/hero.glb', critical: true }, block: buildBlock },
 //   textures: { paper: { url: '/textures/paper.jpg', color: true }, ground: '/textures/ground.ktx2' },
 //   sounds:   { bgm: '/sounds/morning.mp3' },
-// }, { name: 'main' });                                  // name: shown as the source manifest in engine.loading
+//   fonts:    { pixel: '/fonts/pixel.woff2', pixelBold: { url: '/fonts/pixel-bold.woff2', family: 'pixel', weight: 700 } },   // style.ui.fonts names them
+// });
+// engine.assets.manifest({ name: 'forest', base: '/packs/forest/', models: { oak: 'oak.glb' } });   // -> /packs/forest/oak.glb
 // await engine.assets.preload(p => console.log(p));     // p: 0-1 (code-generated models are built ahead only if marked preload)
 // const house = await engine.assets.model('house');      // get by name
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import { warnMissing, warnOnce, fmt } from './validate.js';
+import { warnMissing, warnOnce, fmt, checkOptions } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { Animator } from './Animator.js';
-import { loadGltf, loadTexture, generated, placeholder, LoadError } from './assetLoad.js';
-import { failureText } from './Loading.js';
+import { fetchEntry, freeEntry, preloadEntries } from './assetEntry.js';
 
 const STRINGS = {
-  failed: 'Asset failed to load: {what}',
-  fellBack: '; using {fallback} instead, the game continues (mark it critical: true if the game cannot start without it)',
-  missingRefs: 'Asset loaded with missing references: {what} (missing {list}); materials show without those files',
   clash: 'assets.manifest(): "{name}" is already registered as a {was} (manifest "{list}"), and now as a {type}; one name is one asset, ' +
     'so the second would replace the first. Rename one, e.g. {name}_{type}',
+  replaced: 'assets.manifest(): {type} "{name}" from manifest "{was}" is replaced by manifest "{list}" (the later one wins). If both packs mean their own asset, rename one; '
+    + 'if the override is intended (a mod replacing a model), ignore this',
+  noFont: 'assets.font(\'{name}\'): no font named {name}{known}. Register the file in an asset pack: engine.assets.manifest({ fonts: { {name}: \'/fonts/{name}.woff2\' } })',
   sameName: 'assets.cached(\'{name}\'): the same name was used with two different generator functions, so the cache would mix them (keyed by name + params). Use a different name per model; if the result depends on outer variables, put them in params',
 };
+/** Keys of a manifest / asset pack: anything else is a typo (checkOptions says "did you mean") */
+const MANIFEST_KEYS = ['name', 'base', 'models', 'textures', 'sounds', 'fonts'];
+/** Keys of one fonts entry: the file, the CSS family it registers (default: the asset name), FontFace descriptors, and the usual asset flags */
+const FONT_KEYS = ['url', 'family', 'weight', 'style', 'stretch', 'unicodeRange', 'display', 'featureSettings', 'variationSettings', 'critical', 'preload'];
 /** Short hash of the source (cache key; tells apart same-name, different-function cases) */
 const srcHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 
@@ -56,22 +62,44 @@ export class Assets {
   }
 
   /**
-   * Register the asset manifest (may be called repeatedly). A model may be a generator function or { build, params, preload }.
+   * Register an asset manifest or asset pack (may be called repeatedly; a later entry with the same name replaces the earlier one). A model may be a generator function or { build, params, preload }.
    * Per entry: critical: true = start() stops if it fails (otherwise it falls back and the game continues); fallback: 'otherName' replaces the gray placeholder.
-   * opts.name labels the manifest in engine.loading (default 'manifest#1', '#2'...), so a failure says which list it came from.
-   * @example engine.assets.manifest({ models: { hero: { url: '/models/hero.glb', critical: true }, bush: { url: '/models/bush.glb', fallback: 'rock' } } }, { name: 'level-1' });
+   * name labels the manifest in engine.loading (default 'manifest#1', '#2'...), so a failure says which list it came from.
+   * base (a pack's folder: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url)) resolves the relative paths of this manifest; '/x' and full URLs stay as written.
+   * @example engine.assets.manifest({ name: 'level-1', models: { hero: { url: '/models/hero.glb', critical: true }, bush: { url: '/models/bush.glb', fallback: 'rock' } } });
+   * @example import forest from 'my-forest-assets'; engine.assets.manifest(forest);   // { name: 'forest', base, models: { oak: 'oak.glb' } }
   */
-  manifest({ models = {}, textures = {}, sounds = {} } = {}, { name: list = 'manifest#' + (this._lists = (this._lists || 0) + 1) } = {}) {
+  manifest(pack = {}) {
+    checkOptions('assets.manifest()', pack, MANIFEST_KEYS);
+    const { models = {}, textures = {}, sounds = {}, fonts = {}, base = null } = pack, list = pack.name ?? 'manifest#' + (this._lists = (this._lists || 0) + 1);
+    const at = base == null ? null : new URL(String(base).replace(/\/?$/, '/'), location.href);
+    const resolve = u => at && typeof u === 'string' && !u.startsWith('/') && !/^[a-z][a-z\d+.-]*:/i.test(u) ? new URL(u, at).href : u;
     const add = (type, map) => {
       for (const [name, v] of Object.entries(map)) {
-        const o = typeof v === 'string' ? { url: v } : typeof v === 'function' ? { build: v } : v;
+        const o0 = typeof v === 'string' ? { url: v } : typeof v === 'function' ? { build: v } : v;
+        if (type === 'font') checkOptions(`assets.manifest() fonts.${name}`, o0, FONT_KEYS);
+        const o = o0.url && at ? { ...o0, url: resolve(o0.url) } : o0;
         const old = this.entries.get(name);
         if (old?.named && old.type !== type) throw codedError('asset-name-clash', fmt(STRINGS.clash, { name, was: old.type, list: old.manifest, type }));
+        // same type from another manifest: allowed (a mod overriding a model) but never silent, the two packs may just share a name by accident
+        if (old?.named && old.manifest !== list) warnOnce(fmt(STRINGS.replaced, { type, name, was: old.manifest, list }));
         this.entries.set(name, { type, name, url: o.url ?? name, opts: o, promise: null, named: true, manifest: list });
       }
     };
-    add('model', models); add('texture', textures); add('sound', sounds);
+    add('model', models); add('texture', textures); add('sound', sounds); add('font', fonts);
     return this;
+  }
+
+  /**
+   * The generator function registered under a model name (manifest models: { pine: fn } or { build }), null for a file model or an unknown name.
+   * Content uses it to build parametrized procedural models ([name, ...params]) through cached(); code rarely needs it
+   * @example const fn = engine.assets.builder('flower'); if (fn) engine.assets.cached('flower', fn, 0xff0000);
+   * @param {string} name
+   * @returns {((...args: any[]) => any) | null}
+   */
+  builder(name) {
+    const e = this.entries.get(name);
+    return e?.named && e.type === 'model' && e.opts.build || null;
   }
 
   _resolve(nameOrUrl, type) {
@@ -81,53 +109,32 @@ export class Assets {
     if (!e) { e = { type, name: nameOrUrl, url: nameOrUrl, opts: {}, promise: null }; this.entries.set(nameOrUrl, e); }
     return e;
   }
-  /** Load an entry as a task in engine.loading; a registered, non-critical file that fails resolves to its fallback */
-  _fetch(e) {
-    if (e.promise) return e.promise;
-    const L = this.engine.loading, name = e.variantOf ?? e.name ?? e.url;
-    const t = L._begin(name, e.type, { critical: e.opts.critical === true, url: e.opts.build ? null : e.url, manifest: e.manifest ?? null });
-    if (e.type === 'model') e.promise = (e.opts.build ? (t.phase('build'), generated(this, e.url, e.opts.build, e.opts.params, t)) : loadGltf(this, e.url, t)).then(g => this._share(g));
-    else if (e.type === 'texture') e.promise = loadTexture(this, e, t);
-    else if (e.type === 'sound') e.promise = (t.phase('download'), this.engine.audio.load(e.url).catch(err => { throw new LoadError(err.message, { url: e.url }); }));
-    e.promise = e.promise.then(v => {
-      L._done(t);
-      const what = `${e.type} "${name}" <- ${e.url}`;
-      if (t.missing.length) warnOnce(coded('asset-missing-ref', fmt(STRINGS.missingRefs, { what, list: t.missing.join(', ') })));
-      return (e.value = v);
-    }, err => this._failed(e, t, err));
-    return e.promise;
-  }
-  /** A load failed: a registered file entry degrades (warn + fallback); anything else is recorded and rethrown to the caller */
-  _failed(e, t, err) {
-    e.promise = null;
-    const degrade = e.named && !e.opts.build && !e.opts.critical;
-    const fb = degrade ? (e.opts.fallback ?? (e.type === 'sound' ? 'silence' : 'gray placeholder')) : null;
-    this.engine.loading._fail(t, err, fb);
-    const msg = fmt(STRINGS.failed, { what: failureText(t) });
-    if (!degrade) throw codedError('asset-load', msg);
-    warnOnce(coded('asset-load', msg + fmt(STRINGS.fellBack, { fallback: e.opts.fallback ? `"${fb}"` : fb })));
-    if (e.opts.fallback) return (e.promise = this._fetch(this._resolve(e.opts.fallback, e.type)));   // e.value stays null: the fallback entry owns the memory
-    e.value = e.type === 'model' ? this._share(placeholder('model')) : placeholder(e.type);
-    return (e.promise = Promise.resolve(e.value));
-  }
-  /** Mark the model template's geometry and materials as shared */
-  _share(g) {
-    g.scene.traverse(o => { if (o.geometry) this.shared.add(o.geometry); for (const m of [].concat(o.material || [])) this.shared.add(m); });
-    return g;
-  }
+  /** @internal Load an entry as a task in engine.loading (assetEntry.js) */
+  _fetch(e) { return fetchEntry(this, e); }
 
   /**
-   * Preload manifest assets (all by default; onlyMarked=true loads only those marked preload). Code-generated models are built ahead only if marked preload. onProgress(0-1, current name).
+   * Preload manifest assets (all by default; onlyMarked=true loads only those marked preload). Code-generated models and fonts are loaded ahead only if marked preload (style.ui.fonts loads its own at start()). onProgress(0-1, current name).
    * Finishing is not succeeding: failed lists every entry that failed, including those now showing their fallback (details in engine.loading).
   */
   async preload(onProgress, { onlyMarked = false } = {}) {
-    const list = [...this.entries.entries()].filter(([, e]) => e.opts.build ? e.opts.preload : !onlyMarked || e.opts.preload);
-    let done = 0;
-    onProgress?.(list.length ? 0 : 1, '');
-    // critical failures are reported by start(); others not already warned about (generated models) are warned here
-    await Promise.all(list.map(([name, e]) => this._fetch(e).catch(err => { if (!e.opts.critical) console.warn(err.message); }).finally(() => { done++; onProgress?.(done / list.length, name); })));
-    const failed = list.filter(([name, e]) => this.engine.loading.get(name, e.type)?.phase === 'failed').map(([name]) => name);
-    return { loaded: list.length - failed.length, failed, ok: !failed.length };
+    return preloadEntries(this, onProgress, onlyMarked);
+  }
+
+  /**
+   * A font from an asset pack, by name: downloads it once, adds it to document.fonts and resolves to the FontFace (null when the file
+   * failed and the entry is not critical: text then shows the next family of style.ui.font). Only registered names work, because a font
+   * needs its CSS family and descriptors; style.ui.fonts calls this for you at start().
+   * @example engine.assets.manifest({ name: 'ui', fonts: { pixel: '/fonts/pixel.woff2' } }); await engine.assets.font('pixel');
+   * @param {string} name
+   * @returns {Promise<FontFace | null>}
+   */
+  async font(name) {
+    const e = this.entries.get(name);
+    if (e?.type !== 'font') {
+      const known = [...this.entries.values()].filter(x => x.type === 'font' && x.named).map(x => x.name);
+      throw codedError('unknown-name', fmt(STRINGS.noFont, { name, known: known.length ? ` (fonts: ${known.join(', ')})` : '' }));
+    }
+    return this._fetch(e);
   }
 
   /** Get a model copy (name or path); skinned characters clone correctly. static: true registers it with engine.rays (builds ray acceleration) */
@@ -182,12 +189,12 @@ export class Assets {
   */
   release(name) {
     for (const [k, v] of this.entries) if (v.variantOf === name) { this.release(k); this.entries.delete(k); }
-    const e = this.entries.get(name); if (e) this._free(e);
+    const e = this.entries.get(name); if (e) freeEntry(e);
   }
   /** Release every model with no copy in use (call after a level change; level calls it). Returns the names released */
   trim() {
     const freed = [];
-    for (const [k, e] of this.entries) if (e.type === 'model' && e.value && !e.users && !e.pinned) { this._free(e); freed.push(k); }
+    for (const [k, e] of this.entries) if (e.type === 'model' && e.value && !e.users && !e.pinned) { freeEntry(e); freed.push(k); }
     return freed;
   }
   /** How many copies of this model are in use (taken by model() and not yet engine.remove'd) */
@@ -198,20 +205,12 @@ export class Assets {
       const anim = this._animators.get(o); if (anim) { this._animators.delete(o); anim.dispose(); }
       const e = this._instances.get(o); if (!e) return;
       this._instances.delete(o);
-      if (--e.users <= 0 && e.releasePending) this._free(e);
+      if (--e.users <= 0 && e.releasePending) freeEntry(e);
     });
-  }
-  _free(e) {
-    if (!e.value) return;
-    if (e.users > 0) { e.releasePending = true; return; }
-    if (e.type === 'texture') e.value.dispose();
-    if (e.value.isBufferGeometry) e.value.dispose();   // code-generated geometry
-    else if (e.type === 'model') (e.value.scene ?? e.value).traverse?.(o => { if (o.isMesh) { o.geometry.dispose(); [].concat(o.material).forEach(m => { for (const k in m) if (m[k]?.isTexture) m[k].dispose(); m.dispose(); }); } });
-    e.value = null; e.promise = null; e.releasePending = e.pinned = false;
   }
   /** Release all loaded assets and decoders (engine.dispose calls it) */
   dispose() {
-    for (const e of this.entries.values()) { e.users = 0; this._free(e); }
+    for (const e of this.entries.values()) { e.users = 0; freeEntry(e); }
     this.draco?.dispose(); this.ktx2?.dispose();
   }
 

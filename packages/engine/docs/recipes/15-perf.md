@@ -51,7 +51,7 @@ false = all on the main thread, same results.
   the worker file is `serve(makeHandler())` from `threedog/worker`. Results that change gameplay go through `engine.commits`.
 
 **Two worker rules** (full text and examples in `../CONVENTIONS.md`, "Worker limits"):
-- `engine.commits`: when the due tick comes and the worker has not replied, the main thread runs your `fallback()` and applies that (a later reply is ignored). The engine does not clear pending requests on save load or level change, so give every request a `valid()` that checks identity (generation counter, record still exists, same zone) or call `t.cancel()`.
+- `engine.commits`: when the due tick comes and the worker has not replied, the main thread runs your `fallback()` and applies that (a later reply is ignored). The engine does not clear pending requests on save load or level change, so give every request a `valid()` that checks identity (generation counter, record still exists, same zone) or call `t.remove()`.
 - `engine.threads.pure(fn)` / `world.simulate(..., { worker: true })`: the function is recompiled from its source, so it cannot capture outside variables or imports; put constants inside it. A bad outside variable is reported by name on the first call.
 
 ## 5. Verify (once before and once after, under the same conditions)

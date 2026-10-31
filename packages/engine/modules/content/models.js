@@ -1,24 +1,26 @@
 // Models in content: procedural model cache (vegetation, props, templates) and the shared-prototype model of a placed record (props and template instances).
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
+import { list } from './rules.js';
 
-const list = v => (Array.isArray(v) ? v : [v]);
-
-/** Procedural models of the style pack / game (name or [name, params...]) go through assets.cached: name = model name, params count into the cache key. Returns a Promise (geometry or Object3D); null if not a generator function */
-export function cachedModel(e, models, m) {
-  const [name, ...args] = list(m), fn = models[name];
+/**
+ * A model named in content (name or [name, params...]) whose asset entry is a generator (an asset pack's procedural model) goes through assets.cached:
+ * name = model name, params count into the cache key. Returns a Promise (geometry or Object3D); null for a file model or an unknown name (assets.model takes those)
+ */
+export function cachedModel(e, m) {
+  const [name, ...args] = list(m), fn = e.assets.builder(name);
   if (!fn) return null;
   // pass the generator function to cached as is (dev cache hashes its source); wrap only when there are several params
   return args.length > 1 ? e.assets.cached(name, p => fn(...p), args) : e.assets.cached(name, fn, args[0]);
 }
 
-// One prototype per model name: generator function -> assets.cached (baked file / dev cache); otherwise treated as an assets manifest name or path (assets.model).
+// One prototype per model name: a generator entry -> assets.cached (baked file / dev cache); a file entry -> assets.model. Content names models only (no paths).
 const protos = new WeakMap();   // engine.content → Map(model key → Promise<{ obj, size, center }>)
-function protoOf(e, api, model, models) {
+function protoOf(e, api, model) {
   if (!protos.has(api)) protos.set(api, new Map());
   const cache = protos.get(api), key = JSON.stringify(model);
   if (!cache.has(key)) {
-    const gen = cachedModel(e, models, model);
+    const gen = cachedModel(e, model);
     cache.set(key, (gen ? gen.then(r => {
       const p = r.isObject3D ? r : new THREE.Mesh(r, makeMaterial('prop', { vertexColors: !!r.attributes.color }));
       p.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
@@ -54,8 +56,8 @@ export function settle(e, rec, o, look) {
 export const fitKey = rec => `${rec.position.x},${rec.position.z},${rec.rot ?? 0},${rec.scale ?? 1}`;
 
 /** Clone the shared prototype of a model for one record and align it (props and template instances) @internal */
-export async function buildModel(e, api, rec, model, models, look) {
-  const proto = await protoOf(e, api, model, models), o = proto.obj.clone(), name = list(model)[0];
+export async function buildModel(e, api, rec, model, look) {
+  const proto = await protoOf(e, api, model), o = proto.obj.clone(), name = list(model)[0];
   o.name ||= name; o.userData.name ??= name;
   o.userData.proto = proto; o.userData.colliders = [];
   if (rec.batch === false) o.userData.batch = false;   // opt out of engine.batching for this record

@@ -16,7 +16,8 @@ export { uiFocus, injectUICSS };
 /** @internal */
 export function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 /** Icon: def.iconUrl is an image, def.icon is text/emoji */
-const iconHTML = def => def?.iconUrl ? `<img src="${esc(def.iconUrl)}" alt="">` : esc(def?.icon ?? '·');
+/** @internal icon markup of an item / thing definition (image when it has iconUrl, else its icon text) */
+export const iconHTML = def => def?.iconUrl ? `<img src="${esc(def.iconUrl)}" alt="">` : esc(def?.icon ?? '·');
 
 /**
  * Show a short message through the 'toast' UI part (default: top of the screen, gone after ms). A game restyles it, filters it by kind
@@ -104,10 +105,10 @@ export function toggleOnKey(engine, win, action) {
 }
 
 // ---------- screen projection, fades ----------
-const _v = new THREE.Vector3();
+const _v = new THREE.Vector3(), _s = new THREE.Vector2();
 // behind: behind the camera
 /**
- * World coordinates (position or object) -> screen pixels { x, y, onScreen, behind }
+ * World coordinates (position or object) -> pixels from the canvas's top-left corner { x, y, onScreen, behind } (the UI root covers the canvas, so these place UI elements directly)
  * @param {Engine} engine
  * @param {PositionLike} pos
  * @returns {ScreenPoint}
@@ -115,8 +116,8 @@ const _v = new THREE.Vector3();
 export function worldToScreen(engine, pos) {
   const obj = /** @type {Object3D} */ (pos);   // isObject3D is three's own duck-type flag; the cast only lets the check read it
   (obj.isObject3D ? obj.getWorldPosition(_v) : vec3(pos, _v)).project(engine.camera);
-  const behind = _v.z > 1;
-  return { x: (_v.x + 1) / 2 * innerWidth, y: (1 - _v.y) / 2 * innerHeight, behind, onScreen: !behind && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1 };
+  const behind = _v.z > 1, { x: W, y: H } = engine.renderer.getSize(_s);   // pixels inside the canvas box (the UI root covers exactly that box)
+  return { x: (_v.x + 1) / 2 * W, y: (1 - _v.y) / 2 * H, behind, onScreen: !behind && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1 };
 }
 
 /**

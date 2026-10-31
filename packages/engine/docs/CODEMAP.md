@@ -15,6 +15,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | timeline | modules/timeline/Timeline.js | — | — | control | before cameraRig |
 | level | modules/level/index.js | — | world, content | world | after terrain |
 | terrain | modules/terrain/index.js | — | vegetation | world | — |
+| vegetation | modules/vegetation/Vegetation.js | — | terrain, level | world | after terrain, level |
 | world | modules/world/index.js | — | — | world | — |
 | sky | modules/sky/Sky.js | — | — | environment | — |
 | water | modules/water/Water.js | — | — | environment | after sky |
@@ -26,7 +27,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | triggers | modules/triggers/index.js | — | level | gameplay | after interactions |
 | hud | modules/hud/index.js | — | inventory, content, level, quests | presentation | after particles, settings |
 | particles | modules/particles/Particles.js | — | — | presentation | — |
-| settings | modules/settings/Settings.js | — | terrain | presentation | — |
+| settings | modules/settings/Settings.js | — | terrain, vegetation | presentation | — |
 | ambience | modules/ambience/Ambience.js | — | — | late | — |
 | characters | modules/characters/index.js | — | cameraRig, sky, interactions, dialogue, nav, collision, rigid, world | late | — |
 | collision | modules/collision/Collision.js | — | — | late | — |
@@ -41,7 +42,6 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | net | modules/net/index.js | — | world, inventory | late | — |
 | photo | modules/photo/Photo.js | — | cameraRig, sky, vegetation, entities | late | — |
 | rigid | modules/rigid/RigidBodies.js | collision | interactions | late | — |
-| vegetation | modules/vegetation/Vegetation.js | terrain | — | late | — |
 | music | modules/music/Music.js | — | dialogue | audio | — |
 
 ## Files
@@ -77,7 +77,9 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - UrlState.js: Reproduce a scenario in one call: engine.applyState({ time,…
 - Vars.js: Story flags and counters, engine.vars (saved automatically …
 - actor.js: Who acts for the local user (part of Engine, mixed into Eng…
+- assetEntry.js: The life of one engine.assets entry, split from Assets.js (…
 - assetLoad.js: File loading for engine.assets, split into the phases engin…
+- audioRules.js: The data side of audio rules: condition keys, measures (com…
 - audioVoice.js: One playing sound (a "voice") of engine.audio.sfx / play: s…
 - batchGroups.js: InstancedMesh side of engine.batching (core/Batching.js): b…
 - dayTime.js: Clock-time conversion (pure functions): sky time of day `ti…
@@ -100,16 +102,21 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - movement.js: One shared definition of "can walk there": character radius…
 - mulberry32.js: mulberry32, the one copy (engine.random and terrain placeme…
 - opsCheck.js: Dev checks for engine.ops (split out of Ops.js): op definit…
+- opsGuard.js: The dev guard of engine.ops (split out of Ops.js): reports …
+- opsHistory.js: The history of engine.ops (split out of Ops.js): a ring of …
 - page.js: engine.page: the one place that listens to the browser wind…
 - pureWorker.js: Worker that runs pure-function batches for engine.threads (…
 - saveApply.js: Applying a save (split out of Saves.js): every part is chec…
 - saveFiles.js: Save files (.json download / restore), split out of Saves.j…
+- saveIds.js: Record ids inside save data, for upgrade steps (saves.regis…
 - saveVersions.js: Save format and per-part versions
+- scatter.js: Scatter by rule: where instances go in one ground chunk (pl…
 - screenToGround.js: Screen point -> ground point: what clicking the ground mean…
 - session.js: engine.session: one playthrough, from "new game" or "load" …
 - skip.js: Skipping time (part of Engine, mixed into Engine.prototype)…
 - startup.js: Startup (part of Engine, mixed into Engine.prototype): star…
 - streamSources.js: Stream sources (internal half of engine.stream): the places…
+- styleParts.js: A style built from parts: createEngine({ style: [lowpoly, {…
 - targeting.js: Target selection: pure functions (no camera, input or engin…
 - threadPure.js: Pure functions for workers: a function is sent as its sourc…
 - threadServe.js: Worker side of engine.threads lanes: serve(handler) answers…
@@ -119,14 +126,14 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 **modules/** (one line per folder: what it does; its files)
 - ambience/ Ambience module: a rule table of background sounds — Ambience.js
 - camera/ Camera module collection — FirstPersonCamera.js, FixedCamera.js, FollowCamera.js, RtsCamera.js, common.js, index.js
-- characters/ Characters module: player (keyboard/stick control, camera follow, footsteps, en… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, index.js, movers/common.js, movers/rapier.js, movers/simple.js, npcAvoid.js, npcSim.js, pathAsync.js, pathJob.js, pathWorker.js
+- characters/ Characters module: player (keyboard/stick control, camera follow, footsteps, en… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, index.js, movers/common.js, movers/rapier.js, movers/simple.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, proceduralRig.js
 - collision/ Lightweight collision: characters are upright cylinders, trees/rocks are circle… — Collision.js, grid.js
-- content/ Content loader: hands the plain data in the game's content/*.js to the engine (… — ids.js, index.js, loader.js, models.js, props.js, rules.js, templates.js
+- content/ Content loader: hands the plain data in the game's content/*.js to the engine (… — ids.js, index.js, loader.js, models.js, packs.js, props.js, rules.js, templates.js
 - debug/ Performance panel + time/weather debugging + stress test — DebugPanel.js
 - entities/ Entities — Entities.js, index.js
 - flow/ Game flow: states (title, playing, paused, game over...) and scene transitions … — index.js
 - gameplay/ Container: inventory, chest, corpse and shelf are all this — Container.js, Containers.js, Dialogue.js, Interactions.js, Inventory.js, Quests.js, dialogueBox.js, interactionPrompt.js, inventoryOps.js, pickups.js, questLog.js, questSave.js
-- grid/ grids() module: placement grids for farming, furniture, crates, building — Grid.js, Layer.js, index.js, ops.js, preview.js, tiles.js
+- grid/ grids() module: placement grids for anything placed on cells (furniture, buildi… — Grid.js, Layer.js, index.js, ops.js, preview.js, tiles.js
 - hlod/ HLOD: merge far-away buildings into a few proxy meshes, show originals when nea… — index.js
 - hud/ Objective markers and a simple HUD: world markers (an edge-of-screen arrow when… — index.js, parts.js
 - level/ Level module: load a hand-built scene (glTF/GLB from Blender, or THREE objects … — heightfield.js, index.js
@@ -142,7 +149,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - terrain/ Terrain module: chunked, streamed ground built from a height function (or a hei… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, index.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainMesh.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js
 - triggers/ Trigger zone module: invisible regions in the world that notify you when the pl… — index.js
-- vegetation/ Vegetation module: defines what to plant, where, how far before switching to lo… — Vegetation.js
+- vegetation/ Vegetation module: defines what to plant, where, how far before switching to lo… — Vegetation.js, groundChunks.js
 - water/ Water module: draws the global water plane (sea, big lakes; snaps to a grid fol… — Water.js
 - weather/ Weather: the game's table of weather types (weather({ types })); without one on… — Weather.js, shaders.js
 - world/ world() module: installed as engine.world (world data, see World.js) — World.js, cells.js, index.js, persist.js, pos.js, sim.js, simFar.js, views.js
@@ -256,14 +263,14 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | rotateRight | rotateKeys.right//['KeyR'] | camera.rotateRight | camera |
 | jump | opts.jumpKeys | input.jump | characters |
 | run | opts.runKeys | input.run | characters |
-| brake | ['KeyB'] (parameter brakeKeys) | input.brake | characters |
+| brake | brakeKeys??[] | input.brake | characters |
 | debugPanel | ['F3'] | debug.toggle | debug |
 | 'choice'+i | ['Digit'+i,'Numpad'+i] | dialogue.choice | gameplay |
 | interact (parameter action) | keys | input.interact | gameplay |
-| inventory (parameter action) | ['KeyI'] (parameter keys) | inventory.action | gameplay |
-| quests (parameter action) | ['KeyJ'] (parameter keys) | quests.action | gameplay |
+| inventory (parameter action) | keys | inventory.action | gameplay |
+| quests (parameter action) | keys | quests.action | gameplay |
 | rotate (parameter rotate) | ['KeyR'] | grid.rotate | grid |
-| photo | ['KeyP'] (parameter keys) | photo.action | photo |
+| photo | keys | photo.action | photo |
 | menu (parameter action) | ['Escape'] (parameter keys) | settings.action | settings |
 | skip | ['Escape', 'Backspace'] (parameter skipKeys) | timeline.skipAction | timeline |
 | triggersDebug (parameter action) | keys | triggers.debug | triggers |
@@ -297,7 +304,6 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 |---|---|
 | character | characters |
 | grid | grid |
-| models | content, entities |
 | particles | particles |
 | pickup | gameplay |
 | seasons | sky |

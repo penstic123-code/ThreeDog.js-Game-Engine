@@ -1,6 +1,7 @@
 // Content loader: hands the plain data in the game's content/*.js to the engine (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger zones, props).
 //   engine.use(content());
-//   engine.content.load(data, { places: { home: { x, z } }, models: lowpoly.models });
+//   engine.assets.manifest(lowpolyAssets);                      // models content names (an asset pack; content never holds paths or code)
+//   engine.content.load(data, { places: { home: { x, z } } });  // or several packs at once: load([base, dlc, level]) (packs.js)
 // Condition/effect vocabulary is in rules.js. Games add condition words (content/rules.js, or content.condition(name, { test }) in code);
 // a game's own actions are ops, called from content with { op: ['noun.verb', args] } and tested with { can: [...] }.
 // Op names used in content are checked when the game becomes ready (did you mean...).
@@ -12,12 +13,13 @@
 // Pickups, props and NPCs are initial world data: the save records only changes and removals, so content.load before or after loading a save gives the same result.
 // Positions that use level markers belong to the current level: the data carries a zone, and a level change only tears down models (pickups taken and removals are remembered); trigger zones are removed on level change.
 import { warnMissing, missingText } from '../../core/validate.js';
+import { reportError } from '../../core/errors.js';
 import { parseClock } from '../../core/dayTime.js';
-import { CONDITIONS, EFFECTS } from './rules.js';
+import { CONDITIONS, EFFECTS, list } from './rules.js';
 import { loadContent, BUILTIN_TESTS, BUILTIN_RUNS } from './loader.js';
 import { templateOf, spawnTemplate, placeTemplate } from './templates.js';
-
-const list = v => (Array.isArray(v) ? v : [v]);
+import { packsOf } from './packs.js';
+import { IdCheck } from './ids.js';
 
 export function content() {
   let e = null, places = {};
@@ -28,7 +30,7 @@ export function content() {
     templates: new Map(), templateViews: new Set(),   // template name -> frozen definition; names whose presenter is registered
     templateSrc: new Map(),                           // dev: template name -> 'content/templates.js:12'
     levelPlace: name => !!name && !(name in places) && !!e.level?.marker(name),
-    wait: p => { pending.add(p); p.catch(err => console.error('[content]', err)).finally(() => pending.delete(p)); },
+    wait: p => { pending.add(p); p.catch(err => reportError(e, err, 'content model', { soft: true })).finally(() => pending.delete(p)); },
   };
   const conds = new Map(Object.entries(CONDITIONS).map(([k, d]) => [k, { ...d, test: BUILTIN_TESTS[k] }]));
   const effects = new Map(Object.entries(EFFECTS).map(([k, d]) => [k, { ...d, run: BUILTIN_RUNS[k] }]));
@@ -40,10 +42,18 @@ export function content() {
     get ready() { return pending.size === 0 && (!e.world || e.world.ready); },
     /** marker markers added by the marker effect: id -> hud marker */
     markers: new Map(),
-    /** Load content data. places: place name -> position; models: model name -> generator function (default: style pack style.models) */
-    load(data, { places: pl = {}, models = e.style.models || {} } = {}) {
+    /**
+     * Load content data: one pack (the object of content/index.js) or a list of packs loaded together in order, where an id defined by two packs is an error (packs.js).
+     * Models are asset names (engine.assets.manifest / an asset pack), never paths. places: place name -> position
+     * @example engine.content.load([baseContent, forestDlc], { places: { home: { x: 0, z: 0 } } })
+     * @param {any} data
+     * @param {{ places?: Record<string, any> }} [opts]
+     */
+    load(data, { places: pl = {} } = {}) {
       Object.assign(places, pl);
-      e.ops.allow(() => loadContent(e, api, data, models, st));   // loading data is setup, not a gameplay action (ops guard)
+      const packs = packsOf(data), ids = new IdCheck();   // one IdCheck for the whole call: an id used in two packs' props / pickups is an error too
+      e.ops.allow(() => { for (const p of packs) loadContent(e, api, p, st, ids); });   // loading data is setup, not a gameplay action (ops guard)
+      ids.done();
       st.checkOps?.();
       return api;
     },

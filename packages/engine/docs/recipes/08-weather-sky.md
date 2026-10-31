@@ -25,7 +25,7 @@ With openWorld the weather module is already installed; pass its options through
 
 ## 3. Changing sky colors, sun, stars (style pack)
 `sky.keyframes` in the style pack (lowpoly: its `index.js`): `[time 0-1, zenith color, horizon color (= fog color), sunlight color, sunlight intensity, ambient intensity]`, interpolated by time;
-also `sunSize sunGlow moonSize starDensity hoursPerDay clouds skybox shadow` (see the comments in lowpoly for what they mean). The look of rain and snow is in `style.weather.rain / snow`.
+also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (see the comments in lowpoly for what they mean; `hoursPerDay` is timing, so it is a `sky()` option, not a style key). The look of rain and snow is in `style.weather.rain / snow`.
 
 ## 4. Time and brightness (game code)
 ```js
@@ -33,7 +33,7 @@ engine.sky.timeOfDay = parseClock('19:30');    // jump to a time (0-1)
 engine.clock.timeScale = 0;                 // sky and game seconds stop together (2 = double speed); game seconds per day: sky({ dayLength: 600 }); the three kinds of time are in recipe 06
 engine.setFogFar(300);                    // base fog distance (meters); weather scales it
 ```
-The calendar is the game's: `sky({ dayLength: Infinity })` keeps one time of day (dungeon, arena, space); `hoursPerDay` changes the clock face.
+The calendar is the game's: `sky()` alone keeps one time of day (dungeon, arena, space); a day-night cycle is `sky({ dayLength: 360 })` or `sky(presets.calendar.cycle)` (`presets.calendar.fourSeasons` includes it); `hoursPerDay` changes the clock face. An audio rule's `time` condition takes `'day'`, `'night'` or a range `['18:00', '06:00']`; anything else warns once.
 Seasons are off by default (`engine.sky.season` is `null`, no `season:change`); name them to turn them on:
 ```js
 sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 });     // or the preset: openWorld({ camera: 'follow', sky: presets.calendar.fourSeasons })

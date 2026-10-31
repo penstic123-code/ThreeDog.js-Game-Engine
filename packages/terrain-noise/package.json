@@ -1,0 +1,29 @@
+{
+  "name": "@threedog/terrain-noise",
+  "version": "0.1.0",
+  "description": "Optional terrain generator for threedog: noise hills, island, canyon or plain shapes, rivers and a biome rule table (world shape only, no colors)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git",
+    "directory": "packages/terrain-noise"
+  },
+  "homepage": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine#readme",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.js",
+    "*.d.ts"
+  ],
+  "peerDependencies": {
+    "threedog": "^0.1.0"
+  }
+}

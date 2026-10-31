@@ -52,7 +52,9 @@ export const startupMethods = {
     this._started = true;                      // a module installed from now on runs its init at once (modules.js)
     const tp = performance.now();   // measure
     const progress = p => ls?.update({ progress: 0.2 + p * 0.3, text: L.text() ?? this.t('common.loadingAssets') });
-    await this.assets.preload(progress);
+    // fonts the UI look names (style.ui.fonts: asset names) load with the preload, so the first menu never flashes the fallback font;
+    // an unknown name rejects here with the manifest line to add
+    await Promise.all([this.assets.preload(progress), ...(this.style.ui?.fonts || []).map(n => this.assets.font(n))]);
     const preloadMs = ms(tp), tr = performance.now();   // measure
     this._alive('preloading assets');
     if (this._fatal().length) return this._blocked(this._fatal());

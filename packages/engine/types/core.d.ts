@@ -1,6 +1,6 @@
 // Engine core: the Engine class, events, input, i18n, saves, assets, audio, the ground interface, module definitions.
 import type { Object3D, Vector3, Vector2, Color, Texture, BufferGeometry, Handle, PositionLike, Vec3Like } from './common';
-import type { Style } from './style';
+import type { Style, StyleInput } from './style';
 import type { Terrain, Vegetation, Sky, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport } from './world';
 import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
@@ -59,7 +59,10 @@ export interface EventMap extends GameEvents {
   'input:context': [{ stack: string[] }];
   /** Save written to disk; the argument is the slot name (not emitted when the write fails, a toast is shown instead) */
   'save:written': [slot: string];
-  /** Restore from a save file (saves.importFile) finished; the argument is the slot name. Attachments in the file (such as photos) are written to storage too */
+  /**
+   * Restore from a save file (saves.importFile) finished; the argument is the slot name. Attachments in the file (such as photos) are written to storage
+   * too
+   */
   'save:imported': [slot: string];
   /** A save was loaded onto the running playthrough (saves.load / session.load); the argument is the slot name */
   'save:loaded': [slot: string];
@@ -95,7 +98,10 @@ export interface EventMap extends GameEvents {
   'character:land': [{ character: Character; impact: number }];
   /** Dialogue started; the argument is the dialogue script name */
   'dialogue:start': [speaker: string];
-  /** A dialogue line started (after its do ran): data is the node's own fields (portrait, voice...), {} when none. Use it for voice, portraits, camera shots without replacing the UI part */
+  /**
+   * A dialogue line started (after its do ran): data is the node's own fields (portrait, voice...), {} when none. Use it for voice, portraits, camera
+   * shots without replacing the UI part
+   */
   'dialogue:line': [{ script: string; node: string; speaker: string; text: string; data: Record<string, any> }];
   /** Dialogue ended; the argument is the dialogue script name */
   'dialogue:end': [speaker: string];
@@ -238,10 +244,16 @@ export interface EngineUniforms {
 }
 
 export interface Pointer {
-  x: number; y: number; ndcX: number; ndcY: number;
+  /** Pixels from the canvas's top-left corner (not the window's): the same space as worldToScreen and the UI root */
+  x: number; y: number;
+  /** -1..1 across the canvas box (engine.pick / screenToGround take these) */
+  ndcX: number; ndcY: number;
   /** Held down */
   down: boolean;
-  /** Clicked once this frame (not a drag). Only for in-frame uses such as UI and clicking the ground; bind fire / attack to the action 'Mouse0' and read pressed in onFixed */
+  /**
+   * Clicked once this frame (not a drag). Only for in-frame uses such as UI and clicking the ground; bind fire / attack to the action 'Mouse0' and read
+   * pressed in onFixed
+   */
   clicked: boolean;
   /** Mouse button pressed: 0 left, 1 middle, 2 right */
   button: number;
@@ -271,8 +283,9 @@ export interface SaveProvider {
   first?: boolean;
   /** This part's format version, default 1: raise it by 1 when what save() returns changes shape. A save with a newer version is refused */
   version?: number;
-  /** Upgrade steps: old version -> data => data in the next version's shape, e.g. { 1: d => ({ ...d, beds: [] }) } */
-  migrate?: Record<number, (data: any) => any>;
+  /** Upgrade steps: old version -> data => data in the next version's shape, e.g. { 1: d => ({ ...d, beds: [] }) }.
+   *  The second argument is the whole save as read ({ parts, versions }, read only), for a step that depends on another part */
+  migrate?: Record<number, (data: any, save: { parts: Record<string, any>, versions: Record<string, number> }) => any>;
 }
 
 
@@ -282,7 +295,10 @@ export interface SaveProvider {
 
 /** Function that generates a model in code: returns a three object or geometry (may be async) */
 export type ModelBuilder = (params?: any) => Object3D | BufferGeometry | Promise<Object3D | BufferGeometry>;
-/** One asset manifest entry: a path; or { url, preload?, ... }; models can also be a generator function, or { build, params?, preload? } (generated on demand, cached automatically, reads the baked file if there is one) */
+/**
+ * One asset manifest entry: a path; or { url, preload?, ... }; models can also be a generator function, or { build, params?, preload? } (generated on
+ * demand, cached automatically, reads the baked file if there is one)
+ */
 export type AssetEntry = string | ModelBuilder | {
   /** File path (a file under public/ is written as '/models/x.glb') */
   url?: string;
@@ -305,21 +321,61 @@ export type AssetEntry = string | ModelBuilder | {
   /** Texture: repeat count [horizontal, vertical] */
   repeat?: number[];
 };
+/**
+ * An asset manifest, also the shape of an asset pack (a folder or npm package exporting one): names -> files or generators; content and code use the
+ * names only
+ */
 export interface AssetManifest {
+  /** Label shown as the source manifest in engine.loading (default 'manifest#1', '#2'...) */
+  name?: string;
+  /**
+   * Folder that this manifest's relative paths resolve against: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url) in an npm pack.
+   * '/x' and full URLs stay as written
+   */
+  base?: string | URL;
   /** Models (.glb / .gltf, Draco/Meshopt compression also works): name -> path or generator function */
   models?: Record<string, AssetEntry>;
   /** Textures: name -> path */
   textures?: Record<string, AssetEntry>;
   /** Sounds: name -> path */
   sounds?: Record<string, AssetEntry>;
+  /** Fonts: name -> file, or { url, family, weight, style, ... } (family defaults to the name). style.ui.fonts lists the names the UI uses */
+  fonts?: Record<string, string | FontAssetEntry>;
+}
+/** One font of an asset pack: the file plus the FontFace descriptors (family defaults to the asset name) */
+export interface FontAssetEntry {
+  url: string;
+  /** CSS font-family it registers (default: the asset name); several entries may share one family with different weight / style */
+  family?: string;
+  weight?: number | string; style?: string; stretch?: string; unicodeRange?: string; display?: string; featureSettings?: string; variationSettings?: string;
+  /** start() stops if it fails (otherwise text falls back to the next family of style.ui.font) */
+  critical?: boolean;
+  /** Load at start() even if style.ui.fonts does not name it */
+  preload?: boolean;
 }
 
 export interface Assets {
-  /** Register the asset manifest (can be called several times). opts.name labels it as the source in engine.loading (default 'manifest#1', '#2'...) */
-  manifest(m: AssetManifest, opts?: { name?: string }): this;
-  /** Preload (onProgress(0–1, current name)). Code-generated models are only generated up front if marked preload. failed includes entries now showing their fallback */
+  /**
+   * Register an asset manifest or asset pack (can be called several times; a later entry with the same name replaces the earlier one). Its name labels
+   * it in engine.loading, base resolves its relative paths
+   */
+  manifest(m: AssetManifest): this;
+  /** The generator function registered under a model name, null for a file model or an unknown name (content builds [name, ...params] models with it) */
+  builder(name: string): ((...args: any[]) => any) | null;
+  /**
+   * Preload (onProgress(0–1, current name)). Code-generated models and fonts are only loaded up front if marked preload. failed includes entries now
+   * showing their fallback
+   */
   preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }): Promise<{ loaded: number; failed: string[]; ok: boolean }>;
-  /** Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray acceleration) */
+  /**
+   * A font from an asset pack by name: downloaded once, added to document.fonts; null when the file failed and it is not critical. style.ui.fonts calls
+   * it at start()
+   */
+  font(name: string): Promise<FontFace | null>;
+  /**
+   * Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray
+   * acceleration)
+   */
   model(nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean }): Promise<Object3D>;
   /**
    * A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs
@@ -330,17 +386,27 @@ export interface Assets {
   geometry(nameOrUrl: string): Promise<BufferGeometry>;
   /** Get a texture (.ktx2 compressed textures also work) */
   texture(nameOrUrl: string, opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] }): Promise<Texture>;
-  /** Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is removed with engine.remove */
+  /**
+   * Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is
+   * removed with engine.remove
+   */
   release(name: string): void;
-  /** Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() / cached() are not released automatically. Returns the released names */
+  /**
+   * Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() /
+   * cached() are not released automatically. Returns the released names
+   */
   trim(): string[];
   /** How many copies of this model are in use now (taken with model() and not yet removed with engine.remove) */
   users(name: string): number;
-  /** Called when an object is fully removed (engine.remove already calls it, normally you don't need to): decrements the use count of the model copies under it */
+  /**
+   * Called when an object is fully removed (engine.remove already calls it, normally you don't need to): decrements the use count of the model copies
+   * under it
+   */
   forget(obj: Object3D): void;
   /**
    * Code-generated model: generated only once per name + params, returns a copy (for geometry, the same one).
-   * Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or a file it imports changes) -> compute now.
+   * Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or
+   * a file it imports changes) -> compute now.
    * When the generator is newer than the baked file during development, it computes now and prints a one-time hint "run npm run bake once it is final"
    */
   cached<T = any>(name: string, build: (params?: any) => T | Promise<T>, params?: any): Promise<T>;
@@ -354,7 +420,10 @@ export interface Assets {
   animate(root: Object3D, config?: AnimatorOptions): Animator;
   /** three.js GLTFLoader (Meshopt installed; Draco and KTX2 are installed the first time they are needed) */
   gltf: any;
-  /** three.js DRACOLoader (created only the first time Draco compression is met, null before; the decoder defaults to the one bundled with three, vite packs it automatically) */
+  /**
+   * three.js DRACOLoader (created only the first time Draco compression is met, null before; the decoder defaults to the one bundled with three, vite
+   * packs it automatically)
+   */
   draco: any;
   /** three.js KTX2Loader (created only the first time a KTX2 texture is met, null before) */
   ktx2: any;
@@ -380,7 +449,10 @@ export interface LoadingTask {
   /** Where it came from: manifest name, path, file version (ETag / Last-Modified), size, animation clip names */
   source: { manifest: string | null; url: string | null; version: string | null; bytes: number | null; animations: string[] | null };
 }
-/** describe().loading: done = nothing pending; ok = nothing failed (all finished is not all succeeded); blocked = a critical item failed before start() finished */
+/**
+ * describe().loading: done = nothing pending; ok = nothing failed (all finished is not all succeeded); blocked = a critical item failed before start()
+ * finished
+ */
 export interface LoadingView {
   done: boolean; ok: boolean; blocked: boolean;
   /** One English line naming the current item, e.g. 'decoding model "hero" (/models/hero.glb, manifest "main")'; null when done */
@@ -435,14 +507,23 @@ export interface SoundDef {
 }
 /** A sounds entry: a file, variants, 'synth' (the synth registered under the same name) or the full form */
 export type SoundSource = string | string[] | SoundDef;
-/** A rule's condition: an object whose keys all hold ({ time: 'night', zone: 'cave', weather: ['rain'], state: 'combat' }) or a function */
-export type AudioCondition = Record<string, any> | ((e: Engine, ...extra: any[]) => boolean);
+/** A measure comparison in a rule's `when`: every given key must hold ({ daylight: { gt: 0.15 } }, { rain: { lt: 0.2 } }) */
+export interface AudioCompare { gt?: number; gte?: number; lt?: number; lte?: number }
+/**
+ * A rule's condition: an object whose keys all hold, or a function. Keys are condition keys (state, time, weather, zone, engine.audio.condition)
+ * or measures compared with AudioCompare (daylight, rain, snow, wind, nearWater, altitude, engine.audio.measure). Content packs: object only
+ */
+export type AudioCondition = Record<string, any | AudioCompare> | ((e: Engine, ...extra: any[]) => boolean);
+/** Volume as data: base plus measure * factor for each add entry, clamped to [min, max] ({ base: 0.05, add: { wind: 0.08 }, max: 0.5 }) */
+export interface AudioVolumeData { base?: number; add?: Record<string, number>; min?: number; max?: number }
+/** A rule volume: a number 0-1, data (AudioVolumeData, the only form in content packs), or a function of the moment */
+export type AudioVolume = number | AudioVolumeData | ((e: Engine, ...extra: any[]) => number);
 /** One ambience rule: while `when` holds, `sound` plays at `volume`. With `every` it is a one-shot repeated at random gaps, else a loop */
 export interface AmbienceRule {
   sound: string;
   when?: AudioCondition;
-  /** 0-1, or a function of the moment (e, ambience) => 0-1 (wind by weather, water by distance) */
-  volume?: number | ((e: Engine, ambience: import('./gameplay').Ambience) => number);
+  /** 0-1, data { base, add: { measure: factor }, min, max }, or a function of the moment (e, ambience) => 0-1 (code only) */
+  volume?: number | AudioVolumeData | ((e: Engine, ambience: import('./gameplay').Ambience) => number);
   /** Fade seconds when the rule turns on / off (1) */
   fade?: number;
   /** One-shot: [shortest, longest] seconds between plays */
@@ -453,13 +534,23 @@ export interface AmbienceRule {
 /** Synthesized sound: connect to `out` and return the length in seconds, or { stop(time) } for a loop (params.loop is true then) */
 export type SynthFn = (audio: Audio, params: Record<string, any>, out: any) => number | void | { stop(time: number): void };
 
-/** The game's sound config: createEngine({ audio }), read back as engine.audio.config. Sounds are not part of a style pack */
+/**
+ * The audio table of a content pack (content.load({ audio })): data only. sounds name asset pack sounds ('synth' for a built-in);
+ * ambience and music.rules use condition keys and measures, never functions. Merged with createEngine({ audio }); a name in both is an error
+ */
+export interface ContentAudio {
+  sounds?: Record<string, SoundSource>;
+  ambience?: AmbienceRule[];
+  music?: { tracks?: Record<string, import('./gameplay').MusicTrack>; rules?: import('./gameplay').MusicRule[] };
+  footsteps?: Record<string, string>;
+}
+/** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio). Not part of a style pack */
 export interface AudioConfig {
   /** Sound name -> file / variants / 'synth' / SoundDef */
   sounds?: Record<string, SoundSource>;
   /** ambience() rule table */
   ambience?: AmbienceRule[];
-  /** music() defaults: tracks, rules, fade seconds, duckDialogue (how low the music bus ducks during dialogue) */
+  /** music() defaults: tracks, rules, fade seconds, duckDialogue (how low the music bus ducks during dialogue; default false = no duck) */
   music?: { tracks?: Record<string, import('./gameplay').MusicTrack>; rules?: import('./gameplay').MusicRule[]; fade?: number; duckDialogue?: number | false; duckFade?: number; hold?: number; interval?: number };
   /** Ground type (terrain groundType or level material name) -> sound name; 'water' while swimming; default for unmapped types (else 'footstep') */
   footsteps?: Record<string, string>;
@@ -563,7 +654,10 @@ export interface UIParts {
 
 /** Ground: whoever provides the ground height is the "terrain" (terrain module, level module, or the default flat y=0) */
 export interface Ground {
-  /** Ground height (meters) at (x, z). For multi-layer ground (bridges, caves) pass refY: takes the highest layer not above refY + one step (0.45 m); without it the highest layer is used. Single-layer ground ignores refY */
+  /**
+   * Ground height (meters) at (x, z). For multi-layer ground (bridges, caves) pass refY: takes the highest layer not above refY + one step (0.45 m);
+   * without it the highest layer is used. Single-layer ground ignores refY
+   */
   height(x: number, z: number, refY?: number): number;
   /** Slope at (x, z) (height difference / horizontal distance) */
   slope(x: number, z: number): number;
@@ -604,11 +698,13 @@ export interface ModuleDef<Api = any> {
   requires?: string[];
   /**
    * Optional dependencies (modules the code uses as e.xxx?. or guards with if (e.xxx); rule R16 requires listing them all).
-   * An array only registers them; written as { moduleName: 'what is lost when missing' }, start() prints a one-time development hint when one is missing; use this form when it changes gameplay results
+   * An array only registers them; written as { moduleName: 'what is lost when missing' }, start() prints a one-time development hint when one is
+   * missing; use this form when it changes gameplay results
    */
   optional?: string[] | Record<string, string>;
   /**
-   * Hook stages (first -> last): 'control' timeline, camera -> 'world' terrain, level -> 'environment' weather, sky, water -> 'gameplay' interactions, dialogue, triggers, entities
+   * Hook stages (first -> last): 'control' timeline, camera -> 'world' terrain, level -> 'environment' weather, sky, water -> 'gameplay' interactions,
+   * dialogue, triggers, entities
    * -> 'presentation' particles, settings, objective markers -> 'late' (default) -> 'audio' music. Within a stage use before / after, then install order
    */
   stage?: 'control' | 'world' | 'environment' | 'gameplay' | 'presentation' | 'late' | 'audio';
@@ -617,7 +713,8 @@ export interface ModuleDef<Api = any> {
   /** Hooks run after these modules (ignored if not installed; use() throws on a cycle) */
   after?: string[];
   /**
-   * Presentation modules (particles, sound effects, HLOD; gameplay is unaffected without them): when a hook errors only this module is disabled and the game continues.
+   * Presentation modules (particles, sound effects, HLOD; gameplay is unaffected without them): when a hook errors only this module is disabled and the
+   * game continues.
    * Without it the module counts as gameplay: during development / testing an error freezes gameplay and is recorded in engine.error (error severity levels)
    */
   presentation?: boolean;
@@ -642,7 +739,8 @@ export interface ModuleDef<Api = any> {
    */
   skip?(dt: number, e: Engine, done: boolean): void;
   /**
-   * Optional: add state to engine.describe(). The (JSON-able) return value goes into the result keyed by the module name; nothing is added if it returns nothing.
+   * Optional: add state to engine.describe(). The (JSON-able) return value goes into the result keyed by the module name; nothing is added if it
+   * returns nothing.
    * It may also fill in the standard fields of ctx.out, or use ctx.near() to report "nearby things"
    */
   describe?(e: Engine, ctx: DescribeContext): any;
@@ -653,8 +751,10 @@ export interface ModuleDef<Api = any> {
   /** Optional: handle the keys of engine.applyState that this module owns (e.g. sky handles time) */
   applyState?(e: Engine, params: StateParams): void | Promise<void>;
   /**
-   * Optional: called on engine.dispose() (in reverse install order). Only clean up what the core cannot: Workers, the physics world, real-time timers, Audio nodes you connected yourself.
-   * Events, onFixed / onFrame, clock timers, jobs, stream, ray registrations and GPU memory in the scene are reclaimed by the core; DOM listeners attached to engine.signal and UI attached to engine.uiRoot are cleaned up automatically too
+   * Optional: called on engine.dispose() (in reverse install order). Only clean up what the core cannot: Workers, the physics world, real-time timers,
+   * Audio nodes you connected yourself.
+   * Events, onFixed / onFrame, clock timers, jobs, stream, ray registrations and GPU memory in the scene are reclaimed by the core; DOM listeners
+   * attached to engine.signal and UI attached to engine.uiRoot are cleaned up automatically too
    */
   dispose?(e: Engine): void;
 }
@@ -668,8 +768,9 @@ export type ModuleInput = ModuleDef | ModuleInput[] | false | null | undefined;
 export interface EngineOptions {
   /** Canvas element (required), e.g. document.getElementById('view') */
   canvas: HTMLCanvasElement | HTMLElement;
-  /** Style pack (all art: colors, materials, models, sky, lighting, UI look), e.g. import lowpoly from '@threedog/style-lowpoly'. Without one: neutral gray placeholders */
-  style?: Style;
+  /** Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts
+   * deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders */
+  style?: StyleInput;
   /** Real-time shadows, default true */
   shadows?: boolean;
   /** MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices */
@@ -699,7 +800,10 @@ export interface EngineOptions {
   locale?: string;
   /** Override / add UI strings: { 'zh-CN': { key: text } } */
   strings?: StringTables;
-  /** Keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions, e.g. { interact: ['KeyE'], run: ['ShiftLeft'] }; a module's define() keeps these keys */
+  /**
+   * Keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions, e.g. { interact: ['KeyE'], run: ['ShiftLeft'] };
+   * a module's define() keeps these keys
+   */
   bindings?: Record<string, string[]>;
   /** Default gamepad buttons: { jump: 'PadA' } */
   padBindings?: Record<string, string>;
@@ -707,11 +811,20 @@ export interface EngineOptions {
   saveKey?: string;
   /** On-screen joystick: 'auto' (only on touch devices) | true | false */
   joystick?: 'auto' | boolean;
-  /** Headless mode: no real-time loop and no per-frame rendering, advances only on step() (for tests and screenshots). Adding ?threedog-headless to the URL also turns it on */
+  /**
+   * Headless mode: no real-time loop and no per-frame rendering, advances only on step() (for tests and screenshots). Adding ?threedog-headless to the
+   * URL also turns it on
+   */
   headless?: boolean;
-  /** Check parameter names at runtime and warn on misspelled names (the console prints "did you mean xxx"), default true; a release build can write false to turn it off */
+  /**
+   * Check parameter names at runtime and warn on misspelled names (the console prints "did you mean xxx"), default true; a release build can write false
+   * to turn it off
+   */
   validate?: boolean;
-  /** Directory of Draco/KTX2 decoders (a URL containing draco/ and basis/), for when they live on a CDN. Normally not needed: the decoders bundled with three are packed by vite automatically */
+  /**
+   * Directory of Draco/KTX2 decoders (a URL containing draco/ and basis/), for when they live on a CDN. Normally not needed: the decoders bundled with
+   * three are packed by vite automatically
+   */
   decoders?: string;
   /** Performance budget limits, e.g. { drawCalls: 250, fps: 55 }; only the given categories are checked; off by default */
   budget?: BudgetLimits;
@@ -719,9 +832,15 @@ export interface EngineOptions {
   urlState?: boolean;
   /** Seed for engine.random; default 1 in headless mode (reproducible), the current time for live runs (different every game) */
   seed?: number;
-  /** Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default { radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 } */
+  /**
+   * Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default {
+   * radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 }
+   */
   movement?: Partial<MovementProfile>;
-  /** Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created) @experimental */
+  /**
+   * Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no
+   * workers created) @experimental
+   */
   threads?: 'auto' | number | false;
   /** Gameplay waits while the window is in the background or the tab is hidden; default true (engine.page) */
   pauseOnBlur?: boolean;
@@ -729,7 +848,10 @@ export interface EngineOptions {
   batching?: false | BatchingOptions;
 }
 
-/** engine.movement (read-only): character radius / height / max slope (degrees) / step height; slopeRatio is maxSlope converted to height difference / horizontal distance */
+/**
+ * engine.movement (read-only): character radius / height / max slope (degrees) / step height; slopeRatio is maxSlope converted to height difference /
+ * horizontal distance
+ */
 export interface MovementProfile { radius: number; height: number; maxSlope: number; stepHeight: number; readonly slopeRatio: number }
 
 // ======================================================================
@@ -740,14 +862,20 @@ export interface MovementProfile { radius: number; height: number; maxSlope: num
 export interface RaycastOptions {
   /** Maximum distance (meters), default unlimited */
   far?: number;
-  /** What to hit: 'static' registered static objects (default) | 'all' plus what modules merge in (with rigid installed this includes rigid bodies, hits carry entry and kind: 'rigid') | an array of objects */
+  /**
+   * What to hit: 'static' registered static objects (default) | 'all' plus what modules merge in (with rigid installed this includes rigid bodies, hits
+   * carry entry and kind: 'rigid') | an array of objects
+   */
   targets?: 'static' | 'all' | Object3D[];
   /** Hits for which this returns false are skipped */
   filter?: (hit: RayHit) => boolean;
   /** Hit only meshes that block the camera (level buildings, hidden col_ collision meshes); used by collision's cameraOcclusion */
   occluders?: boolean;
 }
-/** Ray hit: point is the hit point, distance in meters, normal the surface direction, object the mesh hit; entry/kind come from the module that merged the hit in (e.g. a rigid body) */
+/**
+ * Ray hit: point is the hit point, distance in meters, normal the surface direction, object the mesh hit; entry/kind come from the module that merged
+ * the hit in (e.g. a rigid body)
+ */
 export interface RayHit {
   point: Vector3;
   distance: number;
@@ -757,7 +885,8 @@ export interface RayHit {
   entry?: any;
   kind?: string;
   /**
-   * Point -> thing, computed when read: the world record the hit belongs to (a batched instance resolves to its original), where it was authored and what to edit.
+   * Point -> thing, computed when read: the world record the hit belongs to (a batched instance resolves to its original), where it was authored and
+   * what to edit.
    * @example const t = engine.pick(0, 0)?.thing;   // { id: 'chest-home', kind: 'chest', template: 'chest', definedAt: 'content/props.js:14', ... }
    */
   readonly thing?: HitThing;
@@ -872,8 +1001,10 @@ export interface StreamSource {
 /** Handle returned by stream.add(): object is the generated object (null while not generated) */
 export interface StreamHandle { def: StreamEntryOptions; object: Object3D | null; built: boolean; remove(): void }
 /**
- * Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, compileMs shader compilation before the first frame,
- * modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded
+ * Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required
+ * by stream registrations finished, compileMs shader compilation before the first frame,
+ * modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest
+ * module is reported in the console when exceeded
  */
 export interface StartupReport { totalMs: number; startMs: number; preloadMs: number; streamMs: number | null; compileMs: number; modules: Record<string, { init?: number; ready?: number }> }
 
@@ -928,23 +1059,41 @@ export declare class Engine {
   tier: 'low' | 'high';
   /** three.js scene */
   scene: import('three').Scene;
-  /** Default lights (neutral without sky; the sky module drives these same two). Hide or retune them for your own lighting: `engine.lights.sun.visible = false` */
+  /**
+   * Default lights (neutral without sky; the sky module drives these same two). Hide or retune them for your own lighting: `engine.lights.sun.visible =
+   * false`
+   */
   lights: { sun: import('three').DirectionalLight; hemi: import('three').HemisphereLight };
   /** three.js perspective camera */
   camera: import('three').PerspectiveCamera;
-  /** Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the player by default), which does not follow the camera */
+  /**
+   * Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the
+   * player by default), which does not follow the camera
+   */
   focus: Vector3;
   /** Whether shadows are on */
   shadows: boolean;
   /** Current ground */
   ground: Ground;
-  /** Shared parameters for whether a character can walk somewhere (set by createEngine({ movement }), read-only); same-named options of individual modules are only overrides */
+  /**
+   * Shared parameters for whether a character can walk somewhere (set by createEngine({ movement }), read-only); same-named options of individual
+   * modules are only overrides
+   */
   readonly movement: Readonly<MovementProfile>;
-  /** The player (exists only after characters.createPlayer()). Its position belongs to the character's mover: other systems request movement (placeAt / move / vehicle enter), don't modify position directly */
+  /**
+   * The player (exists only after characters.createPlayer()). Its position belongs to the character's mover: other systems request movement (placeAt /
+   * move / vehicle enter), don't modify position directly
+   */
   player: Character | null;
-  /** World record id of the one the local user controls (default 'player'): interactions, trigger zones, marker distances, the world simulation center and ops (ctx.actor) use it. Set it to hand control to a vehicle or squad member */
+  /**
+   * World record id of the one the local user controls (default 'player'): interactions, trigger zones, marker distances, the world simulation center
+   * and ops (ctx.actor) use it. Set it to hand control to a vehicle or squad member
+   */
   actor: string;
-  /** Where an actor is now (default engine.actor): the player's position for 'player' (engine.focus without a player), else its model or world record position; null when unknown. @example engine.actor = 'boat_1'; engine.actorPosition() */
+  /**
+   * Where an actor is now (default engine.actor): the player's position for 'player' (engine.focus without a player), else its model or world record
+   * position; null when unknown. @example engine.actor = 'boat_1'; engine.actorPosition()
+   */
   actorPosition(id?: string): { x: number; y: number; z: number } | null;
   /** True once start() completes and the loading screen is gone (every "is it ready" in the engine is such a boolean property) */
   ready: boolean;
@@ -952,11 +1101,17 @@ export declare class Engine {
   readonly disposed: boolean;
   /** Execution order of module hooks (module names, first -> last), for debugging "who runs before whom" */
   readonly moduleOrder: string[];
-  /** Gameplay error in development / testing (module hooks, onFixed / onFrame / clock callbacks, event listeners): { where (location of the error), message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console */
+  /**
+   * Gameplay error in development / testing (module hooks, onFixed / onFrame / clock callbacks, event listeners): { where (location of the error),
+   * message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console
+   */
   readonly error: EngineError | null;
   /** Names of presentation modules disabled after an error (modules with presentation: true) */
   readonly disabledModules: Set<string>;
-  /** The engine's cancel signal (AbortSignal): for DOM listeners write addEventListener(type, fn, { signal: engine.signal }), removed automatically on dispose() */
+  /**
+   * The engine's cancel signal (AbortSignal): for DOM listeners write addEventListener(type, fn, { signal: engine.signal }), removed automatically on
+   * dispose()
+   */
   readonly signal: AbortSignal;
   /** UI root node: UI elements of the engine and modules hang under it (don't attach to document.body directly), the whole tree is removed on dispose() */
   readonly uiRoot: HTMLDivElement;
@@ -1008,7 +1163,10 @@ export declare class Engine {
   jobs: Jobs;
   /** Background results that affect gameplay take effect on a fixed tick (chunk collision, spread jobs with apply...), see Commits */
   commits: Commits;
-  /** Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays. Results that affect gameplay go through commits @experimental */
+  /**
+   * Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays.
+   * Results that affect gameplay go through commits @experimental
+   */
   threads: Threads;
   /** One entry point for actions players and NPCs decide to do: define / run / can / list / recent, see Ops and recipes/23-ops.md */
   ops: Ops;
@@ -1016,7 +1174,10 @@ export declare class Engine {
   readonly tick: number;
   /** Seeded random numbers (use for gameplay randomness: reproducible and saved with the game) */
   random: Random;
-  /** Spatial stream-in and the stream sources (where the world is loaded: terrain, colliders, models, stream entries; built-in player and camera sources, add one for a teleport destination) */
+  /**
+   * Spatial stream-in and the stream sources (where the world is loaded: terrain, colliders, models, stream entries; built-in player and camera sources,
+   * add one for a teleport destination)
+   */
   stream: Stream;
   /** Automatic batching: the same static model placed many times in a cell is drawn as one InstancedMesh (createEngine({ batching })) */
   batching: Batching;
@@ -1024,7 +1185,8 @@ export declare class Engine {
   startup: StartupReport | null;
   /**
    * Run seconds: unaffected by the sky time scale, does not advance while frozen or paused; for presentation animation (swaying, floating).
-   * The other two "times": game seconds engine.clock.now (= fixed-step seconds x clock.timeScale, saved); sky time of day engine.sky.timeOfDay (0–1, one day = dayLength game seconds)
+   * The other two "times": game seconds engine.clock.now (= fixed-step seconds x clock.timeScale, saved); sky time of day engine.sky.timeOfDay (0–1,
+   * one day = dayLength game seconds)
    */
   readonly elapsed: number;
   /**
@@ -1040,7 +1202,7 @@ export declare class Engine {
   // ---------- Modules (undefined when not installed) ----------
   /** Procedural terrain (terrain() module) */
   terrain?: Terrain;
-  /** Vegetation (vegetation() module, needs terrain) */
+  /** Vegetation (vegetation() module; grows on terrain or on any ground provider) */
   vegetation?: Vegetation;
   /** Sky, day/night, calendar (sky() module) */
   sky?: Sky;
@@ -1061,9 +1223,12 @@ export declare class Engine {
   /** Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamera) */
   cameraRig?: CameraRig;
   /**
-   * Switch the camera at runtime (only exists with a camera module installed): the target and horizontal heading carry over; the first-person camera hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for switching back.
+   * Switch the camera at runtime (only exists with a camera module installed): the target and horizontal heading carry over; the first-person camera
+   * hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for
+   * switching back.
    * Passing opts rebuilds this kind of camera with the new parameters. A wrong kind throws and lists the available options.
-   * @example engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' : 'follow'); });
+   * @example engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' :
+   * 'follow'); });
    */
   setCamera?(kind: CameraKind, opts?: object): CameraRig;
   /** Cutscenes, tweens (timeline() module) */
@@ -1072,7 +1237,10 @@ export declare class Engine {
   level?: Level;
   /** Trigger zones (triggers() module) */
   triggers?: Triggers;
-  /** Entities: single stateful, saved objects such as saplings, campfires and chests; the data is a record of engine.world, the model is built only when nearby (entities() module) */
+  /**
+   * Entities: single stateful, saved objects such as saplings, campfires and chests; the data is a record of engine.world, the model is built only when
+   * nearby (entities() module)
+   */
   entities?: Entities;
   /** Particles (particles() module) */
   particles?: Particles;
@@ -1122,7 +1290,8 @@ export declare class Engine {
   setGround(g: Partial<Ground>): void;
   /**
    * Ground height (meters) at (x, z); a position or object also works: engine.surface(mesh.position).
-   * For multi-layer ground (bridges, caves, interiors) pass a reference height refY: returns the highest layer not above refY + one step (0.45 m), so standing under a bridge gives the ground and standing on it gives the deck;
+   * For multi-layer ground (bridges, caves, interiors) pass a reference height refY: returns the highest layer not above refY + one step (0.45 m), so
+   * standing under a bridge gives the ground and standing on it gives the deck;
    * without it the highest layer is used (as before). Procedural terrain and flat ground have one layer and ignore refY
    */
   surface(x: number, z: number, refY?: number): number;
@@ -1133,10 +1302,16 @@ export declare class Engine {
   /** Ground type at (x, z) (for footsteps, particles); a position or object also works */
   groundType(x: number, z: number): string;
   groundType(at: PositionLike): string;
-  /** Water surface height at (x, z): standalone water bodies first, otherwise the global water level; -Infinity when there is no water. A position or object also works */
+  /**
+   * Water surface height at (x, z): standalone water bodies first, otherwise the global water level; -Infinity when there is no water. A position or
+   * object also works
+   */
   waterAt(x: number, z: number): number;
   waterAt(at: PositionLike): number;
-  /** Put an object on the ground under it (y = ground height + offset) and return the object. With multi-layer ground the object's current y is the reference height */
+  /**
+   * Put an object on the ground under it (y = ground height + offset) and return the object. With multi-layer ground the object's current y is the
+   * reference height
+   */
   snapToGround<T = Object3D>(obj: T, offset?: number): T;
   /** Add a water body (give radius for a circle, halfWidth / halfDepth for a rectangle) and return a handle { body, remove() }. The water module draws it */
   addWaterBody(opts: WaterBodyOptions): Handle & { body: WaterBody };
@@ -1146,13 +1321,22 @@ export declare class Engine {
   t(key: string, params?: Record<string, any>): string;
   /** Add an object to the scene, returns the first one */
   add<T = Object3D>(obj: T, ...more: Object3D[]): T;
-  /** Fully delete an object (use it when you no longer want the object): removes it from its parent, unregisters rays, and releases the geometry and materials of it and its children (textures and geometry / materials shared by assets are not released) */
+  /**
+   * Fully delete an object (use it when you no longer want the object): removes it from its parent, unregisters rays, and releases the geometry and
+   * materials of it and its children (textures and geometry / materials shared by assets are not released)
+   */
   remove(...objs: Object3D[]): void;
   /** Only take it off its parent without releasing GPU memory (use when you will add it back later). Use remove for objects you no longer need */
   detach(...objs: Object3D[]): void;
-  /** Fixed-step logic (60 times per second, dt in fixed seconds): movement, physics, cooldowns, and gameplay keys (read pressed() here: a per-step snapshot, independent of frame rate). Returns a handle { remove() } */
+  /**
+   * Fixed-step logic (60 times per second, dt in fixed seconds): movement, physics, cooldowns, and gameplay keys (read pressed() here: a per-step
+   * snapshot, independent of frame rate). Returns a handle { remove() }
+   */
   onFixed(fn: (dt: number) => void): Handle;
-  /** Once per frame (dt in frame seconds): animation, camera, UI and UI keys (menus read this frame's latest input). Gameplay keys belong in onFixed. Returns a handle { remove() } */
+  /**
+   * Once per frame (dt in frame seconds): animation, camera, UI and UI keys (menus read this frame's latest input). Gameplay keys belong in onFixed.
+   * Returns a handle { remove() }
+   */
   onFrame(fn: (dt: number) => void): Handle;
 
   // ---------- Settings ----------
@@ -1172,7 +1356,10 @@ export declare class Engine {
   applyState(params: StateParams): Promise<void>;
   /** Name a group of scenario parameters, then use applyState({ state: name }) or URL ?state=name */
   defineState(name: string, params: StateParams): this;
-  /** Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it: page.waitForFunction(() => window.engine?.stateApplied) */
+  /**
+   * Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it:
+   * page.waitForFunction(() => window.engine?.stateApplied)
+   */
   readonly stateApplied: boolean;
 
   // ---------- Start, pause, state ----------
@@ -1186,13 +1373,18 @@ export declare class Engine {
   fps: number;
   /** Ids of the open windows */
   openWindows: Set<string>;
-  /** Pause the real-time loop: the picture stops and even rendering stops, only step() advances (for tests and screenshots). Use freeze() for a game menu pause */
+  /**
+   * Pause the real-time loop: the picture stops and even rendering stops, only step() advances (for tests and screenshots). Use freeze() for a game menu
+   * pause
+   */
   pause(): this;
   /** Resume the real-time loop */
   resume(): this;
   /**
-   * Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame hooks and rendering continue and the UI works.
-   * So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's name, default 'game'
+   * Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame
+   * hooks and rendering continue and the UI works.
+   * So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's
+   * name, default 'game'
    */
   freeze(owner?: string): this;
   /** Release the freeze of owner (gameplay resumes only when all freezers are released) */
@@ -1200,8 +1392,10 @@ export declare class Engine {
   /** Is anyone freezing gameplay? */
   readonly frozen: boolean;
   /**
-   * Advance seconds of fixed-step time synchronously (60Hz; when timeScale is not 1, game seconds clock.now and sky time of day run faster or slower than it; frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()).
-   * jobs ignore real time and finish every frame; results of stream's synchronous build are attached to the scene before returning. When render is true (default) one frame is rendered at the end. Returns the describe() result after advancing
+   * Advance seconds of fixed-step time synchronously (60Hz; when timeScale is not 1, game seconds clock.now and sky time of day run faster or slower
+   * than it; frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()).
+   * jobs ignore real time and finish every frame; results of stream's synchronous build are attached to the scene before returning. When render is true
+   * (default) one frame is rendered at the end. Returns the describe() result after advancing
    */
   step(seconds: number, opts?: { render?: boolean; frameEvery?: number; describe?: boolean }): GameState | null;
   /**
@@ -1217,47 +1411,62 @@ export declare class Engine {
    */
   skip(opts: SkipOptions): Promise<{ seconds: number; clock: string | null; day: number | null } | null>;
   /**
-   * Call engine.describe(opts?: { radius?: number }) to get the current game state (a plain object, JSON.stringify-able); radius is how far counts as "nearby" (meters, default 30).
-   * engine.describe.add(name, fn) registers the game's own state in one line: the return value of fn(engine, ctx) goes into describe().<name>, and the returned handle's remove() cancels it.
-   * Small games use add; big games write the system as a module and use the module's describe hook. Example: engine.describe.add('range', () => ({ score, targets: targets.length }))
+   * Call engine.describe(opts?: { radius?: number }) to get the current game state (a plain object, JSON.stringify-able); radius is how far counts as
+   * "nearby" (meters, default 30).
+   * engine.describe.add(name, fn) registers the game's own state in one line: the return value of fn(engine, ctx) goes into describe().<name>, and the
+   * returned handle's remove() cancels it.
+   * Small games use add; big games write the system as a module and use the module's describe hook. Example: engine.describe.add('range', () => ({
+   * score, targets: targets.length }))
    */
   describe: {
     (opts?: { radius?: number; center?: { x: number; z: number } }): GameState;
     add(name: string, fn: (e: Engine, ctx: DescribeContext) => any): { remove(): void };
   };
   /**
-   * The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, one line per module with its key counts), ending with how to expand.
+   * The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, one line per module with its key
+   * counts), ending with how to expand.
    * { path: 'world.byKind' } returns one part of describe() as JSON; { full: true } returns everything (all nearby things, every module's full data).
    * @example engine.describeText()   engine.describeText({ path: 'quests' })   engine.describeText({ full: true })
    */
   describeText(opts?: { radius?: number; full?: boolean; path?: string }): string;
   /**
-   * What is around an actor or a spot, and what that actor can do now (each op offer checked with can, possible first, at most 8; failed ones carry reason and the op's reasons note).
+   * What is around an actor or a spot, and what that actor can do now (each op offer checked with can, possible first, at most 8; failed ones carry
+   * reason and the op's reasons note).
    * at: a world record id (that actor), [x, z] / { x, z } (a spot, ops as the player), or nothing (the player). radius default 10 m.
-   * @example engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, reason: 'noMoney', why: 'Not enough gold' }] }
+   * @example engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, reason: 'noMoney',
+   * why: 'Not enough gold' }] }
    * @example engine.inspect('enemy_3');   // why is this enemy not attacking: its ops and their reasons
    * @example engine.inspect('chest-home').thing.definedAt   // 'content/props.js:14': edit that line to change the level for good
    * thing (when at is a record id): the record as a thing to change, with where it was authored (see HitThing).
    */
   inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): { actor: string; at: { x: number; z: number }; near: any[]; ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[]; thing?: HitThing };
   /**
-   * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it (reason first);
+   * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it
+   * (reason first);
    * detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one.
    * Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }.
    * @example engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'
    * @example engine.explain({ quest: 'first-light' }).text   // which step it waits on
-   * An op whose args.id names a world record also says where that record was authored (text ends with "defined in content/props.js:14: edit it there…"; thing has the rest).
+   * An op whose args.id names a world record also says where that record was authored (text ends with "defined in content/props.js:14: edit it there…";
+   * thing has the rest).
    */
   explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): { ok: boolean; reason?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing };
-  /** Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per rendered frame } and resets, or null when not on */
+  /**
+   * Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per
+   * rendered frame } and resets, or null when not on
+   */
   profile(on: boolean): this;
   profile(): Record<string, number> | null;
   /**
-   * Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then reclaim listeners, timers, audio, UI and GPU memory (scene, assets cache, post-processing, renderer).
+   * Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then reclaim listeners, timers, audio, UI and GPU
+   * memory (scene, assets cache, post-processing, renderer).
    * After that no callbacks fire and step() returns null. Safe to call repeatedly. Don't use it for level changes; use level.track(handle)
    */
   dispose(): void;
-  /** Counts for leak hunting: they should not keep growing after repeatedly entering / leaving levels or opening / closing windows. geometries / textures come from three.js renderer.info.memory (counted only after rendering) */
+  /**
+   * Counts for leak hunting: they should not keep growing after repeatedly entering / leaving levels or opening / closing windows. geometries / textures
+   * come from three.js renderer.info.memory (counted only after rendering)
+   */
   counts(): EngineCounts;
 }
 
@@ -1361,7 +1570,10 @@ export interface GameState {
     batching?: BatchingStats;
     /** Number of unfinished frame-spread jobs */
     jobs?: number; [key: string]: any };
-  /** Weather module additions: name (label is the display name), rain, snow, fog intensity 0–1, progress is the transition progress 0–1, rainVisible / snowVisible whether raindrops / snowflakes are drawn right now (object names weather-rain / weather-snow) */
+  /**
+   * Weather module additions: name (label is the display name), rain, snow, fog intensity 0–1, progress is the transition progress 0–1, rainVisible /
+   * snowVisible whether raindrops / snowflakes are drawn right now (object names weather-rain / weather-snow)
+   */
   weather?: any;
   /** Content added by other modules */
   [module: string]: any;

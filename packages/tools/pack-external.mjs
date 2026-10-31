@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { pathToFileURL } from 'node:url';
-import { ENGINE, TOOLS, styleDir } from './paths.mjs';
+import { ENGINE, TOOLS, styleDir, addonDir } from './paths.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { npm as npmRun } from './lib/proc.mjs';
 import { newGamePage } from './browser.mjs';
@@ -27,7 +27,8 @@ import { copyTemplate, engineAlone, vendored } from './lib/pack-cases.mjs';
 
 const MAIN = `// @ts-check
 import { createEngine, presets, openWorld, THREE } from 'threedog';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';
+import lowpoly from '@threedog/style-lowpoly';
+import { terrainPreset } from '@threedog/terrain-noise';
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('view'));
 const engine = createEngine({ canvas, style: lowpoly });
@@ -106,12 +107,13 @@ export async function packExternal({ check, browser, keep = false }) {
   let server;
   try {
     // 1. pack and look at the contents
-    const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), style = pack(styleDir('lowpoly'), tmp);
+    const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), style = pack(styleDir('lowpoly'), tmp), terrainPkg = pack(addonDir('terrain-noise'), tmp);
     const engFiles = eng.files.map(f => f.path), toolFiles = tools.files.map(f => f.path);
     const need = ['index.js', 'index.d.ts', 'README.md', 'docs/AI.md', 'core/errorHints.js', 'core/pureWorker.js', 'modules/terrain/chunkWorker.js'];
     check('engine tarball has entry points, types, docs, workers', need.every(f => engFiles.includes(f)), need.filter(f => !engFiles.includes(f)).join(', '));
     check('engine tarball has no tests/ or public/', !engFiles.some(f => /^(tests|public)\//.test(f)), engFiles.filter(f => /^(tests|public)\//.test(f)).slice(0, 3).join(', '));
     check('engine tarball ships no art (no styles/); the lowpoly pack is its own package with index.js and index.d.ts', !engFiles.some(f => f.startsWith('styles/')) && ['index.js', 'index.d.ts'].every(f => style.files.some(x => x.path === f)));
+    check('the terrain generator is its own package (index.js, index.d.ts), and the style pack ships none of it', ['index.js', 'index.d.ts'].every(f => terrainPkg.files.some(x => x.path === f)) && !style.files.some(x => /terrain/.test(x.path)), style.files.map(x => x.path).join(', '));
     check('tools tarball has the CLI and vite preset, no tests/', toolFiles.includes('bin/threedog.mjs') && toolFiles.includes('vite/gameConfig.js') && !toolFiles.some(f => f.startsWith('tests/')));
     check('both tarballs carry LICENSE; the engine carries llms.txt', engFiles.includes('LICENSE') && toolFiles.includes('LICENSE') && engFiles.includes('llms.txt'),
       ['LICENSE', 'llms.txt'].filter(f => !engFiles.includes(f)).concat(toolFiles.includes('LICENSE') ? [] : ['tools LICENSE']).join(', '));
@@ -119,7 +121,7 @@ export async function packExternal({ check, browser, keep = false }) {
     // 2. a fresh project that installs the tarballs like a user would
     mkdirSync(app);
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'threedog-external-check', private: true, type: 'module',
-      scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' }, dependencies: { threedog: `file:../${eng.filename}`, '@threedog/style-lowpoly': `file:../${style.filename}`, three: '~0.187.0' }, devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
+      scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' }, dependencies: { threedog: `file:../${eng.filename}`, '@threedog/style-lowpoly': `file:../${style.filename}`, '@threedog/terrain-noise': `file:../${terrainPkg.filename}`, three: '~0.187.0' }, devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
     copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
     writeFileSync(join(app, 'bad.js'), BAD);
     writeFileSync(join(app, 'tsconfig.strict.json'), JSON.stringify(TSCONFIG, null, 2));

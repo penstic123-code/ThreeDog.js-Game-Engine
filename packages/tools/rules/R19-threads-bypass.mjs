@@ -11,7 +11,7 @@ import { walk, lines, P } from './_lib.mjs';
 const POOL = new Set([`${P.CORE_REL}/Threads.js`, `${P.CORE_REL}/threadServe.js`]);
 export const engineSource = (exts = ['.js']) => [
   P.INDEX_JS_REL, `${P.ENGINE_REL}/vite.config.js`,
-  ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, P.EXAMPLES_REL].flatMap(d => walk(d, exts)),
+  ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.ADDONS_REL, P.EXAMPLES_REL].flatMap(d => walk(d, exts)),
 ].filter(f => exts.some(e => f.endsWith(e)));
 
 export default {

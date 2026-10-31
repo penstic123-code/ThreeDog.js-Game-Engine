@@ -65,7 +65,9 @@ const RULE_STRINGS = {
     vegetation: 'vegetation (name -> model, growth rule)',
     props: 'props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand',
     templates: 'reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions',
+    audio: 'sounds by asset name, ambience and music rules as data, footsteps (sounds, ambience, music: { tracks, rules }, footsteps)',
     grids: 'placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved',
+    renames: "renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id",
     rules: 'condition words added by the game ({ conditions }); actions are ops, not effect words',
   },
   // ref of conditions / effects -> how to write the value (used to generate API docs)
@@ -113,7 +115,8 @@ export const unknownContent = (name, game) => `unknown content "${name}". Known:
 export const NO_GAME_EFFECTS = "content/rules.js: games no longer add effect words. Register the action as an op (engine.ops.define('noun.verb', { can, run }) in main.js) "
   + "and call it from content with { op: ['noun.verb', { args }] }; see recipes/23-ops.md";
 
-const list = v => (Array.isArray(v) ? v : [v]);
+/** Wrap a single value into an array (a model written as 'tree' or ['tree', ...args]); the one copy for the content files @param {any} v @returns {any[]} */
+export const list = v => (Array.isArray(v) ? v : [v]);
 const say = (vocab, x) => Object.entries(x).map(([k, v]) => vocab[k]?.describe?.(v) ?? `${k} ${JSON.stringify(v)}`);
 
 /** Describe a condition as one human-readable sentence (for the map); vocab defaults to the engine vocabulary */

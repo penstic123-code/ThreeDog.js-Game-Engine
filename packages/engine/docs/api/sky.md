@@ -4,7 +4,8 @@ Sky, day/night, calendar (sky() module)
 
 - Options `SkyOptions` (also includes the fields of StyleSky):
   - `time?: number` Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay)
-  - `dayLength?: number` Game seconds per day, default 360 (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves
+  - `dayLength?: number` Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves
+  - `hoursPerDay?: number` Hours per day of the displayed clock and of clock notation ('18:30'), default 24. Gameplay timing, so a sky() option and not a style key
   - `day?: number` Which day to start from, default 1
   - `daysPerSeason?: number` Days of each season given by name only, default 7
   - `seasons?: (string | { name: string, days: number })[]` The calendar's seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring', 'summer', 'autumn', 'winter']

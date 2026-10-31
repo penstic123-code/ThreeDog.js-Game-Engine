@@ -1,6 +1,6 @@
 # Utility functions (imported from threedog)
 
-- `presets: { weather, calendar, player, interactions, camera }` — Opt-in gameplay presets: named option objects a game picks on purpose (the engine never applies one itself). Each only bundles options the game could write; spread and override: weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] })
+- `presets: { weather, calendar, player, interactions, keys, camera }` — Opt-in gameplay presets: named option objects a game picks on purpose (the engine never applies one itself). Each only bundles options the game could write; spread and override: weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] })
 - `world(opts?: { cellSize?, radius?, farEvery?, farMaxPerTick?, buildPerFrame? }) → import("../../../core").ModuleDef…` — World data module: installed as engine.world. Put things here that must be saved, survive level changes and keep changing while far away; models are only built while nearby
 - `net(opts?: { role, transport, sync?, syncEvery?, keepAlive?, rate?, … }) → import("../../../core").ModuleDef…` — (experimental) Optional co-op multiplayer: one host owns the state, clients mirror it and ask for changes through ops. Installed as engine.net. Host: peers' requests run as `ops.run(name, args, { source: 'net', actor })` only for ops defined with net: 'peer', with the op's args shape checked, the optional owner check, and a per-peer rate limit; the result comes back after the state diff that contains it. State: world records, containers, vars and the other save parts are sent as a snapshot on join and as diffs every syncEvery steps. Client: ops.run of a peer op returns { ok: true, pending: true, seq } (watch state or the net:result event, not the return value); its own avatar moves locally and is sent to the host (clamped to maxSpeed); other avatars glide between updates.
 - `fakeNetwork(opts?: { latency?, jitter?, loss?, seed?, manual? }) → { host, connect, advance, now, loss, latency, … }` — (experimental) An in-process network for tests and offline demos: one host and any number of clients in the same page, with optional latency, jitter and loss. Messages are deep-copied on send (no shared objects, like a real wire). Order per link is kept, as on a WebSocket. manual: true delivers only when you call advance(ms) (deterministic tests); otherwise messages land after real time.
@@ -19,7 +19,7 @@
 - `materialPatches(material: THREE.Material) → string[]` — Names of the patches on a material (in order), e.g. ['clouds', 'tint', 'wind']
 - `toast(engine: Engine, text: string, { kind, ms }?: { kind?: string; ms?: number })` — Show a short message through the 'toast' UI part (default: top of the screen, gone after ms). A game restyles it, filters it by kind or turns it off with createEngine({ ui: { toast: false } }). kind says where it came from: 'info' (default), 'quest', 'item', 'save', 'error'.
 - `makeWindow(engine: Engine, opts: WindowOptions) → UIWindow` — A toggleable window
-- `worldToScreen(engine: Engine, pos: PositionLike) → ScreenPoint` — World coordinates (position or object) -> screen pixels { x, y, onScreen, behind }
+- `worldToScreen(engine: Engine, pos: PositionLike) → ScreenPoint` — World coordinates (position or object) -> pixels from the canvas's top-left corner { x, y, onScreen, behind } (the UI root covers the canvas, so these place UI elements directly)
 - `fadeScreen(engine: Engine, to: number, seconds?: number) → Promise<void>` — Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends
 - `uiFocus(engine: Engine) → UIFocus` — UI focus stack: windows, dialogue and cutscenes push in open order; the back key (Esc) goes to the top only; an empty stack hands it to the settings menu
 - `toggleOnKey(engine: Engine, win: { open, toggle }, action: string)` — Window toggle key: call once per frame in a frame hook; opens on the action when closed, closes on another press when open
@@ -43,7 +43,7 @@
   - `open: boolean` Whether it is open
   - `refresh()` — Redraw the content
   - `toggle(on?: boolean)` — Open / close (toggle if no argument is passed)
-- **ScreenPoint** Result of worldToScreen(): x/y are screen pixels, onScreen is inside the view, behind is behind the camera
+- **ScreenPoint** Result of worldToScreen(): x/y are pixels from the canvas's top-left corner (the UI root covers the canvas), onScreen is inside the view, behind is behind the camera
   - `x: number`
   - `y: number`
   - `onScreen: boolean`

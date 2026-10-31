@@ -28,7 +28,7 @@ Import it in `content/index.js` and put it in the exported object (`containers`)
 ## 3. Buy, sell / consign (two ops + dialogue choices)
 Buying and selling are things the player decides to do, so they are ops (`recipes/23-ops.md`): define them once in `main.js`, and every caller (dialogue choice, a shop window button, the dev bridge, a test) runs the same `can` / `run`. **Buy** is allowed only when the shelf has stock and the player has the money; `transfer` returns how many actually moved, and money is charged only for those (a full inventory does not charge for nothing). **Consign**: the player puts something on the shelf, and the shelf pays when it accepts it.
 ```js
-// main.js (after engine.use(...inventory()...))
+// main.js (after engine.use(...inventory({ ...presets.keys.inventory })...))
 const price = (e, item) => e.inventory.item(item).price ?? 1;
 engine.ops.define('shop.buy', {
   args: { shop: 'string', item: 'string' },

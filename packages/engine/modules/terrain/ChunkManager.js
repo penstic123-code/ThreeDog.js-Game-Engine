@@ -9,6 +9,7 @@ import { chunkHandler } from './chunkJob.js';
 import { TerrainEdits } from './terrainEdit.js';
 import { terrainMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
+import { chunkRing } from '../../core/streamSources.js';
 import { chunkQueries } from './chunkQueries.js';
 
 const COLLIDER_LAG = 30;   // base delay before chunk collision takes effect (fixed steps, 30 = 0.5 s), multiplied by (1 + ring)
@@ -80,8 +81,13 @@ export class ChunkManager {
     this.lane.run(job).then(r => { this.inFlight--; this.ready.push(r); this._pump(); });
   }
 
-  /** View distance (in chunks). Also adjusts fog and the camera far plane */
-  setViewChunks(n) { this.viewChunks = n; this.engine.setFogFar((n - 0.3) * this.T.CHUNK); }
+  /** View distance (in chunks). Also moves the camera far plane out to it; the fog distance follows only with terrain({ viewFog: true }) (the game's fog is its own) */
+  setViewChunks(n) {
+    this.viewChunks = n;
+    const d = (n - 0.3) * this.T.CHUNK, e = this.engine;
+    if (this.viewFog) e.setFogFar(d);
+    else if (e.camera.far < d + 150) { e.camera.far = d + 150; e.camera.updateProjectionMatrix(); }   // chunks in view must not be clipped
+  }
   /** Vegetation density multiplier (rebuilds all chunks) */
   setDensity(d) { this.density = d; this.rebuild(); }
 
@@ -94,11 +100,7 @@ export class ChunkManager {
   }
 
   /** Ring of a chunk from the nearest stream source; a 'simple' source counts as the outer ring (far look, no near detail) */
-  _ring(c) {
-    let r = Infinity;
-    for (const s of this.centers) r = Math.min(r, Math.max(Math.abs(c.cx - s.cx), Math.abs(c.cz - s.cz), s.simple ? this.viewChunks : 0));
-    return r;
-  }
+  _ring(c) { return chunkRing(c.cx, c.cz, this.centers, this.viewChunks); }
 
   /**
    * Build a queued chunk entry and register the tick when its collision takes effect. Registered when the chunk is first needed (decided by stream source positions),
@@ -244,41 +246,23 @@ export class ChunkManager {
     this.engine.scene.add(c.group);
   }
 
-  _applyVeg(c, name, r) {
-    if (r.k && r.k.length) c.colliders[name] = r.k; else delete c.colliders[name];
-    (c.collidersAll ||= {})[name] = c.colliders[name];   // original collision circles (before felled trees are filtered), for vegetation single-tree removal
-    if (r.n === 0) return;
-    const sp = this.engine.vegetation.get(name);
-    const im = new THREE.InstancedMesh(sp.geometry, sp.material, r.n);
-    im.instanceMatrix.array.set(r.m); im.instanceMatrix.needsUpdate = true;
-    im.instanceColor = new THREE.InstancedBufferAttribute(r.c, 3);
-    im.frustumCulled = false; im.matrixAutoUpdate = false;
-    im.receiveShadow = sp.receiveShadow;
-    im.userData.ids = r.ids;   // stable id per instance (used by felled-tree records)
-    im.userData.budgetTag = 'vegetation';
-    c.group.add(im); im.updateMatrixWorld(true);
-    if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); }
-    c.veg[name] = im;
-    this.engine.vegetation?.applyEdits?.(c, name);   // apply world edits: felled trees stay gone after reload
-  }
+  // the InstancedMesh of one species in a chunk is built by vegetation (the same code builds its chunks on any other ground)
+  _applyVeg(c, name, r) { this.engine.vegetation.mount(c, name, r); }
 
   _setLevel(c, ring) {
     if (c.level === ring) return;
     c.level = ring;
-    const veg = this.engine.vegetation || NO_VEG, shadowsOn = this.engine.shadows;
+    const veg = this.engine.vegetation || NO_VEG;
     for (const sp of veg.list()) {
       const im = c.veg[sp.name];
       if (sp.nearOnly) {
         if (ring <= sp.maxRing && !im && !c.pendingDetail) {
           c.pendingDetail = true;
           this._send(this._job(c, false, veg.nearNames()));
-        } else if (ring > sp.maxRing + 1 && im) { c.group.remove(im); im.dispose(); delete c.veg[sp.name]; delete c.colliders[sp.name]; if (c.collidersAll) delete c.collidersAll[sp.name]; }
+        } else if (ring > sp.maxRing + 1 && im) veg.unmount(c, sp.name);
         continue;
       }
-      if (!im) continue;
-      im.visible = ring <= sp.maxRing;
-      im.geometry = sp.lodGeometry && ring > sp.lodRing ? sp.lodGeometry : sp.geometry;
-      im.castShadow = shadowsOn && sp.castShadow && ring <= sp.shadowRing;
+      if (im) veg.levelOf(im, sp, ring);
     }
   }
 

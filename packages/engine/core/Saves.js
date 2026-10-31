@@ -15,7 +15,7 @@ import { reportError } from './errors.js';
 import { codedError, coded } from './errorHints.js';
 import { FORMAT, checkPartVersion, readSave } from './saveVersions.js';
 import { exportSaveFile, importSaveFile, importText, SAVE_STRINGS } from './saveFiles.js';
-import { applySave, loadSlot, adoptPart } from './saveApply.js';
+import { applySave, loadSlot, adoptPart, afterLoad } from './saveApply.js';
 import { autosaveHook } from './session.js';
 
 
@@ -138,13 +138,14 @@ export class Saves {
   /**
    * Apply a save's data (an object from collect(), or save text) onto the running game. Resolves true when every part loaded.
    * Refused before anything changes (false, toast) when the data is corrupt, from a newer build or cannot be migrated.
+   * After every part loaded it runs the modules' afterLoad hooks (gameplay frozen until they resolve), for saves.load, session.newGame / quit and direct calls alike.
    * If a part's load throws, the game is rolled back to how it was before (every part reloads its pre-load state) and it resolves false; the error goes through the error tiers.
    * The state changes synchronously unless a part's load is async; only the result is a Promise.
    * @param {any} data
    * @param {string} [slot]  for messages only
    * @returns {Promise<boolean>}
    */
-  apply(data, slot = '(data)') { return applySave(this, data, slot); }
+  apply(data, slot = '(data)') { return applySave(this, data, slot).then(async ok => { if (ok) await afterLoad(this.engine); return ok; }); }
   /** @internal Put a save in memory and queue the disk write; returns Promise<boolean> (write succeeded) */
   _put(slot, json, savedAt) {
     const prev = this._json.get(slot), prevAt = this._meta.get(slot);

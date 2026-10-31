@@ -1,6 +1,6 @@
 # Adding items and pickups
 
-Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with I by default) + `interactions({ ...presets.interactions.nearest })` (walk up to an item on the ground and press E to pick it up). "Already picked up / how long until it grows back" is data in world (needs the world module that `openWorld()` includes) and is saved with the game.
+Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with the key the game gives: `inventory({ ...presets.keys.inventory })` is I / gamepad Y, `keys: []` none; no module binds a key by itself) + `interactions({ ...presets.interactions.nearest })` (walk up to an item on the ground and press E to pick it up). "Already picked up / how long until it grows back" is data in world (needs the world module that `openWorld()` includes) and is saved with the game.
 
 ## 1. Write data (recommended)
 `games/<game>/content/items.js`:

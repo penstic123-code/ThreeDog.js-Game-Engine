@@ -1,17 +1,20 @@
-// grids() module: placement grids for farming, furniture, crates, building. Installed as engine.grids; costs nothing when not installed.
+// grids() module: placement grids for anything placed on cells (furniture, building, crops, crates, tactics tiles). Installed as engine.grids; costs nothing when not installed.
 //   engine.use(world(), grids());
-//   const farm = engine.grids.add('farm', { cell: 1, origin: [0, 0], size: [16, 12] });
-//   engine.grids.define('crop', { size: [1, 1], layer: { soil: 'tilled' } });
-//   engine.ops.run('grid.place', { grid: 'farm', item: 'crop', cell: [3, 5] });
+//   const room = engine.grids.add('room', { cell: 1, origin: [0, 0], size: [16, 12] });
+//   engine.grids.define('table', { size: [2, 1], layer: { floor: 'wood' } });
+//   engine.ops.run('grid.place', { grid: 'room', item: 'table', cell: [3, 5] });
 // Where state lives (nothing is stored twice):
 //   placed things  -> world records with a `grid` field (saved by world); occupancy is an index rebuilt from them (world:add / change / remove / load)
-//   per-cell layers -> Layer maps, saved here under the save key 'grids' as [[i, j, data], ...]
+//   per-cell layers -> Layer maps, saved here under the save key 'grids' (version 2) as a per-cell diff against the authored cells (Layer.js)
 // The index is the "don't go around it" check: in dev a record's grid field is frozen (editing it in place throws), writes outside ops
 // trigger the ops guard, and a record whose footprint overlaps another one is reported with the fix.
 import { Grid } from './Grid.js';
 import { layerTiles } from './tiles.js';
 import { makePreview } from './preview.js';
 import { defineGridOps, placed } from './ops.js';
+
+/** Grids save part: version 1 stored every cell of a layer whole ([[i, j, data]]); version 2 stores a diff against the authored cells (Layer.js) */
+const GRIDS_MIGRATE = { 1: d => Object.fromEntries(Object.entries(d || {}).map(([g, ls]) => [g, Object.fromEntries(Object.entries(ls || {}).map(([n, rows]) => [n, { set: rows, whole: true }]))])) };
 import { checkOptions, closest, DEV } from '../../core/validate.js';
 
 const STRINGS = {
@@ -45,17 +48,19 @@ export class Grids {
   }
   /**
    * Create a grid. cell: edge length (m, default 1); origin: world [x, z] of the min corner of cell [0, 0]; size: [cells wide, cells deep] (omit = unbounded);
-   * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5)
+   * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5);
+   * layers: authored cells { soil: [[i, j, { tilled: true }], ...] } (content/grids.js): the baseline a save diffs against, so a save keeps only changed cells
    * @example const room = engine.grids.add('room', { cell: 0.5, origin: [-3, -3], size: [12, 12], zone: 'house' })
    * @param {string} name
-   * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number }} [opts]
+   * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number, layers?: Record<string, [number, number, Record<string, any>][]> }} [opts]
    * @returns {Grid}
    */
   add(name, opts = {}) {
-    checkOptions(`grids.add('${name}')`, opts, ['cell', 'origin', 'size', 'zone', 'flat']);
+    checkOptions(`grids.add('${name}')`, opts, ['cell', 'origin', 'size', 'zone', 'flat', 'layers']);
     if (this._grids.has(name)) throw new Error(fmt(STRINGS.dup, { name }));
     const g = new Grid(this.engine, this, name, opts);
     this._grids.set(name, g);
+    for (const [ln, rows] of Object.entries(opts.layers ?? {})) { const l = g.layer(ln); l._byContent = true; l._setBase(rows); }
     this._rebuild();   // records placed on it before it existed (content, a loaded save) now count
     return g;
   }
@@ -120,11 +125,13 @@ export class Grids {
 
   /** @internal a layer was created: load saved data waiting for it, build its tiles */
   _layerAdded(l) {
-    const rows = this._loaded?.[l.grid.name]?.[l.name];
-    if (rows) l.fromJSON(rows);
+    const d = this._loaded?.[l.grid.name]?.[l.name];
+    if (d) l.fromJSON(d);
     const t = layerTiles(this.engine, l);
     if (t) this._tiles.set(l, t);
   }
+  /** @internal a layer's options changed after content created it: rebuild its tiles */
+  _retile(l) { this._tiles.get(l)?.dispose(); this._tiles.delete(l); const t = layerTiles(this.engine, l); if (t) this._tiles.set(l, t); }
   /** @internal */
   _index(rec) {
     const p = rec.grid, g = this._grids.get(p.id);
@@ -155,8 +162,12 @@ export class Grids {
   }
   /** @internal */
   toJSON() {
-    const out = {};
-    for (const g of this._grids.values()) for (const l of g._layers.values()) if (l.count) (out[g.name] ??= {})[l.name] = l.toJSON();
+    // orphans kept: a loaded diff for a grid or layer that does not exist (yet) this run is written back as it was, so nothing is lost
+    const out = structuredClone(this._loaded ?? {});
+    for (const g of this._grids.values()) for (const l of g._layers.values()) {
+      if (l._same) { if (out[g.name]) delete out[g.name][l.name]; } else (out[g.name] ??= {})[l.name] = l.toJSON();
+    }
+    for (const k of Object.keys(out)) if (!Object.keys(out[k]).length) delete out[k];
     return out;
   }
   /** @internal */
@@ -201,7 +212,7 @@ export function grids() {
     name: 'grids', label: 'Grid placement', stage: 'gameplay', requires: ['world'],
     install(e) {
       G = new Grids(e);
-      e.saves.register('grids', { save: () => G.toJSON(), load: d => G.fromJSON(d) });
+      e.saves.register('grids', { version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
       offOps = defineGridOps(e, G);
       subs.push(
         e.events.on('world:add', ({ id }) => G._reindex(id)),

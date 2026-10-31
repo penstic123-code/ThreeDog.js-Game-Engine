@@ -2,7 +2,7 @@
 // After install: engine.terrain is the chunk manager; engine.surface()/slope()/groundType() come from it.
 //
 // The engine ships no landform and no ground types: terrain() alone is flat gray ground at y = 0 (a placeholder, with a dev warning).
-// A game passes a generator: its own pure functions, or a preset such as terrainPreset() from @threedog/style-lowpoly:
+// A game passes a generator: its own pure functions, or a preset such as terrainPreset() from @threedog/terrain-noise:
 //   engine.use(terrain({ seed: 7, ...terrainPreset(), flatten: [{ x: 0, z: 0, radius: 20 }] }));
 //   engine.use(terrain({ height: (x, z, n) => 10 * n.fbm(x * 0.01, z * 0.01), groundType: (x, z, h) => h > 8 ? 'rock' : 'grass' }));
 //   Both run in workers, so they are pure (threads.pure rules: only parameters and globals like Math; an outside variable throws here, naming it).
@@ -29,17 +29,17 @@ import { compilePure } from '../../core/threadPure.js';
 import { warnOnce } from '../../core/validate.js';
 
 const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a look). '
-  + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/style-lowpoly';
+  + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/terrain-noise';
 
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
 export function terrain(opts = {}) {
-  const { viewChunks = 4, density = 1, material, ...cfg } = opts;
+  const { viewChunks = 4, density = 1, material, viewFog = false, ...cfg } = opts;
   let w = null;
   return {
     name: 'terrain', label: 'Terrain', optional: ['vegetation'], stage: 'world',
     install(e) {
-      checkOptions('terrain()', opts, ['viewChunks', 'density', 'material', ...Object.keys(DEFAULT_TERRAIN)]);
+      checkOptions('terrain()', opts, ['viewChunks', 'density', 'material', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)]);
       const style = e.style.terrain || {};
       for (const k in cfg) if (cfg[k] === undefined) delete cfg[k];
       // a game's generator functions go to the workers as source text: checked here (outside variables name themselves) so the error points at this call
@@ -50,6 +50,7 @@ export function terrain(opts = {}) {
       if (!terrainCfg.height && !terrainCfg.heightmap) warnOnce(NO_HEIGHT);
       w = new ChunkManager(e, terrainCfg, material ?? style.material);
       w.density = density;
+      w.viewFog = viewFog;   // opt-in: the fog ends where the chunks end (hides the edge); otherwise createEngine({ fogFar }) / the game's fog stays
       this._cfg = terrainCfg;
       e.setGround({
         height: (x, z) => w.T.surface(x, z),

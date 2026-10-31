@@ -51,7 +51,7 @@ export const specs = [
       check('[guard] placing on a taken cell is refused (same cell and a 2x1 footprint overlapping it)', r.a.ok && r.twice.reason === 'occupied' && r.overlap.reason === 'occupied', JSON.stringify([r.a, r.twice, r.overlap]));
       check('[guard] a 2x1 item turned a quarter occupies two cells along z; the record keeps grid { cell, size, rotation, item }',
         r.turned[0] === r.bed.value && r.turned[1] === r.bed.value && r.turned[2] === null && r.kind === 'furniture' && JSON.stringify(r.recGrid) === '{"id":"farm","cell":[3,3],"size":[2,1],"rotation":1,"item":"bed"}', JSON.stringify(r));
-      check('outOfBounds past the edge; explain names the occupier', r.oob.reason === 'outOfBounds' && /occupied at cell \[3,4\] by furniture-\d+ \(bed\)/.test(r.explainText), r.explainText);
+      check('outOfBounds past the edge; explain names the occupier', r.oob.reason === 'outOfBounds' && /occupied at cell \[3,4\] by furniture#\d+ \(bed\)/.test(r.explainText), r.explainText);
       check('grid.move frees the old cells and takes the new ones; grid.remove frees its cell',
         r.moved.ok && r.afterMove[0] === null && r.afterMove[1] === r.bed.value && r.afterMove[2] === r.bed.value && r.removed.ok && r.freed === null, JSON.stringify(r));
       check('[guard] crops only on tilled soil: notTilled before tilling, placed after (item fields copied)', r.untilled.reason === 'notTilled' && r.tilled.ok && r.plantedAt === 0, JSON.stringify([r.untilled, r.tilled]));

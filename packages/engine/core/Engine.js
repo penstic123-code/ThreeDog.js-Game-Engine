@@ -42,6 +42,7 @@ import { reportListenerError } from './errors.js';
 import { createMovement } from './movement.js';
 import { moduleMethods } from './modules.js';
 import { skipMethods, defineSkipOp } from './skip.js';
+import { styleFrom } from './styleParts.js';
 // Options createEngine accepts (must match the constructor destructuring)
 const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',
@@ -51,11 +52,56 @@ const NO_STYLE = 'createEngine(): no style pack given, so everything is a neutra
   + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look. '
   + "Pass one: import lowpoly from '@threedog/style-lowpoly'; createEngine({ canvas, style: lowpoly }) (or your own pack, recipes/09-style-pack.md)";
 
+const _size = new THREE.Vector2();
+const NO_CSS_SIZE = 'createEngine(): the canvas has no CSS size of its own (it would take its size from its pixel buffer), so the engine sizes it to the window. '
+  + 'To embed it in a page section, split layout or editor panel, give it a CSS size, e.g. canvas { width: 100%; height: 100%; display: block } inside a sized parent';
+/**
+ * The canvas's CSS box in CSS pixels (what the page layout gave it). The drawing buffer is this times the pixel ratio (setSize(w, h, false) leaves the CSS alone).
+ * Two cases fall back to the window: a canvas outside the page (headless tests often make one with createElement) has no box, so the aspect
+ * is never 0 / 0; and a canvas without a CSS size (e.auto, see sizeMode) takes its box from its own buffer, which would grow by the pixel
+ * ratio on every resize, so the engine sets its CSS size to the window instead (what such a page got before).
+ */
+function canvasBox(e) {
+  const c = e.renderer.domElement;
+  if (c.isConnected && e._autoSize === undefined) sizeMode(e);
+  const w = c.clientWidth, h = c.clientHeight;
+  return !e._autoSize && w > 0 && h > 0 ? { w, h } : { w: innerWidth || 1, h: innerHeight || 1 };
+}
+/** Once, when the canvas is first in the page: does its CSS box follow its width / height attributes on both axes (no CSS size at all)? Then e._autoSize = true and the engine sizes it.
+ *  The probe doubles both attributes (same aspect): a box that follows them on both axes doubles, which is the case that would grow by the pixel ratio.
+ *  One CSS axis plus an auto one (width: 100%; height: auto, or aspect-ratio) only takes the attributes' aspect, which the engine keeps, so its box stays and is used */
+function sizeMode(e) {
+  const c = e.renderer.domElement, w0 = c.width, h0 = c.height, cw = c.clientWidth, ch = c.clientHeight;
+  c.width = Math.max(1, w0) * 2; c.height = Math.max(1, h0) * 2;
+  e._autoSize = c.clientWidth !== cw && c.clientHeight !== ch;
+  c.width = w0; c.height = h0;
+  if (e._autoSize) warnOnce(NO_CSS_SIZE);
+  if (e.uiRoot?.parentElement === document.body && c.parentElement && c.nextElementSibling !== e.uiRoot) c.after(e.uiRoot);   // canvas put in the page after createEngine
+}
+/**
+ * Lay the UI root over the canvas box. Its children are position: fixed, and contain: layout makes the root their containing block,
+ * so inset: 0 means "the canvas", not "the window". A fixed canvas gets a fixed root at its viewport rect; any other canvas an absolute root
+ * at its offset position in the same offset parent, so the two scroll together.
+ */
+function placeUI(e) {
+  const c = e.renderer.domElement, s = e.uiRoot.style;
+  if (!c.isConnected || !e.uiRoot.isConnected) return;
+  const fixed = getComputedStyle(c).position === 'fixed', b = fixed ? c.getBoundingClientRect() : null;
+  // set only once the root is placed: a root with contain but no box (canvas outside the page) would shrink every fixed child to 0 x 0.
+  // pointer-events: the root itself lets clicks through to the canvas; its children take them again (theme.js :where rule)
+  s.contain = 'layout'; s.pointerEvents = 'none';
+  s.position = fixed ? 'fixed' : 'absolute';
+  s.left = (fixed ? b.left + c.clientLeft : c.offsetLeft + c.clientLeft) + 'px';
+  s.top = (fixed ? b.top + c.clientTop : c.offsetTop + c.clientTop) + 'px';
+  s.width = c.clientWidth + 'px'; s.height = c.clientHeight + 'px';
+}
+
 export class Engine {
   /**
    * @param o
    *   canvas        <canvas> (required)
-   *   style         style pack (art only: colors, materials, models, sky, lighting, particle looks, UI colors), e.g. @threedog/style-lowpoly.
+   *   style         style pack (looks only: render/post, materials, sky, lighting, particle looks, UI look), e.g. @threedog/style-lowpoly,
+   *                 or a list of parts deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }] (rules in core/styleParts.js)
    *                 The engine ships no art: without one everything is a neutral gray placeholder (dev warning)
    *   shadows       real-time shadows, default true
    *   antialias     MSAA edges, default style.antialias, else on for desktop and off for low-tier devices (phones, integrated GPUs); settings can switch it
@@ -84,18 +130,20 @@ export class Engine {
   constructor(opts = {}) {
     setValidate(opts.validate);
     checkOptions('createEngine()', opts, ENGINE_OPTIONS);
-    const { canvas, style = {}, shadows = true, antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
+    const { canvas, style: styleIn, shadows = true, antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
       fov = 55, near = 0.3, fogFar = 600, locale = 'auto', strings = {}, bindings = {}, saveKey = 'game', joystick = 'auto', padBindings = {},
       headless = new URLSearchParams(location.search).has('threedog-headless'), validate = true,
       decoders = null, budget = null, urlState = DEV, seed, movement, threads = 'auto', pauseOnBlur = true, batching = {} } = opts;
     this.THREE = THREE;
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
-    this.style = style;
+    const style = this.style = styleFrom(styleIn);   // a list of parts is deep-merged (styleParts.js); one object is used as is
     if (!opts.style) warnOnce(NO_STYLE);
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.tier = detectTier(r);                 // 'low' | 'high': device tier, decides default quality
     r.setPixelRatio(pixelRatio ?? Math.min(devicePixelRatio || 1, this.tier === 'low' ? 1 : 1.5));
-    r.setSize(innerWidth, innerHeight, false);
+    this._autoSize = undefined;                // decided once the canvas is in the page (sizeMode): true = no CSS size, the engine sizes it to the window
+    const box = canvasBox(this);
+    r.setSize(box.w, box.h, !!this._autoSize);
     const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
     r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
     r.toneMappingExposure = style.exposure ?? 1;
@@ -107,7 +155,7 @@ export class Engine {
     this.scene.background = new THREE.Color(style.background ?? 0x8c8c8c);
     /** Default lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral without sky, driven by sky when installed @type {{ sun: any, hemi: any }} */
     this.lights = createDefaultLights(this);
-    this.camera = new THREE.PerspectiveCamera(fov, innerWidth / innerHeight, near, 1500);
+    this.camera = new THREE.PerspectiveCamera(fov, box.w / box.h, near, 1500);
     this.camera.position.set(0, 10, 20);
     this.focus = new THREE.Vector3();          // camera focus (updated by the camera module): the view loads around it; simulation follows world.anchor
     this.shadows = shadows;
@@ -120,7 +168,10 @@ export class Engine {
     this._abort = new AbortController();
     this.signal = this._abort.signal;          // attach DOM listeners to it: addEventListener(type, fn, { signal: engine.signal }); dispose cancels them together
     this.uiRoot = document.createElement('div');   // engine and module UI elements live here (not on body); dispose removes the whole root
-    this.uiRoot.className = 'threedog-root'; document.body.appendChild(this.uiRoot);
+    // the UI root sits right after the canvas and covers exactly its box (placeUI): HUD, windows and prompts line up with the canvas
+    // whether it fills the window, sits in a page section, a split layout or an editor panel
+    this.uiRoot.className = 'threedog-root';
+    if (r.domElement.parentElement) r.domElement.after(this.uiRoot); else document.body.appendChild(this.uiRoot);
     this.headless = headless;
     this.paused = headless;                    // while paused the real-time loop does not advance; only step() does
     this.fps = 0;
@@ -178,7 +229,15 @@ export class Engine {
     this.ui.get('loading')?.show({});
     this.adaptive = { paused: false, on: adaptiveResolution && !headless, target: targetFps, min: 0.6, max: r.getPixelRatio(),
       t: 0, n: 0, good: 0, cooldown: 0 };
+    // follow the canvas's own CSS box, not the window: a canvas in a page section or editor panel renders at its own size.
+    // The window event stays for a canvas outside the page (no box, falls back to the window) and for moves that do not resize the canvas
     addEventListener('resize', () => this._resize(), { signal: this.signal });
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => this._resize());
+      ro.observe(r.domElement);
+      this.signal.addEventListener('abort', () => ro.disconnect());
+    }
+    placeUI(this);
     this.page = new Page(this, { pauseOnBlur });   // window focus, tab visibility, mouse lock, WebGL context: handled only there
   }
 
@@ -262,9 +321,13 @@ export class Engine {
   get frozen() { return this._freezers.size > 0; }
 
   _resize() {
-    this.renderer.setSize(innerWidth, innerHeight, false);
-    this.post.setSize(innerWidth, innerHeight);
-    this.camera.aspect = innerWidth / innerHeight;
+    const { w, h } = canvasBox(this);
+    placeUI(this);
+    const now = this.renderer.getSize(_size);
+    if (now.x === w && now.y === h) return;   // ResizeObserver and the window event can both fire for one change
+    this.renderer.setSize(w, h, !!this._autoSize);
+    this.post.setSize(w, h);
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
 }

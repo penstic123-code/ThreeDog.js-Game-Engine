@@ -1,5 +1,5 @@
 // Bake: npm run bake [-- name …]
-// Exports code-generated models (the engine style pack models, the bake list in this workspace's bake.js) to this workspace's public/models/baked/<name>.glb and writes the manifest index.json.
+// Exports code-generated models (the asset packs the style packages export as `assets`, the bake list in this workspace's bake.js) to this workspace's public/models/baked/<name>.glb and writes the manifest index.json.
 // A built game reads these files directly (fast); in development engine.assets notices changed generator code and computes on the fly with a hint, so no need to bake every time.
 // When you need to run it:
 //   · before building for release (npm run build reports an error if a baked file is out of date)

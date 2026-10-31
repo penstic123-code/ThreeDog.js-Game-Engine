@@ -6,7 +6,7 @@
 // Every method that takes an item also takes a key: count('sword') counts all swords, count('sword#3') only that one.
 // Limits are optional: capacity (slots; an entry uses ceil(count / stack) slots) and maxWeight (sum of item weight × count). Locks and prices stay game rules.
 import { toast } from '../../ui/UI.js';
-import { checkOptionsArg, warnOnce, DEV } from '../../core/validate.js';
+import { checkOptionsArg, warnOnce, fmt, DEV } from '../../core/validate.js';
 
 // Developer messages (warned once in DEV): add doesn't throw when full, which an AI would hardly notice
 const STRINGS = {
@@ -17,7 +17,6 @@ const STRINGS = {
   badRow: "container '{box}': dropped a saved entry that is not { id: string, count: whole number > 0, data?: plain object } ({got}); the save was edited by hand or is damaged",
   keyToAdd: "add('{key}'): add takes an item id, not an entry key. Move an existing piece with inventory.transfer(from, to, '{key}')",
 };
-const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 const isKey = x => typeof x === 'string' && x.includes('#');
 // order-independent signature: entries with equal data stack together whatever the key order
 const sig = v => v === undefined ? '' : v && typeof v === 'object'

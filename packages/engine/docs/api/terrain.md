@@ -5,6 +5,7 @@ Procedural terrain (terrain() module)
 - Options `TerrainOptions` (also includes the fields of Partial<TerrainConfig>):
   - `viewChunks?: number` View distance (in chunks), default 4
   - `density?: number` Vegetation density multiplier, default 1
+  - `viewFog?: boolean` true: the fog distance (engine.fogFar) follows the view distance so the far chunk edge fades out; default false keeps the game's fog (openWorld() sets true)
   - `material?: Material | ((engine: Engine) => Material)` Ground material (default style.terrain.material, else the 'terrain' role with vertex colors); chunks have uv = world xz / chunk size. Cloud shadows and season tint are added
 
 ## Methods and properties

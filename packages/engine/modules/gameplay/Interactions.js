@@ -5,7 +5,7 @@
 // so every use is logged and checked by the same can (exists, enabled, in range, input not locked). Without id it uses the one the actor would pick now.
 // Who interacts is engine.actor (core/actor.js), measured with engine.actorPosition(): the player by default, a vehicle or squad member when the game says so.
 // How the one in front of you is chosen is the pick option: 'nearest' | 'facing' | 'aim' | a function (see interactions()). Each action is picked on its own,
-// so one object can carry "E · 浇水" and "F · 收获" as two interactions with different action names.
+// so one object can carry "Open" and "Lock" as two interactions with different action names (each bound to the game's own key).
 // The prompt is the UI part 'prompt' (default interactionPrompt.js, CSS class .threedog-prompt): replace it or turn it off with engine.ui.set('prompt', ...); prompt height style.ui.promptHeight (meters)
 import * as THREE from 'three';
 import { worldToScreen } from '../../ui/UI.js';
@@ -53,10 +53,10 @@ export class Interactions {
 
   /**
    * Add an interaction. target is a three.js object (followed) or a fixed position (Vector3 / [x, y, z] / { x, y, z }). label is text or a function returning text
-   * (put state-dependent text here: ()=> ripe ? '收获' : '还在生长'); enabled returning false hides the prompt entirely; action defaults to 'interact';
+   * (put state-dependent text here: () => locked ? 'Unlock' : 'Open'); enabled returning false hides the prompt entirely; action defaults to 'interact';
    * radius defaults to interactions({ radius }) (2.5 m). Add two with different actions to give one object two verbs. Returns a handle { remove() }.
-   * @example engine.interactions.add(crop, { label: '浇水', onUse: water });
-   * engine.interactions.add(crop, { label: '收获', action: 'harvest', enabled: () => ripe, onUse: harvest });   // F (define the 'harvest' key action first)
+   * @example engine.interactions.add(door, { label: 'Open', onUse: open });
+   * engine.interactions.add(door, { label: 'Lock', action: 'lock', enabled: () => hasKey, onUse: lock });   // a second verb: define the 'lock' action's key first
    * @example // onUse may return a result; interaction.use hands it back as value: const r = engine.ops.run('interaction.use'); if (r.ok && r.value?.ok === false) say(r.value.reason)   // 'full' for a pickup
    */
   add(target, opts = {}) {

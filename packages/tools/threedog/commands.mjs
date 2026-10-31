@@ -76,8 +76,8 @@ const PAGE = {
     if (!code) throw new Error(`action "${a.key}" has no keyboard key`);
     e.pause();
     // Actions go through the public input.simulate (same path as a real key press: the fixed snapshot and the frame "just pressed" see it).
-    // A raw key code has no public entry yet, so it uses the private one (remove when input gains simulateKey)
-    const down = on => action ? inp.simulate(action, on) : on ? inp._keyDown(code, 'keyboard') : inp._keyUp(code);
+    // A raw key code is sent as a real keyboard event: the engine's own window listener takes it, no private input call
+    const down = on => action ? inp.simulate(action, on) : dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code }));
     down(true);
     e.step(a.seconds, { render: false });
     down(false);

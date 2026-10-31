@@ -1,4 +1,5 @@
-// Gameplay modules: timeline, level, triggers, entities, world changes, particles, settings, music, characters/NPCs, interactions, dialogue, inventory, quests, photo mode, ambience, debug.
+// Gameplay modules: timeline, level, triggers, entities, world changes, particles, settings, music, characters/NPCs, interactions, dialogue, inventory,
+// quests, photo mode, ambience, debug.
 import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike } from './common';
 import type { Engine } from './core';
 import type { Input } from './generated/core/Input';
@@ -43,7 +44,10 @@ export type TimelineStep =
   | { tween: { target: any; to: TweenTo; duration?: number; ease?: Ease } }
   /** Camera: from/to end points, duration in seconds, fov target field of view; or { release: true } to hand the camera back */
   | { camera: { from?: CameraPose; to?: CameraPose; duration?: number; ease?: Ease; fov?: number; release?: false } | { release: true } }
-  /** Move an object (or character, or camera) along a path: points are the path points, duration in seconds, lookAhead how far ahead to look (0–1), ground snaps to the ground (a number = height above ground) */
+  /**
+   * Move an object (or character, or camera) along a path: points are the path points, duration in seconds, lookAhead how far ahead to look (0–1),
+   * ground snaps to the ground (a number = height above ground)
+   */
   | { path: { object: any; points: Vec3Like[]; duration?: number; ease?: Ease; lookAhead?: number; ground?: boolean | number; closed?: boolean; curve?: 'catmullrom' | 'centripetal' | 'chordal'; tension?: number; upright?: boolean } }
   /** Full-screen fade: fade is the seconds, to is the target cover (0 transparent ... 1 full black, default 1) */
   | { fade: number; to?: number }
@@ -64,7 +68,10 @@ export interface TimelinePlayOptions {
 import type { Timeline } from './generated/modules/timeline/Timeline';
 export type { Timeline };
 export interface TimelineOptions {
-  /** Keys that skip a cutscene, default ['Escape', 'Backspace'] (Esc is the back key, which the UI focus stack hands to the topmost cutscene; cutscenes do not advance while frozen) */
+  /**
+   * Keys that skip a cutscene, default ['Escape', 'Backspace'] (Esc is the back key, which the UI focus stack hands to the topmost cutscene; cutscenes
+   * do not advance while frozen)
+   */
   skipKeys?: string[];
 }
 
@@ -124,9 +131,16 @@ export interface Level {
   markersWith(prefix: string): LevelMarker[];
   /** Unload the level (the scene is fully deleted with engine.remove; collision, ray registrations and things registered with track are removed together) */
   unload(): void;
-  /** Change level: unload the current one, load the new one (glTF path/asset name, or a THREE object), and emit level:loaded when done. When a load changes level, the save system waits for it */
+  /**
+   * Change level: unload the current one, load the new one (glTF path/asset name, or a THREE object), and emit level:loaded when done. When a load
+   * changes level, the save system waits for it
+   */
   load(urlOrScene: string | Object3D): Promise<void>;
-  /** Register things that belong to the current level and need not be kept (the { remove() } handles of triggers...); they are deleted automatically on level change / unload; returns the same handle. world data that keeps state (NPCs, pickups, props) needs no registration: with a zone, a level change only tears down the model */
+  /**
+   * Register things that belong to the current level and need not be kept (the { remove() } handles of triggers...); they are deleted automatically on
+   * level change / unload; returns the same handle. world data that keeps state (NPCs, pickups, props) needs no registration: with a zone, a level
+   * change only tears down the model
+   */
   track<T extends { remove(): void }>(handle: T): T;
 }
 
@@ -446,11 +460,15 @@ export interface SettingsOptions {
   presets?: Record<string, QualityPreset>;
   /**
    * Tabs: true (default) graphics, audio, controls, language, saves; false none; or a list by name, which may include the optional
-   * 'game' (resume, load a save, back to title) and 'camera' (mouse sensitivity, invert Y, field of view; saved as camera.sensitivity / camera.invertY / camera.fov)
+   * 'game' (resume, load a save, back to title) and 'camera' (mouse sensitivity, invert Y, field of view; saved as camera.sensitivity / camera.invertY
+   * / camera.fov)
    * @example settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camera'] })
    */
   sections?: boolean | string[];
-  /** Pause gameplay while the menu is open (with flow installed it switches to flow's 'paused' and returns to the previous state on close; without flow it uses engine.freeze); the picture keeps running, default false */
+  /**
+   * Pause gameplay while the menu is open (with flow installed it switches to flow's 'paused' and returns to the previous state on close; without flow
+   * it uses engine.freeze); the picture keeps running, default false
+   */
   freezeWorld?: boolean;
 }
 
@@ -509,7 +527,7 @@ export interface MusicOptions {
   rules?: MusicRule[];
   /** Default crossfade seconds, default 2 */
   fade?: number;
-  /** Duck the music bus during dialogue to this (0-1), false turns it off, default 0.35 */
+  /** Duck the music bus during dialogue to this (0-1, e.g. 0.35); default false = no duck (the game opts in) */
   duckDialogue?: number | false;
   /** Fade seconds for the ducking */
   duckFade?: number;
@@ -570,7 +588,8 @@ export interface CharacterOptions {
   canJump?: boolean;
   /**
    * glTF model: what engine.assets.model() returned, or the name of a registered model asset (default style.character.model).
-   * A name builds the character at once with the placeholder body and swaps in a copy of the asset when it loads (see Character.ready / whenReady, event 'character:model')
+   * A name builds the character at once with the placeholder body and swaps in a copy of the asset when it loads (see Character.ready / whenReady,
+   * event 'character:model')
    * @example engine.characters.createPlayer({ model: 'hero' })   // after engine.assets.manifest({ models: { hero: '/models/hero.glb' } })
    */
   model?: Object3D | string | null;
@@ -580,7 +599,10 @@ export interface CharacterOptions {
   animation?: AnimatorOptions | null;
   /** Movement method: 'simple' built into the engine (default) | 'rapier' Rapier character controller (needs the rigid module) */
   mover?: 'simple' | 'rapier';
-  /** Which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward()) | 'target' (toward faceTarget) | 'manual' (only face() turns it) */
+  /**
+   * Which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward()) | 'target' (toward faceTarget) | 'manual'
+   * (only face() turns it)
+   */
   faceMode?: FaceMode;
   /** What faceMode 'target' faces (lock-on) */
   faceTarget?: PositionLike | null;
@@ -589,17 +611,23 @@ export interface CharacterOptions {
 export type FaceMode = 'move' | 'camera' | 'target' | 'manual';
 /** What a player control function returns: world direction (length 0–1), run, speed override (m/s); null = stand still */
 export type MoveRequest = { x: number; z: number; run?: boolean; speed?: number } | null | undefined;
-/** Who moves the player each fixed step: 'camera' movement keys relative to the camera | 'none' the game calls player.move() itself | function returns the move request */
+/**
+ * Who moves the player each fixed step: 'camera' movement keys relative to the camera | 'none' the game calls player.move() itself | function returns
+ * the move request
+ */
 export type PlayerControl = 'camera' | 'none' | ((player: Character, input: Input, dt: number) => MoveRequest);
 /** Parameters of createPlayer() */
 export interface PlayerOptions extends CharacterOptions {
   /** Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted */
   spawn?: PositionLike;
-  /** Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space'] */
+  /** Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space', 'PadA'] */
   jumpKeys?: string[];
-  /** Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift */
+  /** Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift / gamepad LB */
   runKeys?: string[];
-  /** Required, no default: 'camera' (keys relative to the camera) | 'none' (call player.move() yourself in onFixed) | (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control. presets.player.* fill it */
+  /**
+   * Required, no default: 'camera' (keys relative to the camera) | 'none' (call player.move() yourself in onFixed) | (player, input, dt) => ({ x, z,
+   * run?, speed? }). Also the runtime property player.control. presets.player.* fill it
+   */
   control: PlayerControl;
   /** true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev */
   cameraFollow?: boolean;
@@ -619,7 +647,10 @@ export declare class Character {
   readonly position: Vector3;
   /** Horizontal velocity (x, y map to world x, z) */
   velocity: Vector2;
-  /** Heading (radians): 0 faces +Z, forward = (sin facing, cos facing); increasing turns toward +X (rotation about the Y axis, consistent with root.rotation.y) */
+  /**
+   * Heading (radians): 0 faces +Z, forward = (sin facing, cos facing); increasing turns toward +X (rotation about the Y axis, consistent with
+   * root.rotation.y)
+   */
   facing: number;
   /** Vertical velocity (m/s) */
   vy: number;
@@ -655,7 +686,8 @@ export declare class Character {
   ready: boolean;
   /**
    * Settles (never rejects) when a model named by asset is swapped in or has failed; already settled otherwise
-   * @example const npc = new Character(engine, { model: 'villager' }).addTo();   // import { Character } from 'threedog' await npc.whenReady; npc.playAction('Wave');
+   * @example const npc = new Character(engine, { model: 'villager' }).addTo();   // import { Character } from 'threedog' await npc.whenReady;
+   * npc.playAction('Wave');
    */
   readonly whenReady: Promise<void>;
   /** The vehicle being driven (null when not driving) */
@@ -666,7 +698,10 @@ export declare class Character {
   exit(): void;
   /** Play a one-shot action (e.g. 'wave'); skipped if the model has no such clip */
   playAction(name: string): void;
-  /** Fully delete this character: exits the vehicle first, releases animation and movement, removes it from the scene and releases geometry and materials (used by npcs.remove / removePlayer) */
+  /**
+   * Fully delete this character: exits the vehicle first, releases animation and movement, removes it from the scene and releases geometry and materials
+   * (used by npcs.remove / removePlayer)
+   */
   dispose(): void;
   /** Request a jump */
   jump(): void;
@@ -674,7 +709,10 @@ export declare class Character {
   addTo(scene?: any): this;
   /** Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z }) */
   placeAt(position: PositionLike): this;
-  /** After moving root yourself (a cutscene path, a scripted pose): write position and motion back to its world record (the player's), so a save right after has it */
+  /**
+   * After moving root yourself (a cutscene path, a scripted pose): write position and motion back to its world record (the player's), so a save right
+   * after has it
+   */
   syncRecord(): this;
   /** Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1), run to run, dt in seconds */
   move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number): void;
@@ -682,7 +720,10 @@ export declare class Character {
   groundType(): string;
   /** Turn at once to a position, or to an angle in radians (0 = +Z) */
   face(target: PositionLike | number): void;
-  /** Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results */
+  /**
+   * Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after
+   * the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
+   */
   saveMotion(out?: CharacterMotion): CharacterMotion;
   /** Restore the motion state from the plain object of saveMotion */
   loadMotion(m: CharacterMotion | null | undefined): this;
@@ -702,19 +743,31 @@ export interface ScheduleStop {
 export interface ScheduleEntry { at: number; x: number; z: number }
 /** Parameters of engine.npcs.add({...}) */
 export interface NPCOptions extends CharacterOptions {
-  /** Stable id (used by saves, quest targets { npc } and npcs.get); falls back to name if omitted (two NPCs with the same name and no id throw an error). Calling add again with the same id updates the definition and keeps position and state */
+  /**
+   * Stable id (used by saves, quest targets { npc } and npcs.get); falls back to name if omitted (two NPCs with the same name and no id throw an error).
+   * Calling add again with the same id updates the definition and keeps position and state
+   */
   id?: string;
-  /** NPC authored in content (everything added by content): the initial record of world; saves only record changes such as position and state, the schedule follows the content; deleted ones do not reappear after loading */
+  /**
+   * NPC authored in content (everything added by content): the initial record of world; saves only record changes such as position and state, the
+   * schedule follows the content; deleted ones do not reappear after loading
+   */
   initial?: boolean;
   /** Name */
   name?: string;
-  /** Which zone it belongs to (a level name, see world.zone): when not in this zone only the model is torn down and the data stays; null (default) means it is present everywhere */
+  /**
+   * Which zone it belongs to (a level name, see world.zone): when not in this zone only the model is torn down and the data stays; null (default) means
+   * it is present everywhere
+   */
   zone?: string | null;
   /** Schedule (needs the sky module; without it the first entry is always used) */
   schedule?: ScheduleStop[];
   /** Behavior name: 'schedule' (default, follows the schedule), 'wander' (roams around home) or a name registered with npcs.behavior() */
   behavior?: string;
-  /** Behavior parameters and memory (plain values, saved). wander: { radius in meters (8), pause [min, max] seconds ([2, 6]), home { x, z } (defaults to the position when wandering started) } */
+  /**
+   * Behavior parameters and memory (plain values, saved). wander: { radius in meters (8), pause [min, max] seconds ([2, 6]), home { x, z } (defaults to
+   * the position when wandering started) }
+   */
   mind?: Record<string, any>;
   /** Dialogue script name (needs the dialogue and interactions modules), triggered by pressing the interact key when close */
   talk?: string | null;
@@ -726,7 +779,10 @@ export interface NPCOptions extends CharacterOptions {
   pathStep?: number;
   /** Seconds before re-pathfinding after getting stuck, default 2 */
   repath?: number;
-  /** Arrival distance (meters), default 1.2: within 1.2 m of the schedule stop / target counts as arrived and stops, it does not step exactly on the point (call placeAt yourself for an exact spot) */
+  /**
+   * Arrival distance (meters), default 1.2: within 1.2 m of the schedule stop / target counts as arrived and stops, it does not step exactly on the
+   * point (call placeAt yourself for an exact spot)
+   */
   arriveDistance?: number;
   /** Initial position (Vector3 / object / [x, y, z] / { x, z }); the current schedule stop is used if omitted */
   position?: PositionLike;
@@ -759,7 +815,10 @@ export declare class NPC {
   readonly object: Object3D | null;
   /** Position: the model's position when there is a model (use it read-only, move with placeAt), a copy of the record's position when there is none */
   readonly position: Vector3;
-  /** Change behavior (stored in the data, restored by saves). mind is the new behavior's parameters / memory (plain values), cleared if omitted. E.g. npc.setBehavior('wander', { radius: 12 }) */
+  /**
+   * Change behavior (stored in the data, restored by saves). mind is the new behavior's parameters / memory (plain values), cleared if omitted. E.g.
+   * npc.setBehavior('wander', { radius: 12 })
+   */
   setBehavior(name: string, mind?: Record<string, any>): this;
   /** The stop it should be heading to now */
   currentStop(): ScheduleEntry | null;
@@ -776,12 +835,19 @@ export interface NPCManager {
   list(): NPC[];
   /** Add an NPC, returns a handle */
   add(opts: NPCOptions): NPC;
-  /** Delete an NPC (pass a handle, id or name): the data is deleted, and the model and dialogue interaction are torn down together. Returns false if not found */
+  /**
+   * Delete an NPC (pass a handle, id or name): the data is deleted, and the model and dialogue interaction are torn down together. Returns false if not
+   * found
+   */
   remove(npc: NPC | string): boolean;
-  /** Register an NPC behavior: near(rec, dt, npc) once per fixed step when nearby, far(rec, dt) simulated from the data when far (dt is accumulated seconds); selected through behavior in the data */
+  /**
+   * Register an NPC behavior: near(rec, dt, npc) once per fixed step when nearby, far(rec, dt) simulated from the data when far (dt is accumulated
+   * seconds); selected through behavior in the data
+   */
   behavior(name: string, impl: { near?: (rec: WorldRecord, dt: number, npc: NPC) => void; far?: (rec: WorldRecord, dt: number) => void }): this;
   /**
-   * Nearby NPCs avoid each other (on by default): pushed apart to no less than the sum of their radii, the player counts as an obstacle (NPCs yield to the player), then constrained back to walkable places by engine.collision; deterministic and cheap, with identical results after loading.
+   * Nearby NPCs avoid each other (on by default): pushed apart to no less than the sum of their radii, the player counts as an obstacle (NPCs yield to
+   * the player), then constrained back to walkable places by engine.collision; deterministic and cheap, with identical results after loading.
    * With nav({ crowd: true }) crowd takes over. Far NPCs (no model) do not avoid one by one. on / radius / strength are the current values.
    * @example engine.npcs.avoid.set({ radius: 0.6, strength: 2 });   // set(false) turns it off
    */
@@ -792,7 +858,10 @@ export interface NPCManager {
     /** Maximum push-apart speed (m/s), default 3 */
     strength: number;
     set(opts: boolean | { on?: boolean; radius?: number | null; strength?: number }): NPCManager['avoid'];
-    /** For custom behaviors: call once after character.move and before writing back to the data, to push this NPC away from neighbors and the player (built-in behaviors already call it) */
+    /**
+     * For custom behaviors: call once after character.move and before writing back to the data, to push this NPC away from neighbors and the player
+     * (built-in behaviors already call it)
+     */
     push(rec: WorldRecord, character: Character, dt: number): void;
   };
   /** Find by id or name (id first) */
@@ -802,33 +871,60 @@ export interface NPCManager {
 }
 /** engine.characters */
 export interface CharactersApi {
-  /** Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height) */
+  /**
+   * Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming
+   * terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
+   */
   findSpawn(position?: PositionLike, opts?: FindSpawnOptions): Vector3;
-  /** Create the player and set engine.player; control is required (no default feel), e.g. createPlayer({ ...presets.player.thirdPerson, spawn }). An existing player is deleted first */
+  /**
+   * Create the player and set engine.player; control is required (no default feel), e.g. createPlayer({ ...presets.player.thirdPerson, spawn }). An
+   * existing player is deleted first
+   */
   createPlayer(opts: PlayerOptions): Character;
-  /** The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it inside your own control function to wrap it */
+  /**
+   * The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it
+   * inside your own control function to wrap it
+   */
   moveInput(): { x: number; z: number; run: boolean; speed?: number };
-  /** Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first */
+  /**
+   * Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the
+   * position and the vehicle; loading an on-foot save exits the vehicle first
+   */
   removePlayer(): void;
-  /** Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable */
+  /**
+   * Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or
+   * null if unreachable
+   */
   findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }): XZ[] | null;
-  /** Pass detailed: true: returns { status, path }, distinguishing 'ok' found | 'noPath' unreachable | 'notReady' nav is installed but the mesh is not built yet (path is the A* fallback result and may be inaccurate) */
+  /**
+   * Pass detailed: true: returns { status, path }, distinguishing 'ok' found | 'noPath' unreachable | 'notReady' nav is installed but the mesh is not
+   * built yet (path is the A* fallback result and may be inaccurate)
+   */
   findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }): PathResult;
-  /** findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4 */
-  findPathAsync(from: PositionLike, to: PositionLike, done: (path: XZ[] | null, status: 'ok' | 'noPath' | 'notReady') => void, opts?: { radius?: number; step?: number; maxNodes?: number }): { cancel(): void };
+  /**
+   * findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same
+   * paths with threads on or off). Recipe 12 section 4
+   */
+  findPathAsync(
+    from: PositionLike, to: PositionLike, done: (path: XZ[] | null, status: 'ok' | 'noPath' | 'notReady') => void,
+    opts?: { radius?: number; step?: number; maxNodes?: number }
+  ): { remove(): void };
   /** How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps */
   pathsPerStep: number;
 }
 /** Return value of findPath(..., { detailed: true }) */
 export interface PathResult { status: 'ok' | 'noPath' | 'notReady'; path: XZ[] | null }
-/** Parameters of findSpawn(): minH/maxH height range (meters, default unlimited), maxSlope maximum slope (default 0.3), waterMargin minimum meters above the water (default 0.5) */
+/**
+ * Parameters of findSpawn(): minH/maxH height range (meters, default unlimited), maxSlope maximum slope (default 0.3), waterMargin minimum meters above
+ * the water (default 0.5)
+ */
 export interface FindSpawnOptions { minH?: number; maxH?: number; maxSlope?: number; waterMargin?: number }
 export interface CharactersOptions {
   /** Whether to enable NPCs (engine.npcs), default true */
   npcs?: boolean;
-  /** Brake key when driving (action brake, registered when rigid is installed), default ['KeyB'] (so it doesn't fight with Space for jump) */
+  /** Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix); presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump) */
   brakeKeys?: string[];
-  /** Gamepad button for braking, default ['PadLT'] */
+  /** Gamepad button for braking, none by default; presets.keys.brake has ['PadLT'] */
   brakePad?: string[];
 }
 /** Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters) */
@@ -850,7 +946,10 @@ export interface InteractionOptions {
   action?: string;
   /** Called when pressed */
   onUse?: (object: Object3D) => void;
-  /** When this returns false the whole prompt disappears (to show a state such as "growing", don't use enabled: have the label function return different text by state and decide in onUse whether it can be used) */
+  /**
+   * When this returns false the whole prompt disappears (to show a state such as "growing", don't use enabled: have the label function return different
+   * text by state and decide in onUse whether it can be used)
+   */
   enabled?: () => boolean;
   /** How high the prompt floats above the object (meters) */
   height?: number;
@@ -870,13 +969,17 @@ export interface Interactions {
   current: any;
   /** One best interaction per key action this frame, for a prompt that lists several keys */
   options: { action: string; id: string; label: string }[];
-  /** Add an interaction: passing an object makes it follow the object, passing a position (Vector3 / [x, y, z] / { x, y, z }) makes a fixed point. Returns a handle { remove() } */
+  /**
+   * Add an interaction: passing an object makes it follow the object, passing a position (Vector3 / [x, y, z] / { x, y, z }) makes a fixed point.
+   * Returns a handle { remove() }
+   */
   add(target: Object3D | PositionLike, opts?: InteractionOptions): Handle;
   /** The interaction with this id, or null. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick) */
   get(id: string): any;
 }
 /**
- * What the 'prompt' UI part receives in update(view) every frame while an interaction is in reach (hide() when none). Call use() on click: it runs the op interaction.use.
+ * What the 'prompt' UI part receives in update(view) every frame while an interaction is in reach (hide() when none). Call use() on click: it runs the
+ * op interaction.use.
  * @example engine.ui.set('prompt', (engine) => ({ update: (v) => myLabel.set(v.x, v.y, v.label, v.key), hide: () => myLabel.hide() }))
  */
 export interface PromptView {
@@ -899,7 +1002,10 @@ export interface PromptView {
 }
 /** A candidate handed to a pick function: an enabled interaction within its radius of the actor */
 export interface InteractionCandidate { id: string; object: Object3D; action: string; label: string | (() => string); distance: number }
-/** 'nearest' | 'facing' (within 60° of where the actor faces) | 'aim' (closest to the screen-center ray) | a function choosing one candidate (nearest first) or null */
+/**
+ * 'nearest' | 'facing' (within 60° of where the actor faces) | 'aim' (closest to the screen-center ray) | a function choosing one candidate (nearest
+ * first) or null
+ */
 export type InteractionPick = 'nearest' | 'facing' | 'aim' | ((candidates: InteractionCandidate[], ctx: { engine: Engine; actor: string; position: Vector3; action?: string }) => InteractionCandidate | null | undefined);
 export interface InteractionsOptions {
   /** Default action name, default 'interact' */
@@ -908,7 +1014,10 @@ export interface InteractionsOptions {
   promptHeight?: number;
   /** Default reach of add() in meters, default 2.5 */
   radius?: number;
-  /** Required, no default: how the interaction in front of the actor is chosen. presets.interactions.* fill it. @example interactions({ pick: 'aim', keys: ['KeyE'], radius: 2 }) // first person */
+  /**
+   * Required, no default: how the interaction in front of the actor is chosen. presets.interactions.* fill it. @example interactions({ pick: 'aim',
+   * keys: ['KeyE'], radius: 2 }) // first person
+   */
   pick: InteractionPick;
   /** Keys of the action; required unless the game bound the action already (createEngine({ bindings: { interact: [...] } }) or input.define) */
   keys?: string[];
@@ -973,21 +1082,24 @@ export interface Dialogue {
   define(speaker: string, nodes: DialogueScript): void;
   /**
    * Start a dialogue: from node nodeId (default 'start'), onEnd is called when it ends.
-   * lock (default true) locks game input and takes Esc; lock: false lets the player keep playing (lines move on by themselves) and never cuts into a locking dialogue.
+   * lock (default true) locks game input and takes Esc; lock: false lets the player keep playing (lines move on by themselves) and never cuts into a
+   * locking dialogue.
    * onCancel: what the back key (Esc) does while this locking dialogue is on top of the UI focus stack (default: nothing).
    * Ending the playthrough (engine.session newGame / load / quit) closes the dialogue without calling onEnd.
    * @example engine.dialogue.start('guard', 'start', null, { lock: false })
    */
   start(speaker: string, nodeId?: string, onEnd?: (() => void) | null, opts?: { lock?: boolean; onCancel?: (() => void) | null }): void;
   /**
-   * Say a one-off line (no need to define first); the Promise resolves when it is done. lock: false = said while the player keeps playing (barks, radio chatter).
+   * Say a one-off line (no need to define first); the Promise resolves when it is done. lock: false = said while the player keeps playing (barks, radio
+   * chatter).
    * When the playthrough ends (engine.session) the line is dropped and the Promise never resolves, so code awaiting it does not run in the next playthrough.
    * @example await engine.dialogue.say('Reloading!', { speaker: 'Mira', lock: false })
    */
   say(text: string | DialogueScript, opts?: { speaker?: string; node?: string; lock?: boolean; onCancel?: (() => void) | null }): SayPromise;
   /** End the current dialogue */
   end(): void;
-  // Advancing and choosing are ops: engine.ops.run('dialogue.advance') / engine.ops.run('dialogue.choose', { index }) (0-based; while typing it completes the line first)
+  // Advancing and choosing are ops: engine.ops.run('dialogue.advance') / engine.ops.run('dialogue.choose', { index })
+  // (0-based; while typing it completes the line first)
 }
 export interface DialogueOptions {
   /** Typing speed (characters/second, game time: advanced by engine.step), default 40 */
@@ -1079,11 +1191,17 @@ export interface ItemEntry { key: string; id: string; count: number; data?: Read
 /** Change in a non-player container (the player inventory emits item:add / item:remove): container is the container id */
 export interface ContainerEvent extends ItemEvent { container: string }
 export interface PickupEvent { id: string; x: number; z: number }
-/** Handle returned by spawnPickup(): id is the item, worldId is the id of this record in engine.world, object is the current model (null when far away); remove() deletes the pickup (data and model; a model passed in through opts.mesh is only taken off) */
+/**
+ * Handle returned by spawnPickup(): id is the item, worldId is the id of this record in engine.world, object is the current model (null when far away);
+ * remove() deletes the pickup (data and model; a model passed in through opts.mesh is only taken off)
+ */
 export interface PickupHandle extends Handle { id: string; worldId: string; readonly object: Object3D | null }
 /** Parameters of spawnPickup() */
 export interface PickupOptions {
-  /** Stable id of this record in world (saves recognize it by this); numbered automatically pickup-1... if omitted, and an existing record with the same id is reused */
+  /**
+   * Stable id of this record in world (saves recognize it by this); numbered automatically pickup#1... if omitted, and an existing record with the same
+   * id is reused
+   */
   id?: string;
   /** How many you get when picking up, default 1 */
   count?: number;
@@ -1099,13 +1217,19 @@ export interface PickupOptions {
   respawnSeconds?: number;
   /** Bob up and down and rotate, default true */
   bob?: boolean;
-  /** Pickup authored in content (needs an id): the initial record of world; saves record only being picked up / waiting to respawn, with identical results whether the load comes before or after this spawn */
+  /**
+   * Pickup authored in content (needs an id): the initial record of world; saves record only being picked up / waiting to respawn, with identical
+   * results whether the load comes before or after this spawn
+   */
   initial?: boolean;
   /** Which zone it belongs to (a level name, see world.zone): the data stays across level changes (a picked-up one stays picked up) */
   zone?: string | null;
 }
 
-/** Container (inventory, chest, corpse, shelf): inventory.container(id, opts) gets or creates one; the player inventory is the one with id 'player'. Every x is an item id or an entry key */
+/**
+ * Container (inventory, chest, corpse, shelf): inventory.container(id, opts) gets or creates one; the player inventory is the one with id 'player'.
+ * Every x is an item id or an entry key
+ */
 export interface Container {
   readonly id: string;
   /** Slot limit, default Infinity */
@@ -1130,8 +1254,13 @@ export interface Container {
   add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
-  /** Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo reverses it */
-  trade(take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
+  /**
+   * Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo
+   * reverses it
+   */
+  trade(
+    take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }
+  ): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
   /** Replace an entry's data (null = none) for n pieces (default all); returns the key now holding them */
   setData(key: string, data: Record<string, any> | null, n?: number): string;
   /** Listen for changes of this container, returns a handle */
@@ -1170,17 +1299,31 @@ export interface Inventory {
   add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
-  /** Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo reverses it */
-  trade(take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
+  /**
+   * Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo
+   * reverses it
+   */
+  trade(
+    take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }
+  ): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
   /** Replace a player inventory entry's data for n pieces (default all); returns the key now holding them */
   setData(key: string, data: Record<string, any> | null, n?: number): string;
-  /** Get or create a container (chest, corpse, shelf...); the id can be the id of a world record, and the contents are saved. A second call returns the same one; deleting the world record does not delete the container automatically */
+  /**
+   * Get or create a container (chest, corpse, shelf...); the id can be the id of a world record, and the contents are saved. A second call returns the
+   * same one; deleting the world record does not delete the container automatically
+   */
   container(id: string, opts?: { capacity?: number; maxWeight?: number; items?: Record<string, number> }): Container;
-  /** Move n (default 1) of an item or one entry key between containers (pieces keep data and key); moves fewer if the target cannot hold them all, returns how many were actually moved */
+  /**
+   * Move n (default 1) of an item or one entry key between containers (pieces keep data and key); moves fewer if the target cannot hold them all,
+   * returns how many were actually moved
+   */
   transfer(from: Container | string, to: Container | string, item: string, n?: number): number;
   /** Delete a container together with its contents ('player' cannot be deleted), returns whether one was deleted */
   removeContainer(id: string): boolean;
-  /** Place a pickup on the ground at position; its y, if any, is the reference height on multi-layer ground (needs the interactions module unless auto): spawnPickup('berry', v, { count: 2 }). Returns a handle, remove() deletes it */
+  /**
+   * Place a pickup on the ground at position; its y, if any, is the reference height on multi-layer ground (needs the interactions module unless auto):
+   * spawnPickup('berry', v, { count: 2 }). Returns a handle, remove() deletes it
+   */
   spawnPickup(id: string, position: PositionLike, opts?: PickupOptions): PickupHandle;
   /** The data of the nearest pickup of an item still on the ground to from (default the player) (a world record of kind 'pickup'), null if none */
   nearestPickup(id: string, from?: PositionLike): WorldRecord | null;
@@ -1188,9 +1331,9 @@ export interface Inventory {
 export interface InventoryOptions {
   /** Action name that opens the inventory, default 'inventory' */
   action?: string;
-  /** Keys, default ['KeyI'] */
+  /** Keys that open the bag: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.inventory has ['KeyI'] */
   keys?: string[];
-  /** Gamepad button, default ['PadY'] */
+  /** Gamepad button, none by default; presets.keys.inventory has ['PadY'] */
   pad?: string[];
   /** true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame */
   pauseGame?: boolean;
@@ -1210,13 +1353,19 @@ export interface InventoryOptions {
 // Quests quests()
 // ======================================================================
 
-/** One quest step: text is the displayed text, done the completion condition (checked every half second), target the objective (a marker is shown when hud is installed) */
+/**
+ * One quest step: text is the displayed text, done the completion condition (checked every half second), target the objective (a marker is shown when
+ * hud is installed)
+ */
 export interface QuestStep {
   /** Stable id: saves store progress by it, so steps can be inserted or reordered later (default: the step's position) */
   id?: string;
   text: string;
   done: (e: Engine) => boolean;
-  /** Objective: a place name (content.place), object, character, { x, z }, { nearest: itemId } or a function returning an objective; with the hud module the current step shows a marker automatically */
+  /**
+   * Objective: a place name (content.place), object, character, { x, z }, { nearest: itemId } or a function returning an objective; with the hud module
+   * the current step shows a marker automatically
+   */
   target?: HudTarget;
 }
 /** One goal of a parallel step; optional goals do not hold the step back */
@@ -1266,7 +1415,8 @@ export interface Quests {
  * @example
  * engine.ui.set('questLog', (engine) => {
  *   const el = document.createElement('div'); engine.uiRoot.appendChild(el); el.hidden = true;
- *   const draw = (v) => { el.hidden = false; el.innerHTML = v.quests.map(q => `<p>${q.title}: ${q.steps.find(s => s.current)?.text ?? 'done'}</p>`).join(''); el.onclick = v.close; };
+ * const draw = (v) => { el.hidden = false; el.innerHTML = v.quests.map(q => `<p>${q.title}: ${q.steps.find(s => s.current)?.text ??
+ * 'done'}</p>`).join(''); el.onclick = v.close; };
  *   return { show: draw, update: draw, hide: () => { el.hidden = true; }, dispose: () => el.remove() };
  * });
  */
@@ -1283,9 +1433,9 @@ export interface QuestLogView {
 export interface QuestsOptions {
   /** Action name that opens the quest log, default 'quests' */
   action?: string;
-  /** Keys, default ['KeyJ'] */
+  /** Keys that open the quest log: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.quests has ['KeyJ'] */
   keys?: string[];
-  /** Gamepad button, default ['PadSelect'] */
+  /** Gamepad button, none by default; presets.keys.quests has ['PadSelect'] */
   pad?: string[];
   /** Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5 */
   checkInterval?: number;
@@ -1302,7 +1452,10 @@ export interface QuestsOptions {
 
 /** A photo: url is the image data, time the clock time it was taken (e.g. "18:00"), position where it was taken */
 export interface PhotoShot {
-  /** Id of the photo in storage (available right after taking it; photos are stored separately as Blobs in IndexedDB and the album is read back on the next start, url is a blob: address) */
+  /**
+   * Id of the photo in storage (available right after taking it; photos are stored separately as Blobs in IndexedDB and the album is read back on the
+   * next start, url is a blob: address)
+   */
   id?: string;
   url: string; time: string; position: XZ | null;
   /** What was in the middle of the frame: name is the name, kind the kind (npc, entity, vegetation...), distance in meters */
@@ -1321,9 +1474,9 @@ export interface PhotoTakeOptions {
   format?: string;
 }
 export interface PhotoOptions extends PhotoTakeOptions {
-  /** Photo key, default ['KeyP']; [] for no key */
+  /** Photo key: required unless createEngine({ bindings }) binds 'photo' ([] = no key); presets.keys.photo has ['KeyP'] */
   keys?: string[];
-  /** Gamepad button for taking a photo, default ['PadRB'] */
+  /** Gamepad button for taking a photo, none by default; presets.keys.photo has ['PadRB'] */
   pad?: string[];
   /** How many photos the album keeps at most, default 50 */
   maxAlbum?: number;
@@ -1391,7 +1544,10 @@ export interface FocusHandle extends Handle {
   /** Just pushed this frame (the key press that opened it must not count as its own action) */
   readonly fresh: boolean;
 }
-/** UI focus stack: windows, dialogue, cutscenes and the settings menu are pushed in the order they open, and the back key (action cancel) goes only to the top; when the stack is empty it goes to the one registered by setRoot (the settings menu) */
+/**
+ * UI focus stack: windows, dialogue, cutscenes and the settings menu are pushed in the order they open, and the back key (action cancel) goes only to
+ * the top; when the stack is empty it goes to the one registered by setRoot (the settings menu)
+ */
 export interface UIFocus {
   /** Name of the top, null for an empty stack */
   readonly top: string | null;
@@ -1408,11 +1564,20 @@ export interface UIFocus {
 // Game clock engine.clock, story variables engine.vars (core)
 // ======================================================================
 
-/** engine.clock: game seconds and "after how long / every how long". Clock-time / season timers are on engine.sky (at / between / daily / onSeason). All timers return a handle { remove() } */
+/**
+ * engine.clock: game seconds and "after how long / every how long". Clock-time / season timers are on engine.sky (at / between / daily / onSeason). All
+ * timers return a handle { remove() }
+ */
 export interface Clock {
-  /** Game seconds = fixed-step seconds x clock.timeScale (the time scale is 1 without sky), does not advance while paused / frozen, saved with the game; one sky day = sky.dayLength game seconds */
+  /**
+   * Game seconds = fixed-step seconds x clock.timeScale (the time scale is 1 without sky), does not advance while paused / frozen, saved with the game;
+   * one sky day = sky.dayLength game seconds
+   */
   now: number;
-  /** Game-time speed: game seconds per fixed-step second (default 1; the sky's time of day follows it). `engine.clock.timeScale = 60` makes a minute pass per second */
+  /**
+   * Game-time speed: game seconds per fixed-step second (default 1; the sky's time of day follows it). `engine.clock.timeScale = 60` makes a minute pass
+   * per second
+   */
   timeScale: number;
   /** Call fn after seconds game seconds; if an event name is passed, the event is emitted when due (with data, can be saved) */
   after(seconds: number, fnOrEvent: (() => void) | string, data?: any): Handle;
@@ -1452,11 +1617,19 @@ export interface ContentConditionDef {
   /** Write the value as human-readable text (for the game map) */
   describe?(value: any): string;
 }
-/** Parameters of content.load(): places is place name -> position, models is model name -> generator function (returns geometry or an object, defaults to the style pack's style.models) */
-export interface ContentLoadOptions { places?: Record<string, PositionLike>; models?: Record<string, (...args: any[]) => any> }
-/** Prop (each item of content/props.js): model name (a style pack model or an assets manifest name; write an array to pass parameters), position, heading (radians), collision */
+/** Parameters of content.load(): places is place name -> position. Models are asset names (engine.assets.manifest / an asset pack), not an option */
+export interface ContentLoadOptions { places?: Record<string, PositionLike> }
+/** A content pack: the object of content/index.js, or a folder / npm package exporting the same tables. Data only: it names assets, never paths or code */
+export type ContentPack = Record<string, any> & { name?: string; audio?: import('./core').ContentAudio };
+/**
+ * Prop (each item of content/props.js): model name (an asset name from engine.assets.manifest / an asset pack, never a path; write an array to pass
+ * parameters), position, heading (radians), collision
+ */
 export interface PropDef {
-  /** Stable id (saves recognize it by this); if omitted it is `prop:<model name>:<index in the props array>`. Inserting in the middle of the array shifts the later indices, so write an id for content that will change */
+  /**
+   * Stable id (saves recognize it by this); if omitted it is `prop:<model name>:<index in the props array>`. Inserting in the middle of the array shifts
+   * the later indices, so write an id for content that will change
+   */
   id?: string;
   model: string | any[];
   place?: string; x?: number; z?: number;
@@ -1478,8 +1651,12 @@ export interface Content {
   readonly ready: boolean;
   /** Markers added by the marker effect: id -> marker */
   markers: Map<string, HudMarker | undefined>;
-  /** Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules) */
-  load(data: Record<string, any>, opts?: ContentLoadOptions): this;
+  /**
+   * Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules): one pack, or a list of packs
+   * loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead)
+   * @example engine.content.load([baseContent, forestDlc], { places: { home } })
+   */
+  load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions): this;
   /** Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.sky.timeOfDay >= t }) */
   condition(name: string, def: ContentConditionDef): this;
   /** Whether a condition holds (object, array or function) */
@@ -1490,9 +1667,15 @@ export interface Content {
   place(name: string): XZ | null;
   /** Position form in content { place?, x?, z? } -> world coordinates */
   where(p: { place?: string; x?: number; z?: number }): XZ;
-  /** The shared, frozen definition of a content template (content/templates.js); instance state lives on the world record. e.g. template('chest').container.capacity */
+  /**
+   * The shared, frozen definition of a content template (content/templates.js); instance state lives on the world record. e.g.
+   * template('chest').container.capacity
+   */
   template(name: string): Readonly<ContentTemplate>;
-  /** New runtime instance of a template (inside an op or fixed step), saved whole; returns the world record (kind = template name). e.g. spawn('chest', { x: 10, z: 4 }, { opened: true }) */
+  /**
+   * New runtime instance of a template (inside an op or fixed step), saved whole; returns the world record (kind = template name). e.g. spawn('chest', {
+   * x: 10, z: 4 }, { opened: true })
+   */
   spawn(name: string, at: any, fields?: { id?: string; rot?: number; scale?: number; y?: number; items?: Record<string, number>; [stateField: string]: any }): WorldRecord;
 }
 /** A content template: shared definition of a reusable object (recipes/30-templates.md) */
@@ -1558,7 +1741,10 @@ export interface Flow {
   define(name: string, def: FlowStateDef): this;
   /** Switch state */
   go(name: string): void;
-  /** Scene transition: lock input -> fade to black -> fade out music -> autosave -> fn() -> wait for modules to be ready -> fade in -> unlock; multiple calls queue up */
+  /**
+   * Scene transition: lock input -> fade to black -> fade out music -> autosave -> fn() -> wait for modules to be ready -> fade in -> unlock; multiple
+   * calls queue up
+   */
   transition(fn: () => any, opts?: FlowTransitionOptions): Promise<void>;
 }
 
@@ -1586,7 +1772,8 @@ export interface HudMarkerOptions {
 }
 /**
  * Marker target: an object, a character (with root), { x, z } (snapped to the ground), { x, y, z }, a place name;
- * { nearest: itemId } the nearest not-yet-picked-up pickup of that kind to the player (hidden when all are picked up); a function: called every frame to get the target, hidden when it returns null
+ * { nearest: itemId } the nearest not-yet-picked-up pickup of that kind to the player (hidden when all are picked up); a function: called every frame
+ * to get the target, hidden when it returns null
  */
 export type HudTarget = Object3D | { root: Object3D } | PositionLike | string | { nearest: string } | (() => Object3D | { root: Object3D } | PositionLike | string | null);
 /** Marker returned by hud.marker() */
@@ -1620,5 +1807,8 @@ export interface Hud {
   /** Delete a counter or progress bar */
   remove(id: string): void;
 }
-/** Result of worldToScreen(): x/y are screen pixels, onScreen is inside the view, behind is behind the camera */
+/**
+ * Result of worldToScreen(): x/y are pixels from the canvas's top-left corner (the UI root covers the canvas), onScreen is inside the view, behind is
+ * behind the camera
+ */
 export interface ScreenPoint { x: number; y: number; onScreen: boolean; behind: boolean }

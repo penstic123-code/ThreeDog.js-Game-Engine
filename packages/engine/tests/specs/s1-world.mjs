@@ -18,7 +18,7 @@ export const specs = [
         W.remove(b.id);
         h.remove();
         let sameName = null; engine.npcs.add({ name: 's1-same-name' }); try { engine.npcs.add({ name: 's1-same-name' }); } catch (e) { sameName = e.message; }
-        return { autoId: /^s1box-\d+$/.test(b.id), hp: W.get('s1-a').hp, seen, near, plainErr, dupErr, sameName, gone: W.get(b.id) === undefined, pos: a.position };
+        return { autoId: /^s1box#\d+$/.test(b.id), hp: W.get('s1-a').hp, seen, near, plainErr, dupErr, sameName, gone: W.get(b.id) === undefined, pos: a.position };
       });
       check('add returns plain data, auto-numbers the id when omitted, position is { x, y, z }', r.autoId && typeof r.pos.x === 'number' && r.pos.y === 0, JSON.stringify(r));
       check('set changes fields and emits world:change', r.hp === 4 && r.seen.includes('hp'), JSON.stringify(r.seen));

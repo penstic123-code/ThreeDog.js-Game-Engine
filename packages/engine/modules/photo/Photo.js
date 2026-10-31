@@ -6,9 +6,9 @@
 // When the photo key's op is refused the module emits photo:denied { reason } (the game shows it; a button reads r.reason itself).
 // subject is what is in the middle of the frame { name, kind, distance }: NPC (kind 'npc'), entity ('entity'), named object ('object'),
 // vegetation ('vegetation'; after hitting an instanced mesh, vegetation.instanceAt looks up the kind); null when it hits the sky or an unnamed ground.
-// Photo key defaults to P, gamepad RB (action 'photo'); can be changed at install: photo({ keys: ['KeyC'], pad: ['PadX'] }); pass keys: [] for no key
+// The photo key (action 'photo') is the game's: photo({ keys: ['KeyC'], pad: ['PadX'] }), photo({ ...presets.keys.photo }) (P / gamepad RB) or keys: [] for no key
 // Shutter sound: the game's createEngine({ audio: { sounds: { shutter } } }) supplies a file, otherwise a synthesized fallback
-import { checkOptions } from '../../core/validate.js';
+import { checkOptions, moduleKeys } from '../../core/validate.js';
 import { toast } from '../../ui/UI.js';
 const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
@@ -107,14 +107,17 @@ const STRINGS = { 'zh-CN': { 'photo.action': '拍照' }, en: { 'photo.action': '
 
 /** Photo module. Once installed: engine.ops.run('photo.take') takes a photo through photo.canTake; engine.photo.take() captures without checks */
 export function photo(all = {}) {
-  const { keys = ['KeyP'], pad = ['PadRB'], ...opts } = all;
+  const { keys: keys0, pad, ...opts } = all;
+  let bound = false;   // the photo action has a key or pad button (set at install)
   let ph = null;
   return {
     name: 'photo', label: 'Photo mode', optional: ['cameraRig', 'sky', 'vegetation', 'entities'],
     install(e) {
       checkOptions('photo()', all, ['keys', 'pad', 'maxAlbum', ...TAKE_KEYS]);
       e.i18n.add(STRINGS);
-      if (keys.length) { e.input.define('photo', keys, 'photo.action', { pad }); e.input.touchButton('photo', 'photo.action'); }
+      const keys = moduleKeys('photo()', 'photo', keys0, 'photo', e.input);   // the game's key or a presets.keys bundle, never a built-in one
+      bound = keys.length > 0 || !!pad;
+      if (bound) { e.input.define('photo', keys, 'photo.action', { pad }); e.input.touchButton('photo', 'photo.action'); }
       e.audio.register('shutter', (audio, p, out) => {
         audio.noiseBurst({ dur: 0.03, type: 'highpass', freq: p.freq ?? 3000, vol: p.volume ?? 0.4, out });
         audio.noiseBurst({ dur: 0.05, type: 'bandpass', freq: 1800, vol: (p.volume ?? 0.4) * 0.75, delay: 0.07, out }); return 0.15;
@@ -132,7 +135,7 @@ export function photo(all = {}) {
       return ph;
     },
     frame(dt, e) {
-      if (!keys.length || !e.input.pressed('photo')) return;
+      if (!bound || !e.input.pressed('photo')) return;
       const r = e.ops.run('photo.take', {}, { source: 'player' });
       if (!r.ok && r.reason !== 'halted') e.events.emit('photo:denied', { reason: r.reason });
     },

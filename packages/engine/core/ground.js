@@ -9,8 +9,29 @@ export const flatGround = {
 };
 const WATER_KEYS = ['position', 'radius', 'halfWidth', 'halfDepth', 'level'];
 
+// engine.ground.forEachCollider = the provider's own followed by every added source; absent when there is none
+function joinColliders(e) {
+  const own = e._groundOwn ?? null, extra = e._groundExtra ?? [];
+  const all = own ? [own, ...extra] : extra.slice();
+  const g = { ...e.ground };
+  if (all.length) g.forEachCollider = (x, z, range, fn) => { for (const f of all) f(x, z, range, fn); };
+  else delete g.forEachCollider;
+  e.ground = g;
+}
+
 export const groundMethods = {
-  setGround(g) { this.ground = { ...flatGround, ...g }; },
+  setGround(g) { this._groundOwn = g.forEachCollider ?? null; this.ground = { ...flatGround, ...g }; joinColliders(this); },
+  /**
+   * @internal module plumbing: add a source of static circle colliders (x, z, r) to engine.ground.forEachCollider, which collision and path
+   * planning read. It survives a later setGround (a level installed after the module), so a module streaming its own colliders
+   * (plants scattered over a level model) need not care who provides the ground. Returns { remove() }
+   * @param {(x: number, z: number, range: number, fn: (x: number, z: number, r: number) => void) => void} forEach
+   */
+  addGroundColliders(forEach) {
+    const list = (this._groundExtra ||= []);
+    list.push(forEach); joinColliders(this);
+    return { remove: () => { const i = list.indexOf(forEach); if (i >= 0) { list.splice(i, 1); joinColliders(this); } } };
+  },
   /** Ground height. For multi-layer ground (bridges, caves) pass a reference height refY: it picks the highest layer not above refY plus one step; without it, the highest layer. When passing an object, the second argument is refY */
   surface(x, z, refY) {
     if (typeof x === 'object') { refY = z; [x, z] = xzOf(x); }

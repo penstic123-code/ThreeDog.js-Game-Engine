@@ -34,7 +34,7 @@ export class World {
     /** Current zone (e.g. level name, set by the level module on level change): once set, records of another zone get no model and no near simulation; null = no zoning @type {string | null} */
     get zone(): string | null;
     /**
-     * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind-1, kind-2…, saved).
+     * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind#1, kind#2…, saved; `#` never appears in an authored id, so the two can never collide).
      * opts.initial: initial record written in content (needs an id); saves only keep its changes and removal; if the id already exists the existing one is returned (content may load twice);
      * returns null if the save removed it (it is not added back). opts.save: false: not saved (temporary things).
      * @example engine.world.add({ id: 'shop_owner', kind: 'npc', position: [12, 0, -30], name: '店主', mood: 'calm' }, { initial: true })

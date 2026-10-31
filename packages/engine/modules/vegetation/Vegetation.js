@@ -5,6 +5,7 @@ import { makeMaterial, applyEffects } from '../../render/materials.js';
 import { copyPatches } from '../../render/patches.js';
 import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
+import { GroundChunks } from './groundChunks.js';
 // parameters read by vegetation.add(); keys inside rule (sent to the worker thread)
 const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
@@ -44,8 +45,13 @@ function slotOf(im, id) {
 }
 
 export class Vegetation {
-  constructor(engine) {
+  constructor(engine, opts = {}) {
     this.engine = engine; this.species = new Map();
+    // where it grows: on terrain chunks when the terrain module is installed (placed in its workers), else on vegetation's own chunks over
+    // whatever provides the ground (a level, a code-built ground, flat). Both hosts keep chunks of one shape, so everything below is shared
+    if (engine.terrain && Object.keys(opts).length) throw new Error(`vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
+    /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
+    this.host = engine.terrain ?? new GroundChunks(engine, this, opts);
     this._removed = new Map();   // 'name:cx,cz' -> Map(id -> regrow time (clock game seconds), null = permanent)
     this._acc = 0;
     engine.saves.register('vegetation', {
@@ -62,7 +68,7 @@ export class Vegetation {
           if (!this._removed.has(ck)) this._removed.set(ck, new Map());
           this._removed.get(ck).set(+m[4], until);
         }
-        for (const c of engine.terrain.chunks.values()) for (const n in c.veg) this.applyEdits(c, n);
+        for (const c of this.host.chunks.values()) for (const n in c.veg) this.applyEdits(c, n);
       },
     });
   }
@@ -100,9 +106,11 @@ export class Vegetation {
         : fx(o.material ?? makeMaterial('vegetation', { vertexColors: true, side: o.doubleSided ? THREE.DoubleSide : THREE.FrontSide }, this.engine)),
     };
     this.species.set(name, sp);
-    this.engine.terrain.registerSpecies(name, sp.rule);
+    this.host.registerSpecies(name, sp.rule);
     return sp;
   }
+  /** Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically */
+  rebuild() { this.host.rebuild(); }
   get(name) { return this.species.get(name); }
   list() { return [...this.species.values()]; }
   /** @internal Set from which chunk ring a vegetation kind stops casting shadows (smaller is cheaper); takes effect immediately */
@@ -110,7 +118,7 @@ export class Vegetation {
     const sp = this.species.get(name);
     if (!sp) { warnMissing('vegetation', name, [...this.species.keys()]); return; }
     sp.shadowRing = ring;
-    this.engine.terrain.refreshLevels();
+    this.host.refreshLevels();
   }
   /** @internal terrain plumbing */
   baseNames() { return this.list().filter(s => !s.nearOnly).map(s => s.name); }
@@ -153,7 +161,7 @@ export class Vegetation {
   instanceAt(position, opts = {}) {
     checkOptionsArg('vegetation.instanceAt()', opts, ['radius', 'species']);
     const [x, z] = xzOf(position), { radius = 2, species = null } = typeof opts === 'object' && opts ? opts : {};
-    const T = this.engine.terrain, CH = T.CHUNK;
+    const T = this.host, CH = T.CHUNK;
     let best = null, bestD = radius * radius;
     for (let cz = Math.floor((z - radius) / CH); cz <= Math.floor((z + radius) / CH); cz++)
       for (let cx = Math.floor((x - radius) / CH); cx <= Math.floor((x + radius) / CH); cx++) {
@@ -172,6 +180,36 @@ export class Vegetation {
     return best;
   }
 
+  /** @internal chunk plumbing (terrain chunks and ground chunks): upload one species' placement result r into chunk c as an InstancedMesh */
+  mount(c, name, r) {
+    if (r.k && r.k.length) c.colliders[name] = r.k; else delete c.colliders[name];
+    (c.collidersAll ||= {})[name] = c.colliders[name];   // original collision circles (before felled trees are filtered), for single-tree removal
+    if (r.n === 0) return;
+    const sp = this.species.get(name);
+    const im = new THREE.InstancedMesh(sp.geometry, sp.material, r.n);
+    im.instanceMatrix.array.set(r.m); im.instanceMatrix.needsUpdate = true;
+    im.instanceColor = new THREE.InstancedBufferAttribute(r.c, 3);
+    im.frustumCulled = false; im.matrixAutoUpdate = false;
+    im.receiveShadow = sp.receiveShadow;
+    im.userData.ids = r.ids;   // stable id per instance (used by felled-tree records)
+    im.userData.budgetTag = 'vegetation';
+    c.group.add(im); im.updateMatrixWorld(true);
+    if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); }
+    c.veg[name] = im;
+    this.applyEdits(c, name);   // felled trees stay gone after reload
+  }
+  /** @internal chunk plumbing: drop a near-only species from a chunk that moved out of its ring */
+  unmount(c, name) {
+    const im = c.veg[name]; if (!im) return;
+    c.group.remove(im); im.dispose(); delete c.veg[name]; delete c.colliders[name]; if (c.collidersAll) delete c.collidersAll[name];
+  }
+  /** @internal chunk plumbing: draw distance, low-poly swap and shadows of one species' instances at a ring */
+  levelOf(im, sp, ring) {
+    im.visible = ring <= sp.maxRing;
+    im.geometry = sp.lodGeometry && ring > sp.lodRing ? sp.lodGeometry : sp.geometry;
+    im.castShadow = this.engine.shadows && sp.castShadow && ring <= sp.shadowRing;
+  }
+
   /** @internal Called by the terrain module when a chunk's vegetation was just uploaded: reapply the edit records */
   applyEdits(c, name) {
     const im = c.veg[name];
@@ -185,7 +223,7 @@ export class Vegetation {
   }
 
   _refresh(species, cx, cz, id) {
-    const c = this.engine.terrain.chunks.get(cx + ',' + cz), im = c?.veg[species];
+    const c = this.host.chunks.get(cx + ',' + cz), im = c?.veg[species];
     if (!im) return;   // chunk not loaded: applyEdits handles it when loaded
     const slot = slotOf(im, id); if (slot === undefined) return;
     this._show(im, slot, !this.isRemoved(species, cx, cz, id));
@@ -216,14 +254,37 @@ export class Vegetation {
   }
 }
 
+const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
 /**
- * Vegetation module. Provides engine.vegetation.add(name, {...}) once installed. Requires terrain() installed first.
- * Takes no options (density and view distance are terrain options: terrain({ density, viewChunks })).
- * @param {{}} [opts]
+ * Vegetation module. Provides engine.vegetation.add(name, {...}) once installed.
+ * With terrain() installed first it grows on the terrain chunks and takes no options (density and view distance are terrain options).
+ * Without terrain it grows on its own chunks over whatever provides the ground: a level model (engine.level), a code-built ground
+ * (engine.setGround), or the flat default. Rules read engine.surface / slope / groundType, so a level's named surfaces are picked with
+ * rule.biomes (a level's ground type is the mesh's groundType property or its material name).
+ * @param {{ chunkSize?: number, viewChunks?: number, density?: number, area?: { min: number[], max: number[] }, seed?: number }} [opts]
+ *   only without terrain: chunkSize meters (default 32), viewChunks rings drawn around each stream source (default 3), density multiplier (default 1),
+ *   area { min: [x, z], max: [x, z] } where it may grow (default: a level's walkable bounds when a level provides the ground, else anywhere), seed placement seed (default 1)
+ * @example
+ * engine.use(level({ url: '/levels/town.glb' }), vegetation({ area: { min: [-80, -80], max: [80, 80] } }));
+ * engine.vegetation.add('grass', { geometry, nearOnly: true, rule: { perChunk: 400, biomes: { lawn: 1 } } });   // only on 'lawn' surfaces
  */
 export function vegetation(opts = {}) {
-  checkOptions('vegetation()', opts, []);
-  let v = null;
-  return { name: 'vegetation', label: 'Vegetation', requires: ['terrain'], install(e) { return (v = new Vegetation(e)); },
-    fixed(dt) { v.tick(dt); }, skip(dt, e, done) { if (done) v.tick(1); } };
+  checkOptions('vegetation()', opts, OPTS);
+  let v = null, own = null, cols = null, ready = null;
+  return { name: 'vegetation', label: 'Vegetation', stage: 'world', after: ['terrain', 'level'], optional: ['terrain', 'level'],
+    install(e) {
+      v = new Vegetation(e, opts);
+      if (v.host !== e.terrain) {
+        own = v.host;
+        cols = e.addGroundColliders((x, z, range, fn) => own.forEachCollider(x, z, range, fn));   // collision and path planning see the trees
+        ready = e.stream.readyCheck('vegetation', s => own.isReadyAround(s));
+      }
+      return v;
+    },
+    // terrain installed after vegetation would leave two chunk tables: say where to put it
+    init(e) { if (own && e.terrain) throw new Error('vegetation() was installed before terrain(): put terrain() first, vegetation then grows on its chunks'); },
+    frame(dt, e) { own?.update(e.stream.sources(), e.camera); },
+    fixed(dt) { v.tick(dt); }, skip(dt, e, done) { if (done) v.tick(1); },
+    describe(e, ctx) { if (own) ctx.out.perf.vegetation = { loaded: own.stats.loaded, visible: own.stats.visible, queued: own.stats.queued }; },
+    dispose() { own?.dispose(); cols?.remove(); ready?.remove(); } };
 }

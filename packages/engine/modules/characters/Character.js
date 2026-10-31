@@ -1,17 +1,21 @@
-// Character: procedural rig (from the style pack, gray capsule without one) or glTF model + procedural animation (walk, run, swim, idle breathing) + movement control (ground snap, collision, slope limit, swimming).
+// Character: procedural rig (from the style pack, gray capsule without one) or glTF model + procedural animation (walk, run, swim, idle breathing)
+// + movement control (ground snap, collision, slope limit, swimming).
 // Used by both player and NPCs. To switch to a skeletal glTF model later, pass model + clips (or an animation state machine config); control logic stays the same.
-// The mover owns position: only the mover (movers/) changes a character's position inside move(); other systems (pathfinding, triggers, vehicles, loading) request movement via placeAt (teleport), move (direction), enter / exit (vehicles).
-// Characters backed by a world record (the player, recordId = 'player') write position and motion state back to the record after every move / placeAt / enter / exit; the record is saved, world splits near/far by it, the model is just its look.
+// The mover owns position: only the mover (movers/) changes a character's position inside move(); other systems (pathfinding, triggers, vehicles, loading)
+// request movement via placeAt (teleport), move (direction), enter / exit (vehicles).
+// Characters backed by a world record (the player, recordId = 'player') write position and motion state back to the record after every move / placeAt / enter / exit;
+// the record is saved, world splits near/far by it, the model is just its look.
 // Radius and step height default to engine.movement (the single source of "can walk through" parameters); passing radius / stepHeight overrides it for this character only.
 // How to walk is decided by the mover (movers/: 'simple' default, 'rapier' character controller); feel parameters are identical for both.
+// The procedural body (capsule, style-pack rig, limb swing) is in proceduralRig.js.
 import * as THREE from 'three';
-import { makeMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
 import { warnOnce, warnMissing } from '../../core/validate.js';
 import { findClip } from '../../core/Animator.js';
 import { simpleMover } from './movers/simple.js';
 import { rapierMover } from './movers/rapier.js';
 import { loadAssetModel } from './assetModel.js';
+import { NO_CHARACTER, capsule, useRig, animateRig } from './proceduralRig.js';
 
 const STRINGS = { noClip: 'character has no skeletal animation; playAction(\'{name}\') skipped (the model needs this action)' };
 const MOVERS = { simple: simpleMover, rapier: rapierMover };
@@ -23,17 +27,6 @@ export const CHARACTER_KEYS = ['colors', 'speed', 'runSpeed', 'radius', 'canSwim
   'jumpSpeed', 'stepHeight', 'airControl', 'coyoteTime', 'canJump', 'model', 'clips', 'animation', 'mover', 'faceMode', 'faceTarget'];
 const FACE_MODES = ['move', 'camera', 'target', 'manual'];
 
-// Neutral placeholder when the style pack draws no character: one gray capsule, no limbs (the shape belongs to style packs)
-const NO_CHARACTER = 'characters: no style pack / model given, so characters are gray capsules (a placeholder). Pass one: a model '
-  + "(createPlayer({ model: 'hero' }) or style.character.model), or a style pack whose style.character.create builds one, e.g. createEngine({ style: lowpoly }) with lowpoly from '@threedog/style-lowpoly'";
-function capsule(color) {
-  const body = new THREE.Group(); body.position.y = 0.85;
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), makeMaterial('character', { color }));
-  m.castShadow = true; body.add(m);
-  const root = new THREE.Group(); root.add(body);
-  return { root, body };
-}
-
 export class Character {
   /**
    * @param engine
@@ -44,18 +37,22 @@ export class Character {
    *           jump and gravity: gravity (negative), jumpSpeed takeoff speed, stepHeight step height it can climb directly, airControl air steering 0-1,
    *                      coyoteTime how long after leaving a ledge a jump is still allowed, canJump
    *           model + clips: optional glTF model and action-name map { idle, walk, run, swim, jump, fall, drive } (shorthand for animation)
-   *           animation: animation state machine config (see core/Animator.js), state names are character state names; without walk/run, move (blend tree, param speed) is used
+   *           animation: animation state machine config (see core/Animator.js), state names are character state names;
+   *                      without walk/run, move (blend tree, param speed) is used
    *           mover: 'simple' (default) | 'rapier' (Rapier character controller, needs the rigid module)
    *           faceMode which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward(), over-the-shoulder aiming)
-   *                    | 'target' (toward faceTarget: Object3D / Vector3 / { x, z }, lock-on strafing) | 'manual' (only face() turns it); both are plain properties, change them at any time
+   *                    | 'target' (toward faceTarget: Object3D / Vector3 / { x, z }, lock-on strafing) | 'manual' (only face() turns it);
+   *                    both are plain properties, change them at any time
    *           model may be a registered asset name (default style.character.model): placeholder body until it loads, then swapped in (assetModel.js)
    *           without model: style pack style.character.create(engine, colors) may return a custom procedural character (rig format below), else a gray capsule
    */
   constructor(engine, { colors = {}, speed = 4.5, runSpeed = 7, radius = engine.movement.radius, canSwim = true, swimDepth = 1.0, swimSpeed = 0.45,
-    turnSpeed = 10, acceleration = 12, gravity = -24, jumpSpeed = 8, stepHeight = engine.movement.stepHeight, airControl = 0.35, coyoteTime = 0.12, canJump = true,
+    turnSpeed = 10, acceleration = 12, gravity = -24, jumpSpeed = 8, stepHeight = engine.movement.stepHeight, airControl = 0.35, coyoteTime = 0.12,
+    canJump = true,
     model = null, clips = null, animation = null, mover = 'simple', faceMode = 'move', faceTarget = null } = {}) {
     this.engine = engine;
-    Object.assign(this, { speed, runSpeed, radius, canSwim, swimDepth, swimSpeedFactor: swimSpeed, turnSpeed, acceleration, gravity, jumpSpeed, stepHeight, airControl, coyoteTime, canJump });
+    Object.assign(this, { speed, runSpeed, radius, canSwim, swimDepth, swimSpeedFactor: swimSpeed, turnSpeed, acceleration, gravity, jumpSpeed, stepHeight,
+      airControl, coyoteTime, canJump });
     if (!FACE_MODES.includes(faceMode)) warnMissing('faceMode', faceMode, FACE_MODES);
     this.faceMode = faceMode; this.faceTarget = faceTarget;
     this.vy = 0; this.grounded = true; this._coyote = 0; this._jumpBuffer = 0; this._push = 0;
@@ -67,7 +64,11 @@ export class Character {
     this.vehicle = null; this.anim = null;
     /** false while a model named by asset loads (placeholder shows); await whenReady */
     this.ready = true;
-    /** id of the world record ('player' for the player); once set, position, facing and motion state are written back to it. Do not world.move this record directly; use placeAt @type {string | null} */
+    /**
+     * id of the world record ('player' for the player); once set, position, facing and motion state are written back to it.
+     * Do not world.move this record directly; use placeAt
+     * @type {string | null}
+     */
     this.recordId = null;
     if (!MOVERS[mover]) warnMissing('mover', mover, Object.keys(MOVERS));
     const simple = simpleMover(this);
@@ -77,10 +78,10 @@ export class Character {
 
     model ??= engine.style.character?.model ?? null;
     if (model && typeof model !== 'string') { this._useModel(model, clips, animation); return; }
-    // style-pack procedural character: rig = { root, body?, head?, joints?: { name: Group }, limbs: [{ joint, offset: 0 | Math.PI, amp, kind: 'arm'|'leg', side? }] }
+    // style-pack procedural character: the rig format is in proceduralRig.js
     const rig = engine.style.character?.create?.(engine, c);
     if (!rig && !model) warnOnce(NO_CHARACTER);
-    this._useRig(rig || capsule(c.body));
+    useRig(this, rig || capsule(c.body));
     if (model) this._whenReady = loadAssetModel(this, model, m => this._useModel(m, clips, animation));
   }
   _useModel(model, clips, animation) {
@@ -91,14 +92,6 @@ export class Character {
     for (const [st, clip] of Object.entries(DEFAULT_CLIPS)) if (findClip(have, clip)) states[st] = { clip };
     for (const [st, clip] of Object.entries(clips || {})) states[st] = { clip };
     this.anim = engine.assets.animate(model, { ...engine.style.character?.animation, states, ...(animation || {}) });
-  }
-  _useRig(rig) {
-    this.root.add(rig.root); this._rig = rig;
-    this.hips = rig.body || rig.root; this.head = rig.head || null;
-    this.bodyBase = this.hips.position.y;
-    this.limbs = rig.limbs || [];
-    // named joints (lowpoly humanoid: armL armR legL legR) become properties so game poses can grab them; never shadow a Character field
-    for (const k in rig.joints || {}) if (!(k in this)) this[k] = rig.joints[k];
   }
 
   /** Request a jump (call when the jump key is pressed; has a jump buffer, so pressing slightly before landing counts) */
@@ -121,7 +114,7 @@ export class Character {
   placeAt(position) { const [x, z] = xzOf(position); this.root.position.set(x, this.engine.surface(x, z), z); this._store(); return this; }
   /** Write position and motion state back to the world record (only if recordId is set; saveMotion writes into the record without allocating) @internal */
   _store() { const id = this.recordId; if (id) { const W = this.engine.world; this.saveMotion(W.get(id)); W.move(id, this.root.position); } }
-  /** After moving root yourself (a cutscene path, a scripted pose): write position and motion back to the world record, so a save right after has it. Returns this */
+  /** After moving root yourself (a cutscene path, a scripted pose): write position and motion back to the world record, so a save right after has it */
   syncRecord() { this._store(); return this; }
 
   /**
@@ -134,14 +127,16 @@ export class Character {
     this._store();
   }
 
-  /** Enter a vehicle (returned by rigid.addVehicle): hides the character and stops movement; the player's camera follows the car. No-op if the vehicle already has a driver */
+  /** Enter a vehicle (returned by rigid.addVehicle): hides the character and stops movement; the camera follows the car. No-op if the vehicle already has a driver */
   enter(vehicle) {
     if (this.vehicle || vehicle.driver) return;
     const e = this.engine;
     this.vehicle = vehicle; vehicle.driver = this;
     if (e.player === this) this._driveCtx = e.input.push('vehicle', { pass: true });   // driving: brake lives in this context, walking-only keys are shadowed
+    if (e.player === this && !e.input.actions.has('brake')) warnOnce("[input-keys] the player drives without a brake key: no module binds one by itself. characters({ ...presets.keys.brake }) (B / gamepad LT) or characters({ brakeKeys: ['KeyX'], brakePad: ['PadLT'] })");
     this.root.visible = false; this.velocity.set(0, 0); this.vy = 0; this.swimming = false; this.state = 'drive'; this._store();
-    if (e.player === this && this.cameraFollow) e.cameraRig?.follow(vehicle.object, vehicle.camera);   // only when the game asked the camera to follow the player (createPlayer({ cameraFollow })). driving: forward/back keys throttle, left/right steer, brake key (action brake)
+    // only when the game asked the camera to follow the player (createPlayer({ cameraFollow }))
+    if (e.player === this && this.cameraFollow) e.cameraRig?.follow(vehicle.object, vehicle.camera);
     e.events.emit('vehicle:enter', { character: this, vehicle });
   }
   /** Exit: step out beside the door, camera returns to the character */
@@ -154,7 +149,7 @@ export class Character {
     if (e.player === this && this.cameraFollow) e.cameraRig?.follow(this.root);
     e.events.emit('vehicle:exit', { character: this, vehicle: v });
   }
-  /** Dispose this character completely: exit the vehicle first, release animation and mover, remove from the scene and dispose geometries and materials (engine.remove) */
+  /** Dispose this character completely: exit the vehicle first, release animation and mover, remove from the scene and dispose geometries and materials */
   dispose() {
     this._disposed = true;   // a model still loading by asset name is dropped on arrival
     this.exit();
@@ -163,7 +158,8 @@ export class Character {
     this.engine.remove(this.root);
   }
   /**
-   * Copy motion state into a plain object (written into out, in place, no allocation): velocity, vertical speed, facing, move amount, grounded, swimming (animation state is stored by the caller).
+   * Copy motion state into a plain object (written into out, in place, no allocation): velocity, vertical speed, facing, move amount, grounded, swimming
+   * (animation state is stored by the caller).
    * Why: the model is only a presentation of world data, torn down when far and rebuilt on load; keeping these in data lets loadMotion continue after a rebuild,
    * so running continuously and "save -> load -> continue" give the same result (NPCs, future enemies and zombies all use it).
    */
@@ -193,7 +189,8 @@ export class Character {
   }
 
   /**
-   * Turn at once to face a point (Object3D / Vector3 / { x, z }) or an angle in radians (0 = +Z, PI / 2 = +X). With faceMode 'manual' this is the only thing that turns the character
+   * Turn at once to face a point (Object3D / Vector3 / { x, z }) or an angle in radians (0 = +Z, PI / 2 = +X).
+   * With faceMode 'manual' this is the only thing that turns the character
    * @example npc.face(engine.player); player.face(Math.PI)
    */
   face(target) {
@@ -218,21 +215,6 @@ export class Character {
       return;
     }
     if (st === 'drive') return;
-    const amp = Math.min(1, sp / this.runSpeed + 0.35);
-    let bob = 0, lean = 0;
-    for (const L of this.limbs) {
-      let rx = 0, rz = 0;
-      if (st === 'swim') { rx = Math.sin(this.phase * (L.kind === 'arm' ? 0.9 : 1.4) + L.offset) * (L.kind === 'arm' ? 1.6 : 0.5); rz = L.kind === 'arm' ? 0.4 * (L.side || 0) : 0; }
-      else if (st === 'jump' || st === 'fall') { rx = L.kind === 'leg' ? (L.offset ? -0.5 : 0.7) : -0.6; rz = L.kind === 'arm' ? 0.5 * (L.side || 0) : 0; }
-      else if (sp > 0.4) rx = Math.sin(this.phase + L.offset) * L.amp * amp;
-      else rx = L.kind === 'arm' ? Math.sin(t * 1.5) * 0.04 : 0;
-      L.joint.rotation.x = rx; if (L.kind === 'arm') L.joint.rotation.z = rz || 0.05 * (L.side || 0);
-    }
-    if (st === 'swim') lean = 1.0;
-    else if (sp > 0.4 && this.grounded) { bob = Math.abs(Math.cos(this.phase)) * 0.08 * amp; lean = sp / this.runSpeed * 0.25; }
-    else if (this.grounded) bob = Math.sin(t * 2) * 0.01;
-    this.hips.position.y = this.bodyBase + bob;
-    this.hips.rotation.x = lean;
-    if (this.head) this.head.rotation.x = -lean * 0.6;
+    animateRig(this, sp, t, st);
   }
 }

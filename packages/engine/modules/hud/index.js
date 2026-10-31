@@ -23,6 +23,7 @@ const STRINGS = {
   en: { 'hud.distance': '{m} m' },
 };
 const MARKER_KEYS = ['label', 'icon', 'offscreen', 'distance', 'height'];
+const _size = new THREE.Vector2();
 const EDGE = 28;   // how far the arrow sits from the screen edge (px)
 
 /**
@@ -73,7 +74,7 @@ export function hud(opts = {}) {
     if (!p) { hideMarker(m); return; }
     const from = e.actorPosition() ?? e.focus;   // distance from whoever the user controls (engine.actor)
     m.dist = Math.round(p.distanceTo(from));
-    const s = worldToScreen(e, p), W = innerWidth, H = innerHeight;
+    const s = worldToScreen(e, p), { x: W, y: H } = e.renderer.getSize(_size);   // the canvas box, not the window
     m.onScreen = s.onScreen;
     if (!s.onScreen && m.o.offscreen === 'hide') { hideMarker(m); return; }
     m.visible = true;

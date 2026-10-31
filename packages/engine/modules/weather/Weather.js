@@ -7,7 +7,7 @@
 // engine.weather.setAuto(true)     // change weather at random (uses engine.random, so step/tests are reproducible and saved)
 // Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with i18n.add.
 import * as THREE from 'three';
-import { checkOptions, warnMissing } from '../../core/validate.js';
+import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
 import { rainVert, rainFrag, snowVert, snowFrag } from './shaders.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../types/world' */
@@ -113,7 +113,7 @@ export class Weather {
     /** @internal */ this.snowU = { uCam: this.rainU.uCam, uSize: { value: size }, uPx: { value: ss.size ?? 20 }, uMaxPx: { value: ss.maxSize ?? 5 },
       uFallOff: { value: 0 }, uSway: { value: 0 }, uOpacity: { value: 0 }, uColor: { value: new THREE.Color(ss.color ?? 0xffffff) }, uMap: { value: null }, uUseMap: { value: 0 } };
     /** @internal */ this.snowOpacity = ss.opacity ?? 0.9;
-    if (ss.texture) engine.assets.texture(ss.texture).then(t => { this.snowU.uMap.value = t; this.snowU.uUseMap.value = 1; }).catch(err => console.warn(err.message));
+    if (ss.texture) engine.assets.texture(ss.texture).then(t => { this.snowU.uMap.value = t; this.snowU.uUseMap.value = 1; }).catch(err => warnOnce(err.message));
     /** @internal */ this.snow = new THREE.Points(sg, shaderMat(snowVert, snowFrag, this.snowU));
     // rain can also be drawn with a texture (cartoon drops etc.): style pack weather.rain.texture; rain and snow then share the same point-sprite shader
     /** @internal */ this.rainIsPoints = !!rs.texture;
@@ -121,7 +121,7 @@ export class Weather {
       this.rainU = { ...this.rainU, uPx: { value: rs.size ?? 14 }, uMaxPx: { value: rs.maxSize ?? 8 }, uSway: this.snowU.uSway, uMap: { value: null }, uUseMap: { value: 0 } };
       this.rain.geometry.dispose(); this.rain.material.dispose();   // switched to textured drops, line rain no longer needed
       this.rain = new THREE.Points(sg.clone(), shaderMat(snowVert, snowFrag, this.rainU));
-      engine.assets.texture(rs.texture).then(t => { this.rainU.uMap.value = t; this.rainU.uUseMap.value = 1; }).catch(err => console.warn(err.message));
+      engine.assets.texture(rs.texture).then(t => { this.rainU.uMap.value = t; this.rainU.uUseMap.value = 1; }).catch(err => warnOnce(err.message));
     }
     for (const o of [this.rain, this.snow]) { o.frustumCulled = false; o.visible = false; o.userData.budgetTag = 'weather'; }
     this.rain.name = 'weather-rain'; this.snow.name = 'weather-snow';
@@ -137,7 +137,7 @@ export class Weather {
 
   /**
    * Switch weather. seconds: transition seconds, default 15
-   * @param {WeatherName | (string & {})} name
+   * @param {WeatherName} name
    * @param {number} [seconds]
    * @returns {void}
    */
@@ -224,6 +224,7 @@ export function weather(opts = {}) {
       e.i18n.add(STRINGS);
       w = new Weather(e, opts);
       e.audio.condition('weather', v => [].concat(v).includes(w.name));   // audio rule condition { weather: 'rain' | ['rain', 'storm'] }
+      for (const k of ['rain', 'snow', 'wind']) e.audio.measure(k, () => w.current[k]);   // data rules: { rain: { lt: 0.2 } }, volume add: { rain: 0.22 }
       if (opts.auto) w.auto = true;
       e.audio.register('thunder', (audio, p, out) => { const dur = p.duration ?? 3.5, delay = 0.4 + Math.random() * 1.5;   // presentation: thunder delay
         audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur, rate: 0.4 * p.pitch, delay, out }); return delay + dur; },

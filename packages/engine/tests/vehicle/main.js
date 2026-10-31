@@ -16,7 +16,7 @@ const spawn = new THREE.Object3D(); spawn.name = 'spawn'; spawn.position.set(0, 
 
 const mover = new URLSearchParams(location.search).get('mover') || 'simple';
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Vehicle test' } }, adaptiveResolution: false });
-engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false }), interactions({ ...presets.interactions.nearest }), level({ scene: root }));
+engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false, ...presets.keys.brake }), interactions({ ...presets.interactions.nearest }), level({ scene: root }));
 
 // Car: body + four wheels (wheels are children of the body; addVehicle makes them follow suspension and steering)
 function makeCar() {

@@ -122,6 +122,26 @@ function decoder(assets, kind) {
   })();
 }
 
+/** FontFace descriptors an asset pack's fonts entry may carry (everything else on the entry is the asset's own: url, family, critical...) */
+const FONT_DESCRIPTORS = ['weight', 'style', 'stretch', 'unicodeRange', 'display', 'featureSettings', 'variationSettings'];
+/**
+ * Download a font file and add it to document.fonts as a FontFace (family = entry.family, else the asset name). Downloaded with fetch
+ * (not the FontFace url source) so a 404 reports its HTTP status like any other asset; the face is decoded before it is added, so a
+ * broken file fails here instead of silently falling back to the system font. Returns the FontFace
+ */
+export async function loadFont(assets, e, task) {
+  const family = e.opts.family ?? e.name;
+  if (typeof family !== 'string' || /["'();\\<>]/.test(family))
+    throw new LoadError(`font family ${JSON.stringify(family)} must be a plain name without quotes, brackets, ';' or '\\', e.g. family: 'PixelFont'`, { url: e.url });
+  const buf = await download(e.url, task);
+  task.phase('decode');
+  const desc = Object.fromEntries(FONT_DESCRIPTORS.filter(k => e.opts[k] != null).map(k => [k, String(e.opts[k])]));
+  const face = new FontFace(family, buf, { display: 'swap', ...desc });
+  try { await face.load(); } catch (err) { throw new LoadError(`not a font the browser can read (${err.message})`, { url: e.url }); }
+  document.fonts.add(face);
+  return face;
+}
+
 /** Stand-ins for a degradable asset that failed: neutral gray (hard rule 1: the engine has no art of its own) */
 export function placeholder(type) {
   if (type === 'texture') { const t = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); t.needsUpdate = true; return t; }
@@ -131,7 +151,7 @@ export function placeholder(type) {
     g.name = 'placeholder';
     return { scene: g, animations: [] };
   }
-  return null;   // sound: silence
+  return null;   // sound: silence; font: the next family in style.ui.font (the system font)
 }
 
 /** Code-generated model: baked file -> dev cache -> build now (see Assets.cached); returns { scene, animations, geometry? } */

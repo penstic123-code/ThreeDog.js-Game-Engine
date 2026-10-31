@@ -92,7 +92,7 @@ export async function run({ check, browser }) {
     check('explain op / inspect / scenario: why not with the note, offers with reasons, a scenario file runs on the page',
       ex.code === 1 && /notEnough \(Not enough\)[\s\S]*last attempt/.test(ex.out) && ins.out.includes('test.take item=film') && sc.code === 0 && /scenario tmp-bridge: 2 checks passed/.test(sc.out), [ex.out, ins.out, sc.out].join(' | '));
     // loading: the same view as describe().loading; a degradable missing file shows as a failure with path and fallback, exit code 1
-    await threedog('js', "engine.assets.manifest({ textures: { bridgeMissing: '/textures/bridge-missing.png' } }, { name: 'bridge-test' }); await engine.assets.texture('bridgeMissing'); return 1");
+    await threedog('js', "engine.assets.manifest({ name: 'bridge-test', textures: { bridgeMissing: '/textures/bridge-missing.png' } }); await engine.assets.texture('bridgeMissing'); return 1");
     const ld = await threedog('loading'), one = await threedog('loading', 'bridgeMissing');
     check('loading: lists the failed file with its fallback and a hint; loading name shows the source manifest',
       ld.code === 1 && /fell back texture "bridgeMissing" \/textures\/bridge-missing\.png/.test(ld.out) && ld.out.includes('Possible cause') && one.out.includes('"manifest": "bridge-test"'), ld.out + ' | ' + one.out.slice(0, 200));

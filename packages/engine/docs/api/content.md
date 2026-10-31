@@ -4,7 +4,7 @@ Content loading (content() module)
 
 
 ## Methods and properties
-- `content.load(data: Record<string, any>, opts?: ContentLoadOptions)` — Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules)
+- `content.load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions)` — Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules): one pack, or a list of packs loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead). Example: `engine.content.load([baseContent, forestDlc], { places: { home } })`
 - `content.condition(name: string, def: ContentConditionDef)` — Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.sky.timeOfDay >= t })
 - `content.test(cond: any) → boolean` — Whether a condition holds (object, array or function)
 - `content.run(effect: any) → any` — Run an effect (object, array or function)
@@ -57,6 +57,8 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `vegetation.js` vegetation (name -> model, growth rule)
   - `props.js` props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand
   - `templates.js` reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions
+  - `audio.js` sounds by asset name, ambience and music rules as data, footsteps (sounds, ambience, music: { tracks, rules }, footsteps)
   - `grids.js` placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved
+  - `renames.js` renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id
   - `rules.js` condition words added by the game ({ conditions }); actions are ops, not effect words
   - any other `<name>.js` the game registers in content/rules.js as kinds: { name: { desc, load(e, data), check?, map? } } (enemies, recipes, loot tables…)

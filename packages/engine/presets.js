@@ -1,5 +1,5 @@
 // Opt-in gameplay presets: named, plain option objects a game picks on purpose, like a style pack for feel.
-// The engine never applies one by itself (weather() alone has only 'clear', sky() has no seasons, createPlayer() and interactions() refuse to guess a feel
+// The engine never applies one by itself (weather() alone has only 'clear', sky() has no seasons and no day cycle, music() does not duck for dialogue, no module binds a gameplay key, createPlayer() and interactions() refuse to guess a feel
 // or a key); a preset only bundles options the game could write itself, so spreading it and overriding a field is always the same as writing it out:
 //   engine.use(weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] }));
 //   engine.characters.createPlayer({ ...presets.player.lockOn, faceTarget: boss });
@@ -11,10 +11,10 @@
 /** A side-scroller moves only along world X (left / right keys); W / S do nothing. Reads input by action like the 'camera' control */
 function sideScroll(p, input) { return { x: (input.autopilot || input.axis).x, z: 0, run: input.actions.has('run') && input.down('run') }; }
 
-// The keys the walking presets bind (the engine binds none by itself): Shift runs, Space jumps
-const RUN = Object.freeze(['ShiftLeft', 'ShiftRight']), JUMP = Object.freeze(['Space']);
+// The keys the walking presets bind (the engine binds none by itself): Shift / gamepad LB runs, Space / gamepad A jumps
+const RUN = Object.freeze(['ShiftLeft', 'ShiftRight', 'PadLB']), JUMP = Object.freeze(['Space', 'PadA']);
 const walk = (control, faceMode) => Object.freeze({ control, faceMode, runKeys: RUN, jumpKeys: JUMP, cameraFollow: true });
-const use = pick => Object.freeze({ pick, keys: Object.freeze(['KeyE']) });
+const use = pick => Object.freeze({ pick, keys: Object.freeze(['KeyE', 'PadX']) });
 
 /**
  * Opt-in presets, grouped by the option they fill. Each value is an options object for the function named in its group.
@@ -41,9 +41,11 @@ export const presets = Object.freeze({
   }),
   /** sky({ ... }) calendar options */
   calendar: Object.freeze({
-    /** Spring, summer, autumn, winter, 7 days each (a cozy life sim; set daysPerSeason: 28 for longer seasons) */
-    fourSeasons: Object.freeze({ seasons: Object.freeze(['spring', 'summer', 'autumn', 'winter']), daysPerSeason: 7 }),
-    /** One time of day that never moves (dungeon, arena, space station); pick the hour with time */
+    /** Spring, summer, autumn, winter, 7 days each, with the 360 s day cycle of `cycle` (a cozy life sim; set daysPerSeason: 28 for longer seasons) */
+    fourSeasons: Object.freeze({ seasons: Object.freeze(['spring', 'summer', 'autumn', 'winter']), daysPerSeason: 7, dayLength: 360 }),
+    /** A day-night cycle, one day = 360 game seconds (6 minutes at timeScale 1); sky() alone keeps a fixed time of day */
+    cycle: Object.freeze({ dayLength: 360 }),
+    /** One time of day that never moves (dungeon, arena, space station), what sky() does without a dayLength; pick the hour with time */
     fixedTime: Object.freeze({ dayLength: Infinity }),
   }),
   /** characters.createPlayer({ ... }) movement, facing, run / jump keys and camera follow (createPlayer has no default: pick one of these or write the options) */
@@ -61,12 +63,26 @@ export const presets = Object.freeze({
   }),
   /** interactions({ ... }) selection and key (interactions has no default pick or key: pick one of these or write { pick, keys }) */
   interactions: Object.freeze({
-    /** E uses the nearest one in reach (top-down, third person, life sim) */
+    /** E / gamepad X uses the nearest one in reach (top-down, third person, life sim) */
     nearest: use('nearest'),
     /** E uses only what the actor faces, within 60° (soulslike: the door behind you stays dark) */
     facing: use('facing'),
     /** E uses the one closest to the screen-center ray (first person, shooters) */
     aim: use('aim'),
+  }),
+  /**
+   * Keys for modules that open or do one thing (no module binds a key by itself): spread one into that module's options,
+   * e.g. inventory({ ...presets.keys.inventory, capacity: 20 }), characters({ ...presets.keys.brake })
+   */
+  keys: Object.freeze({
+    /** inventory(): I / gamepad Y opens the bag */
+    inventory: Object.freeze({ keys: Object.freeze(['KeyI']), pad: Object.freeze(['PadY']) }),
+    /** quests(): J / gamepad Select opens the quest log */
+    quests: Object.freeze({ keys: Object.freeze(['KeyJ']), pad: Object.freeze(['PadSelect']) }),
+    /** photo(): P / gamepad RB takes a photo */
+    photo: Object.freeze({ keys: Object.freeze(['KeyP']), pad: Object.freeze(['PadRB']) }),
+    /** characters(): B / gamepad LT brakes while driving */
+    brake: Object.freeze({ brakeKeys: Object.freeze(['KeyB']), brakePad: Object.freeze(['PadLT']) }),
   }),
   /** followCamera({ ... }) options */
   camera: Object.freeze({

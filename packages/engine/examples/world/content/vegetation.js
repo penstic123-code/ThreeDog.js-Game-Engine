@@ -1,4 +1,4 @@
-// Vegetation: name -> model (name in the style pack's lowpoly.models; use an array for parameters) and growth rule.
+// Vegetation: name -> model (an asset name from the lowpoly asset pack; use an array for parameters) and growth rule.
 // rule.biomes lists the biomes it grows in, values are spawn probabilities; rule cannot hold functions (it is sent to a worker thread).
 // Note: main.js tree chopping uses these names (松树, 圆树); after changing rules or density, trees chopped in old saves map to different trees.
 export default {

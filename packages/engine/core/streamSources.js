@@ -60,3 +60,14 @@ export class Source {
     this._settle(codedError('stream-removed', SOURCE_STRINGS.removed.replace('{name}', this.name)));   // an await on whenReady never hangs
   }
 }
+
+/**
+ * Ring of a chunk (cx, cz) from the nearest stream source, in chunk units. `centers` are the sources in chunk units ({ cx, cz, simple }); a simple
+ * source counts as the outer ring (far look, no near detail). Shared by the terrain and vegetation chunk tables so both rings mean the same.
+ * @internal
+ */
+export function chunkRing(cx, cz, centers, viewChunks) {
+  let r = Infinity;
+  for (const s of centers) r = Math.min(r, Math.max(Math.abs(cx - s.cx), Math.abs(cz - s.cz), s.simple ? viewChunks : 0));
+  return r;
+}

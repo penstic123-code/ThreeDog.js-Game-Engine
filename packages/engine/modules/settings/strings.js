@@ -35,7 +35,7 @@ export const STRINGS = {
 };
 
 export const CSS = `
-.threedog-win-settings{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(80vh,640px)}
+.threedog-win-settings{box-sizing:border-box;width:min(560px,calc(100% - 32px));max-height:min(80%,640px)}
 .threedog-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid var(--threedog-line)}
 .threedog-tab.is-active,.threedog-seg .threedog-btn.is-active,.threedog-set-toggle.is-active{border-color:var(--threedog-accent);color:var(--threedog-accent)}
 .threedog-set-row{justify-content:space-between;flex-wrap:wrap;min-height:36px}
@@ -43,7 +43,7 @@ export const CSS = `
 .threedog-set-ctl{display:flex;align-items:center;gap:8px;flex:0 1 auto;justify-content:flex-end;flex-wrap:wrap}
 .threedog-seg{display:inline-flex;flex-wrap:wrap;gap:4px}
 .threedog-seg .threedog-btn:disabled{opacity:.5;cursor:default}
-.threedog-range{width:min(180px,40vw);accent-color:var(--threedog-accent)}
+.threedog-range{width:min(180px,40%);accent-color:var(--threedog-accent)}
 .threedog-set-val{min-width:3.6em;text-align:right;font-variant-numeric:tabular-nums;color:var(--threedog-muted);font-size:12px}
 .threedog-key{min-width:72px;font-variant-numeric:tabular-nums}
 .threedog-key.is-waiting{border-color:var(--threedog-accent);color:var(--threedog-accent)}

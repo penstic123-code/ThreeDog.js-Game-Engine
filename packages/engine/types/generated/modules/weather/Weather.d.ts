@@ -31,11 +31,11 @@ export class Weather {
     setAuto(on: boolean): void;
     /**
      * Switch weather. seconds: transition seconds, default 15
-     * @param {WeatherName | (string & {})} name
+     * @param {WeatherName} name
      * @param {number} [seconds]
      * @returns {void}
      */
-    set(name: WeatherName | (string & {}), seconds?: number): void;
+    set(name: WeatherName, seconds?: number): void;
     /**
      * Display name of a weather (string table weather.<name>, falls back to the name itself); defaults to the current weather
      * @param {string} [name]

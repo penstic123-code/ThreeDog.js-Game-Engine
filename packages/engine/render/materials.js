@@ -158,7 +158,7 @@ export function terrainMaterial(base = null, engine = undefined) {
       const tex = t.clone();   // shares the image (no second upload); own wrapping
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true;
       u.uDetail.value.dispose(); u.uDetail.value = tex;
-    }).catch(err => console.warn(err.message));
+    }).catch(err => warnOnce(err.message));
     patchMaterial(m, [EFFECTS.world(), { name: 'detail', needs: { patches: ['world'] }, uniforms: u,
       glsl: { fragment: { pars: 'uniform sampler2D uDetail; uniform float uDetailScale; uniform float uDetailStrength;',
         color_fragment: 'diffuseColor.rgb *= mix(vec3(1.0), texture2D(uDetail, vThreedogWorld.xz * uDetailScale).rgb * 2.0, uDetailStrength);' } } }], { strict: false });

@@ -2,7 +2,7 @@
 
 **The engine ships no art.** No default style, character model, terrain look or terrain generator: with no style pack and no model everything is a plain neutral placeholder (a gray capsule for characters, a gray box for props and pickups, flat gray ground at y = 0, one white hemisphere light plus one neutral directional light without shadows or tone mapping), and the console says once in dev what is missing and how to fix it.
 
-A style pack is a plain object passed in as `createEngine({ style })`. It holds **visuals only**: colors, shapes and models, materials and shaders, sky and lighting, post effects, UI look. Sounds and gameplay data are not part of it (sounds: section 5; ground types, items, rules: the game's content). Which key is read by whom is in the "style pack keys" table of `../CODEMAP.md`; the field list is in `../api/style.md`. Every entry can be omitted; omitted entries are the neutral placeholders above (the city example passes no style pack at all).
+A style pack is a plain object passed in as `createEngine({ style })`. It holds **looks only**: colors, the default character / pickup shapes, materials and shaders, sky and lighting, post effects, UI look. Not part of it: model / texture / sound files and procedural models content names (an **asset pack**, `engine.assets.manifest`, recipe 05 "Asset packs"), sounds (section 5), gameplay data and timing (a **content pack**, recipe 20; `sky({ hoursPerDay })`). The split and its reasons: `docs/plans/packs-design.md` in the repository. Which key is read by whom is in the "style pack keys" table of `../CODEMAP.md`; the field list is in `../api/style.md`. Every entry can be omitted; omitted entries are the neutral placeholders above (the city example passes no style pack at all).
 
 ## 0. Installing the lowpoly style pack
 The low-poly look is an optional package, `@threedog/style-lowpoly` (source in the monorepo: `packages/styles/lowpoly/`):
@@ -11,11 +11,21 @@ npm install @threedog/style-lowpoly
 ```
 ```js
 import { createEngine, presets, openWorld } from 'threedog';
-import lowpoly, { terrainPreset, terrainStrings } from '@threedog/style-lowpoly';
+import lowpoly from '@threedog/style-lowpoly';
+import { terrainPreset, terrainStrings } from '@threedog/terrain-noise';         // the world shape is not a look: its own package
 const engine = createEngine({ canvas, style: lowpoly, strings: terrainStrings });   // terrainStrings: names of the preset's ground types
-engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));                        // its noise terrain (hills, rivers, biomes), see recipes/28
+engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));   // noise terrain (hills, rivers, biomes) that lowpoly colors, see recipes/28
 ```
-Besides the style object it exports `models` (procedural trees, rocks, grass), the post effects `bloom` `outline` `ao`, and the terrain generator `terrainPreset` / `riverAt` / `BIOMES`, which a game passes in explicitly.
+Besides the style object it exports `assets` (an asset pack of procedural trees, rocks, grass, flowers: `engine.assets.manifest(assets)`; the same generators as a plain map are `models`)and the post effects `bloom` `outline` `ao`. The terrain generator `terrainPreset` / `riverAt` / `BIOMES` / `terrainStrings` is a separate package, `@threedog/terrain-noise`: the shape of the world is gameplay, so a style pack keeps only the colors of its ground types (`terrain.colors`, `biomeColors`).
+
+## 0b. Composing a style from parts
+`style` may be a list of parts, deep-merged left to right into `engine.style`, so one pack's materials, another pack's sky and the game's own colors mix without copying whole packs:
+```js
+import lowpoly from '@threedog/style-lowpoly';
+const dusk = { sky: { sunSize: 600, keyframes: myDuskKeyframes } };            // only these two sky fields change
+const engine = createEngine({ canvas, style: [lowpoly, dusk, { ui: { accent: '#7fd3ff' }, post: null }] });
+```
+Rules (`core/styleParts.js`): plain `{ }` objects merge key by key at every depth; everything else replaces whole (arrays such as `sky.keyframes` and `post`, functions, three.js objects); a key set to `null` removes it; `undefined` is ignored; nested lists flatten, so a pack can itself be a list of parts; parts are never mutated. One object (not a list) is used as it is.
 
 ## 1. Creating a new style pack
 Copy `packages/styles/lowpoly/` to your game (or a new package `@threedog/style-toon`), edit the values in `index.js`, then switch to it in the game:
@@ -33,8 +43,7 @@ Keys you will change most often:
 | `character` | Default character colors `colors`; `create(engine, colors)` builds the procedural character (lowpoly: its `shapes.js`; without it a gray capsule); `model` a registered model every character uses |
 | `pickup` `particles` | Items on the ground (`pickup.model(item, { color, size })` returns an Object3D or geometry; without it a plain gray box), particle presets (dust smoke leaves splash sparks...) |
 | `triggers` `grid` | Tool colors, not art: trigger zone wireframe (`debugColor`), grid placement preview (`ok` / `bad`). The engine has neutral defaults (gray; light = can place, dark = cannot); a pack may recolor them |
-| `ui` | UI colors, fonts `fontFaces`, extra `css`, `templates` that replace a whole UI piece |
-| `models` | Procedural models: name -> generator function (vegetation and props refer to them by name) |
+| `ui` | UI colors, `font` (a CSS font-family list), `fonts` (font asset names to load at start, the files in an asset pack: recipes/05 §3b), extra `css`, `templates` that replace a whole UI piece |
 
 Lights: every engine has `engine.lights = { sun, hemi }`, plain three.js lights. Without a style pack they are a neutral placeholder (white hemisphere + neutral directional light, no shadows); the look (sun color and intensity curves, sky colors, fog, shadow softness, exposure, tone mapping) comes from the style pack's `sky`, `exposure` and `toneMapping`, and the sky module drives the same two lights. For your own lighting hide or retune them and add three.js lights.
 
@@ -55,12 +64,10 @@ flash.set({ intensity: 8 }); /* next frame */ flash.set({ intensity: 0 });   // 
 `engine.lightPool.usage()` (and `describe().lightPool`) lists which source each real light holds; `focus` measures from the player instead of the camera. Options and handle: `../api/lightPool.md`.
 
 ## 2. Using your own models instead of procedural ones
-Two ways:
+Models are assets, not style keys: content names them, an asset pack maps the names to files or generators. Register a later manifest with the same name to swap one:
 ```js
-// a) replace the generator function in the style pack's models (returns a geometry or Object3D); content keeps using the same name
-models: { ...models, pine: () => myPineGeometry() },
-// b) a glTF file: register it in the game's manifest, and props use the asset name directly (content looks in style.models first, then in assets)
-engine.assets.manifest({ models: { well: '/models/well.glb' } });
+engine.assets.manifest(lowpolyAssets);                                         // pine, rock, flower... built in code
+engine.assets.manifest({ name: 'mine', models: { pine: () => myPineGeometry(), well: '/models/well.glb' } });   // replaces pine, adds well
 ```
 Vegetation takes a geometry (`geometry: await engine.assets.geometry('pine')`, the first mesh in the model) or a whole model with one material per mesh, e.g. bark trunk + alpha-cut leaf cards:
 `engine.vegetation.add('oak', { model: await engine.assets.model('oak'), wind: 0.02 })` (still one draw call per part; felling hides every part). For the import workflow see `10-blender-level.md`.

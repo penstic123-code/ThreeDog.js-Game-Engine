@@ -56,7 +56,7 @@
 import * as THREE from 'three';
 import { buildHeightfield } from './heightfield.js';
 import { toast } from '../../ui/UI.js';
-import { checkOptions } from '../../core/validate.js';
+import { checkOptions, warnOnce } from '../../core/validate.js';
 
 const STRINGS = {
   'zh-CN': { 'level.loadFailed': '关卡加载失败：{url}', 'level.noScene': '关卡模块需要 url 或 scene 参数' },
@@ -64,7 +64,7 @@ const STRINGS = {
 };
 
 const STRINGS_DEV = {
-  noWorld: '[level] nodes with the custom property template or id become world records: install world() (the openWorld() preset has it); they are left out for now',
+  noWorld: '[level] nodes with the custom property template or id become world records: install world() (the openWorld() preset has it); until then they stay in the level as plain scenery (ground, collision, rays like any node)',
   noContent: 'level node {id} has the custom property template: install content() and define the template in content/templates.js',
   clash: 'level node id "{id}" is already used by other data (kind {kind}): rename the node in Blender',
   notLoaded: 'level node {id}: its level is not loaded (a record of another level is built only on that level)',
@@ -203,6 +203,9 @@ export function level(opts = {}) {
     const walk = o => {
       for (const c of [...o.children]) {
         if ((c.userData?.template == null && c.userData?.id == null) || MARKER_RE.test(c.name)) { walk(c); continue; }
+        // without world() there is nowhere to put the record: leave the node as part of the level (a game that never uses records still sees its
+        // whole scene) and say how to turn it into a record, instead of removing it and dropping it later
+        if (!e.world) { warnOnce(STRINGS_DEV.noWorld); continue; }
         const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
         c.matrixWorld.decompose(p, q, s);
         c.removeFromParent(); c.position.copy(p); c.quaternion.copy(q); c.scale.copy(s);
@@ -222,7 +225,7 @@ export function level(opts = {}) {
   /** Taken nodes -> authored world records, id `<level>/<node>`: a template instance (custom property template) or the node itself (custom property id) */
   function placeNodes() {
     if (!taken.length) return;
-    if (!e.world) { console.warn(STRINGS_DEV.noWorld); return; }
+    if (!e.world) return;   // takeNodes took nothing then (the nodes stayed in the level)
     const level = levelName(), zone = e.world.zone;
     for (const o of taken.splice(0)) {
       const id = `${level}/${o.name}`, ud = o.userData, node = o.name, { x, y, z } = o.position;

@@ -10,7 +10,9 @@
 // Choosing: every `every` seconds each source scores priority x intensity / (1 + (d / range)^2), d = distance to the focus (default the camera);
 // a source that already holds a light gets a small bonus so two equal torches do not swap back and forth. A slot fades its old source out
 // before taking the next one, so lights never pop. Sources without a light can drive a stand-in (`glow`: a halo sprite or emissive material).
-// Shadows: none by default; lightPool({ shadows: k }) makes k of the point lights cast, used only by sources added with castShadow: true.
+// Shadows: none by default; lightPool({ shadows: k }) makes k of the point lights cast, used by sources added with castShadow: true.
+// An idle shadow light (no source, or faded to 0) stops re-rendering its cube shadow map (shadow.autoUpdate = false): six shadow passes a frame for a dark light.
+// When every point light casts (shadows >= point) there are no plain ones, so sources without castShadow also take the shadow lights (they cast then) instead of never lighting.
 import * as THREE from 'three';
 import { checkOptions, warnOnce } from '../../core/validate.js';
 import { vec3 } from '../../core/math.js';
@@ -24,6 +26,7 @@ const BONUS = 1.25;   // score bonus for a source that already holds a light (hy
 const STRINGS = {
   late: 'lightPool() was installed after engine.start(): its lights were added to a running scene, so every material compiles once more (one long frame). Install it with the other modules, before engine.start() [light-recompile]',
   type: "lightPool.add(): type must be 'point' or 'spot', got ",
+  allShadow: 'lightPool({ point: {n}, shadows: {k} }): every point light casts shadows, so sources added without castShadow use shadow lights too (and cast). For plain lights next to the shadow ones give point more than shadows, e.g. lightPool({ point: {m}, shadows: {k} })',
   noSlot: "lightPool.add(): a '{type}' source but lightPool({ {type}: 0 }) has no {type} lights; give lightPool() a count, e.g. lightPool({ {type}: 2 })",
 };
 
@@ -66,6 +69,7 @@ export function lightPool(opts = {}) {
   function release(slot) {
     const src = slot.src;
     slot.src = null; slot.want = 0; slot.light.intensity = 0;
+    if (slot.group.shadow) slot.light.shadow.autoUpdate = false;   // dark: its shadow map is not rendered again until a source takes it
     if (src) { src.slot = null; if (!src.removed) setGlow(src, 1); }
   }
 
@@ -89,6 +93,7 @@ export function lightPool(opts = {}) {
         if (slot.src) release(slot);
         const s = waiting.shift();
         slot.src = s; slot.want = 1; s.slot = slot;
+        if (g.shadow) { slot.light.shadow.autoUpdate = true; slot.light.shadow.needsUpdate = true; }   // lit again: render its shadow map every frame
       }
     }
   }
@@ -177,11 +182,13 @@ export function lightPool(opts = {}) {
 
   function makeGroup(type, shadow, n) {
     if (n <= 0) return;
-    const g = { type, shadow, slots: [], fits: type === 'spot' ? s => s.type === 'spot' : shadow ? s => s.type === 'point' && s.castShadow : s => s.type === 'point' };
+    const allShadow = shadow && n >= point;   // no plain point lights: the shadow ones also take non-casting sources, so those never stay dark
+    const g = { type, shadow, slots: [], fits: type === 'spot' ? s => s.type === 'spot' : shadow && !allShadow ? s => s.type === 'point' && s.castShadow : s => s.type === 'point' };
     for (let i = 0; i < n; i++) {
       const L = type === 'spot' ? new THREE.SpotLight(0xffffff, 0) : new THREE.PointLight(0xffffff, 0);
       L.name = `lightPool_${type}${shadow ? '_shadow' : ''}_${i}`;
       L.castShadow = shadow;   // fixed at creation: a shadow count that changes recompiles too
+      if (shadow) L.shadow.autoUpdate = false;   // no source yet: no shadow passes
       e.scene.add(L);
       if (L.isSpotLight) e.scene.add(L.target);
       api.lights.push(L);
@@ -196,6 +203,7 @@ export function lightPool(opts = {}) {
       e = engine;
       checkOptions('lightPool()', opts, OPT_KEYS);
       const k = Math.max(0, Math.min(shadows, point));
+      if (k > 0 && k >= point) warnOnce(STRINGS.allShadow.replace('{n}', String(point)).replace('{m}', String(k + 2)).replaceAll('{k}', String(k)));
       makeGroup('point', true, k);
       makeGroup('point', false, point - k);
       makeGroup('spot', false, spot);

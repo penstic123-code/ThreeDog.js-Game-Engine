@@ -7,7 +7,7 @@ paths:
 # Engine core and modules
 
 - Hard rule 2 in detail: module-to-module dependencies go in `requires`; an optional dependency is used as `engine.xxx?.` and listed in `optional`, and must not throw when missing.
-- **One source for "can walk there"**: `createEngine({ movement: { radius, height, maxSlope, stepHeight } })` -> read-only `engine.movement`. Collision, the Rapier capsule, navigation, A* and level steps all read it; never write another 0.4 / 0.45 in a module. A character's position belongs to the Character mover; other systems only request movement (`placeAt` / `move` / vehicle `enter`) and never set `player.position`.
+- **One source for "can walk there"**: `engine.movement` (set with `createEngine({ movement })`); every module that needs walkability reads it, and none writes its own 0.4 / 0.45. Who owns a character's position: `packages/engine/docs/CONVENTIONS.md` "Core conventions".
 - Units are meters, Y is up, north is -Z. Characters and vehicles face the model's +Z; `facing` 0 = +Z, forward = (sin f, cos f).
 - No `requestAnimationFrame` or `renderer.render` of your own. **Game logic uses fixed seconds or game seconds** (the hook's `dt`, `engine.clock`; table in `recipes/06-clock-events.md`), never `setTimeout` / `setInterval` / `performance.now()`: they ignore pause, freeze and `engine.step`, and can be neither tested nor saved.
   Real time or `Math.random` that the engine cannot avoid gets a purpose tag at the end of the line: `// presentation` `// measure` `// wall-clock` `// main-loop` `// debug`. R4 lets only tagged lines through; `// measure` is not accepted inside the fixed step (gameplay limits count items/steps, never milliseconds).

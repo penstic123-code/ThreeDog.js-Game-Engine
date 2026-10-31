@@ -12,7 +12,7 @@ engine.assets.manifest({ models: { 'city-block': buildBlock } });
 engine.use(
   world(),   // world data: facts about NPCs such as the shopkeeper live here (changing level only tears down models)
   level({ url: 'city-block' }),
-  sky({ time: 0.45 }),
+  sky({ time: 0.45, dayLength: 360 }),   // NPC schedules follow the clock: this page needs the day to pass
   collision(),
   rigid(),
   followCamera({ pitch: 1.0, distance: 26, minDistance: 14, maxDistance: 40, lockPitch: true }),

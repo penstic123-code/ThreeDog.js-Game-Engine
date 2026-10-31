@@ -1,9 +1,16 @@
-# engine.vegetation — vegetation()
+# engine.vegetation — vegetation(opts?: VegetationModuleOptions)
 
-Vegetation (vegetation() module, needs terrain)
+Vegetation (vegetation() module; grows on terrain or on any ground provider)
 
+- Options `VegetationModuleOptions`:
+  - `chunkSize?: number` Chunk edge (meters), default 32
+  - `viewChunks?: number` Rings of chunks drawn around each stream source, default 3
+  - `density?: number` Placement attempts multiplier, default 1
+  - `area?: { min: number[]; max: number[] } | null` Where it may grow: { min: [x, z], max: [x, z] }; default anywhere the ground is
+  - `seed?: number` Placement seed, default 1
 
 ## Methods and properties
+- `vegetation.rebuild()` — Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically
 - `vegetation.add(name: string, opts: VegetationOptions) → Species` — Register a kind of vegetation
 - `vegetation.removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }) → string` — Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name
 - `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — Restore one
@@ -29,7 +36,7 @@ Vegetation (vegetation() module, needs terrain)
 - **VegetationRule** Vegetation placement rule (must be JSON-able, no functions)
   - `perChunk?: number` Placement attempts per chunk, default 100
   - `chance?: number` Success probability of each attempt 0–1 (when cluster is 'none'), default 1
-  - `minHeight?: number` Altitude range (meters)
+  - `minHeight?: number` Altitude range (meters); default unlimited both ways (a terrain game names its band above the water, e.g. minHeight: 1.5)
   - `maxHeight?: number`
   - `maxSlope?: number` Max slope
   - `cluster?: 'forest' | 'meadow' | 'none'` Clustering: 'forest' grows into woods / 'meadow' grows in open ground / 'none' even
@@ -38,7 +45,7 @@ Vegetation (vegetation() module, needs terrain)
   - `sink?: number` How deep to bury into the ground (meters, multiplied by size)
   - `tintJitter?: number` Random color jitter 0–1
   - `tints?: { color: number[]; chance: number }[]` Special color: color [r, g, b] multiplier, chance probability
-  - `biomes?: Record<string, number> | null` Which landforms it grows on: { landform name: probability 0–1 }; omitted = grows anywhere
+  - `biomes?: Record<string, number> | null` Which ground types it grows on: { type: probability 0–1 } (engine.groundType: a terrain groundType, a level mesh's groundType property or material name); omitted = grows anywhere
   - `collider?: number` Collision circle radius (meters, multiplied by size), 0 = no collision
   - `avoidFlat?: boolean` Avoid flattened plots (villages), default true
   - `salt?: number` Random seed offset (default computed from the name)

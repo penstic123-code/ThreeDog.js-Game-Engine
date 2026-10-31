@@ -17,10 +17,11 @@ export function grids(): import("../../../core").ModuleDef<Grids>;
 export class Grids {
     /**
      * Create a grid. cell: edge length (m, default 1); origin: world [x, z] of the min corner of cell [0, 0]; size: [cells wide, cells deep] (omit = unbounded);
-     * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5)
+     * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5);
+     * layers: authored cells { soil: [[i, j, { tilled: true }], ...] } (content/grids.js): the baseline a save diffs against, so a save keeps only changed cells
      * @example const room = engine.grids.add('room', { cell: 0.5, origin: [-3, -3], size: [12, 12], zone: 'house' })
      * @param {string} name
-     * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number }} [opts]
+     * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number, layers?: Record<string, [number, number, Record<string, any>][]> }} [opts]
      * @returns {Grid}
      */
     add(name: string, opts?: {
@@ -29,6 +30,7 @@ export class Grids {
         size?: [number, number];
         zone?: string;
         flat?: number;
+        layers?: Record<string, [number, number, Record<string, any>][]>;
     }): Grid;
     /**
      * A grid by name, or null when there is none

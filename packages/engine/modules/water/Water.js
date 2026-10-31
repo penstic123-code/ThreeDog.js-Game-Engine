@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { placeholderTexture } from '../../render/effects.js';
 import { patchMaterial } from '../../render/patches.js';
-import { checkOptions } from '../../core/validate.js';
+import { checkOptions, warnOnce } from '../../core/validate.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Material, Vector3 } from '../../types/common' */
 /** @import { WaterBody, WaterOptions } from '../../types/world' */
@@ -34,7 +34,7 @@ export class Water {
       // normal map: a flat-normal placeholder until the asset loads, then it takes the asset's image source (shared, not copied;
       // goes through asset management, so it can be preloaded and released)
       const n = this.normalMap = placeholderTexture('normal'); n.wrapS = n.wrapT = THREE.RepeatWrapping;
-      engine.assets.texture(st.normalMap, { color: false }).then(t => { n.source = t.source; n.needsUpdate = true; }).catch(err => console.warn(err.message));
+      engine.assets.texture(st.normalMap, { color: false }).then(t => { n.source = t.source; n.needsUpdate = true; }).catch(err => warnOnce(err.message));
     }
     /**
      * Water material (shared by all water)

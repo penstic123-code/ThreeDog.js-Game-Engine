@@ -11,10 +11,10 @@ export class Commits {
     /** Number of requests not yet applied @returns {number} */
     get pending(): number;
     /**
-     * Register a request: resolve(result) when the background work finishes, cancel() if no longer wanted. apply changes gameplay state with the result; fallback computes the same result on the main thread (required); valid says whether it is still wanted when due
+     * Register a request: resolve(result) when the background work finishes, remove() if no longer wanted. apply changes gameplay state with the result; fallback computes the same result on the main thread (required); valid says whether it is still wanted when due
      * @template [T=any]
      * @param {{ apply: (result: T) => void, fallback: () => T, valid?: (() => boolean) | null, lag?: number }} opts
-     * @returns {{ due: number, resolve: (result: T) => void, cancel: () => void }}
+     * @returns {{ due: number, resolve: (result: T) => void, remove: () => void }}
      * @example const t = engine.commits.request({ apply: r => { state.path = r; }, fallback: () => computePath() });
      * pathWorker.then(r => t.resolve(r));
     */
@@ -26,6 +26,6 @@ export class Commits {
     }): {
         due: number;
         resolve: (result: T) => void;
-        cancel: () => void;
+        remove: () => void;
     };
 }

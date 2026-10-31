@@ -6,13 +6,12 @@ import { parseClock } from '../../core/dayTime.js';
 import { cachedModel } from './models.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
-import { IdCheck, srcOf } from './ids.js';
+import { srcOf, applyRenames, pickupId } from './ids.js';
 import { DEV } from '../../core/validate.js';
-import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent } from './rules.js';
+import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent, list } from './rules.js';
 
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
 const all = (o, fn) => Object.entries(o || {}).every(([k, n]) => fn(k, n));
-const list = v => (Array.isArray(v) ? v : [v]);
 
 /** The inventory for the item words (has / lacks / give / take); without the module, a clear error instead of a TypeError deep inside */
 const inv = (e, word) => e.inventory ?? (() => { throw new Error(`content word { ${word} } needs the inventory module: add inventory() to engine.use(...), `
@@ -45,15 +44,16 @@ export const BUILTIN_RUNS = {
 const markerId = raw => raw.id ?? (typeof raw === 'string' ? raw : raw.place ?? `${raw.x},${raw.z}`);
 
 /**
- * Load content. c is the merged object of content/index.js; api is engine.content; st is the content module's load state (shared across repeated load calls):
+ * Load one content pack. c is the merged object of content/index.js (or one pack of a list); api is engine.content; ids is the IdCheck shared by every pack of
+ * this load call (ids.js); st is the content module's load state (shared across repeated load calls):
  *   { triggers: merged trigger table, subs: listener handles, startOn: quest id -> listener handle, pending: set of model Promises being generated, levelPlace(name) }
  * Order: vocabulary -> key actions -> vegetation -> items -> containers -> pickups -> NPCs -> dialogues -> quests -> trigger zones -> templates -> props.
  * Pickups, props and NPCs are initial world data: the save records only changes and removals, independent of load order (rules at the top of world/World.js).
  * Positions that use level markers (not in places) belong to the current level: pickup, prop and NPC data carry a zone (= current level name, engine.world.zone),
  * a level change only tears down models and they are rebuilt on return, with taken / moved / removed state intact; trigger zones are not data and are removed on level change (level.track).
  */
-export function loadContent(e, api, c, models, st) {
-  const { where } = api, ids = new IdCheck();   // duplicate ids across this load are an error; stateful entries without an id are listed once (ids.js)
+export function loadContent(e, api, c, st, ids) {
+  const { where } = api;
   const origin = (id, list, key) => { if (DEV) e.world?.setOrigin(id, { definedAt: srcOf(list, key) }); };
   const onLevel = (...ps) => ps.some(p => p && typeof p === 'object' ? st.levelPlace(p.place) : st.levelPlace(p));
   const bind = (h, ...ps) => { if (h && onLevel(...ps)) e.level?.track(h); return h; };
@@ -66,16 +66,24 @@ export function loadContent(e, api, c, models, st) {
   if (bad.length) throw new Error('content/rules.js: ' + bad.join('; '));
   Object.assign(st.kinds, c.rules?.kinds);
   const known = contentFiles({ kinds: st.kinds });
-  for (const k of Object.keys(c)) if (!known[k]) throw new Error('content.load: ' + unknownContent(k, { kinds: st.kinds }));
+  for (const k of Object.keys(c)) if (k !== 'name' && !known[k]) throw new Error('content.load: ' + unknownContent(k, { kinds: st.kinds }));
   collectOps(c, st.ops);
+
+  if (c.renames) applyRenames(e, c.renames);   // first: saved state under an old id must reach the new id before anything is placed under it
 
   each(c.actions, (name, a) => e.input.define(name, a.keys, a.label));
 
-  // vegetation: models go through assets.cached (baked file -> dev cache -> compute); register all kinds at the same moment once all models are ready
+  // audio: sounds / footsteps by name into engine.audio.config, rules to ambience() / music() (core/audioRules.js). A pack loaded again
+  // replaces its own rules (hot reload): a named pack by its name, an unnamed one by the data object itself, so loading the same object
+  // twice never stacks its rules (a fresh key per load did); two different unnamed objects both keep theirs
+  if (c.audio) e.audio.contentPack(c.name ? 'pack:' + c.name : c, c.name ? `pack "${c.name}"` : 'pack (no name)', c.audio);
+
+  // vegetation: generator models go through assets.cached (baked file -> dev cache -> compute), file models give their first mesh's geometry; register all kinds at the same moment once all models are ready
   // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them
   const veg = [];
   each(c.vegetation, (name, { model: m, lod, ...rest }) => {
-    veg.push(Promise.all([cachedModel(e, models, m), lod && cachedModel(e, models, lod)]).then(([geometry, lodGeometry]) => [name, { ...rest, geometry, ...(lodGeometry && { lodGeometry }) }])
+    const geo = x => cachedModel(e, x) ?? e.assets.geometry(list(x)[0]);
+    veg.push(Promise.all([geo(m), lod && geo(lod)]).then(([geometry, lodGeometry]) => [name, { ...rest, geometry, ...(lodGeometry && { lodGeometry }) }])
       .catch(err => { console.error(`[content] vegetation ${name}: model generation failed`, err); return null; }));   // one failure does not affect the others
   });
   if (veg.length) st.wait(Promise.all(veg).then(list => { for (const v of list) if (v) e.vegetation.add(v[0], v[1]); }));
@@ -87,7 +95,7 @@ export function loadContent(e, api, c, models, st) {
   // pickups: data goes into world (kind 'pickup'). id: the written id if given, else `pickup:<item>:<index in the pickups array>` (stable for the same content; when inserting in the middle, give existing entries an id)
   if (c.pickups?.length) needWorld(e);
   c.pickups?.forEach((p, i) => {
-    const id = p.id ?? `pickup:${p.item}:${i}`;
+    const id = pickupId(p, i);
     if (p.id != null) ids.claim(id, `pickups[${i}] (${p.item})`); else ids.unnamed(id, `pickups[${i}] (${p.item})`);   // taken / respawning is state
     e.inventory.spawnPickup(p.item, where(p), { id, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zoneOf(p) });
     origin(id, c.pickups, i);
@@ -150,10 +158,9 @@ export function loadContent(e, api, c, models, st) {
     if (!e.grids.get(name)) e.grids.add(name, g);
   });
   // templates before props: a props entry with template places an instance of it
-  if (c.templates) { needWorld(e); defineTemplates(e, api, st, c.templates, models); }
+  if (c.templates) { needWorld(e); defineTemplates(e, api, st, c.templates); }
   // props: data goes into world (kind 'prop'); models and collision are built nearby and torn down when far by present in props.js
-  if (c.props?.length) addProps(e, api, c.props, models, st, zoneOf, ids);
-  ids.done();
+  if (c.props?.length) addProps(e, api, c.props, st, zoneOf, ids);
 
   // game kinds last: their data may name the items, NPCs and places loaded above
   each(st.kinds, (name, k) => { if (c[name] !== undefined) k.load(e, c[name], api); });

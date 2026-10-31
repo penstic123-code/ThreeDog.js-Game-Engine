@@ -48,18 +48,22 @@ export function parseSave(json) { return JSON.parse(typeof json === 'string' ? j
  * Upgrade one part's data from its saved version to the current one, step by step (on a copy: the caller's save stays as it was).
  * @param {string} key
  * @param {{ version: number, migrate: Record<string, (d: any) => any> }} p
+ * Each step gets (data, save): save is { parts, versions } of the whole save as read (before any part was upgraded), read only. It is there because
+ * some upgrades depend on another part: the world part renaming runtime ids (`kind-3` -> `kind#3`) means every other part that keys data by a record id
+ * (containers) has to rename the same ids, and only the world part's records tell which ids those are.
  * @param {any} data
  * @param {number} from
+ * @param {{ parts: Record<string, any>, versions: Record<string, number> }} [save]
  * @returns {any}
  * @internal
  */
-export function upgradePart(key, p, data, from) {
+export function upgradePart(key, p, data, from, save = { parts: {}, versions: {} }) {
   if (from >= p.version) return data;
   let d = structuredClone(data);
   for (let v = from; v < p.version; v++) {
     const fn = p.migrate[v];
     if (!fn) throw codedError('save-refused', fmt(DEV.noStep, { k: key, from: v, to: p.version }));
-    d = fn(d) ?? d;
+    d = fn(d, save) ?? d;
   }
   return d;
 }
@@ -71,7 +75,7 @@ export function upgradePart(key, p, data, from) {
  * @param {string | object | undefined} json  the stored save text, or a save object
  * @param {Map<string, { version: number, first: boolean, migrate: Record<string, Function> }>} providers
  * @param {string} slot  for the message only
- * @returns {{ data: any, list: [string, any, any][], foreign: { parts: Record<string, any>, versions: Record<string, number> } } | { reason: 'missing' | 'corrupt' | 'tooNew' | 'migrate', dev: string }}
+ * @returns {{ data: any, list: [string, any, any][], foreign: { parts: Record<string, any>, versions: Record<string, number>, whole: any } } | { reason: 'missing' | 'corrupt' | 'tooNew' | 'migrate', dev: string }}
  * @internal
  */
 export function readSave(json, providers, slot) {
@@ -86,7 +90,8 @@ export function readSave(json, providers, slot) {
   const list = [...providers].filter(([k]) => k in data.parts).sort((a, b) => (b[1].first ? 1 : 0) - (a[1].first ? 1 : 0));
   const newer = list.filter(([k, p]) => (versions[k] ?? 1) > p.version).map(([k, p]) => `part '${k}' is version ${versions[k]}, this build reads up to ${p.version}`);
   if (newer.length) return { reason: 'tooNew', dev: fmt(DEV.tooNew, { list: newer.join('; ') }) };
-  const foreign = { parts: {}, versions: {} };
+  // whole: the save as read, for migrate steps that need another part (upgradePart); kept on foreign so a part registered later (adoptPart) sees it too
+  const whole = { parts: data.parts, versions }, foreign = { parts: {}, versions: {}, whole };
   for (const k of Object.keys(data.parts)) if (!providers.has(k)) { foreign.parts[k] = data.parts[k]; foreign.versions[k] = versions[k] ?? 1; }
-  try { return { data, foreign, list: list.map(([k, p]) => [k, p, upgradePart(k, p, data.parts[k], versions[k] ?? 1)]) }; } catch (e) { return { reason: 'migrate', dev: e.message }; }
+  try { return { data, foreign, list: list.map(([k, p]) => [k, p, upgradePart(k, p, data.parts[k], versions[k] ?? 1, whole)]) }; } catch (e) { return { reason: 'migrate', dev: e.message }; }
 }

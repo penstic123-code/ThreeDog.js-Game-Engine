@@ -201,7 +201,7 @@ async function buildMap(dir) {
   const vegModels = Object.values(c.vegetation || {}).flatMap(v => [[v.model].flat()[0], v.lod].filter(Boolean));
   const tplModels = Object.values(c.templates || {}).map(t => [t?.model].flat()[0]).filter(m => typeof m === 'string');
   const models = uniq([...code.matchAll(/\.models\.(\w+)/g)].map(m => m[1]).concat(vegModels, tplModels, (c.props || []).filter(p => !p.template).map(p => [p.model].flat()[0])));
-  if (models.length) st.push(`- Models (style.models): ${models.join(', ')}`);
+  if (models.length) st.push(`- Models (asset names): ${models.join(', ')}`);
   const used = uniq([...code.matchAll(/particles\.(?:emit|attach)\('(\w+)'/g)].map(m => m[1]).concat(JSON.stringify(c).match(/"particles":\{"name":"(\w+)"/g)?.map(s => s.split('"')[5]) || []));
   const defined = uniq([...code.matchAll(/particles\.define\('(\w+)'/g)].map(m => m[1]));
   if (used.length) st.push(`- Particle presets (style.particles): ${used.map(p => defined.includes(p) ? `${p} (defined by the game)` : p).join(', ')}`);

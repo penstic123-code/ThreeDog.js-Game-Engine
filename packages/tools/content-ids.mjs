@@ -1,0 +1,67 @@
+// threedog content ids [-w game | <game folder>] [--write]: give every stateful content entry that relies on its index id (pickups, template instances with state /
+// container / interact / body) the id it has today, written into the content file, so inserting an entry above it can no longer shift it.
+// Why the id it has today ('chest:3') and not a nicer one: old saves name it that way, so writing it changes nothing for a player. A readable id
+// comes after, as a rename in content/renames.js ({ 'chest:3': 'chest-home' }), which moves the saved state along.
+// Dry run by default (prints each change as -/+ lines); --write applies. Which entries and which ids: missingIds in the engine's content/ids.js,
+// the same list the dev warning at load uses. Where they are in the file: the content source walker (vite/vite-threedog-content-src.js).
+// Only object literals written directly in the exported array are edited (an entry built by a loop or after a spread is listed as "edit by hand").
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
+import { parseAst } from 'vite';
+import { abs, rel, pickWorkspace, CONTENT_IDS_REL } from './paths.mjs';
+import { loadGame } from './content-check/load.mjs';
+import { exportedLiteral } from './vite/vite-threedog-content-src.js';
+
+const { missingIds } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
+
+/**
+ * The edits for one game folder: { files: [{ path, before, after, lines: ['- …', '+ …'] }], manual: ['content/props.js[4] -> chest:4 (built by code)'] }
+ * @param {string} dir  game folder
+ */
+export async function planIds(dir) {
+  const { data, files } = await loadGame(dir);
+  const byFile = new Map();
+  for (const m of missingIds(data)) { if (!byFile.has(m.file)) byFile.set(m.file, []); byFile.get(m.file).push(m); }
+  const out = { files: [], manual: [] };
+  for (const [name, list] of byFile) {
+    const path = files[name], code = readFileSync(path, 'utf8'), node = exportedLiteral(parseAst(code));
+    const edits = [];
+    for (const m of list) {
+      const el = node?.type === 'ArrayExpression' ? node.elements[m.index] : null;
+      const spread = node?.elements?.slice(0, m.index + 1).some(x => x?.type === 'SpreadElement');
+      if (!el || el.type !== 'ObjectExpression' || spread) { out.manual.push(`${rel(path)}[${m.index}] -> id: '${m.id}' (not a literal in the exported array: edit by hand)`); continue; }
+      const lit = `'${m.id.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`, next = code[el.start + 1];
+      // `{ template: … }` -> `{ id: '…', template: … }`; `{}` -> `{ id: '…' }`
+      edits.push({ at: el.start + 1, text: el.properties.length ? ` id: ${lit},${/\s/.test(next) ? '' : ' '}` : ` id: ${lit} ` });
+    }
+    if (!edits.length) continue;
+    let after = code;
+    for (const e of [...edits].sort((a, b) => b.at - a.at)) after = after.slice(0, e.at) + e.text + after.slice(e.at);
+    const a = code.split('\n'), b = after.split('\n'), lines = [];
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) lines.push(`${rel(path)}:${i + 1}`, `- ${a[i].trim()}`, `+ ${b[i].trim()}`);
+    out.files.push({ path, before: code, after, lines });
+  }
+  return out;
+}
+
+async function main(argv) {
+  const [sub, ...rest] = argv;
+  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies)'); return 1; }
+  let dir, args;
+  try { ({ dir, args } = pickWorkspace(rest)); } catch (e) { console.log('✗ ' + e.message); return 1; }
+  const folder = args.find(a => !a.startsWith('-'));   // or a game folder by path (the engine's examples are not workspaces)
+  if (folder) dir = resolve(folder);
+  const write = args.includes('--write');
+  const plan = await planIds(dir);
+  const n = plan.files.reduce((s, f) => s + f.lines.length / 3, 0);
+  for (const f of plan.files) console.log(f.lines.join('\n'));
+  for (const m of plan.manual) console.log('! ' + m);
+  if (!n && !plan.manual.length) { console.log(`✓ ${rel(dir)}: every stateful content entry has a written id`); return 0; }
+  if (write) for (const f of plan.files) writeFileSync(f.path, f.after);
+  console.log(write ? `✓ wrote ${n} id(s) into ${plan.files.length} file(s). Rename one later through content/renames.js: { 'old': 'new' }`
+    : `${n} id(s) to write (dry run). Run again with --write to apply`);
+  return 0;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(await main(process.argv.slice(2)));

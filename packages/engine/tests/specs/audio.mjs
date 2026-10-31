@@ -104,6 +104,55 @@ export const specs = [
     },
   },
   {
+    name: 'Audio: [guard] content audio: sounds by asset name, data rules on measures, packs merge by id, functions dropped, code names clash',
+    url: '/tests/audio/index.html',
+    async run({ page, check, ev }) {
+      await page.waitForFunction(() => window.engine?.ready, null, READY);
+      await page.mouse.click(400, 300);
+      await ev(() => __t.until(() => engine.audio.running, 5000).catch(() => {}));
+      const r = await ev(async () => {
+        const a = engine.audio, o = {}, err = f => { try { f(); return null; } catch (e) { return e.message; } };
+        engine.assets.manifest({ name: 'tones', sounds: { toneA: window.toneUrl } });
+        const warn = console.warn; let w = ''; console.warn = m => { w += m; };
+        o.load = err(() => engine.content.load([
+          { name: 'p1', audio: { sounds: { chime: 'toneA', drone: { synth: 'ping', loop: true } }, music: { tracks: { packTrack: 'toneA' } },
+            ambience: [{ sound: 'drone', when: { daylight: { gt: 0.1 } }, volume: { base: 0.1, add: { rain: 1 }, max: 0.3 }, fade: 0.1 }] } },
+          { name: 'p2', audio: { ambience: [{ sound: 'drone', when: () => true }], footsteps: { sand: 'chime' } } },
+        ]));
+        engine.content.load({ name: 'p3', audio: { sounds: { pathy: '/sfx/pathy.ogg' } } });
+        console.warn = warn; o.warn = w;
+        o.rules = engine.ambience.info.map(i => i.sound).join(',');
+        o.cfg = 'chime' in a.config.sounds && a.config.footsteps.sand === 'chime' && engine.music.tracks.has('packTrack');
+        o.dup = err(() => engine.content.load([{ name: 'x', audio: { sounds: { s1: 'synth' } } }, { name: 'y', audio: { sounds: { s1: 'synth' } } }]));
+        o.code = err(() => engine.content.load({ name: 'z', audio: { sounds: { hit: 'toneA' } } }));
+        o.measures = ['daylight', 'rain', 'snow', 'wind', 'nearWater', 'altitude'].filter(n => typeof a.value(n) !== 'number');
+        o.cmp = [a.matches({ daylight: { gt: 0.1 } }), a.matches({ daylight: { lt: 0.1 } }), a.matches({ rain: { lte: 0, gte: 0 } })];
+        o.vol = [a.volumeOf({ base: 0.1, add: { rain: 1 }, max: 0.3 }), a.volumeOf({ base: 2, max: 0.3 }), a.volumeOf({ base: -1, min: 0 })];
+        o.clash = err(() => a.measure('time', () => 1));
+        o.chime = !!a.sfx('chime');
+        await __t.until(() => engine.assets.entries.get('toneA')?.value, 3000).catch(() => {});
+        o.viaAssets = !!engine.assets.entries.get('toneA')?.value;
+        await __t.until(() => engine.ambience.info.find(i => i.sound === 'drone')?.on, 3000).catch(() => {});
+        o.drone = engine.ambience.info.find(i => i.sound === 'drone');
+        engine.content.load({ name: 'p1', audio: { ambience: [{ sound: 'drone', volume: 0.2 }] } });   // the same pack again: replaces its rules
+        o.reload = engine.ambience.info.filter(i => i.sound === 'drone').length;
+        return o;
+      });
+      check('content audio loads; a rule holding a function is dropped with a warning (hum from code + drone from p1 only)', r.load === null && r.rules === 'hum,drone' && /dropped/.test(r.warn), JSON.stringify(r));
+      check('[guard] a sound written as a file path in content warns with the asset pack form', /pathy/.test(r.warn) && /asset pack/.test(r.warn), r.warn);
+      check('sounds / footsteps / tracks merge into engine.audio and engine.music', r.cfg);
+      check('[guard] the same sound name in two packs of one load: error naming both', /audio\.sounds\.s1/.test(r.dup ?? '') && /pack "x"/.test(r.dup) && /pack "y"/.test(r.dup), r.dup);
+      check('[guard] a sound name defined in code and in content: error', /audio-name-clash/.test(r.code ?? ''), r.code);
+      check('measures: sky daylight, weather rain / snow / wind, ambience nearWater / altitude', r.measures.length === 0, r.measures.join(','));
+      check('measure comparisons in when (gt / lt / gte+lte)', r.cmp[0] && !r.cmp[1] && r.cmp[2], JSON.stringify(r.cmp));
+      check('data volume: base + measure x factor, clamped by max / min', Math.abs(r.vol[0] - 0.1) < 1e-9 && r.vol[1] === 0.3 && r.vol[2] === 0, JSON.stringify(r.vol));
+      check('[guard] a measure may not reuse a condition key', /condition key and a measure/.test(r.clash ?? ''), r.clash);
+      check('a content sound name resolves through the asset pack (engine.assets loads toneA)', r.chime && r.viaAssets);
+      check('a data rule plays: drone on at volume 0.1 by day', r.drone?.on && Math.abs(r.drone.volume - 0.1) < 1e-6, JSON.stringify(r.drone));
+      check('loading the same named pack again replaces its rules instead of doubling them', r.reload === 1, r.reload);
+    },
+  },
+  {
     name: 'Audio: the open-world example sounds through its rule table (wind loop on, footsteps map to sounds it defines)',
     url: '/?cutscene=skip',
     async run({ page, check, ev }) {

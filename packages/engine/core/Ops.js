@@ -14,20 +14,17 @@ import { DEV, missingText, warnOnce } from './validate.js';
 import { checkDef, checkArgs, devError, fmt, SOURCES } from './opsCheck.js';
 import { reportError } from './errors.js';
 import { coded } from './errorHints.js';
+import { guardWrite } from './opsGuard.js';
+import { newRing, logEntry, recentEntries } from './opsHistory.js';
 
 const MAX_DEPTH = 16;
 const STRINGS = {
   dup: "ops.define('{name}'): already defined. To replace it call remove() on the handle define returned first",
   unknown: 'ops.run({name}): {text}',
   canResult: "{name}'s can must return true or a reason string, e.g. return 'noMoney'; got {got}",
-  canWrote: "{name}'s can changed state ({where}). can is read-only; change state in run",
   canRun: "{name}'s can called ops.run('{inner}'). can is read-only; call other ops from run",
   loop: 'ops call each other in a loop (deeper than ' + MAX_DEPTH + '): {chain}',
   badSource: "ops.run('{name}'): source '{source}' is not one of " + SOURCES.join(', '),
-  guard: "[engine] gameplay state changed outside a fixed step or an op: {where}{at}.\n"
-    +"Change state from UI buttons and timers through an op: engine.ops.run('name', args); put simulation in a module's fixed or world.simulate. See recipes/23-ops.md",
-  clientGuard: "[engine] net client changed shared state locally: {where}{at}.\n"
-    +"On a client the host owns the state; request the change with engine.ops.run (op defined with net: 'peer'). See recipes/27-net.md",
 };
 
 /**
@@ -58,7 +55,7 @@ export class Ops {
   /** History entries kept (ring, default 256); setting it clears the history */
   get historySize() { return this._ring.length; }
   set historySize(n) {
-    this._ring = Array.from({ length: Math.max(1, n | 0) }, () => ({ seq: 0, tick: 0, phase: 'between', name: '', args: null, source: '', actor: '', ok: false, reason: null, depth: 0, count: 1 }));
+    this._ring = newRing(n);
     this._head = 0; this._len = 0;
   }
 
@@ -202,12 +199,7 @@ export class Ops {
    * @example engine.ops.recent('shop.buy').at(-1);   // { tick: 812, phase: 'between', ok: false, reason: 'noMoney', ... }
    */
   recent(name) {
-    const out = [], n = this._ring.length;
-    for (let i = 0; i < this._len; i++) {
-      const h = this._ring[(this._head - this._len + i + n) % n];
-      if (!name || h.name === name) out.push({ ...h });
-    }
-    return out;
+    return recentEntries(this, name);
   }
 
   /**
@@ -219,16 +211,7 @@ export class Ops {
    * @returns {void}
    */
   guard(where) {
-    const e = this.engine;
-    if (this._inCan) throw devError(fmt(STRINGS.canWrote, { name: this._inCan, where }));
-    if (this._client ? !e.ready || this._allowDepth > 0 || where === 'world.move' : !e.ready || e._inFixed || this._stack.length || this._allowDepth > 0) return;
-    // first caller outside the engine: skip frames in engine folders, or in the bundle file this guard itself lives in
-    const lines = (new Error().stack || '').split('\n'), file = l => l.match(/\(?([^()\s]+?):\d+:\d+\)?$/)?.[1], own = file(lines[1] || '');
-    const at = lines.slice(3).find(l => !/\/(core|modules)\//.test(l) && file(l) !== own)?.trim() ?? '';
-    const key = where + '|' + at;
-    if (this._warned.has(key)) return;
-    this._warned.add(key);
-    console.warn(coded('ops-guard', fmt(this._client ? STRINGS.clientGuard : STRINGS.guard, { where, at: at ? ', called ' + at : '' })));
+    guardWrite(this, where);
   }
   /** @internal A separator in the history (save load): later entries belong to a different world state */
   _mark(label) { this._log(label, null, { tick: this.engine.tick, source: 'game', actor: '' }, true, null, 0); }
@@ -281,14 +264,7 @@ export class Ops {
   }
   /** @internal write a history entry in place (no allocation); consecutive identical failures merge */
   _log(name, args, ctx, ok, reason, depth) {
-    const n = this._ring.length, last = this._len ? this._ring[(this._head - 1 + n) % n] : null;
-    if (!ok && last && !last.ok && last.name === name && last.reason === reason && last.actor === ctx.actor) { last.count++; return last; }
-    const h = this._ring[this._head];
-    h.seq = ++this._seq; h.tick = ctx.tick; h.phase = this.engine._inFixed ? 'fixed' : 'between'; h.name = name; h.args = args;
-    h.source = ctx.source; h.actor = ctx.actor; h.ok = ok; h.reason = reason; h.depth = depth; h.count = 1;
-    this._head = (this._head + 1) % n;
-    if (this._len < n) this._len++;
-    return h;
+    return logEntry(this, name, args, ctx, ok, reason, depth);
   }
 }
 

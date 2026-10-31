@@ -100,7 +100,8 @@ export default {
           const sig = checker.getSignatureFromDeclaration(m), ret = sig && checker.getNonNullableType(sig.getReturnType());
           const has = n => { const p = ret && checker.getPropertyOfType(ret, n); return p && isFn(checker.getTypeOfSymbol(p)); };
           const tn = ret?.getSymbol()?.name ?? '';
-          if (ret && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove') && !ALLOW_STOP.some(([t]) => t === tn) && !/Promise/.test(checker.typeToString(ret)))
+          const selfRet = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);   // returning this is chaining (music.addTracks), not a handle
+          if (ret && !selfRet && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove') && !ALLOW_STOP.some(([t]) => t === tn) && !/Promise/.test(checker.typeToString(ret)))
             shape.push({ level: 'warn', ...at(m), msg: `${who}() returns ${has('stop') ? 'stop()' : 'cancel()'} without remove()`, fix: 'return a handle with remove() (the cancel convention), or add the type to ALLOW_STOP with a reason' });
         }
         const chain = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);   // returning this is chaining, not cancelling

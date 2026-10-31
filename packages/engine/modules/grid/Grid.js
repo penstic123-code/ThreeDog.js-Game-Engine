@@ -12,12 +12,12 @@ const cap = s => s[0].toUpperCase() + s.slice(1);
 const planar = v => (Array.isArray(v) && v.length === 2 ? v : xzOf(v));
 
 /**
- * A placement grid. Several can exist at once (a farm outdoors, a room indoors); each has its own cell size, origin and bounds.
+ * A placement grid. Several can exist at once (a yard outdoors, a room indoors); each has its own cell size, origin and bounds.
  * @example
- * const farm = engine.grids.add('farm', { cell: 1, origin: [0, 0], size: [16, 12] });
- * farm.toCell(engine.player.position);            // [3, 5]
- * farm.can('crop', [3, 5]);                       // true or a reason: 'occupied' 'outOfBounds' 'notFlat' 'wrongGround' 'notTilled' ...
- * engine.ops.run('grid.place', { grid: 'farm', item: 'crop', cell: [3, 5] });
+ * const room = engine.grids.add('room', { cell: 1, origin: [0, 0], size: [16, 12] });
+ * room.toCell(engine.player.position);            // [3, 5]
+ * room.can('table', [3, 5]);                      // true or a reason: 'occupied' 'outOfBounds' 'notFlat' 'wrongGround' or a layer reason ...
+ * engine.ops.run('grid.place', { grid: 'room', item: 'table', cell: [3, 5] });
  * @experimental
  */
 export class Grid {
@@ -167,6 +167,8 @@ export class Grid {
   layer(name, opts) {
     let l = this._layers.get(name);
     if (!l) { l = new Layer(this, name, opts); this._layers.set(name, l); this._owner._layerAdded(l); }
+    else if (opts && l._byContent) { l.opts = opts; this._owner._retile(l); }   // made early for content/grids.js cells: the game's first opts still count
+    if (opts) l._byContent = false;
     return l;
   }
   /** Layers created so far @returns {Layer[]} */

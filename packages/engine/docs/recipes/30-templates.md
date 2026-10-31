@@ -9,7 +9,7 @@ A **template** describes one kind of object once: its model, collision, interact
 ```js
 export default {
   chest: {
-    model: 'chest',                        // style pack generator or assets name; every chest clones one shared prototype (geometry and material built once)
+    model: 'chest',                        // an asset name (file or generator of an asset pack); every chest clones one shared prototype (geometry and material built once)
     collide: 'box',                        // 'box' / 'circle' from the model's bounds; omitted = does not block
     state: { opened: false },              // instance fields and their defaults, copied onto each record and saved
     interact: { label: rec => rec.opened ? '关上' : '打开', op: 'chest.toggle', radius: 2 },   // using it runs the op with { id }
@@ -35,7 +35,13 @@ export default [
 ```
 Allowed per instance: `id`, `place` / `x` / `z`, `y` (height above the ground), `rot`, `scale`, `items` (replaces the starting goods) and the template's **state fields**. Writing a definition field (`model`, `collide`, `interact`...) throws and says to define another template.
 
-**Ids.** An entry with state (a template with `state`, `container`, `interact` or `body`, every pickup, every grid item) gets a written id: saves find its changes by id, and an index id (`<template>:<index>`, `pickup:<item>:<index>`) moves to another entry when one is inserted above it. Without one, dev warns once per load and names the id to write. Pure decoration may keep its index id. Two entries with the same id in one load throw with the fix; an authored id may not contain `#` or `/` (those are kept for records made during play and for level nodes). Places computed from the seed (a flat spot near the river) stay in code and come in through `content.load(data, { places })`.
+**Ids.** An entry with state (a template with `state`, `container`, `interact` or `body`, every pickup, every grid item) gets a written id: saves find its changes by id, and an index id (`<template>:<index>`, `pickup:<item>:<index>`) moves to another entry when one is inserted above it. Without one, dev warns once per load and names the id to write. Pure decoration may keep its index id. Two entries with the same id in one load throw with the fix; an authored id may not contain `#` or `/` (those are kept for records made during play and for level nodes). Places computed from the seed (a flat spot near the river) stay in code and come in through `content.load(data, { places })`. Records made during play are numbered `<kind>#<n>` (`chest#4`), so they never meet an authored id.
+
+**Writing the ids, renaming them.** `npx threedog content ids [-w game]` lists each stateful entry that still relies on its index id with the id it has now (`-`/`+` lines, dry run); `--write` writes them into the content files. Writing today's id changes nothing for old saves. To give an entry a readable id later, change it and add the pair to `content/renames.js`: <!-- r18-ignore-line -->
+```js
+export default { 'chest:3': 'chest-home', 'prop:rock:12': null };   // old id -> new id; null = deleted on purpose
+```
+Loading a save then moves its changes, removal, owed time and container goods from `chest:3` to `chest-home` (save loaded before or after content), and drops `prop:rock:12`'s data quietly. `npm run check` errors on a target no entry defines and on a source content still defines; dev warns about an orphan near an existing id with the exact pair to add.
 
 **Physics props.** `body: { shape: 'box' | 'ball' | 'hull', mass, friction?, restitution?, damping?, angularDamping? }` in a definition makes each copy a rigid body (needs `rigid()`). The copy rests on the ground asleep until something hits it; then the record follows the model, so a pushed crate's place is saved like any other change.
 ```js

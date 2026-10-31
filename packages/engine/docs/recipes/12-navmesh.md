@@ -37,7 +37,7 @@ runs in `engine.threads` workers and `done(path, status)` runs at the start of a
 const req = engine.characters.findPathAsync(guard.position, target, (path, status) => {   // status 'ok' | 'noPath' | 'notReady', as findPath({ detailed: true })
   guard.path = path;
 }, { radius: 0.5 });
-req.cancel();                                  // the target changed before the answer came: done is never called
+req.remove();                                  // the target changed before the answer came: done is never called
 engine.characters.pathsPerStep = 64;           // requests sent per fixed step (default 32); the rest wait in order
 ```
 - Built-in NPCs already use it; keep `findPath` for the few calls that need a path this step (player click-to-move).

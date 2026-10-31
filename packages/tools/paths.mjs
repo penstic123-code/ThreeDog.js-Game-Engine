@@ -107,6 +107,21 @@ export const STYLES_REL = MODE === 'monorepo' ? 'packages/styles' : 'node_module
 export const styleName = spec => spec.startsWith(STYLE_PKG_PREFIX) ? spec.slice(STYLE_PKG_PREFIX.length).split('/')[0] : null;
 /** Absolute folder of a style pack by name (lowpoly → packages/styles/lowpoly or node_modules/@threedog/style-lowpoly) */
 export const styleDir = name => join(abs(STYLES_REL), MODE === 'monorepo' ? name : 'style-' + name);
+// ── Optional packages that are not style packs ──────────
+// Gameplay-side add-ons such as the terrain generator (world shape is not a look, so it may not live in a style pack): npm name
+// `@threedog/<name>`, monorepo folder packages/<name>/ (one workspace each). Listed by name so rules scan them like the style packs.
+/** Add-on package names (without the @threedog/ scope) */
+export const ADDON_PKGS = ['terrain-noise'];
+/** Absolute folder of an add-on package (monorepo: packages/<name>; game mode: node_modules/@threedog/<name>) */
+export const addonDir = name => MODE === 'monorepo' ? abs(`packages/${name}`) : join(abs('node_modules/@threedog'), name);
+/** Add-on folders scanned as project source (monorepo only: in game mode they sit inside STYLES_REL's node_modules/@threedog already) */
+export const ADDONS_REL = MODE === 'monorepo' ? ADDON_PKGS.map(n => `packages/${n}`) : [];
+/** Entry file of an optional package import ('@threedog/style-<x>' or an add-on such as '@threedog/terrain-noise'), null for anything else */
+export const optionalEntry = spec => {
+  if (styleName(spec)) return join(styleDir(styleName(spec)), 'index.js');
+  const a = spec.startsWith('@threedog/') ? spec.slice('@threedog/'.length).split('/')[0] : null;
+  return a && ADDON_PKGS.includes(a) ? join(addonDir(a), 'index.js') : null;
+};
 export const EXAMPLES_REL = `${ENGINE_REL}/examples`;
 export const ENGINE_TESTS_REL = `${ENGINE_REL}/tests`;
 export const DOCS_REL = `${ENGINE_REL}/docs`;
@@ -118,6 +133,8 @@ export const EVENTS_GEN_REL = `${CORE_REL}/events.generated.js`;
 export const CORE_DTS_REL = `${TYPES_REL}/core.d.ts`;
 export const I18N_CORE_REL = `${CORE_REL}/I18n.js`;
 export const CONTENT_RULES_REL = `${MODULES_REL}/content/rules.js`;
+/** Content id rules (index ids, missingIds): read by `threedog content ids` */
+export const CONTENT_IDS_REL = `${MODULES_REL}/content/ids.js`;
 export const BAKED_REL = `${CORE_REL}/Baked.js`;
 export const ENGINE_SPECS = abs(`${ENGINE_TESTS_REL}/specs.mjs`);
 /** Package name games use to import the engine (the d.ts types hang on this package too) */
@@ -167,7 +184,7 @@ export function notGameSource(p, start, isDir) {
   return !s.src.some(x => inside(a, x) || (isDir && inside(x, a)));
 }
 /** Source scope scanned by rules, file size etc. (directories relative to the repo root) */
-export const SOURCE_DIRS_REL = [...ENGINE_CODE_DIRS_REL, STYLES_REL, EXAMPLES_REL, ENGINE_TESTS_REL, TOOLS_REL, GAMES_REL];
+export const SOURCE_DIRS_REL = [...ENGINE_CODE_DIRS_REL, STYLES_REL, ...ADDONS_REL, EXAMPLES_REL, ENGINE_TESTS_REL, TOOLS_REL, GAMES_REL];
 /** Game code (examples + games/*): only checked for direct new materials, type checking, key text, etc. */
 export const GAME_CODE_DIRS_REL = [EXAMPLES_REL, GAMES_REL];
 /** Generated docs and declarations (not edited by hand, exempt from size checks) */

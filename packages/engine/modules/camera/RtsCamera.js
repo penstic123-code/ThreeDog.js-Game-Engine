@@ -1,6 +1,6 @@
 // Strategy-game camera (top-down / oblique 45 degree isometric feel): the camera looks at a point on the ground (the focus), and the player moves that point.
 //   - Arrow keys / WASD pan (screen-relative), hold the mouse to drag-pan (grab the ground), mouse at the screen edge pans (edgePan)
-//   - Wheel zooms (changes camera height), Q/R rotate (actions rotateLeft / rotateRight, rebindable; E is the interact key, not used here)
+//   - Wheel zooms (changes camera height), Q/R rotate (actions rotateLeft / rotateRight, rebindable)
 //   - The focus always sticks to the ground (engine.surface); bounds limits the range
 //   - screenToGround(ndcX, ndcY) -> ground point under a screen point (for click-to-move and placing buildings)
 //   - After follow(object) the focus tracks it (done automatically when the player is created) and WASD goes to the character; manual drag/edge pan drops the follow (unless followLock: true)
@@ -20,7 +20,7 @@ export class RtsCamera {
    * height camera height above the focus (zoom changes this); minHeight/maxHeight zoom range; angle pitch-down angle (radians, pi/2 = straight down);
    * yaw initial horizontal facing; panSpeed pan speed multiplier (actual speed scales with height); dragPan drag-to-pan with the mouse;
    * edgePan pan at screen edges; edgeSize edge width (fraction of the screen); bounds { minX, maxX, minZ, maxZ } focus range;
-   * rotateKeys rotation keys { left: ['KeyQ'], right: ['KeyR'] } (E is the interact key, don't use it), false disables rotation; rotateSpeed rotation speed (radians/second);
+   * rotateKeys rotation keys { left: ['KeyQ'], right: ['KeyR'] } (pick keys your game's other actions do not use), false disables rotation; rotateSpeed rotation speed (radians/second);
    * zoomStep zoom ratio per wheel notch; smoothing smoothness; fov field of view (unchanged if omitted); followLock disallow manual pan while following; start initial focus (position)
    */
   constructor(engine, { height = 30, minHeight = 8, maxHeight = 90, angle = 0.95, yaw = 0, panSpeed = 1, dragPan = true, edgePan = false, edgeSize = 0.02,
@@ -121,7 +121,7 @@ for (const k of ['forward', 'right']) RtsCamera.prototype[k] = YAW_RIG[k];
 /**
  * Strategy top-down camera module. Installs engine.cameraRig (pick it or followCamera).
  * rtsCamera({ height: 30, angle: 0.95, panSpeed: 1, edgePan: true, bounds, rotateKeys: { left: ['KeyQ'], right: ['KeyR'] } })
- * Actions: rotateLeft / rotateRight (default Q / R; E is the interact key)
+ * Actions: rotateLeft / rotateRight (default Q / R)
  */
 export function rtsCamera(opts = {}) { return rigModule('rts', opts); }
 defineRig('rts', (e, opts) => {

@@ -7,7 +7,7 @@
 // is inserted above it, and the save then puts its changes on the wrong entry. Dev warns once per load, naming the entries and the id to write.
 // Two entries with the same id in one load are an error with the fix. Source lines ("defined in content/props.js:14") come from the dev-only
 // line tables of packages/tools/vite/vite-threedog-content-src.js (srcOf); a release build has none.
-import { DEV, warnOnce } from '../../core/validate.js';
+import { DEV, warnOnce, fmt } from '../../core/validate.js';
 
 const STRINGS = {
   badId: 'content: id "{id}" ({what}) may not contain "#" or "/": "#" is for records made during play and "/" for level-model nodes. Write it with - _ . or :, e.g. "{fix}"',
@@ -15,7 +15,11 @@ const STRINGS = {
   noId: 'content: {n} entr(y/ies) with state have no id, so saves match them by array index and an inserted entry shifts them: {list}. '
     + 'Write the id they have now (e.g. id: \'{first}\') to keep old saves working, or a readable one',
 };
-const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
+const RENAME_STRINGS = {
+  shape: "content renames: write { oldId: 'newId' } (or oldId: null for an entry deleted on purpose), got {got} for '{id}'",
+  badTarget: "content renames: '{a}' -> '{b}': the new id may not contain \"#\" (that is for records made during play)",
+  stuck: 'content renames: saved data under {list} was not moved. A rename moves saved state only when the old id is gone from content and the new id has none of its own',
+};
 
 /** The dev line table the vite plugin attached to a content value (null in release or for data built in code) */
 const tableOf = v => (DEV && v && typeof v === 'object' && globalThis.__threedogSrc?.get(v)) || null;
@@ -50,4 +54,42 @@ export class IdCheck {
     const m = this.missing;
     warnOnce(fmt(STRINGS.noId, { n: String(m.length), list: m.slice(0, 6).join(', ') + (m.length > 6 ? ', …' : ''), first: m[0].split("-> '")[1].slice(0, -1) }));
   }
+}
+
+/**
+ * content/renames.js ({ oldId: 'newId' | null }): before any placement is added, saved changes, removals, owed time and container goods under an old
+ * authored id move to the new id (null drops them quietly). World and inventory remember the map, so a save loaded after content is renamed too.
+ * Why in content and not a save version: renaming is an authoring change; the save format stays the same and an unrenamed save still loads. @internal
+ * @param {any} e
+ * @param {Record<string, string | null>} map
+ */
+export function applyRenames(e, map) {
+  for (const [a, b] of Object.entries(map || {})) {
+    if (b !== null && typeof b !== 'string') throw new Error(fmt(RENAME_STRINGS.shape, { id: a, got: JSON.stringify(b) }));
+    if (typeof b === 'string' && b.includes('#')) throw new Error(fmt(RENAME_STRINGS.badTarget, { a, b }));
+  }
+  const stuck = e.world?.renameIds(map) ?? [];
+  e.inventory?.renameIds(map);
+  if (DEV && stuck.length) warnOnce(fmt(RENAME_STRINGS.stuck, { list: stuck.join(', ') }));
+}
+
+/** Index id of a pickup without a written id (the loader's id, and what `threedog content ids` writes) @param {any} p @param {number} i @internal */
+export const pickupId = (p, i) => p.id ?? `pickup:${p.item}:${i}`;
+/** Index id of a template instance without a written id @param {any} p @param {number} i @internal */
+export const templateId = (p, i) => p.id ?? `${p.template}:${i}`;
+/** Instances of this template keep state a save must find again by id @param {any} d @internal */
+export const stateful = d => !!(d?.state || d?.container || d?.interact || d?.body);
+
+/**
+ * Stateful entries that rely on their index id, with the id they have now: what dev warns about at load and `threedog content ids` writes into the
+ * content files (node side, no engine). One list, so the warning and the writer always agree. Grid items are not here: they cannot load without an id.
+ * @param {{ pickups?: any[], props?: any[], templates?: Record<string, any> }} c
+ * @returns {{ file: 'pickups' | 'props', index: number, id: string }[]}
+ * @internal
+ */
+export function missingIds(c) {
+  const out = [];
+  (Array.isArray(c.pickups) ? c.pickups : []).forEach((p, i) => { if (p && p.id == null) out.push({ file: 'pickups', index: i, id: pickupId(p, i) }); });
+  (Array.isArray(c.props) ? c.props : []).forEach((p, i) => { if (p?.template && p.id == null && stateful(c.templates?.[p.template])) out.push({ file: 'props', index: i, id: templateId(p, i) }); });
+  return out;
 }

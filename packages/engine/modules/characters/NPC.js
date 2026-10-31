@@ -1,4 +1,5 @@
-// NPC: what it does is decided by a behavior (default schedule: go to different places by time of day; also wander, or register your own); avoids water, steep slopes, trees and houses (pathfinding via engine.characters.findPath); stops and turns to face the player when talking.
+// NPC: what it does is decided by a behavior (default schedule: go to different places by time of day; also wander, or register your own);
+// avoids water, steep slopes, trees and houses (pathfinding via engine.characters.findPath); stops and turns to face the player when talking.
 //
 // const fisher = engine.npcs.add({
 //   id: 'fisher', name: '老渔夫', colors: { body: 0x4f6d8f },
@@ -8,20 +9,27 @@
 // });
 //
 // Facts and presentation are separate: an NPC's fact is a record in engine.world (kind 'npc', stable id: the given id, else the name),
-// the model (Character: mesh + mover + animation) is just a presentation built when near: torn down when far, rebuilt when near; changing level only tears down models (data carries zone, so it is rebuilt on return),
-// saves follow world. The NPC returned by npcs.add is a handle that finds the data / current model by id; it holds no model, so it stays usable after the model is torn down.
-// Who owns position: with a model, the mover moves the model and the data follows (positionFrom: 'view', world copies it back at the end of each fixed step); without a model, simulation edits the data directly; building a model reads from the data.
+// the model (Character: mesh + mover + animation) is just a presentation built when near: torn down when far, rebuilt when near;
+// changing level only tears down models (data carries zone, so it is rebuilt on return), saves follow world.
+// The NPC returned by npcs.add is a handle that finds the data / current model by id; it holds no model, so it stays usable after the model is torn down.
+// Who owns position: with a model, the mover moves the model and the data follows (positionFrom: 'view', world copies it back at the end of each fixed step);
+// without a model, simulation edits the data directly; building a model reads from the data (npcView.js builds and tears down the model).
 // Simulation: world.simulate('npc') dispatches by rec.behavior to registered behaviors { near, far } (built-ins in behaviors.js, schedule details in npcSim.js):
-// near runs once per fixed step (pathfinding + mover + mutual avoidance npcAvoid.js), far simulates on data (schedule walks in a straight line). Near / far is by distance to the focus; far -> near first catches up owed time (world handles it).
+// near runs once per fixed step (pathfinding + mover + mutual avoidance npcAvoid.js), far simulates on data (schedule walks in a straight line).
+// Near / far is by distance to the focus; far -> near first catches up owed time (world handles it).
 //
 // One NPC record (all plain values, inspectable via engine.world.get(id)):
-// name, behavior (behavior name), mind (behavior params and memory, plain values the behavior reads/writes), schedule [{ at: 0-1, x, z }], talk (dialogue id), talkLabel (when text), talkRadius, pathStep, repath, arriveDistance, speed,
+// name, behavior (behavior name), mind (behavior params and memory, plain values the behavior reads/writes), schedule [{ at: 0-1, x, z }],
+// talk (dialogue id), talkLabel (when text), talkRadius, pathStep, repath, arriveDistance, speed,
 // look (look and feel params: colors, runSpeed...), zone (which level it belongs to; null = everywhere),
-// state (animation state), busy (in dialogue), nav { stop (current stop index), path (remaining waypoints), repath (re-path countdown) }, motion (motion state from Character.saveMotion)
-// model given as an asset name ('villager') is plain and goes into look (saved); a model object, animation, clips and function-form talkLabel are not plain values and stay in memory only (by id); game code supplies them again via add after loading.
+// state (animation state), busy (in dialogue), nav { stop (current stop index), path (remaining waypoints), repath (re-path countdown) },
+// motion (motion state from Character.saveMotion)
+// model given as an asset name ('villager') is plain and goes into look (saved); a model object, animation, clips and function-form talkLabel
+// are not plain values and stay in memory only (by id); game code supplies them again via add after loading.
 import * as THREE from 'three';
-import { Character, CHARACTER_KEYS } from './Character.js';
-import { checkOptions, warnOnce, DEV } from '../../core/validate.js';
+import { CHARACTER_KEYS } from './Character.js';
+import { buildNpcView, unbuildNpcView } from './npcView.js';
+import { checkOptions, warnOnce, fmt, DEV } from '../../core/validate.js';
 import { NpcAvoid } from './npcAvoid.js';
 import { parseClock } from '../../core/dayTime.js';
 import { xzOf } from '../../core/math.js';
@@ -30,17 +38,19 @@ import { Behaviors } from './behaviors.js';
 
 const STRINGS = {
   noTalk: 'NPC "{name}" has talk set, but the interactions() and dialogue() modules are not installed: this NPC cannot be talked to',
-  noWorld: 'NPCs need the world() module (facts live in engine.world): engine.use(world(), …, characters()); openWorld() already installs it. If you do not want NPCs, use characters({ npcs: false })',
+  noWorld: 'NPCs need the world() module (facts live in engine.world): engine.use(world(), …, characters()); openWorld() already installs it. '
+    + 'If you do not want NPCs, use characters({ npcs: false })',
   notNpc: 'npcs.add(): id "{id}" is already used by a "{kind}" in world; give this NPC a different id',
-  sameName: 'npcs.add(): an NPC named "{name}" already exists (without id the name is the id, so the two would merge). Give each different NPC its own id, e.g. npcs.add({ id: "{name}_2", name: "{name}", … }); to update an existing NPC, add again with the same id',
+  sameName: 'npcs.add(): an NPC named "{name}" already exists (without id the name is the id, so the two would merge). '
+    + 'Give each different NPC its own id, e.g. npcs.add({ id: "{name}_2", name: "{name}", … }); to update an existing NPC, add again with the same id',
 };
-const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
 const KIND = 'npc';
 // Params that cannot go into saves: kept in memory only, used when building the model
 const RUNTIME_KEYS = ['model', 'animation', 'clips'];
-const NPC_KEYS = [...CHARACTER_KEYS, 'id', 'initial', 'zone', 'name', 'schedule', 'talk', 'talkLabel', 'talkRadius', 'pathStep', 'repath', 'arriveDistance', 'position', 'behavior', 'mind'];
+const NPC_KEYS = [...CHARACTER_KEYS, 'id', 'initial', 'zone', 'name', 'schedule', 'talk', 'talkLabel', 'talkRadius', 'pathStep', 'repath', 'arriveDistance',
+  'position', 'behavior', 'mind'];
 
-/** NPC NPC handle: finds the data and current model by id. Stays usable after the model is torn down or the data is replaced by loading (does not cache the data object) */
+/** NPC handle: finds the data and current model by id. Stays usable after the model is torn down or the data is replaced by loading (does not cache the data object) */
 export class NPC {
   /** @param {NPCManager} mgr @param {string} id */
   constructor(mgr, id) {
@@ -118,9 +128,9 @@ export class NPCManager {
     this._ready = true;
     W.present(KIND, {
       positionFrom: 'view',   // with a model the mover decides; world copies the model position back to data at the end of each fixed step
-      build: rec => this._build(rec),
+      build: rec => buildNpcView(this, rec),
       update: (rec, obj, dt) => this._views.get(obj)?.ch.animate(dt),
-      dispose: (rec, obj) => this._unbuild(rec, obj),
+      dispose: (rec, obj) => unbuildNpcView(this, rec, obj),
     });
     this._b.addBuiltin(e, W);
     W.simulate(KIND, {
@@ -138,8 +148,10 @@ export class NPCManager {
   }
 
   /**
-   * Register an NPC behavior (what it does); data selects it via behavior: npcs.add({ behavior: name }) or npc.setBehavior(name). Built-in 'schedule' (default), 'wander' (mind: { radius, pause, home }).
-   * near(rec, dt, npc): once per fixed step when near (npc.character is the model, null if not built); far(rec, dt): simulate on data when far, dt is accumulated seconds (can be large), far -> near catches up owed time; no far = does not move when far.
+   * Register an NPC behavior (what it does); data selects it via behavior: npcs.add({ behavior: name }) or npc.setBehavior(name).
+   * Built-in 'schedule' (default), 'wander' (mind: { radius, pause, home }).
+   * near(rec, dt, npc): once per fixed step when near (npc.character is the model, null if not built);
+   * far(rec, dt): simulate on data when far, dt is accumulated seconds (can be large), far -> near catches up owed time; no far = does not move when far.
    * Keep state in rec.mind (plain values, saved); move via world.move(rec.id, {x, y, z}), with a model use npc.character.move(dx, dz, false, dt).
    * @example // chase the player: stop within 2 m of the player
    * engine.npcs.behavior('chase', { near(rec, dt, npc) {
@@ -155,8 +167,10 @@ export class NPCManager {
     return this;
   }
   /**
-   * Add an NPC, returns a handle. Position: opts.position (Vector3 / object / [x, y, z] / { x, z }), defaults to the schedule's current stop. For behavior (default 'schedule') and mind see behavior().
-   * id id is the stable identity (saves, quest targets, npcs.get all use it), defaults to name (two NPCs with the same name and no id throw). Adding the same id again updates the definition (schedule, dialogue...) and keeps position and state.
+   * Add an NPC, returns a handle. Position: opts.position (Vector3 / object / [x, y, z] / { x, z }), defaults to the schedule's current stop.
+   * For behavior (default 'schedule') and mind see behavior().
+   * id is the stable identity (saves, quest targets, npcs.get all use it), defaults to name (two NPCs with the same name and no id throw).
+   * Adding the same id again updates the definition (schedule, dialogue...) and keeps position and state.
    * initial: true = NPC authored in content (everything content adds): saves record only changes, removed ones do not reappear after loading.
    */
   add(opts) {
@@ -168,26 +182,31 @@ export class NPCManager {
       position, zone = null, speed = 2.6, initial = false, behavior = 'schedule', mind = {}, ...rest } = opts;
     const id = given ?? name, look = {}, runtime = {};
     if (DEV && given == null) { if (this._byName.has(id)) throw new Error(fmt(STRINGS.sameName, { name })); this._byName.add(id); }
-    for (const [k, v] of Object.entries(rest)) (RUNTIME_KEYS.includes(k) && !(k === 'model' && typeof v === 'string') ? runtime : look)[k] = v;   // an asset name is data
+    // an asset name is data (saved); a model object, animation and clips stay in memory
+    for (const [k, v] of Object.entries(rest)) (RUNTIME_KEYS.includes(k) && !(k === 'model' && typeof v === 'string') ? runtime : look)[k] = v;
     if (typeof talkLabel === 'function') runtime.talkLabel = talkLabel;
     this._b.check(behavior);
     this._runtime.set(id, runtime);
     const hpd = e.sky?.hoursPerDay ?? 24;
-    const sched = schedule.map(s => { const [x, z] = xzOf(s.position); return { at: parseClock(s.at, hpd), x, z }; }).sort((a, b) => a.at - b.at);   // at may be 'HH:MM' or 0-1
+    // at may be 'HH:MM' or 0-1
+    const sched = schedule.map(s => { const [x, z] = xzOf(s.position); return { at: parseClock(s.at, hpd), x, z }; }).sort((a, b) => a.at - b.at);
     if (talk && !(e.interactions && e.dialogue)) warnOnce(fmt(STRINGS.noTalk, { name }));
-    const def = { name, behavior, mind, schedule: sched, talk, talkLabel: typeof talkLabel === 'string' ? talkLabel : null, talkRadius, pathStep, repath, arriveDistance, speed, look, zone };
+    const def = { name, behavior, mind, schedule: sched, talk, talkLabel: typeof talkLabel === 'string' ? talkLabel : null,
+      talkRadius, pathStep, repath, arriveDistance, speed, look, zone };
     const old = W.get(id);
     if (old) {
       if (old.kind !== KIND) throw new Error(fmt(STRINGS.notNpc, { id, kind: old.kind }));
       // re-add overrides only fields passed explicitly (unpassed zone, schedule etc. keep their values)
       const patch = {};
-      for (const k of ['name', 'talk', 'talkRadius', 'pathStep', 'repath', 'arriveDistance', 'speed', 'zone', 'schedule', 'talkLabel']) if (opts[k] !== undefined) patch[k] = k === 'schedule' ? sched : def[k];
+      const keys = ['name', 'talk', 'talkRadius', 'pathStep', 'repath', 'arriveDistance', 'speed', 'zone', 'schedule', 'talkLabel'];
+      for (const k of keys) if (opts[k] !== undefined) patch[k] = k === 'schedule' ? sched : def[k];
       if (opts.behavior !== undefined) { patch.behavior = behavior; patch.mind = mind; } else if (opts.mind !== undefined) patch.mind = mind;
       if (Object.keys(look).length) patch.look = { ...old.look, ...look };
       W.set(id, patch);
     } else {
       const i = stopIndex(sched, timeOfDay(e)), [x, z] = xzOf(position ?? (i != null ? sched[i] : { x: 0, z: 0 }));
-      W.add({ id, kind: KIND, position: [x, e.surface(x, z), z], ...def, state: 'idle', busy: false, nav: { stop: null, path: null, repath: 0 }, motion: null }, { initial });
+      const nav = { stop: null, path: null, repath: 0 };
+      W.add({ id, kind: KIND, position: [x, e.surface(x, z), z], ...def, state: 'idle', busy: false, nav, motion: null }, { initial });
     }
     return this._handle(id);
   }
@@ -217,40 +236,4 @@ export class NPCManager {
 
   /** @internal */
   _handle(id) { let h = this._handles.get(id); if (!h) this._handles.set(id, h = new NPC(this, id)); return h; }
-  /** Build the model: reads position, motion and animation state from data; attaches an interaction if it has dialogue @internal */
-  _build(rec) {
-    const e = this.engine, rt = this._runtime.get(rec.id) || {};
-    const ch = new Character(e, { ...rec.look, speed: rec.speed, model: rt.model ?? rec.look?.model, clips: rt.clips, animation: rt.animation });
-    ch.placeAt(rec.position);
-    ch.loadMotion(rec.motion); ch.state = rec.state;
-    let talk = null;
-    if (rec.talk && e.interactions && e.dialogue) talk = e.interactions.add(ch.root, {
-      id: rec.id,   // stable for the interaction.use op, whether the model is built sync or async
-      label: rt.talkLabel || rec.talkLabel || (() => e.t('npc.talk', { name: rec.name })), radius: rec.talkRadius,
-      onUse: () => this._talkTo(rec.id),
-    });
-    this._views.set(ch.root, { ch, talk });
-    this.avoid.built.add(rec.id);
-    return ch.root;
-  }
-  /** Tear down the model: interaction, crowd agent, animation, geometry; a model passed in by the game is kept (needed for the next build) @internal */
-  _unbuild(rec, obj) {
-    const e = this.engine, v = this._views.get(obj);
-    this._views.delete(obj);
-    if (rec) this.avoid.built.delete(rec.id);
-    if (!v) { e.remove(obj); return; }
-    const { ch, talk } = v;
-    talk?.remove();
-    if (ch._agent && ch._navVersion === e.nav?.version) e.nav.crowd?.removeAgent(ch._agent);
-    const model = rec && this._runtime.get(rec.id)?.model;
-    if (model && model.parent === ch.root) ch.root.remove(model);
-    ch.dispose();
-  }
-  /** Start dialogue: stop (busy written to data), face the player, walk on when dialogue ends @internal */
-  _talkTo(id) {
-    const e = this.engine, W = this.world, rec = W.get(id); if (!rec) return;
-    W.set(id, { busy: true });
-    this.character(id)?.face(e.actorPosition() ?? e.focus);
-    e.dialogue.start(rec.talk, 'start', () => { if (W.get(id)) W.set(id, { busy: false }); });
-  }
 }

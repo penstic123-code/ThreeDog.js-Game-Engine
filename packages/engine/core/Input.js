@@ -14,7 +14,7 @@
 //
 // Mouse buttons are keys too: 'Mouse0' left / 'Mouse1' middle / 'Mouse2' right (real mouse only; touch taps do not count). Bind them in actions and read in fixed steps, independent of frame rate:
 //   engine.input.define('attack', ['KeyJ', 'Mouse0'], 'Attack');  engine.onFixed(() => { if (engine.input.pressed('attack')) … });
-// input.pointer = { x, y, ndcX, ndcY, down, clicked }: for UI and ground picking (click-to-move via screenToGround); clicked is true only on this frame and a drag does not count,
+// input.pointer = { x, y, ndcX, ndcY, down, clicked } (x / y pixels and ndc -1..1 relative to the canvas box, not the window): for UI and ground picking (click-to-move via screenToGround); clicked is true only on this frame and a drag does not count,
 //   gameplay (fire, attack) must not read it; bind a Mouse0 action instead
 
 /** @import { Pointer, Autopilot } from '../types/core' */
@@ -38,9 +38,9 @@ const DEFAULT_ACTIONS = {
 };
 // display names for actions a game creates through createEngine({ bindings }) before the module that reads them defines its label
 const BOUND_LABELS = { run: 'input.run', interact: 'input.interact', jump: 'input.jump' };
-// Default gamepad keys for common actions: added automatically when the action is registered (override in createEngine({ padBindings })).
-// Only those nearly every game shares; gameplay-specific actions (inventory, quests, photo...) get theirs from the registering module via define's { pad }
-const PAD_DEFAULTS = { confirm: 'PadA', jump: 'PadA', cancel: 'PadB', interact: 'PadX', run: 'PadLB', menu: 'PadStart' };
+// Default gamepad keys for the neutral menu actions only (confirm / cancel / menu): added when the action is registered (override in createEngine({ padBindings })).
+// Gameplay actions (jump, run, interact, inventory...) get pad keys the same way as keyboard keys: from the game or a preset (presets.player.*, presets.keys.*)
+const PAD_DEFAULTS = { confirm: 'PadA', cancel: 'PadB', menu: 'PadStart' };
 const STRINGS = { redefine: 'Input action "{action}" defined twice: it already had keys {from}, now {to}; the later definition overrides. Ignore this if the change is intended; to change only the label, pass the same keys' };
 const fmtRedefine = (action, from, to) => STRINGS.redefine.replace('{action}', action).replace('{from}', from.join(', ')).replace('{to}', to.join(', '));
 

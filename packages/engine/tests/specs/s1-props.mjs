@@ -32,7 +32,7 @@ export const specs = [
       });
       check('content pickup id = pickup:<item>:<index>', r.pk.includes('pickup:feather:0') && r.pk.includes('pickup:berry:1') && r.pk.length === 8, JSON.stringify(r.pk));
       check('content prop id = prop:<model name>:<index> (models with params use the name)', r.pr.includes('prop:rock:3') && r.pr.includes('prop:flower:5') && r.pr.length === 7, JSON.stringify(r.pr));
-      check('two of the same item at the same spot: each has an id, removing one leaves the other; no id means auto-numbered; spawning the same id again reuses it', r.sameSpot.bStays && r.sameSpot.aGone && /^pickup-\d+$/.test(r.sameSpot.auto) && r.sameSpot.again === 's1-a', JSON.stringify(r.sameSpot));
+      check('two of the same item at the same spot: each has an id, removing one leaves the other; no id means auto-numbered; spawning the same id again reuses it', r.sameSpot.bStays && r.sameSpot.aGone && /^pickup#\d+$/.test(r.sameSpot.auto) && r.sameSpot.again === 's1-a', JSON.stringify(r.sameSpot));
       check('id used by another item: throws and says to use a different id', /s1-b/.test(r.clash ?? '') && /different id/.test(r.clash), r.clash);
       check('same content loaded twice: data grows only once (3 records), ids do not collide', r.n[1] - r.n[0] === 3 && r.n[2] === r.n[1] && r.ids, JSON.stringify(r.n));
       check('prop id used by another model: throws and says to write a different id', /s1-rock/.test(r.clash2 ?? '') && /different id/.test(r.clash2), r.clash2);

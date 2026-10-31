@@ -157,3 +157,22 @@ export function freezeDef(v) {
   for (const k of Object.keys(v)) freezeDef(v[k]);
   return v;
 }
+
+/**
+ * A module's key for its action (inventory's open key, quests', photo's): the game passes keys (keys: [] for none), binds the action itself in
+ * createEngine({ bindings }), or spreads a presets.keys bundle. No module picks a key on its own: I / J / P are one genre's habits, not every game's.
+ * @param {string} fn  the module call for the message, e.g. 'inventory()'
+ * @param {string} action
+ * @param {string | string[] | undefined} keys
+ * @param {string} preset  the presets.keys entry that bundles a key, e.g. 'inventory'
+ * @param {any} input  engine.input
+ * @returns {string[]}
+ * @internal
+ */
+export function moduleKeys(fn, action, keys, preset, input) {
+  if (keys !== undefined) return [].concat(keys);
+  if (input._bound[action]) return [].concat(input._bound[action]);
+  const call = fn.replace('()', '');
+  throw new TypeError(`[input-keys] ${fn}: no key for the '${action}' action (the engine binds no gameplay key). Pick one: ${call}({ ...presets.keys.${preset} }) `
+    + `(import { presets } from 'threedog'), ${call}({ keys: ['KeyX'] }), createEngine({ bindings: { ${action}: ['KeyX'] } }), or ${call}({ keys: [] }) for no key`);
+}

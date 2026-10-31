@@ -15,7 +15,7 @@ export interface FlattenZone { x: number; z: number; radius: number; height?: nu
 /** Noise helpers handed to a custom height / groundType function (it cannot import anything) */
 export interface TerrainNoise {
   fbm(x: number, z: number, octaves?: number): number; noise(x: number, z: number): number; hash(x: number, z: number, salt?: number): number; seed: number;
-  /** The terrain's water level (meters) */
+  /** The terrain's water level (meters; -Infinity when the terrain has no water) */
   waterLevel: number;
   /** terrain({ params }): plain data for the generator (a preset's settings) */
   params: Record<string, any>;
@@ -45,7 +45,7 @@ export interface TerrainConfig {
   chunkSize: number;
   /** Cells per chunk; smaller is more "low poly", default 16 */
   resolution: number;
-  /** Water level (meters), default 0 */
+  /** Water level (meters), default -Infinity = no water (terrainPreset() from @threedog/terrain-noise sets 0) */
   waterLevel: number;
   /** Flattened plots */
   flatten: FlattenZone[];
@@ -58,12 +58,14 @@ export interface TerrainConfig {
   /**
    * Height generator: (x, z, n) => meters. Without one (and without a heightmap) the ground is flat at y = 0, a placeholder (dev warning).
    * Runs in workers, so it must be pure (only its parameters and globals like Math); an outside variable throws at terrain() naming it.
-   * n = { fbm(x, z, octaves?), noise(x, z), hash(x, z, salt?), seed, waterLevel, params }. Flatten still applies. Presets: terrainPreset() from @threedog/style-lowpoly.
+   * n = { fbm(x, z, octaves?), noise(x, z), hash(x, z, salt?), seed, waterLevel, params }. Flatten still applies. Presets: terrainPreset() from
+   * @threedog/terrain-noise.
    * @example terrain({ height: (x, z, n) => 4 + 12 * n.fbm(x * 0.01, z * 0.01) })
    */
   height: ((x: number, z: number, n: TerrainNoise) => number) | string | null;
   /**
-   * Ground type: (x, z, h, slope, n) => type name (null = 'default'). Pure, like height. Colors come from biomeColors[type]; vegetation rules and footsteps match by name.
+   * Ground type: (x, z, h, slope, n) => type name (null = 'default'). Pure, like height. Colors come from biomeColors[type]; vegetation rules and
+   * footsteps match by name.
    * @example terrain({ groundType: (x, z, h, slope) => slope > 0.7 ? 'rock' : h < 2 ? 'beach' : 'grass' })
    */
   groundType: ((x: number, z: number, h: number, slope: number, n: TerrainNoise) => string | null) | string | null;
@@ -81,6 +83,8 @@ export interface TerrainOptions extends Partial<TerrainConfig> {
   viewChunks?: number;
   /** Vegetation density multiplier, default 1 */
   density?: number;
+  /** true: the fog distance (engine.fogFar) follows the view distance so the far chunk edge fades out; default false keeps the game's fog (openWorld() sets true) */
+  viewFog?: boolean;
   /** Ground material (default style.terrain.material, else the 'terrain' role with vertex colors); chunks have uv = world xz / chunk size. Cloud shadows and season tint are added */
   material?: Material | ((engine: Engine) => Material);
 }
@@ -158,7 +162,7 @@ export interface VegetationRule {
   perChunk?: number;
   /** Success probability of each attempt 0–1 (when cluster is 'none'), default 1 */
   chance?: number;
-  /** Altitude range (meters) */
+  /** Altitude range (meters); default unlimited both ways (a terrain game names its band above the water, e.g. minHeight: 1.5) */
   minHeight?: number;
   maxHeight?: number;
   /** Max slope */
@@ -175,7 +179,10 @@ export interface VegetationRule {
   tintJitter?: number;
   /** Special color: color [r, g, b] multiplier, chance probability */
   tints?: { color: number[]; chance: number }[];
-  /** Which landforms it grows on: { landform name: probability 0–1 }; omitted = grows anywhere */
+  /**
+   * Which ground types it grows on: { type: probability 0–1 } (engine.groundType: a terrain groundType, a level mesh's groundType property or material
+   * name); omitted = grows anywhere
+   */
   biomes?: Record<string, number> | null;
   /** Collision circle radius (meters, multiplied by size), 0 = no collision */
   collider?: number;
@@ -224,14 +231,36 @@ export interface Species {
 export interface VegetationHit { species: string; cx: number; cz: number; id: number; position: Vector3 }
 export interface VegetationRemoveEvent { species: string; cx: number; cz: number; id: number }
 
+/** vegetation({...}): only without terrain (with terrain these are terrain options and are refused) */
+export interface VegetationModuleOptions {
+  /** Chunk edge (meters), default 32 */
+  chunkSize?: number;
+  /** Rings of chunks drawn around each stream source, default 3 */
+  viewChunks?: number;
+  /** Placement attempts multiplier, default 1 */
+  density?: number;
+  /** Where it may grow: { min: [x, z], max: [x, z] }; default anywhere the ground is */
+  area?: { min: number[]; max: number[] } | null;
+  /** Placement seed, default 1 */
+  seed?: number;
+}
+
 /** engine.vegetation */
 export interface Vegetation {
+  /**
+   * Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is
+   * followed automatically
+   */
+  rebuild(): void;
   /** Register a kind of vegetation */
   add(name: string, opts: VegetationOptions): Species;
   get(name: string): Species | undefined;
   list(): Species[];
   isRemoved(species: string, cx: number, cz: number, id: number): boolean;
-  /** Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name */
+  /**
+   * Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key
+   * 'vegetation'). Returns the entry name
+   */
   removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }): string;
   /** Restore one */
   restoreInstance(species: string, cx: number, cz: number, id: number): void;
@@ -246,13 +275,18 @@ export interface Vegetation {
 export interface SkyOptions extends StyleSky {
   /** Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay) */
   time?: number;
-  /** Game seconds per day, default 360 (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves */
+  /** Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves */
   dayLength?: number;
+  /** Hours per day of the displayed clock and of clock notation ('18:30'), default 24. Gameplay timing, so a sky() option and not a style key */
+  hoursPerDay?: number;
   /** Which day to start from, default 1 */
   day?: number;
   /** Days of each season given by name only, default 7 */
   daysPerSeason?: number;
-  /** The calendar's seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring', 'summer', 'autumn', 'winter'] */
+  /**
+   * The calendar's seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring',
+   * 'summer', 'autumn', 'winter']
+   */
   seasons?: (string | { name: string, days: number })[];
 }
 /** Parameters of sky.at() / daily() */
@@ -333,17 +367,17 @@ export interface WeatherPreset {
   /** Thunder: above 0.5 it thunders */
   lightning: number;
 }
-/** Built-in weather names */
-export type WeatherName = 'clear' | 'cloudy' | 'overcast' | 'rain' | 'storm' | 'snow' | 'fog';
+/** A weather name from the game's table (weather() alone has only 'clear'; presets.weather.temperate brings seven) */
+export type WeatherName = string;
 
 export interface WeatherOptions {
   /** Starting weather, default 'clear' (or the first of the game's types when it has no 'clear') */
-  start?: WeatherName | (string & {});
+  start?: WeatherName;
   /** Automatic weather changes */
   auto?: boolean;
   /** Rain / snow particle count, default 6000 */
   particles?: number;
-  /** The game's weather table, the whole list (default the built-in WEATHER_PRESETS; extend them with { ...WEATHER_PRESETS, dust: {...} }). Left-out fields are calm; extra numeric fields of the game's own blend too and show in weather.current */
+  /** The game's weather table, the whole list (default only a calm 'clear'; seven temperate ones in presets.weather.temperate.types, extend them with { ...presets.weather.temperate.types, dust: {...} }). Left-out fields are calm; extra numeric fields of the game's own blend too and show in weather.current */
   types?: Record<string, Partial<WeatherPreset> & Record<string, number>>;
   /** Candidates for automatic changes (repeat an entry for higher probability) */
   autoPool?: string[];
@@ -363,7 +397,10 @@ export type { Weather };
 // Water water()
 // ======================================================================
 
-/** Parameters of engine.addWaterBody(): position center, level water surface height (meters); give radius for a circle, halfWidth / halfDepth for a rectangle */
+/**
+ * Parameters of engine.addWaterBody(): position center, level water surface height (meters); give radius for a circle, halfWidth / halfDepth for a
+ * rectangle
+ */
 export interface WaterBodyOptions {
   position: PositionLike;
   level: number;
@@ -371,7 +408,10 @@ export interface WaterBodyOptions {
   halfWidth?: number;
   halfDepth?: number;
 }
-/** A standalone body of water (stored in engine.waterBodies and given by the water:add event, already converted): circle { x, z, radius, level } or rectangle { x, z, hw, hd, level } (meters) */
+/**
+ * A standalone body of water (stored in engine.waterBodies and given by the water:add event, already converted): circle { x, z, radius, level } or
+ * rectangle { x, z, hw, hd, level } (meters)
+ */
 export interface WaterBody {
   /** Center position (meters) */
   x: number; z: number;
@@ -518,7 +558,10 @@ export interface LightSourceOptions {
   target?: PositionLike | null;
   /** Brightness factor each frame (time = presentation seconds, index = the source's number): (t, i) => 0.85 + 0.15 * Math.sin(t * 13 + i) */
   flicker?: ((time: number, index: number) => number) | null;
-  /** Stand-in shown while the source has no real light: a halo Sprite / Mesh (its material's opacity) or an emissive material (emissiveIntensity) scaled from its value at add() down to 0 as the real light fades in. Give each source its own material */
+  /**
+   * Stand-in shown while the source has no real light: a halo Sprite / Mesh (its material's opacity) or an emissive material (emissiveIntensity) scaled
+   * from its value at add() down to 0 as the real light fades in. Give each source its own material
+   */
   glow?: Material | Object3D | null;
 }
 /** What lightPool.add().set(patch) can change (type and castShadow are fixed when added) */

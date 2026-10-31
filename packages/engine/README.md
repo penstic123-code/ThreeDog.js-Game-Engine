@@ -13,7 +13,8 @@ npm install -D vite @threedog/tools   # optional: the vite preset and the threed
 ## Minimal usage
 ```js
 import { createEngine, presets, openWorld } from 'threedog';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';   // optional style pack (npm install @threedog/style-lowpoly)
+import lowpoly from '@threedog/style-lowpoly';              // optional style pack (npm install @threedog/style-lowpoly)
+import { terrainPreset } from '@threedog/terrain-noise';   // optional terrain generator (npm install @threedog/terrain-noise)
 
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly });
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));
@@ -24,7 +25,7 @@ engine.start();
 
 ## Entry points
 - `threedog`: the whole public API (`THREE` is re-exported, so `import { THREE } from 'threedog'` is the same three instance).
-- Style packs are separate packages: the engine ships no art. `npm install @threedog/style-lowpoly` for the optional low-poly one (visuals plus `terrainPreset()`); without a style pack everything is a neutral gray placeholder.
+- Style packs are separate packages: the engine ships no art. `npm install @threedog/style-lowpoly` for the optional low-poly one (visuals only; the noise terrain generator `terrainPreset()` is `@threedog/terrain-noise`); without a style pack everything is a neutral gray placeholder.
 - `threedog/error-hints`: the developer error hint table (used by `@threedog/tools`).
 
 Nothing else is a public path; files under `core/`, `modules/` etc. may move between versions.

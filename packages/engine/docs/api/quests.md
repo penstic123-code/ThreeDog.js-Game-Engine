@@ -4,8 +4,8 @@ Quests (quests() module)
 
 - Options `QuestsOptions`:
   - `action?: string` Action name that opens the quest log, default 'quests'
-  - `keys?: string[]` Keys, default ['KeyJ']
-  - `pad?: string[]` Gamepad button, default ['PadSelect']
+  - `keys?: string[]` Keys that open the quest log: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.quests has ['KeyJ']
+  - `pad?: string[]` Gamepad button, none by default; presets.keys.quests has ['PadSelect']
   - `checkInterval?: number` Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5
   - `notify?: boolean | ((msg) => void)` Messages on quest start / step / done: true a toast with kind 'quest' (default) · false none · a function to show them your way. Example: `quests({ notify: false })   quests({ notify: ({ type, text }) => type === 'done' && myBanner(text) })`
 

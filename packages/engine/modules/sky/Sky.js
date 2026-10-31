@@ -1,11 +1,13 @@
 // Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional light, hemisphere ambient light and fog, all driven by time.
 // Look (per-time colors, sun size, star density...) comes from style.sky in the style pack; the engine only holds neutral fallbacks.
 //
-// engine.use(sky({ time: 0.3, dayLength: 360 }));
+// engine.use(sky({ time: 0.3, dayLength: 360 }));   // or sky(presets.calendar.cycle)
+// sky() alone keeps a fixed time of day (dayLength Infinity): a day-night cycle is gameplay (a shooter or a dungeon has none), so the game sets
+// dayLength or picks presets.calendar.cycle / fourSeasons.
 // engine.sky.timeOfDay = 0.75;  engine.clock.timeScale = 10;  engine.sky.clock  // "18:00"
 // Calendar: engine.sky.day (1-based); event day:start. Seasons are the game's choice and off by default (a soulslike or a shooter has none):
 //   sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 }), or each with its own length: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }];
-//   then season, seasonProgress (0-1), dayOfSeason and the season:change event. A time of day that never moves (dungeon, space, arena): sky({ dayLength: Infinity })
+//   then season, seasonProgress (0-1), dayOfSeason and the season:change event. A time of day that never moves (dungeon, space, arena) is the default
 // Season tint: style pack seasons = { spring: { foliage: 0xffffff, ground: 0xffffff }, autumn: { foliage: 0xffb070 }, ... }, blended smoothly at season changes
 // Clouds: style pack sky.clouds = { color, shade, coverage: 1, scale: 0.35, speed: [x, z] } (coverage follows weather)
 // three.js objects: engine.sky.sun (DirectionalLight; moonlight at night, shadows live on it), hemi (HemisphereLight ambient), dome (dome Mesh),
@@ -19,7 +21,7 @@ import { vert, frag, NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms } from '
 import { shadowMethods, shadowFor } from './shadow.js';
 import { layerMethods, blankLayer } from './layers.js';
 import { updateSky, watchOwned } from './frame.js';
-import { checkOptions } from '../../core/validate.js';
+import { checkOptions, warnOnce } from '../../core/validate.js';
 import { parseClock, formatClock, inRange } from '../../core/dayTime.js';
 import { Schedule } from './schedule.js';
 /** @import { ModuleDef } from '../../types/core' */
@@ -28,18 +30,19 @@ import { Schedule } from './schedule.js';
 /** @import { Handle } from '../../types/common' */
 /** @import { StyleShadow } from '../../types/style' */
 const STRINGS = {
+  badTime: "audio rule condition time: {got} never matches; use 'day', 'night' or a clock range ['18:00', '06:00'] (or 0-1 times [0.75, 0.25])",
   badDayLength: 'sky({ dayLength }): game seconds per day must be a number > 0 (Infinity = the time of day never moves); got {got}',
   badSeasons: "sky({ seasons }): a list of names (each daysPerSeason days long) or of { name, days } with days >= 1, [] for none; got {got}",
   noSeason: "sky.onSeason('{name}'): the calendar has no such season (seasons: {list}). Seasons are off by default: sky({ seasons: ['spring', 'summer', 'autumn', 'winter'] })",
 };
-// Options sky() accepts: calendar + look overrides of style pack style.sky
+// Options sky() accepts: calendar (time, dayLength, day, seasons, hoursPerDay) + look overrides of style pack style.sky
 const SKY_OPTIONS = ['time', 'dayLength', 'day', 'daysPerSeason', 'seasons', 'keyframes', 'groundTint', 'sunSize', 'sunGlow', 'sunBrightness', 'moonBrightness',
   'moonSize', 'moonColor', 'clouds', 'starDensity', 'starScale', 'gradientCurve', 'skybox', 'shadow', 'orbitTilt', 'orbitSway', 'hoursPerDay'];
 
 /** engine.sky */
 export class Sky {
   /** @internal */
-  constructor(engine, { time = 0.33, dayLength = 360, day = 1, daysPerSeason = 7, seasons = [], ...over } = {}) {
+  constructor(engine, { time = 0.33, dayLength = Infinity, day = 1, daysPerSeason = 7, seasons = [], ...over } = {}) {
     /** @internal */ this.engine = engine;
     const st = { ...(engine.style.sky || {}), ...over };
     /** Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed @type {number} */
@@ -84,7 +87,7 @@ export class Sky {
     if (st.skybox) {
       this.dome.visible = false;
       engine.assets.texture(st.skybox).then(t => { t.mapping = THREE.EquirectangularReflectionMapping; scene.background = t; this.skybox = t; })
-        .catch(err => console.warn(err.message));
+        .catch(err => warnOnce(err.message));
     }
 
     scene.fog = new THREE.Fog(0xcccccc, engine.fogFar * 0.3, engine.fogFar);
@@ -108,7 +111,7 @@ export class Sky {
     /** @internal */ this._snapKey = '';
     this.setShadow(sh);
     /** Hours per day @type {number} */
-    this.hoursPerDay = st.hoursPerDay ?? 24;
+    this.hoursPerDay = over.hoursPerDay ?? 24;   // gameplay timing (clock notation, schedules): a sky() option only, never read from the style pack
     // Modifier layers: weather and games each write their own layer (modify); sky composites them into modifiers every frame
     // and applies them on top of its own result (layers.js)
     /** @internal */ this._layers = new Map();
@@ -264,7 +267,14 @@ export function sky(opts = {}) {
       checkOptions('sky()', opts, SKY_OPTIONS);
       s = new Sky(e, opts);
       // audio rule condition { time: 'day' | 'night' | ['18:00', '06:00'] } for music / ambience rule lists
-      e.audio.condition('time', v => v === 'day' ? s.isDay : v === 'night' ? !s.isDay : inRange(s.timeOfDay, v[0], v[1], s.hoursPerDay));
+      e.audio.condition('time', v => {
+        if (v === 'day') return s.isDay;
+        if (v === 'night') return !s.isDay;
+        // anything else must be a [from, to] range; 'evening' or a lone '18:00' would silently never match, so say which forms work
+        if (!Array.isArray(v) || v.length !== 2) { warnOnce(STRINGS.badTime.replace('{got}', JSON.stringify(v))); return false; }
+        return inRange(s.timeOfDay, v[0], v[1], s.hoursPerDay);
+      });
+      e.audio.measure('daylight', () => s.daylight);   // data rules compare it: { daylight: { gt: 0.15 } } (0 at night, about 1 at noon)
       e.saves.register('sky', { save: () => ({ time: s.timeOfDay, day: s.day }),
         load: d => { if (d) { s.timeOfDay = d.time ?? s.timeOfDay; s.day = d.day ?? 1; s._season = s.season; } s._sched.rebase(); } });
       return s;

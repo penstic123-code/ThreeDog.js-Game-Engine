@@ -1,7 +1,9 @@
 # engine.assets (Assets)
 
-- `assets.manifest(m: AssetManifest, opts?: { name?: string })` — Register the asset manifest (can be called several times). opts.name labels it as the source in engine.loading (default 'manifest#1', '#2'...)
-- `assets.preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }) → Promise<{ loaded: number; failed:…` — Preload (onProgress(0–1, current name)). Code-generated models are only generated up front if marked preload. failed includes entries now showing their fallback
+- `assets.manifest(m: AssetManifest)` — Register an asset manifest or asset pack (can be called several times; a later entry with the same name replaces the earlier one). Its name labels it in engine.loading, base resolves its relative paths
+- `assets.builder(name: string) → ((...args: any[]) => any) | null` — The generator function registered under a model name, null for a file model or an unknown name (content builds [name, ...params] models with it)
+- `assets.preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }) → Promise<{ loaded: number; failed:…` — Preload (onProgress(0–1, current name)). Code-generated models and fonts are only loaded up front if marked preload. failed includes entries now showing their fallback
+- `assets.font(name: string) → Promise<FontFace | null>` — A font from an asset pack by name: downloaded once, added to document.fonts; null when the file failed and it is not critical. style.ui.fonts calls it at start()
 - `assets.model(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Promise<Object3D>` — Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray acceleration)
 - `assets.modelNow(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Object3D | null` — A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs. Example: `const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');`
 - `assets.geometry(nameOrUrl: string) → Promise<BufferGeometry>` — Get the geometry of the first mesh in a model
@@ -21,10 +23,13 @@
   - `ktx2: any` three.js KTX2Loader (created only the first time a KTX2 texture is met, null before)
 
 ## Data structures
-- **AssetManifest**
+- **AssetManifest** An asset manifest, also the shape of an asset pack (a folder or npm package exporting one): names -> files or generators; content and code use the names only
+  - `name?: string` Label shown as the source manifest in engine.loading (default 'manifest#1', '#2'...)
+  - `base?: string | URL` Folder that this manifest's relative paths resolve against: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url) in an npm pack. '/x' and full URLs stay as written
   - `models?: Record<string, AssetEntry>` Models (.glb / .gltf, Draco/Meshopt compression also works): name -> path or generator function
   - `textures?: Record<string, AssetEntry>` Textures: name -> path
   - `sounds?: Record<string, AssetEntry>` Sounds: name -> path
+  - `fonts?: Record<string, string | FontAssetEntry>` Fonts: name -> file, or { url, family, weight, style, ... } (family defaults to the name). style.ui.fonts lists the names the UI uses
 - **AnimatorOptions** Animation state machine parameters
   - `fade?: number` Default transition seconds, default 0.25 (style pack style.character.animation.fade)
   - `states?: Record<string, AnimatorState>` States: name → state

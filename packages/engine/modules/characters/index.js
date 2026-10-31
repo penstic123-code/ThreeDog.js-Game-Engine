@@ -49,7 +49,7 @@ const stepSound = (e, type) => { const m = e.audio.config.footsteps; return m[ty
 const validControl = c => c === 'camera' || c === 'none' || typeof c === 'function';
 
 export function characters(opts = {}) {
-  const { npcs = true, brakeKeys = ['KeyB'], brakePad = ['PadLT'] } = opts;
+  const { npcs = true, brakeKeys, brakePad } = opts;   // no brake key by default: characters({ ...presets.keys.brake }) or the game's own
   let mgr = null, paths = null, disposePlayer = null;
   return {
     name: 'characters', label: 'Characters', optional: ['cameraRig', 'sky', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
@@ -102,7 +102,7 @@ export function characters(opts = {}) {
          * @param {{ radius?: number, step?: number, maxNodes?: number }} [opts]
          * @returns {{ cancel: () => void }}
          * @example const req = engine.characters.findPathAsync(guard.position, target, (path, status) => { guard.path = path; });
-         * req.cancel();   // target changed before the answer came
+         * req.remove();   // target changed before the answer came
          */
         findPathAsync(from, to, done, opts) { return paths.request(from, to, done, opts); },
         /** How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps */
@@ -116,7 +116,8 @@ export function characters(opts = {}) {
         moveInput() {
           const inp = e.input, auto = inp.autopilot, a = auto || inp.axis;   // autopilot (stress tests, recordings): input.autopilot = { x, y, speed }
           const f = e.cameraRig ? e.cameraRig.forward() : { x: 0, z: -1 }, rt = e.cameraRig ? e.cameraRig.right() : { x: 1, z: 0 };
-          REQ.x = f.x * a.y + rt.x * a.x; REQ.z = f.z * a.y + rt.z * a.x; REQ.run = inp.actions.has('run') && inp.down('run');   // run is the game's key, not a core default REQ.speed = auto?.speed;
+          REQ.x = f.x * a.y + rt.x * a.x; REQ.z = f.z * a.y + rt.z * a.x; REQ.run = inp.actions.has('run') && inp.down('run');   // run is the game's key, not a core default
+          REQ.speed = auto?.speed;   // autopilot can set a speed; without autopilot undefined = the character's own speed
           return REQ;
         },
         /** Remove the current player (exit the vehicle first, stop responding to keys, dispose the model: animation, geometry, materials; the 'player' record in world is removed too) */
@@ -166,8 +167,8 @@ export function characters(opts = {}) {
           // the game's keys only: no Space-to-jump or Shift-to-run unless it (or a preset it picked) asked
           if (p.canJump && opts.jumpKeys) { e.input.define('jump', opts.jumpKeys, 'input.jump'); e.input.touchButton('jump', 'input.jump'); }
           if (opts.runKeys) e.input.define('run', opts.runKeys, 'input.run');
-          // brake: a separate action (default B / gamepad LT, change via characters({ brakeKeys })), does not compete with jump on space. Registered only when driving is possible (rigid installed)
-          if (e.rigid) e.input.define('brake', brakeKeys, 'input.brake', { pad: brakePad, context: 'vehicle' });
+          // brake: a separate action, only when the game gives keys (characters({ brakeKeys, brakePad }) or presets.keys.brake: B / gamepad LT), does not compete with jump on space. Registered only when driving is possible (rigid installed)
+          if (e.rigid && (brakeKeys || brakePad)) e.input.define('brake', brakeKeys ?? [], 'input.brake', { pad: brakePad, context: 'vehicle' });
           e.player = p;
           if (p.cameraFollow) e.cameraRig?.follow(p.root);
           // gameplay keys are read in the fixed step (input snapshot, frame-rate independent); frame only plays animation

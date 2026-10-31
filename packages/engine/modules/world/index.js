@@ -7,7 +7,8 @@ import { WORLD_MIGRATE } from './persist.js';
 import { checkOptions, closest, warnOnce, DEV } from '../../core/validate.js';
 
 const ORPHAN = '[world] the save has changes for {n} id(s) that the content no longer defines: {list}. They are kept in the save (restoring the entry brings them back); '
-  + 'if an entry was renamed, give it its old id again, or keep the new one and accept that its saved state starts over';
+  + "if an entry was renamed, add the pair to content/renames.js (export default { 'oldId': 'newId' }) and the saved state follows it; 'oldId': null drops it";
+const RENAME_TARGET = '[world] content/renames.js moves saved state to {list}, which no content entry defines: fix the new id (did you mean {near}?)';
 
 /**
  * World data module: installed as engine.world. Put things here that must be saved, survive level changes and keep changing while far away; models are only built while nearby
@@ -24,13 +25,21 @@ export function world(opts = {}) {
       w = new World(e, opts);
       e.stream.player.at(() => w.center);   // the default stream source sits where gameplay is simulated (world.anchor, else the player)
       e.stream.readyCheck('world', s => s.detail !== 'full' || w.ready);
-      e.saves.register('world', { version: 2, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
+      e.saves.register('world', { version: 3, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
       e.budget.metric('worldRecords', () => w.records.size);
       if (DEV) {   // orphans are known once content loaded (engine:ready), after a load, and per level for `<level>/<node>` ids
         const warn = () => {
+          targets();
           const o = w.orphans(); if (!o.length) return;
-          const ids = [...w._base.keys()], list = o.slice(0, 8).map(id => { const c = closest(id, ids); return c ? `${id} (did you mean ${c}?)` : id; });
+          const ids = [...w._base.keys()];
+          // a near id the save has no data for is the likely new name: suggest the exact renames.js pair
+          const list = o.slice(0, 8).map(id => { const c = closest(id, ids); return c ? `${id} (did you mean ${c}? renames: { '${id}': '${c}' })` : id; });
           warnOnce(ORPHAN.replace('{n}', String(o.length)).replace('{list}', list.join(', ') + (o.length > 8 ? ', …' : '')));
+        };
+        const targets = () => {   // a rename target nothing defines moves the player's state into a void: name it (level-node targets once that level loaded)
+          const due = id => { const i = id.indexOf('/'); return i < 0 || w._levels.has(id.slice(0, i)); };
+          const bad = [...w._renames].filter(([, b]) => b != null && !w._base.has(b) && due(b));
+          if (bad.length) warnOnce(RENAME_TARGET.replace('{list}', bad.map(([a, b]) => `${b} (from ${a})`).join(', ')).replace('{near}', closest(bad[0][1], [...w._base.keys()]) ?? '-'));
         };
         for (const ev of ['engine:ready', 'save:loaded', 'level:loaded']) e.events.on(ev, () => { if (e.ready) warn(); });
       }

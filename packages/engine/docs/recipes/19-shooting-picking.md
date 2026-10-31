@@ -6,7 +6,8 @@ The ray API is `engine.pick(ndcX, ndcY, opts)`: screen coordinates -1..1 (0, 0 i
 ## 1. A first-person shooting range (copy it and it runs)
 ```js
 import { createEngine, presets, openWorld, hud, THREE, makeMaterial } from 'threedog';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';
+import lowpoly from '@threedog/style-lowpoly';
+import { terrainPreset } from '@threedog/terrain-noise';
 
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, saveKey: 'range' });
 engine.use(openWorld({ seed: 7, terrain: terrainPreset(), camera: 'firstPerson' }), hud());   // camera (required): 'follow' | 'firstPerson' | 'rts' | 'fixed', or pass a module like firstPersonCamera({ height: 1.7 })

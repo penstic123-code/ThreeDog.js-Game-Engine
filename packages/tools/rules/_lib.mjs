@@ -138,7 +138,7 @@ export function resolveImport(fromFile, spec) {
   if (spec.startsWith('.')) p = resolve(dirname(abs(fromFile)), spec);
   else if (spec.startsWith('/')) p = join(P.workspaceOf(dirname(abs(fromFile))) ?? ROOT, spec);   // site path: relative to the workspace root
   else if (spec === P.ENGINE_PKG) p = abs(P.INDEX_JS_REL);
-  else if (P.styleName(spec)) p = join(P.styleDir(P.styleName(spec)), 'index.js');   // a style pack package (@threedog/style-<name>)
+  else if (P.optionalEntry(spec)) p = P.optionalEntry(spec);   // a style pack (@threedog/style-<name>) or an add-on package (@threedog/terrain-noise)
   else if (spec.startsWith(P.ENGINE_PKG + '/') && typeof engineExports()['.' + spec.slice(P.ENGINE_PKG.length)] === 'string') p = join(P.ENGINE, engineExports()['.' + spec.slice(P.ENGINE_PKG.length)]);   // other fixed subpaths of package.json exports (threedog/error-hints)
   else return null;
   for (const cand of [p, p + '.js', join(p, 'index.js')]) if (existsSync(cand) && statSync(cand).isFile()) return rel(cand);

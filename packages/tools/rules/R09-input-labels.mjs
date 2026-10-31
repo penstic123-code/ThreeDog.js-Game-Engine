@@ -32,7 +32,7 @@ function tables(files) {
 export default {
   id: 'R9', title: 'Key text keys exist in every locale',
   run() {
-    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js']))];
+    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.ADDONS_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js']))];
     const T = tables(files), out = [];
     const check = (f, line, key, where) => {
       if (ALLOW.some(([k]) => k === key)) return;

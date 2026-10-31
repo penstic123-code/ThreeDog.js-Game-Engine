@@ -63,7 +63,8 @@ Under active development. APIs and workflows may change before the first stable 
 | Feature | What it does |
 |---|---|
 | Style packs | Colors, shapes, lighting and post effects live in a swappable style pack; the engine itself has no default look |
-| Optional low-poly style pack | `@threedog/style-lowpoly`: low-poly models, sky, materials and a noise terrain preset, installed only if you want it |
+| Optional low-poly look | `@threedog/style-lowpoly`: a style pack (sky, materials, post, terrain colors) and an asset pack of low-poly models, installed only if you want it; style parts mix: `style: [lowpoly, { sky }]` |
+| Optional noise terrain | `@threedog/terrain-noise`: `terrainPreset()` hills / island / canyon / plain, rivers and a biome table (world shape only, colored by whichever style pack you use) |
 | Day, night and sky | Sun movement, sky colors over time, moving cloud shadows |
 | Weather and seasons | Rain and snow; plant colors change with the season |
 | Wind | Grass and trees sway |
@@ -100,12 +101,12 @@ Under active development. APIs and workflows may change before the first stable 
 
 > **Early preview.** APIs and names will still change, and it is not published to npm yet. Expect breaking changes until v0.1.0. Licensed MIT.
 
-A web 3D game engine on three.js 0.187, in three layers: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand) -> **style pack** (all art, optional).
+A web 3D game engine on three.js 0.187, in three layers (core, modules, style pack) that [packages/engine/README.md](packages/engine/README.md) lays out.
 The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. An optional low-poly style pack (`@threedog/style-lowpoly`) and one example come with the repository: an open-world photography game (`/`) whose level lives entirely in content files.
 
 中文说明见 [README.zh-CN.md](README.zh-CN.md).
 
-The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (the optional style pack `@threedog/style-lowpoly`), `games/*` (one folder per game).
+The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (the optional style pack `@threedog/style-lowpoly`), `packages/terrain-noise` (the optional terrain generator `@threedog/terrain-noise`), `games/*` (one folder per game).
 
 ## Run it
 1. Install [Node.js](https://nodejs.org) (LTS).
@@ -118,7 +119,8 @@ Keys (open-world example): WASD move · Shift run · drag to turn the view · E 
 ## Minimal usage
 ```js
 import { createEngine, presets, openWorld } from 'threedog';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';   // optional: without it everything is gray placeholders
+import lowpoly from '@threedog/style-lowpoly';                    // optional: without it everything is gray placeholders
+import { terrainPreset } from '@threedog/terrain-noise';         // optional: without it the ground is flat
 
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly });
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));          // terrain seed and generator (without one the ground is flat); the preset installs only world and environment, add gameplay modules (dialogue, inventory, quests, photo...) yourself; or install just what you need: engine.use(sky(), collision(), followCamera(), characters())

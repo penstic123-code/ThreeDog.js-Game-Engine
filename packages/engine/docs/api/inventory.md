@@ -4,8 +4,8 @@ Inventory (inventory() module)
 
 - Options `InventoryOptions`:
   - `action?: string` Action name that opens the inventory, default 'inventory'
-  - `keys?: string[]` Keys, default ['KeyI']
-  - `pad?: string[]` Gamepad button, default ['PadY']
+  - `keys?: string[]` Keys that open the bag: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.inventory has ['KeyI']
+  - `pad?: string[]` Gamepad button, none by default; presets.keys.inventory has ['PadY']
   - `pauseGame?: boolean` true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame
   - `bobDistance?: number` Pickups float and spin only within this distance (meters) of the focus, default 60
   - `capacity?: number` Slot limit of the player inventory, default Infinity (no limit)
@@ -50,7 +50,7 @@ Inventory (inventory() module)
   - `consume?: boolean` inventory.use removes one piece before calling use
   - `color?: ColorLike` Color of the pickup on the ground
 - **PickupOptions** Parameters of spawnPickup()
-  - `id?: string` Stable id of this record in world (saves recognize it by this); numbered automatically pickup-1... if omitted, and an existing record with the same id is reused
+  - `id?: string` Stable id of this record in world (saves recognize it by this); numbered automatically pickup#1... if omitted, and an existing record with the same id is reused
   - `count?: number` How many you get when picking up, default 1
   - `data?: Record<string, any>` The piece's own data (a dropped sword keeps its durability)
   - `radius?: number` Reach in meters, default inventory pickupRadius (2)

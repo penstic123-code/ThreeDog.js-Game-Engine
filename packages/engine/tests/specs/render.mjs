@@ -205,14 +205,14 @@ export const specs = [
     },
   },
   {
-    name: '[守] UI 样式顺序：风格包的 style.ui.css 永远排在模块默认 CSS 后面；默认 CSS 按内容去重；引擎 dispose 拿走自己的样式和字体',
+    name: '[守] UI 样式顺序：风格包的 style.ui.css 永远排在模块默认 CSS 后面；默认 CSS 按内容去重；引擎 dispose 拿走自己的样式',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const { createEngine, injectUICSS } = threedogTest, H = document.head, out = {};
         const threedog = () => [...H.querySelectorAll('style[data-threedog], style[data-threedog-pack], link[data-threedog-pack]')];
         const before = threedog().length;
-        const second = createEngine({ canvas: document.createElement('canvas'), style: { ui: { css: '.threedog-hud-stats{top:auto}', fontFaces: [{ family: 'TestFont', url: '/f.woff2' }], bg: '#123' } }, headless: true, ui: { loading: false }, saveKey: 'render-test-ui' });
+        const second = createEngine({ canvas: document.createElement('canvas'), style: { ui: { css: '.threedog-hud-stats{top:auto}', bg: '#123' } }, headless: true, ui: { loading: false }, saveKey: 'render-test-ui' });
         injectUICSS('.threedog-late-module{color:red}');   // 模块在风格包之后才装、才注入默认 CSS
         injectUICSS('.threedog-late-module{color:red}');   // 同一段只加一次
         const list = threedog(), last = list[list.length - 1];
@@ -221,10 +221,10 @@ export const specs = [
         out.dedupe = list.filter(n => n.textContent.includes('threedog-late-module')).length;
         out.theme = second.uiRoot.style.getPropertyValue('--threedog-bg');
         out.rootClean = document.documentElement.style.getPropertyValue('--threedog-bg') === '';
-        let bad = ''; try { createEngine({ canvas: document.createElement('canvas'), style: { ui: { fontFaces: [{ family: 'x";}body{', url: '/f' }] } }, headless: true, ui: { loading: false }, saveKey: 'render-test-bad' }); } catch (e) { bad = e.message; }
+        let bad = ''; try { createEngine({ canvas: document.createElement('canvas'), style: { ui: { fontFaces: [{ family: 'x', url: '/f.woff2' }] } }, headless: true, ui: { loading: false }, saveKey: 'render-test-bad' }); } catch (e) { bad = e.message; }
         out.bad = bad;
         second.dispose();
-        out.packGone = !threedog().some(n => n.textContent.includes('TestFont') || n.textContent.includes('hud-stats{top:auto}'));
+        out.packGone = !threedog().some(n => n.textContent.includes('hud-stats{top:auto}'));
         out.defaultsKept = threedog().some(n => n.dataset.threedog === 'default');   // 第一个引擎还在：默认 CSS 留着
         out.before = before;
         return out;
@@ -232,8 +232,8 @@ export const specs = [
       check('风格包的 <style> 在后注入的模块默认 CSS 之后（同优先级时风格包赢）', r.packLast && r.lastIsPack, JSON.stringify(r));
       check('同一段默认 CSS 只注入一次', r.dedupe === 1, String(r.dedupe));
       check('主题变量写在 engine.uiRoot 上，不写 :root', r.theme === '#123' && r.rootClean, JSON.stringify(r));
-      check('字体名 / 地址带引号括号分号：报错给写法', /fontFaces: family/.test(r.bad), r.bad);
-      check('dispose 拿走这个引擎的风格包 CSS 和字体，别的引擎还在用的默认 CSS 留着', r.packGone && r.defaultsKept, JSON.stringify(r));
+      check('旧写法 fontFaces（风格里写字体文件路径）：报错，教改成资源包 fonts + style.ui.fonts 写名字', /fontFaces is gone/.test(r.bad) && /fonts: \['pixel'\]/.test(r.bad), r.bad);
+      check('dispose 拿走这个引擎的风格包 CSS，别的引擎还在用的默认 CSS 留着', r.packGone && r.defaultsKept, JSON.stringify(r));
     },
   },
   {

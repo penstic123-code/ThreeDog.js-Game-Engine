@@ -1,11 +1,11 @@
 // Test page: open world + entities + world edits + particles. Playwright inspects it through window.engine / window.T.
 import { createEngine, presets, openWorld, interactions, entities, particles, THREE } from '../../index.js';
-import lowpoly, { terrainPreset } from '@threedog/style-lowpoly';
+import lowpoly, { models as M } from '@threedog/style-lowpoly';
+import { terrainPreset } from '@threedog/terrain-noise';
 
-const M = lowpoly.models;
 localStorage.clear();
 const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, ui: { loading: false }, saveKey: 'enttest' });
-engine.use(openWorld({ camera: 'follow', terrain: { seed: 1337, ...terrainPreset() }, sky: { time: 0.4, seasons: ['wet', 'dry'], daysPerSeason: 28 }, debug: false, ambience: false }), interactions({ ...presets.interactions.nearest }), entities(), particles());   // the preset only builds the world; gameplay modules are installed separately
+engine.use(openWorld({ camera: 'follow', terrain: { seed: 1337, ...terrainPreset() }, sky: { time: 0.4, dayLength: 360, seasons: ['wet', 'dry'], daysPerSeason: 28 }, debug: false, ambience: false }), interactions({ ...presets.interactions.nearest }), entities(), particles());   // the preset only builds the world; gameplay modules are installed separately
 engine.vegetation.add('松树', {
   geometry: M.pine(), lodGeometry: M.pineLow(),
   rule: { perChunk: 130, minHeight: 1.6, maxHeight: 40, maxSlope: 0.6, cluster: 'forest', scale: [0.75, 1.6], stretch: [0.85, 1.2], sink: 0.15,

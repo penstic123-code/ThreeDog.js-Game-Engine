@@ -2,7 +2,7 @@
 // Background results that affect gameplay (chunk collision, spread-over-frames jobs that change gameplay state, future navmesh, entity spawns...) do not take effect "whenever they finish" --
 // that depends on machine speed and background-thread queueing -- but on a fixed-step tick decided when the request is made:
 //   const t = engine.commits.request({ apply: r => change gameplay state with the result, fallback: () => compute the same result on the main thread now, valid: () => still wanted? });
-//   when the background work finishes: t.resolve(result); when no longer wanted: t.cancel()
+//   when the background work finishes: t.resolve(result); when no longer wanted: t.remove()
 // At the due tick (engine.tick at request + lag, default 30 steps = 0.5 s) requests take effect in a stable order (due tick, then request order):
 //   finished -> apply(result); not finished -> apply(fallback()) (stats.late +1; a background result that arrives later is ignored); valid() false -> dropped.
 // A save load or level change (invalidate) drops the requests that have no valid: they were made for the old world. A request with valid decides itself
@@ -33,10 +33,10 @@ export class Commits {
   /** Number of requests not yet applied @returns {number} */
   get pending() { return this.queue.length; }
   /**
-   * Register a request: resolve(result) when the background work finishes, cancel() if no longer wanted. apply changes gameplay state with the result; fallback computes the same result on the main thread (required); valid says whether it is still wanted when due
+   * Register a request: resolve(result) when the background work finishes, remove() if no longer wanted. apply changes gameplay state with the result; fallback computes the same result on the main thread (required); valid says whether it is still wanted when due
    * @template [T=any]
    * @param {{ apply: (result: T) => void, fallback: () => T, valid?: (() => boolean) | null, lag?: number }} opts
-   * @returns {{ due: number, resolve: (result: T) => void, cancel: () => void }}
+   * @returns {{ due: number, resolve: (result: T) => void, remove: () => void }}
    * @example const t = engine.commits.request({ apply: r => { state.path = r; }, fallback: () => computePath() });
    * pathWorker.then(r => t.resolve(r));
   */
@@ -45,7 +45,8 @@ export class Commits {
     if (typeof fallback !== 'function') throw codedError('commit-fallback', STRINGS.noFallback);
     const t = { due: this.engine.tick + Math.max(1, lag), lag, seq: this._seq++, apply, fallback, valid, epoch: this.epoch, done: false, result: undefined, canceled: false };
     this._insert(t);
-    return { due: t.due, resolve: r => { if (!t.done) { t.done = true; t.result = r; } }, cancel: () => { t.canceled = true; } };
+    const remove = () => { t.canceled = true; };
+    return { due: t.due, resolve: r => { if (!t.done) { t.done = true; t.result = r; } }, remove };
   }
   /** @internal */
   _insert(t) {

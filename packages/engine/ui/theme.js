@@ -9,8 +9,9 @@ const DEFAULT_UI = {
 };
 
 const BASE_CSS = `
+:where(.threedog-root > *){pointer-events:auto}
 .threedog-ui{font:14px/1.55 var(--threedog-font);color:var(--threedog-fg)}
-.threedog-win{box-sizing:border-box;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(480px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;
+.threedog-win{box-sizing:border-box;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(480px,calc(100% - 32px));max-height:min(70%,560px);overflow:auto;
   background:var(--threedog-bg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);padding:16px 18px;z-index:25;box-shadow:var(--threedog-shadow)}
 .threedog-win-head{margin:0 0 10px;font-size:16px;color:var(--threedog-accent);letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .threedog-win-hint{color:var(--threedog-muted);font-weight:400;font-size:12px}
@@ -31,14 +32,14 @@ const BASE_CSS = `
   padding:6px 14px;animation:threedogIn .25s ease-out;transition:opacity .4s}
 .threedog-prompt{position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:6px 10px;border-radius:8px;background:var(--threedog-bg);color:var(--threedog-fg);font:13px var(--threedog-font);cursor:pointer;z-index:15;white-space:nowrap}
 .threedog-dlg{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));
-  width:min(640px,calc(100vw - 32px));
+  width:min(640px,calc(100% - 32px));
   background:var(--threedog-bg);color:var(--threedog-fg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);padding:14px 18px 16px;font:15px/1.6 var(--threedog-font);z-index:20;cursor:pointer}
 .threedog-dlg-name{display:block;color:var(--threedog-accent);font-size:13px;margin-bottom:4px;letter-spacing:.05em;font-weight:700}
 .threedog-dlg-opts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .threedog-dlg-opts .threedog-btn{text-align:left}
 .threedog-dlg-hint{position:absolute;right:14px;bottom:8px;font-size:12px;opacity:.6}
 .threedog-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--threedog-loading-bg);color:var(--threedog-fg);z-index:100;transition:opacity .6s;font-family:var(--threedog-font)}
-.threedog-loading-box{display:flex;flex-direction:column;gap:14px;align-items:center;width:min(360px,80vw)}
+.threedog-loading-box{display:flex;flex-direction:column;gap:14px;align-items:center;width:min(360px,80%)}
 .threedog-loading-title{font-weight:600;font-size:20px;letter-spacing:.08em}
 .threedog-loading-track{width:100%;height:4px;background:var(--threedog-line);border-radius:2px;overflow:hidden}
 .threedog-loading-bar{height:100%;width:0;background:var(--threedog-accent);transition:width .2s}
@@ -75,23 +76,22 @@ export function injectUICSS(css = '') {
   }
 }
 /**
- * Apply an engine's style.ui: theme variables (--threedog-*) on engine.uiRoot, style.ui.css after every default, and fonts
- * (style.ui.fontFaces: [{ family: 'PixelFont', url: '/fonts/pixel.woff2', weight: 400 }], or a web font stylesheet
- * style.ui.fontCSS, then used in style.ui.font, e.g. '"PixelFont", system-ui'). The returned handle removes them (engine.dispose).
+ * Apply an engine's style.ui: theme variables (--threedog-*) on engine.uiRoot and style.ui.css after every default. Fonts are asset names
+ * (style.ui.fonts: ['pixel'], registered with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }) and loaded at start()),
+ * then used in style.ui.font, e.g. '"pixel", system-ui'. The returned handle removes what it added (engine.dispose).
  * @internal
  * @param {{ uiRoot: HTMLElement }} engine
  * @param {StyleUI} [ui]
  * @returns {{ remove(): void }}
  */
 export function applyUIStyle(engine, ui = {}) {
+  checkFonts(ui);
   live.add(engine);
   injectUICSS();
   const t = { ...DEFAULT_UI, ...ui }, r = engine.uiRoot.style;
   for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'number') r.setProperty('--threedog-' + kebab(k), String(t[k]));
   const nodes = [];
   const add = (tag, props) => { const n = Object.assign(document.createElement(tag), props); n.dataset.threedogPack = ''; document.head.appendChild(n); nodes.push(n); };
-  if (ui.fontCSS) add('link', { rel: 'stylesheet', href: ui.fontCSS });
-  if (ui.fontFaces?.length) add('style', { textContent: ui.fontFaces.map(fontFace).join('\n') });
   if (ui.css) add('style', { textContent: ui.css });
   return {
     remove() {
@@ -101,11 +101,12 @@ export function applyUIStyle(engine, ui = {}) {
     },
   };
 }
-// One @font-face rule; family and url go into CSS strings, so characters that would end the string or the rule are refused
-function fontFace(f) {
-  for (const k of ['family', 'url']) if (typeof f[k] !== 'string' || /["'();\\<>]/.test(f[k]))
-    throw new Error(`style.ui.fontFaces: ${k} ${JSON.stringify(f[k])} must be a plain string without quotes, brackets, ';' or '\\', `
-      + "e.g. { family: 'PixelFont', url: '/fonts/pixel.woff2' }");
-  const style = ['italic', 'oblique'].includes(f.style) ? f.style : 'normal';
-  return `@font-face{font-family:"${f.family}";src:url("${f.url}");font-weight:${+(f.weight ?? 400)};font-style:${style};font-display:swap}`;
+// A style holds looks, never files (docs/plans/packs-design.md): a font file is an asset, so the style names it. The old forms carried
+// paths (fontFaces[].url, a fontCSS stylesheet URL) and are refused with the new form, so a pack cannot slip a file back in.
+function checkFonts(ui) {
+  if (ui.fontFaces || ui.fontCSS) throw new Error(`style.ui.${ui.fontFaces ? 'fontFaces' : 'fontCSS'} is gone: a style names fonts, an asset pack holds the files. `
+    + "Register them with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }), then style.ui: { fonts: ['pixel'], font: '\"pixel\", system-ui' }");
+  if (ui.fonts != null && !(Array.isArray(ui.fonts) && ui.fonts.every(n => typeof n === 'string' && !/[/\.]/.test(n))))
+    throw new Error(`style.ui.fonts must be a list of font asset names, got ${JSON.stringify(ui.fonts)}. Example: fonts: ['pixel'] with `
+      + "engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } })");
 }

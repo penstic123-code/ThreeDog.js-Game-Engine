@@ -73,6 +73,7 @@ export class Saves {
     /**
      * Apply a save's data (an object from collect(), or save text) onto the running game. Resolves true when every part loaded.
      * Refused before anything changes (false, toast) when the data is corrupt, from a newer build or cannot be migrated.
+     * After every part loaded it runs the modules' afterLoad hooks (gameplay frozen until they resolve), for saves.load, session.newGame / quit and direct calls alike.
      * If a part's load throws, the game is rolled back to how it was before (every part reloads its pre-load state) and it resolves false; the error goes through the error tiers.
      * The state changes synchronously unless a part's load is async; only the result is a Promise.
      * @param {any} data

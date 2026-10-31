@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkWorldData } from './content-check/world.mjs';
 import { checkQuests } from './content-check/quests.mjs';
 import { checkKinds } from './content-check/kinds.mjs';
+import { checkAudio } from './content-check/audio.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameSetup, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameSetup };
 
@@ -47,11 +48,14 @@ export async function checkGame(dir) {
   const setup = gameSetup(dir, code);
   // Model names: style pack + asset manifest; when no style pack was inferred, names not in the manifest are skipped (noted once)
   let skipNoted = false;
+  // Content is data that names assets: a file path or a function in a model field is an error (the file / generator belongs in an asset pack)
   const checkModel = (kind, what, m) => {
+    if (typeof m === 'function') return err(kind, `${what} gives a function as its model; content is data: register the generator in an asset pack (engine.assets.manifest({ models: { name: fn } })) and write its name`);
+    if (typeof m === 'string' && /[/\\]|\.(glb|gltf|fbx|obj|png|jpe?g|webp|ktx2)$/i.test(m)) return err(kind, `${what} names the model "${m}" as a file path; content names assets only: register the file in an asset pack or assets.manifest({ models: { name: '${m}' } }) and write the name`);
     if (setup.manifest.has(m) || setup.styleModels?.has(m)) return;
     if (!setup.styleModels) { if (!skipNoted) warn(kind,
       `no style pack found in the game code (import of a style pack), skipping the model name check`); skipNoted = true; return; }
-    err(kind, `the model "${m}" of ${what} is in neither the style pack ${setup.style} nor assets.manifest (the style pack has: ${[...setup.styleModels].join(', ') || '(none)'})`);
+    err(kind, `the model "${m}" of ${what} is in neither the ${setup.style} asset pack nor assets.manifest (the pack has: ${[...setup.styleModels].join(', ') || '(none)'})`);
   };
 
   // Collect the flags/counters set by effects (scan once first, to later judge "only checked, never set")
@@ -194,6 +198,9 @@ export async function checkGame(dir) {
 
   // 9. Containers, vegetation, props
   checkWorldData({ c, items, err, checkModel, checkPos, isObj, known });
+
+  // 10. Audio (sounds by asset name, rules as data)
+  checkAudio({ c, err, warn, isObj, known, code });
 
   // 11. The game's vocabulary and its own content kinds
   checkKinds({ c, err, warn, known });

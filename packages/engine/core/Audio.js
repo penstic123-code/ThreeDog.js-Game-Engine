@@ -1,20 +1,17 @@
 // Audio core: buses (master, music, sfx, ambience, ui + the game's own), sounds by name, ducking, and the condition table for rule lists.
-// Sounds are the game's: createEngine({ audio: { sounds, ambience, music, footsteps, levels } }) (engine.audio.config). The engine ships none
-// and plays nothing the game did not ask for: modules register built-in synths with { builtIn: true }, silent until audio.sounds names them.
-//   sounds: { door: '/sfx/door.ogg', hit: ['/sfx/hit1.ogg', '/sfx/hit2.ogg'],      // a file; variants (random, no immediate repeat)
-//     shot: { src: '/sfx/shot.ogg', jitter: { pitch: 0.08 }, cooldown: 0.05, voices: 4 }, 'step.grass': { synth: 'footstep', params: { surface: 'grass' } } }
-//   engine.audio.sfx('shot', { at: enemy })                           // 3D: follows the Object3D; returns a SoundHandle (stop, fade)
-//   const d = engine.audio.duck({ music: 0.3 }); d.remove();          // lower buses during dialogue, then restore
+// Sounds are the game's: createEngine({ audio: { sounds, ambience, music, footsteps, levels } }) or a content pack's audio table (contentPack,
+// audioRules.js), merged into engine.audio.config. The engine ships none and plays nothing the game did not ask for: modules register built-in
+// synths with { builtIn: true }, silent until audio.sounds names them. A sound src may be a file or a sound name from an asset pack.
+// Usage: recipes/31-audio.md.
 // Browsers only allow sound after the first click/keypress; this waits for it automatically.
 
-/** @import { SynthFn, SoundDef, AudioCondition } from '../types/core' */
+/** @import { SynthFn, SoundDef, AudioCondition, AudioVolume } from '../types/core' */
 import { codedError } from './errorHints.js';
 import { missingText, warnOnce, checkOptions } from './validate.js';
-import { SoundHandle, resolveDef, pickVariant, startSource, placeListener, synthNoise, synthTone } from './audioVoice.js';
+import { SoundHandle, playSound, placeListener, synthNoise, synthTone, loadSound, playFile } from './audioVoice.js';
+import { matchesWhen, volumeOf, checkRuleName, packAudio } from './audioRules.js';
 const AUDIO_KEYS = ['levels', 'sounds', 'ambience', 'music', 'footsteps'];
-const SFX_KEYS = ['volume', 'pitch', 'at', 'bus', 'loop', 'params', 'fadeIn'];
 const DEFAULT_LEVELS = { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 };
-const jit = (v, j) => v * (1 + (Math.random() * 2 - 1) * (j || 0));   // presentation
 
 /** engine.audio: buses, sounds by name, ducking. Sfx play by name from the game's audio.sounds (file, variants or synth). */
 export class Audio {
@@ -22,17 +19,18 @@ export class Audio {
   constructor(engine, opts = {}) {
     checkOptions('createEngine({ audio })', opts, AUDIO_KEYS);
     const { levels = {}, sounds = {}, ambience = [], music = {}, footsteps = {} } = opts;
+    checkOptions('createEngine({ audio: { music } })', music, ['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);   // a typo (trakcs) would just play nothing
     /** @internal */ this.engine = engine;
     /** The browser AudioContext (exists only after the first click) @type {any} */
     this.ctx = null;
     /** Volume per bus 0-1 ('master' is the total). Every key is a bus: levels: { voice: 1 } adds a 'voice' bus @type {Record<string, number>} */
     this.levels = { ...DEFAULT_LEVELS, ...levels };
     /**
-     * The game's sound config from createEngine({ audio }): sounds (name -> file / variants / { src, synth, ... }), ambience (rule list for
-     * ambience()), music (music() tracks and rules), footsteps (ground type -> sound name)
+     * The game's sound config from createEngine({ audio }); sounds and footsteps also hold content packs' (copies: the game's object is never changed).
+     * Content packs' ambience / music rules go to ambience() / music(), not here
      * @type {import('../types/core').AudioConfig}
      */
-    this.config = { sounds, ambience, music, footsteps };
+    this.config = { sounds: { ...sounds }, ambience, music, footsteps: { ...footsteps } };
     /** Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks @type {Record<string, any>} */
     this.buses = {};
     /** The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules) @type {string | null} */
@@ -40,6 +38,13 @@ export class Audio {
     /** @internal */ this.buffers = new Map();
     /** @internal */ this.synths = new Map();
     /** @internal */ this.conditions = new Map([['state', v => [].concat(v).includes(this.state)]]);
+    /** @internal name -> (engine) => number: values rule data compares ({ daylight: { gt: 0.15 } }) and data volumes add up */
+    this.measures = new Map();
+    // names defined in code: the same name in a content pack is an error (one name, one place)
+    /** @internal */ this._code = { sounds: new Set(Object.keys(sounds)), footsteps: new Set(Object.keys(footsteps)), tracks: new Set(Object.keys(music.tracks || {})) };
+    /** @internal content packs' audio: pack key -> { ambience, music } (ambience() / music() read it at install and follow it after) */
+    this.packs = new Map();
+    /** @internal */ this._packWatch = new Set();
     /** @internal */ this._duckNodes = {};
     /** @internal */ this._ducks = new Set();
     /** @internal */ this._voices = new Map();      // name -> live voices (voice limit, info)
@@ -160,23 +165,57 @@ export class Audio {
    * @returns {{ remove(): void }}
    * @example engine.audio.condition('inside', v => engine.vars.flag('indoors') === v);
    */
-  condition(name, test) { this.conditions.set(name, test); return { remove: () => this.conditions.delete(name) }; }
+  condition(name, test) { checkRuleName(this, name, false); this.conditions.set(name, test); return { remove: () => this.conditions.delete(name) }; }
   /**
-   * Does a rule's `when` hold now? An object needs every key to hold; a function gets (engine, ...extra); missing = always.
+   * Add a measure: a number rule data compares (`when: { daylight: { gt: 0.15 } }`; gt / gte / lt / lte) and adds up (`volume: { add: { wind: 0.08 } }`).
+   * sky adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both
+   * @param {string} name
+   * @param {(e: any) => number} fn
+   * @returns {{ remove(): void }}
+   * @example engine.audio.measure('danger', e => e.vars.counter('alarm') / 10);   // data: when: { danger: { gt: 0.5 } }
+   */
+  measure(name, fn) { checkRuleName(this, name, true); this.measures.set(name, fn); return { remove: () => this.measures.delete(name) }; }
+  /**
+   * The current value of a measure (debug, tests); undefined when none is registered under that name
+   * @param {string} name
+   * @returns {number | undefined}
+   */
+  value(name) { return this.measures.get(name)?.(this.engine); }
+  /**
+   * Does a rule's `when` hold now? An object needs every key to hold (condition keys, or measure comparisons); a function gets
+   * (engine, ...extra); missing = always.
    * @param {AudioCondition | undefined} when
    * @param {...any} extra
    * @returns {boolean}
-   * @example engine.audio.matches({ time: 'night', zone: 'forest' });
+   * @example engine.audio.matches({ time: 'night', zone: 'forest', rain: { lt: 0.2 } });
    */
-  matches(when, ...extra) {
-    if (when == null) return true;
-    if (typeof when === 'function') return !!when(this.engine, ...extra);
-    for (const [k, v] of Object.entries(when)) {
-      const test = this.conditions.get(k);
-      if (!test) { warnOnce(missingText('condition', k, [...this.conditions.keys()]) + '. time comes from sky(), weather from weather(), zone from triggers(); or write when: e => ...'); return false; }
-      if (!test(v, this.engine)) return false;
-    }
-    return true;
+  matches(when, ...extra) { return matchesWhen(this, when, extra); }
+  /**
+   * A rule's volume now: a number, a function (engine, ...extra), or data { base, add: { measure: factor }, min, max }; missing = 1
+   * @param {AudioVolume | undefined} volume
+   * @param {...any} extra
+   * @returns {number}
+   * @example engine.audio.volumeOf({ base: 0, add: { rain: 0.22 } });   // 0.22 in full rain
+   */
+  volumeOf(volume, ...extra) { return volumeOf(this, volume, extra); }
+  /**
+   * @internal content.load hands each pack's audio table here (audioRules.js packAudio): sounds / footsteps merge into config, rules go to
+   * ambience() / music() through onPack; a pack loaded again under the same key replaces its rules
+   * @param {any} key  'pack:<name>', or the pack's data object for an unnamed pack (loading the same object again replaces its rules)
+   * @param {string} from  'pack "forest"' for messages
+   * @param {any} data
+   */
+  contentPack(key, from, data) {
+    const p = packAudio(this, data, from);
+    Object.assign(this.config.sounds, p.sounds); Object.assign(this.config.footsteps, p.footsteps);
+    const pack = { from, ambience: p.ambience, music: p.music };
+    this.packs.set(key, pack);
+    for (const fn of this._packWatch) fn(key, pack);
+  }
+  /** @internal ambience() / music() follow content packs' rules: fn(key, pack) per pack, now for each loaded one and later for new ones */
+  onPack(fn) {
+    for (const [k, p] of this.packs) fn(k, p);
+    this._packWatch.add(fn); return { remove: () => this._packWatch.delete(fn) };
   }
 
   /**
@@ -188,24 +227,7 @@ export class Audio {
    * @returns {SoundHandle | null}
    * @example engine.audio.sfx('hit', { at: enemy.root, volume: 0.8 });
   */
-  sfx(name, opts = {}) {
-    checkOptions('audio.sfx()', opts, SFX_KEYS);
-    const def = resolveDef(this, name);
-    if (!def || !this.running) return null;
-    const now = this.ctx.currentTime, last = this._last.get(name);
-    if (def.cooldown && last && now - last.at < def.cooldown) return null;
-    const list = (this._voices.get(name) || []).filter(v => v.playing);
-    if (def.voices && list.length >= def.voices) list.shift().stop(0.03);
-    const [url, variant] = def.src != null ? pickVariant(def.src, last?.variant ?? -1) : [null, 0];
-    this._last.set(name, { at: now, variant });
-    const bus = this._bus(opts.bus ?? def.bus ?? this.synths.get(def.synth)?.bus ?? 'sfx');
-    const v = new SoundHandle(this, name, bus, opts.at, def.distance);
-    const vol = jit((def.volume ?? 1) * (opts.volume ?? 1), def.jitter?.volume), pitch = jit((def.pitch ?? 1) * (opts.pitch ?? 1), def.jitter?.pitch);
-    v.gain.gain.value = opts.fadeIn ? 0 : vol; if (opts.fadeIn) v.fade(vol, opts.fadeIn);
-    startSource(this, v, def, { pitch, loop: opts.loop ?? def.loop ?? false, url, params: opts.params });
-    list.push(v); this._voices.set(name, list);
-    return v;
-  }
+  sfx(name, opts = {}) { return playSound(this, name, opts); }
   /** @internal per frame (loop.js): positional voices follow their objects and the listener follows the camera; nothing to do without them */
   _tick() {
     if (!this._spatial.size || !this.ctx) return;
@@ -239,32 +261,19 @@ export class Audio {
   tone(opts = {}) { synthTone(this, opts); }
 
   // ---------- audio files ----------
-  /** Download and decode an audio file (cached) @param {string} url @returns {Promise<any>} */
-  async load(url) {
-    this._init();
-    if (!this.ctx) throw codedError('audio-unsupported', 'Audio is not supported by this browser; check typeof AudioContext before calling');
-    if (!this.buffers.has(url)) {
-      const p = fetch(url).then(r => { if (!r.ok) throw codedError('asset-load', `Audio file failed to load: ${url} (${r.status} ${r.statusText})`); return r.arrayBuffer(); }).then(b => this.ctx.decodeAudioData(b));
-      p.catch(() => { if (this.buffers.get(url) === p) this.buffers.delete(url); });   // a failed download is not cached: the next play tries again
-      this.buffers.set(url, p);
-    }
-    return this.buffers.get(url);
-  }
+  /**
+   * Download and decode an audio file (cached). A sound name registered in an asset pack (manifest sounds) loads that file as an
+   * engine.loading task, so sounds entries and music tracks may name assets instead of paths
+   * @param {string} url  a file path or an asset pack sound name
+   * @returns {Promise<any>}
+   */
+  load(url) { return loadSound(this, url); }
   /**
    * Play an audio file by path (no sounds entry needed); resolves to a SoundHandle once the file is decoded
    * @param {string} url
    * @param {{ bus?: string, volume?: number, loop?: boolean, fadeIn?: number, pitch?: number, at?: any }} [opts]
-   * @returns {Promise<SoundHandle>}
+   * @returns {Promise<SoundHandle | null>} null only without Web Audio; called before the first click it still resolves and the sound starts once audio unlocks
    * @example const h = await engine.audio.play('/sfx/door.ogg', { bus: 'ui' }); h.stop(0.5);
   */
-  async play(url, opts = {}) {
-    checkOptions('audio.play()', opts, ['bus', 'volume', 'loop', 'fadeIn', 'pitch', 'at']);
-    const { bus = 'sfx', volume = 1, loop = false, fadeIn = 0, pitch = 1, at } = opts;
-    const out = this.ctx ? this._bus(bus) : null;
-    const buf = await this.load(url), ctx = this.ctx, v = new SoundHandle(this, url, out ?? this._bus(bus), at);
-    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = loop; src.playbackRate.value = pitch;
-    v.gain.gain.value = fadeIn ? 0 : volume; if (fadeIn) v.fade(volume, fadeIn);
-    src.connect(v.gain); src.start(); v.source = src; v.endsAt = loop ? Infinity : ctx.currentTime + buf.duration / pitch;
-    return v;
-  }
+  play(url, opts = {}) { return playFile(this, url, opts); }
 }

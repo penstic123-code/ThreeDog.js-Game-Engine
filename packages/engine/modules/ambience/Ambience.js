@@ -7,6 +7,9 @@
 //       { sound: 'cave', when: { zone: 'cave' }, volume: 0.6, fade: 2 },             // condition keys: zone (triggers), time (sky), weather, state
 //       { sound: 'crows', when: { time: 'day' }, every: [4, 12] },                  // every: a one-shot at random gaps instead of a loop
 //     ] } });
+// The same rules as data in a content pack (audio: { ambience }): measures instead of functions, e.g.
+//   { sound: 'rain', volume: { add: { rain: 0.22 } } }, { sound: 'birds', when: { daylight: { gt: 0.15 } }, every: [2, 7] }
+// This module adds the measures nearWater (share of water within 12 m of the listener, 0-1) and altitude (ground height under it, 0 below sea level).
 //   engine.use(ambience());          // openWorld() installs it
 //
 // The engine plays nothing unless a rule asks. Built-in synths (wind, rain, water, birds, crickets) are registered silent and only play
@@ -32,6 +35,12 @@ export class Ambience {
     /** Where the sounds are heard from: whoever the player controls (engine.actor), else the camera focus @type {THREE.Vector3} */
     this.position = new THREE.Vector3();
     for (const r of [...(engine.audio.config.ambience || []), ...(opts.rules || [])]) this.add(r);
+    /** @internal content pack key -> handles of its rules (a pack loaded again replaces its own rules, never the game's) */
+    this._packs = new Map();
+    engine.audio.onPack((key, pack) => {
+      for (const h of this._packs.get(key) || []) h.remove();
+      this._packs.set(key, pack.ambience.map(r => this.add(r)));
+    });
   }
 
   /**
@@ -62,7 +71,7 @@ export class Ambience {
    * How much of the ground within `radius` meters of the listener is water (0-1), sampled at 6 points: for a water rule's volume
    * @param {number} [radius]
    * @returns {number}
-   * @example { sound: 'river', volume: (e, a) => a.nearWater(12) * 0.12 }
+   * @example { sound: 'river', volume: (e, a) => a.nearWater(20) * 0.12 }   // in data: volume: { add: { nearWater: 0.12 } } (12 m)
    */
   nearWater(radius = 12) {
     const e = this.engine, p = this.position; let n = 0;
@@ -89,14 +98,18 @@ export class Ambience {
     if (!a.running || !this._rules.length) return;
     if ((this._acc += dt) < this.interval) return;
     dt = this._acc; this._acc = 0;
-    const p = e.actorPosition() ?? e.focus; this.position.set(p.x, p.y ?? 0, p.z);
+    this._listen();
     for (const s of this._rules) this._step(s, dt);
   }
+  /** @internal Refresh this.position from the listener (player, else the camera focus). The measures call it too: music rules read them while ambience may have no rules (then update() returns early and never moves the position) */
+  _listen() { const p = this.engine.actorPosition() ?? this.engine.focus; return this.position.set(p.x, p.y ?? 0, p.z); }
   /** @internal */
   _step(s, dt) {
     const r = s.rule, a = this.engine.audio, fade = r.fade ?? 1;
+    if (s.failed) return;   // its file failed to load: retrying every check would refetch it ~4 times a second forever. Reloading the rules (rules(), a pack loaded again, a page reload) tries again
+    if (s.voice?.failed) { s.failed = true; s.voice = null; console.warn(`[threedog] ambience: sound '${r.sound}' failed to load, its rule stays silent until the rules are loaded again. Fix the file path / asset name in audio.sounds`); return; }
     const on = a.matches(r.when, this);
-    s.level = on ? Math.max(0, typeof r.volume === 'function' ? r.volume(this.engine, this) : r.volume ?? 1) : 0;
+    s.level = on ? Math.max(0, a.volumeOf(r.volume, this)) : 0;
     if (r.every) {
       if ((s.next -= dt) > 0) return;
       s.next = gap(r);
@@ -134,15 +147,15 @@ const SYNTHS = {
   wind: (a, p, out) => noiseLoop(a, out, [['bandpass', p.freq ?? 330, 0.6]], p.gust ?? 0.3),
   rain: (a, p, out) => noiseLoop(a, out, [['highpass', 1800, 0.3], ['lowpass', 500, 0.5, 0.8]]),
   water: (a, p, out) => noiseLoop(a, out, [['lowpass', p.freq ?? 700, 1]]),
-  birds: (a, p, out) => {
-    const [lo, hi] = p.pitch ?? [2200, 4000], base = lo + Math.random() * (hi - lo), notes = 2 + Math.floor(Math.random() * 4), pan = Math.random() * 2 - 1;   // presentation
+  birds: (a, p, out) => {   // p.range: [low, high] Hz of the chirps; p.pitch is the sfx pitch multiplier every synth gets
+    const [lo, hi] = p.range ?? [2200, 4000], base = (lo + Math.random() * (hi - lo)) * (p.pitch ?? 1), notes = 2 + Math.floor(Math.random() * 4), pan = Math.random() * 2 - 1;   // presentation
     let t = 0;
     for (let i = 0; i < notes; i++) { a.tone({ freq: base * (1 + Math.random() * 0.3), to: base * (0.7 + Math.random() * 0.6), dur: 0.08, vol: p.volume ?? 0.04, delay: t, pan, out }); t += 0.09 + Math.random() * 0.06; }   // presentation
     return t + 0.1;
   },
-  crickets: (a, p, out) => {
+  crickets: (a, p, out) => {   // p.freq: chirp Hz (default 4300); p.pitch is the sfx pitch multiplier (~1), like birds
     const pan = Math.random() * 2 - 1;   // presentation
-    for (let i = 0; i < 3; i++) a.tone({ freq: (p.pitch ?? 4300) + Math.random() * 200, dur: 0.035, vol: p.volume ?? 0.02, delay: i * 0.05, pan, out });   // presentation
+    for (let i = 0; i < 3; i++) a.tone({ freq: ((p.freq ?? 4300) + Math.random() * 200) * (p.pitch ?? 1), dur: 0.035, vol: p.volume ?? 0.02, delay: i * 0.05, pan, out });   // presentation
     return 0.2;
   },
 };
@@ -159,7 +172,12 @@ export function ambience(opts = {}) {
     install(e) {
       checkOptions('ambience()', opts, ['rules', 'interval']);
       for (const [name, fn] of Object.entries(SYNTHS)) e.audio.register(name, fn, { builtIn: true, bus: 'ambience' });
-      a = new Ambience(e, opts); return a;
+      a = new Ambience(e, opts);
+      // measures for data rules (content packs hold no functions). Each reads the listener position itself: music rules call them too,
+      // and ambience refreshes this.position only while it has rules of its own
+      e.audio.measure('nearWater', () => { a._listen(); return a.nearWater(12); });
+      e.audio.measure('altitude', () => { const p = a._listen(); return Math.max(0, e.surface(p.x, p.z)); });
+      return a;
     },
     frame(dt) { a.update(dt); } };
 }

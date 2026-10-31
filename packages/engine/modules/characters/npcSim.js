@@ -32,7 +32,7 @@ export function advance(e, W, rec, seconds) {
   };
   if (!e.sky) walk(stopIndex(s, 0), seconds);
   else {
-    const perDay = e.sky.dayLength / e.clock.timeScale, now = e.sky.timeOfDay;   // seconds for a full day (infinite when time is stopped: far NPCs do not walk, as before)
+    const perDay = e.sky.dayLength / e.clock.timeScale, now = e.sky.timeOfDay;   // seconds for a full day (infinite when time is stopped: far NPCs do not walk)
     let left = Math.min(1, seconds / perDay);   // more than one day counts as one day: every stop is visited once, more would only repeat
     let t = ((now - left) % 1 + 1) % 1;
     for (let guard = 0; left > 1e-9 && guard <= s.length + 1; guard++) {
@@ -82,7 +82,7 @@ export function goTo(e, W, rec, ch, goal, dt) {
   else {
     nav.repath -= dt;
     // goal changed while waiting, or the answer never came (engine.commits.invalidate dropped it: a partial saves.apply, a level change): ask again
-    if (ch._pathReq && (ch._pathReq.goal !== goal || e.tick - ch._pathReq.at > PATH_WAIT)) { ch._pathReq.cancel(); ch._pathReq = null; }
+    if (ch._pathReq && (ch._pathReq.goal !== goal || e.tick - ch._pathReq.at > PATH_WAIT)) { ch._pathReq.remove(); ch._pathReq = null; }
     if (!nav.path && nav.repath <= 0 && !ch._pathReq) {
       const far = dGoal > 120, tx = far ? p.x + (goal.x - p.x) / dGoal * 100 : goal.x, tz = far ? p.z + (goal.z - p.z) / dGoal * 100 : goal.z;
       // async: many NPCs repathing in one step cost the main thread almost nothing; the answer lands a few steps later (the NPC waits in place)

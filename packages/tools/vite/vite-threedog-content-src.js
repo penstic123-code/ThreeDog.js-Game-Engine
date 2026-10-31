@@ -60,6 +60,20 @@ export function contentSrcCode(ast, code, file) {
   return { out, defaultExpr };
 }
 
+/**
+ * The literal a content module's default export is (`export default [ … ]`, or `const props = [ … ]; export default props`), or null.
+ * The same reading as contentSrcCode, for node-side tools that edit the file (threedog content ids --write).
+ * @param {any} ast  ESTree program (vite parseAst / this.parse)
+ * @returns {any}
+ */
+export function exportedLiteral(ast) {
+  const s = ast.body.find(x => x.type === 'ExportDefaultDeclaration'), d = s?.declaration;
+  if (!d) return null;
+  if (d.type !== 'Identifier') return /^(Array|Object)Expression$/.test(d.type) ? d : null;
+  for (const v of ast.body) if (v.type === 'VariableDeclaration') for (const x of v.declarations) if (x.id.type === 'Identifier' && x.id.name === d.name) return x.init ?? null;
+  return null;
+}
+
 // a function declaration: hoisted, so `export default __tdSrc(...)` above it can call it
 const HELPER = 'function __tdSrc(v, t) { if (v && typeof v === "object") (globalThis.__threedogSrc ??= new WeakMap()).set(v, t); return v; }';
 

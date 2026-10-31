@@ -56,7 +56,7 @@ function makeProp(target, path, toValue) {
   return null;
 }
 
-let tweenId = 0;
+let tweenId = 0;   // page-wide on purpose: the owner names go into validate.js allowOwned, whose exemption set is shared by every engine on the page
 
 export class Tweener {
   constructor() { this.list = []; }

@@ -32,7 +32,7 @@ export function toggleOnKey(engine: Engine, win: {
     toggle(on?: boolean): void;
 }, action: string): void;
 /**
- * World coordinates (position or object) -> screen pixels { x, y, onScreen, behind }
+ * World coordinates (position or object) -> pixels from the canvas's top-left corner { x, y, onScreen, behind } (the UI root covers the canvas, so these place UI elements directly)
  * @param {Engine} engine
  * @param {PositionLike} pos
  * @returns {ScreenPoint}
@@ -46,6 +46,7 @@ export function worldToScreen(engine: Engine, pos: PositionLike): ScreenPoint;
  * @returns {Promise<void>}
  */
 export function fadeScreen(engine: Engine, to: number, seconds?: number): Promise<void>;
+export function iconHTML(def: any): string;
 import type { Engine } from '../../core';
 import type { WindowOptions } from '../../gameplay';
 import type { UIWindow } from '../../gameplay';

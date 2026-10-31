@@ -6,6 +6,7 @@
 // Split: defaults in terrainDefaults.js; chunk meshes and vegetation placement in terrainMesh.js (neither depends on three.js).
 import { DEFAULT_TERRAIN } from './terrainDefaults.js';
 import { makeMesher } from './terrainMesh.js';
+import { makeNoise } from '../../core/scatter.js';
 import { compilePure } from '../../core/threadPure.js';
 export { DEFAULT_TERRAIN } from './terrainDefaults.js';
 
@@ -18,28 +19,13 @@ export function createTerrain(userCfg = {}) {
   const PAL = {};
   for (const k in cfg.colors) PAL[k] = hexToLinear(cfg.colors[k]);
 
-  function hash2(x, z, salt = 0) {
-    let h = (Math.imul(x | 0, 374761393) + Math.imul(z | 0, 668265263) + SEED + Math.imul(salt, 1442695041)) | 0;
-    h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
-    return (h >>> 0) / 4294967296;
-  }
-  function vnoise(x, z) {
-    const xi = Math.floor(x), zi = Math.floor(z), fx = x - xi, fz = z - zi;
-    const u = fx * fx * (3 - 2 * fx), v = fz * fz * (3 - 2 * fz);
-    const a = hash2(xi, zi), b = hash2(xi + 1, zi), c = hash2(xi, zi + 1), d = hash2(xi + 1, zi + 1);
-    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-  }
-  function fbm(x, z, oct = 4) {
-    let s = 0, a = 0.5, f = 1, n = 0;
-    for (let i = 0; i < oct; i++) { s += a * vnoise(x * f, z * f); n += a; a *= 0.5; f *= 2.03; }
-    return s / n;
-  }
+  const { hash: hash2, noise: vnoise, fbm } = makeNoise(SEED);   // shared with vegetation cluster rules on any ground
   const smooth = t => t * t * (3 - 2 * t);
 
   function heightmapHeight(x, z) {
     const H = cfg.heightmap, [sx, sz] = H.size, [cx0, cz0] = H.center || [0, 0];
     const u = (x - cx0) / sx + 0.5, v = (z - cz0) / sz + 0.5;
-    if (u < 0 || u > 1 || v < 0 || v > 1) return H.outside ?? WATER - 5;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return H.outside ?? (Number.isFinite(WATER) ? WATER - 5 : H.min ?? 0);   // outside the map: under the water, or the map's floor without water
     const fx = u * (H.width - 1), fz = v * (H.height - 1), i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
     const at = (a, b) => H.data[Math.min(H.height - 1, b) * H.width + Math.min(H.width - 1, a)];
     const h = at(i, j) * (1 - tx) * (1 - tz) + at(i + 1, j) * tx * (1 - tz) + at(i, j + 1) * (1 - tx) * tz + at(i + 1, j + 1) * tx * tz;

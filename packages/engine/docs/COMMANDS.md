@@ -40,6 +40,7 @@ export const specs = [{
 | `npm run bake` | Before release, or to take code-generated models into Blender: exports public/models/baked/*.glb (`-- -w game`) |
 | `npm run assets` | Compress glTF from art/models/ into public/models/ (names such as col_ and spawn are kept; `-- -w game`) |
 | `npm run perf` | Performance comparison (plain three.js vs engine vs per-module cost in openWorld); compare with `PERF.md` |
+| `npx threedog content ids [-w game \| folder] [--write]` | Stateful content entries (pickups, template instances with state / container / interact / body) that rely on their index id: prints the id each has now as `-`/`+` lines (dry run); `--write` writes them into `content/*.js`. Rename later through `content/renames.js` (recipe 30) | <!-- r18-ignore-line -->
 | `npm run doctor` | Check the environment, one line per item: ✓ passed · ✗ problem -> fix · – info only; `-- --ci` does not fail the command on problems. Checks Node version, node_modules, workspace links, package-lock consistency, `.threedog` writable, port 5173, the dev server recorded in `.threedog/dev.json`, Playwright chromium, headless WebGL2, `EXT_disjoint_timer_query_webgl2` (software rendering normally lacks it; info only). Run it first when the environment acts strange |
 | `npm run build` | Bundle each workspace into its own dist/ |
 
@@ -56,7 +57,7 @@ export const specs = [{
 - `modules/` modules, one folder each, installed with `engine.use`; list in `CODEMAP.md`.
 - `render/ ui/` material factory, post-processing; UI basics (windows, UI focus stack, toast, fadeScreen, worldToScreen).
 - `index.js index.d.ts types/` entry and API declarations (`types/generated/` is generated from source JSDoc, never edited by hand).
-- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly style pack: `index.js` holds all look parameters, `models.js` the procedural models, `terrain.js` the terrain preset.
+- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly package: `index.js` holds the style pack (all look parameters) and exports the asset pack `assets`, `models.js` the procedural models in it, `terrain.js` the terrain preset.
 - `examples/world/` is the engine example (open world `/`, content-only placement). The small city (level, no terrain, no style pack, top-down) and the co-op page are test pages in the engine repository (`tests/city/`, `tests/coop/`), opened at `/tests/city/index.html` and `/tests/coop/index.html`.
 - `tests/` specs.mjs + specs/ test list, `<name>/index.html` test pages, fixtures/ test assets. `public/` art for the examples.
 - Each game `games/<game>/`: package.json, vite.config.js (one line, gameConfig), index.html, main.js, `content/` (items npcs dialogues quests pickups containers props triggers actions places level vegetation rules; only these file names are read), `public/` (art; Blender source files go in `art/models/`), DESIGN.md, GAMEMAP.md (generated), CLAUDE.md.

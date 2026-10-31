@@ -11,7 +11,8 @@ import { createEngine, presets, Character, createTerrain, openWorld, world, inte
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
-import lowpoly, { terrainPreset, riverAt } from '@threedog/style-lowpoly';
+import lowpoly, { models as lowpolyModels, assets as lowpolyAssets } from '@threedog/style-lowpoly';
+import { terrainPreset, riverAt } from '@threedog/terrain-noise';
 import vegetationDefs from '../../examples/world/content/vegetation.js';
 
 const q = new URLSearchParams(location.search), mode = q.get('mode') || 'engine', N = +(q.get('n') || 2000);
@@ -103,7 +104,7 @@ if (mode === 'native') {
 } else {
   const engine = window.engine = createEngine({ canvas, style: mode === 'world' ? lowpoly : {}, batching: q.get('batch') === '0' ? false : undefined, headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, post: mode === 'world' ? { bloom: false } : undefined, saveKey: 'perf-' + mode });
   if (mode === 'city') {
-    engine.use(level({ scene: block() }), sky({ time: 0.45 }), weather(presets.weather.temperate), hlod(), settings({ freezeWorld: true, storageKey: 'perf-city-settings' }));
+    engine.use(level({ scene: block() }), sky({ time: 0.45, dayLength: 360 }), weather(presets.weather.temperate), hlod(), settings({ freezeWorld: true, storageKey: 'perf-city-settings' }));
     aim(engine.camera);
   } else if (mode === 'world') {
     // Same seed, flat area and vegetation as the open-world example, but no game content such as NPCs or quests
@@ -113,10 +114,10 @@ if (mode === 'native') {
       const a = r * 0.37, x = Math.cos(a) * r, z = Math.sin(a) * r, h = T.surface(x, z);
       if (h > 4 && h < 10 && T.slope(x, z) < 0.2 && riverAt(x, z, T.noise) === 0) { home = { x, z }; break; }
     }
-    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, weather: presets.weather.temperate, debug: false, ambience: false });
+    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360, weather: presets.weather.temperate, debug: false, ambience: false });
     // The preset only builds the world; add back the gameplay modules it used to bundle so timings stay comparable with earlier runs (music stays off)
-    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests(), timeline(), triggers(), entities(), particles(), hud());
-    const geo = m => [].concat(m).length > 1 ? lowpoly.models[m[0]](...m.slice(1)) : lowpoly.models[m]();
+    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), quests({ ...presets.keys.quests }), timeline(), triggers(), entities(), particles(), hud());
+    const geo = m => [].concat(m).length > 1 ? lowpolyModels[m[0]](...m.slice(1)) : lowpolyModels[m]();
     for (const [name, v] of Object.entries(vegetationDefs)) {
       const { model, lod, ...rest } = v;
       engine.vegetation.add(name, { geometry: geo(model), lodGeometry: lod ? geo(lod) : undefined, ...rest });
@@ -161,4 +162,4 @@ if (mode === 'native') {
   engine.start();
 }
 window.bench = bench;
-window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine, injectUICSS, lowpoly, sky };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine, injectUICSS, lowpoly, lowpolyAssets, sky };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
