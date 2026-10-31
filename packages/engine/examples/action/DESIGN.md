@@ -1,0 +1,3 @@
+- **Combat rules belong to the game, not the engine**: hp, damage, hit arcs, enemy AI, drops and death are this example's ops and fixed-step code in main.js; the engine only supplies records, ops, input, saves and pickups.
+- **The level is content**: the room, the pillars and the slime (with its hp and drop) are templates plus placements with ids in content/; the drop is spawned inside an op when the slime dies.
+- **Death is a choice**: `respawn` (default), `restart` or `gameover`, set in `TUNE.onDeath` or `?death=...`; restart and game over both go through `engine.session.newGame()`.

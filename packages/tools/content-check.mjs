@@ -16,7 +16,9 @@ import { ROOT, rel, findGames, loadGame, dupKeys, gameSetup, mergeRules, CLOCK_R
 export { ROOT, findGames, loadGame, gameSetup };
 
 const KEY_RE = new RegExp('^(Key[A-Z]|Digit\\d|Numpad\\d|F([1-9]|1[0-2])|Arrow(Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|' +
-  'Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash)$');
+  'Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash|' +
+  // Mouse buttons and gamepad buttons are keys too (core/inputPointer.js, core/inputPad.js): an attack on Mouse0 or PadX is a normal content action
+  'Mouse[0-4]|Pad(A|B|X|Y|LB|RB|LT|RT|Select|Start|L3|R3|Up|Down|Left|Right))$');
 
 /** Validate one game folder, returning { errors: [], warnings: [] } (English) */
 export async function checkGame(dir) {
@@ -177,7 +179,7 @@ export async function checkGame(dir) {
   for (const [name, a] of Object.entries(c.actions || {})) {
     if (!Array.isArray(a?.keys) || !a.keys.length) { err('actions', `key action ${name} has no keys (the default key list, e.g. ['KeyK'])`); continue; }
     for (const k of a.keys) if (!KEY_RE.test(k)) err('actions',
-      `the key name ${k} of key action ${name} is wrong (letter keys are 'KeyA', digits 'Digit1', space 'Space', function keys 'F5')`);
+      `the key name ${k} of key action ${name} is wrong (letter keys are 'KeyA', digits 'Digit1', space 'Space', function keys 'F5', mouse buttons 'Mouse0', gamepad 'PadA')`);
     if (!a.label) err('actions', `key action ${name} has no label (the text shown in the settings menu)`);
     if (!new RegExp(`pressed(Raw)?\\('${name}'\\)|down\\('${name}'\\)`).test(code)) warn('actions',
       `key action ${name} is registered but the game code never uses it (engine.input.pressed('${name}'))`);

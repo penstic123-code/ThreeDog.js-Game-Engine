@@ -102,7 +102,7 @@ Under active development. APIs and workflows may change before the first stable 
 > **Early preview.** APIs and names will still change, and it is not published to npm yet. Expect breaking changes until v0.1.0. Licensed MIT.
 
 A web 3D game engine on three.js 0.187, in three layers (core, modules, style pack) that [packages/engine/README.md](packages/engine/README.md) lays out.
-The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. An optional low-poly style pack (`@threedog/style-lowpoly`) and one example come with the repository: an open-world photography game (`/`) whose level lives entirely in content files.
+The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. An optional low-poly style pack (`@threedog/style-lowpoly`) and two examples come with the repository: an open-world photography game (`/`) whose level lives entirely in content files, and a one-room action game (`/action.html`: player, enemy, drop; the combat rules are the example's own ops).
 
 中文说明见 [README.zh-CN.md](README.zh-CN.md).
 

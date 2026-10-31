@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>threedog · action example</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#16181a;color:#e6e8ea;font:13px system-ui,sans-serif}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  #help{position:fixed;left:12px;bottom:12px;background:rgba(20,22,24,.75);padding:8px 12px;border-radius:8px;color:#a8adb2}
+  #help kbd{font-family:ui-monospace,Menlo,monospace;color:#e6e8ea;border:1px solid #445;border-radius:4px;padding:0 4px}
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="help">Click to lock the mouse · <kbd>WASD</kbd> move · <kbd>Mouse0</kbd> attack · <kbd>E</kbd> pick up · <kbd>I</kbd> bag · <kbd>R</kbd> retry · <kbd>K</kbd>/<kbd>L</kbd> save/load · <code>?death=respawn|restart|gameover</code> · <code>?style=none</code></div>
+<script type="module" src="/examples/action/main.js"></script>
+</body>
+</html>

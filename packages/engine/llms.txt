@@ -39,3 +39,4 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [29-grid](docs/recipes/29-grid.md): Grid placement: farming, furniture, crates, building
 - [30-templates](docs/recipes/30-templates.md): Templates: reusable objects, definition vs instance state
 - [31-audio](docs/recipes/31-audio.md): Sound: buses, sounds by name, ambience rules, music, footsteps, ducking
+- [32-action-game](docs/recipes/32-action-game.md): Action game wiring: hp, attacks, enemy AI, drops and death without engine combat rules

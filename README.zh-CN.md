@@ -3,7 +3,7 @@
 > **早期预览版。** 接口和名字还会改，尚未发布到 npm；正式 v0.1.0 之前可能有不兼容的改动。MIT 许可。
 
 用 three.js 0.187 写的网页 3D 游戏引擎，分三层：**核心**（渲染、主循环、输入、声音、存档、界面）→ **模块**（地形、天空天气、物理、角色、对话、背包、任务……按需安装）→ **风格包**（所有美术，可选）。
-引擎只提供机制，不带任何美术：不给风格包时一切都是中性灰占位。仓库里另有一个可选的低模风格包（`@threedog/style-lowpoly`）和一个示例：开放世界摄影慢生活（`/`），关卡全部写在内容文件里。English: [README.md](README.md)。
+引擎只提供机制，不带任何美术：不给风格包时一切都是中性灰占位。仓库里另有一个可选的低模风格包（`@threedog/style-lowpoly`）和两个示例：开放世界摄影慢生活（`/`），关卡全部写在内容文件里；单房间动作小游戏（`/action.html`：玩家、敌人、掉落物，战斗规则是示例自己的操作）。English: [README.md](README.md)。
 
 仓库是 npm workspaces：`packages/engine`（引擎包 `threedog`）、`packages/tools`（工具 `@threedog/tools`，命令行 `threedog`）、`packages/styles/lowpoly`（可选风格包 `@threedog/style-lowpoly`）、`packages/terrain-noise`（可选地形生成器 `@threedog/terrain-noise`）、`games/*`（每个游戏一个文件夹）。
 

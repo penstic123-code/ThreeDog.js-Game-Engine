@@ -62,6 +62,7 @@ Generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`) are never ed
 | Pathfinding, navmesh, "can walk there" | `engine.characters.findPath(from, to)`, `engine.nav`, `createEngine({ movement })` | `recipes/12-navmesh.md` |
 | Collision, physics, vehicles | `engine.collision`, `engine.rigid` (Rapier) | `recipes/11-vehicles.md` |
 | Ray / mouse picking, shooting, lock-on | `engine.raycast / pick`, `engine.rays.addStatic(obj)`, `engine.entities`, `engine.particles`, `pickTarget` | `recipes/19-shooting-picking.md` |
+| Action game: hp, attacks, enemy AI, drops, death (the engine has no combat rules) | your ops (`player.attack`, `enemy.damage`) + `world.simulate` + `inventory.spawnPickup`; example `examples/action/` | `recipes/32-action-game.md` |
 | Camera | `openWorld({ camera })` (required), `engine.setCamera(...)`, `engine.cameraRig` | `recipes/21-camera.md` |
 | Keys and input contexts | `input.define('action', keys, label)`, read by action in the fixed step, `engine.input.push('menu')`, tests `input.simulate(action, down)` | `recipes/26-ui-parts.md` |
 | Screen UI parts, Esc / UI layering, settings menu, labels over the world | `createEngine({ ui })`, `engine.ui.set(name, ...)`, `engine.hud`, `uiFocus(engine)`, `engine.settings`, `worldToScreen(engine, pos)` | `recipes/26-ui-parts.md` |
