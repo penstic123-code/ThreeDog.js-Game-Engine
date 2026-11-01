@@ -55,3 +55,17 @@ engine.characters.pathsPerStep = 64;           // requests sent per fixed step (
 `createEngine({ movement: { radius, height, maxSlope, stepHeight } })` sets it once; read it as `engine.movement`. Collision, the Rapier capsule, the
 navmesh, A* and level steps all read it, so a module never writes its own 0.4 or 0.45. A character's position belongs to its mover: other systems
 request movement (`placeAt`, `move`, vehicle `enter`) and never set `player.position`.
+
+## Fences and rivers (collision)
+
+Walls and water that are not meshes: `engine.collision.addSegment(a, b, { thickness })` is a thin wall along a line; `addBlocked(fn)` marks ground impassable where `fn(x, z)` is true. Both return `{ remove() }` and are free when unused.
+
+```js
+// A river along x 5..9 with a bridge at z -1..1: the bridge is just a hole in the blocked function
+engine.collision.addBlocked((x, z) => x > 5 && x < 9 && !(z > -1 && z < 1), { bounds: { minX: 5, maxX: 9, minZ: -50, maxZ: 50 } });
+// A fence with a gate: two segments, the gap between them is the gate
+engine.collision.addSegment([-18, 0, -12], [-18, 0, -4]);
+engine.collision.addSegment([-18, 0, 0], [-18, 0, 12], { thickness: 0.4 });
+```
+
+Walkers stop at the edge and slide along it; `collision.walkable()` and A* pathing, sync and async, see both. `fn` must be pure and deterministic (no clock, no random). Async paths cannot send a function to the worker, so `fn` is sampled into the 1 m ground raster instead (re-sampled when you add or remove a field): give `bounds`, or every requested tile is sampled in full. Navmesh mode (`nav()` installed) does not see `addBlocked`; use `addSegment` or bake the river into the mesh there.

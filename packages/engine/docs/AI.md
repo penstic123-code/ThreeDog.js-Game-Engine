@@ -74,8 +74,16 @@ Patches, ops and world records are the scene's inner machinery.
 | Shadows too blurry near the camera | `sky({ shadow: { cascades: 3 } })` (cascaded, off by default, switching recompiles once; set it in settings, not in play) | `recipes/45-cascaded-shadows.md` |
 | Island edge, snow cover, flat-colour backdrop | `style.weather.snow.cover`, `style.sky.backdrop`, `weather:change`, `applyState({ season })` | `recipes/47-island-snow-backdrop.md` |
 | Blank game / flat island / fixed dusk / still NPC | `npx threedog new-game name --blank`; `terrain({ height: () => 2, shape })`; `openWorld({ time })` without `calendar.cycle`; NPC without `schedule`+`behavior` | `recipes/01-new-game.md`, `28-terrain.md`, `08-weather-sky.md`, `02-npc.md` |
-| `verify` scenario, why `shot` shows a fresh game | `tests/scenarios/x.json`; teleport + `step 1` collects `auto` pickups; `shot` = fresh, `snap` = current session | `recipes/16-dev-bridge.md` |
+| `verify` scenario, why `shot` shows a fresh game | a scenario JSON; teleport + `step 1` collects `auto` pickups; `shot` = fresh, `snap` = current session | `recipes/16-dev-bridge.md` |
 | `isDay`, dialogue in `describe`, HUD counter from items | `isDay` = 06:00-18:00 exclusive; `describe().ui.dialogue`, event `dialogue:line`; `hud.counter` in `onFrame` | `recipes/08-weather-sky.md`, `02-npc.md`, `26-ui-parts.md` |
+| Who set tone / post / lights; own renderer | `engine.describe().render` (tags engine/style/game); `createEngine({ renderer })`, WebGL fully supported | `recipes/16-dev-bridge.md`, `recipes/50-own-renderer.md` |
+| `makeMaterial` spec keys and who wins | call beats pack; any three.js property passes, typos warn | `recipes/48-make-material.md` |
+| Fences, rivers (own collision) | `collision.addSegment(a,b,{thickness})`, `addBlocked((x,z)=>bool)`; both return `{ remove() }` | `recipes/12-navmesh.md` |
+| Screenshot numbers, scripted playthrough | `shot --keep`, `--look` (luma, saturation, over/dark share); `state`, `hold`, `press`, `step` | `recipes/16-dev-bridge.md` |
+| Use three.js directly | `engine.scene`, `engine.renderer`, `engine.camera` are plain three.js objects: use or change them; `engine.add(obj, { id })` to save | `recipes/40-scene.md` |
+| Skip time from the dev bridge; blocked ground and async paths | `threedog skip to=06:00` / `seconds=600`; `addBlocked(fn,{bounds})` is sampled into async paths (not navmesh) | `recipes/16-dev-bridge.md`, `recipes/12-navmesh.md` |
+| Orthographic camera (isometric, sim, puzzle) | `setCamera('fixed'/'follow', { projection: 'orthographic', size })`; own takeover: `cameraOverride` | `recipes/21-camera.md` |
+| Own game system (crop, machine, burning) | save, `clock.now`, `skip` hook, `describe`, ops `can`/`offers`; check 10h step = 10h skip | `recipes/49-game-module-contract.md` |
 | Make a new style from a reference image | `threedog style palette <image>`, `npm run new-style`, `threedog style check`, `style compare <ref> <shot>`; `threedog shot styletest --view room`, `/styletest.html?panel=1` | `recipes/35-style-from-reference.md` |
 | Look knobs: clouds, ground patches, wind, fog, exposure, sky layers | `style.sky.clouds`, `terrain.variation`, `wind.glsl`, `sky.fog`, `sky.layers`, `style.exposure`; own lights / fog: `sky({ sun: false, fog: 'manual' })` | `recipes/36-sky-ground-plant-looks.md`, `recipes/38-environment-look-hooks.md` |
 | Environment lighting (PBR reflections, ambient from the sky or an HDR) | `engine.sky.setEnvironment({ source: 'sky' \| asset name })` | `recipes/34-environment-lighting.md` |

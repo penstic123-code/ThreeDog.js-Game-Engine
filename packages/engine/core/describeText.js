@@ -56,7 +56,7 @@ const tr = (table, k) => (k != null && STRINGS[table][k]) || (k ?? STRINGS.none)
 const n1 = v => (typeof v === 'number' ? r1(v) : v);
 // Standard fields get sentences above; data from other modules is squeezed into one JSON line
 const SHOWN = new Set(['nearbyRadius', 'ready', 'error', 'disabledModules', 'loading', 'time', 'player', 'camera', 'nearby', 'actions', 'ui', 'cutscene',
-  'modules', 'perf', 'weather']);
+  'modules', 'perf', 'weather', 'render']);
 const argText = a => Object.entries(a || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(' ');
 
 /** One module's data in a line: scalars as k=v, arrays as k[n], objects as k{n keys} (nested data is one describeText({ path }) away) */
@@ -127,6 +127,7 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   const pf = d.perf;
   L.push(fmt(STRINGS.perf, { fps: pf.fps ?? '-', cpu: pf.cpuMs ?? '-', calls: pf.drawCalls, tris: pf.triangles, chunks: pf.chunks
     ? fmt(STRINGS.chunks, pf.chunks) : '' }));
+  if (full && d.render?.text) L.push(d.render.text);   // render block only in the full text; the summary stays short (describe render shows it)
   L.push(fmt(STRINGS.modules, { list: d.modules.join(', ') }));
   for (const k in d) if (!SHOWN.has(k)) L.push(fmt(STRINGS.extra, { name: k, json: full ? JSON.stringify(d[k]) : summary(d[k]) }));
   if (full) return L.join('\n');

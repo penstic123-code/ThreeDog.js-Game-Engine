@@ -11,13 +11,13 @@ class DofPass extends Pass {
     this.camera = camera;
     this.keepsDepth = true;
     this.material = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 },
+      uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 }, uOrtho: { value: 0 },
         uFocus: { value: 10 }, uRange: { value: 2 }, uFalloff: { value: 20 }, uMaxBlur: { value: 6 } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform vec2 uTexel; uniform float uNear; uniform float uFar;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform vec2 uTexel; uniform float uNear; uniform float uFar; uniform float uOrtho;
         uniform float uFocus; uniform float uRange; uniform float uFalloff; uniform float uMaxBlur;
         varying vec2 vUv;
-        float lin(vec2 uv){ float z = texture2D(tDepth, uv).x * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+        float lin(vec2 uv){ float z = texture2D(tDepth, uv).x * 2.0 - 1.0; if (uOrtho > 0.5) return uNear + (z * 0.5 + 0.5) * (uFar - uNear); return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
         float coc(float d){ return clamp((abs(d - uFocus) - uRange) / uFalloff, 0.0, 1.0) * uMaxBlur; }
         void main(){
           gl_FragDepth = texture2D(tDepth, vUv).x;
@@ -42,7 +42,7 @@ class DofPass extends Pass {
     const u = this.material.uniforms;
     u.tDiffuse.value = readBuffer.texture; u.tDepth.value = readBuffer.depthTexture;
     u.uTexel.value.set(1 / readBuffer.width, 1 / readBuffer.height);
-    u.uNear.value = this.camera.near; u.uFar.value = this.camera.far;
+    u.uNear.value = this.camera.near; u.uFar.value = this.camera.far; u.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;   // ortho depth is linear already
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
   }

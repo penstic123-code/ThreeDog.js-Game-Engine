@@ -54,4 +54,34 @@ export const specs = [
       check('rts 相机起点在岛外：不抛错，相机位置有限', r.err === null && r.finite, JSON.stringify(r));
     },
   },
+  {
+    name: '正交相机：fixed 单镜头 projection orthographic，世界点落在预期屏幕位置，切回透视恢复',
+    url: '/tests/cameras/index.html?cam=follow',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.pause();
+        const errs = []; const oe = console.error; console.error = (...a) => { errs.push(a.join(' ')); oe(...a); };
+        const cam = engine.camera, V = cam.position.constructor, out = {};
+        const ndc = (x, y, z) => { cam.updateMatrixWorld(); return new V(x, y, z).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix); };
+        engine.setCamera('fixed', { position: [0, 10, 10], lookAt: [0, 0, 0], projection: 'orthographic', size: 10 });
+        engine.step(0.1);
+        out.ortho = cam.isOrthographicCamera === true && cam.isPerspectiveCamera === false;
+        const a = cam.aspect, p = ndc(2, 0, 0), up = ndc(0, 0, -3);
+        out.x = +p.x.toFixed(3); out.wantX = +(2 / (5 * a)).toFixed(3);
+        out.centre = Math.abs(ndc(0, 0, 0).x) < 1e-6 && Math.abs(ndc(0, 0, 0).y) < 1e-6;
+        out.upY = +up.y.toFixed(3);   // 3 m farther from the camera along the ground is 3 * sin(45deg) up the screen: 2.12 / 5
+        out.parallel = Math.abs(ndc(0, 0, 0).x - ndc(0, 0, 5).x) < 1e-6;   // no perspective: depth does not change the x position
+        engine.step(0.1);
+        out.desc = engine.describe().camera.type;
+        engine.setCamera('follow');
+        engine.step(0.1);
+        out.back = cam.isPerspectiveCamera === true && !cam.orthoSize;
+        console.error = oe; out.errs = errs.length;
+        return out;
+      });
+      check('正交标记生效、屏幕中心不偏', r.ortho && r.centre, JSON.stringify(r));
+      check('世界 x=2 落在 ndc.x = 2/(size/2*aspect)；沿地面远 3 米在屏幕上移 2.12/5', Math.abs(r.x - r.wantX) < 2e-3 && Math.abs(r.upY - 0.424) < 2e-3, JSON.stringify(r));
+      check('正交无透视：深度不影响 x；渲染期间无 console.error；切回 follow 恢复透视', r.parallel && r.errs === 0 && r.back, JSON.stringify(r));
+    },
+  },
 ];

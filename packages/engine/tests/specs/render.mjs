@@ -205,6 +205,23 @@ export const specs = [
     },
   },
   {
+    name: '[守] makeMaterial 参数拼错（roughnes）提示一次并给建议；真实 three.js 属性与别的材质类型的键不报',
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { makeMaterial } = threedogTest;
+        const warn = console.warn; let w = ''; console.warn = m => { w += m + '\n'; };
+        makeMaterial('typo-probe', { type: 'standard', color: 0xff0000, roughnes: 0.3 });
+        const typo = w; w = '';
+        makeMaterial('typo-probe', { color: 0xff0000, roughness: 0.3, transparent: true, opacity: 0.5, side: 2 });
+        console.warn = warn;
+        return { typo, ok: w };
+      });
+      check('拼错的 roughnes 警告里带 did-you-mean', /roughnes/.test(r.typo) && /roughness/.test(r.typo), r.typo);
+      check('真实属性（含 lambert 没有的 roughness）不警告', r.ok === '', r.ok);
+    },
+  },
+  {
     name: '[守] UI 样式顺序：风格包的 style.ui.css 永远排在模块默认 CSS 后面；默认 CSS 按内容去重；引擎 dispose 拿走自己的样式',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {

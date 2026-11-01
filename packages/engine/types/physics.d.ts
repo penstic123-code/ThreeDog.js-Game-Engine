@@ -67,6 +67,12 @@ export interface Collision {
   addCircle(position: PositionLike, opts?: CircleColliderOptions): Handle;
   /** Add a box collider (house, fence): position is the center, e.g. addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 }). Returns a handle { remove() } */
   addBox(position: PositionLike, opts?: BoxColliderOptions): Handle;
+  /** Add a thin wall along a -> b (fence). Options: thickness (default 0.3), height, y. A gap between segments is a gate. Returns a handle { remove() } */
+  addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?: number; height?: number; y?: number }): Handle;
+  /** Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure. bounds skips fn outside it. Returns a handle { remove() } */
+  addBlocked(fn: (x: number, z: number) => boolean, opts?: { bounds?: { minX: number; maxX: number; minZ: number; maxZ: number } }): Handle;
+  /** Is a character of this radius touching addBlocked ground at (x, z) */
+  blockedAt(x: number, z: number, radius?: number): boolean;
   /** Add a collider from an object's bounding box, pad expands outward (meters). Returns a handle { remove() } */
   addObject(obj: Object3D, opts?: { pad?: number }): Handle;
   /** Iterate all static colliders added by hand */

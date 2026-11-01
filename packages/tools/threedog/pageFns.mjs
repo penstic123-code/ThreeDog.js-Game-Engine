@@ -82,6 +82,13 @@ const PAGE = {
     if (!e.headless) b.push('page is paused (threedog resume restores real-time running)');
     return b.join('\n');
   },
+  // skip: engine.skip({ to | seconds }): the jump itself is the op time.skip; the sky clock moves, no fixed steps run
+  skip: async (a, e, brief) => {
+    e.pause();
+    const v = await e.skip(a.opts);
+    e.step(1 / 60);
+    return [`Skipped ${a.desc}` + (v === null || v === undefined ? '' : ' → ' + JSON.stringify(v).slice(0, 80)), ...brief(e).slice(0, 2)].join('\n');
+  },
   state: async (a, e, brief) => { await e.applyState(a.params); e.step(1 / 60); return brief(e).slice(0, 2).join('\n'); },
   eval: async (a, e) => {
     const AsyncFunction = (async () => {}).constructor;   // the function body is async, so await works directly inside

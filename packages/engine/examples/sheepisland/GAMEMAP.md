@@ -22,7 +22,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
-- collision: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/collision.md`
+- collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - content: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/content.md`

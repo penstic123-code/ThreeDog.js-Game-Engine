@@ -12,7 +12,7 @@ import { ROOT, TOOLS, MODE, pickWorkspace, findWorkspace, workspaces, rel, ENGIN
 export const SCRIPTS = { test: 'run.mjs', check: 'check.mjs', types: 'types.mjs', shot: 'shot.mjs', perf: 'perf.mjs', capture: 'capture.mjs', bake: 'bake.mjs', assets: 'assets.mjs',
   doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', 'new-style': 'new-style.mjs', style: 'style.mjs', content: 'content-ids.mjs', relay: 'net-relay.mjs', mcp: 'threedog/mcp.mjs' };
 /** Dev bridge commands: drive the page running under `npm run dev` (recipes/16-dev-bridge.md) */
-export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'ops', 'scenario', 'inspect', 'scene', 'explain', 'loading', 'pick', 'play', 'status', 'verify'];
+export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'skip', 'ops', 'scenario', 'inspect', 'scene', 'explain', 'loading', 'pick', 'play', 'status', 'verify'];
 /** vite commands on one workspace */
 export const VITE = ['dev', 'build', 'preview'];
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */

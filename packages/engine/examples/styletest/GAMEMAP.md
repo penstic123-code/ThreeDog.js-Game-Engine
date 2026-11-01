@@ -28,7 +28,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
 - water: `node_modules/threedog/docs/recipes/44-water-weather-look-hooks.md` · `node_modules/threedog/docs/api/water.md`
-- collision: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/collision.md`
+- collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - ambience: `node_modules/threedog/docs/recipes/31-audio.md` · `node_modules/threedog/docs/api/ambience.md`

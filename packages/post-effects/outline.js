@@ -18,14 +18,14 @@ class OutlinePass extends Pass {
     this.normalRT = null; this.maskRT = null;
     this.material = new THREE.ShaderMaterial({
       uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, tNormal: { value: null }, tMask: { value: null }, tMaskDepth: { value: null },
-        uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 }, uColor: { value: new THREE.Color(p.color) },
+        uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 }, uOrtho: { value: 0 }, uColor: { value: new THREE.Color(p.color) },
         uThick: { value: 1 }, uStrength: { value: 1 }, uMode: { value: 0 }, uFade: { value: 1 }, uWobble: { value: 0 }, uTime: { value: 0 }, uUseMask: { value: 0 } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform sampler2D tNormal; uniform sampler2D tMask; uniform sampler2D tMaskDepth;
-        uniform vec2 uTexel; uniform float uNear; uniform float uFar; uniform vec3 uColor; uniform float uThick; uniform float uStrength;
+        uniform vec2 uTexel; uniform float uNear; uniform float uFar; uniform float uOrtho; uniform vec3 uColor; uniform float uThick; uniform float uStrength;
         uniform float uMode; uniform float uFade; uniform float uWobble; uniform float uTime; uniform float uUseMask;
         varying vec2 vUv;
-        float lin(sampler2D t, vec2 uv){ float z = texture2D(t, uv).x * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+        float lin(sampler2D t, vec2 uv){ float z = texture2D(t, uv).x * 2.0 - 1.0; if (uOrtho > 0.5) return uNear + (z * 0.5 + 0.5) * (uFar - uNear); return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
         float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
           return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
@@ -85,7 +85,7 @@ class OutlinePass extends Pass {
     if (useMask) { this.maskRT = this._target(this.maskRT, w, h, true); this._pass(renderer, this.maskRT, this.maskMat, p.offLayer); u.tMask.value = this.maskRT.texture; u.tMaskDepth.value = this.maskRT.depthTexture; }
     u.tDiffuse.value = readBuffer.texture; u.tDepth.value = readBuffer.depthTexture;
     u.uTexel.value.set(1 / w, 1 / h);
-    u.uNear.value = this.camera.near; u.uFar.value = this.camera.far;
+    u.uNear.value = this.camera.near; u.uFar.value = this.camera.far; u.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;   // ortho depth is linear already
     u.uMode.value = mode; u.uUseMask.value = useMask ? 1 : 0; u.uTime.value = Math.floor(this.time * 8);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);

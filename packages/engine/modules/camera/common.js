@@ -13,6 +13,7 @@
 //   Set it back to null when done; the camera module resumes from its previous state.
 import * as THREE from 'three';
 import { ownedProps } from '../../core/validate.js';
+import { setProjection } from './projection.js';
 
 const STRINGS = { ownedHint: 'To place the camera yourself, set engine.cameraOverride = { owner: \'me\' } and set it back to null when done' };
 
@@ -101,6 +102,7 @@ export function rigModule(kind, opts) {
     if (k === c.kind && !o) return c;
     const old = c, target = old.target;
     old.onExit?.();
+    setProjection(engine.camera);   // back to perspective; an orthographic rig sets its own in onEnter / constructor
     engine.camera.fov = fov0; engine.camera.updateProjectionMatrix();   // fov returns to the value at install; each camera applies its own in onEnter / constructor
     const next = o || !cache.has(k) ? make(k, o) : cache.get(k);
     c = engine.cameraRig = next;
@@ -122,6 +124,7 @@ export function rigModule(kind, opts) {
       e.events.on('session:start', () => {
         const old = c;
         old.onExit?.(); cache.clear();
+        setProjection(e.camera);
         e.camera.fov = fov0; e.camera.updateProjectionMatrix();
         c = e.cameraRig = make(kind, opts);
         c.onEnter?.(false); c.follow(e.player?.cameraFollow ? e.player.root : null); fresh = true;   // follows the player only if the game asked (createPlayer({ cameraFollow }))

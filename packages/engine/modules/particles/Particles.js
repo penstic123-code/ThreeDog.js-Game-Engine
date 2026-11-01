@@ -148,7 +148,7 @@ export class Particles {
    * @internal
    */
   update(dt) {
-    const pr = this.engine.renderer.getPixelRatio(), scale = this.engine.renderer.getSize(_vs).y * pr / (2 * Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2));
+    const cam = this.engine.camera, pr = this.engine.renderer.getPixelRatio(), scale = this.engine.renderer.getSize(_vs).y * pr / (cam.orthoSize ? cam.orthoSize / cam.zoom : 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));   // orthographic: pixels per world unit
     for (const h of this.emitters) {
       if (!h.active) continue;
       if (!h.object.parent) { h.remove(); continue; }   // object removed from the scene: stop automatically

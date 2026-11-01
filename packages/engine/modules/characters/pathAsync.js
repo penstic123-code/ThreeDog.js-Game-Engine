@@ -68,12 +68,18 @@ export class AsyncPaths {
    */
   tile(k, tx, tz) {
     const e = this.e, c = this.tiles.get(k);
-    if (c && e.tick - c.at < TILE_TTL) return c;
-    const data = new Uint8Array(TILE * TILE), col = e.collision, trees = [], span = TILE * RES;
-    for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) data[j * TILE + i] = col.groundWalkable((tx * TILE + i) * RES, (tz * TILE + j) * RES) ? 1 : 0;
+    const bv = e.collision.blockedVersion;
+    if (c && c.bv === bv && e.tick - c.at < TILE_TTL) return c;
+    const data = new Uint8Array(TILE * TILE), col = e.collision, trees = [], span = TILE * RES, blocked = col._blocked.length > 0;
+    // addBlocked fields are functions and cannot go to a worker: they are sampled into this same raster (the worker sees blocked cells as unwalkable).
+    // A cell counts as blocked if fn is true at its centre or on a ring of half a cell (blockedAt), so a 1 m cell never hides a thin river; bounds skip the sampling outside.
+    for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) {
+      const x = (tx * TILE + i) * RES, z = (tz * TILE + j) * RES;
+      data[j * TILE + i] = col.groundWalkable(x, z) && !(blocked && col.blockedAt(x, z, RES / 2)) ? 1 : 0;
+    }
     // every collider that can touch a point of the tile: half diagonal + the largest character radius we expect + 1 (the same reach walkableAt uses)
     e.ground.forEachCollider?.((tx + 0.5) * span, (tz + 0.5) * span, span * 0.71 + 3, (x, z, r) => { trees.push(x, z, r); });
-    const v = { data, trees, at: e.tick };
+    const v = { data, trees, at: e.tick, bv };
     this.tiles.set(k, v);
     if (this.tiles.size > 4096) for (const [kk, o] of this.tiles) if (e.tick - o.at >= TILE_TTL) this.tiles.delete(kk);
     return v;

@@ -20,6 +20,8 @@
 //   --size WxH      screenshot resolution, default 960x540
 //   --keep-cutscene  do not skip a cutscene that is playing
 //   --describe-only  print describeText() only, no screenshot
+//   --keep         do not overwrite: add a timestamp to the file name, so shots of several runs sit side by side
+//   --look         also print numbers from the pixels: mean luminance, mean saturation, share overexposed (all channels >= 250), share dark (all <= 20)
 //   --no-build     do not rebuild, use the last dist/ (saves a few seconds when code did not change)
 //   -w name         which workspace (engine, my-game…); default the one containing the current directory, then the engine package
 process.env.THREEDOG_TEST = '1';
@@ -28,15 +30,17 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pickWorkspace, rel } from './paths.mjs';
 import { waitEngine } from './wait-engine.mjs';
+import { openImage, lookStats } from './style/pixels.mjs';
 
 const t0 = Date.now();
 const { dir, args } = pickWorkspace(process.argv.slice(2)), opt = {};
 let url = '/';
+const FLAGS = new Set(['keep', 'look', 'describe-only', 'no-build', 'keep-cutscene']);   // switches never take a value (so `--look /page` keeps /page as the page)
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (!a.startsWith('--')) { url = a; continue; }
   const k = a.slice(2), v = args[i + 1];
-  if (v === undefined || v.startsWith('--')) opt[k] = true; else { opt[k] = v; i++; }
+  if (FLAGS.has(k) || v === undefined || v.startsWith('--')) opt[k] = true; else { opt[k] = v; i++; }
 }
 if (/^[\w-]+$/.test(url)) url = `/${url}.html`;   // a bare name is a page: shot styletest
 const [W, H] =String(opt.size || '960x540').split('x').map(Number);
@@ -63,9 +67,18 @@ try {
     mkdirSync(join(dir, '.threedog', 'shots'), { recursive: true });
     const name = [url.replace(/^\//, '').replace(/\.html.*$/, '') || 'main', opt.time && 't' + opt.time.replace(':', ''), opt.weather, opt.pos && 'pos' + opt.pos, opt.view && 'view-' + opt.view, 'w' + wait]
       .filter(Boolean).join('_').replace(/[^\w,.-]+/g, '-');
-    const file = join(dir, '.threedog', 'shots', `${name}.png`);
+    // --keep: a timestamp in the name, so a new shot never replaces an earlier one (to compare before / after a change)
+    const stamp = opt.keep ? '_' + new Date().toISOString().replace(/\D/g, '').slice(4, 14) + String(Date.now() % 1000).padStart(3, '0') : '';
+    const file = join(dir, '.threedog', 'shots', `${name}${stamp}.png`);
     await page.screenshot({ path: file });
     console.log(`Screenshot: ${rel(file)} (${W}×${H})`);
+    if (opt.look) {
+      const img = await openImage(file);
+      try {
+        const { data } = await img.read(undefined, { max: 480 }), L = lookStats(data), pc = x => (x * 100).toFixed(1) + '%';
+        console.log(`Look: luminance ${L.luminance.toFixed(2)} · saturation ${L.saturation.toFixed(2)} · overexposed ${pc(L.overexposed)} · dark ${pc(L.dark)}`);
+      } finally { await img.close(); }
+    }
   }
   console.log('\n' + text);
 } catch (e) { errors.push(String(e).split('\n')[0]); }

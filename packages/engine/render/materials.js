@@ -13,7 +13,7 @@
 //   }
 //   Role names are open: a game can add its own and fetch it with makeMaterial('furniture', { color: 0x8a5a36 }).
 import * as THREE from 'three';
-import { closest, warnMissing, warnOnce } from '../core/validate.js';
+import { closest, warnMissing, warnOnce, checkOptions } from '../core/validate.js';
 import { patchMaterial, copyPatches } from './patches.js';
 import { declareUniforms } from './uniformDecl.js';
 import { EFFECTS } from './effects.js';
@@ -64,6 +64,8 @@ export const MATERIAL_PURPOSES = ['default', 'terrain', 'vegetation', 'character
 
 // The style pack's materials[role] (or materials.default) decides the material; params are this call's specifics (color, vertex colors, double-sided...).
 // Only properties the material has are set, so one params object works for any material, built-in or custom.
+// Spec keys handled by makeMaterial / applySurface rather than copied onto the material
+const SPEC_KEYS = ['steps', 'ramp', 'soften', 'repeat', 'wrap', 'detail', 'lighting'];
 const isSpec = e => e && !e.isMaterial && typeof e !== 'function';
 /**
  * Create a material by role: makeMaterial('furniture', { color: 0x8a5a36 }); the look comes from the style pack's materials[role] (unlisted roles use materials.default).
@@ -115,6 +117,9 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
     const v = props[k];
     if (m[k]?.isColor) m[k].set(v); else if (m[k]?.isVector2 && Array.isArray(v)) m[k].set(...v); else m[k] = v;
   }
+  // A key this material lacks is skipped on purpose (one params object works for any material type), but a key that looks like a typo of a real
+  // property ('roughnes') warns once with the suggestion. loose: keys with no close match (a spec shared across types) stay silent.
+  checkOptions(`makeMaterial('${purpose}')`, params, [...Object.keys(m), ...SPEC_KEYS, 'type'], { loose: true });
   m.userData.purpose = purpose;
   m.needsUpdate = true;
   return m;

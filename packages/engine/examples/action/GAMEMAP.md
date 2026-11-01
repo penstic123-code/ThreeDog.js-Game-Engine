@@ -24,7 +24,7 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
-- collision: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/collision.md`
+- collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - interactions: `node_modules/threedog/docs/recipes/20-content-actions-save.md` · `node_modules/threedog/docs/api/interactions.md`

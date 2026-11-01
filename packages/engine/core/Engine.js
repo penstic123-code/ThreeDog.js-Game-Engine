@@ -47,11 +47,12 @@ import { styleFrom, NO_STYLE } from './styleParts.js';
 import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
 import { sceneMethods, TONE } from './sceneMethods.js';
 import { installThings } from './thingOps.js';
+import { recordRender } from './describeRender.js';
 import { shadowTypeOf } from './shadowTypes.js';
 // Options createEngine accepts (must match the constructor destructuring)
 const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'shadowType', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',
-  'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching'];
+  'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching', 'renderer'];
 
 export class Engine {
   /**
@@ -61,30 +62,36 @@ export class Engine {
   constructor(opts = {}) {
     setValidate(opts.validate);
     checkOptions('createEngine()', opts, ENGINE_OPTIONS);
-    const { canvas, style: styleIn, shadows = true, shadowType = 'pcf', antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
+    const { canvas: canvasIn, renderer: rendererIn, style: styleIn, shadows = true, shadowType = 'pcf', antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
       fov = 55, near = 0.3, fogFar = 600, locale = 'auto', strings = {}, bindings = {}, saveKey = 'game', joystick = 'auto', padBindings = {},
       headless = new URLSearchParams(location.search).has('threedog-headless'), validate = true,
       decoders = null, budget = null, urlState = DEV, seed, movement, threads = 'auto', pauseOnBlur = true, batching = {} } = opts;
     this.THREE = THREE;
+    const canvas = canvasIn ?? rendererIn?.domElement;
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
     const style = this.style = styleFrom(styleIn);   // a list of parts is deep-merged (styleParts.js); one object is used as is
     if (!opts.style) warnOnce(NO_STYLE);
-    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    // a game-supplied renderer is used as is: the engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself
+    const owned = !rendererIn;
+    const r = this.renderer = rendererIn ?? new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.tier = detectTier(r);                 // 'low' | 'high': device tier, decides default quality
-    r.setPixelRatio(pixelRatio ?? Math.min(devicePixelRatio || 1, this.tier === 'low' ? 1 : 1.5));
+    if (owned || pixelRatio != null) r.setPixelRatio(pixelRatio ?? Math.min(devicePixelRatio || 1, this.tier === 'low' ? 1 : 1.5));
     this._autoSize = undefined;                // decided once the canvas is in the page (sizeMode): true = no CSS size, the engine sizes it to the window
     const box = canvasBox(this);
-    r.setSize(box.w, box.h, !!this._autoSize);
-    r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
-    this.setExposure(style.exposure ?? 1);   // a number, or day keyframes / a function the sky evaluates each frame
-    r.shadowMap.enabled = shadows;
-    r.shadowMap.type = shadowTypeOf(shadowType, 'createEngine({ shadowType })');
+    if (owned) r.setSize(box.w, box.h, !!this._autoSize);
+    if (owned) r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
+    if (owned) this.setExposure(style.exposure ?? 1);   // a number, or day keyframes / a function the sky evaluates each frame
+    if (owned) {
+      r.shadowMap.enabled = shadows;
+      r.shadowMap.type = shadowTypeOf(shadowType, 'createEngine({ shadowType })');
+    }
     r.info.autoReset = false;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(style.background ?? 0x8c8c8c);
     /** Default lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral without sky, driven by sky when installed @type {{ sun: any, hemi: any }} */
     this.lights = createDefaultLights(this);
+    recordRender(this, { owned });   // baseline for describe().render: which values the engine / style set
     this.camera = new THREE.PerspectiveCamera(fov, box.w / box.h, near, 1500);
     this.camera.position.set(0, 10, 20);
     this.focus = new THREE.Vector3();          // camera focus (updated by the camera module): the view loads around it; simulation follows world.anchor

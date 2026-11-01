@@ -16,7 +16,12 @@ export function simpleMover(c) {
       const nh = e.surface(p.x, p.z, p.y), step = Math.hypot(p.x - ox, p.z - oz), maxClimb = e.collision?.maxClimb ?? e.movement.slopeRatio, rise = nh - Math.max(oh, c.grounded ? oh : p.y);
       const blocked = c.grounded ? (rise > c.stepHeight && step > 1e-4 && (nh - oh) / step > maxClimb) : nh > p.y + c.stepHeight;
       if (blocked) { p.x = ox; p.z = oz; c.velocity.set(0, 0); }
-      e.collision?.resolve(p, c.radius);
+      const col = e.collision;
+      if (col?._blocked.length && col.blockedAt(p.x, p.z, c.radius)) {   // addBlocked ground (river): slide along it, else stay put
+        const nx = p.x, nz = p.z;
+        if (!col.blockedAt(nx, oz, c.radius)) p.z = oz; else if (!col.blockedAt(ox, nz, c.radius)) p.x = ox; else { p.x = ox; p.z = oz; c.velocity.set(0, 0); }
+      }
+      col?.resolve(p, c.radius);
 
       const { ground, swimY } = water(c, ox, oz);
 

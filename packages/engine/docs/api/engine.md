@@ -2,7 +2,8 @@
 
 - `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required; style is the style pack
 - Options `EngineOptions`:
-  - `canvas: HTMLCanvasElement | HTMLElement` Canvas element (required), e.g. document.getElementById('view')
+  - `canvas?: HTMLCanvasElement | HTMLElement` Canvas element (required unless renderer is given), e.g. document.getElementById('view')
+  - `renderer?: any` A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48)
   - `style?: StyleInput` Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders
   - `shadows?: boolean` Real-time shadows, default true
   - `shadowType?: 'basic' | 'pcf' | 'vsm'` Shadow filter: 'basic' (hard edge) / 'pcf' / 'vsm' (softest, costliest), default 'pcf'. Change later with engine.sky.setShadow({ type })

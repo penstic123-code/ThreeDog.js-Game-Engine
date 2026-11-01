@@ -19,32 +19,33 @@ game only advances on step); once you open the page in a browser, commands go to
 | `describe` | One-line scene summary: position / time and weather / nearby / quest | `player (4.0, 7.0) in forest · 07:11 day 1 · clear` |
 | `describe --full` | The state as text, summary first (`engine.describeText()`: at most 30 lines, the nearest things, one line per module with its key counts, and a last line on how to expand). Details: `describe <path>` for one part, `engine.describeText({ full: true })` for everything | `quests: active[1], done=0, failed=0` |
 | `describe --all` | Everything: every nearby thing and every module's full data (`describeText({ full: true })`); large, prefer a path | |
+| `describe render` | How the picture is set: tone mapping, exposure, shadow filter, post effects with params, default lights, each tagged `engine` (default), `style` (style pack or sky) or `game` (changed after they set it). Also the `renderer:` lines of `describe --full`. Information only: changing renderer or lights is allowed and never warns | `{ "toneMapping": { "value": "aces", "by": "style" }, ... }` |
 | `describe player.position` | Player coordinates { x, y, z } (numbers) | `{ "x": 4, "y": 1.2, "z": 7 }` |
 | `describe player.state` | Just one item of `engine.describe()` (dotted path, `--max characters`) | `"idle"` |
 | `step 2` | Advance 2 game seconds (deterministic; a real-time page is paused first) | `✓ Stepped 2 s · player (4.0, 7.0) in forest · 07:20 day 1` |
-| `press interact` | Press an action name or key once (`KeyE`, `e`, `Escape`). **It advances game time**: 0.1 s held + one rendered frame of 1/60 s, about 0.117 s in total; account for this when measuring timing, or shorten the hold with `--for 0.02` (a press must last at least one frame to be read, so there is no way to press without advancing) | `✓ Pressed menu (Escape) · … · window open: settings` |
+| `press interact` | Press an action name or key once (`KeyE`, `e`, `Escape`). **It advances game time**: 0.1 s held + one rendered frame of 1/60 s, about 0.117 s in total; shorten the hold with `--for 0.02` when timing matters | `✓ Pressed menu (Escape) · … · window open: settings` |
 | `hold moveForward 1.5` | Hold for 1.5 seconds | `✓ Held moveForward (KeyW) for 1.5 s · player (-0.6, 3.0) …` |
+| `skip to=06:00` / `skip seconds=600` | Jump the clock like sleeping (`engine.skip`) | `✓ Skipped to 06:00 → 21600 · … 06:00 day 2` |
 | `ops` | What the player can do now: every op offer checked with `can` (`recipes/23-ops.md`) | `✓ shop.buy item=bread · ✗ shop.buy item=cake (soldOut)` |
-| `op shop.buy shop=bakery item=bread n=2` | Run a game op (source `bridge`, **no time passes**). Values follow the op's `args` shape: `n=2` becomes a number, `position=3,0,-2` an array. **Change state with this, not with `js`**: `js` writes go around the op log and the dev guard warns | `✓ shop.buy → 2 · Bag gold×2 bread×2` / `✗ shop.buy: noMoney (Not enough gold)` |
-| `inspect` / `inspect npc_3` / `inspect 10,-4` | What is around the player (or that actor / spot) and which ops it can do now, with reasons (`engine.inspect`, recipes/23-ops.md section 8) | `player at (4, 7) · near: 老渔夫 1 m` / `✗ barter.buy shop=fisher-basket item=feather (soldOut: …)` |
-| `pick 480,270` | What is at that screen pixel (from the canvas top-left): record id, kind, template, the content file and line that defines it, its fields (recipes/30-templates.md section 5) | `✓ chest-home (kind chest, template chest) …` / `defined in content/props.js:14: edit it there …` |
-| `explain op barter.buy shop=fisher-basket item=berry` / `explain quest first-light` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and the events around it, `detail`), or where a quest is stuck (`engine.explain`) | `✗ barter.buy {...} cannot run now: noFilm (Not enough film)` |
-| `explain op name key=value --full` | Adds the detail: the op's last attempt and the events around it | |
+| `op shop.buy shop=bakery item=bread n=2` | Run a game op (source `bridge`, **no time passes**). Values follow the op's `args` shape (`n=2` a number, `position=3,0,-2` an array). **Change state with this, not `js`**: `js` writes skip the op log | `✓ shop.buy → 2 · Bag gold×2 bread×2` / `✗ shop.buy: noMoney (Not enough gold)` |
+| `inspect` / `inspect npc_3` / `inspect 10,-4` | What is around the player and which ops it can do now, with reasons (`engine.inspect`, recipes/23-ops.md section 8) | `player at (4, 7) · near: 老渔夫 1 m` / `✗ barter.buy shop=fisher-basket item=feather (soldOut: …)` |
+| `pick 480,270` | What is at that screen pixel: record id, kind, template, the content file and line that defines it, its fields (recipes/30-templates.md section 5) | `✓ chest-home (kind chest, template chest) …` / `defined in content/props.js:14: edit it there …` |
+| `explain op barter.buy shop=fisher-basket item=berry` / `explain quest first-light` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and events around it), or where a quest is stuck (`engine.explain`) | `✗ barter.buy {...} cannot run now: noFilm (Not enough film)` |
 | `scenario barter` | Run `tests/scenarios/barter.json` (recipes/23-ops.md section 7); prints failed checks, leaves it paused | `✓ barter: 6 checks passed` |
 | `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state) | `✓ Set · 18:30 day 1 · rain` |
-| `js "engine.sky.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Put long scripts in a file: `js --file script.js` (path relative to the current directory) | `✓ 0.77` |
+| `js "engine.sky.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js` | `✓ 0.77` |
 | `snap name` | Screenshot to `.threedog/shots/name.png` | `✓ Screenshot .threedog/shots/t1.png (163 KB)` |
 | `snap-describe save` / `snap-describe diff` + name | Describe snapshot instead of a screenshot: save the gameplay part of `describe()` as a baseline, or print how the running page differs from it (section 7) | `✗ describe "market" differs from the baseline in 1 place:` |
-| `errors` | Page errors added since last time (the full log is in `.threedog/errors.log`). Known error classes get a `-> Possible cause: … Read: recipes/…` line (section 8) | `✗ 1 new error` / `✗ 3 new errors` / `✓ No new errors` |
+| `errors` | Page errors added since last time (full log: `.threedog/errors.log`). Known classes get a cause + recipe line (section 8) | `✗ 1 new error` / `✗ 3 new errors` / `✓ No new errors` |
 | `loading` / `loading hero` | What loading waits for, what failed (file, HTTP status, fallback) and whether it blocks the start; answers while `start()` is still running or stuck. With a name: that task with its source manifest and path (`recipes/05-props-bake.md` section 3) | `… waiting: decoding model "hero" (…)` / `✗ Loading finished, 4/5 ok, 1 failed` |
 | `reload` / `resume` | Reload the page / resume real-time running | |
 
 ## 2. Notes
-- **Smallest scenario** (`tests/scenarios/coins.json`, then `npx threedog verify coins` or `scenario coins`; `verify` with no file says "Have: none"):
+- **Smallest scenario** (`tests/scenarios/coins.json` <!-- r18-ignore-line -->, then `npx threedog verify coins` or `scenario coins`; `verify` with no file says "Have: none"):
   `{ "name": "coins", "url": "/", "state": { "pos": "6,4" }, "steps": [ { "step": 1 }, { "expect": { "inventory.items.coin": 1 } } ] }`
 - **Teleport + `step 1` collects `auto` pickups** (`state pos=`, `player.placeAt`): the pickup check runs in the fixed step after any move.
-- **`shot` always starts a fresh game** (use `?save=slot1` to load one); after playing, use `snap name`, which shows the current session.
-- **`step` / `press` pause the real page** (the output reminds you); resume with `npx threedog resume` when done. A headless page only advances on step anyway.
+- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the file name (no overwrite); `shot --look` prints mean luminance / saturation and the share of overexposed (>=250) and dark (<=20) pixels.
+- **`step` / `press` pause the real page**; resume with `npx threedog resume` when done. A headless page only advances on step anyway.
 - **`snap` on a real page captures only the canvas** (not the HTML UI); on a headless page it captures the whole page. To see UI state use `describe`
   (`ui.windows`, dialogue).
 - **Keys go through `engine.input` like a real keyboard**: action names are translated to keyboard keys (gamepad buttons are ignored); when a window
@@ -53,13 +54,27 @@ game only advances on step); once you open the page in a browser, commands go to
   works with `engine.step`): `engine.input.simulate('jump'); engine.step(1 / 60); engine.input.simulate('jump', false)`. Never call `_keyDown` /
   `_keyUp` (internal).
 - `describe` by default gives only the 3 nearest things and the first quest; for detail use a path (`quests.active`, `nearby`, `world`) or `--full`;
-  don't dump everything at once.
+
 - Several pages: `--page /<page>.html` picks the path; `-w name` picks the workspace.
 - To change the port: `npm run dev -- my-game --port 5000`; the CLI finds the port from `.threedog/dev.json`, so you don't need to specify it again.
 - If a command never becomes ready: most likely `main.js` doesn't set `window.engine = engine;` (it must come before `await engine.start()`). Under
   the dev server `engine.start()` attaches it automatically, but the bundled build used by npm test does not; the timeout error says whether the page
   has `window.engine`, `engine.ready`, and the latest page errors.
 - Error messages give the cause and the next step, e.g. "no running dev server -> run npm run dev first".
+
+## 2b. A scripted playthrough, and three kinds of check
+```
+npx threedog state pos=0,0 time=12:00     # known start
+npx threedog hold moveForward 1.5         # walk (real key path, advances 1.5 s)
+npx threedog press interact               # one key press (~0.117 s)
+npx threedog step 2                       # let things happen
+npx threedog js "engine.player.position.x > 1"   # state assertion: read the ✓ true / false
+npx threedog snap after-walk              # only now look at pixels
+```
+The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`, `{ "step": … }`, `{ "expect": { path: value } }` (section 9; no `hold` there).
+- **State checks** (`op`, `expect`, `describe`, `js`): fast and exact, but they skip input. They prove rules, not that the player can reach them.
+- **Real-input checks** (`press`, `hold`, `engine.input.simulate`): go through the same path as a keyboard; use them for "can the player actually do this".
+- **Visual checks** (`snap`, `shot --look`): the only ones that see the look (exposure, color, UI overlap). Slowest; take them last.
 
 ## 3. Windows / PowerShell notes
 - **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `npx threedog state "pos=1,-8"` (the bridge

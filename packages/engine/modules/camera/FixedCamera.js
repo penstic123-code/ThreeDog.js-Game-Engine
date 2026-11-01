@@ -16,19 +16,23 @@
 //   engine.cameraRig.blend('garden', 1.5);
 import * as THREE from 'three';
 import { rigModule, defineRig, viewForward, rightOf } from './common.js';
+import { setProjection } from './projection.js';
 import { vec3 } from '../../core/math.js';
 import { ease as easing } from '../../core/easing.js';
 import { checkOptions, warnMissing } from '../../core/validate.js';
 
 export class FixedCamera {
   /**
-   * shots { name: { position, lookAt | track: true, fov, at, trackHeight } }; start initial shot;
+   * shots { name: { position, lookAt | track: true, fov, at, trackHeight, projection: 'orthographic', size } } (size: world units of view height; default perspective);
+   * single-shot shorthand: fixedCamera({ position, lookAt, projection, size }); start initial shot;
    * auto false | 'nearest' (every autoInterval seconds pick the nearest shot); hysteresis how many meters closer a new shot must be to win (avoids flip-flopping);
    * triggerBlend transition seconds for trigger-zone switches (0 = hard cut); trackHeight how high on the character a track shot looks; trackSmoothing head-tracking smoothness;
    * holdDirection keep the direction at a shot change until the key is released (classic fixed-camera controls)
    */
   constructor(engine, { shots = {}, start = null, auto = false, autoInterval = 0.25, hysteresis = 2, triggerBlend = 0,
-    trackHeight = 1.2, trackSmoothing = 8, holdDirection = true, ease = 'inOutCubic' } = {}) {
+    trackHeight = 1.2, trackSmoothing = 8, holdDirection = true, ease = 'inOutCubic', ...rest } = {}) {
+    if (!Object.keys(shots).length && rest.position) shots = { main: rest };   // setCamera('fixed', { position, lookAt, projection, size })
+    else checkOptions('fixedCamera()', rest, []);
     Object.assign(this, { engine, auto, autoInterval, hysteresis, triggerBlend, trackHeight, trackSmoothing, holdDirection, ease });
     this.shots = {};
     for (const [n, s] of Object.entries(shots)) this.add(n, s);
@@ -49,10 +53,11 @@ export class FixedCamera {
 
   /** Add or replace a shot */
   add(name, s) {
-    checkOptions(`fixedCamera shots.${name}`, s, ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight']);
+    checkOptions(`fixedCamera shots.${name}`, s, ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight', 'projection', 'size']);
+    if (s.projection === 'orthographic' && !(s.size > 0)) throw new Error(`fixedCamera shots.${name}: projection 'orthographic' needs size > 0 (world units of view height)`);
     this.shots[name] = {
       position: vec3(s.position), lookAt: s.lookAt ? vec3(s.lookAt) : null, track: !!s.track || !s.lookAt,
-      fov: s.fov ?? null, at: s.at ? vec3(s.at) : null, trackHeight: s.trackHeight,
+      fov: s.fov ?? null, size: s.projection === 'orthographic' ? s.size : null, at: s.at ? vec3(s.at) : null, trackHeight: s.trackHeight,
     };
     return this;
   }
@@ -64,7 +69,7 @@ export class FixedCamera {
     this.current = name;
     this._blend?.res(); this._blend = null;   // interrupt a running blend: its Promise still resolves (await blend() never hangs)
     this._lookTarget(s, this._look);
-    this._place(s.position, this._look, s.fov ?? this._baseFov);
+    this._place(s.position, this._look, s.fov ?? this._baseFov, s.size);
     if (changed) { this._latchDirection(); this.engine.events.emit('camera:shot', { name }); }
   }
   /** Blend smoothly to a shot; returns a Promise that resolves when the blend ends */
@@ -74,7 +79,7 @@ export class FixedCamera {
     const cam = this.engine.camera;
     return new Promise(res => {
       this._blend?.res();
-      this._blend = { from: cam.position.clone(), fromLook: this._look.clone(), fromFov: cam.fov, t: 0, dur: seconds, ease, res };
+      this._blend = { from: cam.position.clone(), fromLook: this._look.clone(), fromFov: cam.fov, fromSize: cam.orthoSize || null, t: 0, dur: seconds, ease, res };
       this.current = name;
       this._latchDirection();
       this.engine.events.emit('camera:shot', { name });
@@ -105,12 +110,13 @@ export class FixedCamera {
       const sh = this.shots[this.current];
       const pos = (this._bp ??= new THREE.Vector3()).copy(b.from).lerp(sh.position, k), look = (this._bl ??= new THREE.Vector3()).copy(b.fromLook).lerp(want, k);
       this._look.copy(look);
-      this._place(pos, look, b.fromFov + (fov - b.fromFov) * k);
+      // size blends only between two orthographic shots; a perspective/orthographic mix switches to the target's mode at once
+      this._place(pos, look, b.fromFov + (fov - b.fromFov) * k, sh.size && b.fromSize ? b.fromSize + (sh.size - b.fromSize) * k : sh.size);
       if (b.t >= b.dur) { this._blend = null; b.res(); }
     } else {
       if (this.shots[this.current].track) this._look.lerp(want, 1 - Math.exp(-this.trackSmoothing * dt));
       else this._look.copy(want);
-      this._place(this.shots[this.current].position, this._look, fov);
+      this._place(this.shots[this.current].position, this._look, fov, s.size);
     }
     // Direction: release the hold once no direction key is pressed
     const a = input.axis;
@@ -131,9 +137,10 @@ export class FixedCamera {
     if (this.target) { out.copy(this.target.position); out.y += s.trackHeight ?? this.trackHeight; return out; }
     return s.lookAt ? out.copy(s.lookAt) : out.set(s.position.x, s.position.y, s.position.z - 1);
   }
-  _place(pos, look, fov) {
+  _place(pos, look, fov, size = null) {
     const cam = this.engine.camera;
     cam.position.copy(pos); cam.lookAt(look);
+    setProjection(cam, size ? 'orthographic' : 'perspective', size);
     if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
   }
   _latchDirection() {

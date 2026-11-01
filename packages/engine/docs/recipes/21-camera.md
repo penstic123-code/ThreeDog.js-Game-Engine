@@ -102,3 +102,51 @@ engine.onFixed(dt => {
 - The engine already calls `player.animate(dt)` every frame; a module with its own loop over characters must skip the player, or the walk cycle runs
   twice as fast.
 - Test without a keyboard: `engine.input.simulate('lockOn'); engine.step(1 / 60); engine.input.simulate('lockOn', false)`.
+
+## 6. Orthographic view, and taking the camera over yourself
+
+**Orthographic (isometric / 2.5D) with the built-in rigs.** `projection: 'orthographic'` plus `size` (world units of view height) on the fixed and follow cameras.
+The default stays perspective. On resize the view height stays `size` and the width follows the aspect.
+
+```js
+// one fixed isometric shot (shorthand for a single shot named 'main')
+engine.setCamera('fixed', { position: [14, 14, 14], lookAt: [0, 0, 0], projection: 'orthographic', size: 16 });
+// per shot: shots: { hall: { position, lookAt, projection: 'orthographic', size: 12 }, yard: { position, lookAt } }   // yard stays perspective
+// follow the player from a fixed angle
+engine.setCamera('follow', { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'orthographic', size: 14 });
+```
+
+- `engine.camera` stays the one object everything holds (render, post, shadows, sky); it is flipped to an orthographic matrix, so `camera.isOrthographicCamera`
+  is true, `camera.left/right/top/bottom` are set, and `camera.zoom` still zooms. `camera.fov` is ignored while it is on.
+- Blends between two orthographic shots blend `size`; a perspective/orthographic mix switches to the target's mode at once. Switching rig kinds returns to perspective.
+- Limits: on the follow camera the mouse wheel changes `size` (clamped to the `minDistance`/`maxDistance` ratio of the starting `distance`).
+  The `fov` slider in the settings menu has no effect. Cascaded shadows, `dof` and `outline` handle orthographic depth; a custom post pass that assumes perspective depth must do the same.
+
+**Placing the camera yourself (cutscene, photo mode, your own rig).** Set `engine.cameraOverride`; the camera module then leaves the camera alone until you set it back to null.
+
+```js
+let t = 0;
+engine.cameraOverride = { owner: 'my-orbit', focus: engine.player.position };   // focus (optional): where the world loads around
+const frame = engine.onFrame(dt => {
+  t += dt; engine.camera.position.set(Math.cos(t) * 12, 8, Math.sin(t) * 12); engine.camera.lookAt(0, 1, 0);
+});
+// done: frame.remove(); engine.cameraOverride = null;   // the rig resumes from its own state
+```
+
+To use your own `THREE.OrthographicCamera` instead of flipping `engine.camera`:
+
+```js
+const original = engine.camera, size = 12;
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+function fit() {   // the engine only updates engine.camera.aspect on resize, so keep your own camera's aspect here
+  const s = engine.renderer.getSize(new THREE.Vector2()), a = s.x / s.y;
+  ortho.left = -size * a / 2; ortho.right = size * a / 2; ortho.top = size / 2; ortho.bottom = -size / 2; ortho.updateProjectionMatrix();
+}
+engine.cameraOverride = { owner: 'my-ortho' };
+engine.camera = ortho;   // the plain render path, cascaded shadows and modules read engine.camera live
+ortho.position.set(10, 10, 10); ortho.lookAt(0, 0, 0); fit(); addEventListener('resize', fit);
+// give it back: removeEventListener('resize', fit); engine.camera = original; engine.cameraOverride = null;
+```
+
+Swapping the object only works while no post effect is active: the post chain's scene pass keeps the camera it was built with. With post effects, use
+`projection: 'orthographic'` above instead.

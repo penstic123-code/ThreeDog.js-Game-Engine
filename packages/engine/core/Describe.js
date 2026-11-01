@@ -19,12 +19,13 @@ import { inspect, explain } from './Inspect.js';
 import { inspectScene } from './InspectScene.js';
 import { codedError } from './errorHints.js';
 import { r1 } from './math.js';
+import { describeRender } from './describeRender.js';
 import { describeScene } from './thingOps.js';
 
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
 const RELATIVE = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];   // relative to the camera heading
-const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene']);
+const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render']);
 const ACTIONS_MAX = 8;   // what the player can do now, with why not: saves the AI a guess for a few dozen characters   // the core's own fields
 const sector = a => Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8;
 
@@ -96,6 +97,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
     cutscene: null,
     modules: [...e.modules.keys()],
     scene: describeScene(e),                           // engine.add / world things: counts by save tier and what will not survive a load (thingOps.js)
+    render: describeRender(e),                         // renderer / post / lights and who set each (describeRender.js)
     perf: {
       fps: e.paused ? null : Math.round(e.fps), cpuMs: e.paused ? null : r1(e.cpuMs),
       cpu: e.paused ? null : Object.fromEntries(Object.entries(e.cpuPhases).map(([k, v]) => [k, r1(v)])),

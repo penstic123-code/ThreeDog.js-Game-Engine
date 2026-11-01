@@ -811,8 +811,11 @@ export type ModuleInput = ModuleDef | ModuleInput[] | false | null | undefined;
 // ======================================================================
 
 export interface EngineOptions {
-  /** Canvas element (required), e.g. document.getElementById('view') */
-  canvas: HTMLCanvasElement | HTMLElement;
+  /** Canvas element (required unless renderer is given), e.g. document.getElementById('view') */
+  canvas?: HTMLCanvasElement | HTMLElement;
+  /** A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures
+   * (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48) */
+  renderer?: any;
   /** Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts
    * deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders */
   style?: StyleInput;

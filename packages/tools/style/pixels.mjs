@@ -73,6 +73,17 @@ export function hsl([r, g, b]) {
 export const luma = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 export const hex = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 
+/** Whole-picture numbers of RGBA bytes: mean luminance 0-1, mean saturation 0-1 (HSV: (max-min)/max), share of overexposed (all channels >= 250) and dark (all <= 20) pixels. Alpha is ignored (a screenshot is opaque). */
+export function lookStats(rgba) {
+  let n = 0, lum = 0, sat = 0, over = 0, dark = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    n++; lum += luma([r, g, b]); if (mx) sat += (mx - mn) / mx;
+    if (mn >= 250) over++; if (mx <= 20) dark++;
+  }
+  return n ? { luminance: lum / n, saturation: sat / n, overexposed: over / n, dark: dark / n } : { luminance: 0, saturation: 0, overexposed: 0, dark: 0 };
+}
+
 /** Opaque pixels of RGBA bytes as a flat [r, g, b, ...] (alpha < 128 skipped) */
 export function opaque(rgba) {
   const out = [];

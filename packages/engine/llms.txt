@@ -54,3 +54,6 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Cascaded shadows
 - [46-blender-art-route](docs/recipes/46-blender-art-route.md): Hand-painted art route: from Blender to the game
 - [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Floating island look: round rim, snow that settles, flat backdrop
+- [48-make-material](docs/recipes/48-make-material.md): 48. `engine.makeMaterial(role, spec)`: which keys work, who wins
+- [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (crops, burning, a production machine) that plugs into the engine's contracts
+- [50-own-renderer](docs/recipes/50-own-renderer.md): Bring your own renderer: `createEngine({ renderer })`

@@ -16,7 +16,7 @@ function slab(S, o, d, h) {
   return S.t0 <= S.t1;
 }
 
-const BOX_KEYS = ['halfWidth', 'halfDepth', 'rotation', 'height', 'y'], CIRCLE_KEYS = ['radius', 'height'];
+const BOX_KEYS = ['halfWidth', 'halfDepth', 'rotation', 'height', 'y'], CIRCLE_KEYS = ['radius', 'height'], SEG_KEYS = ['thickness', 'height', 'y'], BLOCK_KEYS = ['bounds'];
 
 export class Collision {
   /**
@@ -30,6 +30,8 @@ export class Collision {
     this.circles = [];   // manually added circle colliders {x, z, r, h}
     this.boxes = [];     // rectangles {x, z, hw, hd, rot, h}
     this._grid = new CollisionGrid();   // grid index: resolve / camera look only nearby instead of scanning all (circles / boxes change only via addCircle / addBox)
+    this._blocked = [];   // addBlocked fields {fn, bounds}; empty = zero cost
+    this.blockedVersion = 0;   // +1 on addBlocked / remove: async paths re-sample their cached ground rasters
     this.version = 0;   // +1 on every static collider add/remove; the physics module syncs on it
     this._onGroundCircle = (cx, cz, r) => this._pushCircle(this._rPos, cx, cz, r, this._rRad);   // built once: ground.forEachCollider callback
     this._camS = { from: null, to: null, ux: 0, uz: 0, len: 0, pad: 0, want: 0, best: 0, t0: 0, t1: 0 };   // cameraDistance scratch for its callbacks
@@ -55,6 +57,37 @@ export class Collision {
     const b = { x, z, hw, hd, rot, h: opts.height ?? 6, y: opts.y, c: Math.cos(rot), s: Math.sin(rot), r: Math.hypot(hw, hd) };
     this.boxes.push(b); this._grid.add(b, true); this.version++;
     return { remove: () => { if (!this.boxes.includes(b)) return; this.boxes = this.boxes.filter(o => o !== b); this._grid.remove(b); this.version++; } };
+  }
+  /**
+   * Add a thin wall along the line a -> b (fence, wall; positions like addBox). thickness (default 0.3), height (default 6), y as in addBox.
+   * It is a rotated box in the same grid, so a gap between two segments is a gate. Returns a handle { remove() }
+   */
+  addSegment(a, b, opts = {}) {
+    checkOptionsArg('collision.addSegment()', opts, SEG_KEYS); if (typeof opts !== 'object') opts = {};
+    const [ax, az] = xzOf(a), [bx, bz] = xzOf(b);
+    // box-local +x is (cos r, -sin r) in world, so r = -atan2(dz, dx)
+    return this.addBox([(ax + bx) / 2, 0, (az + bz) / 2], { halfWidth: Math.hypot(bx - ax, bz - az) / 2, halfDepth: (opts.thickness ?? 0.3) / 2, rotation: -Math.atan2(bz - az, bx - ax), height: opts.height, y: opts.y });
+  }
+  /**
+   * Mark ground as impassable where fn(x, z) is true (river, lava, cliff edge). Walkers are stopped at its edge (sliding along it) and walkable() says no.
+   * fn must be pure and deterministic (no clock, no random). bounds { minX, maxX, minZ, maxZ } skips fn outside it. A bridge: have fn return false over it,
+   * or keep the water field exact and let fn test `!onBridge(x, z)`. findPathAsync samples fn into its ground raster (1 m cells), so give bounds to keep that cheap. Returns a handle { remove() }
+   */
+  addBlocked(fn, opts = {}) {
+    checkOptionsArg('collision.addBlocked()', opts, BLOCK_KEYS); if (typeof opts !== 'object') opts = {};
+    if (typeof fn !== 'function') throw new Error('collision.addBlocked(fn): fn(x, z) => boolean is required');
+    const f = { fn, bounds: opts.bounds ?? null }; this._blocked.push(f); this.version++; this.blockedVersion++;
+    return { remove: () => { if (!this._blocked.includes(f)) return; this._blocked = this._blocked.filter(o => o !== f); this.version++; this.blockedVersion++; } };
+  }
+  /** Is a character of `radius` standing at (x, z) touching blocked ground (centre and four points on its rim). Free when addBlocked was never used */
+  blockedAt(x, z, radius = this.engine.movement.radius) {
+    const L = this._blocked; if (!L.length) return false;
+    for (let i = 0; i < L.length; i++) {
+      const { fn, bounds: bd } = L[i];
+      if (bd && (x + radius < bd.minX || x - radius > bd.maxX || z + radius < bd.minZ || z - radius > bd.maxZ)) continue;
+      if (fn(x, z) || fn(x + radius, z) || fn(x - radius, z) || fn(x, z + radius) || fn(x, z - radius)) return true;
+    }
+    return false;
   }
   /** Add collision from a three.js object's bounding box (common for house models), pad grows it outward (m). Returns a handle { remove() } */
   addObject(obj, { pad = 0 } = {}) {
@@ -107,7 +140,7 @@ export class Collision {
   /** @internal The collider grid (boxes and circles added through this module), read by async pathfinding on the main thread */
   get grid() { return this._grid; }
   /** Same as walkable but takes plain numbers (inner loop of A* pathfinding and spawn search, allocates nothing; like engine.surface(x, z)). radius defaults to engine.movement.radius */
-  walkableAt(x, z, radius = this.engine.movement.radius) { return this.groundWalkable(x, z) && !this._groundBlocks(x, z, radius) && !gridBlocks(this._grid, x, z, radius); }
+  walkableAt(x, z, radius = this.engine.movement.radius) { return this.groundWalkable(x, z) && !this.blockedAt(x, z, radius) && !this._groundBlocks(x, z, radius) && !gridBlocks(this._grid, x, z, radius); }
   /** @internal Ground shape half of walkableAt (water, slope): a smooth field, so async pathfinding samples it on a raster; colliders are tested exactly there */
   groundWalkable(x, z) {
     const e = this.engine;

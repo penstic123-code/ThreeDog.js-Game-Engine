@@ -86,6 +86,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - batchGroups.js: InstancedMesh side of engine.batching (core/Batching.js): b…
 - canvasBox.js: The canvas's CSS box and the UI root laid over it (split ou…
 - dayTime.js: Clock-time conversion (pure functions): sky time of day `ti…
+- describeRender.js: describe().render: what the renderer, lights and post effec…
 - describeText.js: engine.describeText(): write describe() as plain English fo…
 - easing.js: Easing functions: input progress 0..1, output 0..1 (back/el…
 - errorCodes.js: Stable error codes: errors the engine raises by name end th…
@@ -134,7 +135,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 
 **modules/** (one line per folder: what it does; its files)
 - ambience/ Ambience module: a rule table of background sounds — Ambience.js
-- camera/ Camera module collection — FirstPersonCamera.js, FixedCamera.js, FollowCamera.js, RtsCamera.js, common.js, index.js
+- camera/ Camera module collection — FirstPersonCamera.js, FixedCamera.js, FollowCamera.js, RtsCamera.js, common.js, index.js, projection.js
 - characters/ Characters module: player (keyboard/stick control, camera follow, footsteps, en… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, footsteps.js, index.js, moveHelpers.js, movers/common.js, movers/rapier.js, movers/simple.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, playerStrings.js, proceduralRig.js
 - collision/ Lightweight collision: characters are upright cylinders, trees/rocks are circle… — Collision.js, grid.js
 - content/ Content loader: hands the plain data in the game's content/*.js to the engine (… — ids.js, index.js, loader.js, models.js, packs.js, props.js, rules.js, templates.js
@@ -325,6 +326,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | palette | core/Assets.js, core/assetLoad.js |
 | particles | particles |
 | pickup | gameplay |
+| post | core/describeRender.js |
 | seasons | sky |
 | sky | sky |
 | terrain | terrain |
