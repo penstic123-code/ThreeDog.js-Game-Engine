@@ -1,6 +1,6 @@
 {
   "name": "@threedog/style-lowpoly",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Optional low-poly look for threedog: a style pack (colors, sky, materials, post effects (from @threedog/post-effects), terrain colors) and an asset pack of procedural models",
   "license": "MIT",
   "repository": {
@@ -24,8 +24,8 @@
     "*.d.ts"
   ],
   "peerDependencies": {
-    "threedog": "^0.1.0",
+    "threedog": "^0.2.0",
     "three": "^0.187.0",
-    "@threedog/post-effects": "^0.1.0"
+    "@threedog/post-effects": "^0.2.0"
   }
 }
