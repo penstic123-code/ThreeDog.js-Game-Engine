@@ -76,6 +76,10 @@ export function errorsCommand(dir, rest, opt) {
   if (!list.length) return { ok: true, data, text: opt.since !== undefined || latest ? `✓ No errors ${opt.since !== undefined ? label : 'recorded'}` : '✓ No new errors' };
   const more = list.length > 2 && !latest ? `\n…${list.length - 2} more, see .threedog/errors.log or threedog errors --since ${Math.max(0, list[0].id - 1)}` : '';
   const shown = latest ? list : list.slice(0, 2);
-  return { ok: false, data, text: `✗ ${latest ? label + ' errors' : `${list.length} ${label} error${list.length === 1 ? '' : 's'}`}\n`
+  // count errors and warnings apart: a run that only produced warnings is not a failure and does not say "errors"
+  const nErr = list.filter(r => r.kind !== 'warning').length, nWarn = list.length - nErr;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const counts = [nErr && plural(nErr, 'error'), nWarn && plural(nWarn, 'warning')].filter(Boolean).join(', ');
+  return { ok: nErr === 0, data, text: `${nErr ? '✗' : '!'} ${latest ? `${label}: ${counts}` : `${label}: ${counts}`}\n`
     + shown.map(one).join('\n') + more + `\nCursor E${cursor}: threedog errors --since ${cursor} lists only what comes after` };
 }
