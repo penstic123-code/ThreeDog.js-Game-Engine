@@ -10,7 +10,7 @@ Large repeated areas (forests, grass) don't use this; use `content/vegetation.js
 `games/<game>/content/props.js` (a list; remember to add it to `content/index.js`):
 ```js
 export default [
-  { model: 'pine', place: 'home', x: -8, z: -6, scale: 1.2, collide: 'circle' },   // an asset name (here a generator of the lowpoly asset pack)
+  { model: 'pine', place: 'home', x: -8, z: -6, scale: 1.2, collide: 'circle' },   // an asset name (here a generator from an asset pack)
   { model: ['flower', 0xf2d16b], place: 'home', x: 1.6, z: 3.4 },                   // a generator with arguments, use an array: flower(0xf2d16b)
   { model: 'rock', x: 120, z: -40, rot: 0.6, scale: 0.8, collide: 'box' },          // no place = world coordinates; rot in radians
   { model: 'well', place: 'home', x: 4, z: -4, y: 0, collide: 'box' },              // a file asset: assets.model('well')
@@ -25,8 +25,8 @@ interaction, container and saved state (recipe 30).
 A model is always an **asset name**, never a path or a function (`npm run check` reports both): register it in a manifest or asset pack first. A
 generator entry is built through `engine.assets.cached` (params from the array), a file entry through `engine.assets.model`:
 ```js
-import { assets as lowpolyAssets } from '@threedog/style-lowpoly';
-engine.assets.manifest(lowpolyAssets);                                // pine, rock, ['flower', color]...
+import { assets } from './assets.js';                                 // your asset pack (or a published one)
+engine.assets.manifest(assets);                                       // pine, rock, ['flower', color]...
 engine.assets.manifest({ name: 'props', models: { well: '/models/well.glb' } });
 ```
 Props with the same model share one prototype (geometry and material are built once); each spot gets a clone.
@@ -134,11 +134,11 @@ import forest from 'forest-assets';
 engine.assets.manifest(forest);                          // content and code now say 'oak', 'creek'
 engine.assets.manifest({ name: 'mine', models: { oak: '/models/my-oak.glb' } });   // a later pack replaces a name it shares
 ```
-A generator function is also an entry (`models: { pine: () => geometry }`): the lowpoly package exports its procedural models this way as `assets`.
+A generator function is also an entry (`models: { pine: () => geometry }`): an asset pack exports its procedural models this way.
 
 Fonts are entries too, and a style names them instead of holding the file (a style is looks only):
 ```js
-const engine = createEngine({ canvas, style: [lowpoly, { ui: { fonts: ['pixel', 'pixelBold'], font: '"pixel", system-ui' } }] });
+const engine = createEngine({ canvas, style: [basePack, { ui: { fonts: ['pixel', 'pixelBold'], font: '"pixel", system-ui' } }] });
 engine.assets.manifest({ name: 'ui-fonts', base: '/fonts/', fonts: { pixel: 'pixel.woff2', pixelBold: { url: 'pixel-bold.woff2', family: 'pixel', weight: 700 } } });
 ```
 `family` defaults to the asset name; the other keys are FontFace descriptors (`weight`, `style`, `unicodeRange`, ...). `start()` loads the fonts

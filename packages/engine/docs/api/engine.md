@@ -4,13 +4,13 @@
 - Options `EngineOptions`:
   - `canvas?: HTMLCanvasElement | HTMLElement` Canvas element (required unless renderer is given), e.g. document.getElementById('view')
   - `renderer?: any` A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48)
-  - `style?: StyleInput` Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders
+  - `style?: StyleInput` Style pack (looks only: materials, sky, lighting, post, UI look), a pack you made or installed (import basePack from 'your-pack'), or a list of parts deep-merged left to right: [basePack, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders
   - `shadows?: boolean` Real-time shadows, default true
   - `shadowType?: 'basic' | 'pcf' | 'vsm'` Shadow filter: 'basic' (hard edge) / 'pcf' / 'vsm' (softest, costliest), default 'pcf'. Change later with engine.look.shadow.set({ type })
   - `antialias?: boolean` MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices
   - `post?: Record<string, boolean>` Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices)
-  - `pixelRatio?: number` Render resolution, default min(device pixel ratio, 1.5)
-  - `adaptiveResolution?: boolean` Automatically lower resolution when the frame rate is too low, default true
+  - `pixelRatio?: number` Render resolution, default min(device pixel ratio, 1.5); the low tier uses at least 0.75 x device pixel ratio (never below 1). describe().render.scale reports it
+  - `adaptiveResolution?: boolean` Automatically lower resolution when the frame rate is too low, default true. Never silent: a dev warning once, and describe().render.scale.autoLowered
   - `targetFps?: number` Target frame rate for automatic resolution lowering, default 55
   - `ui?: Record<string, UIPartValue>` UI parts: replace or turn off any piece of screen UI (loading, toast, title, hud.marker, hud.counter, hud.bar). Default title screen is off. Example: `createEngine({ canvas, ui: { loading: { title: 'My Game' }, title: { title: 'My Game' }, toast: false } })`
   - `audio?: AudioConfig` Volume of each channel, 0–1

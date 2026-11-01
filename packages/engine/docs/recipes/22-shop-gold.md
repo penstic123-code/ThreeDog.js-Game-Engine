@@ -16,15 +16,15 @@ The rest is written for A.
 `content/items.js`:
 ```js
 export default {
-  gold: { name: '金币', icon: '🪙', stack: 99999 },   // currency: one slot however much
-  bread: { name: '面包', icon: '🍞', price: 5 },   // price: read by the shop ops below
+  gold: { name: 'Gold', icon: '🪙', stack: 99999 },   // currency: one slot however much
+  medkit: { name: 'Medkit', price: 5 },          // price: read by the shop ops below
 };
 export const startItems = { gold: 12 };
 ```
 `content/containers.js` (the shelf. `items` is the initial stock, placed only the first time; a shelf that was emptied by looting / selling stays
 empty after loading, see recipe 03):
 ```js
-export default { 'shop-bakery': { capacity: 6, items: { bread: 3 } } };
+export default { 'shop-trader': { capacity: 6, items: { medkit: 3 } } };
 ```
 Import it in `content/index.js` and put it in the exported object (`containers`).
 
@@ -63,38 +63,38 @@ engine.ops.define('shop.sell', {
 In the dialogue, `if: { can: [...] }` shows a choice only when the op would succeed, and `do: { op: [...] }` runs it:
 ```js
 // content/dialogues.js
-const buyBread = ['shop.buy', { shop: 'shop-bakery', item: 'bread' }];
-const sellBread = ['shop.sell', { shop: 'shop-bakery', item: 'bread' }];
+const buyKit = ['shop.buy', { shop: 'shop-trader', item: 'medkit' }];
+const sellKit = ['shop.sell', { shop: 'shop-trader', item: 'medkit' }];
 export default {
-  baker: {
-    speaker: '面包师',
+  trader: {
+    speaker: 'Trader',
     nodes: {
       start: {
-        text: '要点什么？',
+        text: 'What do you need?',
         choices: [
-          { text: '买面包（5 金币）', next: 'start', if: { can: buyBread }, do: { op: buyBread } },
-          { text: '寄卖面包（3 金币）', next: 'start', if: { can: sellBread }, do: { op: sellBread } },
-          { text: '再见', next: 'end' },
+          { text: 'Buy a medkit (5 gold)', next: 'start', if: { can: buyKit }, do: { op: buyKit } },
+          { text: 'Sell a medkit (3 gold)', next: 'start', if: { can: sellKit }, do: { op: sellKit } },
+          { text: 'Bye', next: 'end' },
         ],
       },
     },
   },
 };
 ```
-- The shelf id (`'shop-bakery'`) is any string, and the shelf contents are saved. A "shop window" is your own UI drawn from `shelf.list()`; its
+- The shelf id (`'shop-trader'`: a market stall, a ship's store, a vending machine) is any string, and the shelf contents are saved. A "shop window" is your own UI drawn from `shelf.list()`; its
   buttons call `engine.ops.run('shop.buy', { shop, item })` and grey out with `engine.ops.can(...)`.
-- Prices live on the item (`price` in items.js above), read with `e.inventory.item('bread').price`; an item without one costs 1 here.
+- Prices live on the item (`price` in items.js above), read with `e.inventory.item('medkit').price`; an item without one costs 1 here.
 - Items with their own data (a used sword with `durability`, recipe 03): pass the entry key as `item` (`'sword#3'`, from `shelf.list()[i].key`);
   `transfer` moves exactly that piece with its data, and `e.inventory.container(shop).get(item)` reads the data for a price
   (`def.price * data.durability / 100`).
-- Show a failure reason to the player through your own i18n string (`e.t('shop.' + r.reason)`); the engine shows nothing itself.
-- `npx threedog ops` lists what can be bought right now if you add `offers` (see recipe 23); `npx threedog op shop.buy shop=shop-bakery item=bread`
+- Show a failure reason to the player through your own i18n string (`e.t('shop.' + r.code)`); the engine shows nothing itself.
+- `npx threedog ops` lists what can be bought right now if you add `offers` (see recipe 23); `npx threedog op shop.buy shop=shop-trader item=medkit`
   buys from the terminal.
 
 ## 4. Gold HUD
 Calling `hud.counter` again with the same id = update, and it leaves the DOM alone when the value is unchanged, so calling it every frame is cheap:
 ```js
-engine.onFrame(() => engine.hud.counter('gold', { icon: '🪙', label: '金币', value: engine.inventory.count('gold') }));
+engine.onFrame(() => engine.hud.counter('gold', { icon: '🪙', label: 'Gold', value: engine.inventory.count('gold') }));
 ```
 Loading a save replaces the whole inventory, and refreshing every frame follows naturally; no event listener is needed.
 

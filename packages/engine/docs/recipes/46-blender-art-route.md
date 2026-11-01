@@ -1,4 +1,4 @@
-# Hand-painted art route: from Blender to the game
+# Blender to game (GLB) route
 
 Code-built geometry (`models.js`, recipe 05) is good for blockout, props and variations, but it cannot reach the finish of hand-made art: painted
 textures, baked shadows, sculpted edges. That finish comes from Blender. This page is the whole path, in order. The level naming rules live in
@@ -79,11 +79,11 @@ A whole level is `level({ url: '/models/town.glb' })` (recipe 10). Animation cli
 
 ## 5. The GLB's own materials and the style
 **The GLB keeps its own materials.** The engine loads them as they are (textures, colors, roughness) and does not swap them for style roles;
-that is what lets a hand-painted texture show. `style.materials` (recipe 43) applies only to what code builds through `engine.makeMaterial(role, ...)`
-(terrain, vegetation, procedural models, pickups). One scene can mix painted GLB props and styled code-built things.
+that is what lets a painted or baked texture show. `style.materials` (recipe 43) applies only to what code builds through `engine.makeMaterial(role, ...)`
+(terrain, vegetation, procedural models, pickups). One scene can mix GLB props and styled code-built things.
 
 There is no automatic mapping from a GLB material name to a style role and no flag for it. To make a GLB follow the style anyway, do it in your
-game code, per model: name the material in Blender after the role (`wool`, `bark`) and look it up:
+game code, per model: name the material in Blender after the role (`cloth`, `metal`, `glass`) and look it up:
 ```js
 const m = await engine.assets.model('hat');
 m.traverse(o => { if (o.isMesh) o.material = engine.makeMaterial(o.material.name, { color: o.material.color.getHex() }); });

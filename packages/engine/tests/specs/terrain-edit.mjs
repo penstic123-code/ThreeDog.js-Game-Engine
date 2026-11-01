@@ -95,7 +95,7 @@ export const specs = [
       check('collision gets a new token and reads the rebuilt mesh', r.col1.newToken && r.col1.same, JSON.stringify(r.col1));
       check('painted cell reads back as tilled, then wet', r.type1 === 'tilled' && r.wet === 'wet', `${r.type1} / ${r.wet}`);
       check('trees on dug ground are gone (instances and colliders)', r.treesBefore.n > 0 && r.treesAfter.n === 0 && r.treesAfter.k === 0, JSON.stringify([r.treesBefore, r.treesAfter]));
-      check('save / load restores heights, mesh and paint', near(r.h2, r.h1) && near(r.mesh2, r.h1) && r.type2 === 'tilled' && !near(r.raised, r.h1), `${r.raised} -> ${r.h2}, ${r.type2}`);
+      check('save / load restores heights, mesh and paint', near(r.h2, r.h1) && near(r.mesh2, r.h2v) && r.type2 === 'tilled' && !near(r.raised, r.h1), `${r.raised} -> ${r.h2}, ${r.type2}`);
       check('chunk unloaded and regenerated comes back edited', r.goneA && r.goneB && near(r.h3, r.h1) && near(r.mesh3, r.h1) && near(r.meshB, r.h1), JSON.stringify([r.goneA, r.goneB, r.mesh3, r.meshB]));
       check('regenerated chunk keeps trees off the dug ground', r.treesBack.n === 0, JSON.stringify(r.treesBack));
       check('threads on (worker build) and off give the identical edited chunk', r.same && r.workers > 0, `workers ${r.workers}`);
@@ -121,6 +121,49 @@ export const specs = [
       check('worker-built chunk uses the custom height', r.workers > 0 && Math.abs(r.far - 18) < 1e-3, `${r.far} (workers ${r.workers})`);
       check('custom groundType wins, null falls back to the biome rules', r.rock === 'rock' && r.low !== 'rock' && !!r.low, `${r.rock} / ${r.low}`);
       check('outside variable in height throws at terrain(), naming it', /terrain\(\{ height \}\).*'k'/.test(r.err), r.err);
+    },
+  },
+  {
+    // recipe 29 "Fields and plots the player changes": only the landform is generated; plots, banks and plots are grid cells plus terrain.edit
+    name: 'player-changed ground: custom height + terrain.edit (lower, paint) + grid layer cells survive save / load into a fresh engine',
+    url: '/tests/terrain-edit/',
+    async run({ check, ev }) {
+      await ev(setup);
+      const r = await ev(async () => {
+        const T = window.TE, { createEngine, terrain, grids, world } = threedogTerrain;
+        const hills = (x, z) => 3 + Math.sin(x * 0.05) * 2 + z * 0.02;   // the generated landform only
+        const build = async key => {
+          const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads: 0, urlState: false, saveKey: key });
+          E.use(terrain({ seed: 7, viewChunks: 2, height: hills }), world(), grids());
+          E.grids.add('plots', { cell: 4, origin: [8, 16], size: [4, 4] });
+          E.ops.define('plot.make', { args: { cell: 'any' }, run: (e, { cell }) => {
+            const c = e.grids.get('plots').cellCenter?.(cell) ?? { x: 8 + cell[0] * 4 + 2, z: 16 + cell[1] * 4 + 2 };
+            e.terrain.edit({ x: c.x, z: c.z }, { shape: 'square', radius: 2, lower: 0.5, paint: 'dug' });   // the dug cell sits lower and has its own ground type
+            e.grids.get('plots').layer('plot').set(cell, { kind: 'bed', wet: true });
+          } });
+          await E.start(); await T.settle(E, { x: 20, z: 28 });
+          return E;
+        };
+        const A = await build('save-a'), P = { x: 8 + 4 * 1 + 2, z: 16 + 4 * 1 + 2 };   // centre of cell [1, 1]
+        const out = { h0: A.surface(P.x, P.z) };
+        A.ops.run('plot.make', { cell: [1, 1] }, { source: 'test' });
+        out.h1 = A.surface(P.x, P.z); out.type1 = A.groundType(P.x, P.z);
+        const save = JSON.parse(JSON.stringify(A.saves.collect()));
+        A.dispose();
+        const B = await build('save-b');   // new session: only the generated landform, then the save
+        out.hFresh = B.surface(P.x, P.z);
+        B.ops.allow(() => B.saves.apply(save)); await T.settle(B, { x: 20, z: 28 });
+        for (let i = 0; i < 300 && T.vtx(B, 12, 20) == null; i++) { B.step(1 / 60); await new Promise(r => setTimeout(r, 5)); }   // the edited chunk is rebuilt after apply
+        out.h2 = B.surface(P.x, P.z); out.mesh2 = T.vtx(B, 12, 20); out.h2v = B.surface(12, 20); out.type2 = B.groundType(P.x, P.z);
+        out.cell = B.grids.get('plots').layer('plot').get([1, 1]); out.other = B.grids.get('plots').layer('plot').get([2, 2]) ?? null;
+        B.dispose();
+        return out;
+      });
+      const near = (a, b) => a != null && b != null && Math.abs(a - b) < 1e-3;
+      check('the edit lowers the generated landform and paints the cell', near(r.h1, r.h0 - 0.5) && r.type1 === 'dug', `${r.h0} -> ${r.h1}, ${r.type1}`);
+      check('a fresh engine starts with the plain landform', near(r.hFresh, r.h0), `${r.hFresh} vs ${r.h0}`);
+      check('save / load brings back the lowered height, the mesh and the paint', near(r.h2, r.h1) && near(r.mesh2, r.h2v) && r.type2 === 'dug', `${r.h2} / ${r.mesh2} / ${r.type2}`);
+      check('save / load brings back the grid cell state, and only that cell', r.cell?.kind === 'bed' && r.cell.wet === true && r.other === null, JSON.stringify([r.cell, r.other]));
     },
   },
 ];

@@ -108,8 +108,8 @@ inside template strings, which then throw on the first call).
 
 ## Core conventions
 - Lighting without `sky`: every engine has `engine.lights = { sun, hemi }` (neutral); to light the scene yourself hide or adjust them and add three.js
-  lights. The engine ships no art: the humanoid, pickup shapes and flat shading live in the optional lowpoly style pack (`@threedog/style-lowpoly`:
-  `shapes.js`, `terrain.config.shading: 'flat'`); without a style pack or model the engine shows a gray capsule, a gray box and flat gray ground at y
+  lights. The engine ships no art: the humanoid, pickup shapes and flat shading belong to a style pack or asset pack you add (e.g.
+  a pack with `terrain.config.shading: 'flat'`); without a style pack or model the engine shows a gray capsule, a gray box and flat gray ground at y
   = 0, with a dev warning naming the fix.
 - Gameplay state (world, containers, vars, quests) changes only in fixed steps or inside ops; dev warns otherwise (`.threedog/ops-guard.log` after
   `npm test`). (game side)
@@ -125,7 +125,7 @@ inside template strings, which then throw on the first call).
   (`recipes/20-content-actions-save.md` "Save format").
 - Day / night comes only from sky: read `sky.isDay`, use `sky.daylight` (0-1) for fades; don't judge by clock time yourself.
 - A game's own look parameters (colors, materials) belong in its style pack (`style`) or the content, never hard-coded into logic.
-- Whatever a style pack provides as a factory can also be passed at the call site, and the call site wins (`new Character(e, { rig })` over `style.character.create`; `spawnPickup(item, pos, { mesh })` over `style.pickup.model`); look-driven parts (sky, clouds, water, materials) are overridden with `engine.look.<part>.set / patch / replace`. A new style factory must ship with its call-site option.
+- Whatever a style pack provides as a factory can also be passed at the call site, and the call site wins (`spawnPickup(item, pos, { mesh })` over `style.pickup.model`); look-driven parts (sky, clouds, water, materials) are overridden with `engine.look.<part>.set / patch / replace`. A new style factory must ship with its call-site option.
 - Vegetation `rule` must not contain functions (it is sent to a Worker).
 - Terrain is editable: `engine.terrain.edit(pos, { lower|raise|flatten|paint })`, only inside an op or fixed step; custom
   `terrain({ height, groundType })` must be pure functions.
@@ -133,9 +133,9 @@ inside template strings, which then throw on the first call).
   never removes its world record.
 - Window blur, tab hidden, pointer lock and WebGL context loss are listened to only in `core/page.js`; modules read `engine.page` or listen to
   `page:*`. Show "saved" only after `saves.save` returns true.
-- Characters can name their model by asset: `style.character.model: 'hero'` or `createPlayer({ ...presets.player.thirdPerson, model: 'hero' })` builds
-  now with the placeholder body and swaps in the registered asset when it loads (`await player.whenReady`, event `character:model`); a name missing
-  from a registered manifest throws.
+- Character bodies are assets, not style: `createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' | 'hero' })` (a procedural builder is built
+  now; a file shows a gray capsule and is swapped in when it loads: `await player.whenReady`, event `character:model`), or `{ rig }`; a name no model
+  asset has throws. Style packs tint bodies through material roles (cloth, skin, trousers, hair).
 - Importing the engine makes `Mesh.prototype.customDepthMaterial` / `customDistanceMaterial` default to a depth material carrying the mesh material's
   vertex patches, so wind-swayed meshes cast swaying shadows with nothing to set up; assigning your own value still wins. Shader time, wind and cloud
   cover are per engine in `engine.uniforms` (share them in your own `ShaderMaterial`); with two engines on a page, pass the engine to

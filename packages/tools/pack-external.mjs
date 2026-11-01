@@ -5,7 +5,7 @@
 //      three tsc errors; the correct main.js gives none (skipLibCheck off, so the engine's own declarations are checked too)
 //   3. vite build + vite preview of a minimal game: page opens, engine.ready, no 4xx/5xx (Workers, wasm, decoders, assets), no console errors
 //   4. the threedog CLI works in that project: map (GAMEMAP with package-relative paths), check, test (smoke), dev + one bridge command;
-//      the project is the new-game template (packages/tools/templates/game), so the template installs, checks, runs and builds outside the repo
+//      the project is the new-game template (packages/tools/templates/game + templates/example), so the template installs, checks, runs and builds outside the repo
 //   6. the engine alone, installed from a local folder with npm install --install-links (a plain link would skip its dependencies):
 //      nothing unpublished is pulled in (no @threedog/* or file:/workspace: dependency), one copy of three, and a plain vite config builds
 //   7. a game that vendors the whole engine (tests included) in vendor/threedog as a file: dependency: threedog check and types look only at the

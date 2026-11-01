@@ -6,13 +6,14 @@ material** (a function or instance). Use the first that does the job.
 
 ## Material roles are open
 `style.materials` maps a role name to a material. The engine asks for `default terrain vegetation character water pickup prop`; **any other
-name is fine** (`wool`, `bark`, `lantern`): code asks for it with `engine.makeMaterial('wool', { color })`, an unlisted role uses `materials.default`.
+name is fine** (`cloth`, `metal`, `glass`): code asks for it with `engine.makeMaterial('cloth', { color })`, an unlisted role uses `materials.default`.
 Only a name very close to an existing one (`props`, `charcter`) warns, as a probable typo.
 
 ```js
 materials: {
   default: { type: 'lambert' },
-  wool:    { type: 'standard', roughness: 1, detail: { noise: 'grain', projection: 'triplanar', scale: 3, normal: 0.01 } },
+  cloth:   { type: 'standard', roughness: 1, detail: { noise: 'grain', projection: 'triplanar', scale: 3, normal: 0.01 } },
+  glass:   { type: 'physical', transmission: 1, roughness: 0.05, thickness: 0.2 },
   rock:    { type: 'standard', map: 'rock.png', normalMap: 'rock_n.png', roughnessMap: 'rock_r.png', repeat: 4 },
   prop:    (params, purpose, engine) => new THREE.MeshMatcapMaterial({ matcap: texture, color: params.color }),   // any Material
 }
@@ -22,18 +23,17 @@ three.js Material. A **spec** is plain data (`type: lambert | phong | standard |
 `materials.default` when that is a spec too; keys the material has are set, spec keys below are handled by the engine.
 
 ## Exit 1: parameters in the spec
-**Texture names.** A texture slot may be an asset name (`map`, `emissiveMap` are sRGB; `normalMap roughnessMap metalnessMap aoMap bumpMap alphaMap
-displacementMap specularMap...` are linear). The engine loads it with `engine.assets.texture`, sets anisotropy, wrap and `repeat` (a number or `[x, y]`;
-`wrap: 'repeat' | 'clamp' | 'mirror'`), and a neutral stand-in (flat normal, white) sits in the slot until the image arrives. A texture object works too.
-A key the type lacks (`roughnessMap` on `lambert`) warns once with the type to use; a misspelled slot (`normalmap`) throws with the near name.
-`style check` verifies the names against the asset pack (`materials.*.map` and the other slots, `materials.*.detail.texture`).
+The accepted spec keys, texture slots, `repeat` / `wrap` and who wins between pack and call: recipe 48. How texture names load: the engine
+fetches the asset with `engine.assets.texture` (`map`, `emissiveMap` sRGB, the other slots linear), sets anisotropy, wrap and repeat, and a neutral
+stand-in (flat normal, white) sits in the slot until the image arrives. `style check` verifies the names against the asset pack. This page
+covers the keys that add shader code: `detail`, `lighting`, toon `ramp`, seasons.
 
-**`detail`**: grain, paper or strokes over the surface, in world space (needs no UVs). Off unless written; every number is a uniform, so
+**`detail`**: a noise pattern, a texture or your own GLSL laid over the surface in world space (needs no UVs). Off unless written; every number is a uniform, so
 100 materials with different `scale` / `strength` / `direction` compile **one** program (tested: 8 variants, +0 programs).
 
 | key | meaning |
 |---|---|
-| `noise` | `'grain'` (default) `'paper'` `'stroke'`; or `texture: 'name'` (asset name or a Texture), or `glsl` (below) |
+| `noise` | `'grain'` (default) `'paper'` `'stroke'` `'dabs'` (soft oval dabs, no direction); or `texture: 'name'` (asset name or a Texture), or `glsl` (below) |
 | `projection` | `'world'` top-down (default, fine for ground) or `'triplanar'` (walls, rocks, characters) |
 | `scale` `strength` | repeats per meter (0.25), color effect 0-1 (0.35) |
 | `mode` `tint` | `'multiply'` (default) `'add'` `'mix'`; tint colors the sample |
@@ -41,9 +41,10 @@ A key the type lacks (`roughnessMap` on `lambert`) warns once with the type to u
 | `octaves` | 1-4 noise layers (2) |
 | `normal` | relief height in meters (bumps the normal; 0 = off) |
 | `roughness` | amount the sample moves roughness (`standard` / `physical`) |
+| `fade` | default `true`: the effect fades out where its pattern is smaller than a pixel (far, grazing), so it does not shimmer; `false` keeps it |
 
 Which channels (color, normal, roughness) are on is fixed when the material is made (it is part of the program); the numbers can change any time.
-`style.terrain.detail` (`{ texture, scale, strength }`) is the same patch for the ground.
+The ground takes the same object as `style.terrain.detail` / `look.ground.set({ detail })`; which detail suits which ground: recipe 53.
 
 **`lighting`** shapes the light after it is summed. three has no "shadow color": a shadow only removes the sun's light. The patch reads the first
 directional light (the sun; three sorts shadow casters first) and its shadow value for the pixel:
@@ -63,7 +64,7 @@ orange-on-green muddy; `mix` moves the surface `strength` of the way to the colo
 
 ## Exit 2: your own GLSL
 `detail.glsl` replaces the noise: `vec4 threedogDetailSample(vec2 p)` returns `vec4(color, height 0-1)`; `p` is already scaled, turned, stretched;
-`uniforms: { uCells: 6 }` (numbers, colors, arrays, textures) are in scope. `lighting.glsl` replaces the three light effects:
+`uniforms: { uCells: 6 }` (numbers, colors, arrays, textures) are in scope; `threedogDetailFootprint` is one pixel in pattern units (`fade` uses it; read it to fade your own sample). `lighting.glsl` replaces the three light effects:
 `void threedogLighting(inout ReflectedLight light, vec3 normal, vec3 viewDir, vec3 sunDir, float sunShadow, vec3 albedo)` (view space; `sunShadow` 1 lit,
 0 shadowed; change `light.directDiffuse` / `indirectDiffuse`, the lights are already summed).
 
@@ -78,6 +79,21 @@ For anything else write a **named patch** and add it with `applyEffects(material
   glsl: { fragment: { pars: 'uniform float uFuzz;',            // pars = declarations at the top
                       color_fragment: 'diffuseColor.rgb *= 1.0 - uFuzz * 0.5;' } } }   // chunk name -> code placed after `#include <chunk>`
 ```
+Patches on one material must agree. Each patch declares what it relies on, and a bad combination throws when it is added (or logs once at compile):
+
+| Field | Meaning | Checked |
+|---|---|---|
+| `needs.data` | Program inputs the code reads: `'instancing'`, `'instancingColor'`, `'vertexColors'`, `'skinning'`, `'batching'` | when the program compiles (console.error once per material) |
+| `needs.patches` | Patches it builds on, e.g. `['world']` for the `vThreedogWorld` varying (world position; `applyEffects` adds `world` itself when a patch needs it) | when added |
+| `conflicts` | Patch names it cannot share a material with | when added, both ways |
+| `uniforms` | A uniform name belongs to one patch; share `engine.uniforms` (`uTime`, `uWind`, `uCloud`...) instead of making your own `uTime` | when added |
+| `shadow` | Render steps: without it the color pass only; `true` also runs its vertex code in the depth (sun / spot shadows) and distance (point-light shadows) passes | - |
+| `cacheKey` | Changes whenever the GLSL text changes (defines, branches), never for uniform values; the program key joins every patch's `name=cacheKey` in order | same name + cacheKey with different code throws |
+```js
+applyEffects(mat, { wind: 0.03, season: 'foliage', patches: [{ name: 'ripple', needs: { patches: ['world'] }, conflicts: ['wind'],
+  glsl: { fragment: { color_fragment: 'diffuseColor.rgb *= 0.9 + 0.1 * sin(vThreedogWorld.x);' } } }] });   // throws: 'wind' and 'ripple' cannot be combined
+```
+
 A chunk value may be `{ before, after }`. A missing chunk throws when the patch is added (`strict`), not as a silent no-op. Chunk names in three **0.187**
 (read from `three/src/renderers/shaders`), in main-body order:
 
@@ -101,20 +117,19 @@ A `materials` entry that is a Material instance (cloned per use, its patches kep
 lit materials returned by it. Nothing else is applied: textures, `detail` and `lighting` keys are only read on specs, so call `applyEffects(material,
 { detail, patches })` yourself.
 
-## Three complete looks
+## Three complete looks (different directions, same mechanism)
 ```js
 const looks = {
-  // wool: rough, fuzzy, soft light, a warm rim; one fine grain seen from every side
-  wool: { type: 'standard', roughness: 1, detail: { noise: 'grain', projection: 'triplanar', scale: 4, octaves: 3, strength: 0.25, normal: 0.01 },
-          lighting: { wrap: 0.5, rim: { color: 0xffd9a8, strength: 0.35, power: 2.5 } } },
-  // leaves: toon bands, brush strokes along the wind, cool shade, a bit of transmitted light on the side away from the sun
+  // metal, realistic PBR: a texture set does the work; a fine world-space grain moves only the roughness (smudges), not the color
+  metal: { type: 'standard', metalness: 1, roughness: 0.35, map: 'steel.png', normalMap: 'steel_n.png', roughnessMap: 'steel_r.png', repeat: 2,
+           detail: { noise: 'grain', projection: 'triplanar', scale: 6, strength: 0, roughness: 0.25 } },
+  // poster, flat and unlit: no light or shadow, the color is exactly the given one; a faint grain keeps large areas from looking empty
+  poster: { type: 'basic', detail: { noise: 'paper', scale: 2, strength: 0.12 } },
+  // leaf, stylized: toon bands, directional strokes along the wind, cool shade, a rim on the side away from the sun
   leaf: { type: 'toon', ramp: [0.45, 0.8, 1], soften: 0.25, detail: { noise: 'stroke', direction: 35, scale: 1.2, strength: 0.3, mode: 'add' },
           lighting: { shadowTint: { color: 0x5a6fb0, strength: 0.7 }, rim: { color: 0xb8e08a, strength: 0.3, shadowSide: 1 } } },
-  // rock: a real texture set, plus a world-space grain that also roughens it
-  rock: { type: 'standard', map: 'rock.png', normalMap: 'rock_n.png', roughnessMap: 'rock_r.png', repeat: 3,
-          detail: { noise: 'paper', projection: 'triplanar', scale: 0.8, strength: 0.2, normal: 0.02, roughness: 0.3 } },
 };
 ```
-Fetch them with `engine.makeMaterial('wool')`. Check a pack with `threedog style check`; the pixel and program-count guarantees are in `tests/specs/surface.mjs`.
+Fetch them with `engine.makeMaterial('metal')`. Check a pack with `threedog style check`; the pixel and program-count guarantees are in `tests/specs/surface.mjs`.
 
 To change these from code at run time (`materials`, `surface`, `ground`, `wind` look parts), see recipe 52.

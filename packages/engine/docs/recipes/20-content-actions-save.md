@@ -62,15 +62,15 @@ are not core keys either: they come from the game (`presets.player.*`, `interact
 ```js
 // content/actions.js
 export default {
-  kick: { keys: ['KeyF'], label: '推/踢' },
-  save: { keys: ['KeyK'], label: '存档' },
-  load: { keys: ['KeyL'], label: '读档' },
+  kick: { keys: ['KeyF'], label: 'Push / kick' },
+  save: { keys: ['KeyK'], label: 'Save' },
+  load: { keys: ['KeyL'], label: 'Load' },
 };
 ```
 Don't forget to add it to the exports in `content/index.js` (`export default { ..., actions }`), otherwise `engine.content.load(data)` will not load
 it (it calls `engine.input.define(name, keys, label)`). What happens on press is written in main.js, read inside a fixed step so it lands on a tick:
 `engine.onFixed(() => { if (engine.input.pressed('kick')) engine.ops.run('ball.kick', {}, { source: 'player' }); })` (a gameplay action is an op,
-recipes/23-ops.md). A game that does not use content calls `engine.input.define('kick', 'KeyF', '推/踢')` directly.
+recipes/23-ops.md). A game that does not use content calls `engine.input.define('kick', 'KeyF', 'Push / kick')` directly.
 
 **The engine does not perform the `save` / `load` actions for you**: they only register the keys; after the press you call the engine yourself in
 main.js. Saving and loading are async (`Promise<boolean>`): await them, and say "saved" only on `true` (on `false` the engine already showed why).
@@ -78,8 +78,8 @@ Loading a slot to keep playing from it is `engine.session.load`, which leaves no
 ```js
 import { toast } from 'threedog';
 engine.onFixed(() => {   // read keys in the fixed step like every gameplay key; the async work runs after it
-  if (engine.input.pressed('save')) engine.saves.save('slot1').then(ok => ok && toast(engine, '已存档'));
-  if (engine.input.pressed('load')) engine.session.load('slot1').then(ok => !ok && toast(engine, '还没有存档'));
+  if (engine.input.pressed('save')) engine.saves.save('slot1').then(ok => ok && toast(engine, 'Saved'));
+  if (engine.input.pressed('load')) engine.session.load('slot1').then(ok => !ok && toast(engine, 'No save yet'));
 });
 engine.saves.autosave(3);     // autosave to 'auto' every 3 minutes of play (waits while paused, on the title screen and during newGame / load)
 ```
@@ -97,9 +97,9 @@ engine.interactions.pickMode = 'aim';                // switch at runtime (enter
 One object with two verbs = two interactions with different key actions; each key picks among its own action, and `engine.interactions.options` lists
 one `{ action, id, label }` per key for a prompt that shows both:
 ```js
-engine.input.define('harvest', 'KeyF', '收获');
-engine.interactions.add(crop, { label: '浇水', onUse: water });                                      // E
-engine.interactions.add(crop, { label: '收获', action: 'harvest', enabled: () => ripe, onUse: harvest });   // F
+engine.input.define('take', 'KeyF', 'Take');
+engine.interactions.add(thing, { label: 'Inspect', onUse: inspect });                                // E
+engine.interactions.add(thing, { label: 'Take', action: 'take', enabled: () => ready, onUse: take });   // F
 ```
 **Who acts** is `engine.actor` (a world record id, default `'player'`). Interactions, trigger zones, objective-marker distances, the world simulation
 center and the default `ctx.actor` of ops all measure from `engine.actorPosition()`. To let the user drive a boat or switch squad members, set
@@ -163,7 +163,7 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
   it loads, together with the owed time, container goods and fields that name them; only ids the counter could have made are touched (own kind, `n` up
   to the saved counter, each `n` once), so an authored `crate-2` stays as it is. A migrate step that needs another part gets the whole save as its
   second argument: `migrate: { 1: (data, save) => … }`. <!-- r18-ignore-line -->
-- **Grid layers diff too**: cells authored in `content/grids.js` (`farm: { …, layers: { soil: [[i, j, { tilled: true }]] } }`) are the baseline;
+- **Grid layers diff too**: cells authored in `content/grids.js` (`plot: { …, layers: { soil: [[i, j, { tilled: true }]] } }`) are the baseline;
   the <!-- r18-ignore-line -->
   `grids` part (version 2) stores only changed cells (`set`) and emptied authored ones (`clear`), and keeps a diff for a grid the run does not
   have. <!-- r18-ignore-line -->

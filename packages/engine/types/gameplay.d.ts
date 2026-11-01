@@ -545,18 +545,21 @@ export type { Music };
 // Characters characters() -> engine.characters, engine.npcs
 // ======================================================================
 
-/** Skeleton of a style pack's custom character: root is the root node, body/head optional, limbs are the swinging limbs */
+/**
+ * A ready procedural body ({ rig }): root is the root node, body/head optional, limbs are the swinging limbs. A model asset carries the same shape
+ * by object name in root.userData.rig ({ body: 'hips', head: 'head', joints: ['armL'], limbs: [{ joint: 'legL', ... }] }), as an asset pack's humanoid does
+ */
 export interface CharacterRig {
   root: Object3D;
   body?: Object3D;
   head?: Object3D;
-  /** Named joints, exposed on the character as properties (lowpoly humanoid: armL armR legL legR) */
+  /** Named joints, exposed on the character as properties (a humanoid rig: armL armR legL legR) */
   joints?: Record<string, Object3D>;
   limbs?: { joint: Object3D; offset: number; amp: number; kind: 'arm' | 'leg'; side?: number }[];
 }
 /** Character parameters (shared by the player and NPCs) */
 export interface CharacterOptions {
-  /** Colors (default from the style pack's style.character.colors) */
+  /** Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair); the style tints by material role */
   colors?: { body?: ColorLike; skin?: ColorLike; legs?: ColorLike; hair?: ColorLike };
   /** Walking speed (m/s), default 4.5 */
   speed?: number;
@@ -587,12 +590,15 @@ export interface CharacterOptions {
   /** Whether it can jump, default true */
   canJump?: boolean;
   /**
-   * glTF model: what engine.assets.model() returned, or the name of a registered model asset (default style.character.model).
-   * A name builds the character at once with the placeholder body and swaps in a copy of the asset when it loads (see Character.ready / whenReady,
-   * event 'character:model')
+   * The body, one path for every kind: the name of a registered model asset, or what engine.assets.model() returned. A procedural builder name
+   * (from an asset pack) is built at once; a file model name shows a gray capsule and swaps in a copy when it loads (Character.ready / whenReady,
+   * event 'character:model'). Without model and rig: a gray capsule placeholder (warned once)
+   * @example engine.assets.manifest(yourAssets); engine.characters.createPlayer({ model: 'yourBody' })   // a generator or GLB name from an asset pack
    * @example engine.characters.createPlayer({ model: 'hero' })   // after engine.assets.manifest({ models: { hero: '/models/hero.glb' } })
    */
   model?: Object3D | string | null;
+  /** A ready procedural body (CharacterRig), used instead of model (a hand-built guard / pet) */
+  rig?: CharacterRig | null;
   /** Action name mapping { idle, walk, run, swim, jump, fall } (shorthand for animation) */
   clips?: { idle?: string; walk?: string; run?: string; swim?: string; jump?: string; fall?: string; drive?: string } | null;
   /** Skeletal animation state machine config (states, blend trees, one-shot actions), see AnimatorOptions */

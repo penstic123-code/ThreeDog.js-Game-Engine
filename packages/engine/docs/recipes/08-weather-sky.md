@@ -28,16 +28,16 @@ Fields: `cloud` cloud cover 0-1, `sun` sunlight multiplier, `fog` fog distance m
 With openWorld the weather module is already installed; pass its options through the preset: `openWorld({ camera: 'follow', weather: { types, autoPool } })`.
 
 ## 3. Changing sky colors, sun, stars (style pack)
-`sky.keyframes` in the style pack (lowpoly: its `index.js`):
+`sky.keyframes` in the style pack (your pack's `index.js`):
 `[time 0-1, zenith color, horizon color (= fog color), sunlight color, sunlight intensity, ambient intensity]`, interpolated by time;
-also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (see the comments in lowpoly for what they mean; `hoursPerDay` is timing, so it is a
+also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (see the comments in the style types, `types/style.d.ts`, for what they mean; `hoursPerDay` is timing, so it is a
 `sky()` option, not a style key). The look of rain and snow is in `style.weather.rain / snow` (shape, density, shaders, the game's own particles: recipe 44).
 
 ## 4. Time and brightness (game code)
 ```js
 engine.sky.timeOfDay = parseClock('19:30');    // jump to a time (0-1)
 engine.clock.timeScale = 0;                 // sky and game seconds stop together (2 = double speed); game seconds per day: sky({ dayLength: 600 }); the three kinds of time are in recipe 06
-engine.setFogFar(300);                    // base fog distance (meters); weather scales it
+engine.look.fog.set({ far: 300 });        // base fog distance (meters); weather scales it. engine.setFogFar(300) sets the same base value directly
 ```
 Fixed dusk: `openWorld({ time: 18.5 / 24, ... })` (a 0-1 fraction of the day) and do not pass `sky: presets.calendar.cycle` (the template does; the cycle
 is what moves the clock). `engine.sky.isDay` is `sunHeight > 0` with `sunHeight = sin((timeOfDay - 0.25) * 2π)`: true strictly between timeOfDay 0.25 and 0.75 (06:00 to 18:00 on the default 24-hour face; with `hoursPerDay: H` the same fractions, 0.25H to 0.75H), false at exactly 06:00 and 18:00, so 18:30 already reads as "night" in `describe().time.isDay`. `daylight` = `max(0, sunHeight)`. Keyframes only change colors, not this flip.
@@ -50,7 +50,7 @@ sky({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28, dayL
 sky({ seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }], dayLength: 360 });   // seasons of their own length
 ```
 **Don't modify directly** `sky.sun.intensity / color`, `sky.hemi`, `scene.fog`: the sky recomputes them every frame and overwrites your change (the
-console warns about it during development).
+console warns about it during development). Use `engine.look.lights` / `look.fog` (recipe 52), or take them over yourself (recipe 38).
 To darken or tint everything (a cave, a horror segment), write a modifier layer of your own; it stacks with the weather's 'weather' layer without
 overwriting it (multiplier layers vs `look.lights` overrides: [recipe 52](52-look.md#skymodify-vs-looklights)):
 ```js
@@ -66,7 +66,7 @@ combined result and is read-only (changing it directly triggers a warning during
 ## 5. Verify
 - Text: `npm run shot -- / --time 19:30 --weather dust --wait 2 --describe-only`, then look for "Time: 19:30..." and "Weather: dust (rain 0, snow 0, fog 0.35)".
   `describe().weather` has `name progress rain snow fog wind cloud`; `describe().time` has `clock day season isDay dayLength timeScale`.
-- Take a screenshot only after the look changed: `npm run shot -- / --time 19:30 --weather dust`. Related test: `npm test -- 现场参数`.
+- Take a screenshot only after the look changed: `npm run shot -- / --time 19:30 --weather dust`.
 
 ## 6. Day and night in game logic
 Day and night come only from the sky: test `engine.sky.isDay`, and fade with `engine.sky.daylight` (0-1). Don't decide it from the clock time

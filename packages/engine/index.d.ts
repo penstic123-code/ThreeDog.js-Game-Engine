@@ -66,10 +66,10 @@ export * as THREE from 'three';
 export function createEngine(opts: EngineOptions): Engine;
 /**
  * A style part that adds post effects to the ones before it (a plain { post: [...] } would replace the whole list); an effect with the same name
- * replaces that one in place. Style parts with it: createEngine({ style: [lowpoly, postAdd(myGrain, bloom({ strength: 0.6 }))] })
+ * replaces that one in place. Style parts with it: createEngine({ style: [basePack, postAdd(myGrain, bloom({ strength: 0.6 }))] })
  */
 export function postAdd(...effects: PostEffect[]): Style;
-/** A style part that removes post effects by name from the ones before it: createEngine({ style: [lowpoly, postRemove('ao', 'outline')] }) */
+/** A style part that removes post effects by name from the ones before it: createEngine({ style: [basePack, postRemove('ao', 'outline')] }) */
 export function postRemove(...names: string[]): Style;
 
 /** One openWorld part: false leaves the module out, true / omitted uses defaults, an object is that module's own options */
@@ -219,6 +219,12 @@ export { hud } from './types/generated/modules/hud/index';
 export function screenToGround(engine: Engine, ndcX: number, ndcY: number, opts?: { maxDistance?: number }): Vector3 | null;
 /** All easing functions: name -> function */
 export const EASINGS: Record<EaseName, (t: number) => number>;
+/**
+ * A grid of numbers (height, moisture, density, walkable...) as a function (x, z) -> value. data[j * width + i] sits at origin + (i, j) * cell.
+ * interp 'nearest' = flat steps, 'linear' (default) = bilinear, 'cubic' = smooth (clamp: true avoids overshoot). Outside: edge value, or `outside`.
+ */
+export function sampleGrid(data: ArrayLike<number>, opts: { width: number; height: number; cellSize?: number | [number, number]; size?: [number, number];
+  origin?: [number, number]; interp?: 'nearest' | 'linear' | 'cubic'; clamp?: boolean; outside?: number }): (x: number, z: number) => number;
 /** Name or function -> easing function */
 export function ease(e: Ease): (t: number) => number;
 /**

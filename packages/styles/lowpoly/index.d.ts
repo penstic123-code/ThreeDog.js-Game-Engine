@@ -5,9 +5,9 @@ import type { Style, AssetManifest, BufferGeometry, Object3D } from 'threedog';
 /** The lowpoly style pack: looks only (materials, sky, lighting, post, terrain colors, UI look). Mix with other parts: createEngine({ style: [lowpoly, { sky }] }) */
 declare const lowpoly: Style;
 export default lowpoly;
-/** The procedural models (pine, pineLow, roundTree, roundTreeLow, rock, flower, grass): name → generator */
+/** The procedural models (pine, pineLow, roundTree, roundTreeLow, rock, flower, grass, and the character body humanoid): name → generator */
 export const models: Record<string, (...args: any[]) => BufferGeometry | Object3D>;
-/** Asset pack of those models: engine.assets.manifest(assets) makes the names usable in content ({ model: 'pine' }) */
+/** Asset pack of those models: engine.assets.manifest(assets) makes the names usable in content ({ model: 'pine' }) and for characters ({ model: 'humanoid' }) */
 export const assets: AssetManifest & { name: 'lowpoly' };
 
 /** Re-exports of @threedog/post-effects (kept for style packs that still import them from here; import from @threedog/post-effects in new code) */

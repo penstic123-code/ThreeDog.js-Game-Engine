@@ -1,52 +1,50 @@
 # Starting a new game (a workspace under games/)
 
-Goal: create `games/farm/` (pick your own name) with its own page, modules, content data and tests, independent of other games. Start from the
-template (`npx threedog new-game farm`, section 0); the engine's own example is `examples/world/` in the package.
+Goal: create `games/my-game/` (pick your own name) with its own page, modules, content data and tests, independent of other games. Start from the
+template (`npx threedog new-game my-game`, section 0); the engine's own example is `examples/world/` in the package.
 
 ## 0. One-command setup (preferred)
 ```
-npm run new-game my-farm            # minimal open world
-npm run new-game my-farm --blank    # flat ground, a player and a follow camera only
+npm run new-game -- my-game                     # clean start: ground, player, follow camera, sky; no gameplay
+npm run new-game -- my-game --example           # the sample: hp / hunger, a rest op, apples, a searchable stash, a HUD counter
+npm run new-game -- my-game --style ./packs/mine   # a style pack of your own (path) or a published one (package name) instead of the empty style/ folder
 ```
-(npm treats `--blank` as its own config and the script reads it from the `npm_config_blank` environment variable, so write it exactly like this,
-without `-- --blank`. The CLI form takes the flag directly: `npx threedog new-game my-farm --blank`.)
+(The `--` matters: without it npm swallows the flags. The CLI form takes them directly: `npx threedog new-game my-game --example`. `--example` uses engine placeholders (gray box, capsule), so it works with any style.)
 The name may only contain lowercase letters, digits and dashes; an existing directory under `games/` with the same name is refused. What it does:
-1. Copies `packages/tools/templates/game/` to `games/my-farm/` (`__NAME__` in the files is replaced by the name).
-2. Creates the `node_modules/@threedog/my-farm` link and updates the workspace entry in `package-lock.json` (if offline, only a warning).
+1. Copies `packages/tools/templates/game/` to `games/my-game/` (`__NAME__` in the files is replaced by the name); `--example` copies `templates/example/` over it first.
+2. Creates the `node_modules/@threedog/my-game` link and updates the workspace entry in `package-lock.json` (if offline, only a warning).
 3. Runs `map` (generates GAMEMAP.md), `check` and the game's smoke test in turn. Any failing step stops and says why.
 
-The generated game is a minimal open world: `openWorld` + `interactions / inventory / content / hud`, 3 apples on the ground and one stash (a template
-in `content/templates.js` placed by `content/props.js`, searched through the op `stash.search`); its `main.js` also shows the game's own state
-registered with `describe.add` and `saves.register`, an op with `can` / `run`, and the `onFixed` / `onFrame` split; `--blank` copies the same template
-without `content/` and replaces `main.js` with `templates/blank/main.js` (no inventory, no content). The structure is the same as the manual one below.
-**Start clean from the full template** (when you did not use `--blank`): keep `createEngine`, `openWorld`, `start` and `window.engine`; replace the
-contents of `content/items.js pickups.js props.js templates.js actions.js`; in `main.js` delete the `game` object (hp / hunger), the
-`player.rest` op, the `onFixed` hunger timer, the HP counter in `onFrame` and the `stash.search` op; remove `sky: presets.calendar.cycle` if the
-game has no day cycle. `spawn` and `places` take any `{ x, z }` (or `{ x, y, z }`); `findSpawn` is only for generated terrain.
+The default game is deliberately empty: `openWorld` (terrain, follow camera, sky) + `content()`, a player, content files that are empty arrays / objects (each
+has one comment line saying what goes there and which recipe teaches it), and an empty style pack in `style/index.js` (every section is a commented-out stub;
+with it empty the engine shows gray placeholders; fill it with your own art using recipes 09 and 52). `CLAUDE.md` says "This game has no gameplay yet; build what DESIGN.md describes".
+`--example` adds the patterns: `interactions / inventory / hud`, 3 apples on the ground and one stash (a template in `content/templates.js` placed by
+`content/props.js`, searched through the op `stash.search`); its `main.js` shows the game's own state registered with `describe.add` and `saves.register`, an op
+with `can` / `run`, and the `onFixed` / `onFrame` split. `spawn` and `places` take any `{ x, z }` (or `{ x, y, z }`); `findSpawn` is only for generated terrain.
 To change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` / `firstPerson` / `rts` / `fixed`, or pass a camera module directly; there is
 no default).
 - The comments in `main.js` list further gameplay modules you can add; usage is in `../api/<module>.md`.
-- To change the starting point of new games, edit the real files in `packages/tools/templates/game/`.
+- To change the starting point of new games, edit the real files in `packages/tools/templates/game/` (and `templates/example/` for the sample).
 - `DESIGN.md` is an empty template: write your gameplay ideas there. `CLAUDE.md` only points the way (read `node_modules/threedog/docs/AI.md` first,
   then GAMEMAP, DESIGN) and does not copy engine rules.
-- There is no `tests/`: when `tests/specs.mjs` does not exist, `npm test -w games/my-farm` runs a smoke test automatically.
+- There is no `tests/`: when `tests/specs.mjs` does not exist, `npm test -w games/my-game` runs a smoke test automatically.
 
 ## 1. Creating the files by hand (to learn what each file is, or when the template doesn't fit)
 | File | Content |
 |---|---|
-| `games/farm/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game farm`) and set `name` to `@threedog/farm` (dependencies `threedog`, `@threedog/tools`, plus `@threedog/style-lowpoly` (it needs `@threedog/post-effects` too) and `@threedog/terrain-noise` when `main.js` imports them; scripts dev/build/preview/test/check/map) |
-| `games/farm/vite.config.js` | One line: `export default gameConfig(import.meta.dirname)` (imported from `@threedog/tools/vite`); *.html files in the directory are bundled automatically, no `input` needed. Without `@threedog/tools`, a plain vite config needs `worker: { format: 'es' }` (the engine's Workers are ES modules) or `vite build` fails; `threedog dev / build` on a folder with no vite config uses the preset |
-| `games/farm/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §5 for embedding |
-| `games/farm/main.js` | Install modules, compute places, `content.load`, game-specific logic |
-| `games/farm/content/index.js` | Combines the content files into one object |
-| `games/farm/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation props templates audio grids renames rules, plus the game's own kinds (rules.js) |
-| `games/farm/DESIGN.md` | Hand-written design decisions (a few lines of `- **decision**: reason`), copied into GAMEMAP.md |
-| `games/farm/CLAUDE.md` | A few lines: read `node_modules/threedog/docs/AI.md`, then this directory's GAMEMAP.md and DESIGN.md (copy the template's) |
-| `games/farm/public/` | This game's art assets (URL `/models/...`); keep Blender source files in `games/farm/art/models/`, `npm run assets -- -w farm` compresses them over |
+| `games/my-game/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game my-game`) and set `name` to `@threedog/my-game` (dependencies `threedog`, `@threedog/tools`, plus `@threedog/terrain-noise`, and your style pack (and `@threedog/post-effects` if the pack uses it) only when `main.js` imports it; the default style is the game's own `style/index.js`; scripts dev/build/preview/test/check/map) |
+| `games/my-game/vite.config.js` | One line: `export default gameConfig(import.meta.dirname)` (imported from `@threedog/tools/vite`); *.html files in the directory are bundled automatically, no `input` needed. Without `@threedog/tools`, a plain vite config needs `worker: { format: 'es' }` (the engine's Workers are ES modules) or `vite build` fails; `threedog dev / build` on a folder with no vite config uses the preset |
+| `games/my-game/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §5 for embedding |
+| `games/my-game/main.js` | Install modules, compute places, `content.load`, game-specific logic |
+| `games/my-game/content/index.js` | Combines the content files into one object |
+| `games/my-game/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation props templates audio grids renames rules, plus the game's own kinds (rules.js) |
+| `games/my-game/DESIGN.md` | Hand-written design decisions (a few lines of `- **decision**: reason`), copied into GAMEMAP.md |
+| `games/my-game/CLAUDE.md` | A few lines: read `node_modules/threedog/docs/AI.md`, then this directory's GAMEMAP.md and DESIGN.md (copy the template's) |
+| `games/my-game/public/` | This game's art assets (URL `/models/...`); keep Blender source files in `games/my-game/art/models/`, `npm run assets -- -w my-game` compresses them over |
 
 After creating them, run `npm install` once at the repository root (this links the new game into the workspaces so `threedog` can find it).
 
-Outside the engine repository, a game installs `threedog` and `three` (plus `@threedog/style-lowpoly` + `@threedog/post-effects` / `@threedog/terrain-noise` if it imports them,
+Outside the engine repository, a game installs `threedog` and `three` (plus your style pack, `@threedog/post-effects` / `@threedog/terrain-noise` if it imports them,
 and `@threedog/tools` as a dev dependency for the CLI and the vite preset). To use an engine folder on disk instead of npm, install it with
 `npm install --install-links <folder>`: a plain link skips the engine's own dependencies (Rapier, Recast) and the build cannot resolve them.
 
@@ -56,23 +54,23 @@ In a game's own repository, `threedog check`, `types` and `map` read only the ga
 The template's `tsconfig.json` checks the game files only (`checkJs`), with `lib` ESNext + DOM (dependency typings such as Rapier's use
 `Symbol.dispose`) and `skipLibCheck: true`; without a tsconfig, `threedog types` writes the same settings to `.threedog/tsconfig.types.json`.
 
-`games/farm/index.html` (minimal; the template's `index.html` has the same page with loading styles):
+`games/my-game/index.html` (minimal; the template's `index.html` has the same page with loading styles):
 ```html
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>农场</title><style>html,body{height:100%;margin:0;overflow:hidden;background:#141a17}#view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none}</style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My game</title><style>html,body{height:100%;margin:0;overflow:hidden;background:#141a17}#view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none}</style>
 </head><body><canvas id="view" tabindex="0"></canvas><script type="module" src="/main.js"></script></body></html>
 ```
 
-`games/farm/main.js`:
+`games/my-game/main.js`:
 ```js
-// Farm example: ... (this first comment line appears in the file table of GAMEMAP.md)
+// my-game: ... (this first comment line appears in the file table of GAMEMAP.md)
 import { createEngine, presets, openWorld, interactions, dialogue, inventory, quests, entities, content } from 'threedog';
-import lowpoly from '@threedog/style-lowpoly';              // optional style pack (the engine ships no art)
+import style from './style/index.js';                      // the game's own style pack (the engine ships no art)
 import { terrainPreset } from '@threedog/terrain-noise';   // optional terrain generator (nor a world shape)
 import data from './content/index.js';
 
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, ui: { loading: { title: '农场' } }, saveKey: 'farm' });
+const engine = createEngine({ canvas: document.getElementById('view'), style, ui: { loading: { title: 'My game' } }, saveKey: 'my-game' });
 // the preset only covers world and environment; the debug panel is installed in dev builds only (debug: true forces it in release too)
 engine.use(openWorld({ camera: 'follow', seed: 42, terrain: terrainPreset(), time: 0.3 }),
   // add gameplay modules as the game needs (a shooter has no inventory)
@@ -97,7 +95,7 @@ otherwise English) unless you set `createEngine({ locale })`. A game without ter
 the level generator function under `models` in `engine.assets.manifest({ name, models })`, use `level({ url: name })` and pick your own modules, then
 create the player and install content in `level:loaded`.
 
-`games/farm/content/index.js`:
+`games/my-game/content/index.js`:
 ```js
 import items, { startItems } from './items.js';
 import places from './places.js';
@@ -106,13 +104,13 @@ export default { items, startItems, places };
 `content/places.js`: `export default { home: 'flat ground found at the start (coordinates computed in main.js)' };`
 
 ## 2. Verify
-1. `npm run map` -> generates `games/farm/GAMEMAP.md`; check the "engine modules" and "page /" sections.
+1. `npm run map` -> generates `games/my-game/GAMEMAP.md`; check the "engine modules" and "page /" sections.
 2. `npm run check` -> content validation points out wrong file names, ids and clock-time formats; `npm run types` finds misused engine APIs.
-3. `npm run shot -- -w farm / --describe-only` -> the text has a `player` line with its position, the module list, and no "still loading".
-4. `npm test -w games/farm` -> without `tests/specs.mjs` it runs a smoke test (the page opens, the engine is ready, the console has no errors); to
-   test gameplay, write `games/farm/tests/specs.mjs` in the style of the engine repository's `packages/engine/tests/specs.mjs`.
-5. To see the picture: `npm run shot -- -w farm /` (one image in `games/farm/.threedog/shots/`); while developing run `npm run dev -w games/farm` (or
-   `npm run dev -- farm`) and open the printed address; read errors in `games/farm/.threedog/errors.log`.
+3. `npm run shot -- -w my-game / --describe-only` -> the text has a `player` line with its position, the module list, and no "still loading".
+4. `npm test -w games/my-game` -> without `tests/specs.mjs` it runs a smoke test (the page opens, the engine is ready, the console has no errors); to
+   test gameplay, write `games/my-game/tests/specs.mjs` in the style of the engine repository's `packages/engine/tests/specs.mjs`.
+5. To see the picture: `npm run shot -- -w my-game /` (one image in `games/my-game/.threedog/shots/`); while developing run `npm run dev -w games/my-game` (or
+   `npm run dev -- my-game`) and open the printed address; read errors in `games/my-game/.threedog/errors.log`.
 
 ## 3. Preset parts
 Every `openWorld()` part takes `false` or its module's options object, for example
@@ -145,4 +143,4 @@ root is laid exactly over it. So the layout decides:
 <section style="position:relative;width:640px;height:360px"><canvas id="view" style="width:100%;height:100%;display:block"></canvas></section>   <!-- in a page -->
 ```
 A canvas with no CSS size takes its size from its own pixel buffer, which would grow on every resize; the engine then sizes it to the window and warns
-once in dev. The pixel ratio (`createEngine({ pixelRatio })`, adaptive resolution) works as before on top of the CSS size.
+once in dev. The pixel ratio (`createEngine({ pixelRatio })`, adaptive resolution) applies on top of the CSS size.

@@ -39,7 +39,7 @@ Rules that keep ops replayable and network-ready:
 - **All "may I" checks live in `can`**, so `run` never stops halfway. A failure always has a reason (camelCase English). Show it to the player through
   i18n (`e.t('op.shop.buy.' + r.code)`); the engine shows nothing itself.
 - An op may call another op inside `run` (logged with `depth`); `can` must not call `run` or change state.
-- Name ops `noun.verb`. A dot means "asking to do"; events (`noun:action`) mean "already happened". `run` keeps emitting your domain events as before.
+- Name ops `noun.verb`. A dot means "asking to do"; events (`noun:action`) mean "already happened". `run` emits your own domain events itself.
 
 ## 2. Who calls it, and when
 | Caller | How | History `phase` / `source` |
@@ -172,4 +172,4 @@ What atomic covers, honestly: it copies the save parts that declared `saves.regi
 
 Causal trace (`events.traceSize > 0`, recipe 06): failed ops are noted as `op:<name>` with their `code`; `collision.lineClear(a, b, { who })` as `sight` (blocked lines always, clear ones for the focused object only); NPC state changes as `npc:state`. A game's behavior notes its own mode switch with `engine.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } })`; `events.traceFocus('guard-1')` makes one object verbose.
 
-Atomic details: a rolled-back run still bumps `ops.revision` (it only goes up, never back to an old number) and its committed nested ops show in `ops.recent()` as `ok: false` with code `rolledBack`. `after` hooks run in commit order (nested first, then the outer op) once the outermost atomic op ends. The rollback does not run `afterLoad` and mutes the events its loads would emit, so atomic state must be plain data. `reason` is a deprecated alias of `code` on failed results, kept until 1.0.
+Atomic details: a rolled-back run still bumps `ops.revision` (it only goes up, never back to an old number) and its committed nested ops show in `ops.recent()` as `ok: false` with code `rolledBack`. `after` hooks run in commit order (nested first, then the outer op) once the outermost atomic op ends. The rollback does not run `afterLoad` and mutes the events its loads would emit, so atomic state must be plain data. Failed results have no `reason`: reading it throws `renamed-api` and points to `code`.

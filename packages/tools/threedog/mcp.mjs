@@ -9,9 +9,10 @@
 //   The js tool (arbitrary code in the page) exists only with --allow-js.
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { pickWorkspace } from '../paths.mjs';
+import { pickWorkspace, ENGINE } from '../paths.mjs';
+import { join } from 'node:path';
 import { execute } from './dispatch.mjs';
-import { EXTRA_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA } from './mcp-extra.mjs';
+import { EXTRA_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide } from './mcp-extra.mjs';
 import { NONE } from './runtime.mjs';
 
 // stdout carries protocol messages only: anything else that prints goes to stderr
@@ -29,6 +30,7 @@ const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 const str = description => ({ type: 'string', description });
 const num = description => ({ type: 'number', description });
 const obj = (properties = {}, required = [], extra = {}) => ({ type: 'object', properties, required, ...extra });
+const SNAP_WIDTH = 480;   // screenshots come back small: numbers first, one image per round (recipe 35)
 const MAX = num('Output cap in characters (default 500)');
 /** op arguments object → key=value strings; commands.mjs converts them back by the op's args shape */
 const pairs = args => Object.entries(args
@@ -122,9 +124,24 @@ const TOOLS = {
     args: a => a.name ? [a.name] : [],
   },
   snap: {
-    description: 'Screenshot returned as an image (also saved to .threedog/shots/). Only for what needs eyes (looks, animation, UI overlap); use describe for logic.',
-    schema: obj({ name: str('File name without extension (default "snap")') }),
-    args: a => a.name ? [a.name] : [],
+    description: 'Screenshot as a small image (480 px wide; full file saved to .threedog/shots/). Check numbers (style compare, describe look) before reading the image.',
+    schema: obj({ name: str('File name without extension (default "snap")'), size: num('Image width in pixels (default 480); raise it only to read fine detail') }),
+    args: a => [...(a.name ? [a.name] : []), '--width', String(a.size > 0 ? a.size : SNAP_WIDTH)],
+  },
+  style_palette: {
+    cmd: 'style-palette',
+    description: 'Measure a reference picture: main colors with share, hue, brightness and a summary line. Start of any look work; read before guessing colors. Needs no game.',
+    schema: obj({ image: str('Picture file (png, jpg, webp), relative to the game folder'), n: num('How many colors (2 to 32, default 8)'),
+      average: { type: 'boolean', description: 'Also the overall mean color (use it for exposure and tint)' },
+      ignore_ui: { type: 'boolean', description: 'Cut a flat phone-UI frame around the picture' }, region: str('Only this rectangle "x,y,w,h" in pixels') }, ['image']),
+    args: a => [a.image, ...opt('--n', a.n), ...(a.average ? ['--average'] : []), ...(a.ignore_ui ? ['--ignore-ui'] : []), ...opt('--region', a.region)],
+  },
+  style_compare: {
+    cmd: 'style-compare',
+    description: 'Numbers for two pictures: brightness, saturation, contrast, fine detail, main color. Run after each snap; read it before any image. Needs no game.',
+    schema: obj({ reference: str('Reference picture file'), screenshot: str('Your screenshot, e.g. ".threedog/shots/snap.png"'),
+      region: str('Optional rectangle "x,y,w,h" cut from both') }, ['reference', 'screenshot']),
+    args: a => [a.reference, a.screenshot, ...opt('--region', a.region)],
   },
   snap_describe: {
     cmd: 'snap-describe',
@@ -183,7 +200,7 @@ const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const send = msg => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
 const INSTRUCTIONS = RESULT_SHAPE + ' Drives the threedog game running under `npm run dev` (the dev bridge). No game running: call play. Then status or describe; change state with op (ops lists what ' +
   'is possible); step / press / hold advance game time and pause a real page (resume restores it); errors reads new page errors. If a tool cannot reach the game it ' +
-  'names the cause and the next step (play starts the server).';
+  'names the cause and the next step (play starts the server). ' + situationGuide(join(ENGINE, 'docs', 'AI.md'));   // the same table as AI.md "When something happens" (one source)
 
 let queue = Promise.resolve();   // tool calls run one at a time, in order: they drive one shared game
 async function handle(m) {

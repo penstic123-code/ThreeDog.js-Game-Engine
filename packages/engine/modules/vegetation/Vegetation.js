@@ -7,8 +7,9 @@ import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.
 import { xzOf } from '../../core/math.js';
 import { GroundChunks } from './groundChunks.js';
 import { swayOf } from './lookWind.js';
+import { fadeBand, nearFadePatch } from './nearFade.js';
 // parameters read by vegetation.add(); keys inside rule (sent to the worker thread)
-const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided'];
+const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided', 'fade'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
 
 // Single-instance removal/restore (chop a tree, mine a rock): records are owned by vegetation and saved with the save (save key 'vegetation', entry
@@ -71,6 +72,8 @@ export class Vegetation {
    *   wind          wind sway amplitude (0 disables)
    *   nearOnly      generate only near the player (grass, flowers)
    *   maxRing       not drawn beyond this ring count
+   *   fade          near-only species shrink out over a band [start, end] metres from the player instead of popping at the ring edge (default on for
+   *                 nearOnly, end = maxRing x chunk size; false = hard edge; { start, end } sets the band)
    *   lodRing       switch to low-poly beyond this ring count
    *   castShadow / shadowRing  whether to cast shadows, and within how many rings
    *   material      custom material, any three.js material (optional, default is the style pack's 'vegetation' role); wind, cloud
@@ -80,14 +83,18 @@ export class Vegetation {
     checkOptions(`vegetation.add('${name}')`, o, ADD_KEYS);
     checkOptions(`vegetation.add('${name}').rule`, o.rule, RULE_KEYS);
     const sw = swayOf(this.engine), wind = o.wind && sw ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // look.wind 'sway' (style.wind.glsl or a game's patch) replaces the sway shape
-    const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage' });
+    // distance fade of near-only species (nearFade.js): on by default for them, fade: false keeps the hard ring edge, { start, end } sets the band in metres
+    if (o.fade && typeof o.fade === 'object') checkOptions(`vegetation.add('${name}').fade`, o.fade, ['start', 'end']);
+    const maxRing = o.maxRing ?? (o.nearOnly ? 1 : 99);
+    const band = o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.CHUNK), nf = band && nearFadePatch(band);
+    const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage', patches: nf ? [nf.patch] : undefined });
     const mdl = o.model && fromModel(o.model, `vegetation.add('${name}')`);
     let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, `vegetation.add('${name}').lodGeometry`).geometry : o.lodGeometry || null;
     if (mdl && lod && !lod.groups.length) { lod = lod.clone(); lod.addGroup(0, Infinity, 0); }   // a material array draws nothing without groups
     const sp = {
       name, geometry: mdl ? mdl.geometry : o.geometry, lodGeometry: lod,
       rule: { salt: hashName(name), ...(o.rule || {}) },   // random seed from the name: placement is unaffected by registration order
-      nearOnly: !!o.nearOnly, maxRing: o.maxRing ?? (o.nearOnly ? 1 : 99), lodRing: o.lodRing ?? 1,
+      nearOnly: !!o.nearOnly, maxRing, fade: band, fadeUniforms: nf?.uniforms ?? null, lodRing: o.lodRing ?? 1,
       castShadow: o.castShadow ?? !o.nearOnly, shadowRing: o.shadowRing ?? 1, receiveShadow: o.receiveShadow ?? true,
       material: mdl ? mdl.materials.map(fx)
         : fx(o.material ?? makeMaterial('vegetation', { vertexColors: true, side: o.doubleSided ? THREE.DoubleSide : THREE.FrontSide }, this.engine)),
@@ -116,6 +123,11 @@ export class Vegetation {
     if (!sp) { warnMissing('vegetation', name, [...this.species.keys()]); return; }
     sp.shadowRing = ring;
     this.host.refreshLevels();
+  }
+  /** @internal module frame hook: the fade band is centred on the view focus (the player in a follow camera) */
+  updateFade() {
+    const f = this.engine.focus;
+    for (const sp of this.species.values()) sp.fadeUniforms?.uNearFadeCenter.value.copy(f);
   }
   /** @internal terrain plumbing */
   baseNames() { return this.list().filter(s => !s.nearOnly).map(s => s.name); }

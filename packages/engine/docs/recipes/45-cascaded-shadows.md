@@ -1,6 +1,6 @@
 # Cascaded shadows
 
-Off by default: the sun casts one shadow map around the focus (`extent`, default 70 m), exactly as before. Cascades split the sun's shadow
+Off by default: the sun casts one shadow map around the focus (`extent`, default 70 m). Cascades split the sun's shadow
 along the view into 2-4 maps (three's CSM addon): sharp near the camera, coarse far away. Use them when near shadows look blocky and the
 world is bigger than one map covers well.
 

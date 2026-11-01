@@ -1,36 +1,36 @@
-// Create a new game in one step: npm run new-game name [--blank]
-// --blank: the minimal blank template (templates/blank: just flat ground + player + camera, no inventory / content); without it, the open-world template (templates/game).
-// Copies packages/tools/templates/game/ to games/<name>/, replacing __NAME__ in files with the name; then updates the lock, generates GAMEMAP, runs check and the smoke test.
-// The templates are real files; to change the starting point of new games, edit that directory directly.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+// Create a new game in one step: npm run new-game -- name [--example] [--style empty|<path-or-package>]
+// Default: the clean template (templates/game): ground, player, follow camera, sky, empty content files, an empty style/ pack, no gameplay.
+// --example: overlays templates/example (hp, hunger, rest op, apples, stash, HUD) for people who want to see patterns.
+// --style: empty (default, the game's own empty style/ folder) or a style pack by path or package name. --blank is accepted and means the default.
+// Copies the template layers to games/<name>/, replacing __NAME__ in files with the name; then updates the lock, generates GAMEMAP, runs check and the smoke test.
+// The templates are real files; to change the starting point of new games, edit those directories directly.
+import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { npm } from './lib/proc.mjs';
+import { parseArgs, applyStyleDeps, copyTemplates } from './lib/scaffold.mjs';
 import { ROOT, TOOLS, GAMES, rel, workspaces } from './paths.mjs';
 
-// npm swallows the --blank in npm run new-game name --blank (it becomes npm config and never reaches argv), so the env var npm_config_blank is also accepted
-const blank = process.argv.includes('--blank') || process.env.npm_config_blank === 'true';
-const name = process.argv.slice(2).find(a => !a.startsWith('-'));
-if (!name) { console.error('Usage: npm run new-game name [--blank] (lowercase letters, digits and hyphens only, e.g. my-farm; --blank is the minimal blank template)'); process.exit(1); }
+// npm swallows flags in npm run new-game name --example (they become npm config and never reach argv): use `npm run new-game -- name --example`; the npm_config_* env vars are read as a fallback (parseArgs)
+const opts = parseArgs(process.argv.slice(2), process.env);
+const USAGE = 'Usage: npm run new-game -- name [--example] [--style empty|<path-or-package>] (name: lowercase letters, digits and hyphens only, e.g. my-farm; --blank is accepted and means the default)';
+if (opts.error) { console.error(opts.error + '\n' + USAGE); process.exit(1); }
+const name = opts.name;
+if (!name) { console.error(USAGE); process.exit(1); }
 if (!/^[a-z0-9-]+$/.test(name)) { console.error(`name "${name}" is not allowed: only lowercase letters, digits and hyphens (a-z 0-9 -)`); process.exit(1); }
 const dir = join(GAMES, name);
 if (existsSync(dir) || workspaces().some(d => d.endsWith(`/${name}`) || d.endsWith(`\\${name}`))) { console.error(`${rel(dir)} already exists, pick another name`); process.exit(1); }
 
-/** Copy recursively, replacing __NAME__ in text files with the name (empty files and .gitkeep are copied too) */
-function copy(from, to, skip = []) {
-  mkdirSync(to, { recursive: true });
-  for (const e of readdirSync(from, { withFileTypes: true })) {
-    if (skip.includes(e.name)) continue;
-    if (e.isDirectory()) copy(join(from, e.name), join(to, e.name));
-    else writeFileSync(join(to, e.name), readFileSync(join(from, e.name), 'utf8').replaceAll('__NAME__', name));
-  }
-}
-copy(join(TOOLS, 'templates', 'game'), dir, blank ? ['content'] : []);
-if (blank) copy(join(TOOLS, 'templates', 'blank'), dir);   // overwrites main.js
+// Clean template (templates/game) = ground, player, follow camera, sky, empty content, empty style/; --example overlays the old sample (templates/example)
+copyTemplates(dir, { ...opts, name });
+// package.json dependencies follow the style choice
+const pkgPath = join(dir, 'package.json'), pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+pkg.dependencies = applyStyleDeps(pkg.dependencies, opts.style);
+writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 // MCP for Claude Code opened in the game folder: plain node on this repo's tools (npx costs ~2.5 s and needs `cmd /c` on Windows); the path is relative so the repo can move
 const mcpBin = relative(dir, join(TOOLS, 'bin', 'threedog.mjs')).replaceAll('\\', '/');
 writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [mcpBin, 'mcp'] } } }, null, 2) + '\n');
-console.log(`✓ created ${rel(dir)}${blank ? ' (blank template)' : ''}`);
+console.log(`✓ created ${rel(dir)} (style: ${opts.style}${opts.example ? ', example sample' : ''})`);
 
 // Workspace link (node_modules/@threedog/<name> → the game directory), which is how npm builds it too; a junction needs no administrator rights on Windows, and non-ASCII paths are fine.
 // This way the game can be found by -w name without running npm install (which reinstalls and is slow)

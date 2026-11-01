@@ -1,6 +1,7 @@
-# Shooting and picking (first person; cast a ray from the screen center / mouse position)
+# Shooting and picking (cast a ray from the screen center or the mouse position, with any camera)
 
-Requires `openWorld({ camera: 'firstPerson' })` (or `firstPersonCamera()` by hand); a score display needs `hud()`.
+Works with any camera (`follow`, `firstPerson`, `rts`, `fixed`): a click-to-select strategy game, a puzzle that taps tiles or a first-person shooter all
+use the same ray. The example below is the first-person case; a score display needs `hud()`.
 The ray API is `engine.pick(ndcX, ndcY, opts)`: screen coordinates -1..1 (0, 0 is the screen center, which is also the first-person crosshair); it
 returns the nearest hit `{ point, distance, object, ... }` or null. **If you only want to hit your own targets, pass `targets: [array of objects]`; no
 ray registration is needed.**
@@ -8,12 +9,12 @@ ray registration is needed.**
 ## 1. A first-person shooting range (copy it and it runs)
 ```js
 import { createEngine, presets, openWorld, hud, THREE, makeMaterial } from 'threedog';
-import lowpoly from '@threedog/style-lowpoly';
+import style from './style/index.js';                    // the game's own style pack
 import { terrainPreset } from '@threedog/terrain-noise';
 
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, saveKey: 'range' });
+const engine = createEngine({ canvas: document.getElementById('view'), style, saveKey: 'range' });
 engine.use(openWorld({ seed: 7, terrain: terrainPreset(), camera: 'firstPerson' }), hud());   // camera (required): 'follow' | 'firstPerson' | 'rts' | 'fixed', or pass a module like firstPersonCamera({ height: 1.7 })
-engine.input.define('shoot', ['Mouse0', 'KeyF'], '开枪');      // the left mouse button is a key too (Mouse0 / Mouse1 / Mouse2); either it or KeyF works
+engine.input.define('shoot', ['Mouse0', 'KeyF'], 'Shoot');      // the left mouse button is a key too (Mouse0 / Mouse1 / Mouse2); either it or KeyF works
 engine.characters.createPlayer({ ...presets.player.aim, spawn: engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 }) });
 await engine.start();                                    // place targets after the terrain is generated
 
@@ -29,7 +30,7 @@ const p0 = engine.player.position;
 for (let i = 0; i < 6; i++) addTarget(p0.x + (i - 2.5) * 3, p0.z - 15);
 
 let score = 0;
-engine.hud.counter('score', { label: '命中', value: 0 });
+engine.hud.counter('score', { label: 'Hits', value: 0 });
 engine.describe.add('range', () => ({ score, targets: targets.length }));   // visible with the dev bridge: threedog describe range
 
 engine.onFixed(() => {                                   // firing is gameplay: read it in fixed so the result is independent of frame rate
@@ -51,8 +52,8 @@ engine.onFixed(() => {                                   // firing is gameplay: 
 - **The first click**: on desktop, first person by default needs one click on the canvas to lock the mouse. That press only locks: it is not delivered
   as `Mouse0` and not as a click, so it cannot fire (every later click after Esc and a re-lock behaves the same). `swallowLockClick: false` on the
   camera delivers it too.
-- **Adding a gamepad button**: `engine.input.define('shoot', ['Mouse0', 'KeyF', 'PadRT'], '开枪')`; the key names go into the settings key table and the
-  UI prompts. A touch tap does not count as `Mouse0` (give phones a button: `engine.input.touchButton('shoot', '开枪')`).
+- **Adding a gamepad button**: `engine.input.define('shoot', ['Mouse0', 'KeyF', 'PadRT'], 'Shoot')`; the key names go into the settings key table and the
+  UI prompts. A touch tap does not count as `Mouse0` (give phones a button: `engine.input.touchButton('shoot', 'Shoot')`).
 - To hit terrain / houses / registered static objects, don't pass `targets` (the default hits what was registered with `rays.addStatic`); to hit rigid
   bodies too, pass `targets: 'all'`.
 

@@ -17,5 +17,6 @@ export const RENAMED = {
   lookClouds: { old: 'engine.look.clouds', now: 'engine.look.cloudShadow', find: '\\blook\\.clouds\\b' },
   cameraOverride: { old: 'engine.cameraOverride = {...}', now: "const cam = engine.takeCamera('owner', { focus }); cam.remove() releases it", find: '\\bcameraOverride\\s*=(?!=)' },
   viewsPos: { old: "views.define(name, { pos })", now: 'views.define(name, { position: [x, y, z] })', find: null },
+  characterBody: { old: 'style.character.create / .model / .colors (a character body or tint from the style pack)', now: "character bodies are assets: createPlayer({ model: 'yourBody' }) (a generator from an asset pack via engine.assets.manifest(yourAssets)), any GLB asset name, or { rig } for a ready body; part colors are the style's material roles skin / cloth / trousers / hair, or { colors } per character", find: '\\bstyle\\.character\\??\\.(create|model|colors)\\b|\\bcharacter:\\s*\\{[^}]*\\b(create|colors):' },
   reason: { old: 'result.reason (ops.run / can / undo failures), ops.recent() / catalog(op).last / net:result .reason', now: 'result.code (the same name in history, catalog and net:result)', find: null },
 };

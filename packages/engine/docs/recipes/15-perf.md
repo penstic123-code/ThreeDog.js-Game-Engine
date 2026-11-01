@@ -72,6 +72,14 @@ false = all on the main thread, same results.
 - `engine.threads.pure(fn)` / `world.simulate(..., { worker: true })`: the function is recompiled from its source, so it cannot capture outside
   variables or imports; put constants inside it. A bad outside variable is reported by name on the first call.
 
+## 4b. Render scale (resolution) is never lowered silently
+- Default render scale: `min(devicePixelRatio, 1.5)`; the low tier uses at least 0.75 x devicePixelRatio (a 2x laptop screen gets 1.5, not 1), never above 1.5.
+- Adaptive resolution (`createEngine({ adaptiveResolution, targetFps })`, default on, floor 0.6) lowers the scale by 0.1 per second under the target fps. The first
+  time it does, dev builds warn once: `render scale X -> Y because fps Z ...; turn off with adaptiveResolution: false`. It is the only thing lowered automatically
+  (shadows and post are never traded first).
+- `describe().render.scale`: `{ current, devicePixelRatio, upscaled, autoLowered, adaptive, floor, max }`. `upscaled: true` means current < devicePixelRatio, the picture
+  is softer than the screen: if that looks wrong in a screenshot, check this before the style. Fixed quality: `pixelRatio: n` plus `adaptiveResolution: false`.
+
 ## 5. Verify (once before and once after, under the same conditions)
 - `npm run perf` (native vs engine vs per-module cost of openWorld), compared with the tables in `../PERF.md`; differences under 10-30% are noise.
 - Compare a specific scenario: `npm run shot -- / --pos x,z --time 12:00 --describe-only` to see draw calls and triangles.

@@ -13,11 +13,14 @@ import { diagnose } from './diagnose.mjs';
 import { readRuntime, trailer, NONE } from './runtime.mjs';
 import { play, status } from './play.mjs';
 import { verify, scenarioReport } from './verify.mjs';
+import { styleCommand } from './style-cmd.mjs';
 
 /** Commands outside commands.mjs: they work (or explain why not) without a running page */
 export const EXTRA = {
   play: 'start the game for the AI: starts the dev server if none runs, waits for the bridge and the engine, prints the page address (play --stop stops it)',
   status: 'is it ready: engine ready / loading / page errors / paused or frozen, or which of four causes keeps the bridge from answering',
+  'style-palette': 'measure a reference picture, no game needed: style-palette art/reference/ref.png [--n 8] [--average] [--ignore-ui] [--region x,y,w,h] (same as threedog style palette)',
+  'style-compare': 'numbers for two pictures, no game needed: style-compare ref.png .threedog/shots/snap.png [--region x,y,w,h] (same as threedog style compare)',
   verify: 'run a scenario (tests/scenarios/<name>.json) and report what it tested and what it never touched: verify barter',
 };
 export const ALL = { ...COMMANDS, ...EXTRA };
@@ -39,13 +42,15 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
   try {
     if (cmd === 'play') r = await play(dir, { page, stop: args.includes('--stop') });
     else if (cmd === 'status') r = await status(dir, { page });
+    else if (cmd.startsWith('style-')) r = await styleCommand(dir, cmd, args);
     else {
       devServer(dir);
       const base = bridgeDriver(dir, { page });
-      driver = { ...base, screenshot: async () => { const png = await base.screenshot(); onShot?.(png); return png; } };
+      driver = base;
       r = cmd === 'verify' ? await verify(driver, dir, args[0]) : cmd === 'scenario' ? await scenarioReport(driver, dir, args[0]) : await run(driver, cmd, args, { dir });
     }
     runtime = r.runtime ?? null;
+    if (r.image) onShot?.(r.image);   // snap: the picture the caller should see (it may be smaller than the saved file)
   } catch (e) {
     const dx = BRIDGE_ERR.test(String(e.message)) ? await diagnose(dir, e).catch(() => null) : null;
     thrown = true;

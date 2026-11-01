@@ -40,7 +40,7 @@ function options(args) {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--max') opt.max = +args[++i]; else if (args[i] === '--full') opt.full = true; else if (args[i] === '--all') opt.all = true;
     else if (args[i] === '--limit') opt.limit = args[++i]; else if (args[i] === '--hidden') opt.hidden = true;
-    else if (args[i] === '--find') opt.find = args[++i];
+    else if (args[i] === '--find') opt.find = args[++i]; else if (args[i] === '--width') opt.width = +args[++i];
     else if (args[i] === '--only') opt.only = val(i++).split(',').filter(Boolean);
     else if (args[i] === '--ignore') opt.ignore = val(i++).split(',').filter(Boolean);
     else if (args[i] === '--tolerance') opt.tolerance = +args[++i];
@@ -62,7 +62,7 @@ export const COMMANDS = {
     '"engine.sky.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes)',
   js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.sky.timeOfDay" / js --file path',
   'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
-  snap: 'save a screenshot to .threedog/shots/name.png (snap name)',
+  snap: 'save a screenshot to .threedog/shots/name.png (snap name; --width N scales the returned image down, the saved file stays full size)',
   errors: 'page errors with id, time, tick, source and count: errors = new since the last read; errors latest [N] = the last N, repeatable; errors --since E5 = after id 5 (known classes come with the cause and the doc page)',
   reload: 'reload the page',
   resume: 'resume real-time running (the page is paused after step / press)',
@@ -146,7 +146,16 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       mkdirSync(join(dir, '.threedog/shots'), { recursive: true });
       writeFileSync(join(dir, `.threedog/shots/${name}.png`), png);
       const brief = lines(await ev(driver, 'brief', {}), 2);
-      return { ok: true, text: `✓ Screenshot .threedog/shots/${name}.png (${(png.length / 1024).toFixed(0)} KB)\n` + brief };
+      // --width N: the file keeps the full size (style compare reads it); the picture returned to the caller (MCP image) is scaled down to N px wide
+      let image = png;
+      if (opt.width && opt.width > 0) {
+        const b64 = await driver.evaluate(`async ([src, w]) => { const i = new Image(); i.src = 'data:image/png;base64,' + src; await i.decode();
+          if (i.naturalWidth <= w) return null; const c = document.createElement('canvas'); c.width = w; c.height = Math.max(1, Math.round(i.naturalHeight * w / i.naturalWidth));
+          const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(i, 0, 0, c.width, c.height); return c.toDataURL('image/png').split(',')[1]; }`,
+        [png.toString('base64'), opt.width]);
+        if (b64) image = Buffer.from(b64, 'base64');
+      }
+      return { ok: true, image, text: `✓ Screenshot .threedog/shots/${name}.png (${(png.length / 1024).toFixed(0)} KB)${image !== png ? `, image shown ${opt.width} px wide` : ''}\n` + brief };
     }
     case 'snap-describe': {
       const [mode, name] = rest, snapDir = join(dir, 'tests', 'snapshots');

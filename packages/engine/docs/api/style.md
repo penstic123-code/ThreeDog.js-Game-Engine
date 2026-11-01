@@ -1,24 +1,24 @@
-# Style pack Style — createEngine({ style }), all the look (example: @threedog/style-lowpoly, packages/styles/lowpoly/index.js)
+# Style pack Style — createEngine({ style }), all the look (any style pack: a folder with index.js; recipes/09-style-pack.md)
 
 - **Style** fields (all optional):
   - `name?: string` Style pack name
-  - `exposure?: number | number[][] | ((sky: any) => number)` Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number, evaluated by the sky module every frame. engine.look.tone.set changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
-  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look (lowpoly: 'aces')
+  - `exposure?: number | number[][] | ((sky: any) => number)` Exposure, default 1: a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number, evaluated by the sky module every frame. engine.look.tone.set changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
+  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look
   - `background?: ColorLike` Background color (when there is no sky module)
   - `post?: (Omit<import('./generate… & { slot? })[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/post-effects'
   - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
   - `antialias?: boolean` Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier; createEngine({ antialias }) wins
   - `lighting?: MaterialLighting` Light shaping for every lit material of the pack (shadow tint, rim, wrap, glsl); a material's `lighting` wins, `lighting: false` opts out
   - `seasons?: StyleSeasons` Seasonal tint: { spring: { foliage, ground }, ... }. mode 'multiply' (default) multiplies the color onto the surface (pick tints near white: orange times green is muddy); 'mix' moves the surface `strength` (0-1, default 0.5) of the way to the color. Season names are the other keys, so none can be called mode or strength
-  - `clouds?: { shadow?: number; scale?: number; speed?: number[] }` Cloud shadow: shadow darkest level 0–1 (default 0 = no cloud shadows; lowpoly 0.55), scale cloud size (smaller means bigger clouds), speed [x, z]
-  - `palette?: Record<string, ColorLike>` Named colors the procedural model generators read (trees, rocks, grass: a generator written with `function` gets them as this.palette; lowpoly keys: bark, pine, leaf, rock, grassTip...). One place to retint all of them, e.g. style: [lowpoly, { palette: { leaf: 0xd98a3a } }]; keys left out keep the pack's values
+  - `clouds?: { shadow?: number; scale?: number; speed?: number[] }` Cloud shadow: shadow darkest level 0–1 (default 0 = no cloud shadows), scale cloud size (smaller means bigger clouds), speed [x, z]
+  - `palette?: Record<string, ColorLike>` Named colors the procedural model generators read (trees, rocks, grass: a generator written with `function` gets them as this.palette; a pack may use keys like bark, pine, leaf, rock, grassTip...). One place to retint all of them, e.g. style: [basePack, { palette: { leaf: 0xd98a3a } }]; keys left out keep the pack's values
   - `wind?: StyleWind` Wind: frequency sway frequency multiplier
   - `terrain?: StyleTerrain` Terrain colors etc.
   - `sky?: StyleSky` Sky
   - `weather?: StyleWeather` Weather look
   - `water?: StyleWater` Water look
   - `pickup?: { color?, size?, lift?, model? }` Default look of pickups on the ground: color (the item's own color wins), size (meters), lift height above ground (meters), model(item, { color, size }, engine) builds the shape (a geometry gets materials.pickup; make materials with engine.makeMaterial; without model a plain box)
-  - `character?: { model?, colors?, create?, animation? }` Default character: colors palette; create(engine, colors) returns the procedural character (without it a gray capsule); model names a registered model asset every character uses unless it passes its own model (the procedural body shows until it loads); animation.fade skeletal animation transition seconds
+  - `character?: { animation?: { fade?: number } }` How character motion looks: animation.fade skeletal animation transition seconds. Bodies are assets, not style ({ model: 'yourBody' } from an asset pack); a style tints body parts through materials roles (cloth, skin, trousers, hair). create / model / colors here throw renamed-api
   - `ui?: StyleUI` UI colors, fonts, templates
   - `particles?: Record<string, ParticleOptions>` Particle presets: name → parameters; default is the fallback for all effects
   - `triggers?: { debugColor?: ColorLike; debugOpacity?: number }` Trigger zone debug wireframe
@@ -99,7 +99,7 @@
   - `variation?: { blend?, jitter?, patches? }` How ground colors vary (plain data, sent to the terrain workers). Every default is the original look; set only what you want to change. blend: the two-color noise (size = wavelength in meters, default 33; strength = contrast, default 1). Example: `variation: { blend: { size: 14 }, jitter: { range: 0.04 }, patches: { size: 60, strength: 0.25, levels: 4, tint: 0xb59a5a } }`
   - `config?: { shading?, colorResolution?, normals?, normalFn? }` Looks of the ground mesh only. shading: 'flat' one color and normal per triangle (facets) / 'smooth' (engine default) / 'texture' (per-chunk color map, colors independent of the mesh); colorResolution: color map pixels per chunk edge; normals: 'smooth' / 'flat' lighting in texture mode; normalFn: custom grid-point normal.
   - `material?: Material | ((engine: Engine) => Material)` Whole ground material: a Material or (engine) => Material (uv = world xz / chunk size; terrain({ material }) wins)
-  - `detail?: { texture: string; scale?: number; strength?: number }` Ground detail texture: texture asset name, scale repeats per meter, strength 0–1
+  - `detail?: MaterialDetail` Detail layer over the ground, the same object as a material spec's `detail`: a noise ('grain' / 'paper' / 'stroke' / 'dabs'), a texture asset name, or your own `glsl`; plus scale, strength, fade ... (top-down world projection by default). Live: look.ground.set({ detail }). See recipes/53-ground-up-close.md
 - **StyleUI**
   - `bg?: string` Background color
   - `fg?: string` Text color

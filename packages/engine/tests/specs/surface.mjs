@@ -60,12 +60,16 @@ export const specs = [
         for (const [k, d] of Object.entries({ grain: { noise: 'grain', strength: 0.5 }, paper: { noise: 'paper' }, stroke: { noise: 'stroke', direction: 30, stretch: 8 },
           tri: { noise: 'grain', projection: 'triplanar', strength: 0.5 }, bump: { noise: 'grain', normal: 0.3, strength: 0 }, rough: { noise: 'grain', roughness: 0.6, strength: 0 },
           add: { noise: 'grain', mode: 'add', strength: 0.4 }, mix: { noise: 'grain', mode: 'mix', tint: 0xff0000, strength: 0.4 },
-          custom: { glsl: 'vec4 threedogDetailSample(vec2 p){ float s = step(0.5, fract(p.x)); return vec4(vec3(s), s); }', strength: 0.5 } })) {
+          dabs: { noise: 'dabs', strength: 0.5 }, dabsTri: { noise: 'dabs', projection: 'triplanar', normal: 0.1 },
+          custom: { glsl: 'vec4 threedogDetailSample(vec2 p){ float s = step(0.5, fract(p.x)) * (1.0 - threedogDetailFootprint); return vec4(vec3(s), s); }', strength: 0.5 } })) {
           const s = withDetail(d); out[k] = s.h; if (s.errs) errs.push(k + ': ' + s.errs);
         }
         out.errs = errs.join(' | ');
-        out.moves = ['grain', 'paper', 'stroke', 'tri', 'bump', 'rough', 'add', 'mix', 'custom'].every(k => out[k] !== base);
+        out.moves = ['grain', 'paper', 'stroke', 'tri', 'bump', 'rough', 'add', 'mix', 'dabs', 'dabsTri', 'custom'].every(k => out[k] !== base);
         out.differ = new Set([out.grain, out.paper, out.stroke, out.add, out.mix]).size === 5;
+        // fade: a pattern far smaller than a pixel vanishes (= no detail); fade:false keeps it; one that is larger than a pixel is untouched
+        out.fadeTiny = withDetail({ noise: 'grain', scale: 5000, strength: 0.5 }).h === base; out.keepTiny = withDetail({ noise: 'grain', scale: 5000, strength: 0.5, fade: false }).h !== base;
+        out.fadeBig = withDetail({ noise: 'grain', scale: 0.25, strength: 0.5 }).h === withDetail({ noise: 'grain', scale: 0.25, strength: 0.5, fade: false }).h;
         // same patch, different values: one program
         const count = () => R.info.programs.length;
         const first = withDetail({ noise: 'grain', scale: 0.1, strength: 0.2 }); const n1 = count();
@@ -87,6 +91,7 @@ export const specs = [
         return out; })()`);
       check('九种写法（三种噪声、三平面、法线、粗糙度、叠加 / 混合、自定义 glsl）都编译，画面都与无细节不同', r.errs === '' && r.moves, r.errs);
       check('grain / paper / stroke / add / mix 画面互不相同', r.differ);
+      check('detail.fade：比像素小得多的图案淡出（与无细节相同），fade:false 保留，比像素大的图案不受影响', r.fadeTiny && r.keepTiny && r.fadeBig, JSON.stringify([r.fadeTiny, r.keepTiny, r.fadeBig]));
       check('同补丁、8 种不同参数的材质：新增 0 个着色器程序（共用 1 个）', r.programs === 0 && r.distinct >= 6, `programs +${r.programs}, distinct images ${r.distinct}`);
       check('贴图来源：加载前（占位）与加载后画面不同', r.texBefore !== r.texAfter);
       check('写错噪声名 / glsl 缺函数 / 混合模式：报错给可选值或签名', /grian.*grain \| paper \| stroke/.test(r.badNoise) && /threedogDetailSample\(vec2 p\)/.test(r.badGlsl) && /multiply \| add \| mix/.test(r.badMode), `${r.badNoise} | ${r.badGlsl} | ${r.badMode}`);

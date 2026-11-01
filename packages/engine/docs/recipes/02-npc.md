@@ -10,18 +10,18 @@ dialogue(), content())`.
 `games/<game>/content/npcs.js`:
 ```js
 export default {
-  baker: {
-    name: '面包师',
+  guard: {
+    name: 'Gate guard',
     colors: { body: 0xc89a5a, legs: 0x5b4a3a, hair: 0x3a2a1a },   // omit to use the style pack's default colors
     start: { place: 'home', x: 6, z: -3 },                         // starting position; omitted = the first stop of the schedule
     schedule: [                                                    // at is a clock time 'HH:MM'; at that time the NPC walks there (pathfinding is automatic)
       { at: '07:00', place: 'home', x: 6, z: -3 },
-      { at: '13:00', place: 'river' },
+      { at: '13:00', place: 'tower' },
       { at: '18:30', place: 'home', x: 2, z: 4 },
     ],
-    talk: 'baker',                                                 // a dialogue id in dialogues.js; press E when near
+    talk: 'guard',                                                 // a dialogue id in dialogues.js; press E when near
   },
-  cat: { name: '猫', start: { place: 'home' }, behavior: 'wander', mind: { radius: 6 } },   // no schedule: write behavior + start, omit schedule
+  cat: { name: 'Cat', start: { place: 'home' }, behavior: 'wander', mind: { radius: 6 } },   // no schedule: write behavior + start, omit schedule
 };
 ```
 A content NPC takes every `npcs.add` option (`speed`, `talkRadius`, `arriveDistance`, `pathStep`, `repath`, `talkLabel`, `model`...) written as a
@@ -29,35 +29,35 @@ field; a misspelt one errors with the closest name. `start` and `schedule` are t
 `content/dialogues.js`:
 ```js
 export default {
-  baker: {
-    speaker: '面包师',
+  guard: {
+    speaker: 'Gate guard',
     nodes: {
       start: {
         text: [                                                    // several variants: the first whose condition holds is used
-          { if: { flag: 'metBaker' }, text: '又来啦？' },
-          { text: '你好，第一次见。' },
+          { if: { flag: 'metGuard' }, text: 'Back again?' },
+          { text: 'Halt. First time here?' },
         ],
-        do: { setFlag: 'metBaker' },
+        do: { setFlag: 'metGuard' },
         next: 'ask',
       },
-      ask: { text: '要面包吗？', choices: [
-        { text: '要一个', next: 'buy', if: { has: { coin: 1 } } },
-        { text: '不用了' },                                         // a choice with no next = the dialogue ends; a plain node with no next waits for one more interact press, then ends
+      ask: { text: 'A pass costs one coin.', choices: [
+        { text: 'Buy one', next: 'buy', if: { has: { coin: 1 } } },
+        { text: 'No thanks' },                                         // a choice with no next = the dialogue ends; a plain node with no next waits for one more interact press, then ends
       ] },
-      buy: { text: '刚出炉的。', do: [{ take: { coin: 1 } }, { give: { bread: 1 } }], next: 'end' },
+      buy: { text: 'Move along.', do: [{ take: { coin: 1 } }, { give: { pass: 1 } }], next: 'end' },
     },
   },
 };
 ```
 The words usable in conditions / effects are in the comment at the top of `modules/content/rules.js` (flag notFlag has lacks counter can / setFlag
 give take bump startQuest toast particles marker clearMarker op).
-The items used (coin, bread) must be defined in `items.js`, otherwise validation fails. A `place` name comes from `content.load(data, { places })` or
-from a level marker (such as `npc_baker`). Add a new content file to `content/index.js`.
+The items used (coin, pass) must be defined in `items.js`, otherwise validation fails. A `place` name comes from `content.load(data, { places })` or
+from a level marker (such as `npc_guard`). Add a new content file to `content/index.js`.
 
 ## 2. Add in code (temporary NPCs, dynamic schedules)
 ```js
-engine.dialogue.define('passerby', { start: { text: '今天天气不错。', speaker: '路人' } });
-const npc = engine.npcs.add({ id: 'passerby', name: '路人', position: [10, 0, 5], schedule: [{ at: '08:00', position: [20, 0, 5] }], talk: 'passerby' });   // at: 'HH:MM' or 0-1; without id the name is used
+engine.dialogue.define('passerby', { start: { text: 'Nice day.', speaker: 'Passerby' } });
+const npc = engine.npcs.add({ id: 'passerby', name: 'Passerby', position: [10, 0, 5], schedule: [{ at: '08:00', position: [20, 0, 5] }], talk: 'passerby' });   // at: 'HH:MM' or 0-1; without id the name is used
 engine.npcs.remove('passerby');                   // remove by id, name or handle
 ```
 
@@ -88,7 +88,7 @@ them. Built in there is also `'wander'` (random wandering near home, using `engi
 ```js
 npc.setBehavior('wander', { radius: 12 });        // home = current position, wander within 12 meters (pause: [2, 6] pause seconds, home: { x, z } sets the center)
 npc.setBehavior('schedule');                       // back to the schedule
-engine.npcs.add({ id: 'dog', name: '小狗', position: [5, 0, 5], behavior: 'wander', mind: { radius: 8 } });   // wanders from the start
+engine.npcs.add({ id: 'dog', name: 'Dog', position: [5, 0, 5], behavior: 'wander', mind: { radius: 8 } });   // wanders from the start
 ```
 The behavior name and `mind` (the behavior's parameters and memory) are in the NPC data and are saved; after changing behavior or loading, the NPC
 carries on with the new behavior. A wrong behavior name throws and lists the registered ones. NPCs in content can also write `behavior` + `mind`
@@ -141,8 +141,8 @@ engine.npcs.avoid.set(false);                           // turn off (ghosts, cro
 
 ## A guard you build yourself (`Character` + `walkTo`)
 
-For a one-off (guard, pet, follower) that `schedule` / `wander` do not cover: `new Character(engine, { rig })` takes a ready body (same shape as
-`style.character.create` returns: `{ root, body?, head?, limbs?, joints? }`) instead of the style pack's; call `character.animate(dt)` each frame.
+For a one-off (guard, pet, follower) that `schedule` / `wander` do not cover: `new Character(engine, { rig })` takes a ready body
+(`{ root, body?, head?, limbs?, joints? }`), or `{ model: 'humanoid' }` picks a body asset like any character ([13-animation](13-animation.md)); call `character.animate(dt)` each frame.
 `character.walkTo(target, { speed, arrive, turnRate, run })` follows `characters.findPath` on fixed steps (turns at `turnRate` rad/s, skips passed
 points, re-plans when it makes no progress for `stuckSeconds`, up to `maxRepaths`). It returns a promise of `{ status }`: `'arrived'` | `'noPath'` |
 `'stuck'` | `'cancelled'` (never rejects), with `remove()` to cancel.
@@ -157,9 +157,9 @@ if ((await walk).status === 'noPath') guard.face(player);   // walk.remove() can
 ## 3. Verify
 - `npm run check`: content validation catches "dialogue id does not exist", "bad clock-time format", "node next points to a missing node". After
   `npm run map` it shows up in the NPC table and dialogue graph of GAMEMAP.md.
-- State: `npm run shot -- / --time 13:10 --wait 20 --describe-only`; the "nearby" list has an entry for `面包师` tagged as an NPC with its distance in
-  meters (only listed within 30 meters; add `--pos x,z` to stand by the river).
-- Console / tests: `engine.npcs.get('面包师').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], lock }` (absent when no dialogue runs; the text version prints it as a `Dialogue:` line). `describe` does NOT expose the node id or the NPC id: `speaker` is the display name; to inspect the node, read the content file or listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
+- State: `npm run shot -- / --time 13:10 --wait 20 --describe-only`; the "nearby" list has an entry for `Gate guard` tagged as an NPC with its distance in
+  meters (only listed within 30 meters; add `--pos x,z` to stand by the tower).
+- Console / tests: `engine.npcs.get('guard').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], lock }` (absent when no dialogue runs; the text version prints it as a `Dialogue:` line). `describe` does NOT expose the node id or the NPC id: `speaker` is the display name; to inspect the node, read the content file or listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
 - Advancing a dialogue in a headless test (typing and "keys ignored right after opening" both run on game time): press E when near -> `engine.step(1)`
   to finish typing -> press a number key or run `engine.ops.run('dialogue.choose', { index: i })` (while typing it completes the sentence first) ->
   `engine.step(0.3)`. No real-time waiting.

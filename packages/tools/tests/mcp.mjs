@@ -13,7 +13,7 @@ import { TIME } from '../threedog/runtime.mjs';
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['catalog', 'describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'thing', 'verify'];
+const EXPECTED = ['catalog', 'describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'style_compare', 'style_palette', 'thing', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -44,6 +44,11 @@ async function steps(check, plain) {
     const info = await plain.init, list = await plain.rpc('tools/list');
     check('initialize: answers with the protocol version, the tools capability and the server name',
       info.protocolVersion === '2025-06-18' && info.capabilities.tools && info.serverInfo.name === 'threedog', JSON.stringify(info).slice(0, 200));
+    // one source: the server instructions carry AI.md "When something happens -> which tool" (every row, backticks dropped)
+    const aiSec = readFileSync(join(ENGINE, 'docs/AI.md'), 'utf8').split(/^## /m).find(s => s.startsWith('When something happens')) ?? '';
+    const aiRows = aiSec.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).replaceAll('`', '').replace(/\.$/, '').trim());
+    check('initialize: the instructions carry every row of AI.md "When something happens -> which tool", and stay short',
+      aiRows.length >= 10 && aiRows.every(r => info.instructions.includes(r)) && info.instructions.length < 3000, `rows ${aiRows.length}, length ${info.instructions.length}`);
     check('tools/list: one tool per bridge command, each with an object schema and a description',
       JSON.stringify(names(list)) === JSON.stringify(EXPECTED) && list.tools.every(t => t.inputSchema.type === 'object' && t.description.length > 20), names(list).join(', '));
     // the descriptions are sent every turn: short; the time rule comes from the one TIME table; recipe 16 lists exactly the tools the server has
@@ -88,6 +93,15 @@ async function steps(check, plain) {
     const s = await plain.rpc('tools/call', { name: 'snap', arguments: { name: 'mcp-test' } });
     const img = s.content.find(c => c.type === 'image');
     check('snap: an MCP image (PNG) next to the text', !s.isError && img?.mimeType === 'image/png' && Buffer.from(img.data, 'base64').subarray(1, 4).toString() === 'PNG', JSON.stringify(s).slice(0, 200));
+    // the image is small by default (480 wide) and the file is full size; style_palette / style_compare read that file with the same code as the CLI
+    const widthOf = b => Buffer.from(b, 'base64').readUInt32BE(16), file = '.threedog/shots/mcp-test.png';
+    const big = await plain.rpc('tools/call', { name: 'snap', arguments: { name: 'mcp-test', size: 960 } });
+    check('snap: 480 px wide by default, size asks for more', widthOf(img.data) <= 480 && widthOf(big.content.find(c => c.type === 'image').data) > 480,
+      `${widthOf(img.data)} / ${widthOf(big.content.find(c => c.type === 'image').data)}`);
+    const sp = await plain.rpc('tools/call', { name: 'style_palette', arguments: { image: file, n: 4 } });
+    const sc2 = await plain.rpc('tools/call', { name: 'style_compare', arguments: { reference: file, screenshot: file } });
+    check('style_palette / style_compare: numbers about a saved shot, no image', !sp.isError && !sc2.isError && /brightness|saturation/i.test(sp.content[0].text + sc2.content[0].text)
+      && !sp.content.some(c => c.type === 'image'), JSON.stringify([sp.content[0].text.slice(0, 150), sc2.content[0].text.slice(0, 150)]));
     // thing: the tool and the CLI (threedog thing <id>) end to end against the live page; ids come from the scene tool so no example data is assumed
     const sc = await plain.rpc('tools/call', { name: 'scene', arguments: {} });
     const id = 'player';   // the world example's player (describe names it); 'engine.thing' takes an object name too

@@ -403,6 +403,8 @@ export interface Assets {
   modelNow(nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean }): Object3D | null;
   /** Get the geometry of the first mesh in a model */
   geometry(nameOrUrl: string): Promise<BufferGeometry>;
+  /** An image as grid data for sampleGrid: PNG at 8 or 16 bits (jpg / webp 8). channel 'r' (default) 'g' 'b' 'a' or 0-3; range maps pixels to [min, max] (default [0, 1]) */
+  gridFromImage(nameOrUrl: string, opts?: { channel?: 'r' | 'g' | 'b' | 'a' | number; range?: [number, number]; bits?: 8 | 16 }): Promise<{ data: Float32Array; width: number; height: number; bits: number }>;
   /** Get a texture (.ktx2 compressed textures also work) */
   texture(nameOrUrl: string, opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] }): Promise<Texture>;
   /**
@@ -833,8 +835,8 @@ export interface EngineOptions {
   /** A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures
    * (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48) */
   renderer?: any;
-  /** Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts
-   * deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders */
+  /** Style pack (looks only: materials, sky, lighting, post, UI look), a pack you made or installed (import basePack from 'your-pack'), or a list of parts
+   * deep-merged left to right: [basePack, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders */
   style?: StyleInput;
   /** Real-time shadows, default true */
   shadows?: boolean;
@@ -844,9 +846,9 @@ export interface EngineOptions {
   antialias?: boolean;
   /** Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices) */
   post?: Record<string, boolean>;
-  /** Render resolution, default min(device pixel ratio, 1.5) */
+  /** Render resolution, default min(device pixel ratio, 1.5); the low tier uses at least 0.75 x device pixel ratio (never below 1). describe().render.scale reports it */
   pixelRatio?: number;
-  /** Automatically lower resolution when the frame rate is too low, default true */
+  /** Automatically lower resolution when the frame rate is too low, default true. Never silent: a dev warning once, and describe().render.scale.autoLowered */
   adaptiveResolution?: boolean;
   /** Target frame rate for automatic resolution lowering, default 55 */
   targetFps?: number;
@@ -1176,7 +1178,7 @@ export interface CameraOverride {
   [key: string]: any;
 }
 /** State of automatic resolution */
-export interface AdaptiveState { paused: boolean; on: boolean; target: number; min: number; max: number; [key: string]: any }
+export interface AdaptiveState { paused: boolean; on: boolean; target: number; min: number; max: number; /** true once the render scale was lowered below max (a dev warning was logged) */ lowered?: boolean; [key: string]: any }
 
 // ======================================================================
 // Look parts engine.look.<part> (recipes/52-look.md)

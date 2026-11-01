@@ -27,6 +27,7 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
   - `wind?: number` Wind sway amplitude, 0 = still
   - `nearOnly?: boolean` Only generated near the player (grass, flowers)
   - `maxRing?: number` No longer drawn beyond this many rings
+  - `fade?: false | { start?: number; end?: number }` Distance fade of a near-only species (grass, flowers, pebbles, debris ...): instances shrink out over a band in metres from the player instead of popping per chunk at the ring edge. Default for nearOnly: end = maxRing x chunk size, start = 65% of it. `false` keeps the hard ring edge (also the default for species that are not nearOnly).
   - `lodRing?: number` Switch to the low-detail model beyond this many rings, default 1
   - `castShadow?: boolean` Cast shadows
   - `shadowRing?: number` Cast shadows within this many rings

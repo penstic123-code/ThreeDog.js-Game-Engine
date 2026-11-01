@@ -1,6 +1,6 @@
 # Terrain outline: islands, floating rocks, a world that ends
 
-`terrain({ shape })` decides where there is ground at all. Without it the ground goes on forever, exactly as before. With it, ground exists only
+`terrain({ shape })` decides where there is ground at all. Without it (the default) the ground goes on forever. With it, ground exists only
 where `mask > 0`; the rim is cut through the cells in straight lines, walls hang down from it, and an optional underside closes it.
 
 ## 1. A floating island with a ragged rim (copy this)

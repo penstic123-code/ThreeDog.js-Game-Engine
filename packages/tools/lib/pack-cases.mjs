@@ -6,14 +6,11 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { ENGINE, TOOLS, styleDir, addonDir } from '../paths.mjs';
+import { copyTemplates } from './scaffold.mjs';
 
-/** Copy the game template into dir as new-game does (game name 'external'), without its package.json (the test writes its own) */
-export function copyTemplate(from, to) {
-  for (const e of readdirSync(from, { withFileTypes: true })) {
-    if (e.name === 'package.json') continue;
-    if (e.isDirectory()) { mkdirSync(join(to, e.name), { recursive: true }); copyTemplate(join(from, e.name), join(to, e.name)); }
-    else writeFileSync(join(to, e.name), readFileSync(join(from, e.name), 'utf8').replaceAll('__NAME__', 'external'));
-  }
+/** Copy the game template into dir as new-game --example does (game name 'external'; the checks below read its hp and stash), without its package.json (the test writes its own) */
+export function copyTemplate(_from, to) {
+  copyTemplates(to, { name: 'external', style: 'empty', example: true }, { skipPackage: true });
 }
 
 /** Step 6: install the engine folder by path into a project with only threedog, three and vite, then build it with a plain vite config */
@@ -48,15 +45,15 @@ export async function vendored(tmp, tools, check, { npm, cli }) {
   const dir = join(tmp, 'vend'), engDir = join(dir, 'vendor', 'threedog');
   mkdirSync(engDir, { recursive: true });
   cpSync(ENGINE, engDir, { recursive: true, filter: p => !/(^|[\\/])(node_modules|\.threedog|dist)([\\/]|$)/.test(relative(ENGINE, p)) });
-  // the template uses optional packages (the lowpoly style pack, which needs post-effects, and the terrain generator): vendored next to the engine
-  for (const [src, name] of [[styleDir('lowpoly'), 'style-lowpoly'], [addonDir('terrain-noise'), 'terrain-noise'], [addonDir('post-effects'), 'post-effects']])
+  // the template uses optional packages (the terrain generator and post-effects): vendored next to the engine
+  for (const [src, name] of [[addonDir('terrain-noise'), 'terrain-noise'], [addonDir('post-effects'), 'post-effects']])
     cpSync(src, join(dir, 'vendor', name), { recursive: true, filter: p => !/(^|[\\/])node_modules([\\/]|$)/.test(relative(src, p)) });
   copyTemplate(join(TOOLS, 'templates', 'game'), dir);
   mkdirSync(join(dir, 'notes'));
   // a file the game excluded: a type error and a startup placement that would fail check if it were scanned
   writeFileSync(join(dir, 'notes', 'scratch.js'), "// @ts-check\nconst n = 1;\nn.normalise();\nengine.add(n);\n");
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'threedog-vendored-check', private: true, type: 'module', threedog: { exclude: ['notes'] },
-    dependencies: { threedog: 'file:./vendor/threedog', '@threedog/style-lowpoly': 'file:./vendor/style-lowpoly', '@threedog/terrain-noise': 'file:./vendor/terrain-noise', '@threedog/post-effects': 'file:./vendor/post-effects', three: '~0.187.0' }, devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
+    dependencies: { threedog: 'file:./vendor/threedog', '@threedog/terrain-noise': 'file:./vendor/terrain-noise', '@threedog/post-effects': 'file:./vendor/post-effects', three: '~0.187.0' }, devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
   const inst = npm(['install', '--install-links', '--no-audit', '--no-fund', '--loglevel=error'], dir);
   check('vendored engine: npm install of file:./vendor/threedog succeeds', inst.status === 0, (inst.stderr || String(inst.error)).slice(0, 300));
   if (inst.status !== 0) return;

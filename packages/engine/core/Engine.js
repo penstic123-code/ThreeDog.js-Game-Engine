@@ -26,7 +26,7 @@ import { createMovement } from './movement.js';
 import { moduleMethods } from './modules.js';
 import { skipMethods } from './skip.js';
 import { checkMethods } from './checks.js';
-import { styleFrom, NO_STYLE } from './styleParts.js';
+import { styleFrom, NO_STYLE, styleIsEmpty } from './styleParts.js';
 import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
 import { sceneMethods } from './sceneMethods.js';
 import { recordRender } from './describeRender.js';
@@ -36,6 +36,15 @@ import { shadowTypeOf } from './shadowTypes.js';
 const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'shadowType', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',
   'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching', 'lights', 'renderer'];
+
+/**
+ * Default render scale. High tier: the display scale up to 1.5. Low tier: at least 0.75 x display scale (1.5 on a 2x screen; a fixed 1 there
+ * would be an upscaled blurry picture), never above 1.5 or the display scale.
+ */
+export function defaultPixelRatio(dpr, tier) {
+  const cap = Math.min(dpr, 1.5);
+  return tier === 'low' ? Math.min(cap, Math.max(1, +(0.75 * dpr).toFixed(2))) : cap;
+}
 
 export class Engine {
   /**
@@ -53,12 +62,12 @@ export class Engine {
     const canvas = canvasIn ?? rendererIn?.domElement;
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
     const style = this.style = styleFrom(styleIn);   // a list of parts is deep-merged (styleParts.js); one object is used as is
-    if (!opts.style) warnOnce(NO_STYLE);
+    if (styleIsEmpty(opts.style)) warnOnce(NO_STYLE);
     // a game-supplied renderer is used as is: the engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself
     const owned = !rendererIn;
     const r = this.renderer = rendererIn ?? new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.tier = detectTier(r);                 // 'low' | 'high': device tier, decides default quality
-    if (owned || pixelRatio != null) r.setPixelRatio(pixelRatio ?? Math.min(devicePixelRatio || 1, this.tier === 'low' ? 1 : 1.5));
+    if (owned || pixelRatio != null) r.setPixelRatio(pixelRatio ?? defaultPixelRatio(devicePixelRatio || 1, this.tier));
     this._autoSize = undefined;                // decided once the canvas is in the page (sizeMode): true = no CSS size, the engine sizes it to the window
     const box = canvasBox(this);
     if (owned) r.setSize(box.w, box.h, !!this._autoSize);
@@ -135,7 +144,7 @@ export class Engine {
     defineCoreParts(this);
     this.ui.get('loading')?.show({});
     this.adaptive = { paused: false, on: adaptiveResolution && !headless, target: targetFps, min: 0.6, max: r.getPixelRatio(),
-      t: 0, n: 0, good: 0, cooldown: 0 };
+      t: 0, n: 0, good: 0, cooldown: 0, lowered: false, from: null };
     // follow the canvas's own CSS box, not the window: a canvas in a page section or editor panel renders at its own size.
     // The window event stays for a canvas outside the page (no box, falls back to the window) and for moves that do not resize the canvas
     addEventListener('resize', () => this._resize(), { signal: this.signal });

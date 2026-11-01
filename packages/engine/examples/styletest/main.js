@@ -42,7 +42,7 @@ engine.use(openWorld({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset
 
 engine.assets.manifest(lowpolyAssets);
 engine.assets.manifest({ name: 'styletest', models: { woodBlock, stoneBlock, metalBall, glassPanes, shadowStage, room } });   // the names content/templates.js uses
-engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: stage.x + 0.5, z: stage.z + 6 } });
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: params.style === 'none' ? null : 'humanoid', spawn: { x: stage.x + 0.5, z: stage.z + 6 } });   // style=none: the gray capsule
 engine.content.load(data, { places: { stage, water } });
 if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.sky.modify('env', { ambient: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
 

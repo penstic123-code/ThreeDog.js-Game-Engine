@@ -106,7 +106,7 @@ Characters: createPlayer() (characters() module)
   - `control: PlayerControl` Required, no default: 'camera' (keys relative to the camera) / 'none' (call player.move() yourself in onFixed) / (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control. presets.player.* fill it
   - `cameraFollow?: boolean` true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev
 - **CharacterOptions** Character parameters (shared by the player and NPCs)
-  - `colors?: { body?, skin?, legs?, hair? }` Colors (default from the style pack's style.character.colors)
+  - `colors?: { body?, skin?, legs?, hair? }` Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair); the style tints by material role
   - `speed?: number` Walking speed (m/s), default 4.5
   - `runSpeed?: number` Running speed (m/s), default 7
   - `radius?: number` Collision radius (meters), default 0.4
@@ -121,7 +121,8 @@ Characters: createPlayer() (characters() module)
   - `airControl?: number` Air control, 0–1
   - `coyoteTime?: number` How long after walking off an edge a jump is still allowed (seconds)
   - `canJump?: boolean` Whether it can jump, default true
-  - `model?: Object3D | string | null` glTF model: what engine.assets.model() returned, or the name of a registered model asset (default style.character.model). A name builds the character at once with the placeholder body and swaps in a copy of the asset when it loads (see Character.ready / whenReady, event 'character:model'). Example: `engine.characters.createPlayer({ model: 'hero' })   // after engine.assets.manifest({ models: { hero: '/models/hero.glb' } })`
+  - `model?: Object3D | string | null` The body, one path for every kind: the name of a registered model asset, or what engine.assets.model() returned. A procedural builder name (from an asset pack) is built at once; a file model name shows a gray capsule and swaps in a copy when it loads (Character.ready / whenReady, event 'character:model'). Example: `engine.assets.manifest(yourAssets); engine.characters.createPlayer({ model: 'yourBody' })   // a generator or GLB name from an asset pack`
+  - `rig?: CharacterRig | null` A ready procedural body (CharacterRig), used instead of model (a hand-built guard / pet)
   - `clips?: { idle?, walk?, run?, swim?, jump?, fall?, … } | null` Action name mapping { idle, walk, run, swim, jump, fall } (shorthand for animation)
   - `animation?: AnimatorOptions | null` Skeletal animation state machine config (states, blend trees, one-shot actions), see AnimatorOptions
   - `mover?: 'simple' | 'rapier'` Movement method: 'simple' built into the engine (default) / 'rapier' Rapier character controller (needs the rigid module)

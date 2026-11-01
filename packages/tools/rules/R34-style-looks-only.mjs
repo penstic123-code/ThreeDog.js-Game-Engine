@@ -8,7 +8,7 @@
 // Detection: line-based regex, lines starting with // or * skipped (so comments may explain the rule). Known limits: a generator under
 //   another name (const shape = (x, z, n) => ...) is not seen; the runtime check for fonts (ui/theme.js) still catches the font case.
 // Why: swapping the look must never move a river or change which file a menu loads; a style that carries world shape or files cannot be
-//   mixed freely with other parts (style: [lowpoly, mine]).
+//   mixed freely with other parts (style: [basePack, mine]).
 import { walk, lines, P } from './_lib.mjs';
 
 const SHAPE = /\bfunction\s+(height|groundType|terrainPreset|riverAt)\s*\(|\bexport\s+(const|let|var)\s+(BIOMES|terrainStrings)\b|\b(terrainPreset|riverAt)\b.*\bfrom\s+['"]\.\//;

@@ -5,10 +5,10 @@
 //
 //   import { createEngine, terrain, vegetation, sky, weather, water, collision, rigid,
 //            followCamera, characters, interactions, dialogue, inventory, quests, photo, ambience, debug } from 'threedog';
-//   import lowpoly from '@threedog/style-lowpoly';              // optional: the engine itself ships no art
+//   import basePack from 'your-style-pack';                     // optional: the engine itself ships no art (your own pack or a published one)
 //   import { terrainPreset } from '@threedog/terrain-noise';   // optional: nor a terrain generator
 //
-//   const engine = createEngine({ canvas, style: lowpoly });   // without a style pack: neutral gray placeholders
+//   const engine = createEngine({ canvas, style: basePack });   // without a style pack: neutral gray placeholders
 //   engine.use(terrain({ seed: 7, ...terrainPreset() }), vegetation(), sky(), weather(), water(), collision(), followCamera(), characters());
 //   engine.start();
 //
@@ -58,6 +58,7 @@ export { terrain, vegetation, sky, weather, water, collision, rigid, followCamer
 export { net, fakeNetwork, webSocket } from './modules/net/index.js';
 export { screenToGround } from './core/screenToGround.js';
 export { EASINGS, ease } from './core/easing.js';
+export { sampleGrid } from './core/grid.js';   // a grid of numbers (height, moisture, density, walkable) as a function (x, z) -> value; assets.gridFromImage reads one from an image. 'threedog/grid' is the same file without three.js (workers, tests)
 export { checkOptions };
 export { defineLookPart } from './core/look/part.js';   // a module's own look part: engine.look.<id> with set / patch / replace, catalog and describe (recipes/52)
 export { readParams } from './core/params.js';   // params schema for game-made modules: validated, defaults filled, shown by engine.catalog()   // for game-made modules (recipes/14): the package exposes no core/* deep paths

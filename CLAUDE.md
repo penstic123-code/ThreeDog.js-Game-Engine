@@ -10,7 +10,7 @@ threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no
 ## Repository layout
 ```
 packages/engine/   threedog: core/ modules/ (one folder per module) render/ ui/ examples/ docs/ tests/ types/ (no art)
-packages/styles/   optional style packs, one package each: lowpoly/ = @threedog/style-lowpoly (a style pack and an asset pack of procedural models)
+packages/styles/   style packs: lowpoly/ = example-only (private, used by the bundled examples, tests and older games; not a recommendation); real games bring their own pack
 packages/terrain-noise/  optional terrain generator @threedog/terrain-noise (world shape is gameplay, never in a style pack)
 packages/tools/    @threedog/tools: CLI `threedog`, paths.mjs (single source of truth for paths), rules/ (R1...), generators, templates/
 games/<game>/      private/example games, one workspace each (they will move to a private repo)

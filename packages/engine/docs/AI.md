@@ -14,7 +14,7 @@ This file is the index for the AI that builds a game on the engine. Paths are re
 - Changing a look by editing `renderer` / `scene.fog` / materials directly, or in logic: `engine.look.<part>` (recipe 52), values in the style pack.
 - Putting game content (dialogue, quests, items, layout) inside the engine package: it lives in the game's `content/`.
 - Editing generated docs (GAMEMAP, API.md, api/, CODEMAP, `types/generated/`): change the code, run `npm run map`.
-- Guessing a name: look it up in `api/<module>.md`; an engine error carries `err.code` / `err.fix` / `err.docs`.
+- Guessing a name: look it up in `api/<module>.md`; engine errors carry `err.code` / `fix` / `docs`.
 
 ## What to read, in order (stop when you have enough)
 1. This file: find the task in the entry table below.
@@ -22,8 +22,6 @@ This file is the index for the AI that builds a game on the engine. Paths are re
 3. `api/<module>.md` for signatures, options and data shapes (`API.md` is the index, `api/events.md` the events).
 4. The game's own `GAMEMAP.md` (generated): what this game has, and "Read for this game".
 5. When needed: `CODEMAP.md` · `THREE.md` (what the engine lacks: use three.js) · `PERF.md` · `COMMANDS.md` · `CONVENTIONS.md`.
-
-What can I do here: `threedog catalog`, `threedog how "<task>"` (ranks these rows and recipes for a task in your own words).
 
 ## One thing, one entry point (don't build another)
 Three outward concepts: **Scene** (what is in the world; content packs are part of it), **Assets** (models, textures, sounds, fonts),
@@ -42,9 +40,11 @@ Three outward concepts: **Scene** (what is in the world; content packs are part 
 | Saved / far-away objects, the player record, stream in, teleport | `engine.world`, `player.placeAt()`, `engine.stream.add / teleport / source` | `recipes/18-world.md` |
 | Blender level, grass and trees without terrain | `engine.level`, `npm run assets -- check`, `vegetation({ area })`, `engine.vegetation.rebuild()` | `recipes/10-blender-level.md` |
 | Terrain generator, ground height, terrain editing | `terrain({ height, groundType })`, `terrainPreset()`, `engine.surface(x, z)`, `engine.ground`, `engine.terrain.edit()` | `recipes/28-terrain.md` |
+| Ground up close: blurry ground, brush detail, near grass and its distance fade, blurry render scale (options, diagnosis) | `detail`, `colorResolution`, `fade`, `describe().render.scale` | `recipes/53-ground-up-close.md` |
 | Ground color borders, mesh cut, lighting normals | `terrain({ shading: 'texture', colorResolution, normals, diagonal })` | `recipes/37-terrain-look-hooks.md` |
 | Island, floating rock, world with an edge | `terrain({ shape: { mask, edge, side, bottom } })`, `engine.ground.has`, event `terrain:void` | `recipes/42-terrain-shape.md` |
-| Grid placement, per-cell soil state | `engine.grids.add / define`, ops `grid.place / move / remove` | `recipes/29-grid.md` |
+| Grid placement, tile grid, player-changed ground, plots, dig, build on cells | `engine.grids.add / define`, `terrain.edit`, ops `grid.place / move / remove` | `recipes/29-grid.md` |
+| Grid field as a function (height, moisture, density, walkable), read a grid from an image (PNG 8/16-bit) | `sampleGrid(data, { width, height, cellSize, origin, interp })`, `await engine.assets.gridFromImage(nameOrUrl, { channel, range, bits })` | `recipes/37-terrain-look-hooks.md` §7 |
 | Collision, fences, rivers, physics, vehicles | `engine.collision` (`addSegment`, `addBlocked`, `lineClear`), `engine.rigid` | `recipes/11-vehicles.md` |
 | Pathfinding, navmesh, "can walk there" | `engine.characters.findPath`, `engine.nav`, `createEngine({ movement })` | `recipes/12-navmesh.md` |
 | Interaction prompts (talk, pick up, open a door or chest), trigger zones | `engine.interactions`, `interactions({ ...presets.interactions.nearest })`, `engine.triggers` | `recipes/20-content-actions-save.md` |
@@ -52,7 +52,7 @@ Three outward concepts: **Scene** (what is in the world; content packs are part 
 | NPCs and what they do, dialogue | content `npcs` (`behavior`), `engine.npcs.behavior`, content `dialogues`, `engine.dialogue` | `recipes/02-npc.md` |
 | Items, pickups, inventory, chests, shops, gold | content `items` / `pickups`, `engine.inventory` (`container`, `transfer`), currency item + ops | `recipes/03-items-pickups.md`, `22-shop-gold.md` |
 | Quests, objective markers | content `quests`, `engine.quests`, `engine.hud.marker()` | `recipes/04-quests.md` |
-| Player and characters | `engine.player`, `engine.characters.createPlayer({ ...presets.player.thirdPerson, model })` | `recipes/13-animation.md` |
+| Player and characters (bodies are assets) | `engine.player`, `createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' })` (a generator from an asset pack; a GLB name; `{ rig }`; none = gray capsule) | `recipes/13-animation.md` |
 | Camera, orthographic camera | `openWorld({ camera })` (required), `engine.setCamera(...)`, `engine.cameraRig`, `engine.takeCamera` | `recipes/21-camera.md` |
 | Action game: hp, attacks, enemy AI, drops | your ops + `world.simulate` + `inventory.spawnPickup`; `examples/action/` | `recipes/32-action-game.md` |
 | Use three.js directly, own renderer, no default lights | `engine.scene / renderer / camera`, `createEngine({ lights: false, renderer })` | `recipes/40-scene.md` §8, `50-own-renderer.md` |
@@ -69,13 +69,13 @@ Three outward concepts: **Scene** (what is in the world; content packs are part 
 | To do | Use | Recipe |
 |---|---|---|
 | Change any look at run time: tone, lights, fog, sky, clouds, shadow, wind, ground, water, weather, post | `engine.look.<part>.set / patch / replace` (`engine.catalog('look')`); own plain three.js: when to | `recipes/52-look.md`, `40-scene.md` §8 |
-| Set the starting look: pack, materials, mixing packs, exposure, sky layers | style pack (`style: [lowpoly, { sky }]`), `engine.makeMaterial('role', {...})`, `style.palette`, `postAdd` / `postRemove` | `recipes/09-style-pack.md`, `36-sky-ground-plant-looks.md`, `48-make-material.md` |
-| Material and lighting shader patches, toon ramp, wind, fog hooks | `applyEffects`, `look.surface.patch`, `look.wind.patch`, `look.fog.patch` | `recipes/43-shader-patches-surface-looks.md`, `38-environment-look-hooks.md` |
+| Set the starting look: pack, materials, mixing packs, exposure, sky layers | style pack (`style: [basePack, { sky }]`), `engine.makeMaterial('role', {...})`, `style.palette`, `postAdd` / `postRemove` | `recipes/09-style-pack.md`, `36-sky-ground-plant-looks.md`, `48-make-material.md` |
+| Material and lighting shader patches, toon ramp, surface detail (grain, paper, strokes, dabs, texture, own glsl), colored shadows (shadowTint, rim, wrap), wind, fog hooks | `applyEffects`, `look.surface.patch`, `look.wind.patch`, `look.fog.patch` | `recipes/43-shader-patches-surface-looks.md`, `38-environment-look-hooks.md` |
 | Water depth / foam, rain and snow shapes, own weather particles, snow cover, backdrop | `look.water`, `look.weather`, `style.weather.snow.cover`, `style.sky.backdrop` | `recipes/44-water-weather-look-hooks.md`, `47-island-snow-backdrop.md` |
 | Shadows too blurry near the camera; shadow type | `look.shadow.set({ cascades: 3, type })` | `recipes/45-cascaded-shadows.md`, `15-perf.md` |
-| Environment lighting (PBR reflections, HDR) | `look.env.replace('sky' | asset)`, `look.env.set({ intensity })`\| asset })`, `look.env` | `recipes/34-environment-lighting.md` |
-| Color grading, grain, vignette, DOF, outline, bloom | `@threedog/post-effects`, `postAdd(vignette())`, `engine.post`, `look.post.set` | `recipes/09-style-pack.md`, `52-look.md` |
-| Many lights (torches, lamps, muzzle flashes) | `lightPool({ point })`, `engine.lightPool.add(obj, { color, intensity, distance, flicker })` | `recipes/09-style-pack.md` |
+| Environment lighting (PBR reflections, HDR) | `look.env.replace('sky' \| asset \| false)`, `look.env.set({ intensity, rotation })` | `recipes/34-environment-lighting.md` |
+| Color grading, grain, vignette, DOF, outline, bloom | `@threedog/post-effects`, `postAdd(vignette())`, `engine.post`, `look.post.set` | `recipes/52-look.md#post-effect-chain` |
+| Many lights (torches, lamps, muzzle flashes) | `lightPool({ point })`, `engine.lightPool.add(obj, { color, intensity, distance, flicker })` | `recipes/09-style-pack.md` §1b |
 | Day, night, seasons, sky, weather, water, isDay | `engine.sky` (`at / between / daily / onSeason`), `engine.weather`, `engine.water` | `recipes/08-weather-sky.md` |
 | Who set tone / post / lights; why does it look like this | `engine.describe().look` (value, by, at), `describe().render`, `debug.view('albedo'\|'lighting'\|'shadow'\|'normals')` | `recipes/52-look.md`, `16-dev-bridge.md` |
 | New style from a reference image | `threedog style palette <image>`, `npm run new-style`, `style check`, `style compare <ref> <shot>` | `recipes/35-style-from-reference.md` |
@@ -89,7 +89,7 @@ Three outward concepts: **Scene** (what is in the world; content packs are part 
 | Story flags, counters | `engine.vars` (`setFlag / flag / bump / counter`, saved) | `recipes/20-content-actions-save.md` |
 | Saves: save game, load game, progress, slot, autosave, 存档 | `engine.saves.register(key, { save, load })`, `saves.autosave(minutes)` | `recipes/20-content-actions-save.md` |
 | New game / continue / back to title / retry | `await engine.session.newGame() / load(slot)`, `quit()`, `session.track(h)` | `recipes/07-flow-scenes-pause.md` |
-| Scene flow, fades, pausing, cutscenes, tweens | `engine.flow`, `fadeScreen(engine, to, s)`, `engine.pause(owner)`, `engine.timeline.tween` | `recipes/07-flow-scenes-pause.md` |
+| Scene flow, fades, pausing, cutscenes, tweens | `engine.flow`, `fadeScreen(engine, to, s)`, flow `'paused'` (`engine.freeze(owner)`; not `engine.pause`, which stops rendering), `engine.timeline.tween` | `recipes/07-flow-scenes-pause.md` |
 | Time, timers, skipping time | `engine.clock` (`after / every`), `await engine.skip({ to: '06:00' })`, `checkSkip`, `checkSave` | `recipes/06-clock-events.md` |
 | Events, cause chain, randomness | `engine.events.on / emit`, `engine.random` (saved), `events.trace(name)`, `traceFocus(id)` | `recipes/06-clock-events.md` |
 | Keys, input contexts, open / interact key; text and languages (`engine.t`, `engine.i18n`) | `input.define('action', keys, label)`, `engine.input.push('menu')`, `input.simulate` | `recipes/26-ui-parts.md` |
@@ -98,26 +98,31 @@ Three outward concepts: **Scene** (what is in the world; content packs are part 
 | Fixed camera views, same shot before / after | `engine.views.define`, `shot --view name --compare` | `recipes/46-blender-art-route.md` |
 | Drive the game from an MCP client | `claude mcp add threedog -- npx threedog mcp` | `recipes/16-dev-bridge.md` §10 |
 | Will a save keep it; hide / recolor on screen only | `engine.add(obj, { id })`, `engine.thing(id)`, ops `thing.set / remove`, `debug.override(owner, id, {...})` | `recipes/41-thing-registry.md` |
-| Your own module, own game system (crop, machine) | `{ name, install, fixed, frame, describe, afterLoad }`, `engine.use`; `before` / `after`, `critical`; save, `skip` hook, ops `can` | `recipes/14-custom-module.md`, `49-game-module-contract.md` |
+| Your own module, own game system (crafting, spawner, machine, crop growth) | `{ name, install, fixed, frame, describe, afterLoad }`, `engine.use`; `before` / `after`, `critical`; save, `skip` hook, ops `can` | `recipes/14-custom-module.md`, `49-game-module-contract.md` |
 | Heavy loops, workers; performance budget, debug panel | `engine.jobs.add`, `engine.threads.lane`, `engine.commits`, `engine.budget`, `engine.debug.panel`, `threedog capture` | `recipes/15-perf.md` |
 | Co-op multiplayer | `engine.use(net({ role, transport }))`, `engine.net` | `recipes/27-net.md` |
 
-## Commands
-Drive the running game with the MCP tools or `node node_modules/@threedog/tools/bin/threedog.mjs <cmd>` (avoid npx: +2.5 s per call); details
-in `COMMANDS.md`. `npm run dev` · `npm run check` (after every change) · `npm test -- name` (related tests only) · `npm run map` (after code,
-JSDoc or content changes). Browser errors go to `.threedog/errors.log`: **read it first when something breaks**.
-
-## Verification rules for AI
-1. Order: `npm run map` -> `npm run check` -> the related tests.
-2. Check logic with `describeText()`, not screenshots; screenshots only for what the eye must judge. Ops run through the bridge change this
-   session only; a lasting change is an edit to `content/*.js`. `main.js` sets `window.engine = engine` before `start()`.
+## When something happens -> which tool
+Tools via MCP or `node node_modules/@threedog/tools/bin/threedog.mjs <cmd>` (not npx: +2.5 s a call); every command is in `COMMANDS.md`. Order: `npm run map` -> `npm run check` (each change) -> related tests (`npm test -- name`). Errors: `.threedog/errors.log`, **read first when something breaks**.
+- Not sure the engine has X -> `threedog how "<task in English>"`, `threedog catalog [id]`.
+- What is this object / why can't I click it -> `thing(id).explain()`.
+- An action failed -> the failure's `code`, `facts`, `nextActions`; `engine.explain({ op })` for what blocks it.
+- The picture looks wrong -> `engine.debug.view('albedo' | 'lighting' | 'shadow' | 'normals')`, `describe().look`.
+- Matching a reference image -> `style palette <ref>`, `style compare <ref> <shot>`, `shot --view name --compare`.
+- The game seems stuck -> `runState`, `describe().time.heldBy`.
+- What caused this -> `events.trace(name)`, `traceFocus(id)`.
+- Verifying a change -> `describeText()` for logic, screenshots only for looks; `threedog js --file steps.js` with asserts; `threedog verify <scenario>` (read its "not proven" part).
+- Saves or time skips broken -> `checkSave`, `checkSkip`.
+- Move a placed thing for good -> `threedog content set <id> x=12` (edits `content/*.js`; bridge ops last this session only).
+- Swapped a model -> `threedog assets check new.glb --against old.glb`.
+- Commands slow -> plain node, or `threedog session`.
 
 ## Conventions (detailed in `CONVENTIONS.md`)
 - **A position is one argument** (Vector3, Object3D, `[x, y, z]` or `{ x, z }`); sizes and counts go in the options object after it.
 - **Registrations return a handle**; `h.remove()` undoes it. **Ready is the boolean `ready`**. **Event names are `noun:action`**.
 - **Fixed step vs frame**: `onFixed` runs game time (damage, AI, timers); `onFrame` is presentation (animation, camera feel, HUD).
-- **The engine owns** sky lights, fog and the camera every frame: see CONVENTIONS "Adjusting sky brightness".
+- **The engine owns** sky lights, fog and the camera every frame (CONVENTIONS "Adjusting sky brightness").
 - **Units** are meters, Y up, north -Z; characters face +Z. **Errors say how to fix it**: an old form throws with the fix.
 
 ## Stability
-Tested but may change before 1.0: `net()` · `engine.threads` · `grids()` · `terrain.edit` · `world.simulate({ worker })` · `look.post.add` · `stream.source` · `hlod()` · `ops.guard / allow`.
+May change before 1.0: `net()` · `engine.threads` · `grids()` · `terrain.edit` · `world.simulate({ worker })` · `look.post.add` · `stream.source` · `hlod()` · `ops.guard / allow`.

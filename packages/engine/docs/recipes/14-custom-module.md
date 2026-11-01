@@ -1,7 +1,8 @@
 # Custom module
 
-When to write a module: a "mechanic" that has its own state, per-frame logic and saving, and that other games might use too (fishing, farming,
-stamina). Something that belongs to one game only goes in `games/<game>/`;
+When to write a module: a "mechanic" that has its own state, per-frame logic and saving (stamina, a heat meter, wave spawning, oxygen, a combo
+counter). The contracts every module should follow (state, game time, skip, describe, ops) and a second copyable module are in
+`49-game-module-contract.md`; this page is the template and the hook cheat sheet. Something that belongs to one game only goes in `games/<game>/`;
 a general one goes in `modules/<name>/index.js` inside the engine and is exported from the engine's `index.js` (then the three hard rules apply: no
 hard-coded art or text, no importing another module's internal files).
 
@@ -20,7 +21,7 @@ export function stamina(opts = {}) {
     restore(n) { api.value = Math.min(max, api.value + n); },
   };
   return {
-    name: 'stamina', label: '体力', requires: ['characters'], optional: ['hud'], stage: 'gameplay',   // once installed, engine.stamina === api
+    name: 'stamina', label: 'Stamina', requires: ['characters'], optional: ['hud'], stage: 'gameplay',   // once installed, engine.stamina === api
     install(engine) {
       e = engine;
       e.i18n.add({ 'zh-CN': { 'stamina.label': '体力' }, en: { 'stamina.label': 'Stamina' } });   // don't hard-code UI text
@@ -49,7 +50,7 @@ Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }
   what the loaded state needs nearby, with gameplay frozen until it resolves.
 - `fixed(dt, e)` movement, timing, gameplay keys (`input.pressed` read in fixed is this step's snapshot, independent of frame rate); `frame(dt, e)`
   animation, camera, UI (it reads this frame's latest input); `afterRender(dt, e)` after rendering.
-- `describe(e, ctx)`: the return value goes into `describe().<module name>`; `ctx.near(object or {x,z}, { name, kind })` reports things nearby.
+- `describe(e, ctx)`: see recipe 49 contract 4; `ctx.near(object or {x,z}, { name, kind })` reports things nearby. `skip(dt, e, done)`: recipe 49 contract 3.
 - `applyState(e, p)`: called by `engine.applyState` / URL parameters; it only receives the keys `time`, `weather` and `cutscene`.
 - `stage`: when the hooks run (first -> last): `control` timeline, camera -> `world` terrain, level -> `environment` weather, sky, water -> `gameplay`
   interactions, dialogue, entities -> `presentation` particles, objective markers -> `late` (the default) characters, physics -> `audio` music. Within
@@ -69,9 +70,7 @@ Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }
   `document.body`).
   The `dispose(e)` hook only collects what the core can't, such as Workers, the physics world and real-time timers, and is called in reverse install order.
 - While frozen (`engine.freeze`, flow pause) `fixed` is skipped entirely and `frame` still runs: check `e.frozen` before gameplay decisions.
-- Changing what a saved part looks like: raise its version and add one upgrade step per old version, e.g.
-  `e.saves.register('stamina', { version: 2, migrate: { 1: v => ({ value: v }) }, save, load })`. `load` only ever sees the current shape; a save
-  written by a newer build is refused (load returns false, the save is kept).
+- Changing what a saved part looks like: `version` + `migrate` (recipe 49 contract 1). A save written by a newer build is refused (load returns false).
 - Saved state the module writes joins the ops guard (experimental): `e.ops.guard('stamina.set')` in each writing method (a no-op in production builds,
   no DEV check needed), `e.ops.allow(fn)` around writes that are allowed anyway (recipe 23 section 5).
 - **Per-playthrough state** (one hook for every module): state that is not a save part but belongs to the current playthrough (an open dialogue, a

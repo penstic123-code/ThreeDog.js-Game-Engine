@@ -11,8 +11,8 @@
 - `type`: `'lambert' | 'phong' | 'standard' | 'physical' | 'toon' | 'basic'` (default `lambert`, or whatever the pack says).
 - Texture slots by asset name (or a `THREE.Texture`): `map`, `emissiveMap` (sRGB), `normalMap`, `roughnessMap`, `metalnessMap`, `aoMap`, `bumpMap`,
   `alphaMap`... The slot must exist on the type (`roughnessMap` needs `standard`). Plus `repeat` (number or `[x, y]`) and `wrap` (`repeat | clamp | mirror`).
-- `detail`: grain / paper / strokes / a texture laid over the surface in world space (no UVs).
-- `lighting`: extra light shaping (shadow tint, rim, wrap, own GLSL), merged over `style.lighting`; `false` opts out.
+- `detail`: a noise (`grain`, `paper`, `stroke`, `dabs`), a texture or your own GLSL laid over the surface in world space (no UVs); its keys: recipe 43.
+- `lighting`: extra light shaping (shadow tint, rim, wrap, own GLSL), merged over `style.lighting`; `false` opts out (recipe 43).
 - toon only: `steps` (number of bands), or `ramp` (+ `soften`). `ramp` on a non-toon type throws.
 - A key the chosen material does not have (`roughness` on lambert) is skipped on purpose, so one spec works for any type.
   A key that looks like a typo of a real one (`roughnes`) warns once in dev with `did you mean 'roughness'?`. Nothing is ever blocked.

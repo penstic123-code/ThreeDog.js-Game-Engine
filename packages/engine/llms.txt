@@ -28,7 +28,7 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [15-perf](docs/recipes/15-perf.md): Performance investigation (F3, budget, profile, describe().perf)
 - [16-dev-bridge](docs/recipes/16-dev-bridge.md): Dev bridge: operate the running game from the terminal (npx threedog describe / step / press / op...)
 - [18-world](docs/recipes/18-world.md): World data: things that must be saved, grow, and keep changing while far away
-- [19-shooting-picking](docs/recipes/19-shooting-picking.md): Shooting and picking (first person; cast a ray from the screen center / mouse position)
+- [19-shooting-picking](docs/recipes/19-shooting-picking.md): Shooting and picking (cast a ray from the screen center or the mouse position, with any camera)
 - [20-content-actions-save](docs/recipes/20-content-actions-save.md): Content vocabulary, key actions in actions.js, saving and loading at startup
 - [21-camera](docs/recipes/21-camera.md): Camera: first / third person, top-down strategy, fixed shots, switched at runtime
 - [22-shop-gold](docs/recipes/22-shop-gold.md): Shop and gold: buy, sell / consign, gold HUD, saving
@@ -36,7 +36,7 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [26-ui-parts](docs/recipes/26-ui-parts.md): UI parts: replace or turn off any piece of the engine's screen UI
 - [27-net](docs/recipes/27-net.md): Co-op multiplayer: net() (host authority + state sync)
 - [28-terrain](docs/recipes/28-terrain.md): Terrain: your own generator, digging, raising and painting the ground
-- [29-grid](docs/recipes/29-grid.md): Grid placement: farming, furniture, crates, building
+- [29-grid](docs/recipes/29-grid.md): Grid placement: towers, furniture, buildings, crops
 - [30-templates](docs/recipes/30-templates.md): Templates: reusable objects, definition vs instance state
 - [31-audio](docs/recipes/31-audio.md): Sound: buses, sounds by name, ambience rules, music, footsteps, ducking
 - [32-action-game](docs/recipes/32-action-game.md): Action game wiring: hp, attacks, enemy AI, drops and death without engine combat rules
@@ -44,18 +44,19 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [34-environment-lighting](docs/recipes/34-environment-lighting.md): Environment lighting
 - [35-style-from-reference](docs/recipes/35-style-from-reference.md): Making a new look from a reference picture
 - [36-sky-ground-plant-looks](docs/recipes/36-sky-ground-plant-looks.md): Sky, ground and plant looks: what a style can change
-- [37-terrain-look-hooks](docs/recipes/37-terrain-look-hooks.md): Terrain look open points: shading, color map, triangle cut, normals
-- [38-environment-look-hooks](docs/recipes/38-environment-look-hooks.md): Environment look open points: lights, fog, exposure, sky layers
+- [37-terrain-look-hooks](docs/recipes/37-terrain-look-hooks.md): Crisp ground color borders, terrain normals, height from a grid
+- [38-environment-look-hooks](docs/recipes/38-environment-look-hooks.md): Owning lights, fog and exposure yourself
 - [40-scene](docs/recipes/40-scene.md): Scene: what is in the world, where, and what a save keeps
 - [41-thing-registry](docs/recipes/41-thing-registry.md): Things: what is in the scene, who manages it, what a save keeps (engine.thing)
 - [42-terrain-shape](docs/recipes/42-terrain-shape.md): Terrain outline: islands, floating rocks, a world that ends
 - [43-shader-patches-surface-looks](docs/recipes/43-shader-patches-surface-looks.md): Writing shader patches and surface looks
-- [44-water-weather-look-hooks](docs/recipes/44-water-weather-look-hooks.md): Water and weather look open points: depth color, foam, reflections, rain and snow, lightning, own particles
+- [44-water-weather-look-hooks](docs/recipes/44-water-weather-look-hooks.md): Water and rain/snow looks: depth color, foam, reflections, particles, lightning
 - [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Cascaded shadows
-- [46-blender-art-route](docs/recipes/46-blender-art-route.md): Hand-painted art route: from Blender to the game
-- [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Floating island look: round rim, snow that settles, flat backdrop
+- [46-blender-art-route](docs/recipes/46-blender-art-route.md): Blender to game (GLB) route
+- [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Snow cover, flat backdrop, rounded terrain rim
 - [48-make-material](docs/recipes/48-make-material.md): 48. `engine.makeMaterial(role, spec)`: which keys work, who wins
-- [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (crops, burning, a production machine) that plugs into the engine's contracts
+- [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (a smelter, a recharging turret, growing crops) that plugs into the engine's contracts
 - [50-own-renderer](docs/recipes/50-own-renderer.md): Bring your own renderer: `createEngine({ renderer })`
 - [51-capability-catalog](docs/recipes/51-capability-catalog.md): Capability catalog: ask what the game can do before reading docs
 - [52-look](docs/recipes/52-look.md): 52 Change any look: `engine.look`
+- [53-ground-up-close](docs/recipes/53-ground-up-close.md): The ground up close: options and diagnosis

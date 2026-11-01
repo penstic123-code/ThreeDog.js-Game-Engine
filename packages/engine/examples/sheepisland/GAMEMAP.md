@@ -25,7 +25,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
-- content: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/content.md`
+- content: `node_modules/threedog/docs/recipes/01-new-game.md` · `node_modules/threedog/docs/api/content.md`
 
 Not used yet (check these before writing the system yourself):
 

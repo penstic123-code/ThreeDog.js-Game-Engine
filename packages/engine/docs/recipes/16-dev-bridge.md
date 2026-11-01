@@ -26,11 +26,11 @@ game only advances on step); once you open the page in a browser, commands go to
 | `press interact` | Press an action name or key once (`KeyE`, `e`, `Escape`). **It advances game time**: 0.1 s held + one rendered frame of 1/60 s, about 0.117 s in total; shorten the hold with `--for 0.02` when timing matters | `✓ Pressed menu (Escape) · … · window open: settings` |
 | `hold moveForward 1.5` | Hold for 1.5 seconds | `✓ Held moveForward (KeyW) for 1.5 s · player (-0.6, 3.0) …` |
 | `skip to=06:00` / `skip seconds=600` | Jump the clock like sleeping (`engine.skip`) | `✓ Skipped to 06:00 → 21600 · … 06:00 day 2` |
-| `ops` | What the player can do now: every op offer checked with `can` (`recipes/23-ops.md`) | `✓ shop.buy item=bread · ✗ shop.buy item=cake (soldOut)` |
-| `op shop.buy shop=bakery item=bread n=2` | Run a game op (source `bridge`, **no time passes**). Values follow the op's `args` shape (`n=2` a number, `position=3,0,-2` an array). **Change state with this, not `js`**: `js` writes skip the op log | `✓ shop.buy → 2 · Bag gold×2 bread×2` / `✗ shop.buy: noMoney (Not enough gold)` |
-| `inspect` / `inspect npc_3` / `inspect 10,-4` | What is around the player and which ops it can do now, with reasons (`engine.inspect`, recipes/23-ops.md section 8) | `player at (4, 7) · near: 老渔夫 1 m` / `✗ barter.buy shop=fisher-basket item=feather (soldOut: …)` |
+| `ops` | What the player can do now: every op offer checked with `can` (`recipes/23-ops.md`) | `✓ shop.buy item=medkit · ✗ shop.buy item=ammo (soldOut)` |
+| `op shop.buy shop=trader item=medkit n=2` | Run a game op (source `bridge`, **no time passes**). Values follow the op's `args` shape (`n=2` a number, `position=3,0,-2` an array). **Change state with this, not `js`**: `js` writes skip the op log | `✓ shop.buy → 2 · Bag gold×2 medkit×2` / `✗ shop.buy: noMoney (Not enough gold)` |
+| `inspect` / `inspect npc_3` / `inspect 10,-4` | What is around the player and which ops it can do now, with reasons (`engine.inspect`, recipes/23-ops.md section 8) | `player at (4, 7) · near: guard 1 m` / `✗ shop.buy shop=trader item=ammo (soldOut: …)` |
 | `pick 480,270` | What is at that screen pixel: record id, kind, template, the content file and line that defines it, its fields (recipes/30-templates.md section 5) | `✓ chest-home (kind chest, template chest) …` / `defined in content/props.js:14: edit it there …` |
-| `explain op barter.buy shop=fisher-basket item=berry` / `explain quest first-light` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and events around it), or where a quest is stuck (`engine.explain`) | `✗ barter.buy {...} cannot run now: noFilm (Not enough film)` |
+| `explain op shop.buy shop=trader item=ammo` / `explain quest my-quest` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and events around it), or where a quest is stuck (`engine.explain`) | `✗ shop.buy {...} cannot run now: noMoney (Not enough gold)` |
 | `scenario barter` | Run `tests/scenarios/barter.json` (recipes/23-ops.md section 7); prints failed checks, leaves it paused | `✓ barter: 6 checks passed` |
 | `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state) | `✓ Set · 18:30 day 1 · rain` |
 | `js "engine.sky.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js` | `✓ 0.77` |
@@ -90,7 +90,7 @@ The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`,
 
 ## 3b. Speed, a session, and checks in one call
 
-Why a command used to take seconds: `npx` itself costs about 2.5 s on Windows (npm starts, resolves the bin) before threedog runs at all; threedog added a second node process (about 0.25 s) and a cold first request. Measured on the engine example, per command: `npx threedog describe` 3.2 s; `node node_modules/@threedog/tools/bin/threedog.mjs describe` 0.83 s before, 0.50 s now (one process, lazy imports); with a session 0.4 s (node start alone is 0.27 s).
+Where the time goes: `npx` itself costs about 2.5 s on Windows (npm starts, resolves the bin) before threedog runs. Measured on the engine example, per command: `npx threedog describe` 3.2 s; `node node_modules/@threedog/tools/bin/threedog.mjs describe` 0.5 s; with a session 0.4 s (node start alone is 0.27 s).
 
 - For a many-step test call the bin directly (`node node_modules/@threedog/tools/bin/threedog.mjs ...`, or `node_modules/.bin/threedog`) instead of `npx`.
 - `npx threedog session` starts a background process that serves later commands; it exits after 10 idle minutes (`--minutes N`), `session stop` ends it. Commands behave identically with or without it.
@@ -159,9 +159,9 @@ combination so tests and scenarios reuse it.
 
 ## 10. MCP server: Claude Code, Cursor and other MCP clients
 `npx threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
-`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `scenario`, `verify`, `reload`, `resume`;
+`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `style_palette`, `style_compare`, `scenario`, `verify`, `reload`, `resume`;
 tests/mcp.mjs fails when this list and the server's tools differ) and returns the same text as the
-command line; `snap` also returns the PNG as an image. It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
+command line; `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `style_palette` and `style_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
 (or start `npm run dev` yourself; a tool call without a server answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As
 with the command line, the `op` and `step` tools change the current session and its saves; the level itself changes only by editing content files.
 

@@ -1,5 +1,6 @@
 // MCP tool definitions that sit next to the per-command ones in mcp.mjs: play, status, verify, and the "does it move time" label put in front of every tool
 // description (the first words are what a client shows when it lists tools, so the rule that matters most goes first).
+import { readFileSync } from 'node:fs';
 import { TIME } from './runtime.mjs';
 
 const str = description => ({ type: 'string', description });
@@ -54,3 +55,14 @@ export const EXTRA_TOOLS = {
     args: a => [a.name],
   },
 };
+
+/** The "When something happens -> which tool" section of the engine's AI.md as one compact line (backticks dropped): the server instructions carry it, so the table
+ *  has one source (the test compares the two). '' when AI.md is not found (a project without the engine docs). */
+export function situationGuide(aiMdPath) {
+  let text;
+  try { text = readFileSync(aiMdPath, 'utf8'); } catch { return ''; }
+  const sec = text.split(/^## /m).find(s => s.startsWith('When something happens'));
+  if (!sec) return '';
+  const rows = sec.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).replaceAll('`', '').replace(/\.$/, '').trim());
+  return rows.length ? 'When something happens -> which tool: ' + rows.join('; ') + '.' : '';
+}

@@ -75,9 +75,12 @@ export function dupKeys(src) {
  *   levelFile    the level is a file (level({ url })): markers are inside the .glb and cannot be read statically
  */
 export function gameSetup(dir, code) {
-  const style = code.match(new RegExp(`from\\s+['"]${STYLE_PKG_PREFIX}([\\w-]+)['"/]`))?.[1] ?? null;
-  const modelsFile = style && join(styleDir(style), 'models.js');
-  const styleModels = modelsFile && existsSync(modelsFile) ? new Set([...readFileSync(modelsFile, 'utf8').matchAll(/^ {2}(\w+):/gm)].map(m => m[1])) : style ? new Set() : null;
+  // every style pack the game imports (style: [a, b] mixes them), plus its own pack in style/: model names are the union, not the first pack's
+  const names = [...new Set([...code.matchAll(new RegExp(`from\\s+['"]${STYLE_PKG_PREFIX}([\\w-]+)['"/]`, 'g'))].map(m => m[1]))];
+  const files = names.map(n => join(styleDir(n), 'models.js'));
+  if (/from\s+['"]\.\/style(\/index\.js)?['"]/.test(code)) { names.push('local'); files.push(join(dir, 'style', 'models.js')); }
+  const style = names.length ? names.join('+') : null;
+  const styleModels = style ? new Set(files.filter(f => existsSync(f)).flatMap(f => [...readFileSync(f, 'utf8').matchAll(/^ {2}(\w+):/gm)].map(m => m[1]))) : null;
   const manifest = new Set();
   for (const m of code.matchAll(/manifest\(\s*\{[\s\S]*?models:\s*\{([^}]*)\}/g)) for (const k of m[1].matchAll(/(?:^|,)\s*['"]?([\w\u4e00-\u9fff-]+)['"]?\s*(?=[:,]|$)/g)) manifest.add(k[1]);
   const levelFile = /\blevel\(\s*\{[^}]*\burl\s*:/.test(code);

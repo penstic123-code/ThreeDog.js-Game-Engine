@@ -2,13 +2,13 @@
 
 For an AI turning a reference picture into a style pack and hitting "the engine draws it this way". Colors and materials are in `09-style-pack.md`, the
 order of work in `35-style-from-reference.md`. This page lists the places where the *shape* of a look was fixed in engine code and is now a style
-setting. Every default below is the original look, bit for bit; a style that sets nothing here draws what it always drew. Style packs hold looks only
+setting. Each table lists the engine default; a style that sets nothing here gets those defaults. Style packs hold looks only
 (rule R34): none of these settings move a hill, a river or a species list.
 
 ## Sky clouds: `style.sky.clouds`
 | Key | Meaning | Default |
 |---|---|---|
-| `color`, `shade`, `coverage`, `scale`, `speed` | as before; coverage multiplies the weather's cloud amount | |
+| `color`, `shade`, `coverage`, `scale`, `speed` | lit color, shaded color, cover (multiplies the weather's cloud amount), size, drift speed | |
 | `kind` | `'plane'` cheap, 3 noise samples. `'cumulus'` billowy, 8 noise samples per cloudy sky pixel, flatter projection (clouds fill the whole sky instead of crowding at the horizon), the sun side of each cloud is lit and the underside shaded | `'plane'` |
 | `horizon` | added to `dir.y` before projecting; smaller = clouds shrink and crowd more towards the horizon | plane 0.08, cumulus 0.5 |
 | `fade` | `[from, to]` in `dir.y`: invisible below `from`, full above `to` | plane `[0, 0.18]`, cumulus `[0, 0.12]` |
@@ -37,14 +37,14 @@ vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, ve
 ```
 In scope: the GLSL noise helpers `float threedogHash(vec2 p)` and `float threedogNoise(vec2 p)`, the built-in cloud uniforms (`uCloudScale`, `uCloudSpeed`, `uCloudHorizon`, `uCloudFade`...) and
 your `clouds.uniforms` (declared for you; number, `THREE.Color`, `THREE.Vector2/3/4`, array of 2-4 numbers, or `THREE.Texture`). Change one later
-with `engine.sky.dome.material.uniforms.uBrush.value = 0.5`. A bad `kind`, a `glsl` without the function, or an unsupported uniform value throws with the fix.
-Gouache-style flat cloud blobs with a paper texture:
+with `engine.sky.dome.material.uniforms.uEdge.value = 0.1`. A bad `kind`, a `glsl` without the function, or an unsupported uniform value throws with the fix.
+Flat painted cloud blobs with a hard edge, multiplied by a texture:
 ```js
 clouds: { color: 0xfff1dc, shade: 0x9aa8c4, uniforms: { uPaper: paperTexture, uEdge: 0.06 },   // paperTexture: any THREE.Texture, repeat wrapping
   glsl: `vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover){
     vec2 p = d.xz / (d.y + 0.5) * 0.4 + vec2(0.004, 0.002) * time;
     float n = threedogNoise(p) * 0.65 + threedogNoise(p * 2.3 + 5.0) * 0.35;
-    float a = smoothstep(1.0 - cover, 1.0 - cover + uEdge, n);                          // hard, painted edge
+    float a = smoothstep(1.0 - cover, 1.0 - cover + uEdge, n);                          // hard edge
     float up = clamp(0.5 + (n - threedogNoise(p + sunDir.xz * 0.1)) * 6.0, 0.0, 1.0);  // sun side
     vec3 c = mix(shade, lit, up) * texture2D(uPaper, p * 3.0).rgb * (0.35 + 0.65 * (1.0 - night));
     return vec4(c, a * smoothstep(0.0, 0.1, d.y));
@@ -52,36 +52,38 @@ clouds: { color: 0xfff1dc, shade: 0x9aa8c4, uniforms: { uPaper: paperTexture, uE
 ```
 
 ## Ground color: `style.terrain.variation`
-Terrain colors are baked per vertex by the (worker) generator from the palette. Before, two palette colors were blended by a noise of about 30 m
-wavelength and every 1/3 m cell got a 0.92-1.04 brightness grain, both fixed. Now (plain data, so it travels to the workers; unknown keys throw):
+Terrain colors are baked by the (worker) generator from the palette: two palette colors blended by a noise, a small brightness grain, and an
+optional layer of large patches. The defaults are shown (plain data, so it travels to the workers; unknown keys throw):
 ```js
 terrain: { colors: { ... }, biomeColors: { ... },
   variation: {
     blend:   { size: 33, strength: 1 },          // wavelength in m of the two-color noise; strength > 1 = harder contrast, < 1 = flatter
     jitter:  { size: 0.33, min: 0.92, range: 0.12 },   // grain cell in m; darkest multiplier; how much brighter it can get (0 range = no grain)
-    patches: { size: 90, strength: 0.15, levels: 0, tint: 0xb59a5a },   // optional second, large layer: painted color blocks
+    patches: { size: 90, strength: 0.15, levels: 0, tint: 0xb59a5a },   // optional (example values): a second, large layer of color blocks
   } }
 ```
-`patches` is off unless given. It is a noise much larger than `blend`; `levels: 4` snaps it to 4 flat steps (brush-stroke blocks instead of soft
-clouds); without `tint` it lightens and darkens the ground, with `tint` it pulls the color towards the tint where the noise is high. Vertex colors
-interpolate across a chunk cell (4 m at the default resolution), so blocks smaller than that blur; for crisp strokes use a texture (next).
+`patches` is off unless given. It is a noise much larger than `blend`; `levels: 4` snaps it to 4 flat steps (hard-edged color blocks instead of a
+soft blend); without `tint` it lightens and darkens the ground, with `tint` it pulls the color towards the tint where the noise is high. Vertex colors
+interpolate across a chunk cell (4 m at the default resolution), so blocks smaller than that blur; for crisp blocks use `shading: 'texture'`
+(recipe 37) or a texture (next). Which combination fits which look, and ground that looks wrong up close: recipe 53.
 
-### A texture on the ground (brush strokes, paper, grain)
+### Your own ground material
 `style.terrain.material` (a Material or `(engine) => Material`) replaces the ground material. Chunk geometry has `uv = world xz / chunk size`, continuous
 across chunk borders (checked by `tests/specs/appearance.mjs`), so a repeating texture is seamless whatever chunk it lands in; cloud shadows and
 season tint are added to your material. `texture.repeat.set(8, 8)` = 8 tiles per chunk. Without UVs (steep sides stretch a top-down map), project
 from the world position in a patch instead (`needs.patches: ['world']` gives `vThreedogWorld`):
 ```js
 material: engine => applyEffects(new THREE.MeshLambertMaterial({ vertexColors: true }), { clouds: false, patches: [{
-  name: 'triplanar', needs: { patches: ['world'] }, uniforms: { uBrush: { value: brushTexture }, uBrushScale: { value: 0.1 } },   // brushTexture: repeat wrapping
-  glsl: { fragment: { pars: 'uniform sampler2D uBrush; uniform float uBrushScale;',
+  name: 'triplanar', needs: { patches: ['world'] }, uniforms: { uTex: { value: groundTexture }, uTexScale: { value: 0.1 } },   // groundTexture: repeat wrapping
+  glsl: { fragment: { pars: 'uniform sampler2D uTex; uniform float uTexScale;',
     color_fragment: `vec3 n = abs(normalize(cross(dFdx(vThreedogWorld), dFdy(vThreedogWorld)))); n /= n.x + n.y + n.z;
-      diffuseColor.rgb *= texture2D(uBrush, vThreedogWorld.zy * uBrushScale).rgb * n.x + texture2D(uBrush, vThreedogWorld.xz * uBrushScale).rgb * n.y
-        + texture2D(uBrush, vThreedogWorld.xy * uBrushScale).rgb * n.z;` } } }] })
+      diffuseColor.rgb *= texture2D(uTex, vThreedogWorld.zy * uTexScale).rgb * n.x + texture2D(uTex, vThreedogWorld.xz * uTexScale).rgb * n.y
+        + texture2D(uTex, vThreedogWorld.xy * uTexScale).rgb * n.z;` } } }] })
 ```
 A procedural noise texture is a `THREE.DataTexture` filled in a loop (`wrapS = wrapT = THREE.RepeatWrapping`, `colorSpace = THREE.SRGBColorSpace`,
-`needsUpdate = true`); `style.terrain.detail` (an asset texture multiplied in, `strength` 0-1) is the lighter alternative when the grain is a picture; on any other surface use the
-`detail` key of a material spec (recipe 37).
+`needsUpdate = true`). The lighter alternative is a detail layer, `style.terrain.detail` / `look.ground.set({ detail })`: the same object as a
+material spec's `detail` (`noise: 'grain' | 'paper' | 'stroke' | 'dabs'`, or `texture: 'name'`, or your own `glsl`; `scale`, `strength`, `fade`
+...; keys in recipe 43), with no material of your own. Which to pick: recipe 53.
 
 ## Plants and wind
 Audit of what the vegetation code fixes, split into mechanism (stays) and look (made a setting):
@@ -92,11 +94,11 @@ Audit of what the vegetation code fixes, split into mechanism (stays) and look (
 | `GroundChunks`, `Vegetation.levelOf` | one InstancedMesh per species per chunk; rings decide LOD swap, draw distance, shadow distance; 3 ms placement budget; collision lag | mechanism, stays |
 | wind sway shape | two sines (speed `1.2 + 0.6*uWind` and `2.9`, spatial phase from the instance origin), height-weighted, lean with wind strength | look: **`style.wind.glsl`** replaces it |
 | wind speed | `uWindFreq` | already `style.wind.frequency` |
-| season tint | `diffuseColor.rgb *= tint` (default) or a blend towards the tint; colors from `style.seasons` | look, both settings: `style.seasons.mode: 'multiply' \| 'mix'` (+ `strength`); see recipe 37 |
+| season tint | `diffuseColor.rgb *= tint` (default) or a blend towards the tint; colors from `style.seasons` | look, both settings: `style.seasons.mode: 'multiply' \| 'mix'` (+ `strength`); see recipe 43 |
 | defaults | `castShadow` = not `nearOnly`, `shadowRing` 1, `lodRing` 1 | per-species options, set them in the species |
 
 ```js
-wind: { frequency: 1, uniforms: { uSteps: 3 },    // pose-to-pose sway for a painted look: 3 poses instead of a smooth sine
+wind: { frequency: 1, uniforms: { uSteps: 3 },    // stepped sway: plants snap between 3 poses instead of a smooth sine
   glsl: `void threedogWind(inout vec3 transformed, vec3 ip, vec3 position){
     float s = floor(sin(uTime * uWindFreq + ip.x * 0.3 + ip.z * 0.2) * uSteps) / uSteps;
     transformed.x += s * max(position.y, 0.0) * THREEDOG_WIND_AMP * uWind;

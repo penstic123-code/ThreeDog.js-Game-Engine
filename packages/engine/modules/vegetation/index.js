@@ -36,7 +36,7 @@ export function vegetation(opts = {}) {
     // terrain installed after vegetation would leave two chunk tables: say where to put it
     critical: true,   // a wrong install order is a setup error, not something to play on with
     init(e) { if (own && e.terrain) throw new Error('vegetation() was installed before terrain(): put terrain() first, vegetation then grows on its chunks'); },
-    frame(dt, e) { own?.update(e.stream.sources(), e.camera); },
+    frame(dt, e) { v.updateFade(); own?.update(e.stream.sources(), e.camera); },
     fixed(dt) { v.tick(dt); }, skip(dt, e, done) { if (done) v.tick(1); },
     describe(e, ctx) { if (own) ctx.out.perf.vegetation = { loaded: own.stats.loaded, visible: own.stats.visible, queued: own.stats.queued }; },
     dispose() { own?.dispose(); cols?.remove(); ready?.remove(); } };

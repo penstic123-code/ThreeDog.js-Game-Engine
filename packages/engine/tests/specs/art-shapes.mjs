@@ -99,7 +99,7 @@ export const specs = [
         const gray = !!col && [...col.array.slice(0, 30)].every((v, i, a) => Math.abs(v - a[i - i % 3]) < 1e-6);
         let caps = 0; engine.player.root.traverse(o => { if (o.isMesh && o.geometry.type === 'CapsuleGeometry') caps++; });
         return { hs, type: engine.groundType(5, 5), box, gray, caps, shadow: engine.lights.sun.castShadow, tone: engine.renderer.toneMapping,
-          warns: { style: has('no style pack given'), terrain: has('terrain(): no height function'), chars: has('characters: no style pack / model given'), pickups: has('pickups: no style pack / model given') } };
+          warns: { style: has('style pack is missing or empty'), terrain: has('terrain(): no height function'), chars: has('characters: no model given'), pickups: has('pickups: no style pack / model given') } };
       });
       check('flat ground at y = 0 everywhere, ground type "default"', r.hs.every(h => h === 0) && r.type === 'default', JSON.stringify(r.hs) + ' ' + r.type);
       check('player is one gray capsule, the pickup a box, the ground one neutral gray', r.caps === 1 && r.box === 'BoxGeometry' && r.gray, JSON.stringify(r));

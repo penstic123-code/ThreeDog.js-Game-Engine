@@ -13,7 +13,7 @@
 // Determinism: in engine.step() and headless loading frames, jobs ignore the real-time budget and drain the queue (see Jobs.js),
 // and stream's synchronous builds are attached to the scene before step returns: same input and same seed (engine.random) give the same result.
 import { reportError } from './errors.js';
-import { DEV } from './validate.js';
+import { DEV, warnOnce } from './validate.js';
 import { codedError } from './errorHints.js';
 import { watchLights } from './lightWatch.js';
 
@@ -192,7 +192,12 @@ export const loopMethods = {
     if (a.t < 1) return;
     const fps = a.n / a.t; a.t = 0; a.n = 0;
     const pr = this.renderer.getPixelRatio();
-    if (fps < a.target - 5 && pr > a.min + 0.01) { this.setPixelRatio(Math.max(a.min, +(pr - 0.1).toFixed(2))); a.good = 0; a.cooldown = 5; }
+    if (fps < a.target - 5 && pr > a.min + 0.01) {
+      const to = Math.max(a.min, +(pr - 0.1).toFixed(2));
+      // never silent: the picture gets softer, and the game or an AI should know why (dev warning once; describe().render.scale keeps the facts)
+      if (!a.lowered) { a.lowered = true; a.from = pr; if (DEV) warnOnce(`render scale ${pr} -> ${to} because fps ${fps.toFixed(0)} is under ${a.target}; adaptive resolution lowers it down to ${a.min}. Turn off with createEngine({ adaptiveResolution: false }) or engine.adaptive.on = false; see describe().render.scale`); }
+      this.setPixelRatio(to); a.good = 0; a.cooldown = 5;
+    }
     else if (fps >= a.target + 3 && pr < a.max - 0.01 && a.cooldown <= 0) {
       if (++a.good >= 4) { this.setPixelRatio(Math.min(a.max, +(pr + 0.05).toFixed(2))); a.good = 0; }
     } else a.good = 0;

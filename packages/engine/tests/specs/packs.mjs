@@ -77,9 +77,11 @@ export const specs = [
           okShading: msg({ terrain: { config: { shading: 'flat' } }, water: { color: 1, segments: 50 } }), okPack: msg(lowpoly) };
         // two engines, two styles: nothing falls back to the first engine's pack
         const mk = (style, key) => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key, style });
-        const a = mk(lowpoly, 'bound-a'), b = mk([lowpoly, { materials: { character: { type: 'toon' }, pickup: { type: 'toon' }, default: { type: 'toon' } } }], 'bound-b');
-        const types = rig => { const t = new Set(); rig.root.traverse(o => { if (o.isMesh) t.add(o.material.type); }); return [...t]; };
-        out.iso = { a: types(a.style.character.create(a, a.style.character.colors)), b: types(b.style.character.create(b, b.style.character.colors)),
+        // the humanoid body is an asset now: its part roles (cloth / skin / trousers / hair) follow the engine whose builder context it gets
+        const toon = { type: 'toon' }, b = mk([lowpoly, { materials: { cloth: toon, skin: toon, trousers: toon, hair: toon, pickup: toon, default: toon } }], 'bound-b');
+        const a = mk(lowpoly, 'bound-a');
+        const types = root => { const t = new Set(); root.traverse(o => { if (o.isMesh) t.add(o.material.type); }); return [...t]; };
+        out.iso = { a: types(lowpolyModels.humanoid.call({ engine: a })), b: types(lowpolyModels.humanoid.call({ engine: b })),
           pickupA: a.style.pickup.model({}, { color: 1, size: 1 }, a).material.type, pickupB: b.style.pickup.model({}, { color: 1, size: 1 }, b).material.type,
           methodA: a.makeMaterial('prop').type, methodB: b.makeMaterial('prop').type };
         // palette: one value recolors the generated models; without it the old colors

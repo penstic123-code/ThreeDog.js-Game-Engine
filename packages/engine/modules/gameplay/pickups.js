@@ -77,7 +77,7 @@ function take(inv, rec) {
   return { ok: true };
 }
 const NO_PICKUP = 'pickups: no style pack / model given, so items on the ground are gray boxes (a placeholder). Pass a style pack with '
-  + "style.pickup.model(item, { color, size }), e.g. createEngine({ style: lowpoly }) with lowpoly from '@threedog/style-lowpoly'";
+  + "style.pickup.model(item, { color, size }), e.g. createEngine({ style: yourPack }) with a pack you made or installed";
 /** The model (built when near) + interaction for this pickup record @internal */
 function model(inv, rec) {
   const e = inv.engine, def = inv.item(rec.item), st = e.style.pickup || {};

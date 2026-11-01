@@ -1,4 +1,4 @@
-// Find, import and merge a style for `threedog style check`: a pack name (lowpoly), a package name (@threedog/style-x), a folder or a file.
+// Find, import and merge a style for `threedog style check`: a pack name, a package name (@threedog/style-x), a folder or a file.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, dirname, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,7 +16,7 @@ export function resolveEntry(target) {
     const main = join(p, pkg.main ?? 'index.js');
     if (existsSync(main)) return main;
   }
-  throw new Error(`no style found for "${target}": give a pack name (lowpoly), a package (@threedog/style-x), a folder with index.js, or a .js file whose default export is the style`);
+  throw new Error(`no style found for "${target}": give a pack name (the folder name under packages/styles), a package (@threedog/style-x), a folder with index.js, or a .js file whose default export is the style`);
 }
 
 /** The .js files the pack is made of (an index.js entry: its folder, without node_modules; any other file: just itself), as { file, text } */

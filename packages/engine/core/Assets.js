@@ -33,6 +33,7 @@ import { codedError, coded } from './errorHints.js';
 import { Animator } from './Animator.js';
 import { fetchEntry, freeEntry, preloadEntries } from './assetEntry.js';
 import { registerManifest } from './assetManifest.js';
+import { loadGrid } from './gridLoad.js';
 
 const STRINGS = {
   noFont: 'assets.font(\'{name}\'): no font named {name}{known}. Register the file in an asset pack: engine.assets.manifest({ fonts: { {name}: \'/fonts/{name}.woff2\' } })',
@@ -180,6 +181,17 @@ export class Assets {
     if (!v) this.entries.set(key, v = { type: 'texture', url: base.url, opts: { ...base.opts, ...opts }, promise: null, variantOf: nameOrUrl });
     return this._fetch(v);
   }
+
+  /**
+   * An image as grid data for sampleGrid (height map, moisture, density, walkable mask...): { data: Float32Array, width, height, bits }. Name or path.
+   * PNG is read at full precision (8 or 16 bits, grayscale or color); jpg / webp give 8 bits. channel: 'r' (default) 'g' 'b' 'a' or 0-3.
+   * range: [min, max] the pixel values map to (default [0, 1]; pass world units, e.g. [-5, 60] meters). bits: 8 reads only the high byte of a 16-bit file.
+   * @example const g = await engine.assets.gridFromImage('/maps/height.png', { range: [-5, 60] });  const h = sampleGrid(g.data, { ...g, size: [512, 512] });
+   * @param {string} nameOrUrl
+   * @param {{ channel?: 'r' | 'g' | 'b' | 'a' | number, range?: [number, number], bits?: 8 | 16 }} [opts]
+   * @returns {Promise<{ data: Float32Array, width: number, height: number, bits: number }>}
+   */
+  gridFromImage(nameOrUrl, opts = {}) { return loadGrid(this.entries.get(nameOrUrl)?.url ?? nameOrUrl, opts); }
 
   /**
    * Release an asset and return its GPU memory (reloaded on next use). A texture is released together with all its opts variants.

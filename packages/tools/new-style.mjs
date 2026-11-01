@@ -1,5 +1,5 @@
 // Create a new style pack in one step: npm run new-style name
-// Copies packages/tools/templates/style/ (a clean minimal pack, not a copy of lowpoly) to packages/styles/<name>/ replacing __NAME__ with the name,
+// Copies packages/tools/templates/style/ (a clean minimal pack) to packages/styles/<name>/ replacing __NAME__ with the name,
 // links it as the workspace @threedog/style-<name> (packages/styles/* is already a workspace glob), updates the lock, then runs `style check` and `check`.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -21,7 +21,7 @@ function copy(from, to, name) {
  * Throws a message that says how to fix it.
  */
 export function createStyle(name, { lock = true } = {}) {
-  if (MODE !== 'monorepo') throw new Error('new-style makes a pack inside the threedog repository (packages/styles/<name>); in a game, copy packages/styles/lowpoly or generate one there and import it by path');
+  if (MODE !== 'monorepo') throw new Error('new-style makes a pack inside the threedog repository (packages/styles/<name>); in a game, copy a pack folder into the game or generate one there and import it by path');
   if (!name || !/^[a-z0-9-]+$/.test(name)) throw new Error(`name "${name ?? ''}" is not allowed: lowercase letters, digits and hyphens only (a-z 0-9 -), e.g. new-style sand-dune`);
   const dir = styleDir(name);
   if (existsSync(dir) || workspaces().some(d => d.endsWith(`/${name}`) || d.endsWith(`\\${name}`))) throw new Error(`${rel(dir)} already exists, pick another name`);

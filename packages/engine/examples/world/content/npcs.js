@@ -2,7 +2,7 @@
 export default {
   fisher: {
     name: '老渔夫',
-    colors: { body: 0x4f6d8f, legs: 0x5b4a3a, hair: 0xd8d4cc },
+    model: 'humanoid', colors: { body: 0x4f6d8f, legs: 0x5b4a3a, hair: 0xd8d4cc },
     start: { place: 'home', x: 1, z: 5 },
     schedule: [
       { at: '06:00', place: 'river' },             // go to the riverside

@@ -57,7 +57,7 @@ The schema types are those of op args plus `object`, `array` and `function` (opt
 time hooks; a `fixed` hook without `skip` is listed under problems (recipe 49).
 
 ## 5. "How do I get this effect": `threedog how`
-`npx threedog how "rain"` (also `how 下雨`) scores the words of the task against the AI.md task rows and the recipe headings with their first sentence, and prints the
+`npx threedog how "rain"` scores the words of the task against the AI.md task rows and the recipe headings with their first sentence, and prints the
 top five: the API in the row, the recipe path with section (`recipes/08-weather-sky.md §1`) and a one-line snippet. It reads the docs only, so it works with no page
 and prints the same list every run. When a dev page runs it adds up to three live catalog modules whose name matches the first English word. Words match at a word
-start (`rain` does not hit `terrain`); a few Chinese task words are mapped to the English words the docs use. No hit means rephrase, or read AI.md.
+start (`rain` does not hit `terrain`). No hit means rephrase, or read AI.md.

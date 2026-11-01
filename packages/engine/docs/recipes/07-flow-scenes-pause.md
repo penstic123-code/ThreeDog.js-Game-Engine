@@ -16,10 +16,10 @@ engine.flow.define('title', {
   enter: (e, from) => { titleEl.hidden = false; },
   exit: (e, to) => { titleEl.hidden = true; },
 });
-engine.flow.define('ending', { freeze: true, lockInput: true, enter: () => toast(engine, '完') });
+engine.flow.define('ending', { freeze: true, lockInput: true, enter: () => toast(engine, 'The end') });
 startBtn.onclick = () => engine.flow.go('playing');
 
-engine.input.define('pause', ['KeyO'], '暂停');   // read by action name; Esc is the back key (see below); presets.keys / presets.interactions bind P, I, J, E (see the key table in GAMEMAP)
+engine.input.define('pause', ['KeyO'], 'Pause');   // read by action name; Esc is the back key (see below); presets.keys / presets.interactions bind P, I, J, E (see the key table in GAMEMAP)
 engine.onFrame(() => {
   if (engine.input.pressedRaw('pause')) engine.flow.go(engine.flow.state === 'paused' ? 'playing' : 'paused');   // paused pushes an opaque input context, so use pressedRaw
 });

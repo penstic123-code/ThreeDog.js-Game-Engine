@@ -3,11 +3,11 @@
 // files or generators (asset packs, engine.assets.manifest), gameplay data (content packs, engine.content.load), and anything that changes the world or
 // the rules: water level / sea / size go to water({ level, sea, size }), terrain shape and size to terrain({...}) (a dev error says so). Swapping the style must
 // never move the map. A style may be a list of parts (StyleInput).
-// Example: the optional @threedog/style-lowpoly package (packages/styles/lowpoly/index.js).
+// Example: any style pack, a folder with index.js (yours, or a published one); see recipes/09-style-pack.md.
 import type { ColorLike, BufferGeometry, Object3D, Material, Loose } from './common';
 import type { Engine } from './core';
 import type { SteepRule, WeatherPreset, TerrainConfig, Sky } from './world';
-import type { ParticleOptions, CharacterRig } from './gameplay';
+import type { ParticleOptions } from './gameplay';
 import type { ShaderPatch } from './generated/render/patches';
 
 /** Material finish: 'lambert' matte | 'phong' with highlights | 'standard' realistic | 'physical' | 'toon' cel-shaded steps | 'basic' unlit */
@@ -43,13 +43,13 @@ export interface MaterialSpec {
 }
 
 /**
- * The `detail` surface patch. Source: texture (asset name) or noise ('grain' | 'paper' | 'stroke', default grain) or glsl (your own sampler
+ * The `detail` surface patch. Source: texture (asset name) or noise ('grain' | 'paper' | 'stroke' | 'dabs', default grain) or glsl (your own sampler
  * function). Effects: color (strength, mode), normal (relief height in meters), roughness (amount). Every number is a uniform, so many materials
  * with different values share one shader program. Channels (color / normal / roughness) are fixed when the material is made.
  */
 export interface MaterialDetail {
   texture?: string | import('three').Texture;
-  noise?: Loose<'grain' | 'paper' | 'stroke'>;
+  noise?: Loose<'grain' | 'paper' | 'stroke' | 'dabs'>;
   /** Replaces the noise: `vec4 threedogDetailSample(vec2 p)` returns vec4(color rgb, height 0-1); p is scaled, turned, stretched */
   glsl?: string;
   /** Uniforms for glsl: numbers, colors, [x, y(, z, w)] arrays or textures */
@@ -64,6 +64,8 @@ export interface MaterialDetail {
   mode?: Loose<'multiply' | 'add' | 'mix'>;
   /** Colors the sample (default white) */
   tint?: ColorLike;
+  /** Default true: the effect fades out where the pattern is smaller than about a pixel (far away, grazing angles), so it does not shimmer. `false` keeps it. In `glsl`, `threedogDetailFootprint` is one pixel in pattern units */
+  fade?: boolean;
   /** Degrees; turns the pattern (strokes run along it) */
   direction?: number;
   /** Stretches the pattern along direction (default 1, strokes 6) */
@@ -504,8 +506,12 @@ export interface StyleTerrain {
   config?: { shading?: Loose<'flat' | 'smooth' | 'texture'>; colorResolution?: number; normals?: Loose<'smooth' | 'flat'>; normalFn?: TerrainConfig['normalFn'] };
   /** Whole ground material: a Material or (engine) => Material (uv = world xz / chunk size; terrain({ material }) wins) */
   material?: Material | ((engine: Engine) => Material);
-  /** Ground detail texture: texture asset name, scale repeats per meter, strength 0–1 */
-  detail?: { texture: string; scale?: number; strength?: number };
+  /**
+   * Detail layer over the ground, the same object as a material spec's `detail`: a noise ('grain' | 'paper' | 'stroke' | 'dabs'), a texture
+   * asset name, or your own `glsl`; plus scale, strength, fade ... (top-down world projection by default). Live: look.ground.set({ detail }).
+   * See recipes/53-ground-up-close.md
+   */
+  detail?: MaterialDetail;
 }
 
 /** UI template function: (data, helpers) => HTML string */
@@ -557,12 +563,12 @@ export interface Style {
   /** Style pack name */
   name?: string;
   /**
-   * Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number,
+   * Exposure, default 1: a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number,
    * evaluated by the sky module every frame. engine.look.tone.set changes it at run time
    * @example exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights
    */
   exposure?: number | number[][] | ((sky: any) => number);
-  /** Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look (lowpoly: 'aces') */
+  /** Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look */
   toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>;
   /** Background color (when there is no sky module) */
   background?: ColorLike;
@@ -590,11 +596,11 @@ export interface Style {
    * way to the color. Season names are the other keys, so none can be called mode or strength
    */
   seasons?: StyleSeasons;
-  /** Cloud shadow: shadow darkest level 0–1 (default 0 = no cloud shadows; lowpoly 0.55), scale cloud size (smaller means bigger clouds), speed [x, z] */
+  /** Cloud shadow: shadow darkest level 0–1 (default 0 = no cloud shadows), scale cloud size (smaller means bigger clouds), speed [x, z] */
   clouds?: { shadow?: number; scale?: number; speed?: number[] };
   /**
-   * Named colors the procedural model generators read (trees, rocks, grass: a generator written with `function` gets them as this.palette; lowpoly keys:
-   * bark, pine, leaf, rock, grassTip...). One place to retint all of them, e.g. style: [lowpoly, { palette: { leaf: 0xd98a3a } }]; keys left out keep the pack's values
+   * Named colors the procedural model generators read (trees, rocks, grass: a generator written with `function` gets them as this.palette; a pack may use keys like
+   * bark, pine, leaf, rock, grassTip...). One place to retint all of them, e.g. style: [basePack, { palette: { leaf: 0xd98a3a } }]; keys left out keep the pack's values
    */
   palette?: Record<string, ColorLike>;
   /** Wind: frequency sway frequency multiplier */
@@ -613,11 +619,10 @@ export interface Style {
    */
   pickup?: { color?: ColorLike; size?: number; lift?: number; model?: (item: any, o: { color: ColorLike; size: number }, engine: Engine) => Object3D | BufferGeometry };
   /**
-   * Default character: colors palette; create(engine, colors) returns the procedural character (without it a gray capsule); model names a registered
-   * model asset every character uses unless it passes its own model (the procedural body shows until it loads); animation.fade skeletal animation
-   * transition seconds
+   * How character motion looks: animation.fade skeletal animation transition seconds. Bodies are assets, not style ({ model: 'yourBody' } from
+   * an asset pack); a style tints body parts through materials roles (cloth, skin, trousers, hair). create / model / colors here throw renamed-api
    */
-  character?: { model?: string; colors?: { body?: ColorLike; skin?: ColorLike; legs?: ColorLike; hair?: ColorLike }; create?: (engine: Engine, colors: Record<string, ColorLike>) => CharacterRig | null | undefined; animation?: { fade?: number } };
+  character?: { animation?: { fade?: number } };
   /** UI colors, fonts, templates */
   ui?: StyleUI;
   /** Particle presets: name → parameters; default is the fallback for all effects */

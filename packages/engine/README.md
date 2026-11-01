@@ -5,29 +5,28 @@ A web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, a
 ## Install
 ```sh
 npm install threedog three@~0.187.0
-npm install @threedog/style-lowpoly          # optional: the low-poly style pack (the engine ships no art)
 npm install @threedog/terrain-noise          # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
 npm install -D vite @threedog/tools   # optional: the vite preset and the threedog command line
 ```
-Or let it set up the folder: `npx threedog init` writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have.
+Or let it set up the folder: `npx threedog init` (flags: `--example` for a small gameplay sample, `--style empty|<path-or-package>`; the default is a clean start with an empty style pack in `style/`) writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have.
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.
 
 ## Minimal usage
 ```js
 import { createEngine, presets, openWorld } from 'threedog';
-import lowpoly from '@threedog/style-lowpoly';              // optional style pack (npm install @threedog/style-lowpoly)
 import { terrainPreset } from '@threedog/terrain-noise';   // optional terrain generator (npm install @threedog/terrain-noise)
 
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly });
+const engine = createEngine({ canvas: document.getElementById('view') });   // no style pack: gray placeholders
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));
 engine.characters.createPlayer({ ...presets.player.thirdPerson });
 engine.start();
 ```
+A look is a style pack you pass in (yours or a published one): `createEngine({ canvas, style: yourPack })`.
 `vite.config.js` with the preset: `import { gameConfig } from '@threedog/tools/vite'; export default gameConfig(import.meta.dirname);`
 
 ## Entry points
 - `threedog`: the whole public API (`THREE` is re-exported, so `import { THREE } from 'threedog'` is the same three instance).
-- Style packs are separate packages: the engine ships no art. `npm install @threedog/style-lowpoly` for the optional low-poly one (visuals only; the noise terrain generator `terrainPreset()` is `@threedog/terrain-noise`); without a style pack everything is a neutral gray placeholder.
+- Style packs are separate packages (yours or published): the engine ships no art (visuals only; the noise terrain generator `terrainPreset()` is `@threedog/terrain-noise`); without a style pack everything is a neutral gray placeholder.
 - `threedog/error-hints`: the developer error hint table (used by `@threedog/tools`).
 
 Nothing else is a public path; files under `core/`, `modules/` etc. may move between versions.

@@ -1,7 +1,7 @@
 // Content loader: hands the plain data in the game's content/*.js to the engine (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger
 // zones, props).
 //   engine.use(content());
-//   engine.assets.manifest(lowpolyAssets);                      // models content names (an asset pack; content never holds paths or code)
+//   engine.assets.manifest(yourAssets);                      // models content names (an asset pack; content never holds paths or code)
 //   engine.content.load(data, { places: { home: { x, z } } });  // or several packs at once: load([base, dlc, level]) (packs.js)
 // Condition/effect vocabulary is in rules.js. Games add condition words (content/rules.js, or content.condition(name, { test }) in code);
 // a game's own actions are ops, called from content with { op: ['noun.verb', args] } and tested with { can: [...] }.

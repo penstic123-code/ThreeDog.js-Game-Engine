@@ -60,7 +60,7 @@ engine.world.present('crop', {
   build(rec) {
     const m = new THREE.Mesh(geo, makeMaterial('prop', { color: 0x6aa84f }));
     m.castShadow = true;
-    m.userData.use = engine.interactions.add(m, { label: '收获', radius: 2, enabled: () => growth(rec) >= 1, onUse: () => harvest(rec) });   // can be harvested only when ripe
+    m.userData.use = engine.interactions.add(m, { label: 'Harvest', radius: 2, enabled: () => growth(rec) >= 1, onUse: () => harvest(rec) });   // can be harvested only when ripe
     return m;
   },
   update(rec, obj) {   // grows bigger, changes color when ripe
@@ -80,6 +80,9 @@ function plant(x, z) {   // the player plants one
   return engine.world.add({ kind: 'crop', position: { x, y: engine.surface(x, z), z }, plantedAt: engine.clock.now });
 }
 ```
+The same "store when, derive the rest" pattern fits any timed thing: an enemy camp that respawns (`clearedAt`), a turret or machine cooldown
+(`usedAt`), a door that shuts again (`openedAt`):
+`const ready = rec => engine.clock.now - rec.usedAt >= rec.cooldown;   // no per-step counter, correct after skip and load`
 Test: `plant(2, 2)` -> `engine.step(130)` (fast-forward 130 game seconds) -> the player walks next to it -> `engine.ops.run('interaction.use')` ->
 `engine.inventory.count('carrot')`.
 
@@ -157,7 +160,7 @@ function wander(rec, dt) {
   depend on how fast the machine is.
 - The owed time and the simulation step count are saved: after loading they are caught up the same way, and the same save gives the same result
   however many fixed steps run per frame. For things measured by game clock (grows in a few days, respawns at a time), record `engine.clock.now` and compare.
-- **Far in workers** (many far records, e.g. thousands of crops): `W.simulate('crop', { far, worker: true })`. Each step's far batch is copied and run
+- **Far in workers** (many far records, e.g. thousands of crops, spawners or machines): `W.simulate('crop', { far, worker: true })`. Each step's far batch is copied and run
   in `engine.threads` workers, then written back 4 fixed steps later through `engine.commits`; if a reply is late the same function runs on the main
   thread, so threads on / off / slow give **bit-identical** records. Only fields far changed are written back (gameplay changes to other fields during
   those 4 steps are kept). `far` must be self-contained: it is recompiled from source and sees only `(rec, dt)` and globals like `Math`; an outside

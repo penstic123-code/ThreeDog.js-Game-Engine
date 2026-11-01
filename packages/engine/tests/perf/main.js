@@ -140,7 +140,8 @@ if (mode === 'native') {
       const { model, lod, ...rest } = v;
       engine.vegetation.add(name, { geometry: geo(model), lodGeometry: lod ? geo(lod) : undefined, ...rest });
     }
-    engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: home.x + 4, z: home.z + 7 } });
+    engine.assets.manifest(lowpolyAssets);
+    engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });
   } else if (mode === 'props') {
     propsScene(engine);
   } else {

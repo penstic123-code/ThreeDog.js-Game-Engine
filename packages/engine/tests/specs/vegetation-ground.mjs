@@ -121,4 +121,35 @@ export const specs = [
       check('a felled plant loses its rigid collider', r.after === r.colliders - 1 || r.after < r.colliders, JSON.stringify(r));
     },
   },
+  {
+    name: 'vegetation fade: near-only species shrink out by distance (default band from maxRing, fade:false = hard edge), centred on the focus, shader compiles',
+    url: '/tests/terrain-edit/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, vegetation, level, THREE } = threedogTerrain;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, urlState: false, saveKey: 'veg-fade' });
+        const root = new THREE.Group(), m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2)); m.name = 'ground_lawn'; m.userData.groundType = 'lawn'; root.add(m);
+        E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 2 }));
+        const g = () => new THREE.ConeGeometry(0.1, 1, 4), rule = { perChunk: 5 };
+        const tuft = E.vegetation.add('tuft', { geometry: g(), nearOnly: true, maxRing: 2, wind: 0.2, rule });
+        const hard = E.vegetation.add('hard', { geometry: g(), nearOnly: true, fade: false, rule });
+        const set = E.vegetation.add('set', { geometry: g(), nearOnly: true, fade: { start: 5, end: 9 }, rule });
+        const tree = E.vegetation.add('tree', { geometry: g(), rule });
+        let bad = null; try { E.vegetation.add('bad', { geometry: g(), nearOnly: true, fade: { start: 9, end: 5 }, rule }); } catch (e) { bad = String(e.message); }
+        await E.start();
+        E.focus.set(12, 0, -7); E.step(0.1);
+        const out = { tuft: tuft.fade, hard: hard.fade, set: set.fade, tree: tree.fade, bad, center: tuft.fadeUniforms.uNearFadeCenter.value.toArray(), hardU: hard.fadeUniforms };
+        const im = new THREE.InstancedMesh(g(), tuft.material, 2); E.scene.add(im);
+        E.renderer.compile(E.scene, E.camera);
+        out.programsOk = E.renderer.info.programs.length > 0 && E.renderer.info.programs.every(p => p.diagnostics?.runnable !== false);
+        return out;
+      });
+      check(r.tuft?.end === 32 && Math.abs(r.tuft.start - 20.8) < 1e-6, 'near-only default: end = maxRing x chunk (2 x 16), start 65%', JSON.stringify(r.tuft));
+      check(r.hard === null && r.hardU === null && r.tree === null, 'fade:false and a non-near species keep the hard edge (no band)', JSON.stringify([r.hard, r.tree]));
+      check(r.set?.start === 5 && r.set?.end === 9, 'fade: { start, end } sets the band', JSON.stringify(r.set));
+      check(/start < end/.test(r.bad || ''), 'a reversed band is refused with the numbers', String(r.bad));
+      check(r.center[0] === 12 && r.center[2] === -7, 'the fade centre follows the view focus each frame', JSON.stringify(r.center));
+      check(r.programsOk, 'the faded wind material compiles (no shader error)');
+    },
+  },
 ];

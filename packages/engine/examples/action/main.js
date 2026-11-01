@@ -3,7 +3,7 @@
 // main.js holds rules only: modules, ops (attack, damage, enemy attack, death), fixed-step logic, presentation. The room, the slime and its stats are
 // content (content/templates.js + props.js, rule R33). The engine has no health, damage or death: all of that is below, as plain game state and ops.
 import { createEngine, openWorld, followCamera, presets, interactions, inventory, content, hud, toast } from '../../index.js';
-import lowpoly from '@threedog/style-lowpoly';   // optional style pack; ?style=none runs with the engine's gray placeholders
+import lowpoly, { assets as lowpolyAssets } from '@threedog/style-lowpoly';   // optional style pack + its asset pack (the humanoid body); ?style=none runs with the engine's gray placeholders
 import look from './look.js';
 import data from './content/index.js';
 import { models } from './models.js';
@@ -30,7 +30,8 @@ engine.use(openWorld({ camera: followCamera({ ...presets.camera.overShoulder, ya
 const m = models(engine);   // the names content/templates.js uses, written out so `npm run check` can see them
 engine.assets.manifest({ name: 'action', models: { floor: m.floor, wall: m.wall, pillar: m.pillar, enemy: m.enemy } });
 engine.audio.register('blip', (a, p, out) => { a.tone({ freq: (p.freq ?? 440) * p.pitch, dur: 0.12, out }); return 0.12; });   // content/audio.js names it
-engine.characters.createPlayer({ ...presets.player.aim, spawn: TUNE.spawn });   // face where the camera looks: a swing goes where you aim
+if (style) engine.assets.manifest(lowpolyAssets);   // the 'humanoid' body; style=none keeps the gray capsule
+engine.characters.createPlayer({ ...presets.player.aim, model: style ? 'humanoid' : null, spawn: TUNE.spawn });   // face where the camera looks: a swing goes where you aim
 engine.content.load(data, { places: { room: { x: 0, z: 0 } } });
 
 // ---------- Game state: plain values, described and saved (one player, so it is not keyed by actor) ----------

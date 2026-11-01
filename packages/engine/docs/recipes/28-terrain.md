@@ -16,7 +16,7 @@ engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset({ shape
 const preview = createTerrain({ seed: 7, ...terrainPreset() });                    // same heights before the engine starts
 const dry = (x, z) => riverAt(x, z, preview.noise) === 0;
 ```
-Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; the lowpoly style pack colors them
+Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; a style pack colors them (`terrain.colors`)
 (`style.terrain.biomeColors`), and `terrainStrings` names them for `describe()`. Other options:
 `heightScale mountains rivers riverWidth biomes noise island canyon` (types in the package's `index.d.ts`).
 
@@ -72,7 +72,7 @@ engine.ops.define('path.sand', { args: { at: 'position' },   // a sandy path; a 
 Read the ground with `engine.surface(x, z)` (also `slope`, `groundType`, `waterAt`) and put an object on it with `engine.snapToGround(obj)`. Don't
 raycast the terrain for this: the height function is exact and works before the chunk has a mesh.
 
-Look open points (color map shading, triangle cut, normals, bounds margin): `37-terrain-look-hooks.md`.
+Crisp ground color borders, triangle cut, normals, bounds margin, height from a grid: `37-terrain-look-hooks.md`.
 
 ## 5. Where the ground ends: `shape`
 

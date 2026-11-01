@@ -10,8 +10,8 @@ it grows back" is data in world (needs the world module that `openWorld()` inclu
 ```js
 // Items: id -> name, icon, description. stack = how many fit in one slot (default 99; more spill into further slots), weight (optional), color = color when dropped on the ground
 export default {
-  mushroom: { name: '蘑菇', icon: '🍄', desc: '林子里捡的', color: 0xc0504d },
-  coin: { name: '铜币', icon: '🪙', stack: 99999 },   // currency: one slot however much you carry; full buying/selling in recipe 22
+  mushroom: { name: 'Mushroom', icon: '🍄', desc: 'Found in the woods', color: 0xc0504d },
+  coin: { name: 'Coin', icon: '🪙', stack: 99999 },   // currency: one slot however much you carry; full buying/selling in recipe 22
 };
 export const startItems = { coin: 3 };          // what the inventory holds at the start (optional)
 ```
@@ -39,7 +39,7 @@ changing level and coming back they are still picked up.
 
 ## 2. In code (dynamic drops, custom models)
 ```js
-engine.inventory.define('gem', { name: '宝石', icon: '💎', color: 0x66ccff });   // shape: add mesh: (item, { color, size }, e) => Object3D | geometry, or model: 'generatorName', to set it on the item (wins over style.pickup.model; spawnPickup { mesh } wins over both)
+engine.inventory.define('gem', { name: 'Gem', icon: '💎', color: 0x66ccff });   // shape: add mesh: (item, { color, size }, e) => Object3D | geometry, or model: 'generatorName', to set it on the item (wins over style.pickup.model; spawnPickup { mesh } wins over both)
 const gem = engine.inventory.spawnPickup('gem', engine.player.position, { count: 1, respawnSeconds: 0 });   // returns a handle; gem.remove() deletes data and model together
 // handle: { id: item, worldId: id in world, object: current model (null when far), remove() }; opts.id lets you write a stable id (spawning again with the same id reuses the existing one)
 engine.inventory.add('coin', 2);                // give directly; returns the entry key ('coin'), false if it doesn't fit
@@ -88,7 +88,7 @@ Both act on `ctx.actor`'s container (`'player'` by default).
 can be undone.
 ```js
 const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' });   // also takeN / giveN; take may be an entry key ('sword#3')
-if (!r.ok) say(r.reason);                                                              // 'notEnough' (A missing) | 'full' (B does not fit even after A leaves)
+if (!r.ok) say(r.code);                                                                // 'notEnough' (A missing) | 'full' (B does not fit even after A leaves)
 engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);   // gives A back (with its data), takes B away
 engine.inventory.trade('rusty_key', 'gold_key');                                       // the same from code; a container has .trade() too
 ```

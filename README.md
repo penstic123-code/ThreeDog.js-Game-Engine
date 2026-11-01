@@ -1,11 +1,11 @@
 # threedog.js
 
 A web 3D game engine on three.js 0.187, in three layers (core, modules, style pack) that [packages/engine/README.md](packages/engine/README.md) lays out.
-The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. An optional low-poly style pack (`@threedog/style-lowpoly`) and two examples come with the repository: an open-world photography game (`/`) whose level lives entirely in content files, and a one-room action game (`/action.html`: player, enemy, drop; the combat rules are the example's own ops).
+The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. Two examples come with the repository (they use an example-only look in `packages/styles/lowpoly`, not published and not a recommendation): an open-world photography game (`/`) whose level lives entirely in content files, and a one-room action game (`/action.html`: player, enemy, drop; the combat rules are the example's own ops).
 
 中文说明见 [README.zh-CN.md](README.zh-CN.md).
 
-The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (the optional style pack `@threedog/style-lowpoly`), `packages/terrain-noise` (the optional terrain generator `@threedog/terrain-noise`), `games/*` (one folder per game).
+The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (an example-only style pack used by the examples and tests, private, not published), `packages/terrain-noise` (the optional terrain generator `@threedog/terrain-noise`), `games/*` (one folder per game).
 
 ## Features
 
@@ -39,7 +39,7 @@ The repository is npm workspaces: `packages/engine` (the engine package `threedo
 | Feature | What it does |
 |---|---|
 | Style packs | Colors, shapes, lighting and post effects live in a swappable style pack; the engine itself has no default look |
-| Optional low-poly look | `@threedog/style-lowpoly`: a style pack (sky, materials, post, terrain colors) and an asset pack of low-poly models, installed only if you want it; style parts mix: `style: [lowpoly, { sky }]` |
+| Any art direction | The look is a style pack you write or install (`style: yourPack`, parts mix: `style: [basePack, { sky }]`); any genre, any look; `threedog new-style` starts an empty one, `style palette` / `style compare` match a reference image |
 | Optional noise terrain | `@threedog/terrain-noise`: `terrainPreset()` hills / island / canyon / plain, rivers and a biome table (world shape only, colored by whichever style pack you use) |
 | Optional post effects | `@threedog/post-effects`: `lut`, `grain`, `vignette`, `chromatic`, `dof` (off by default; adjacent ldr effects fuse into one pass), added with `postAdd(...)` |
 | Day, night and sky | Sun movement, sky colors over time, moving cloud shadows |
@@ -85,14 +85,14 @@ Keys (open-world example): WASD move · Shift run · drag to turn the view · E 
 ## Minimal usage
 ```js
 import { createEngine, presets, openWorld } from 'threedog';
-import lowpoly from '@threedog/style-lowpoly';                    // optional: without it everything is gray placeholders
 import { terrainPreset } from '@threedog/terrain-noise';         // optional: without it the ground is flat
 
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly });
+const engine = createEngine({ canvas: document.getElementById('view') });   // gray placeholders (box, capsule), no art
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));          // terrain seed and generator (without one the ground is flat); the preset installs only world and environment, add gameplay modules (dialogue, inventory, quests, photo...) yourself; or install just what you need: engine.use(world(), sky(), collision(), followCamera(), characters())
 engine.characters.createPlayer({ ...presets.player.thirdPerson });
 engine.start();
 ```
+For a look, pass a style pack (your own or a published one): `createEngine({ canvas, style: yourPack })`.
 
 Using the published packages in your own project (outside this repository): see [packages/engine/README.md](packages/engine/README.md) (install, entry points).
 

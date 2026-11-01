@@ -1,16 +1,50 @@
-// The procedural body of a Character (split out of Character.js): the gray capsule used when nothing draws a character, attaching a style pack's rig,
-// and the limb swing / body bob used when the character has no skeletal animation.
-// A rig is { root, body?, head?, joints?: { name: Group }, limbs: [{ joint, offset: 0 | Math.PI, amp, kind: 'arm' | 'leg', side? }] }; the style pack builds it.
+// The procedural body of a Character (split out of Character.js): the gray capsule used when no model gives a body, attaching a rig, reading a rig
+// out of a model asset (a pack's humanoid), per-character part colors, and the limb swing / body bob used without skeletal animation.
+// A rig is { root, body?, head?, joints?: { name: Group }, limbs: [{ joint, offset: 0 | Math.PI, amp, kind: 'arm' | 'leg', side? }] }.
+// A model asset carries the same thing as plain data by object NAME in root.userData.rig: names, not references, because userData survives
+// clone and GLB export and object references do not; so a procedural builder and a baked / hand-made GLB with those names animate the same way.
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { warnOnce } from '../../core/validate.js';
 
-/** Warned once when no style pack and no model give the character a body */
-export const NO_CHARACTER = 'characters: no style pack / model given, so characters are gray capsules (a placeholder). Pass one: a model '
-  + "(createPlayer({ model: 'hero' }) or style.character.model), or a style pack whose style.character.create builds one, "
-  + "e.g. createEngine({ style: lowpoly }) with lowpoly from '@threedog/style-lowpoly'";
+/** Warned once when no model gives the character a body */
+export const NO_CHARACTER = 'characters: no model given, so characters are gray capsules (a placeholder). Character bodies are assets: '
+  + "register a pack's models (engine.assets.manifest(yourAssets)) and pass createPlayer({ model: 'yourBody' }), "
+  + "a GLB asset name ({ model: 'hero' }), or a ready body ({ rig })";
 
-/** Neutral placeholder when the style pack draws no character: one gray capsule, no limbs (the shape belongs to style packs) */
+/**
+ * The rig a model asset describes in root.userData.rig ({ body, head, joints: [names], limbs: [{ joint: name, offset, amp, kind, side }] }), names
+ * resolved to this copy's objects; null without rig data (a skinned GLB animates by clips instead).
+ * @param {THREE.Object3D} root
+ */
+export function rigFromObject(root) {
+  const d = root?.userData?.rig;
+  if (!d) return null;
+  const get = n => {
+    const o = n ? root.getObjectByName(n) : null;
+    if (n && !o) warnOnce(`character model "${root.name || 'model'}": userData.rig names "${n}", but the model has no object with that name`);
+    return o || null;
+  };
+  const joints = {};
+  for (const n of d.joints || []) { const o = get(n); if (o) joints[n] = o; }
+  const limbs = (d.limbs || []).map(L => ({ ...L, joint: get(L.joint) })).filter(L => L.joint);
+  return { root, body: get(d.body), head: get(d.head), joints, limbs };
+}
+
+/**
+ * Per-character part colors ({ colors: { body: 0x4f6d8f } }): meshes marked userData.part get their own copy of the material in that color.
+ * A copy, because asset copies share materials: recoloring in place would recolor every character using the model.
+ */
+export function tintParts(root, colors) {
+  if (!colors || !Object.keys(colors).length) return;
+  root.traverse(o => {
+    const c = o.isMesh ? colors[o.userData.part] : null;
+    if (c == null || !o.material?.color) return;
+    o.material = o.material.clone(); o.material.color.set(c);
+  });
+}
+
+/** Neutral placeholder when no model gives a body: one gray capsule, no limbs (body shapes belong to asset packs) */
 export function capsule(color, engine) {
   const body = new THREE.Group(); body.position.y = 0.85;
   const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), makeMaterial('character', { color }, engine));
@@ -21,11 +55,12 @@ export function capsule(color, engine) {
 
 /** Put a rig under the character root and remember its parts */
 export function useRig(ch, rig) {
-  ch.root.add(rig.root); ch._rig = rig;
+  if (rig.root.parent !== ch.root) ch.root.add(rig.root);
+  ch._rig = rig;
   ch.hips = rig.body || rig.root; ch.head = rig.head || null;
   ch.bodyBase = ch.hips.position.y;
   ch.limbs = rig.limbs || [];
-  // named joints (lowpoly humanoid: armL armR legL legR) become properties so game poses can grab them; never shadow a Character field
+  // named joints (a humanoid rig: armL armR legL legR) become properties so game poses can grab them; never shadow a Character field
   for (const k in rig.joints || {}) {
     if (!(k in ch)) ch[k] = rig.joints[k];
     else if (ch[k] !== rig.joints[k]) warnOnce(`character rig: joint "${k}" has the same name as the Character field ch.${k}, so ch.${k} stays the field; use rig.joints.${k} (or rename the joint)`);

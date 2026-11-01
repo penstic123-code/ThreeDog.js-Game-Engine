@@ -1,13 +1,13 @@
-// Character: procedural rig (from the style pack, gray capsule without one) or glTF model + procedural animation (walk, run, swim, idle breathing)
+// Character: a body from a model asset (procedural rig from an asset pack, or a glTF model; gray capsule without one) + procedural animation (walk, run, swim, idle breathing)
 // + movement control (ground snap, collision, slope limit, swimming).
-// Used by both player and NPCs. To switch to a skeletal glTF model later, pass model + clips (or an animation state machine config); control logic stays the same.
+// Used by both player and NPCs; a skeletal glTF body takes model + clips (or an animation state machine config), control logic stays the same.
 // The mover owns position: only the mover (movers/) changes a character's position inside move(); other systems (pathfinding, triggers, vehicles, loading)
 // request movement via placeAt (teleport), move (direction), enter / exit (vehicles).
 // Characters backed by a world record (the player, recordId = 'player') write position and motion state back to the record after every move / placeAt / enter / exit;
 // the record is saved, world splits near/far by it, the model is just its look.
 // Radius and step height default to engine.movement (the single source of "can walk through" parameters); passing radius / stepHeight overrides it for this character only.
 // How to walk is decided by the mover (movers/: 'simple' default, 'rapier' character controller); feel parameters are identical for both.
-// The procedural body (capsule, style-pack rig, limb swing) is in proceduralRig.js.
+// The procedural body (capsule, rig read from a model asset, limb swing) is in proceduralRig.js; loading a body by asset name in assetModel.js.
 import * as THREE from 'three';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
@@ -15,14 +15,13 @@ import { warnOnce, warnMissing } from '../../core/validate.js';
 import { reportError } from '../../core/errors.js';
 import { simpleMover } from './movers/simple.js';
 import { rapierMover } from './movers/rapier.js';
-import { loadAssetModel } from './assetModel.js';
-import { NO_CHARACTER, capsule, useRig, animateRig } from './proceduralRig.js';
+import { loadAssetModel, buildNow, checkStyleCharacter } from './assetModel.js';
+import { NO_CHARACTER, capsule, useRig, animateRig, rigFromObject, tintParts } from './proceduralRig.js';
 import { walkTo } from './walkTo.js';
 import { useModel } from './useModel.js';
 
 const STRINGS = { noClip: 'character has no skeletal animation; playAction(\'{name}\') skipped (the model needs this action)' };
 const MOVERS = { simple: simpleMover, rapier: rapierMover };
-// Default action names for the clips shorthand (character state -> glTF action name)
 
 // Options Character understands (shared by player and NPC)
 export const CHARACTER_KEYS = ['colors', 'speed', 'runSpeed', 'radius', 'canSwim', 'swimDepth', 'swimSpeed', 'turnSpeed', 'acceleration', 'gravity',
@@ -32,7 +31,9 @@ const FACE_MODES = ['move', 'camera', 'target', 'manual'];
 export class Character {
   /**
    * @param engine
-   * @param o  colors: { body, skin, legs, hair } (default from style pack style.character.colors)
+   * @param o  model: the body, one path for all: a model asset name (a procedural builder from an asset pack, or a GLB name), or what
+   *                  engine.assets.model() returned; without model and rig a gray capsule (warned once). rig: a ready body (proceduralRig.js format)
+   *           colors: { body, skin, legs, hair } per-character part colors (meshes marked userData.part); the style tints parts by material role
    *           speed walk speed, runSpeed run speed (m/s), radius collision radius
    *           canSwim whether it can swim (false: never enters water), swimDepth water depth at which swimming starts, swimSpeed swim speed multiplier
    *           turnSpeed how fast it turns, acceleration how fast it starts/stops
@@ -41,13 +42,11 @@ export class Character {
    *           model + clips: optional glTF model and action-name map { idle, walk, run, swim, jump, fall, drive } (shorthand for animation)
    *           animation: animation state machine config (see core/Animator.js), state names are character state names;
    *                      without walk/run, move (blend tree, param speed) is used
-   *           rig: a ready body in the format style.character.create returns (proceduralRig.js), used instead of the style pack's (hand-built guard / pet)
    *           mover: 'simple' (default) | 'rapier' (Rapier character controller, needs the rigid module)
    *           faceMode which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward(), over-the-shoulder aiming)
    *                    | 'target' (toward faceTarget: Object3D / Vector3 / { x, z }, lock-on strafing) | 'manual' (only face() turns it);
    *                    both are plain properties, change them at any time
-   *           model may be a registered asset name (default style.character.model): placeholder body until it loads, then swapped in (assetModel.js)
-   *           without model: style pack style.character.create(engine, colors) may return a custom procedural character (rig format below), else a gray capsule
+   *           a file model name shows the capsule until it loads, then is swapped in (assetModel.js)
    */
   constructor(engine, { colors = {}, speed = 4.5, runSpeed = 7, radius = engine.movement.radius, canSwim = true, swimDepth = 1.0, swimSpeed = 0.45,
     turnSpeed = 10, acceleration = 12, gravity = -24, jumpSpeed = 8, stepHeight = engine.movement.stepHeight, airControl = 0.35, coyoteTime = 0.12,
@@ -76,18 +75,21 @@ export class Character {
     if (!MOVERS[mover]) warnMissing('mover', mover, Object.keys(MOVERS));
     const simple = simpleMover(this);
     this.mover = mover === 'rapier' ? rapierMover(this, simple) : simple;
-    // default look comes from style pack style.character.colors; neutral gray without a style pack
-    const c = { body: 0x8a8a8a, skin: 0xc8bfb5, legs: 0x5a5a5a, hair: 0x4a4a4a, ...(engine.style.character?.colors || {}), ...colors };
-
-    model ??= engine.style.character?.model ?? null;
-    if (model && typeof model !== 'string') { this._useModel(model, clips, animation); return; }
-    // style-pack procedural character: the rig format is in proceduralRig.js
-    rig ??= engine.style.character?.create?.(engine, c);
+    checkStyleCharacter(engine);   // bodies are assets now: an old style.character.create / model / colors throws renamed-api
+    this._colors = colors;
+    // one path for every body: an object, a procedural builder built now (joints exist at once), or a file asset loaded behind a capsule
+    const now = typeof model === 'string' ? buildNow(engine, model) : model;
+    if (now) { this._useModel(now, clips, animation); return; }
     if (!rig && !model) warnOnce(NO_CHARACTER);
-    useRig(this, rig || capsule(c.body, engine));
+    useRig(this, rig || capsule(colors.body ?? 0x8a8a8a, engine));
     if (model) this._whenReady = loadAssetModel(this, model, m => this._useModel(m, clips, animation));
   }
-  _useModel(model, clips, animation) { useModel(this, model, clips, animation); }
+  /** A model object with userData.rig is a procedural body (limb swing); anything else animates by its clips */
+  _useModel(model, clips, animation) {
+    const r = rigFromObject(model);
+    if (r) useRig(this, r); else useModel(this, model, clips, animation);
+    tintParts(model, this._colors);
+  }
 
   /**
    * Walk to a point along characters.findPath on fixed steps (turn rate, skips passed points, re-plans when stuck). Returns a promise of

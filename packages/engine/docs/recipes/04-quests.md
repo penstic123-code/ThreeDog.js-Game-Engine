@@ -10,16 +10,16 @@ may also fail. When the current step has a `target`, hud shows a marker and dist
 `games/<game>/content/quests.js`:
 ```js
 export default {
-  'mushroom-soup': {
-    title: '蘑菇汤',
-    desc: '面包师想要一锅蘑菇汤。',
-    startOn: 'engine:ready',                     // the event that starts it automatically (or use { startQuest: 'mushroom-soup' } in a dialogue)
+  'restore-power': {
+    title: 'Restore power',
+    desc: 'The engineer needs three fuses to restart the relay.',
+    startOn: 'engine:ready',                     // the event that starts it automatically (or use { startQuest: 'restore-power' } in a dialogue)
     steps: [
-      { id: 'talk', text: '和面包师聊聊', done: { flag: 'metBaker' }, target: { npc: 'baker' } },   // the marker follows the NPC
-      { id: 'gather', text: '采 3 个蘑菇', done: { has: { mushroom: 3 } }, target: 'forest' },         // a place name
-      { id: 'return', text: '回到小屋门口', done: { flag: 'soupDone' }, target: { place: 'home', x: 0, z: 3 } },
+      { id: 'talk', text: 'Talk to the engineer', done: { flag: 'metEngineer' }, target: { npc: 'engineer' } },   // the marker follows the NPC
+      { id: 'gather', text: 'Find 3 fuses', done: { has: { fuse: 3 } }, target: 'storage' },           // a place name
+      { id: 'return', text: 'Fit them at the relay', done: { flag: 'relayOn' }, target: { place: 'home', x: 0, z: 3 } },
     ],
-    reward: [{ take: { mushroom: 3 } }, { give: { coin: 5 } }, { toast: '蘑菇汤做好了！' }],
+    reward: [{ take: { fuse: 3 } }, { give: { coin: 5 } }, { toast: 'Power restored!' }],
   },
 };
 ```
@@ -39,18 +39,18 @@ Not every quest is a straight line. A step can hold several goals done in any or
 `fail` ends the quest early:
 ```js
 'defend-camp': {
-  title: '守住营地',
+  title: 'Hold the camp',
   startOn: 'engine:ready',
   steps: [
-    { text: '赶到营地', done: { flag: 'atCamp' }, target: 'camp' },
-    { all: [                                                            // text defaults to the required goals: "守住北门 / 守住南门"
-      { text: '守住北门', done: { counter: { northWaves: 3 } }, target: 'northGate' },
-      { text: '守住南门', done: { counter: { southWaves: 3 } }, target: 'southGate' },
-      { text: '没有村民受伤', done: { notFlag: 'villagerHurt' }, optional: true },   // a bonus: never blocks, shown done if met in time
+    { text: 'Reach the camp', done: { flag: 'atCamp' }, target: 'camp' },
+    { all: [                                                            // text defaults to the required goals: "Hold the north gate / Hold the south gate"
+      { text: 'Hold the north gate', done: { counter: { northWaves: 3 } }, target: 'northGate' },
+      { text: 'Hold the south gate', done: { counter: { southWaves: 3 } }, target: 'southGate' },
+      { text: 'No ally hurt', done: { notFlag: 'allyHurt' }, optional: true },   // a bonus: never blocks, shown done if met in time
     ] },
   ],
   fail: { flag: 'campBurned' },                    // checked while the quest is active
-  onFail: [{ toast: '营地失守了' }, { setFlag: 'mayRetryCamp' }],
+  onFail: [{ toast: 'The camp has fallen' }, { setFlag: 'mayRetryCamp' }],
   reward: { give: { coin: 20 } },
 },
 ```
@@ -60,18 +60,18 @@ Not every quest is a straight line. A step can hold several goals done in any or
 
 ## 2. In code (complex conditions, or when you need functions)
 ```js
-engine.quests.define('fish3', {
-  title: '钓三条鱼',
-  steps: [{ text: '钓到 3 条鱼', done: e => e.vars.counter('fish') >= 3, target: () => engine.npcs.get('面包师')?.position }],   // the function returns a position every frame: when the NPC is far away and has no model, root is null, so read position from the data
+engine.quests.define('slimes3', {
+  title: 'Clear the cellar',
+  steps: [{ text: 'Defeat 3 slimes', done: e => e.vars.counter('slimes') >= 3, target: () => engine.npcs.get('engineer')?.position }],   // the function returns a position every frame: when the NPC is far away and has no model, root is null, so read position from the data
   reward: e => e.inventory.add('coin', 3),
 });
-engine.quests.start('fish3');
-engine.vars.bump('fish');                        // each time a fish is caught
+engine.quests.start('slimes3');
+engine.vars.bump('slimes');                      // each time one is defeated
 engine.events.on('quest:done', ({ id }) => { /* quest completed */ });   // there are also quest:start, quest:step, quest:part and quest:fail
 ```
-To turn off automatic markers: `hud({ questMarkers: false })`. To add a marker by hand: `const m = engine.hud.marker('river', { label: '河边' }); m.remove();`;
-content effects can add them too: `{ marker: 'river' }` / `{ clearMarker: 'river' }`. A counter in the screen corner:
-`engine.hud.counter('fish', { icon: '🐟', label: '鱼', value: 2, max: 3 })`.
+To turn off automatic markers: `hud({ questMarkers: false })`. To add a marker by hand: `const m = engine.hud.marker('gate', { label: 'Gate' }); m.remove();`;
+content effects can add them too: `{ marker: 'gate' }` / `{ clearMarker: 'gate' }`. A counter in the screen corner:
+`engine.hud.counter('slimes', { label: 'Slimes', value: 2, max: 3 })`.
 
 ## 3. Verify
 - `npm run check`: a wrong item / flag / place name / NPC id in a step is an error; "flag is only checked but never set" is a warning. After

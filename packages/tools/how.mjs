@@ -1,39 +1,28 @@
 // threedog how "<effect or task>": which API / recipe answers a task, from the docs alone (works offline) plus the live catalog when a dev page runs.
 // Why plain token scoring and no fuzzy library: the result must be the same every run and explainable ("matched rain in the AI.md row"); an AI reads
 // the top few hits and opens the recipe. Sources: the AI.md entry table (one row per task: the best hit), recipe headings with their first sentence.
-// Chinese words are matched by their characters (bigrams) and a small word list adds the English words the docs use.
+// English only: the docs are English, and an AI asked in another language translates the task into English words first.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE, pickWorkspace } from './paths.mjs';
 import { devServerInfo } from './devinfo.mjs';
 
-/** Chinese task word -> the English words the docs use (extra tokens, weight 1) */
-const ZH = { 下雨: 'rain weather', 天气: 'weather', 雨: 'rain', 雪: 'snow weather', 雾: 'fog', 存档: 'save', 读档: 'save load', 对话: 'dialogue', 天空: 'sky', 水: 'water',
-  相机: 'camera', 镜头: 'camera', 音效: 'audio sound', 音乐: 'audio music', 任务: 'quest', 背包: 'inventory item', 物品: 'item', 地形: 'terrain', 植被: 'vegetation tree',
-  树: 'tree vegetation', 光: 'light', 灯: 'light', 阴影: 'shadow', 粒子: 'particle', 动画: 'animation', 敌人: 'enemy', 战斗: 'combat', 碰撞: 'collision',
-  联机: 'net multiplayer', 网络: 'net', 拍照: 'photo camera', 材质: 'material', 颜色: 'color', 风格: 'style', 模型: 'model', 界面: 'ui', 菜单: 'menu ui', 地图: 'map',
-  移动: 'move', 跳: 'jump', 放置: 'place add', 删除: 'remove', 修改: 'set edit', 后期: 'post effects', 昼夜: 'sky time', 时间: 'time clock', 商店: 'shop', 导航: 'nav path', 寻路: 'nav path' };
-
-/** Lower-case tokens of a text: words/numbers, plus every Chinese character pair (a single Chinese character alone counts as one token) */
+/** Lower-case word / number tokens of a text */
 export function tokens(s) {
   const out = [];
-  for (const m of s.toLowerCase().matchAll(/[a-z0-9_.]{2,}|[一-鿿]+/g)) {
-    const w = m[0];
-    if (/[一-鿿]/.test(w)) { if (w.length === 1) out.push(w); for (let i = 0; i + 1 < w.length; i++) out.push(w.slice(i, i + 2)); } else out.push(w);
-  }
+  for (const m of s.toLowerCase().matchAll(/[a-z0-9_.]{2,}/g)) out.push(m[0]);
   return out;
 }
 const STOP = new Set(['the', 'a', 'to', 'of', 'in', 'on', 'for', 'and', 'how', 'do', 'is', 'an', 'make', 'with', 'my']);
 
-/** { main: tokens typed (weight 3), extra: translated words (weight 1) } */
+/** { main: tokens typed (weight 3), extra: kept empty for callers that weigh extra words (weight 1) } */
 export function queryTokens(q) {
   const main = [...new Set(tokens(q).filter(t => !STOP.has(t)))], extra = new Set();
-  for (const [zh, en] of Object.entries(ZH)) if (q.includes(zh)) for (const w of en.split(' ')) if (!main.includes(w)) extra.add(w);
   return { main, extra: [...extra] };
 }
 
-/** ASCII words match at a word start (so "rain" does not hit "terrain", "open" still hits "openWorld"); Chinese tokens match anywhere */
+/** Words match at a word start (so "rain" does not hit "terrain", "open" still hits "openWorld") */
 const has = (t, w) => /^[a-z0-9_.]/.test(w) ? new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(t) : t.includes(w);
 const score = (text, { main, extra }) => { const t = text.toLowerCase(); let s = 0; for (const w of main) if (has(t, w)) s += 3; for (const w of extra) if (has(t, w)) s += 1; return s; };
 const clip = (s, n = 110) => { s = s.replace(/`/g, '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
@@ -88,7 +77,7 @@ export async function main(argv) {
   let dir, args;
   try { ({ dir, args } = pickWorkspace(argv)); } catch (e) { console.log('✗ ' + e.message); return 1; }
   const q = args.join(' ').trim();
-  if (!q) { console.log('Usage: threedog how "<effect or task>"   (e.g. how "rain", how 存档)'); return 1; }
+  if (!q) { console.log('Usage: threedog how "<effect or task>"   (e.g. how "rain", how "save game")'); return 1; }
   const res = search(join(ENGINE, 'docs'), q);
   // live catalog (modules / ops whose name matches a typed word) when a dev page is running; any failure just means "no page", docs answer alone
   let live = [];
@@ -102,7 +91,7 @@ export async function main(argv) {
       if (r?.ok && Array.isArray(r.data)) live = r.data.slice(0, 3).map(m => `live catalog · ${m.id} (${m.kind}${m.ops?.length ? ', ops: ' + m.ops.slice(0, 4).map(o => o.name ?? o).join(', ') : ''}) → threedog catalog ${m.id}`);
     } catch { /* no page */ }
   }
-  if (!res.length && !live.length) { console.log(`No match for "${q}". Try another word, or read packages/engine/docs/AI.md (the task index).`); return 0; }
+  if (!res.length && !live.length) { console.log(`No match for "${q}". Describe the task in English words the docs use (e.g. "brush strokes", "colored shadows"), or read packages/engine/docs/AI.md (the task index).`); return 0; }
   [...live, ...res.map(r => r.line)].forEach((l, i) => console.log(`${i + 1}. ${l}`));
   return 0;
 }

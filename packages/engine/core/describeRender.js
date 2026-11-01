@@ -41,5 +41,11 @@ export function describeRender(e) {
   const dv0 = e.debug?.viewState?.(), dv = dv0 && dv0.mode !== 'off' ? dv0 : null;
   if (dv) text = `DEBUG VIEW "${dv.mode}" (by ${dv.owner}) is ON: ${dv.what}. This is NOT the real look; the debug view 'off' restores it.
 ` + text;
-  return { debugView: dv, toneMapping: tone, exposure, shadows, post, lights, text };
+  // render scale: the canvas resolution against the display. auto: the adaptive resolution lowered it at some point (it raises it back when frames are fast)
+  const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1, cur = r.getPixelRatio(), ad = e.adaptive;
+  const scale = { current: Math.round(cur * 100) / 100, devicePixelRatio: dpr, upscaled: cur < dpr - 0.01, autoLowered: !!ad?.lowered && cur < (ad.max ?? cur) - 0.01,
+    adaptive: !!ad?.on, floor: ad?.min ?? null, max: ad?.max ?? null };
+  text += `
+render scale: ${scale.current} of device pixel ratio ${dpr}${scale.upscaled ? ' (picture is upscaled, softer than the screen)' : ''}${scale.autoLowered ? ` (auto-lowered by adaptive resolution, floor ${scale.floor}; adaptiveResolution: false turns it off)` : ''}`;
+  return { debugView: dv, scale, toneMapping: tone, exposure, shadows, post, lights, text };
 }

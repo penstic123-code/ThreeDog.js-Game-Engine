@@ -29,7 +29,7 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - interactions: `node_modules/threedog/docs/recipes/20-content-actions-save.md` · `node_modules/threedog/docs/api/interactions.md`
 - inventory: `node_modules/threedog/docs/recipes/03-items-pickups.md` · `node_modules/threedog/docs/api/inventory.md`
-- content: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/content.md`
+- content: `node_modules/threedog/docs/recipes/01-new-game.md` · `node_modules/threedog/docs/api/content.md`
 - hud: `node_modules/threedog/docs/recipes/04-quests.md` · `node_modules/threedog/docs/api/hud.md`
 
 Not used yet (check these before writing the system yourself):
@@ -52,7 +52,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/templates.js | 11 |  |
 | content/views.js | 7 |  |
 | look.js | 6 | This example's look, as a style part merged over the lowpoly pack (createEngine({ style: [lowpoly, … |
-| main.js | 138 | @ts-check Action example: one room, one player, one slime, one drop. Shows how an action game wires… |
+| main.js | 139 | @ts-check Action example: one room, one player, one slime, one drop. Shows how an action game wires… |
 | models.js | 26 | Models this example builds in code (floor, wall, pillar, enemy), registered by name in main.js and … |
 
 ## NPCs (content/npcs.js)

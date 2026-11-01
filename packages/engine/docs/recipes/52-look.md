@@ -2,6 +2,8 @@
 
 Every look part lives at `engine.look.<part>` and is changed with the same verbs. The style pack gives the starting values; the game changes them on top.
 
+Exits, in order: `set` params → `patch` (your own GLSL at a named hook) → textures in the material spec (`map`, `normalMap`) → `replace` (your own material or object) → plain three.js (recipe 40 §8). When two rounds of tuning params do not reach the reference, take the next exit instead of tuning on.
+
 ```js
 const cave = engine.look.tone.set({ exposure: 0.6 }, { owner: 'cave' });   // only the keys you give; null drops a key
 engine.look.lights.set({ sun: { intensity: 0.5 } }, { owner: 'cave' });
@@ -33,16 +35,17 @@ engine.look.shadow.set({ type: 'vsm', radius: 3, cascades: 3, maxFar: 150 });   
 - `fog` shows `enabled` and `far` (fog reaches full strength at `engine.fogFar`, starting at 0.3 x that) as the visible defaults; turn off with `set({ enabled: false })`. Color, density, near, far, enabled and linear <-> exp2 are live. Kind `'exp'` / `'height'`, `height`, `falloff` and the `'fog'` hook replace three's shared fog shader chunks, so they only work before the first frame (style, `sky({ fog })`, or right after `createEngine`); later they throw and say so.
 - `sky`: `clouds.*` are live uniforms of the dome (they only draw when `clouds.coverage` > 0). A hook change recompiles the dome material once. Style `layers` arrays are named by their `name` key, else `layer0`, `layer1`.
 - `shadow`: no `patch` (the cascade patch is internal) and no `replace` (to own the shadows, light with your own lights: `sky({ sun: false })`).
+- Fog kinds and the fog hook in detail, and taking lights or fog away from the sky entirely (`sky({ sun: 'manual' | false })`, `look.fog.replace('manual')`): [recipe 38](38-environment-look-hooks.md).
 
 ## Surface parts: `materials`, `surface`, `ground`, `wind`
 
-A change to these parts reaches the materials made **after** it, with one exception: `look.materials.set` of the plain properties `color`, `emissive`, `emissiveIntensity`, `roughness`, `metalness`, `opacity`, `envMapIntensity`, `shininess` and `specular` also changes the materials already made for that role (no recompile; clearing the layer goes back to the style's value). Shader-changing keys (`type`, `steps`, `ramp`, `soften`, `repeat`, `wrap`, `detail`, `lighting`, `patch`, `replace`) and all of `look.surface` are for new materials only (a Material already handed out, or cloned by your game, is not touched; catalog and describe say so as `appliesTo`, and a debug override warns). `engine.look.<part>.object` is the three.js object behind a part; for `materials` it is a function: `engine.look.materials.object('wool')` is the last Material made for that role, `object()` all of them.
+A change to these parts reaches the materials made **after** it, with one exception: `look.materials.set` of the plain properties `color`, `emissive`, `emissiveIntensity`, `roughness`, `metalness`, `opacity`, `envMapIntensity`, `shininess` and `specular` also changes the materials already made for that role (no recompile; clearing the layer goes back to the style's value). Shader-changing keys (`type`, `steps`, `ramp`, `soften`, `repeat`, `wrap`, `detail`, `lighting`, `patch`, `replace`) and all of `look.surface` are for new materials only (a Material already handed out, or cloned by your game, is not touched; catalog and describe say so as `appliesTo`, and a debug override warns). `engine.look.<part>.object` is the three.js object behind a part; for `materials` it is a function: `engine.look.materials.object('cloth')` is the last Material made for that role, `object()` all of them.
 
 ```js
 const L = engine.look;
-L.materials.set({ wool: { roughness: 0.4, color: 0xf2ece0 } }, { owner: 'shop' });   // merged into style.materials.wool; any role name
-L.materials.patch('dim', { glsl: { fragment: { color_fragment: 'diffuseColor.rgb *= 0.8;' } } }, { roles: ['wool'] });   // a ShaderPatch on those roles
-L.materials.replace('wool', new THREE.MeshMatcapMaterial({ matcap }));                // the role is this Material (or (params, purpose, engine) => Material)
+L.materials.set({ cloth: { roughness: 0.4, color: 0xf2ece0 } }, { owner: 'shop' });  // merged into style.materials.cloth; any role name
+L.materials.patch('dim', { glsl: { fragment: { color_fragment: 'diffuseColor.rgb *= 0.8;' } } }, { roles: ['metal'] });   // a ShaderPatch on those roles
+L.materials.replace('glass', new THREE.MeshPhysicalMaterial({ transmission: 1 }));      // the role is this Material (or (params, purpose, engine) => Material)
 L.surface.set({ lighting: { wrap: 0.3, shadowTint: { color: '#4a5a9a', strength: 0.5 } }, detail: { noise: 'grain', strength: 0.15 } });
 L.surface.set({ ramp: [0.35, 0.7, 1], soften: 0.2 });                                  // every toon material's ramp
 L.surface.patch('lighting', glsl);                                                      // your threedogLighting(...), see recipe 43
@@ -70,7 +73,7 @@ engine.look.water.replace((engine, { uniforms, waves, surface }) => myMaterial);
 
 engine.look.weather.set({ 'rain.speed': 10, 'snow.size': 8, 'lightning.brightness': 0.5, overcastColor: '#667' });   // rebuilds that field's particles once
 engine.look.weather.patch('rain.fragment', wholeFragmentShaderText);   // rain|snow . vertex|fragment: the WHOLE shader text, not a function
-engine.look.weather.replace({ ash: { shape: 'soft', color: 0x555555 }, rain: { create } });   // = weather.define; null gives the fields back
+engine.look.weather.replace({ ash: { shape: 'soft', color: 0x555555 }, rain: { create } });   // null gives the fields back
 
 engine.look.post.set({ bloom: { strength: 0.6 }, vignette: false });                   // keys: '<effect>.<param>', '<effect>.enabled'
 engine.look.post.patch('tint', { glsl: 'color.rgb *= vec3(1.0, 0.9, 0.8);', slot: 'ldr', order: 5 });   // generates a fuse effect named 'tint'; patch('tint', null) removes it
@@ -83,11 +86,45 @@ engine.look.post.replace([bloom(), grain()]);                                   
 - Post: `look.post.set` writes the `game` layer (keys `<effect>.<param>` and `<effect>.enabled`); style effects (bloom, ao ...) are the style layer; `engine.post.get(name)` only reads an effect. MSAA is `engine.post.setAntialias(on)`. Costly effects start off on low-tier devices: `look.post` lists `<effect>.enabled` with `why` and `off`. `postAdd` / `postRemove` stay style-pack parts (they edit the list before the engine exists).
 - `describe().render.post` reads the same records (`by`: style, game, debug).
 
+## Post effect chain
+
+Post-processing is an ordered list of named effects (`style.post`, then `look.post`). Each runs in a slot, then by `order` (low first):
+`scene` (replaces the scene render, one at a time, e.g. pixelation) -> `hdr` (linear color: outline, AO, bloom) -> tone mapping -> `ldr` (sRGB: LUT,
+palette, grain, vignette) -> `final` (FXAA / SMAA). An effect is `{ name, slot, order, params, create(ctx) => pass, update?(pass, params) }`; under
+WebGL the pass is any three.js postprocessing Pass, built the first time it is on.
+```js
+import { bloom, outline, vignette, lut } from '@threedog/post-effects';   // never from another style pack: packs do not depend on each other
+import { LUTPass } from 'three/addons/postprocessing/LUTPass.js';
+const myStyle = { post: [outline({ enabled: true, thickness: 1.5 }), bloom({ strength: 0.2 }), vignette(), lut({ saturation: 1.1 }),
+  { name: 'myLut', slot: 'ldr', params: { lut: myLut }, create: ({ params }) => new LUTPass({ lut: params.lut }) }] };
+```
+- The engine ships no effects. `@threedog/post-effects` (import only what you use) has `bloom`, `ao`, `outline`, `dof` (all `hdr`; outline and dof
+  read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT), `grain`, `vignette`, `chromatic` (`ldr`). `lut`, `grain`, `vignette`,
+  `chromatic`, `dof`, `ao` and `outline` are off until `enabled: true`. To add to or trim a pack's list without replacing it: `postAdd(...effects)` /
+  `postRemove(...names)` ([recipe 09](09-style-pack.md), 0b).
+- Depth: an effect that reads scene depth (`needsDepth: true`, e.g. `outline`) must run before any pass that swaps buffers (a `ShaderPass`, a
+  scene-slot pixelation pass, the tone-mapping output). A chain that breaks this throws when the effect is added or enabled, naming both effects;
+  give the depth reader a lower `order`. `dof` keeps the scene depth (`pass.keepsDepth = true`), so `dof` and `outline` can both be on while `dof`
+  has the lower `order` (default: dof 5, outline 10). `threedog style check` reports the other order as an error.
+- `createEngine({ post: { bloom: false } })` overrides an effect's startup on/off; `costly: true` effects start off on low-tier devices. MSAA
+  (`antialias`) works with every effect on. The settings menu shows `bloom` / `ao` toggles only when the style registers effects with those names.
+- `fuse`: a light color effect can skip its own fullscreen pass by carrying a GLSL snippet instead of `create()`:
+  `fuse: { uniforms: { uMyAmount: 'float' }, values: p => ({ uMyAmount: p.amount }), glsl: 'color.rgb *= 1.0 - uMyAmount * length(vUv - 0.5);' }`.
+  Fused effects that are on and next to each other in one slot (never `scene`) compile into one shader and draw in one pass, in `order`. The
+  snippet edits `vec4 color` and may use `vUv`, `tDiffuse`, `uTime`, `uResolution`, `fxHash(vec2)`; uniform names are shared by the group, so prefix
+  them with the effect name. A snippet that samples `tDiffuse` elsewhere (blur, color fringe) sets `reads: true` and starts a new group.
+  `look.post.patch(name, { glsl })` builds such an effect for you.
+- Outline: `outline({ mode: 'depth' | 'normal' | 'both' })`: `depth` (default, silhouettes), `normal` (creases; draws the scene once more with
+  normals, so it is `costly`), `both`. `fadeWithDistance: false` keeps lines at any distance; `wobble: 1.5` jitters lines by up to 1.5 px at 8 steps a
+  second. To exempt objects: `outline({ offLayer: OUTLINE_OFF_LAYER })` and `mesh.layers.enable(OUTLINE_OFF_LAYER)` (one extra render of just
+  those objects; nothing when `offLayer` is `null`).
+
 ## sky.modify vs look.lights
 
 Two ways to make the light darker or brighter; pick by what you want to keep.
 - `engine.sky.modify('cave', { sun: 0.3, ambient: 0.4, fog: 0.5, tint, tintAmount })` is a **multiplier layer** on what the sky produces each frame (keyframes, weather, season). The time of day keeps moving underneath, layers from different owners multiply, `modify('cave', null)` removes yours, and `sky.modifiers` shows the combined result (read-only). Use it for "darker in the cave" or "ash over the ground" (`groundCover`, `coverAmount`).
 - `engine.look.lights.set({ sun: { intensity: 0.5 } }, { owner: 'cave' })` is an **override layer** on the part's own values: the key you give replaces what the style or the keyframes said, whatever the hour. Use it for "the sun is exactly this".
+
 ## Renamed in 0.2 (old call → new call)
 
 The old calls below now throw `renamed-api` and the message names the new call (the list is `RENAMED` in `core/renamed.js`; rule R39 keeps the old names out of the repo).
@@ -104,5 +141,6 @@ The old calls below now throw `renamed-api` and the message names the new call (
 | `engine.cameraOverride = { owner }` | `const cam = engine.takeCamera('owner', { focus })`; `cam.remove()` releases it |
 | `engine.views.define(name, { pos })` | `engine.views.define(name, { position: [x, y, z] })` |
 | failure `result.reason` (`ops.run` / `can` / `undo`) | `result.code` (reading `reason` throws) |
+| `style.character.create` / `.model` / `.colors` (a body from the style pack) | bodies are assets: `createPlayer({ model: 'humanoid' })` with a pack's `assets` registered, a GLB asset name, or `{ rig }`; part colors are material roles `cloth` / `skin` / `trousers` / `hair`, or `{ colors }` per character ([13-animation](13-animation.md)) |
 
 Not renamed (still the way to do it): per-call `makeMaterial(role, params)` keys win for that one material; `applyEffects(mat, { patches })` is the low-level form of `look.materials.patch(name, spec, { roles })`; `style.terrain.*`, `style.wind.*` and `style.lighting` are the style layer of `look.ground` / `look.wind` / `look.surface`.

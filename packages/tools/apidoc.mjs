@@ -162,7 +162,7 @@ for (const p of engProps) {
 
 // ---------- Style pack ----------
 {
-  const L = page('style', 'Style pack Style — createEngine({ style }), all the look (example: @threedog/style-lowpoly, packages/styles/lowpoly/index.js)');
+  const L = page('style', 'Style pack Style — createEngine({ style }), all the look (any style pack: a folder with index.js; recipes/09-style-pack.md)');
   const { props } = split(get('Style'), 'Style');
   L.push('- **Style** fields (all optional):', ...fieldLines(props));
   L.push('', '## Sub-structures');

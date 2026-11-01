@@ -59,16 +59,32 @@ engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero, ani
 ```
 The default transition time comes from the style pack's `style.character.animation.fade`.
 
-**By asset name.** `model` also takes the name of a registered model asset, and a style pack can set `style.character.model: 'hero'` as the default
-for every character (a per-character `model` wins). The character is built at once with the placeholder body (the style's `create()` or the gray
-capsule); when the asset loads, a skeleton-correct copy replaces it under the same root, so position, facing, state, collision and the world view
-stay. Then `ready` turns true, `whenReady` settles and `character:model` is emitted. A name missing from a registered manifest throws with the
-registered names; a failed load keeps the placeholder and warns once; a character disposed before loading ends never gets the model.
+**By asset name.** `model` also takes the name of a registered model asset: a file model, or a procedural builder. The character is built at once
+with a gray capsule; when the asset loads, a skeleton-correct copy replaces it under the same root, so position, facing, state, collision and the
+world view stay. Then `ready` turns true, `whenReady` settles and `character:model` is emitted. A name no model asset has throws with the registered
+names; a failed load keeps the capsule and warns once; a character disposed before loading ends never gets the model.
 ```js
 engine.assets.manifest({ models: { hero: '/models/hero.glb' } });
-const p = engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });        // placeholder now, the hero once loaded
+const p = engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });        // capsule now, the hero once loaded
 await p.whenReady;                                                  // p.anim is set from here (unless the load failed)
 ```
+
+## 3b. Procedural bodies are assets too (`model: 'humanoid'`)
+Character bodies are assets, never style: every character picks one with `model`, the same path for a GLB and a procedural builder. an asset
+pack can supply a code-built humanoid (e.g. box limbs, swung by the engine while walking, running, swimming, jumping); a builder is built at once, so its joints
+(`player.armL`, `legR`...) exist right after `createPlayer`. Without `model` (and without `rig`) a character is a gray capsule, warned once.
+```js
+import { assets } from './assets.js';                               // an asset pack of yours (or a published one) with a 'humanoid' builder
+engine.assets.manifest(assets);
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' });
+engine.npcs.add({ id: 'fisher', model: 'humanoid', colors: { body: 0x4f6d8f } });   // per-character part colors
+```
+- **Colors**: the humanoid's parts use material roles `cloth`, `skin`, `trousers`, `hair`, so any style pack tints every humanoid
+  (`style: [basePack, { materials: { cloth: { color: 0x3a6ea5 } } }]`); `colors: { body, skin, legs, hair }` recolors one character.
+- **Your own procedural body**: a builder that returns an Object3D with `root.userData.rig = { body: 'hips', head: 'head', joints: ['armL'],
+  limbs: [{ joint: 'legL', offset: 0, amp: 0.9, kind: 'leg' }] }` (object names, so it survives copies and baking) animates like the humanoid; mark
+  meshes `userData.part = 'body'` for `colors`. A hand-built one-off passes `{ rig }` instead ([02-npc](02-npc.md)).
+- The old `style.character.create` / `.model` / `.colors` throw `renamed-api` ([52-look](52-look.md#renamed-in-02)).
 
 ## 4. Non-character objects (a dog, a windmill, a door)
 ```js

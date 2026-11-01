@@ -1,18 +1,46 @@
-// Character model named by asset (Character({ model: 'hero' }) or style.character.model): construction is synchronous, loading is not.
-// A model already loaded is swapped in at once (engine.assets.modelNow); otherwise the character keeps its placeholder body (style create() or the gray capsule) until engine.assets.model(name) resolves, then the copy
-// (SkeletonUtils clone, so many characters share one asset) replaces the body under the same root: position, facing, state and every
-// reference to the character or its root (collision, interactions, world view) stay valid. Loaded only when a string model is used.
+// Character body named by asset (Character({ model: 'humanoid' | 'hero' })): construction is synchronous, loading is not.
+// A procedural builder (manifest models: { humanoid: fn }, an asset pack's models) is built right here (buildNow), so its joints exist as soon as the
+// character does and no placeholder frame shows. A file model already loaded is swapped in at once (engine.assets.modelNow); otherwise the
+// character keeps its gray capsule until engine.assets.model(name) resolves, then the copy (SkeletonUtils clone, so many characters share one
+// asset) replaces the body under the same root: position, facing, state and every reference to the character or its root (collision,
+// interactions, world view) stay valid.
+import * as THREE from 'three';
 import { warnOnce } from '../../core/validate.js';
 import { fmt } from '../../core/opsCheck.js';
+import { renamed } from '../../core/errorHints.js';
+import { makeMaterial } from '../../render/materials.js';
+
+/**
+ * Bodies are assets, not style (0.2): a style pack that still gives style.character.create / model / colors throws renamed-api at once,
+ * instead of silently getting gray capsules. style.character.animation (default fade) stays: it is a look of motion, not a body.
+ */
+export function checkStyleCharacter(engine) {
+  const sc = engine.style.character;
+  if (sc && ('create' in sc || 'model' in sc || 'colors' in sc)) renamed('characterBody');
+}
+
+/**
+ * Build a procedural model asset now (synchronously) when `name` is a registered builder; null when it is a file model, unknown, or the
+ * builder is async (those load through loadAssetModel). The builder gets this = { palette: style.palette, engine } like engine.assets.cached.
+ */
+export function buildNow(engine, name) {
+  const build = engine.assets.builder(name);
+  if (!build) return null;
+  const v = build.call({ palette: engine.style.palette, engine });
+  if (!v || typeof v.then === 'function') return null;
+  if (v.isBufferGeometry) return new THREE.Mesh(v, makeMaterial('character', { vertexColors: !!v.attributes.color }, engine));
+  if (!v.name) v.name = name;
+  return v;
+}
 
 const STRINGS = {
-  unknown: 'Character model "{name}" is not a registered model asset (registered: {list}). Fix: use one of those names, or register it first: engine.assets.manifest({ models: { {name}: \'/models/{name}.glb\' } })',
+  unknown: 'Character model "{name}" is not a registered model asset (registered: {list}). Fix: use one of those names, or register it first: engine.assets.manifest({ models: { {name}: \'/models/{name}.glb\' } }). A procedural body is a generator in an asset pack (engine.assets.manifest(yourAssets)); without a model the player is a gray capsule',
   failed: 'Character model "{name}" did not load ({why}); the character keeps its placeholder body. Registered models: {list}; engine.loading has the error',
 };
 
 /**
  * Start loading the asset model for ch; returns the promise stored as ch.whenReady (never rejects).
- * Throws at once when a manifest is registered and lacks the name (paths with / or . load as files).
+ * Throws at once when no model asset has the name (paths with / or . load as files).
  * @param {import('./Character.js').Character} ch
  * @param {string} name
  * @param {(model: any) => void} use builds the model and Animator on ch
@@ -21,7 +49,7 @@ export function loadAssetModel(ch, name, use) {
   const e = ch.engine, A = e.assets;
   const names = [...A.entries].filter(([, x]) => x.type === 'model' && x.named).map(([n]) => n);
   const list = names.join(', ') || 'none; register them with engine.assets.manifest({ models })';
-  if (names.length && !names.includes(name) && !/[/.]/.test(name)) throw new Error(fmt(STRINGS.unknown, { name, list }));
+  if (!names.includes(name) && !/[/.]/.test(name)) throw new Error(fmt(STRINGS.unknown, { name, list }));
   const fail = why => warnOnce(fmt(STRINGS.failed, { name, why, list }));
   const swap = m => {
     if (ch._disposed || e.disposed) { e.remove(m); return; }   // removed before loading finished: never reaches the scene, the copy is released

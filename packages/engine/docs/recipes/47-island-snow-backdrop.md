@@ -1,7 +1,8 @@
-# Floating island look: round rim, snow that settles, flat backdrop
+# Snow cover, flat backdrop, rounded terrain rim
 
-A floating island scene (recipe 42 for the outline) usually wants three more things: a soft rim, trees and ground that turn white while
-it snows, and a plain background with no horizon. All three are style or scenario settings; none needs a shader of your own.
+Three independent settings, each for its own situation: a **rounded rim** for terrain with a visible edge (an island, a diorama board, a floating
+level; recipe 42 for the outline), **snow cover** for any outdoor scene where it snows, and a **flat backdrop** for a scene that should have no
+horizon (a menu stage, a board game, a diorama). All are style or scenario settings; none needs a shader of your own.
 
 ## Round rim
 `terrain({ shape: { edge: { round: 1.2 } } })` bends the top down by up to 1.2 m toward the rim. The side wall follows every bend of the

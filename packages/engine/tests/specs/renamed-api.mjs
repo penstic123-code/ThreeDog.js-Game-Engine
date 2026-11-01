@@ -23,6 +23,9 @@ export const specs = [
         t('lookClouds', () => void e.look.clouds);
         t('cameraOverride', () => { e.cameraOverride = { owner: 'x' }; });
         t('viewsPos', () => e.views.define('old', { pos: [1, 2, 3] }));
+        // a style pack that still gives a character body: building any character throws (style restored after)
+        const sc = e.style.character; e.style.character = { ...sc, create: () => null };
+        try { t('characterBody', () => new threedogTest.Character(e, {})); } finally { e.style.character = sc; }
         const f = e.ops.can('dialogue.advance');
         t('reason', () => void f.reason);
         out.enumerable = Object.keys(f).includes('reason');

@@ -1,9 +1,9 @@
-# Water and weather look open points: depth color, foam, reflections, rain and snow, lightning, own particles
+# Water and rain/snow looks: depth color, foam, reflections, particles, lightning
 
 For an AI that wants water or weather particles to look a way the defaults do not. Water basics are the `water()` module and `style.water` (color, opacity, waves,
-fresnel, normal map); lights, fog and the sky are in `38-environment-look-hooks.md`. Every default below draws exactly what it drew before
-(checked pixel by pixel against the old shaders in `tests/specs/appearance-water.mjs`), and a style that writes none of the new keys gets the same
-shader text, so it pays nothing. Three exits: a parameter, a GLSL function you replace, or your own material.
+fresnel, normal map); lights, fog and the sky are in `38-environment-look-hooks.md`. A style that writes none of the keys below keeps the built-in
+shaders and pays nothing for them (`tests/specs/appearance-water.mjs`). Three exits: a parameter, a GLSL function you replace, or your own material.
+At run time the same keys go through `engine.look.water` / `engine.look.weather` (recipe 52).
 
 ## Water: depth color and crest foam (parameters)
 ```js
@@ -78,7 +78,7 @@ water: { material: () => {
 - Tested: `tests/specs/appearance-water.mjs` renders this exact example and finds the reflected box in the mirror texture.
 
 ## Weather particles: rain and snow parameters
-`style.weather.rain` / `snow` (left-out keys keep the built-in look; the defaults are pixel for pixel the old ones):
+`style.weather.rain` / `snow` (left-out keys keep the built-in look):
 
 ```js
 weather: {

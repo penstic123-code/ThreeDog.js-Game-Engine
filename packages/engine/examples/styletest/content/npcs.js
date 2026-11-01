@@ -2,7 +2,7 @@
 export default {
   guide: {
     name: 'Guide',
-    colors: { body: 0x4f6d8f, legs: 0x5b4a3a, hair: 0xd8d4cc },
+    model: 'humanoid', colors: { body: 0x4f6d8f, legs: 0x5b4a3a, hair: 0xd8d4cc },
     start: { place: 'stage', x: 2.5, z: 4 }, behavior: 'wander', mind: { radius: 0 },
   },
 };

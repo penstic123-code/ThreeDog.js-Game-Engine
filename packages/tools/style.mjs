@@ -37,6 +37,25 @@ function printCheck(r) {
   console.log(`${r.errors ? '✗' : '✓'} ${r.entry}: ${r.errors} error(s), ${r.warnings} warning(s). Static checks only: whether the pack holds gameplay logic is not proven here (R34 looks for the usual patterns by text).`);
 }
 
+/** `style palette` as text (the CLI prints it, the MCP tool returns it). Throws an Error with a readable message on bad input. */
+export async function paletteText(image, { n = 8, average, ignoreUi, region, crop, json } = {}) {
+  const { paletteOf } = await import('./style/palette.mjs'), { parseRegion } = await import('./style/pixels.mjs');
+  n = Number(n);
+  if (!Number.isInteger(n) || n < 2 || n > 32) throw new Error('--n must be a whole number from 2 to 32');
+  const r = await paletteOf(image, n, { average, ignoreUi, region: region && parseRegion(region), crop });
+  return JSON.stringify(r, null, 2) + (json ? '' : `
+${r.summary}
+measured: ${r.basis.text}`);
+}
+
+/** `style compare` as text; regions are "x,y,w,h" strings */
+export async function compareText(reference, screenshot, { region, refRegion, shotRegion, json } = {}) {
+  const { compareImages, formatCompare } = await import('./style/compare.mjs'), { parseRegion } = await import('./style/pixels.mjs');
+  const reg = v => v && parseRegion(v);
+  const r = await compareImages(reference, screenshot, { region: reg(region), refRegion: reg(refRegion), shotRegion: reg(shotRegion) });
+  return json ? JSON.stringify(r, null, 2) : formatCompare(r);
+}
+
 export async function main([sub, ...rest]) {
   const flag = n => rest.includes(n), val = n => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
   const VALUED = ['--assets', '--n', '--region', '--ref-region', '--shot-region', '--crop'];
@@ -50,20 +69,12 @@ export async function main([sub, ...rest]) {
     }
     if (sub === 'palette') {
       if (!arg) { console.error(PALETTE_USAGE); return 1; }
-      const { paletteOf } = await import('./style/palette.mjs'), { parseRegion } = await import('./style/pixels.mjs');
-      const n = Number(val('--n') ?? 8);
-      if (!Number.isInteger(n) || n < 2 || n > 32) { console.error('--n must be a whole number from 2 to 32'); return 1; }
-      const r = await paletteOf(arg, n, { average: flag('--average'), ignoreUi: flag('--ignore-ui'), region: val('--region') && parseRegion(val('--region')), crop: val('--crop') });
-      console.log(JSON.stringify(r, null, 2));
-      if (!flag('--json')) console.log(`${r.summary}\nmeasured: ${r.basis.text}`);
+      console.log(await paletteText(arg, { n: val('--n'), average: flag('--average'), ignoreUi: flag('--ignore-ui'), region: val('--region'), crop: val('--crop'), json: flag('--json') }));
       return 0;
     }
     if (sub === 'compare') {
       if (pos.length < 2) { console.error(COMPARE_USAGE); return 1; }
-      const { compareImages, formatCompare } = await import('./style/compare.mjs'), { parseRegion } = await import('./style/pixels.mjs');
-      const reg = n => val(n) && parseRegion(val(n));
-      const r = await compareImages(pos[0], pos[1], { region: reg('--region'), refRegion: reg('--ref-region'), shotRegion: reg('--shot-region') });
-      console.log(flag('--json') ? JSON.stringify(r, null, 2) : formatCompare(r));
+      console.log(await compareText(pos[0], pos[1], { region: val('--region'), refRegion: val('--ref-region'), shotRegion: val('--shot-region'), json: flag('--json') }));
       return 0;
     }
   } catch (e) { console.error(`✗ ${e.message}`); return 1; }

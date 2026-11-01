@@ -3,12 +3,11 @@
 <!-- A short progress page (keep it under about 4 KB). Active plans live in docs/plans/<feature>.md; a finished plan moves to docs/plans/done/
      and keeps one line here under Done. -->
 
-**Milestone**: a playable starting area.
+**Milestone**: a clean start: ground, player, camera, sky. No gameplay yet.
 
 **Next**
 1. Write the pitch and core loop in DESIGN.md.
-2. Replace the example system with the first real one (docs/design/).
-3. Add the first quest or goal.
+2. Build the first system (docs/design/<system>.md).
 
 **Known issues**
 - None yet.

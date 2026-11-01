@@ -48,7 +48,7 @@ engine.onFrame(() => {
 });
 
 // ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, templates, props, physics props, custom conditions) ----------
-engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: home.x + 4, z: home.z + 7 } });
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });   // body: lowpoly's humanoid asset
 engine.content.load(data, { places: { home, river, water: waterSpot } });   // content names models only; the asset packs above resolve them
 
 // Show the film count at the top left (hud counter)

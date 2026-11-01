@@ -274,6 +274,12 @@ export interface VegetationOptions {
   nearOnly?: boolean;
   /** No longer drawn beyond this many rings */
   maxRing?: number;
+  /**
+   * Distance fade of a near-only species (grass, flowers, pebbles, debris ...): instances shrink out over a band in metres from the player instead of popping
+   * per chunk at the ring edge. Default for nearOnly: end = maxRing x chunk size, start = 65% of it. `false` keeps the hard ring edge (also the default for
+   * species that are not nearOnly). Part of the species' own material (no extra draw call or shader), works with wind and shadows
+   */
+  fade?: false | { start?: number; end?: number };
   /** Switch to the low-detail model beyond this many rings, default 1 */
   lodRing?: number;
   /** Cast shadows */
@@ -292,7 +298,7 @@ export interface VegetationOptions {
 /** A registered kind of vegetation */
 export interface Species {
   name: string; geometry: BufferGeometry; lodGeometry: BufferGeometry | null; rule: VegetationRule;
-  nearOnly: boolean; maxRing: number; lodRing: number; castShadow: boolean; shadowRing: number; receiveShadow: boolean; material: Material | Material[];
+  nearOnly: boolean; maxRing: number; fade: { start: number; end: number } | null; lodRing: number; castShadow: boolean; shadowRing: number; receiveShadow: boolean; material: Material | Material[];
 }
 /** A found plant: species name, chunk cx/cz, stable id, world coordinates position */
 export interface VegetationHit { species: string; cx: number; cz: number; id: number; position: Vector3 }

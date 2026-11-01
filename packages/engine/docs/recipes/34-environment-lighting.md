@@ -1,7 +1,7 @@
 # Environment lighting
 
-The engine gives the mechanism and sets nothing: `scene.environment` is `null` until a style pack or the game asks for one, so the plain low-poly
-Lambert look is unchanged. The background (the sky dome or `sky.skybox`) and the environment lighting are two separate fields.
+The engine gives the mechanism and sets nothing: `scene.environment` is `null` until a style pack or the game asks for one, so the default look
+(lit by the sun and hemisphere lights only) is unchanged. The background (the sky dome or `sky.skybox`) and the environment lighting are two separate fields.
 
 ```js
 engine.look.env.replace('sky');                                  // lit by the procedural sky; follows the time of day

@@ -1,22 +1,24 @@
 // Lowpoly (@threedog/style-lowpoly): an optional package holding two separate things (packages/engine/docs/recipes/09-style-pack.md):
-//   default export   the style pack, LOOKS ONLY: colors, materials, sky, lighting, post effects, the default character / pickup shapes, UI look.
+//   default export   the style pack, LOOKS ONLY: colors, materials (also the character part roles), sky, lighting, post effects, pickup shape, UI look.
 //                    createEngine({ style: lowpoly }), or mixed with other parts: createEngine({ style: [lowpoly, { sky: mySky }] })
-//   assets           an asset pack: the procedural models (trees, rocks, grass, flowers) under names content refers to.
+//   assets           an asset pack: the procedural models (trees, rocks, grass, flowers, the 'humanoid' character body) under names content refers to.
 //                    engine.assets.manifest(assets); `models` is the same generators as a plain name -> function map
 // The terrain generator (world shape, gameplay) is its own package, @threedog/terrain-noise; only the colors of its ground types are here.
 // Sounds and gameplay data are not here: they are the game's (createEngine({ audio }), content/).
 // New art style = copy this folder, change values / swap model files; engine code stays untouched.
 //
 // Every entry is optional; omitted parts get neutral engine placeholders (gray).
-import { models, PALETTE } from './models.js';
-import { humanoid, pickup } from './shapes.js';
+import { models as scenery, PALETTE } from './models.js';
+import { humanoid, HUMANOID_COLORS } from './humanoid.js';
+import { pickup } from './shapes.js';
 import { bloom, outline, ao } from '@threedog/post-effects';
 
 // bloom / ao / outline / OUTLINE_OFF_LAYER live in @threedog/post-effects (style packs must not depend on each other). Re-exported here only
 // because style packs not merged yet still import them from this package; delete this line once they import from post-effects.
 export { bloom, outline, ao, OUTLINE_OFF_LAYER } from '@threedog/post-effects';
-export { models };
-/** Asset pack of the procedural models: engine.assets.manifest(assets) registers pine, roundTree, rock, flower, grass... as model names */
+/** The procedural models as a plain name -> generator map (scenery from models.js, the character body from humanoid.js) */
+export const models = { ...scenery, humanoid };
+/** Asset pack of the procedural models: engine.assets.manifest(assets) registers pine, roundTree, rock, flower, grass, humanoid... as model names */
 export const assets = { name: 'lowpoly', models };
 
 export default {
@@ -32,7 +34,10 @@ export default {
   materials: {
     default: { type: 'lambert' },
     water: { type: 'phong', shininess: 90, specular: 0x9ac8e0 },
-    character: { flatShading: true },   // faceted character parts
+    character: { flatShading: true },   // faceted placeholder character
+    // character part roles the 'humanoid' asset uses (any body asset may use them): the style tints bodies here, not by building them
+    cloth: { flatShading: true, color: HUMANOID_COLORS.cloth }, skin: { flatShading: true, color: HUMANOID_COLORS.skin },
+    trousers: { flatShading: true, color: HUMANOID_COLORS.trousers }, hair: { flatShading: true, color: HUMANOID_COLORS.hair },
   },
 
   // Procedural-model colors (trees, rocks, grass, flowers), read by the generators in models.js; change one value to recolor every one of them
@@ -114,9 +119,9 @@ export default {
   // model(item, { color, size }) returns the Object3D or BufferGeometry to show (shapes.js: faceted glowing octahedron)
   pickup: { color: 0xf0d27a, size: 0.25, lift: 0.4, model: pickup },
 
-  // Default character: colors is the palette; create(engine, colors) returns the procedural character (rig format: packages/engine/modules/characters/Character.js; shapes.js humanoid here)
-  // animation.fade: transition seconds when a skeletal animation switches
-  character: { colors: { body: 0xd9774a, skin: 0xf1c9a5, legs: 0x3f4a5c, hair: 0x4a3426 }, create: humanoid, animation: { fade: 0.25 } },
+  // Characters: only how motion looks (animation.fade: transition seconds when a skeletal animation switches). The body is an asset
+  // ({ model: 'humanoid' } from `assets` above); its part colors are the material roles cloth / skin / trousers / hair
+  character: { animation: { fade: 0.25 } },
 
   // UI colors (dialogue box, inventory, quests, toasts, loading screen)
   ui: {

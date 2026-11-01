@@ -1,6 +1,6 @@
-// A style built from parts: createEngine({ style: [lowpoly, { sky: mySky }, toonMaterials] }) merges the parts left to right into engine.style.
+// A style built from parts: createEngine({ style: [basePack, { sky: mySky }, toonMaterials] }) merges the parts left to right into engine.style.
 // Why parts and not one object: a look is often borrowed piecemeal (one pack's materials, another's sky, the game's own UI colors), and a
-// spread `{ ...lowpoly, sky }` loses lowpoly's other sky fields; a deep merge keeps them. Rules (one place; recipes/09-style-pack.md "Composing"):
+// spread `{ ...basePack, sky }` loses basePack's other sky fields; a deep merge keeps them. Rules (one place; recipes/09-style-pack.md "Composing"):
 //   - parts merge left to right, later wins; nested arrays are flattened (a pack may itself be a list of parts); null / undefined / false parts are skipped
 //   - plain objects ({ } literals) merge key by key, recursively: { sky: { sunSize: 600 } } changes only sunSize
 //   - anything else replaces whole: arrays (sky.keyframes, post, terrain.steep), functions, numbers, strings, three.js objects and class instances
@@ -20,7 +20,7 @@ const edit = fn => ({ post: Object.assign(fn, { [EDIT]: true }) });
 /**
  * A style part that adds post effects to the ones before it (a plain { post: [...] } would replace the whole list). An effect with the same name as
  * an earlier one replaces it in place; names are the effects' own ('bloom', 'ao', 'outline', or your own).
- * @example createEngine({ style: [lowpoly, postAdd(myGrain, bloom({ strength: 0.6 }))] })   // grain added, lowpoly's bloom swapped for yours
+ * @example createEngine({ style: [basePack, postAdd(myGrain, bloom({ strength: 0.6 }))] })   // grain added, the pack's bloom swapped for yours
  * @param {...import('../render/PostFX.js').PostEffect} effects
  * @returns {{ post: any }}
  */
@@ -34,7 +34,7 @@ export function postAdd(...effects) {
 
 /**
  * A style part that removes post effects by name from the ones before it.
- * @example createEngine({ style: [lowpoly, postRemove('ao', 'outline')] })
+ * @example createEngine({ style: [basePack, postRemove('ao', 'outline')] })
  * @param {...string} names
  * @returns {{ post: any }}
  */
@@ -91,6 +91,8 @@ function checkStyleLooks(style) {
 }
 
 // Dev warning when createEngine gets no style pack (shown once from Engine.js)
-export const NO_STYLE = 'createEngine(): no style pack given, so everything is a neutral gray placeholder: plain lights (one white hemisphere + one neutral '
-  + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look. '
-  + "Pass one: import lowpoly from '@threedog/style-lowpoly'; createEngine({ canvas, style: lowpoly }) (or your own pack, recipes/09-style-pack.md)";
+export const NO_STYLE = 'createEngine(): the style pack is missing or empty, so everything is a neutral gray placeholder: plain lights (one white hemisphere + one neutral '
+  + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look and not an error. '
+  + 'Fill your own pack (style/index.js in a new game; recipes/09-style-pack.md, recipes/52-look.md) or pass a published one';
+/** true when createEngine got no style, or only empty parts ({} / [{}, {}]): the game has no look yet */
+export const styleIsEmpty = st => !st || (Array.isArray(st) ? st.every(styleIsEmpty) : typeof st === 'object' && Object.keys(st).every(k => k === 'name'));   // a name alone (the new-game empty pack) is still empty
