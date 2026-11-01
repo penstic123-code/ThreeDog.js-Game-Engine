@@ -33,6 +33,7 @@ export const specs = [{
   Tests run against the built bundle (not the dev server): main.js must set `window.engine = engine;` before `await engine.start()`, otherwise the
   test waits for the engine until timeout (the error explains why).
 - New game: `npm run new-game name`, see `recipes/01-new-game.md`.
+- Game in your own folder (outside this repo): after `npm install threedog three@~0.187.0 @threedog/tools`, run `npx threedog init [name]`: it copies the new-game template without overwriting anything, merges package.json and writes `.mcp.json`, so Claude Code opened in that folder starts the threedog MCP server by itself.
 
 > Git Bash (MSYS) rewrites arguments that start with `/` (`/styletest.html` turns into a Windows path). Write `shot styletest`, or set `MSYS_NO_PATHCONV=1`, or use PowerShell.
 

@@ -15,7 +15,7 @@ Content (items, NPCs, dialogues, quests...) goes in `content/`; art goes in `pub
 
 Commands: `npm run dev`, `npm run check`, `npm test`, `npm run map`, `npm run build`. After a change: `npm run map` only if you changed code, JSDoc or content, then `npm run check`, then only the related tests (`npm test -- name`).
 
-MCP: `claude mcp add threedog -- npx threedog mcp` exposes the dev bridge (describe, step, press, op, snap...) as native tools while `npm run dev` runs; see `node_modules/threedog/docs/recipes/16-dev-bridge.md` section 10. An `op` or `step` sent that way changes this play session and its saves only; edit `content/` to change the level.
+MCP: `.mcp.json` (written by `threedog init` / `npm run new-game`) makes Claude Code start the threedog server by itself; it exposes the dev bridge (describe, step, press, op, snap...) as native tools while `npm run dev` runs; see `node_modules/threedog/docs/recipes/16-dev-bridge.md` section 10. An `op` or `step` sent that way changes this play session and its saves only; edit `content/` to change the level.
 
 Changing gameplay: update DESIGN.md (and the system's `docs/design/` file) and STATUS.md in the same commit; R18 checks names in DESIGN.md. A finished plan moves to `docs/plans/done/` with a one-line summary in STATUS.md.
 

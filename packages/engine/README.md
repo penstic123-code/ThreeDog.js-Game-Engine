@@ -9,6 +9,7 @@ npm install @threedog/style-lowpoly          # optional: the low-poly style pack
 npm install @threedog/terrain-noise          # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
 npm install -D vite @threedog/tools   # optional: the vite preset and the threedog command line
 ```
+Or let it set up the folder: `npx threedog init` writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have.
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.
 
 ## Minimal usage
