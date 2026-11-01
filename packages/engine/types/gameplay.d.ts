@@ -1674,11 +1674,6 @@ export interface Content {
    * template('chest').container.capacity
    */
   template(name: string): Readonly<ContentTemplate>;
-  /**
-   * New runtime instance of a template (inside an op or fixed step), saved whole; returns the world record (kind = template name). e.g. spawn('chest', {
-   * x: 10, z: 4 }, { opened: true })
-   */
-  spawn(name: string, at: any, fields?: { id?: string; rot?: number; scale?: number; y?: number; items?: Record<string, number>; [stateField: string]: any }): WorldRecord;
 }
 /** A content template: shared definition of a reusable object (recipes/30-templates.md) */
 export interface ContentTemplate {

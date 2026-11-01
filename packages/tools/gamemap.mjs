@@ -157,12 +157,12 @@ async function buildMap(dir) {
 
   // Object templates (content/templates.js), their placements and runtime spawns
   const tpl = templateLines(c, gameFiles, g);
-  if (tpl.length) sec('Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)', tpl);
+  if (tpl.length) sec('Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)', tpl);
   // Grids declared in code
   const grids = gridLines(gameFiles, g);
   if (grids.length) sec('Grids (engine.grids)', grids);
 
-  // Where the level comes from: authored placements per content file, and placements game code makes at startup (rule R33)
+  // Where the level comes from: authored placements per content file, and what game code creates at startup that a save would duplicate (rule R33)
   sec('Placements (the level is content; counts per content file)', placementLines(c, gameFiles, g));
 
   codeSections({ c, dir, g, gameFiles, code, ce, sec });

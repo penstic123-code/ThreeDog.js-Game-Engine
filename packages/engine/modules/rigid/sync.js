@@ -24,6 +24,8 @@ export function syncTerrain(r, src) {
     if (have) dropTerrain(r, key);
     if (data && d > 0) built++;
     if (!data) { r.terrain.set(key, { ready: false, colliders: [] }); continue; }
+    // a chunk wholly in the void (terrain({ shape })) has no triangles: nothing to collide with, and Rapier rejects an empty trimesh
+    if (!data.positions.length) { r.terrain.set(key, { ready: true, token: data.token, colliders: [] }); continue; }
     const t0 = performance.now();   // measure: the 'collider' stage of engine.budget.cost
     const idx = new Uint32Array(data.positions.length / 3); for (let i = 0; i < idx.length; i++) idx[i] = i;
     const ground = R.ColliderDesc.trimesh(new Float32Array(data.positions), idx).setTranslation(data.ox, 0, data.oz).setFriction(0.9);

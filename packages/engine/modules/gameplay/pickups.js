@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
+import { placeY } from '../../core/ground.js';
 import { checkOptionsArg, warnOnce } from '../../core/validate.js';
 import { copyData } from './Container.js';
 
@@ -19,7 +20,7 @@ export function spawnPickup(inv, item, position, opts = {}) {
   const data = copyData('spawnPickup', item, opts.data);
   const e = inv.engine, w = presentPickups(inv);
   const def = { id, kind: 'pickup', item, count, bob, ...(data && { data }), ...(radius != null && { radius }), ...(auto && { auto: true }),
-    ...(respawnSeconds > 0 && { respawn: respawnSeconds }), ...(zone != null && { zone }), position: [x, e.surface(x, z, refY) + (e.style.pickup?.lift ?? 0.4), z] };
+    ...(respawnSeconds > 0 && { respawn: respawnSeconds }), ...(zone != null && { zone }), position: [x, placeY(e, `inventory.spawnPickup('${item}')`, x, z, refY) + (e.style.pickup?.lift ?? 0.4), z] };
   const rec = initial ? w.add(def, { initial }) : id != null && w.get(id) || w.add(def);   // initial data: world decides whether it exists / was deleted from the save (null)
   if (rec && (rec.kind !== 'pickup' || rec.item !== item)) throw new Error(`pickup id '${id}' is already used by other data (${rec.kind}${rec.item ? ' ' + rec.item : ''}): use a different id`);
   const wid = rec?.id ?? id;

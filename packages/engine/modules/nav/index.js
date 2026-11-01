@@ -87,7 +87,7 @@ export function nav(opts = {}) {
     if (debug) {
       const three = await import('@recast-navigation/three');
       api.helper = new three.NavMeshHelper(r.navMesh);
-      api.helper.position.y = 0.05; e.add(api.helper);
+      api.helper.position.y = 0.05; e.add(api.helper, { owner: 'engine:nav' });
     }
   }
 

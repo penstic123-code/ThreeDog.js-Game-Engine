@@ -18,7 +18,7 @@ function boxLook(e) {
   const mat = makeMaterial('decal', { transparent: true, opacity, depthWrite: false }, e);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
   mesh.name = 'grid:preview'; mesh.visible = false; mesh.renderOrder = 2;
-  e.add(mesh);
+  e.add(mesh, { owner: 'engine:grid' });
   const ok = new THREE.Color(st.ok ?? OK), bad = new THREE.Color(st.bad ?? BAD), h = st.previewHeight ?? 0.08;
   return {
     update(v) {

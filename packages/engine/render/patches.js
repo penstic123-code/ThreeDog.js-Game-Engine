@@ -28,7 +28,8 @@ import { sameUniform, resolveUniform } from './engineUniforms.js';
 /** @import { Material } from '../types/common' */
 
 /**
- * @typedef {{ before?: string, after?: string } | string} PatchCode  code for one anchor (a plain string goes after the include)
+ * @typedef {{ before?: string, after?: string, replace?: string } | string} PatchCode  code for one anchor (a plain string goes after the include;
+ *   replace swaps the include itself for new code, one patch per anchor)
  * @typedef {{ name: string, cacheKey?: string | number, uniforms?: Record<string, { value: any }>, shadow?: boolean,
  *   needs?: { data?: string[], patches?: string[] }, conflicts?: string[],
  *   glsl?: { vertex?: Record<string, PatchCode>, fragment?: Record<string, PatchCode> } }} ShaderPatch
@@ -61,6 +62,7 @@ function missing(m, p) {
 // Why a patch cannot join the material's list, or '' (composition rules from the header)
 let deriving = false;   // re-entrancy flag, set and cleared inside one synchronous call (never across a frame)
 const CODE = new Map();   // name=cacheKey -> GLSL text, to catch a cacheKey that does not follow the code
+const replaced = p => ['vertex', 'fragment'].flatMap(st => Object.entries(p.glsl?.[st] || {}).filter(([, c]) => typeof c === 'object' && c.replace != null).map(([k]) => st + k));
 const DATA = ['instancing', 'instancingColor', 'vertexColors', 'skinning', 'batching'];
 function clash(list, p) {
   for (const d of p.needs?.data || []) if (!DATA.includes(d)) {
@@ -74,6 +76,9 @@ function clash(list, p) {
     return `patch '${p.name}' needs patch '${n}' on the material first; put '${n}' before it in the patches list (applyEffects adds the built-in 'world' itself when a patch needs it), or fix why '${n}' was skipped`;
   for (const q of others) for (const u in p.uniforms || {}) if (q.uniforms?.[u] && !sameUniform(q.uniforms[u], p.uniforms[u]))
     return `patches '${q.name}' and '${p.name}' both bring a uniform named '${u}'; rename one (prefix it with the patch name), or share engine.uniforms.${u}`;
+  const mine = replaced(p);
+  for (const q of others) if (replaced(q).some(k => mine.includes(k)))
+    return `patches '${q.name}' and '${p.name}' both replace one chunk; keep one, or add code before / after it`;
   const key = p.name + '=' + (p.cacheKey ?? ''), code = JSON.stringify(p.glsl ?? {});
   if (CODE.has(key) && CODE.get(key) !== code)
     return `patch '${p.name}' produced different GLSL under the same cacheKey '${p.cacheKey ?? ''}'; put every value that changes the code into cacheKey`;
@@ -96,19 +101,20 @@ function apply(shader, list, m, renderer) {
       for (const u in p.uniforms) shader.uniforms[u] = resolveUniform(p.uniforms[u], renderer);
       for (const [k, code] of Object.entries(p.glsl?.[stage] || {})) {
         if (k === 'pars') { pars.push(code); continue; }
-        const slot = at.get(k) || at.set(k, { before: [], after: [] }).get(k);
-        if (typeof code === 'string') slot.after.push(code); else { if (code.before) slot.before.push(code.before); if (code.after) slot.after.push(code.after); }
+        const slot = at.get(k) || at.set(k, { before: [], after: [], replace: null }).get(k);
+        if (typeof code === 'string') slot.after.push(code);
+        else { if (code.before) slot.before.push(code.before); if (code.after) slot.after.push(code.after); if (code.replace != null) slot.replace = code.replace; }
       }
     }
     let src = shader[key];
-    for (const [k, { before, after }] of at) {
+    for (const [k, { before, after, replace }] of at) {
       const inc = `#include <${k}>`;
       if (!src.includes(inc)) {
         const tag = `${m.type}:${k}`;
         if (!warned.has(tag)) { warned.add(tag); console.error(`[threedog] shader patch anchor ${inc} not found in ${m.type}; add it to your shader or #include the threedog_* chunks by hand (see render/patches.js)`); }
         continue;
       }
-      src = src.replace(inc, [...before, inc, ...after].join('\n'));
+      src = src.replace(inc, () => [...before, replace ?? inc, ...after].join('\n'));
     }
     shader[key] = pars.join('\n') + '\n' + src;
   }
@@ -169,6 +175,19 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
  * @returns {string[]}
  */
 export function materialPatches(material) { return (LISTS.get(material) || []).map(p => p.name); }
+
+/**
+ * Take the patch named `name` off a material (no-op when absent); returns the material.
+ * @internal sky cascades
+ * @param {Material} material
+ * @param {string} name
+ * @returns {Material}
+ */
+export function unpatchMaterial(material, name) {
+  const list = LISTS.get(material), i = list ? list.findIndex(p => p.name === name) : -1;
+  if (i >= 0) { list.splice(i, 1); dropShadow(material); material.needsUpdate = true; }
+  return material;
+}
 
 /**
  * Give `to` the patches of `from`, e.g. after `from.clone()` (three's Material.copy does not carry onBeforeCompile, so a clone

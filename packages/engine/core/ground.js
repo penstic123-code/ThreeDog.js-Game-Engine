@@ -1,12 +1,34 @@
 // Ground API (part of Engine, mixed into Engine.prototype): whoever provides ground height is the "terrain" -- a procedural terrain module, a hand-made level, or a flat plane.
 // The queries below take (x, z), or a Vector3 / Object3D directly: engine.surface(mesh.position)
 import { xzOf } from './math.js';
-import { checkOptions } from './validate.js';
+import { checkOptions, DEV } from './validate.js';
 
 // Default ground: an infinite flat plane at y = 0. A terrain or level module replaces it
 export const flatGround = {
   height: () => 0, slope: () => 0, type: () => 'default', waterLevel: -Infinity,
+  // is there ground at (x, z): false only off the outline of terrain({ shape }), where height is -Infinity
+  has: () => true,
+  // height below which something has fallen out of the world (terrain:void); only an outline sets a finite one
+  voidY: () => -Infinity,
 };
+const NO_GROUND = '{who}: there is no ground at ({x}, {z}) (outside terrain({ shape })){left}; check engine.ground.has(x, z) first';
+const noGround = (who, x, z, left = '') => NO_GROUND.replace('{who}', who).replace('{x}', x.toFixed(1)).replace('{z}', z.toFixed(1)).replace('{left}', left);
+
+/**
+ * Ground height for a place-it-here entry (spawn, props, pickups, npcs, placeAt). Beyond terrain({ shape }) surface() is -Infinity, and that must never
+ * reach a position (a save turns it into null / NaN and the object vanishes): dev throws with the fix, release keeps `fallback`. @internal
+ */
+export function placeY(e, who, x, z, refY, fallback = 0) {
+  const y = e.surface(x, z, refY);
+  if (y !== -Infinity) return y;
+  if (DEV) throw new Error(noGround(who, x, z));
+  return fallback;
+}
+/** Ground height for a visual-only reader (hud anchor, grid tiles, camera start, shot path): off the island use `fallback`, never throw. @internal */
+export function surfaceOr(e, x, z, refY, fallback = 0) {
+  const y = e.surface(x, z, refY);
+  return y === -Infinity ? fallback : y;
+}
 const WATER_KEYS = ['position', 'radius', 'halfWidth', 'halfDepth', 'level'];
 
 // engine.ground.forEachCollider = the provider's own followed by every added source; absent when there is none
@@ -42,7 +64,14 @@ export const groundMethods = {
   /** Ground type (grass, sand...), used by footsteps and particles */
   groundType(x, z) { if (typeof x === 'object') [x, z] = xzOf(x); return this.ground.type(x, z); },
   /** Put an object on the ground beneath it (y = ground height + offset); returns the object. With multi-layer ground the object's current y is the reference height: things under a bridge stay on the ground, things on it land on the deck */
-  snapToGround(obj, offset = 0) { obj.position.y = this.surface(obj.position.x, obj.position.z, obj.position.y) + offset; return obj; },
+  snapToGround(obj, offset = 0) {
+    const p = obj.position, y = this.surface(p.x, p.z, p.y);
+    if (y === -Infinity) {   // never write an infinite y: the object would vanish and poison bounds and physics
+      if (DEV) throw new Error(noGround('engine.snapToGround()', p.x, p.z, ', so the object was left where it is'));
+      return obj;
+    }
+    p.y = y + offset; return obj;
+  },
   /** Water surface height at a point: water bodies (lake, pond, river segment) first, else the global water level; -Infinity if there is no water */
   waterAt(x, z) {
     if (typeof x === 'object') [x, z] = xzOf(x);

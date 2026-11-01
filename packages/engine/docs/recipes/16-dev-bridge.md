@@ -40,6 +40,10 @@ game only advances on step); once you open the page in a browser, commands go to
 | `reload` / `resume` | Reload the page / resume real-time running | |
 
 ## 2. Notes
+- **Smallest scenario** (`tests/scenarios/coins.json`, then `npx threedog verify coins` or `scenario coins`; `verify` with no file says "Have: none"):
+  `{ "name": "coins", "url": "/", "state": { "pos": "6,4" }, "steps": [ { "step": 1 }, { "expect": { "inventory.items.coin": 1 } } ] }`
+- **Teleport + `step 1` collects `auto` pickups** (`state pos=`, `player.placeAt`): the pickup check runs in the fixed step after any move.
+- **`shot` always starts a fresh game** (use `?save=slot1` to load one); after playing, use `snap name`, which shows the current session.
 - **`step` / `press` pause the real page** (the output reminds you); resume with `npx threedog resume` when done. A headless page only advances on step anyway.
 - **`snap` on a real page captures only the canvas** (not the HTML UI); on a headless page it captures the whole page. To see UI state use `describe`
   (`ui.windows`, dialogue).

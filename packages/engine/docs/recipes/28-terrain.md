@@ -6,6 +6,8 @@ The engine always does the chunks, streaming, workers, collision and vegetation.
 flat gray ground at y = 0, with a dev warning. The height and ground type come from your own two functions or a preset, and the player can change the
 ground during play.
 
+Flat island (no noise): `terrain({ height: () => 2, shape: { mask: (x, z) => 25 - Math.hypot(x, z) } })`; inside `openWorld` the same object goes under `terrain:`.
+
 ## 0. A ready-made generator: the noise preset
 ```js
 import { openWorld, createTerrain } from 'threedog';
@@ -71,3 +73,8 @@ Read the ground with `engine.surface(x, z)` (also `slope`, `groundType`, `waterA
 raycast the terrain for this: the height function is exact and works before the chunk has a mesh.
 
 Look open points (color map shading, triangle cut, normals, bounds margin): `37-terrain-look-hooks.md`.
+
+## 5. Where the ground ends: `shape`
+
+`terrain({ shape: { mask, edge, side, bottom } })` keeps ground only where `mask > 0` (an island, a floating rock): off it `engine.surface` is
+`-Infinity` and `engine.ground.has(x, z)` is false, and falls emit `terrain:void`. Without `shape` nothing changes. See `42-terrain-shape.md`.

@@ -71,10 +71,10 @@ would make, as authored data (the grid comes from the content key `grids`, `{ fa
 custom properties fill the template's state), and one with `id = true` becomes a record of kind `levelNode` whose model is the node itself. Their id
 is `<level file name>/<node name>`, for example `town/door_front` (recipe 10).
 
-At runtime (inside an op or a fixed step), `engine.content.spawn(name, at, fields)` places a new instance and returns its record:
+At runtime (inside an op or a fixed step), `engine.spawn(name, at, fields)` places a new instance and returns its record:
 ```js
 engine.ops.define('chest.build', {
-  run: (e, { x, z }) => e.content.spawn('chest', { x, z }, { items: { stick: 3 } }).id,
+  run: (e, { x, z }) => e.spawn('chest', { x, z }, { items: { stick: 3 } }).id,
 });
 ```
 Instances from `props.js` are initial records (a save stores only their changes); spawned ones are saved whole. Use `engine.world.get(id)`, `set`,
@@ -109,20 +109,23 @@ const t = engine.pick(0, 0)?.thing;   // what is in the middle of the screen
 engine.world.origin('chest-home');     // the same source info for an id
 ```
 `hit.thing` is on every `engine.pick` / `engine.raycast` hit (computed when read); a hit on a batched copy resolves to its original object.
-`engine.inspect(id).thing` and `engine.explain({ op, args: { id } })` say the same. A record made during play shows the op and tick that spawned it
+`engine.inspect(id).thing` and `engine.explain({ op, args: { id } })` say the same. A hit on a plain object added with `engine.add` gets its
+`hit.thing` from the registry (id, `at` = the file:line of the add, `saved`, `edit`; recipe 41). A record made during play shows the op and tick that spawned it
 (`spawned`), a level node its level and node name. Source lines exist in dev and test builds only (a Vite transform tags `content/*.js` with their
 line numbers); a release build has none and pays nothing. From a terminal or an MCP client: `npx threedog pick 480,270` (screen pixels from the canvas
 top-left) or the MCP tool `pick { x, y }`.
 
-## 6. Levels are content; code holds only rules
-Everything that stands in a level comes from content: a template in `content/templates.js` plus a placement with an `id` in `content/props.js` (or
-`pickups`, `npcs`, `containers`, a game kind from `rules.js`, the level model). Game code keeps the rules: ops, `world.simulate` / `world.present`,
-conditions and UI. Something that appears during play is created inside an op with `engine.content.spawn`. Loading the same content then gives the
-same world, and a save holds only what play changed.
+## 6. When to use a template
+Two doors lead into one scene. Plain three.js, `engine.add(mesh, { id })`, is fine for anything your code rebuilds on every start: a code-built
+windmill, colliders, interactions. A template plus a placement with an `id` in `content/props.js` (or `pickups`, `npcs`, `containers`, a game kind
+from `rules.js`, the level model) is what you want when the thing must be saved with its own state, edited without touching code, or copied many
+times. Both land in the same registry: `engine.thing(id)` answers for either and says what a save keeps (recipe 41). Game code keeps the rules: ops,
+`world.simulate` / `world.present`, conditions and UI. Something that appears during play is created inside an op with `engine.spawn`.
 
-`npm run check` enforces it with rule R33: `engine.add`, `world.add`, `collision.addBox`, `rigid.addBox`, `spawnPickup`, `npcs.add` or `content.spawn`
-at module top level or in an `engine:ready` / `level:loaded` handler is an error in the engine example and the game template, a warning in `games/*`.
-The fix is a template plus a placement, or an op. Places computed from the seed (a flat spot for `home`) stay in code and are passed as `places` to
-`content.load`; a mesh built in code becomes a model by name (`engine.assets.manifest({ models: { cabin } })`). A physics prop is a record from
-content whose `world.present` build adds the rigid body (`examples/world/` does this for its crates). A line that really must place from code at
-startup (a debug gizmo) carries `// runtime: <reason>`.
+`npm run check` (rule R33) flags only what breaks, in examples, templates and `games/*` alike. Error: `world.add` (without `{ save: false }`),
+`engine.spawn`, `spawnPickup`, `npcs.add` or `entities.spawn` at module top level or in an `engine:ready` / `level:loaded` / `session:start`
+handler, because those are saved whole and the startup code would make a second copy after every load; and `world.add(…, { initial: true })`
+anywhere. Warning: code that `engine.add`s a `world.view(id)` model or writes its position / rotation / scale (world puts it back every frame).
+The fix is a placement in content, or an op. Places computed from the seed (a flat spot for `home`) stay in code and are passed as `places` to
+`content.load`; a mesh built in code becomes a model by name (`engine.assets.manifest({ models: { cabin } })`) when you want it as a template.
+A line that really must do it from code at startup carries `// runtime: <reason>`.

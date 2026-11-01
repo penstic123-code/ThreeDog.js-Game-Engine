@@ -110,7 +110,7 @@ export async function packExternal({ check, browser, keep = false }) {
   let server;
   try {
     // 1. pack and look at the contents
-    const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), style = pack(styleDir('lowpoly'), tmp), terrainPkg = pack(addonDir('terrain-noise'), tmp);
+    const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), style = pack(styleDir('lowpoly'), tmp), terrainPkg = pack(addonDir('terrain-noise'), tmp), postPkg = pack(addonDir('post-effects'), tmp);
     packageContents(check, { eng, tools, style, terrainPkg });
 
     // 2. a fresh project that installs the tarballs like a user would
@@ -118,7 +118,7 @@ export async function packExternal({ check, browser, keep = false }) {
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'threedog-external-check', private: true, type: 'module',
       scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' },
       dependencies: { threedog: `file:../${eng.filename}`, '@threedog/style-lowpoly': `file:../${style.filename}`,
-        '@threedog/terrain-noise': `file:../${terrainPkg.filename}`, three: '~0.187.0' },
+        '@threedog/terrain-noise': `file:../${terrainPkg.filename}`, '@threedog/post-effects': `file:../${postPkg.filename}`, three: '~0.187.0' },
       devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
     copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
     writeFileSync(join(app, 'bad.js'), BAD);

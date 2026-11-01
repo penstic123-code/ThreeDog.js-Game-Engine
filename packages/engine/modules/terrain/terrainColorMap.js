@@ -10,7 +10,9 @@
 const toSRGB = c => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
 
 /** @returns {(cx: number, cz: number) => { data: Uint8Array, size: number }} */
-export function makeColorMap({ cfg, CHUNK, CELL, surface, faceColor, paintColor, cellType, gridNormal }) {
+// inside(x, z) (terrain({ shape }) only): a void pixel keeps the color of the ground under it (so filtering at the rim stays seamless)
+// and gets alpha 0, which a game's own shader may read
+export function makeColorMap({ cfg, CHUNK, CELL, surface, faceColor, paintColor, cellType, gridNormal, inside = null }) {
   const R = Math.max(2, Math.round(cfg.colorResolution)), S = R + 2, step = CHUNK / R;
   // sRGB encode through a table: 4096 steps are finer than 8 bits can show
   const LUT = new Uint8Array(4097);
@@ -31,7 +33,7 @@ export function makeColorMap({ cfg, CHUNK, CELL, surface, faceColor, paintColor,
           const n = (gny(i, j) * (1 - fx) + gny(i + 1, j) * fx) * (1 - fz) + (gny(i, j + 1) * (1 - fx) + gny(i + 1, j + 1) * fx) * fz;
           faceColor(surface(x, z), n, x, z, tmp);
         }
-        data[o] = enc(tmp[0]); data[o + 1] = enc(tmp[1]); data[o + 2] = enc(tmp[2]); data[o + 3] = 255;
+        data[o] = enc(tmp[0]); data[o + 1] = enc(tmp[1]); data[o + 2] = enc(tmp[2]); data[o + 3] = inside && !inside(x, z) ? 0 : 255;
       }
     }
     return { data, size: S };

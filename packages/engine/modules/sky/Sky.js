@@ -11,7 +11,8 @@
 // Season tint: style pack seasons = { spring: { foliage: 0xffffff, ground: 0xffffff }, autumn: { foliage: 0xffb070 }, ... }, blended smoothly
 // Clouds: style pack sky.clouds = { color, shade, coverage: 1, scale: 0.35, speed: [x, z], kind, glsl, ... } (coverage follows weather; see clouds.js)
 // three.js objects: engine.sky.sun (DirectionalLight; moonlight at night, shadows live on it), hemi (HemisphereLight ambient), dome (dome Mesh),
-//   sunDir (Vector3 toward the sun). Light color/intensity is recomputed every frame: adjust brightness through modify() layers (see modify),
+//   sunDir (Vector3 toward the sun). Light color/intensity is recomputed every frame: adjust brightness through modify() layers (see modify), or
+//   take a light over with sky({ sun: 'manual' | false, hemisphere: ... }) (look.js); fog kinds and dome layers: fog.js, domeLayers.js;
 //   engine.sky.modifiers is the composite of all layers (read-only)
 // Skybox: style pack sky.skybox = '/textures/sky.jpg' (equirectangular panorama) replaces the gradient sky; brightness follows time
 import * as THREE from 'three';
@@ -20,13 +21,15 @@ import { shadowMethods, shadowFor } from './shadow.js';
 import { layerMethods, blankLayer } from './layers.js';
 import { environmentMethods, environmentFor } from './environment.js';
 import { updateSky, watchOwned } from './frame.js';
+import { prepareLook } from './look.js';
+import { makeFog, applyFogChunks } from './fog.js';
 import { parseSeasons, seasonIndexOf, dayOfSeasonOf, seasonProgressOf, advance } from './calendar.js';
 import { formatClock } from '../../core/dayTime.js';
 import { Schedule } from './schedule.js';
 /** @import { Object3D, Vector3 } from '../../types/common' */
 /** @import { SkyOptions, SkyModifiers, SkyLayer, SkyAtOptions, SkyBetweenOptions, SkyEnvironmentInfo } from '../../types/world' */
 /** @import { Handle } from '../../types/common' */
-/** @import { StyleShadow } from '../../types/style' */
+/** @import { SkyShadowParams } from '../../types/style' */
 const STRINGS = {
   badDayLength: 'sky({ dayLength }): game seconds per day must be a number > 0 (Infinity = the time of day never moves); got {got}',
   noSeason: "sky.onSeason('{name}'): the calendar has no such season (seasons: {list}). " +
@@ -67,20 +70,22 @@ export class Sky {
     /** @internal */ this.groundTint = new THREE.Color(st.groundTint ?? 0x4a4a4a);
     const scene = engine.scene;
 
-    /** @internal */ this.uniforms = makeSkyUniforms(st, engine.uniforms);
+    const look = prepareLook(this, st, over);   // light modes, fog, dome layers (look.js)
+    /** @internal */ this.uniforms = { ...makeSkyUniforms(st, engine.uniforms), ...look.uniforms };
     /** Dome mesh @type {Object3D} */
-    this.dome = makeDome(this.uniforms, st);
+    this.dome = makeDome(this.uniforms, st, look);
     scene.add(this.dome);
     // Skybox (panorama): replaces the gradient sky when present
     /** @internal */ this.skybox = null;
     if (st.skybox) loadSkybox(this, st.skybox);
 
-    scene.fog = new THREE.Fog(0xcccccc, engine.fogFar * 0.3, engine.fogFar);
+    scene.fog = this._drive.fog === false ? null : makeFog(this._fog, engine.fogFar);
+    /** @internal */ this._fogOff = this._drive.fog === false ? () => {} : applyFogChunks(this._fog);   // throws when another engine holds a different custom fog
     /** Hemisphere ambient light (engine.lights.hemi, driven by the sky) @type {any} */
     this.hemi = engine.lights.hemi;
     /** Sun directional light (engine.lights.sun driven by the sky; moonlight at night, shadows live on it) @type {any} */
     this.sun = engine.lights.sun;
-    this.sun.castShadow = engine.shadows;
+    this.sun.castShadow = engine.shadows && this._drive.sun !== false;
     const sh = shadowFor(engine.tier, engine.style.sky?.shadow, over.shadow);
     this.sun.shadow.mapSize.set(sh.mapSize ?? 2048, sh.mapSize ?? 2048);
     const ext = sh.extent ?? 70;
@@ -92,11 +97,11 @@ export class Sky {
      */
     this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };
     // Shadow update policy (default: every frame, center snapped to 0.5 m)
-    /**
-     * Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead:
-     * number, type: string, radius: number, blurSamples: number }}
-     */
-    this.shadow = { bias: -0.0006, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0, type: engine.shadowType, radius: 1, blurSamples: 8 };
+    /** Current shadow params (change via setShadow) @readonly @type {SkyShadowParams} */
+    this.shadow = { bias: -0.0006, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0, type: engine.shadowType, radius: 1, blurSamples: 8,
+      cascades: 1, maxFar: 120, fade: true, lightMargin: 100, split: 'practical' };
+    /** three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45) @type {any} */
+    this.csm = null;
     /** @internal */ this._shadowFrame = 0;
     /** @internal */ this._snapKey = '';
     this.setShadow(sh);
@@ -224,8 +229,8 @@ export class Sky {
    * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
    * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view;
    * type = 'basic' (hard edge) | 'pcf' | 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely);
-   * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only)
-   * @param {Pick<StyleShadow, 'bias' | 'normalBias' | 'updateEvery' | 'snap' | 'ahead' | 'type' | 'radius' | 'blurSamples'>} [opts]
+   * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only); cascades 2-4 = cascaded shadows, 1 = off (recipes/45)
+   * @param {Partial<SkyShadowParams>} [opts]
    * @returns {this}
    */
   setShadow(opts) { return shadowMethods.setShadow.call(this, opts); }

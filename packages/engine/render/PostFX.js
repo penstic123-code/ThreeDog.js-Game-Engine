@@ -1,5 +1,5 @@
 // Post-processing as an ordered list of named effects in four slots. The engine owns no look of its own here: bloom, AO and
-// outline are effects a style pack registers (see post.js in @threedog/style-lowpoly); games add theirs with engine.post.add().
+// outline are effects a style pack registers (they come from @threedog/post-effects); games add theirs with engine.post.add().
 // An effect promises only a name, params and on/off; how it draws is its create() (a three.js Pass under WebGLRenderer),
 // so a WebGPU backend can later bring its own implementation without changing callers.
 //
@@ -37,7 +37,7 @@ import { FusedPass, groupFuse } from './fuse.js';
  *   order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
  *   needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  *   scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
- *   RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. update: apply new params in place;
+ *   RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;
  *   without it set() rebuilds the implementation.
  * @typedef {{ readonly name: string, readonly slot: PostSlot, readonly order: number, readonly enabled: boolean,
  *   readonly params: Record<string, any>, enable(on: boolean): void, set(params: Record<string, any>): void, remove(): void }} PostHandle
@@ -53,7 +53,7 @@ function checkDepthOrder(chain) {
     if (e._def?.needsDepth && swapped)
       throw new Error(`post effect '${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers, so the depth it would read is not the scene's; ` +
         `give '${e.name}' a lower order or an earlier slot than '${swapped}', or turn one of them off`);
-    if (e._impl.needsSwap) swapped ??= e.name;
+    if (e._impl.needsSwap && !e._impl.keepsDepth) swapped ??= e.name;
   }
 }
 

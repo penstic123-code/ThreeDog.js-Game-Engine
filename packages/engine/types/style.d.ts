@@ -6,8 +6,9 @@
 // Example: the optional @threedog/style-lowpoly package (packages/styles/lowpoly/index.js).
 import type { ColorLike, BufferGeometry, Object3D, Material, Loose } from './common';
 import type { Engine } from './core';
-import type { SteepRule, WeatherPreset, TerrainConfig } from './world';
+import type { SteepRule, WeatherPreset, TerrainConfig, Sky } from './world';
 import type { ParticleOptions, CharacterRig } from './gameplay';
+import type { ShaderPatch } from './generated/render/patches';
 
 /** Material finish: 'lambert' matte | 'phong' with highlights | 'standard' realistic | 'physical' | 'toon' cel-shaded steps | 'basic' unlit */
 export type MaterialType = Loose<'lambert' | 'phong' | 'standard' | 'physical' | 'toon' | 'basic'>;
@@ -33,7 +34,7 @@ export interface MaterialSpec {
   /** How many times the textures of this material repeat (a number, or [x, y]); default 1 */
   repeat?: number | [number, number];
   /** Texture wrapping: 'repeat' (default) | 'clamp' | 'mirror' */
-  wrap?: 'repeat' | 'clamp' | 'mirror';
+  wrap?: Loose<'repeat' | 'clamp' | 'mirror'>;
   /** Grain, paper, strokes or a texture laid over the surface in world space (no UVs needed); off unless given */
   detail?: MaterialDetail;
   /** Extra light shaping (shadow tint, rim, wrap, your own GLSL); merged over style.lighting, false opts out */
@@ -48,19 +49,19 @@ export interface MaterialSpec {
  */
 export interface MaterialDetail {
   texture?: string | import('three').Texture;
-  noise?: 'grain' | 'paper' | 'stroke';
+  noise?: Loose<'grain' | 'paper' | 'stroke'>;
   /** Replaces the noise: `vec4 threedogDetailSample(vec2 p)` returns vec4(color rgb, height 0-1); p is scaled, turned, stretched */
   glsl?: string;
   /** Uniforms for glsl: numbers, colors, [x, y(, z, w)] arrays or textures */
   uniforms?: Record<string, any>;
   /** 'world' (default, looks straight down) | 'triplanar' (three axis planes blended by the surface normal; for walls and rocks) */
-  projection?: 'world' | 'triplanar';
+  projection?: Loose<'world' | 'triplanar'>;
   /** Repeats per meter, default 0.25 */
   scale?: number;
   /** Color effect 0-1, default 0.35 (0 turns the color part off) */
   strength?: number;
   /** How the color is applied: 'multiply' (default) | 'add' (lighter and darker) | 'mix' (towards the sample color) */
-  mode?: 'multiply' | 'add' | 'mix';
+  mode?: Loose<'multiply' | 'add' | 'mix'>;
   /** Colors the sample (default white) */
   tint?: ColorLike;
   /** Degrees; turns the pattern (strokes run along it) */
@@ -101,7 +102,7 @@ export interface MaterialLighting {
 export type SkyKeyframe = (number | ColorLike)[];
 
 export interface StyleSeasons {
-  mode?: 'multiply' | 'mix';
+  mode?: Loose<'multiply' | 'mix'>;
   strength?: number;
   [season: string]: any;
 }
@@ -109,6 +110,13 @@ export interface StyleSeasons {
 export interface StyleSky {
   /** Colors and light intensities at each time of day */
   keyframes?: SkyKeyframe[];
+  /**
+   * A flat background color in place of the dome (no gradient, horizon line, sun / moon disk, stars or clouds), or (sky) => color per
+   * frame. Drawn as written (no tone mapping); the keyframes still light the world; fog in its default horizon color follows it (a
+   * fog.color of your own still wins). Leave out for the dome. Not with skybox. recipes/47
+   * @example backdrop: sky => sky.isDay ? 0xefebe4 : 0x2c3346
+   */
+  backdrop?: ColorLike | ((sky: Sky) => ColorLike);
   /** Larger means a smaller sun, default 900 */
   sunSize?: number;
   /** Sun glow, default 0.18 */
@@ -139,6 +147,52 @@ export interface StyleSky {
   shadow?: StyleShadow;
   /** Environment lighting (scene.environment), off unless a source is given; see Sky.setEnvironment. A pack can give defaults, sky({ environment }) overrides */
   environment?: StyleEnvironment;
+  /** Fog model and color (default: linear fog in the horizon color); see StyleFog */
+  fog?: StyleFog;
+  /** Extra dome layers drawn after the clouds and stars (rainbow, aurora), default none; see StyleSkyLayer */
+  layers?: StyleSkyLayer[];
+}
+
+/**
+ * Fog (modules/sky/fog.js). Defaults draw three's linear fog in the dome's horizon color, exactly as before.
+ * @example fog: { kind: 'height', height: 2, falloff: 0.08, density: 0.02 }   // valley mist, thin above
+ * @example fog: { kind: 'exp2', color: 0xb8c4d0 }   // own color: the dome's lower band fades to it so the horizon line does not show
+ */
+export interface StyleFog {
+  /** 'linear' (default, near = 0.3 x far) | 'exp' | 'exp2' | 'height' (thick below `height`, thinning above it) */
+  kind?: Loose<'linear' | 'exp' | 'exp2' | 'height'>;
+  /** 'horizon' (default: the dome's horizon color) | a color | (sky) => color (e.g. to darken it at night) */
+  color?: 'horizon' | ColorLike | ((sky: any) => ColorLike);
+  /** Per meter, exp / exp2 / height (default: derived from engine.fogFar, so fog reaches the same distance as linear); weather fog divides it */
+  density?: number;
+  /** 'height': world y of the fog floor, default 0 */
+  height?: number;
+  /** 'height': how fast the fog thins above the floor, per meter, default 0.05 */
+  falloff?: number;
+  /**
+   * Replace the fog math in every material (three's fog chunks, set at install):
+   * `vec4 threedogFog(vec3 color, float depth, vec3 worldPos)` returns (fog rgb, amount 0..1). In scope: fogColor, cameraPosition,
+   * fogNear / fogFar (kind 'linear') or fogDensity (other kinds), THREEDOG_FOG_HEIGHT, THREEDOG_FOG_FALLOFF. No custom uniforms (write constants)
+   * @example glsl: `vec4 threedogFog(vec3 c, float depth, vec3 p){ float f = 1.0 - exp(-fogDensity * depth); return vec4(mix(c, vec3(1.0, 0.8, 0.6), f * 0.3), f); }`
+   */
+  glsl?: string;
+}
+
+/**
+ * One extra sky layer (modules/sky/domeLayers.js)
+ * @example layers: [{ blend: 'add', uniforms: { uAurora: [0.2, 1, 0.6] }, glsl: `vec4 threedogSkyLayer(vec3 d, float time, vec3 sunDir, float night){
+ *   float band = smoothstep(0.25, 0.45, d.y) * (1.0 - smoothstep(0.55, 0.8, d.y)) * threedogNoise(vec2(d.x * 4.0 + time * 0.05, d.z * 2.0));
+ *   return vec4(uAurora, band * night); }` }]
+ */
+export interface StyleSkyLayer {
+  /** Defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)` returning (rgb, amount 0..1); renamed per layer, so layers never clash */
+  glsl: string;
+  /** Custom uniforms (numbers, THREE.Color, [x, y(, z, w)], THREE.Texture), live in engine.sky.dome.material.uniforms */
+  uniforms?: Record<string, any>;
+  /** Draw order among the layers, smaller first (default 0) */
+  order?: number;
+  /** 'mix' (default: mix(sky, rgb, amount)) | 'add' (sky + rgb * amount, for glows) */
+  blend?: Loose<'mix' | 'add'>;
 }
 
 /** Environment lighting parameters */
@@ -176,7 +230,7 @@ export interface StyleSkyClouds {
    * 'cumulus': 8 noise samples per cloudy pixel, flatter projection (clouds fill the whole sky), sun-side light and shaded undersides.
    * Both are one 2D pass, no ray marching.
    */
-  kind?: 'plane' | 'cumulus';
+  kind?: Loose<'plane' | 'cumulus'>;
   /** Added to dir.y in the plane projection: smaller = stronger crowding at the horizon (plane 0.08, cumulus 0.5) */
   horizon?: number;
   /** Horizon fade [from, to] in dir.y: clouds are invisible below `from` and full above `to` (plane [0, 0.18], cumulus [0, 0.12]) */
@@ -217,6 +271,12 @@ export interface StyleWind {
   uniforms?: Record<string, number | number[] | object>;
 }
 
+/** engine.sky.shadow: the shadow params in use (Sky.setShadow changes them); field meanings as in StyleShadow */
+export interface SkyShadowParams {
+  bias: number; normalBias: number; updateEvery: number; snap: number | 'texel'; ahead: number; type: 'basic' | 'pcf' | 'vsm'; radius: number; blurSamples: number;
+  cascades: number; maxFar: number; fade: boolean; lightMargin: number; split: StyleShadow['split'];
+}
+
 export interface StyleShadow {
   /** Shadow resolution (pixels), default 2048 */
   mapSize?: number;
@@ -235,13 +295,28 @@ export interface StyleShadow {
   /** How far ahead of the view direction the shadow center is shifted (meters), default 0 */
   ahead?: number;
   /** Shadow filter: 'basic' (hard edge, cheapest) | 'pcf' (default, soft edge) | 'vsm' (softest, costliest). Default: the engine's shadowType option */
-  type?: 'basic' | 'pcf' | 'vsm';
+  type?: Loose<'basic' | 'pcf' | 'vsm'>;
   /** Edge softness for 'pcf' and 'vsm' (no effect on 'basic'), default 1 */
   radius?: number;
   /** Blur sample count, 'vsm' only, default 8 */
   blurSamples?: number;
   /**
-   * Overrides used on low-tier devices (engine.tier 'low'), default { mapSize: 1024 }. updateEvery above 1 saves more but makes
+   * Cascaded shadows (recipes/45): 1 (default) = one shadow map around the focus, the plain path; 2-4 split the sun's shadow along the view,
+   * sharp near the camera and wide far away. Each cascade draws the casters once more. Low-tier devices stay at 1 unless low.cascades says so.
+   * Switching recompiles every lit material once (the light count changes); extent / snap / ahead do not apply while cascades are on
+   * @example shadow: { cascades: 3, maxFar: 150, low: { cascades: 2, fade: false } }   // low-tier devices: 2 cascades instead of one map
+   */
+  cascades?: number;
+  /** Cascades: meters from the camera they cover (no sun shadow beyond), default 120 */
+  maxFar?: number;
+  /** Cascades: cross-fade at each border so no seam shows (two shadow lookups there), default true */
+  fade?: boolean;
+  /** Cascades: meters behind each cascade box toward the light still caught as casters (tall things outside the view), default 100 */
+  lightMargin?: number;
+  /** Cascades: where borders fall, 'practical' (default) | 'uniform' | 'logarithmic' | (count, near, far, out: number[]) => void (three CSM customSplitsCallback) */
+  split?: Loose<'practical' | 'uniform' | 'logarithmic'> | ((count: number, near: number, far: number, out: number[]) => void);
+  /**
+   * Overrides used on low-tier devices (engine.tier 'low'), default { mapSize: 1024, cascades: 1 }. updateEvery above 1 saves more but makes
    * wind-swayed shadows step visibly. sky({ shadow }) options replace the whole shadow block, low included.
    */
   low?: Omit<StyleShadow, 'low'>;
@@ -254,21 +329,104 @@ export interface StyleWeather {
   overcastColor?: ColorLike;
   /** Lightning brightness multiplier */
   lightningBrightness?: number;
-  /** Rain: color, opacity, streak length (meters), fall speed (m/s), slant; texture uses a textured raindrop instead */
-  rain?: { color?: ColorLike; opacity?: number; length?: number; speed?: number; slant?: number; texture?: string | null; size?: number; maxSize?: number };
-  /** Snow: color, opacity, size, max pixels, fall speed (m/s), snowflake texture */
-  snow?: { color?: ColorLike; opacity?: number; size?: number; maxSize?: number; speed?: number; texture?: string | null };
+  /**
+   * Lightning look: flash (1 at the strike, fading in a third of a second) -> sky flash amount; default flickers. Return 0 and draw your own bolt
+   * on the weather:lightning event for a whole replacement
+   * @example lightning: f => f * f * 0.8
+   */
+  lightning?: (flash: number, engine: Engine) => number;
+  /** Rain particles (default streaks: color 0xc8c8c8, opacity 0.55, length 0.7 m, speed 22 m/s, slant 1); a texture or a sprite shape draws drops */
+  rain?: StyleWeatherParticles;
+  /** Snow particles (default round sprites: color 0xffffff, opacity 0.9, size 20, maxSize 5 px, speed 1.6 m/s, sway 1.5 m) */
+  snow?: StyleWeatherSnow;
   /** Retune the look of weather types the game has (e.g. a darker storm); never adds a type: the list is the game's weather({ types }) */
   types?: Record<string, Partial<WeatherPreset>>;
+}
+
+/** Falling weather particles: style.weather.rain / snow and engine.weather.define(field, spec). See recipes/44-water-weather-look-hooks.md */
+/** style.weather.snow: the snow particles' look plus the cover it leaves */
+export interface StyleWeatherSnow extends StyleWeatherParticles {
+  /** Snow lying on foliage / ground while it snows (StyleSnowCover); leave out for particles only */
+  cover?: StyleSnowCover;
+}
+
+/**
+ * Snow cover (style.weather.snow.cover): the season tint of foliage / ground (vegetation, terrain, materials with season) moves toward
+ * these colors as the weather's snow amount rises, `strength` of the way at full snow, and melts back as it falls. Rides the season
+ * patch (mix over style.seasons; a 'multiply' season gives way while snow lies). Leave it out and snow only draws particles.
+ * The same cover for anything else (ash, frost): engine.sky.modify('ash', { groundCover: 0x555555, coverAmount: 0.6 }). recipes/47
+ * @example cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }
+ */
+export interface StyleSnowCover {
+  /** Snow color on foliage (leave out: foliage keeps its season color) */
+  foliage?: ColorLike;
+  /** Snow color on the ground (leave out: ground keeps its season color) */
+  ground?: ColorLike;
+  /** How far toward the color at full snow, 0-1, default 0.8 */
+  strength?: number;
+}
+
+export interface StyleWeatherParticles {
+  /** 'line' streaks slant with the wind; 'round' | 'soft' | 'square' sprites drift (sway) */
+  shape?: Loose<'line' | 'round' | 'soft' | 'square'>;
+  /** Sprite image (asset name), replaces the shape */
+  texture?: string | null;
+  color?: ColorLike;
+  opacity?: number;
+  /** Sprite size (pixels at 3 m) and its pixel cap */
+  size?: number;
+  maxSize?: number;
+  /** Streak length (meters, lines) */
+  length?: number;
+  /** Fall speed (m/s) */
+  speed?: number;
+  /** Streak lean per unit of wind (lines) */
+  slant?: number;
+  /** Sprite drift (meters) */
+  sway?: number;
+  /** Particle count (default weather({ particles }); halved on low-tier devices) */
+  count?: number;
+  /** Weather amount 0..1 -> share of particles drawn (rain default a => min(1, a * 1.2), snow () => 1; opacity follows the amount too) */
+  density?: (amount: number) => number;
+  /**
+   * Whole shader text (copy modules/weather/shaders.js). In scope: uCam uSize uFallOff uOpacity uColor, lines uWindDir uLen (attribute aEnd),
+   * sprites uPx uMaxPx uSway uSwayAmp uMap uUseMap, and your uniforms (declared for you)
+   */
+  glsl?: { vertex?: string; fragment?: string };
+  /** Uniforms for your glsl: numbers, colors, [x, y(, z, w)] arrays, textures; live in engine.weather.systems.get(field).uniforms */
+  uniforms?: Record<string, any>;
+  /** A system of your own instead (engine.weather.define only): the engine adds object, shows it while the amount is above 0.02, calls update */
+  create?: (engine: Engine, ctx: { area: number; count: number }) => {
+    object: Object3D; update?: (amount: number, ctx: { camera: any; time: number; wind: number }) => void };
 }
 
 export interface StyleWater {
   /**
    * Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared
-   * uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch and the scrolling normal map (null without one).
+   * uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch, the surface patch (depthColor / foam / glsl.surface; null
+   * without them; put it after waves) and the scrolling normal map (null without one). Reflections: recipes/44-water-weather-look-hooks.md
    * @example material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })
    */
-  material?: (engine: Engine, ctx: { uniforms: Record<string, { value: any }>; waves: import('./generated/render/patches').ShaderPatch; normalMap: import('three').Texture | null }) => Material;
+  material?: (engine: Engine, ctx: { uniforms: Record<string, { value: any }>; waves: ShaderPatch; surface: ShaderPatch | null;
+    normalMap: import('three').Texture | null }) => Material;
+  /**
+   * Water color from the view angle (by 'view', default: shallow looking down, deep at grazing angles) or the wave height (by 'wave': shallow on
+   * crests); replaces color. curve shapes the blend (default 1)
+   */
+  depthColor?: StyleWaterDepth;
+  /**
+   * Crest foam from the wave height (start / end: fraction of glsl.waveMax where foam begins / is full, default 0.55 / 0.85); true = defaults.
+   * Shore foam needs depth: recipes/44
+   */
+  foam?: StyleWaterFoam | true;
+  /**
+   * Your own GLSL. wave: `float threedogWaterWave(vec3 p, float t)` (p = world position * waveScale, t = time * waveSpeed) returns the height
+   * before waveHeight; waveMax = its peak (default 0.29), which foam and depthColor 'wave' divide by. surface: `vec4 threedogWaterSurface(vec4
+   * base, float wave, float facing, vec3 worldPos, float time)` returns the color and opacity lighting starts from (facing 1 = straight down)
+   */
+  glsl?: { wave?: string; surface?: string; waveMax?: number };
+  /** Uniforms for your glsl, in both stages: numbers, colors, [x, y(, z, w)] arrays or textures; live in engine.water.material.uniforms */
+  uniforms?: Record<string, any>;
   color?: ColorLike;
   /** Opacity 0–1 */
   opacity?: number;
@@ -291,6 +449,21 @@ export interface StyleWater {
   /** Mesh subdivision of the global water (quality, not the world; default 150) */
   segments?: number;
   // level, sea and size are not style: water({ level, sea, size }) (WaterOptions)
+}
+
+export interface StyleWaterDepth {
+  shallow?: ColorLike;
+  deep?: ColorLike;
+  by?: Loose<'view' | 'wave'>;
+  curve?: number;
+}
+
+export interface StyleWaterFoam {
+  color?: ColorLike;
+  start?: number;
+  end?: number;
+  /** 0-1, foam opacity on top of the water (default 1) */
+  opacity?: number;
 }
 
 export interface StyleTerrain {
@@ -318,7 +491,7 @@ export interface StyleTerrain {
    * map, colors independent of the mesh); colorResolution: color map pixels per chunk edge; normals: 'smooth' | 'flat' lighting in texture mode;
    * normalFn: custom grid-point normal. Shape, size, seed, water level, resolution, diagonal: terrain({...}). See recipes/37-terrain-look-hooks.md
    */
-  config?: { shading?: 'flat' | 'smooth' | 'texture'; colorResolution?: number; normals?: 'smooth' | 'flat'; normalFn?: TerrainConfig['normalFn'] };
+  config?: { shading?: Loose<'flat' | 'smooth' | 'texture'>; colorResolution?: number; normals?: Loose<'smooth' | 'flat'>; normalFn?: TerrainConfig['normalFn'] };
   /** Whole ground material: a Material or (engine) => Material (uv = world xz / chunk size; terrain({ material }) wins) */
   material?: Material | ((engine: Engine) => Material);
   /** Ground detail texture: texture asset name, scale repeats per meter, strength 0–1 */
@@ -373,17 +546,21 @@ export interface StyleUI {
 export interface Style {
   /** Style pack name */
   name?: string;
-  /** Exposure, default 1 (lowpoly: 1.05) */
-  exposure?: number;
+  /**
+   * Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number,
+   * evaluated by the sky module every frame. engine.setExposure changes it at run time
+   * @example exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights
+   */
+  exposure?: number | number[][] | ((sky: any) => number);
   /** Tone mapping, default 'neutral' (lowpoly: 'aces') */
   toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>;
   /** Background color (when there is no sky module) */
   background?: ColorLike;
   /**
    * Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from
-   * '@threedog/style-lowpoly'
+   * '@threedog/post-effects'
    */
-  post?: import('./generated/render/PostFX').PostEffect[];
+  post?: (Omit<import('./generated/render/PostFX').PostEffect, 'slot'> & { slot?: Loose<import('./generated/render/PostFX').PostSlot> })[];
   /**
    * Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a
    * function (params, purpose) => Material

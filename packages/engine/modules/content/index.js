@@ -6,7 +6,7 @@
 // Condition/effect vocabulary is in rules.js. Games add condition words (content/rules.js, or content.condition(name, { test }) in code);
 // a game's own actions are ops, called from content with { op: ['noun.verb', args] } and tested with { can: [...] }.
 // Op names used in content are checked when the game becomes ready (did you mean...).
-// Templates (content/templates.js): reusable objects placed from props.js ({ template, x, z }) or engine.content.spawn; see templates.js.
+// Templates (content/templates.js): reusable objects placed from props.js ({ template, x, z }) or engine.spawn; see templates.js.
 // Props (content/props.js) and pickups (pickups.js) are stored in engine.world (requires world(); openWorld() includes it; see props.js for the stable id
 // rule),
 // models and collision are built only near the focus; move / remove with engine.world.move / remove, saved with the save. Procedural models of vegetation and
@@ -25,6 +25,7 @@ import { CONDITIONS, EFFECTS, list } from './rules.js';
 import { loadContent, BUILTIN_TESTS, BUILTIN_RUNS } from './loader.js';
 import { templateOf, spawnTemplate, placeTemplate } from './templates.js';
 import { packsOf } from './packs.js';
+import { placeY } from '../../core/ground.js';
 import { IdCheck } from './ids.js';
 
 export function content() {
@@ -94,17 +95,6 @@ export function content() {
      */
     template(name) { return templateOf(st, name); },
     /**
-     * Place a new instance of a template at runtime (a gameplay change: call it inside an op or a fixed step); saved whole.
-     * Returns the world record (kind = template name). at is a ground position ({ x, z }, [x, y, z] or an object);
-     * fields may set id, rot, scale, y (height above ground), items (container start goods) and the template's state fields.
-     * @example engine.ops.define('chest.build', { run: (e, { x, z }) => e.content.spawn('chest', { x, z }, { items: { stick: 3 } }).id });
-     * @param {string} name
-     * @param {any} at
-     * @param {Record<string, any>} [fields]
-     * @returns {import('../world/World.js').WorldRecord}
-     */
-    spawn(name, at, fields) { return spawnTemplate(e, st, name, at, fields); },
-    /**
      * @internal A level-model node with the custom property template: an authored instance with id `<level>/<node>` (level module).
      * entry is a props-style entry ({ template, id, x, z, floor, rot, scale, state fields }); origin = { level, node }
      */
@@ -128,7 +118,7 @@ export function content() {
       if (p.place && !base) throw new Error(`Place "${p.place}" not found: give its coordinates in the places of content.load, or add this marker to the level`);
       const x = (base?.x ?? 0) + (p.x ?? 0), z = (base?.z ?? 0) + (p.z ?? 0), floor = p.floor ?? base?.y;
       if (floor === undefined && p.y === undefined) return { x, z };
-      return { x, y: e.surface(x, z, floor) + (p.y ?? 0), z };
+      return { x, y: placeY(e, `content.where(${JSON.stringify(p.place ?? { x: p.x, z: p.z })})`, x, z, floor) + (p.y ?? 0), z };
     },
     /** @internal The floor a position notation stands on (its own floor, else its marker's height); undefined = top layer */
     _floorOf(p) { return p.floor ?? (p.place ? api.place(p.place)?.y : undefined); },
@@ -138,6 +128,14 @@ export function content() {
     optional: ['level', 'sky', 'inventory', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions', 'grids', 'rigid'],
     install(engine) {
       e = engine;
+      /**
+       * Place a new instance of a content template at runtime (a gameplay change: call it inside an op or a fixed step); saved whole.
+       * Returns the world record (kind = template name). at is a ground position ({ x, z }, [x, y, z] or an object);
+       * fields may set id, rot, scale, y (height above ground), items (container start goods) and the template's state fields.
+       * Installed by content(), so it exists once the content module is used.
+       * @example engine.ops.define('chest.build', { run: (e, { x, z }) => e.spawn('chest', { x, z }, { items: { stick: 3 } }).id });
+       */
+      e.spawn = (name, at, fields) => spawnTemplate(e, st, name, at, fields);
       // content may name ops that main.js defines after load: check once everything is set up, and again for loads after that
       const check = () => {
         for (const name of st.ops) if (!e.ops.defs.has(name)) throw new Error(`content: ${missingText('op', name, [...e.ops.defs.keys()])} (used in { op } / { can })`);

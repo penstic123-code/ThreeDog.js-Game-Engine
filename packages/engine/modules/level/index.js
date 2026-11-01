@@ -139,7 +139,7 @@ export function level(opts = {}) {
   function process(root) {
     api.root = root;
     root.userData.budgetTag ??= 'level';
-    if (addToScene && !root.parent) e.add(root);
+    if (addToScene && !root.parent) e.add(root, { owner: 'level' });
     root.updateMatrixWorld(true);
     nodeSet.take(root);   // record nodes leave the level root first: no ground, collision or ray registration for them, and hlod never bakes them
     const meshes = [], cols = [], markerObjs = [];

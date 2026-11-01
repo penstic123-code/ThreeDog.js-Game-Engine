@@ -1,49 +1,13 @@
-// Dominant colors and light / saturation overview of a reference picture: threedog style palette <image> [--n 8].
+// Dominant colors and light / saturation overview of a reference picture:
+//   threedog style palette <image> [--n 8] [--average] [--region x,y,w,h] [--ignore-ui] [--crop file.png]
 // A helper that measures, not a decision: it does not tell you which colors make the look. Pixels are read in a headless browser
-// (canvas getImageData: every format the browser decodes works, no image library needed), then reduced here with a median cut.
-import { readFileSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
-import { launchBrowser } from '../browser.mjs';
+// (pixels.mjs), then reduced here with a median cut.
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { openImage, hsl, luma, hex, opaque, uiFrame, shrink } from './pixels.mjs';
 
-const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.svg': 'image/svg+xml' };
 const MAX_SIDE = 200;   // the picture is scaled down to this before reading: the browser's smoothing averages detail, and it keeps the work small
-
-/** RGB pixels (flat [r, g, b, ...], transparent ones skipped) of an image file, scaled to at most MAX_SIDE */
-export async function readPixels(file) {
-  const path = resolve(file), mime = MIME[extname(path).toLowerCase()];
-  if (!mime) throw new Error(`cannot read "${file}": use ${Object.keys(MIME).join(' ')}`);
-  let data;
-  try { data = readFileSync(path).toString('base64'); } catch { throw new Error(`cannot read "${file}": file not found`); }
-  const browser = await launchBrowser();
-  try {
-    const page = await browser.newPage();
-    return await page.evaluate(async ([src, max]) => {
-      const img = new Image();
-      img.src = src;
-      await img.decode();
-      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight)), w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const g = c.getContext('2d', { willReadFrequently: true });
-      g.drawImage(img, 0, 0, w, h);
-      const d = g.getImageData(0, 0, w, h).data, out = [];
-      for (let i = 0; i < d.length; i += 4) if (d[i + 3] >= 128) out.push(d[i], d[i + 1], d[i + 2]);
-      return out;
-    }, [`data:${mime};base64,${data}`, MAX_SIDE]);
-  } finally { await browser.close(); }
-}
-
-const hex = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
-const luma = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-/** [h 0-360, s 0-1, l 0-1] */
-function hsl([r, g, b]) {
-  r /= 255; g /= 255; b /= 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
-  if (!d) return [0, 0, l];
-  const s = d / (1 - Math.abs(2 * l - 1));
-  const h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return [h * 60, s, l];
-}
+const SCAN_SIDE = 400;  // --ignore-ui looks for the frame at this size
 
 /** Median cut of weighted colors [[r,g,b], count] into at most n boxes: [{ rgb (mean), count }] */
 function medianCut(entries, n) {
@@ -77,17 +41,51 @@ export function colorName(rgb) {
 
 const level = (v, lo, hi, names) => names[v < lo ? 0 : v < hi ? 1 : 2];
 
-/** Picture overview: dominant colors with roles, and brightness / saturation / contrast / temperature as numbers and words. n colors (2-32) */
-export async function paletteOf(file, n = 8) {
-  const px = await readPixels(file), total = px.length / 3;
-  if (!total) throw new Error(`"${file}" has no opaque pixels`);
+/** Mean color of flat [r, g, b, ...] pixels, as { rgb, hex, hue, saturation, lightness } (the mean of the channel values, not a cluster) */
+export function averageColor(px) {
+  const total = px.length / 3, rgb = [0, 0, 0];
+  for (let i = 0; i < px.length; i += 3) { rgb[0] += px[i]; rgb[1] += px[i + 1]; rgb[2] += px[i + 2]; }
+  const m = rgb.map(v => v / total), [h, s, l] = hsl(m);
+  return { rgb: m, hex: hex(m), hue: Math.round(h), saturation: +s.toFixed(2), lightness: +l.toFixed(2) };
+}
+
+/** Dominant colors of flat [r, g, b, ...] pixels, biggest first: [{ hex, name, share, hue, saturation, lightness, brightness, roles: [] }] */
+export function dominantColors(px, n) {
+  const total = px.length / 3;
   const hist = new Map();   // 5 bits per channel: the same look to the eye, far fewer entries to cut
   for (let i = 0; i < px.length; i += 3) { const k = ((px[i] >> 3) << 10) | ((px[i + 1] >> 3) << 5) | (px[i + 2] >> 3); hist.set(k, (hist.get(k) ?? 0) + 1); }
   const entries = [...hist].map(([k, c]) => [[((k >> 10) << 3) + 4, (((k >> 5) & 31) << 3) + 4, ((k & 31) << 3) + 4], c]);
-  const colors = medianCut(entries, n).sort((a, b) => b.count - a.count).map(({ rgb, count }) => {
+  return medianCut(entries, n).sort((a, b) => b.count - a.count).map(({ rgb, count }) => {
     const [h, s, l] = hsl(rgb);
     return { hex: hex(rgb), name: colorName(rgb), share: +(count / total).toFixed(3), hue: Math.round(h), saturation: +s.toFixed(2), lightness: +l.toFixed(2), brightness: +luma(rgb).toFixed(2), roles: [] };
   });
+}
+
+/**
+ * Picture overview: dominant colors with roles, and brightness / saturation / contrast / temperature as numbers and words. n colors (2-32).
+ * opts: average (add the whole-picture mean color), region ({x,y,w,h} original pixels), ignoreUi (cut a flat frame around the picture, see pixels.uiFrame),
+ * crop (path: write the measured area there as a PNG so you can look at what was measured). The result's `basis` says what was measured.
+ */
+export async function paletteOf(file, n = 8, { average = false, region, ignoreUi = false, crop } = {}) {
+  const img = await openImage(file);
+  let px, basis;
+  try {
+    const whole = region ?? { x: 0, y: 0, w: img.width, h: img.height };
+    let area = whole, frame = null;
+    if (ignoreUi) {
+      const scan = await img.read(whole, { max: SCAN_SIDE }), f = uiFrame(scan.data, scan.w, scan.h);
+      area = shrink(whole, f);
+      frame = { top: Math.round(f.top * whole.h), right: Math.round(f.right * whole.w), bottom: Math.round(f.bottom * whole.h), left: Math.round(f.left * whole.w) };
+    }
+    const got = await img.read(area, { max: MAX_SIDE, png: !!crop });
+    if (crop) writeFileSync(resolve(crop), got.png);
+    px = opaque(got.data);
+    basis = { size: [img.width, img.height], region: area, ignoredFramePx: frame, cropFile: crop ? resolve(crop) : null,
+      text: `${region ? 'region ' + Object.values(region).join(',') : 'whole picture'}${frame ? `, UI frame cut (px top/right/bottom/left: ${Object.values(frame).join('/')}; a side counts as frame when it is a flat color, at least 3% and at most 45% of the picture)` : ''}, scaled to at most ${MAX_SIDE}px` };
+  } finally { await img.close(); }
+  const total = px.length / 3;
+  if (!total) throw new Error(`"${file}" has no opaque pixels`);
+  const colors = dominantColors(px, n);
   // Role hints, one color each (a color may get several): the biggest block, the brightest, the most saturated one that is not a speck (>= 2%), the darkest
   const pick = (key, ok = () => true) => colors.filter(ok).reduce((a, b) => (a && a[key] >= b[key] ? a : b), null);
   const roles = { base: colors[0], highlight: pick('brightness'), accent: pick('saturation', c => c.share >= 0.02), shadow: colors.reduce((a, b) => (a.brightness <= b.brightness ? a : b)) };
@@ -112,8 +110,10 @@ export async function paletteOf(file, n = 8) {
     level(meanSat, 0.2, 0.45, ['low saturation', 'medium saturation', 'high saturation']),
     level(meanLum, 0.3, 0.6, ['dark overall', 'medium brightness', 'bright overall']),
     level(contrast, 0.25, 0.55, ['weak light/dark contrast', 'moderate light/dark contrast', 'strong light/dark contrast'])];
+  const avg = average ? averageColor(px) : null;
+  if (avg) words.push(`overall average color ${avg.hex} (hue ${avg.hue}°, saturation ${avg.saturation}, lightness ${avg.lightness})`);
   return {
-    file: resolve(file), pixels: total, colors, stats, summary: words.join(', '),
+    file: resolve(file), basis, pixels: total, colors, ...(avg && { average: { hex: avg.hex, hue: avg.hue, saturation: avg.saturation, lightness: avg.lightness } }), stats, summary: words.join(', '),
     roles: Object.fromEntries(Object.entries(roles).map(([r, c]) => [r, { hex: c.hex, hint: labels[r] }])),
     note: 'A measurement to start from, not a decision: pick the look yourself and compare with `threedog shot`.',
   };

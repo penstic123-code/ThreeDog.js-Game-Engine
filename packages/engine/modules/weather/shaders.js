@@ -1,10 +1,11 @@
-// Weather particle shaders: rain (short line segments; position loops downward in the shader, zero CPU cost), snow / textured drops (point sprites).
-// Time arrives already wrapped on the CPU (uFallOff = fall distance mod area size, uSway = time mod 20π, the common period of the snow
-// drift), so drops do not jitter from float32 precision in multi-hour sessions. Colors go through tone mapping and the output color
-// space like three's own materials, so rain looks the same with and without post-processing.
+// Weather particle shaders: lines (rain streaks; position loops downward in the shader, zero CPU cost) and point sprites (snow, textured
+// drops, a game's own particles). Time arrives already wrapped on the CPU (uFallOff = fall distance mod area size, uSway = time mod 20π,
+// the common period of the drift), so drops do not jitter from float32 precision in multi-hour sessions. Colors go through tone mapping
+// and the output color space like three's own materials, so rain looks the same with and without post-processing.
+// A style replaces either text with weather.<type>.glsl.vertex / fragment (recipes/44); copy these as the starting point.
 import * as THREE from 'three';
 
-export const rainVert = `uniform vec3 uCam; uniform float uSize; uniform float uFallOff; uniform vec2 uWindDir; uniform float uLen; attribute float aEnd;
+export const lineVert = `uniform vec3 uCam; uniform float uSize; uniform float uFallOff; uniform vec2 uWindDir; uniform float uLen; attribute float aEnd;
 varying float vA;
 void main(){
   vec3 p = position;
@@ -15,26 +16,27 @@ void main(){
   vA = 1.0 - aEnd * 0.8;
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
 }`;
-export const rainFrag = `uniform float uOpacity; uniform vec3 uColor; varying float vA;
+export const lineFrag = `uniform float uOpacity; uniform vec3 uColor; varying float vA;
 void main(){
   gl_FragColor = vec4(uColor, uOpacity * vA);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
-export const snowVert = `uniform vec3 uCam; uniform float uSize; uniform float uPx; uniform float uMaxPx; uniform float uFallOff; uniform float uSway;
+export const pointVert = `uniform vec3 uCam; uniform float uSize; uniform float uPx; uniform float uMaxPx; uniform float uFallOff; uniform float uSway; uniform float uSwayAmp;
 void main(){
   vec3 p = position;
   float fall = mod(p.y - uFallOff, uSize);
-  vec3 w = vec3(mod(p.x - uCam.x + sin(uSway*0.7 + p.y)*1.5, uSize) - uSize*0.5, fall - uSize*0.35, mod(p.z - uCam.z + cos(uSway*0.5 + p.x)*1.5, uSize) - uSize*0.5) + uCam;
+  vec3 w = vec3(mod(p.x - uCam.x + sin(uSway*0.7 + p.y)*uSwayAmp, uSize) - uSize*0.5, fall - uSize*0.35, mod(p.z - uCam.z + cos(uSway*0.5 + p.x)*uSwayAmp, uSize) - uSize*0.5) + uCam;
   vec4 mv = viewMatrix * vec4(w, 1.0);
   gl_PointSize = min(uPx * 3.0 / -mv.z, uMaxPx);
   gl_Position = projectionMatrix * mv;
 }`;
-// snowflake: use the texture if there is one (a style pack can supply a snowflake image), otherwise draw a round dot
-export const snowFrag = `uniform float uOpacity; uniform vec3 uColor; uniform sampler2D uMap; uniform float uUseMap;
+// sprite alpha by shape (d = offset from the sprite center, |d| <= 0.5); a texture, when there is one, replaces the shape
+export const SHAPES = { round: 'step(dot(d,d), 0.25)', soft: '1.0 - smoothstep(0.0, 0.25, dot(d,d))', square: '1.0' };
+export const pointFrag = (shape = 'round') => `uniform float uOpacity; uniform vec3 uColor; uniform sampler2D uMap; uniform float uUseMap;
 void main(){
   vec2 d = gl_PointCoord - 0.5;
-  vec4 c = uUseMap > 0.5 ? texture2D(uMap, gl_PointCoord) : vec4(1.0, 1.0, 1.0, step(dot(d,d), 0.25));
+  vec4 c = uUseMap > 0.5 ? texture2D(uMap, gl_PointCoord) : vec4(1.0, 1.0, 1.0, ${SHAPES[shape]});
   if (c.a < 0.05) discard;
   gl_FragColor = vec4(uColor * c.rgb, uOpacity * c.a);
   #include <tonemapping_fragment>
@@ -43,5 +45,5 @@ void main(){
 
 /** Particle shader material (transparent, no depth write) */
 export const shaderMat = (vertexShader, fragmentShader, uniforms) => new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent: true, depthWrite: false });
-/** Initial rain/snow particle positions: presentation only, no effect on gameplay */
+/** Initial particle positions: presentation only, no effect on gameplay */
 export const scatter = (n, size) => { const a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = Math.random() * size; return a; };   // presentation

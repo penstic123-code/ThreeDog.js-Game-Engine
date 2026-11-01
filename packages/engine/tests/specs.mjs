@@ -46,9 +46,11 @@ import { specs as specsGrid } from './specs/grid.mjs';
 import { specs as specsRigidTrees } from './specs/rigid-trees.mjs';
 import { specs as specsTriggersGrid } from './specs/triggers-grid.mjs';
 import { specs as specsSkip } from './specs/skip.mjs';
+import { specs as specsInspectScene } from './specs/inspect-scene.mjs';
 import { specs as specsSession } from './specs/session.mjs';
 import { specs as specsTemplates } from './specs/templates.mjs';
 import { specs as specsSingleSource } from './specs/single-source.mjs';
+import { specs as specsThings } from './specs/things.mjs';
 import { specs as specsSaveFormat } from './specs/save-format.mjs';
 import { specs as specsGameplayGuards } from './specs/gameplay-guards.mjs';
 import { specs as specsBatching } from './specs/batching.mjs';
@@ -66,8 +68,13 @@ import { specs as specsPerfMeasure } from './specs/perf-measure.mjs';
 import { specs as specsEnvironment } from './specs/environment.mjs';
 import { specs as specsAppearance } from './specs/appearance.mjs';
 import { specs as specsTerrainLook } from './specs/terrain-look.mjs';
+import { specs as specsAppearanceEnv } from './specs/appearance-env.mjs';
+import { specs as specsTerrainShape } from './specs/terrain-shape.mjs';
+import { specs as specsIslandSnowBackdrop } from './specs/island-snow-backdrop.mjs';
+import { specs as specsAppearanceWater } from './specs/appearance-water.mjs';
 import { specs as specsStyletest } from './specs/styletest.mjs';
 import { specs as specsSurface } from './specs/surface.mjs';
+import { specs as specsCascades } from './specs/cascades.mjs';
 
 
 export const specs = [
@@ -334,5 +341,5 @@ export const specs = [
       check('按 W 沿相机前方移动', moved !== null && moved > 0.9, String(moved));
     },
   })),
-  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards, ...specsAction, ...specsCoreModules, ...specsProperties, ...specsPerfMeasure, ...specsEnvironment, ...specsAppearance, ...specsTerrainLook, ...specsPostFuse, ...specsStyletest, ...specsRigidTrees, ...specsTriggersGrid, ...specsSurface,
+  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards, ...specsAction, ...specsCoreModules, ...specsProperties, ...specsPerfMeasure, ...specsEnvironment, ...specsAppearance, ...specsTerrainLook, ...specsPostFuse, ...specsStyletest, ...specsRigidTrees, ...specsTriggersGrid, ...specsSurface, ...specsAppearanceEnv, ...specsInspectScene, ...specsThings, ...specsTerrainShape, ...specsIslandSnowBackdrop, ...specsAppearanceWater, ...specsCascades,
 ];

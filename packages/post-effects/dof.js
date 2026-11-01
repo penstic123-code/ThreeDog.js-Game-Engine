@@ -1,4 +1,6 @@
 // Depth of field: blur by distance from a focus plane, read from the scene depth texture (hdr slot, needsDepth).
+// It swaps buffers like any pass, but copies the scene depth into its output target (gl_FragDepth, same fullscreen draw, no extra pass or target),
+// so a later depth reader such as outline still finds the scene's depth in the buffer it reads; keepsDepth tells the chain check so.
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 /** @import { PostEffect } from 'threedog' */
@@ -7,6 +9,7 @@ class DofPass extends Pass {
   constructor(camera) {
     super();
     this.camera = camera;
+    this.keepsDepth = true;
     this.material = new THREE.ShaderMaterial({
       uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 },
         uFocus: { value: 10 }, uRange: { value: 2 }, uFalloff: { value: 20 }, uMaxBlur: { value: 6 } },
@@ -17,6 +20,7 @@ class DofPass extends Pass {
         float lin(vec2 uv){ float z = texture2D(tDepth, uv).x * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
         float coc(float d){ return clamp((abs(d - uFocus) - uRange) / uFalloff, 0.0, 1.0) * uMaxBlur; }
         void main(){
+          gl_FragDepth = texture2D(tDepth, vUv).x;
           float r = coc(lin(vUv));
           if (r < 0.5) { gl_FragColor = texture2D(tDiffuse, vUv); return; }
           vec3 sum = texture2D(tDiffuse, vUv).rgb; float w = 1.0;
@@ -30,6 +34,8 @@ class DofPass extends Pass {
           gl_FragColor = vec4(sum / w, 1.0);
         }`,
     });
+    // the depth test always passes; depth writes are on only to store gl_FragDepth
+    this.material.depthTest = true; this.material.depthWrite = true; this.material.depthFunc = THREE.AlwaysDepth;
     this.quad = new FullScreenQuad(this.material);
   }
   render(renderer, writeBuffer, readBuffer) {
@@ -45,8 +51,8 @@ class DofPass extends Pass {
 
 /**
  * Depth of field (hdr slot, costly): everything farther from `focus` than `range` blurs, up to `maxBlur` pixels over `falloff` meters.
- * It reads scene depth, so it must run before any pass that swaps buffers, and so cannot be on together with another depth reader
- * such as the lowpoly outline (the chain throws and says which one to move). Move the focus per frame with
+ * It reads scene depth, so it must run before any pass that swaps buffers; it passes the scene depth on in its output, so a depth reader
+ * after it (outline, whose default order is later) works: both can be on, lines drawn over the blurred image. Move the focus per frame with
  * engine.post.get('dof').set({ focus: distanceToTarget }).
  * @example post: [dof({ enabled: true, focus: 8, range: 3, maxBlur: 5 })]
  * @param {{ focus?: number, range?: number, falloff?: number, maxBlur?: number, enabled?: boolean, order?: number }} [o]

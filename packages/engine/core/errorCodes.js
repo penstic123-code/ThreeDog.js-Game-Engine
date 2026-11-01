@@ -144,6 +144,22 @@ export const ERROR_CODES = {
   'open-world-camera': {
     docs: ['recipes/21-camera.md', 'api/openWorld.md'],
     fix: "openWorld() installs no camera on its own: pass camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | a camera module | false." },
+  'thing-id': {
+    docs: ['recipes/41-thing-registry.md'],
+    fix: "Ids given to engine.add(obj, { id }) are non-empty strings without '#', unique across engine.add objects and world records. " +
+      'engine.thing(id) takes such an id, a world record id, an object name or an Object3D; the message suggests the closest id.' },
+  'thing-owned': {
+    docs: ['recipes/41-thing-registry.md', 'recipes/18-world.md'],
+    fix: "Two systems manage one object: a world model is placed by world every frame. Change the record (ops.run('thing.set', { id, " +
+      "position }), world.set / world.move) instead of the model, and never engine.add a model world built." },
+  'thing-unsaved': {
+    docs: ['recipes/41-thing-registry.md'],
+    fix: 'An object you expect to keep cannot be saved: it has no stable id or was added during play. Give it an id at setup ' +
+      "(engine.add(obj, { id })), or make it a template and create it inside an op with engine.spawn(name, at)." },
+  'thing-orphan': {
+    docs: ['recipes/41-thing-registry.md'],
+    fix: "The 'scene' save part names an id no engine.add object has: the code that added it changed its id or no longer runs. " +
+      'The data is kept in the save; restore the id, or ignore it if the object was deleted on purpose.' },
   'engine-misuse': {
     docs: ['api/engine.md'],
     fix: 'An engine call got an argument it cannot use; the message names the call and the accepted forms.' },

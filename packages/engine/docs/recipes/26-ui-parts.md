@@ -133,3 +133,6 @@ Check what is in use: `engine.ui.describe()` → `{ loading: 'default', toast: '
 - A menu, vehicle or build mode that takes over keys pushes an input context: `const h = engine.input.push('menu')` (opaque) or
   `push('vehicle', { pass: true })`, then `h.remove()`. Tests and the dev bridge press keys with `engine.input.simulate(action, down)`.
 - A label over a world position: `worldToScreen(engine, pos)` gives screen coordinates for an HTML element.
+
+
+Bind a counter to an item count (coins): `engine.onFrame(() => engine.hud.counter('coins', { icon: '🪙', label: 'Coins', value: engine.inventory.count('coin') }));`. Same id = update, unchanged value touches no DOM, and a loaded save follows automatically (recipe 22 section 4).

@@ -21,6 +21,10 @@ Water surface (water() module)
   - `shininess?: number`
   - `specular?: ColorLike`
   - `material?: import('./style').StyleWater['material']` Replace the whole surface material, same as style.water.material
+  - `depthColor?: import('./style').StyleWater['depthColor']`
+  - `foam?: import('./style').StyleWater['foam']`
+  - `glsl?: import('./style').StyleWater['glsl']`
+  - `uniforms?: import('./style').StyleWater['uniforms']`
 
 ## Methods and properties
 - Properties:

@@ -37,8 +37,10 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
 
 1. **Materials use `makeMaterial('role', { color, ... })`**, not `new MeshLambertMaterial` directly. It returns a real three material (the type is
    decided by the style pack); afterwards change `.map`, `.transparent` as usual.
-2. **Adding to the scene**: `engine.add(obj)` and `engine.scene.add(obj)` do the same thing; the former returns obj so it fits on one line. To attach
-   to a character use `player.object.add(hat)`.
+2. **Adding to the scene**: `engine.add(obj)` returns obj so it fits on one line. `engine.scene.add(obj)` is plain three.js that the engine does not
+   track, and is just as legal. Plain three.js and templates (`engine.spawn`, content props) are two doors into one scene (`recipes/40-scene.md`).
+   `engine.add(obj, { id })` registers the object under a stable id so `engine.thing(id)` can say what it is and what a save keeps. To
+   attach to a character use `player.object.add(hat)`.
 3. **Per-frame logic goes in `engine.onFrame(dt => ...)`** (movement and timing use `engine.onFixed`); it returns a handle, cancel with `h.remove()`.
    Never call `requestAnimationFrame` or `renderer.render` yourself: the engine owns pausing, fast-forward in tests, post-processing and ordering.
 4. **Snap to ground**: get ground height with `engine.surface(x, z)`, or `engine.snapToGround(obj, heightAboveGround)`. Don't raycast the terrain.
@@ -63,6 +65,7 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    are spread over frames and the start does not stall.
 
 ## Example: a spinning windmill (plain three.js + engine conventions)
+This is the plain three.js door. The same windmill as a template with an id, saved and editable without code, is in `recipes/40-scene.md` §1.
 
 ```js
 import { THREE, makeMaterial } from 'threedog';

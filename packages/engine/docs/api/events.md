@@ -26,6 +26,7 @@
 - `season:change` [season: string] Season changed (the argument is the season name, e.g. 'autumn')
 - `time:skip` [{ seconds: number }] engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran
 - `weather:lightning` [] Lightning strike (weather module)
+- `weather:change` [change: { from: string; to: string }] engine.weather.set switched to another weather name (once, when the blend starts; setting the same name again does not fire)
 - `camera:shot` [CameraShotEvent] The fixed-shot camera switched shots
 - `camera:change` [{ kind: string; previous: string }] engine.setCamera switched the camera kind; settings that belong to the camera (sensitivity, invert Y, field of view) are re-applied on it
 - `character:jump` [{ character: Character }] A character jumped
@@ -57,6 +58,7 @@
 - `entity:state` [EntityStateEvent] A state value of an entity changed
 - `entity:stage` [EntityStageEvent] An entity entered a new growth stage
 - `ground:change` [{ x0: number; z0: number; x1: number; z1: number }] The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale
+- `terrain:void` [{ who: any; position: { x: number; y: number; z: number } }] terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides
 - `vegetation:remove` [VegetationRemoveEvent] A vegetation instance was chopped / removed
 - `vegetation:restore` [VegetationRemoveEvent] A vegetation instance was restored
 - `music:change` [MusicChangeEvent] Background music changed track (null means silence)

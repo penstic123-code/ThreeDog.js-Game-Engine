@@ -218,7 +218,7 @@ export class Triggers {
       if (!this._debugGroup) { this._debugGroup = new THREE.Group(); this._debugGroup.name = 'triggers-debug'; }
       const st = this.engine.style.triggers || {};
       this._mat ??= new THREE.LineBasicMaterial({ color: st.debugColor ?? 0x9a9a9a, transparent: true, opacity: st.debugOpacity ?? 0.8, depthTest: false });
-      this.engine.add(this._debugGroup);
+      this.engine.add(this._debugGroup, { owner: 'engine:triggers' });
       for (const t of this._list) if (!t._mesh) this._addDebugMesh(t);
     } else if (this._debugGroup) {
       for (const t of this._list) if (t._mesh) { t._mesh.geometry.dispose(); t._mesh = null; }

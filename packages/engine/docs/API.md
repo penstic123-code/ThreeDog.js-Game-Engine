@@ -1,6 +1,6 @@
 # Engine API index (generated, do not edit by hand; produced by npm run map)
 
-> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style-pack · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-style-from-reference · 36-sky-ground-plant-looks · 37-terrain-look-hooks · 43-shader-patches-surface-looks
+> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style-pack · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-style-from-reference · 36-sky-ground-plant-looks · 37-terrain-look-hooks · 38-environment-look-hooks · 40-scene · 41-thing-registry · 42-terrain-shape · 43-shader-patches-surface-looks · 44-water-weather-look-hooks · 45-cascaded-shadows · 46-blender-art-route · 47-island-snow-backdrop
 > The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types are in `types/*.d.ts`.
 > With no matching recipe: read this page first: the core everyday API + one line per core object / module (listing method names). For the one you need, **read only that page** `api/<name>.md` (methods, parameters, properties and data structures are all in it).
 > Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from 'threedog'` (the engine package's own examples use relative paths); a module that is not installed is undefined, so use `engine.xxx?.method()`.
@@ -15,7 +15,7 @@
 - `engine.applyState(params: StateParams) → Promise<void>` — Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes
 - `engine.onFixed(fn: (dt: number) => void) → Handle` — Fixed-step logic (60 times per second, dt in fixed seconds): movement, physics, cooldowns, and game…
 - `engine.onFrame(fn: (dt: number) => void) → Handle` — Once per frame (dt in frame seconds): animation, camera, UI and UI keys…
-- `engine.add(obj: T, ...more: Object3D[]) → T` — Add an object to the scene, returns the first one
+- `engine.add(obj: T, ...more: (Object3D | { id?, save? })[]) → T` — Add objects to the scene and register them (engine.thing), returns the first one
 - `engine.remove(...objs: Object3D[])` — Fully delete an object (use it when you no longer want the object): removes it from its parent, unr…
 - `engine.surface(x: number, z: number, refY?: number) → number` — Ground height (meters) at (x, z)
 - `engine.snapToGround(obj: T, offset?: number) → T` — Put an object on the ground under it (y = ground height + offset) and return the object
@@ -43,13 +43,13 @@
 - [`engine.stream`](api/stream.md) engine.stream builds on demand by space: only entries n…: add setRadius source teleport readyCheck sources
 - [`engine.budget`](api/budget.md) performance budget (turned on by createEngine: enable disable metric limitOf report checkStartup values byTag
 - [`engine.post`](api/post.md) PostFX: add get enable list
-- [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type forEachCollider viewRange chunkCollision staticTrimeshes staticVersion navGeometry
+- [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type has voidY forEachCollider viewRange chunkCollision staticTrimeshes staticVersion navGeometry
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
 - [`engine.terrain`](api/terrain.md) terrain() Procedural terrain: setViewChunks setDensity rebuild edit isReadyAround
 - [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: rebuild setShadowRing add get list isRemoved removeInstance restoreInstance instanceAt
 - [`engine.sky`](api/sky.md) sky() Sky, day/night, calendar: modify at between daily onSeason setShadow setShadowMapSize setEnvironment
-- [`engine.weather`](api/weather.md) weather() Weather: setAuto set label
+- [`engine.weather`](api/weather.md) weather() Weather: define setAuto set label
 - [`engine.water`](api/water.md) water() Water surface
 - [`engine.world`](api/world.md)  World data: add origin idOf get set move remove query forEachNear present view refresh …
 - [`engine.net`](api/net.md)  net: reconnect
@@ -75,7 +75,7 @@
 - [`engine.nav`](api/nav.md) nav() Navmesh: findPath dispose
 - [`engine.hlod`](api/hlod.md) hlod() hlod: add
 - [`engine.lightPool`](api/lightPool.md) lightPool() Light pool: add usage
-- [`engine.content`](api/content.md) content() Content loading: load condition test run place where template spawn
+- [`engine.content`](api/content.md) content() Content loading: load condition test run place where template
 - [`engine.flow`](api/flow.md) flow() Game flow and scene transitions: define go transition
 - [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter bar remove
 

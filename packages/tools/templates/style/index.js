@@ -14,7 +14,7 @@ export default {
   toneMapping: 'neutral',        // 'aces' | 'agx' | 'neutral' | 'none'
   background: 0xc8d0d8,
 
-  // Post effects in render order; empty = none. Borrow some: import { bloom, outline } from '@threedog/style-lowpoly'
+  // Post effects in render order; empty = none. Borrow some: import { bloom, outline } from '@threedog/post-effects'
   post: [],
 
   // Material per role (default, terrain, vegetation, character, water, pickup, prop). type: 'lambert' | 'phong' | 'standard' | 'toon' | 'basic'

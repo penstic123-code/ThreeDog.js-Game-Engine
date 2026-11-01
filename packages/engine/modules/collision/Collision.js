@@ -111,7 +111,8 @@ export class Collision {
   /** @internal Ground shape half of walkableAt (water, slope): a smooth field, so async pathfinding samples it on a raster; colliders are tested exactly there */
   groundWalkable(x, z) {
     const e = this.engine;
-    return !(e.surface(x, z) < e.waterAt(x, z) + this.walkableWaterMargin || e.slope(x, z) > this.maxClimb * 0.8);
+    // the void of terrain({ shape }): -Infinity is not below a water level of -Infinity, so it must be asked directly
+    return e.ground.has(x, z) && !(e.surface(x, z) < e.waterAt(x, z) + this.walkableWaterMargin || e.slope(x, z) > this.maxClimb * 0.8);
   }
   /** Does one of the ground's own colliders (terrain trees) block this spot */
   _groundBlocks(x, z, radius) {

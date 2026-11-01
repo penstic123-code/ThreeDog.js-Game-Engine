@@ -40,6 +40,15 @@ export const EXTRA_TOOLS = {
     schema: { type: 'object', properties: {}, required: [] },
     args: () => [],
   },
+  scene: {
+    description: 'The mesh exists but is not drawn: use this first. Lists every Mesh / Points / Line / Sprite in the scene (name, type, world position, bounding radius, ' +
+      'material type and purpose, visible, drawn) and for each undrawn one every reason found, most likely first (visible = false on it or a parent, layers vs ' +
+      'camera, material flags, scale 0 / NaN, NaN position or vertices, empty geometry, behind the camera, beyond camera.far, outside the view, fully fogged, ' +
+      'depth / color write off). Checks what three.js would do; it cannot see shader output or something drawn over the object.',
+    schema: { type: 'object', properties: { hidden: { type: 'boolean', description: 'List only the objects that are not drawn' },
+      limit: { type: 'number', description: 'How many objects to list (default 40; counts always cover everything)' } }, required: [] },
+    args: a => [...(a.hidden ? ['--hidden'] : []), ...(a.limit ? ['--limit', String(a.limit)] : [])],
+  },
   verify: {
     description: 'Run a scenario file (tests/scenarios/<name>.json) and report pass or fail plus what it tested and what it never touched (ops never run, describe ' +
       'sections never compared, steps skipped after a failure), the tests related to an error code, and the command to re-run it. A page error during the run fails it.',

@@ -14,8 +14,11 @@
 //   and uv (world xz / chunk size, continuous across chunks). Cloud shadows and season tint are added to it.
 // Edits: engine.terrain.edit(pos, { radius: 2, lower: 1 }) digs; { paint: 'tilled' } paints a ground type (its color: style.terrain.biomeColors). Saved, see terrainEdit.js.
 
-/** Read a grayscale image into a 0-1 height array */
-async function loadHeightmap(url) {
+// Outline: terrain({ shape: { mask: (x, z, n) => 40 - Math.hypot(x, z), side: { depth: 2 } } }) keeps ground only where mask > 0 (an island
+//   with cliff sides); off it engine.surface is -Infinity, engine.ground.has false, and a fall emits terrain:void. See recipes/42-terrain-shape.md.
+
+/** Read a grayscale image into a 0-1 array (height map, outline mask) */
+async function loadGray(url) {
   const img = new Image(); img.src = url; await img.decode();
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
   const g = c.getContext('2d'); g.drawImage(img, 0, 0);
@@ -28,6 +31,7 @@ import { DEFAULT_TERRAIN } from './terrainGen.js';
 import { checkOptions } from '../../core/validate.js';
 import { compilePure } from '../../core/threadPure.js';
 import { warnOnce } from '../../core/validate.js';
+import { prepareShape, voidWatcher } from './terrainShapeMain.js';
 
 const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a look). '
   + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/terrain-noise';
@@ -36,7 +40,7 @@ export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
 export function terrain(opts = {}) {
   const { viewChunks = 4, density = 1, material, viewFog = false, ...cfg } = opts;
-  let w = null;
+  let w = null, watchVoid = null;
   return {
     name: 'terrain', label: 'Terrain', optional: ['vegetation'], stage: 'world',
     install(e) {
@@ -58,20 +62,25 @@ export function terrain(opts = {}) {
         terrainCfg.variation = style.variation;
       }
       if (!terrainCfg.height && !terrainCfg.heightmap) warnOnce(NO_HEIGHT);
+      const sideMat = terrainCfg.shape ? prepareShape(terrainCfg) : null;
       w = new ChunkManager(e, terrainCfg, material ?? style.material);
+      if (sideMat) w.sideMat = typeof sideMat === 'function' ? sideMat(e) : sideMat;
+      if (terrainCfg.shape) watchVoid = voidWatcher(e, w);
       w.density = density;
       w.viewFog = viewFog;   // opt-in: the fog ends where the chunks end (hides the edge); otherwise createEngine({ fogFar }) / the game's fog stays
       this._cfg = terrainCfg;
       e.setGround({
         height: (x, z) => w.T.surface(x, z),
         slope: (x, z) => w.T.slope(x, z),
-        type: (x, z) => w.T.biomeAt(x, z, w.T.surface(x, z), w.T.slope(x, z)),
+        type: (x, z) => w.T.biomeAt(x, z, w.T.surface(x, z), w.T.slope(x, z)),   // 'void' outside terrain({ shape })
         waterLevel: w.T.waterLevel,
         // public collision API: the collision and physics modules read terrain only through these, never chunk internals
         forEachCollider: (x, z, range, fn) => w.forEachCollider(x, z, range, fn),
         chunkSize: w.T.CHUNK,
         viewRange: () => w.viewChunks * w.T.CHUNK,   // stream entries build within the terrain view by default
         chunkCollision: (cx, cz) => w.chunkCollision(cx, cz),
+        has: (x, z) => w.T.has(x, z),
+        voidY: () => w.voidY,   // the physics module reports its own bodies falling below it (terrain:void)
       });
       w.setViewChunks(viewChunks);
       // a source is ready when the ring around it is generated, and for a physics source its collision has taken effect (chunkCollision non-null)
@@ -81,14 +90,17 @@ export function terrain(opts = {}) {
       return w;
     },
     frame(dt, e) { w.update(e.stream.sources(), e.camera); },   // chunks load around every engine.stream source
+    fixed() { watchVoid?.(); },   // terrain({ shape }) only: falls below voidY are gameplay, so they are seen on the fixed step
     describe(e, ctx) { ctx.out.perf.chunks = { loaded: w.stats.loaded ?? 0, visible: w.stats.visible ?? 0, queued: w.stats.queued }; },
-    // height map waits for the image: after it loads, rebuild terrain with the new config (both the main-thread copy and the workers)
+    // height map / mask image wait for the image: after it loads, rebuild terrain with the new config (both the main-thread copy and the workers)
     critical: true,   // a missing height map would start the game on flat ground: stop start() with the reason instead
     async init(e) {
-      const hm = this._cfg.heightmap;
-      if (!hm?.url || hm.data) return;
-      const img = await loadHeightmap(hm.url);
-      const cfg2 = { ...this._cfg, heightmap: { ...hm, ...img, url: undefined } };
+      const hm = this._cfg.heightmap, mk = this._cfg.shape?.mask;
+      const needH = hm?.url && !hm.data, needM = mk?.url && !mk.data;
+      if (!needH && !needM) return;
+      const cfg2 = { ...this._cfg };
+      if (needH) cfg2.heightmap = { ...hm, ...await loadGray(hm.url), url: undefined };
+      if (needM) cfg2.shape = { ...cfg2.shape, mask: { ...mk, ...await loadGray(mk.url), url: undefined } };
       const species = {}; for (const sp of e.vegetation?.list() || []) species[sp.name] = sp.rule;
       w.reinit(cfg2, species);
     },

@@ -13,6 +13,7 @@ Weather (weather() module, needs sky)
   - `area?: number` Rain / snow coverage (meters)
 
 ## Methods and properties
+- `weather.define(field: string, spec?: import("../../../style").StyleWeath…) → { field, object, uniforms }` — Draw particles for a field of this game's weather table (its amount is weather.current[field], so they fade with the weather). spec takes the keys of style.weather.rain (shape, color, size, speed, sway, density, glsl...) or create(engine, { area, count }) => { object, update } for a system of your own. The same field again replaces it, rain and snow included. See recipes/44-water-weather-look-hooks.md. Example: `engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });   // types: { ashfall: { ash: 1, grey: 0.5 } }`
 - `weather.setAuto(on: boolean)` — Automatic weather on/off
 - `weather.set(name: WeatherName, seconds?: number)` — Switch weather. seconds: transition seconds, default 15
 - `weather.label(name?: string) → string` — Display name of a weather (string table weather.<name>, falls back to the name itself); defaults to the current weather
@@ -24,4 +25,5 @@ Weather (weather() module, needs sky)
   - `autoPool: string[]` Candidates for automatic weather (repeat a name to make it likelier)
   - `autoInterval: number[]` Automatic weather interval [min, max] seconds
   - `autoTransition: number` Transition seconds for automatic weather
-  - `particles: number` Rain/snow particle count
+  - `particles: number` Default particle count per system (halved on low-tier devices)
+  - `systems: Map<string, any>` Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus define())

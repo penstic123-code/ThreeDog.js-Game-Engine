@@ -34,6 +34,8 @@ export const specs = [{
   test waits for the engine until timeout (the error explains why).
 - New game: `npm run new-game name`, see `recipes/01-new-game.md`.
 
+> Git Bash (MSYS) rewrites arguments that start with `/` (`/styletest.html` turns into a Windows path). Write `shot styletest`, or set `MSYS_NO_PATHCONV=1`, or use PowerShell.
+
 ## Command table
 | Command | When to use |
 |---|---|
@@ -59,7 +61,9 @@ export const specs = [{
 | `npm run doctor` | Check the environment, one line per item: ✓ passed · ✗ problem -> fix · – info only; `-- --ci` does not fail the command on problems. Checks Node version, node_modules, workspace links, package-lock consistency, `.threedog` writable, port 5173, the dev server recorded in `.threedog/dev.json`, Playwright chromium, headless WebGL2, `EXT_disjoint_timer_query_webgl2` (software rendering normally lacks it; info only). Run it first when the environment acts strange |
 | `npm run new-style name` | New style pack from a clean template (gray neutral materials, sky, one palette, empty post, one palette-colored example model): `packages/styles/<name>`, package `@threedog/style-<name>`, workspace link and lock updated, then `style check`, `map` and `check` run. Lowercase letters, digits and hyphens only |
 | `threedog style check [pack\|folder\|file] [--json] [--assets file]` | Check the final merged style: unknown fields (did-you-mean), world-state fields, palette keys read but not defined, color formats, post-effect conflicts, misspelled material roles / types, asset names the pack does not register; plus R34 for that pack. Exit 1 on errors. Static: it cannot prove a pack has no gameplay logic. See `recipes/35-style-from-reference.md` |
-| `threedog style palette <image> [--n 8]` | Dominant colors of a reference picture (JSON: share, hue, saturation, brightness, role hints base / highlight / accent / shadow) and a one-line summary; reads pixels in headless Chromium, no new dependency. A measurement, not a design decision |
+| `threedog style palette <image> [--n 8] [--average] [--region x,y,w,h] [--ignore-ui] [--crop out.png]` | Dominant colors of a reference picture and a one-line summary (headless Chromium reads the pixels). `--average` adds the mean color (HSL); `--region` measures one rectangle; `--ignore-ui` cuts a flat frame around the picture (edge row / column one flat color, frame 3% to 45% of the picture; a plain sky at the edge looks the same, so check with `--crop out.png`, which saves the measured area). The output says what was measured. A measurement, not a design decision |
+| `threedog style compare <reference> <screenshot> [--region x,y,w,h] [--ref-region ..] [--shot-region ..] [--json]` | Differences as numbers: brightness, saturation, contrast (std of luma), fine detail (variance of the Laplacian of luma; read as a ratio), average and main color (hue / saturation / lightness), plus one neutral sentence ("18% darker, 2.3x more broken up"). Both pictures are scaled to one size and the note says so. **An aid to judging, not a replacement for looking; no number is a quality score and there is no "similarity %".** recipes/35 |
+| `threedog scene [--hidden] [--limit N] [--json]` | **The mesh exists but is not drawn: use this first** (needs the running game). Lists every Mesh / Points / Line / Sprite and for each undrawn one every reason, most likely first: `visible = false` on it or a parent, layers vs camera, material flags, scale 0 / NaN, NaN position or vertices, empty geometry, behind the camera, beyond `camera.far`, outside the view. "maybe" reasons (depthWrite off, fully fogged...) do not stop drawing. `--hidden` = only undrawn; default limit 40. Code: `engine.inspect.scene()`; MCP tool `scene`. Cannot see shader output |
 | `npm run build` | Bundle each workspace into its own dist/ |
 
 ## Reproducing a scenario and debugging
@@ -82,7 +86,7 @@ export const specs = [{
 - `index.js index.d.ts types/` entry and API declarations (`types/generated/` is generated from source JSDoc, never edited by hand).
 - `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly package: `index.js` holds the style pack (all
   look parameters) and exports the asset pack `assets`, `models.js` the procedural models in it, `shapes.js` the default humanoid and pickup shapes,
-  `post.js` the bloom / outline / ao effects. The terrain preset `terrainPreset()` is a separate package, `packages/terrain-noise/` (`@threedog/terrain-noise`).
+  The bloom / outline / ao effects are in `packages/post-effects/` (`@threedog/post-effects`). The terrain preset `terrainPreset()` is a separate package, `packages/terrain-noise/` (`@threedog/terrain-noise`).
 - `examples/world/` is the engine example (open world `/`, content-only placement). The small city (level, no terrain, no style pack, top-down) and
   the co-op page are test pages in the engine repository (`tests/city/`, `tests/coop/`), opened at `/tests/city/index.html` and `/tests/coop/index.html`.
 - `tests/` specs.mjs + specs/ test list, `<name>/index.html` test pages, fixtures/ test assets. `public/` art for the examples.

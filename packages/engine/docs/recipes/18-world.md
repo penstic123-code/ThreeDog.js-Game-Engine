@@ -102,6 +102,12 @@ source line (`engine.world.origin(id).definedAt` in dev builds) and a new game s
 Gameplay randomness (drops, lightning, wander turns) still uses `engine.random` (saved; after loading it continues the same sequence). Records
 generated at runtime (planted by the player, spawned) are saved whole; `add(def, { save: false })` is not saved (temporary things). The rules are
 described at the top of `modules/world/persist.js`.
+World models are in the thing registry too (`engine.thing(id)` answers with the record, saved `'record'`): do not move them from code. Change the
+record (`ops.run('thing.set', { id, position })`, `world.set` / `world.move`); dev reports code that moves a `positionFrom: 'record'` model, and
+`engine.add` of a model throws (recipe 41).
+
+A world record's model belongs to the scene too (`40-scene.md`; `engine.thing(id)` shows it, recipe 41). Do not move that model from code: the record owns its <!-- r18-ignore-line -->
+position, so change the record (`world.set`, `world.move`) and the model follows.
 
 ## 5. Example: something that wanders
 For enemies that chase the player / wandering NPCs there is the ready-made `engine.npcs.behavior(name, { near, far })` + `engine.npcs.avoid` (mutual

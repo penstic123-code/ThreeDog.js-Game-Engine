@@ -2,6 +2,7 @@
 // a path moves any object (a character, the camera) along a spline. Each function takes the Timeline as `t`.
 import * as THREE from 'three';
 import { vec3 as v3 } from '../../core/math.js';
+import { surfaceOr } from '../../core/ground.js';
 
 /** Camera: { from?, to: { position, lookAt }, duration, ease, fov } or { release: true } */
 export function cameraStep(t, c, run) {
@@ -64,7 +65,7 @@ export function pathStep(t, p, run) {
     duration: p.duration ?? 2, ease: p.ease ?? 'inOutSine',
     step: k => {
       curve.getPointAt(Math.min(1, Math.max(0, k)), pos);
-      if (p.ground) pos.y = e.surface(pos.x, pos.z) + (typeof p.ground === 'number' ? p.ground : 0);
+      if (p.ground) pos.y = surfaceOr(e, pos.x, pos.z, undefined, pos.y) + (typeof p.ground === 'number' ? p.ground : 0);
       obj.position.copy(pos);
       if (p.lookAhead) {
         const k2 = Math.min(1, k + p.lookAhead);

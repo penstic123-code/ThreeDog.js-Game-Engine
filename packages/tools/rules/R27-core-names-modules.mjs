@@ -10,6 +10,9 @@ import { walk, lines, codeOnly, P } from './_lib.mjs';
 const ALLOW = [
   ['actor.js', 'world', 'world is the record store: an actor id is a world record, and actorPosition falls back to it'],
   ['Inspect.js', 'world', 'inspect / explain look up actor ids in the record store'],
+  ['thingOps.js', 'world', 'engine.thing / thing.set / thing.remove share one id space with world records: a record id is answered and changed by world'],
+  ['things.js', 'world', 'claimId keeps one id space across engine.add objects and world records, checked from both doors'],
+  ['sceneMethods.js', 'world', 'engine.add refuses (dev) an object that is a world model: world places it every frame, two systems would manage it'],
   ['opsCheck.js', 'world', "ops args typed 'id' must name an existing world record"],
   ['skip.js', 'sky', 'engine.skip({ to: "06:00" }) reads the sky clock it skips to and its next clock mark'],
   ['skip.js', 'flow', 'a fading skip goes through flow.transition when flow is installed, so it queues with other transitions'],

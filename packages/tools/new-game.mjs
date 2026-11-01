@@ -48,7 +48,7 @@ if (!run('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-aud
 const steps = [[['map'], 'generate GAMEMAP.md'], [['check'], 'rule checks'], [['test', '-w', name], 'smoke test (starts, no console errors)']];
 for (const [args, label] of steps) {
   if (!run(process.execPath, [threedog, ...args], label)) {
-    console.error(`✗ "${label}" failed. The game is generated at ${rel(dir)}; fix it following the output above, or delete the directory (and restore package-lock.json) if you do not want it`);
+    console.error(`✗ "${label}" failed (see the errors printed just above, e.g. type errors or rule violations). The game files ARE generated at ${rel(dir)}. Next: fix the first error shown, then re-run \`npx threedog ${args.join(' ')}\`; or delete the directory (and restore package-lock.json) if you do not want it`);
     process.exit(1);
   }
 }

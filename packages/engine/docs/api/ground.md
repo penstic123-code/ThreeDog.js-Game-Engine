@@ -3,6 +3,8 @@
 - `ground.height(x: number, z: number, refY?: number) → number` — Ground height (meters) at (x, z). For multi-layer ground (bridges, caves) pass refY: takes the highest layer not above refY + one step (0.45 m); without it the highest layer is used. Single-layer ground ignores refY
 - `ground.slope(x: number, z: number) → number` — Slope at (x, z) (height difference / horizontal distance)
 - `ground.type(x: number, z: number) → string` — Ground type at (x, z) (landform name, e.g. 'meadow')
+- `ground.has(x: number, z: number) → boolean` — Is there ground at (x, z). Always true except off the outline of terrain({ shape }), where height is -Infinity and slope 0. Example: `if (engine.ground.has(x, z)) engine.snapToGround(chest);`
+- `ground.voidY() → number` — Height below which something has fallen out of the world (terrain:void): engine.terrain.voidY with terrain({ shape }), else -Infinity
 - `ground.forEachCollider(x: number, z: number, range: number, fn: (cx, cz, r) => void)` — Optional: iterate the circular colliders (tree trunks etc.) within range meters of (x, z)
 - `ground.viewRange() → number` — Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else fogFar)
 - `ground.chunkCollision(cx: number, cz: number) → any` — Optional: collision data of a chunk (used by the physics module)

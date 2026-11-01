@@ -65,6 +65,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - I18n.js: i18n: engine and modules hardcode no UI text; they fetch it…
 - Input.js: Input: read by "action", not by "key"
 - Inspect.js: engine.inspect / engine.explain: questions an AI asks while…
+- InspectScene.js: engine.inspect.scene(): "the mesh exists but I do not see i…
 - Jobs.js: engine.jobs: a frame-sliced job scheduler
 - Loading.js: engine.loading: one observable view of everything startup (…
 - Ops.js: One entry point for actions: engine.ops
@@ -124,6 +125,8 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - streamSources.js: Stream sources (internal half of engine.stream): the places…
 - styleParts.js: A style built from parts: createEngine({ style: [lowpoly, {…
 - targeting.js: Target selection: pure functions (no camera, input or engin…
+- thingOps.js: engine.thing and the two built-in ops on things (thing.set …
+- things.js: Object registry behind engine.thing: every root handed to e…
 - threadPure.js: Pure functions for workers: a function is sent as its sourc…
 - threadServe.js: Worker side of engine.threads lanes: serve(handler) answers…
 - tier.js: Device tier: Engine uses it at construction to pick default…
@@ -151,13 +154,13 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 - photo/ Photo mode: while taking the shot, temporarily raise resolution and shadow prec… — Photo.js
 - rigid/ Real physics (Rapier): objects that topple, roll, get pushed and float on water — RigidBodies.js, Vehicles.js, sync.js
 - settings/ Settings menu module entry — Settings.js, apply.js, index.js, sections.js, strings.js, view.js
-- sky/ Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional l… — Sky.js, calendar.js, clouds.js, environment.js, frame.js, layers.js, schedule.js, shader.js, shadow.js, skyModule.js
-- terrain/ Terrain module: chunked, streamed ground built from a height function (or a hei… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, index.js, mountTerrain.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainMesh.js, terrainTexture.js
+- sky/ Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional l… — Sky.js, calendar.js, cascades.js, clouds.js, domeLayers.js, environment.js, fog.js, frame.js, layers.js, look.js, schedule.js, shader.js, shadow.js, skyModule.js
+- terrain/ Terrain module: chunked, streamed ground built from a height function (or a hei… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, index.js, mountTerrain.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zone module: invisible regions in the world that notify you when the pl… — index.js
 - vegetation/ Vegetation module factory: engine.use(vegetation(...)) — Vegetation.js, groundChunks.js, index.js, modelGeometry.js
-- water/ Water module: draws the global water plane (sea, big lakes; snaps to a grid fol… — Water.js
-- weather/ Weather: the game's table of weather types (weather({ types })); without one on… — Weather.js, shaders.js
+- water/ Water module: draws the global water plane (sea, big lakes; snaps to a grid fol… — Water.js, surface.js
+- weather/ Weather: the game's table of weather types (weather({ types })); without one on… — Weather.js, particles.js, shaders.js
 - world/ world() module: installed as engine.world (world data, see World.js) — World.js, cells.js, index.js, persist.js, pos.js, records.js, sim.js, simFar.js, state.js, views.js
 
 **render/**
@@ -238,10 +241,11 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | save:written | core/Saves.js | — |
 | season:change | sky | sky |
 | session:end | core/session.js | core/skip.js, flow, gameplay, hud, music, timeline, triggers |
-| session:start | core/session.js | camera, flow |
+| session:start | core/session.js | core/things.js, camera, flow |
 | settings:change | settings | — |
 | settings:shadows | core/sceneMethods.js | terrain |
 | state:applied | core/UrlState.js | — |
+| terrain:void | rigid, terrain | — |
 | time:skip | core/skip.js | — |
 | timeline:end | timeline | — |
 | timeline:start | timeline | — |
@@ -255,6 +259,7 @@ Per-frame hook order: by stage (control → world → environment → gameplay �
 | vehicle:exit | characters | characters |
 | water:add | core/ground.js | water |
 | water:remove | core/ground.js | water |
+| weather:change | weather | — |
 | weather:lightning | weather | weather |
 | world:add | world | grid |
 | world:change | world | grid |

@@ -33,20 +33,10 @@ export class Sky {
         sway: number;
         distance: number;
     };
-    /**
-     * Current shadow params (change via setShadow) @readonly @type {{ bias: number, normalBias: number, updateEvery: number, snap: number | 'texel', ahead:
-     * number, type: string, radius: number, blurSamples: number }}
-     */
-    readonly shadow: {
-        bias: number;
-        normalBias: number;
-        updateEvery: number;
-        snap: number | "texel";
-        ahead: number;
-        type: string;
-        radius: number;
-        blurSamples: number;
-    };
+    /** Current shadow params (change via setShadow) @readonly @type {SkyShadowParams} */
+    readonly shadow: SkyShadowParams;
+    /** three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45) @type {any} */
+    csm: any;
     /** Hours per day @type {number} */
     hoursPerDay: number;
     /** Composite of all modifier layers (read-only; use modify to adjust brightness) @readonly @type {SkyModifiers} */
@@ -123,11 +113,11 @@ export class Sky {
      * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
      * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view;
      * type = 'basic' (hard edge) | 'pcf' | 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely);
-     * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only)
-     * @param {Pick<StyleShadow, 'bias' | 'normalBias' | 'updateEvery' | 'snap' | 'ahead' | 'type' | 'radius' | 'blurSamples'>} [opts]
+     * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only); cascades 2-4 = cascaded shadows, 1 = off (recipes/45)
+     * @param {Partial<SkyShadowParams>} [opts]
      * @returns {this}
      */
-    setShadow(opts?: Pick<StyleShadow, "bias" | "normalBias" | "updateEvery" | "snap" | "ahead" | "type" | "radius" | "blurSamples">): this;
+    setShadow(opts?: Partial<SkyShadowParams>): this;
     /**
      * Change shadow resolution (raise temporarily for photo mode)
      * @param {number} n  pixels
@@ -153,10 +143,10 @@ export class Sky {
     get environment(): SkyEnvironmentInfo | null;
 }
 import * as THREE from 'three';
+import type { SkyShadowParams } from '../../../style';
 import type { SkyModifiers } from '../../../world';
 import type { SkyLayer } from '../../../world';
 import type { SkyAtOptions } from '../../../world';
 import type { Handle } from '../../../common';
 import type { SkyBetweenOptions } from '../../../world';
-import type { StyleShadow } from '../../../style';
 import type { SkyEnvironmentInfo } from '../../../world';

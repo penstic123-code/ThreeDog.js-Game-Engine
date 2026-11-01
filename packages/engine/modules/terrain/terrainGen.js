@@ -6,6 +6,7 @@
 // Split: defaults in terrainDefaults.js; chunk meshes and vegetation placement in terrainMesh.js (neither depends on three.js).
 import { DEFAULT_TERRAIN } from './terrainDefaults.js';
 import { makeMesher } from './terrainMesh.js';
+import { makeShape, grayAt } from './terrainShape.js';
 import { makeNoise } from '../../core/scatter.js';
 import { compilePure } from '../../core/threadPure.js';
 export { DEFAULT_TERRAIN } from './terrainDefaults.js';
@@ -28,10 +29,7 @@ export function createTerrain(userCfg = {}) {
     const H = cfg.heightmap, [sx, sz] = H.size, [cx0, cz0] = H.center || [0, 0];
     const u = (x - cx0) / sx + 0.5, v = (z - cz0) / sz + 0.5;
     if (u < 0 || u > 1 || v < 0 || v > 1) return H.outside ?? (Number.isFinite(WATER) ? WATER - 5 : H.min ?? 0);   // outside the map: under the water, or the map's floor without water
-    const fx = u * (H.width - 1), fz = v * (H.height - 1), i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
-    const at = (a, b) => H.data[Math.min(H.height - 1, b) * H.width + Math.min(H.width - 1, a)];
-    const h = at(i, j) * (1 - tx) * (1 - tz) + at(i + 1, j) * tx * (1 - tz) + at(i, j + 1) * (1 - tx) * tz + at(i + 1, j + 1) * tx * tz;
-    return (H.min ?? 0) + h * ((H.max ?? 60) - (H.min ?? 0));
+    return (H.min ?? 0) + grayAt(H, u, v) * ((H.max ?? 60) - (H.min ?? 0));
   }
   // helpers handed to a game's own height / groundType function: it runs in a worker and cannot import or close over anything
   const NOISE = { fbm, noise: vnoise, hash: hash2, seed: SEED, waterLevel: WATER, params: cfg.params ?? {} };
@@ -71,12 +69,15 @@ export function createTerrain(userCfg = {}) {
     const i = Math.floor(x / CELL), j = Math.floor(z / CELL);
     return ET.has(key(i, j)) || EH.has(key(i, j)) || EH.has(key(i + 1, j)) || EH.has(key(i, j + 1)) || EH.has(key(i + 1, j + 1));
   }
+  // world outline (terrain({ shape })): only built when the game passes one, so the default ground runs none of it
+  const SHAPE = cfg.shape ? makeShape(cfg.shape, { CELL, NOISE, key, hash: hash2, fbm }) : null;
+  const gridRaw = SHAPE?.drop ? (i, j) => rawHeight(i * CELL, j * CELL) - SHAPE.drop(i, j) : (i, j) => rawHeight(i * CELL, j * CELL);
   const cache = new Map();
   function gridH(i, j) {
     const k = key(i, j);
     if (EH.size) { const e = EH.get(k); if (e !== undefined) return e; }
     let h = cache.get(k);
-    if (h === undefined) { if (cache.size > 400000) cache.clear(); h = rawHeight(i * CELL, j * CELL); cache.set(k, h); }
+    if (h === undefined) { if (cache.size > 400000) cache.clear(); h = gridRaw(i, j); cache.set(k, h); }
     return h;
   }
   // height exactly matching the low-poly triangles (characters and vegetation use it, so nothing floats)
@@ -142,6 +143,13 @@ export function createTerrain(userCfg = {}) {
     else { const k = 1 + (n - 0.5) * 2 * s; out[0] *= k; out[1] *= k; out[2] *= k; }
   }
 
-  const { buildChunk, place } = makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biomeAt, fbm, faceColor, paintColor, cellType, editedCell, diagOf, userNormal });
-  return { config: cfg, CHUNK, RES, CELL, waterLevel: WATER, surface, slope, biomeAt, fbm, noise: NOISE, buildChunk, place, gridH, setEdits, useEdits, key };
+  const { buildChunk, place } = makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biomeAt, fbm, faceColor, paintColor, cellType, editedCell, diagOf, userNormal, shape: SHAPE });
+  // the void: no height (-Infinity), no slope, ground type 'void'; the mesher above keeps the unmasked functions (rim colors, outside corners)
+  const has = SHAPE ? SHAPE.has : () => true;
+  const query = SHAPE ? {
+    surface: (x, z) => (has(x, z) ? surface(x, z) : -Infinity),
+    slope: (x, z) => (has(x, z) ? slope(x, z) : 0),
+    biomeAt: (x, z, h, sl) => (has(x, z) ? biomeAt(x, z, h, sl) : 'void'),
+  } : { surface, slope, biomeAt };
+  return { config: cfg, CHUNK, RES, CELL, waterLevel: WATER, ...query, has, shape: SHAPE, fbm, noise: NOISE, buildChunk, place, gridH, setEdits, useEdits, key };
 }

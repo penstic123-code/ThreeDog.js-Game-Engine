@@ -11,7 +11,8 @@ const didYou = (name, list, closest) => { const c = closest(name, list); return 
 // World state a style must not carry (same table as core/styleParts.js): [path, is-world-key, where it goes]
 const WORLD = [
   ['water', k => ['level', 'sea', 'size'].includes(k), 'engine.use(water({ level, sea, size }))'],
-  ['terrain.config', k => !['shading', 'colorResolution', 'normals', 'normalFn'].includes(k), "terrain({ seed, chunkSize, resolution, diagonal, waterLevel, height... }); only shading, colorResolution, normals, normalFn are looks"],
+  ['terrain.config', k => !['shading', 'colorResolution', 'normals', 'normalFn'].includes(k),
+    "terrain({ seed, chunkSize, resolution, diagonal, waterLevel, height... }); only shading, colorResolution, normals, normalFn are looks"],
 ];
 // Top-level names that look like world rules, to say so instead of just "unknown"
 const WORLDISH = ['waterLevel', 'seed', 'chunkSize', 'gravity', 'hoursPerDay', 'spawn', 'mapSize', 'level', 'sea'];
@@ -36,7 +37,11 @@ function unknownFields(style, schema, closest, worldPaths) {
       const p = path ? `${path}.${k}` : k;
       if (spec.keys.has(k)) { const c = childOf(schema, spec, k); if (c) go(v, c, p); continue; }
       if (spec.open || worldPaths.has(p)) continue;
-      if (!path && WORLDISH.includes(k)) { out.push(f('error', p, `'${k}' is world state, not a look: swapping the style would change the map or the rules`, 'put it where the world is made (water({...}), terrain({...}), sky({ hoursPerDay }))')); continue; }
+      if (!path && WORLDISH.includes(k)) {
+        out.push(f('error', p, `'${k}' is world state, not a look: swapping the style would change the map or the rules`,
+          'put it where the world is made (water({...}), terrain({...}), sky({ hoursPerDay }))'));
+        continue;
+      }
       out.push(f('error', p, `unknown style field '${k}'.${didYou(k, spec.keys, closest)}`, `allowed here: ${[...spec.keys].join(', ')} (types/style.d.ts)`));
     }
   })(style, schema.interfaces.Style, '');
@@ -48,14 +53,17 @@ function worldFields(style) {
   for (const [path, isWorld, where] of WORLD) {
     const obj = path.split('.').reduce((o, k) => o?.[k], style);
     if (!plain(obj)) continue;
-    for (const k of Object.keys(obj)) if (isWorld(k)) { paths.add(`${path}.${k}`); out.push(f('error', `${path}.${k}`, `world state, not a look: swapping the style would change the map or the rules`, `set it with ${where}`)); }
+    for (const k of Object.keys(obj)) if (isWorld(k)) {
+      paths.add(`${path}.${k}`);
+      out.push(f('error', `${path}.${k}`, `world state, not a look: swapping the style would change the map or the rules`, `set it with ${where}`));
+    }
   }
   return { out, paths };
 }
 
 // ── colors ─────────────────────────────────────────────────
-const COLOR_PATHS = ['background', 'palette.*', 'terrain.colors.*', 'sky.moonColor', 'sky.groundTint', 'sky.clouds.color', 'sky.clouds.shade',
-  'weather.overcastColor', 'weather.rain.color', 'weather.snow.color', 'water.color', 'water.specular', 'seasons.*.foliage', 'seasons.*.ground',
+const COLOR_PATHS = ['background', 'sky.backdrop', 'palette.*', 'terrain.colors.*', 'sky.moonColor', 'sky.groundTint', 'sky.clouds.color', 'sky.clouds.shade',
+  'weather.overcastColor', 'weather.rain.color', 'weather.snow.color', 'weather.snow.cover.foliage', 'weather.snow.cover.ground', 'water.color', 'water.specular', 'water.depthColor.shallow', 'water.depthColor.deep', 'water.foam.color', 'seasons.*.foliage', 'seasons.*.ground',
   'pickup.color', 'character.colors.*', 'triggers.debugColor', 'grid.ok', 'grid.bad', 'grid.tiles.*.*', 'particles.*.color', 'materials.*.color'];
 const UI_COLORS = ['bg', 'fg', 'muted', 'accent', 'good', 'line', 'loadingBg', 'fadeBg', 'hudBg', 'hudFg', 'hudAccent'];
 const CSS_FN = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|var)\(/i;
@@ -78,14 +86,24 @@ export function colorProblem(v, css = false) {
 const colorsOf = v => (Array.isArray(v) ? v : [v]);
 
 function colors(style) {
-  const out = [], seen = (p, v, css) => { for (const c of colorsOf(v)) { const why = colorProblem(c, css); if (why) out.push(f('error', p, `bad color: ${why}`)); } };
-  for (const pat of COLOR_PATHS) for (const [p, v] of at(style, pat)) if (v !== undefined && v !== null && !(pat === 'materials.*.color' && !plain(style.materials[p.split('.')[1]]))) seen(p, v, false);
+  const out = [], seen = (p, v, css) => {
+    for (const c of colorsOf(v)) { const why = colorProblem(c, css); if (why) out.push(f('error', p, `bad color: ${why}`)); }
+  };
+  for (const pat of COLOR_PATHS) for (const [p, v] of at(style, pat)) {
+    const skip = pat === 'materials.*.color' && !plain(style.materials[p.split('.')[1]]);
+    if (v !== undefined && v !== null && typeof v !== 'function' && !skip) seen(p, v, false);   // a function (sky.backdrop) is checked when it runs
+  }
   for (const k of UI_COLORS) { const v = style.ui?.[k]; if (v !== undefined && v !== null) seen(`ui.${k}`, v, true); }
   (style.sky?.keyframes ?? []).forEach((kf, i) => {
     const p = `sky.keyframes[${i}]`;
-    if (!Array.isArray(kf) || kf.length !== 6) { out.push(f('error', p, `a keyframe is [time, zenith, horizon, sunColor, sunIntensity, ambientIntensity] (6 entries), got ${Array.isArray(kf) ? kf.length : typeof kf}`)); return; }
+    if (!Array.isArray(kf) || kf.length !== 6) {
+      const got = Array.isArray(kf) ? kf.length : typeof kf;
+      out.push(f('error', p, `a keyframe is [time, zenith, horizon, sunColor, sunIntensity, ambientIntensity] (6 entries), got ${got}`));
+      return;
+    }
     if (typeof kf[0] !== 'number' || kf[0] < 0 || kf[0] > 1) out.push(f('error', `${p}[0]`, 'time of day must be a number from 0 to 1'));
-    if (i && typeof kf[0] === 'number' && typeof style.sky.keyframes[i - 1]?.[0] === 'number' && kf[0] <= style.sky.keyframes[i - 1][0]) out.push(f('warn', `${p}[0]`, 'keyframe times should increase'));
+    const prev = style.sky.keyframes[i - 1]?.[0];
+    if (i && typeof kf[0] === 'number' && typeof prev === 'number' && kf[0] <= prev) out.push(f('warn', `${p}[0]`, 'keyframe times should increase'));
     [1, 2, 3].forEach(j => seen(`${p}[${j}]`, kf[j], false));
     [4, 5].forEach(j => { if (typeof kf[j] !== 'number') out.push(f('error', `${p}[${j}]`, 'intensity must be a number')); });
   });
@@ -104,12 +122,16 @@ export function paletteRefs(source) {
 }
 function paletteKeys(style, refs, closest) {
   const have = Object.keys(style.palette ?? {}), out = [];
-  for (const [k, line] of refs) if (!have.includes(k)) out.push(f('error', `palette.${k}`, `a generator reads palette.${k} (${line}) but style.palette does not define it.${didYou(k, have, closest)}`, `add ${k}: 0x... to palette`));
+  for (const [k, line] of refs) if (!have.includes(k)) {
+    out.push(f('error', `palette.${k}`, `a generator reads palette.${k} (${line}) but style.palette does not define it.${didYou(k, have, closest)}`,
+      `add ${k}: 0x... to palette`));
+  }
   return out;
 }
 
 // ── post effects ───────────────────────────────────────────
 const SLOTS = ['scene', 'hdr', 'ldr', 'final'];
+const MAX_POST = 2;
 function post(style) {
   const list = style.post, out = [];
   if (list === undefined) return out;
@@ -138,8 +160,13 @@ function post(style) {
     if (e.needsDepth && (e.slot === 'ldr' || e.slot === 'final')) out.push(f('error', `post[${e.i}]`, `'${e.name}' reads scene depth but sits in slot '${e.slot}', after tone mapping`, "use slot 'hdr'"));
     if (on && (e.slot === 'scene' || e.fuse)) swapped ??= e.name;
   }
-  const dof = eff.find(e => e.name === 'dof' && e.enabled === true), line = eff.find(e => e.name === 'outline' && e.enabled === true);
-  if (dof && line) out.push(f('warn', `post[${dof.i}]`, "'dof' and 'outline' are both on: depth of field blurs the outline lines (and both read depth)", 'turn one off, or switch dof on only in photo mode (engine.post.enable)'));
+  // dof copies the scene depth into its output, so an outline after it works (crisp lines over the blur); dof after an outline would find no scene depth
+  const dof = chain.find(e => e.name === 'dof' && e.enabled === true), line = chain.find(e => e.name === 'outline' && e.enabled === true);
+  if (dof && line && chain.indexOf(dof) > chain.indexOf(line)) out.push(f('error', `post[${dof.i}]`, "'dof' runs after 'outline' (both on): outline swaps buffers, so dof would not find the scene depth",
+    `give 'dof' a lower order than 'outline' (dof ${dof.order} -> below ${line.order}); both can be on, lines then stay sharp over the blur`));
+  // More effects stacked rarely means closer to a reference: each one adds its own look, and the sum drifts away from the picture
+  const on = eff.filter(e => e.enabled !== false);
+  if (on.length > MAX_POST) out.push(f('warn', 'post', `${on.length} post effects are on (${on.map(e => `'${e.name}'`).join(', ')}); more than ${MAX_POST}`, 'Do not add effects the reference picture does not show; more effects make it worse. Turn them off until only the necessary ones remain'));
   return out;
 }
 
@@ -147,7 +174,11 @@ function post(style) {
 function materials(style, schema, purposes, closest) {
   const out = [];
   for (const [role, spec] of Object.entries(style.materials ?? {})) {
-    if (!purposes.includes(role)) { const c = closest(role, purposes); if (c) out.push(f('warn', `materials.${role}`, `'${role}' is not an engine material role; did you mean '${c}'? (roles: ${purposes.join(', ')}; your own names are fine if code asks for them)`)); }
+    if (!purposes.includes(role)) {
+      const c = closest(role, purposes);
+      if (c) out.push(f('warn', `materials.${role}`,
+        `'${role}' is not an engine material role; did you mean '${c}'? (roles: ${purposes.join(', ')}; your own names are fine if code asks for them)`));
+    }
     if (plain(spec) && spec.type !== undefined && !schema.materialTypes.includes(spec.type))
       out.push(f('error', `materials.${role}.type`, `unknown material type '${spec.type}'.${didYou(spec.type, schema.materialTypes, closest)}`, `use ${schema.materialTypes.join(' | ')}`));
   }
@@ -163,12 +194,16 @@ function assetRefs(style, assets, closest) {
     ...MATERIAL_TEXTURES.map(k => [`materials.*.${k}`, 'textures'])];
   for (const [pat, kind] of refs) for (const [p, v] of at(style, pat)) if (typeof v === 'string' && !isPath(v)) check(p, v, kind);
   (style.ui?.fonts ?? []).forEach((n, i) => { if (typeof n === 'string') check(`ui.fonts[${i}]`, n, 'fonts'); });
-  for (const [p, v] of at(style, 'ui.font')) if (typeof v === 'string' && /\.(woff2?|ttf|otf)\b|url\(/i.test(v)) out.push(f('error', p, 'a style never holds a font file', "register it in an asset pack (manifest({ fonts: { name: 'file' } })) and list the name in ui.fonts"));
+  for (const [p, v] of at(style, 'ui.font')) if (typeof v === 'string' && /\.(woff2?|ttf|otf)\b|url\(/i.test(v)) {
+    out.push(f('error', p, 'a style never holds a font file',
+      "register it in an asset pack (manifest({ fonts: { name: 'file' } })) and list the name in ui.fonts"));
+  }
   return out;
   function check(p, name, kind) {
     const known = [...(assets[kind] ?? [])];
     if (known.includes(name)) return;
-    out.push(f('warn', p, `${kind.slice(0, -1)} asset '${name}' is not in this pack's asset pack${known.length ? ` (it has: ${known.join(', ')})` : ''}.${didYou(name, known, closest)}`,
+    const has = known.length ? ` (it has: ${known.join(', ')})` : '';
+    out.push(f('warn', p, `${kind.slice(0, -1)} asset '${name}' is not in this pack's asset pack${has}.${didYou(name, known, closest)}`,
       'fine if the game registers it (engine.assets.manifest); pass --assets <file> to check against another pack'));
   }
 }

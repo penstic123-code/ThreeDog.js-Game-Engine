@@ -1,8 +1,8 @@
-// Reproduce a scenario in one call: engine.applyState({ time, weather, pos, save, wait, cutscene, state }), engine.defineState(name, params).
+// Reproduce a scenario in one call: engine.applyState({ time, season, weather, pos, save, wait, cutscene, state }), engine.defineState(name, params).
 // In dev (or with createEngine({ urlState: true })) URL parameters are read automatically: /?time=18:30&weather=rain&pos=40,-20&cutscene=skip&wait=3&state=name
 //
 // Who handles which key: core handles save (saves.load), pos (player.placeAt, or sets the focus without a player) and wait (advances with engine.step);
-// the rest go to the module hook applyState(e, params) (written like the describe hook): sky -> time, weather -> weather, timeline -> cutscene.
+// the rest go to the module hook applyState(e, params) (written like the describe hook): sky -> time and season, weather -> weather, timeline -> cutscene.
 // Two phases, both called from start():
 //   early(): before modules are ready, applies save, pos, time, weather (terrain is generated directly at the new position)
 //   late(): after engine:ready, cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
@@ -10,7 +10,7 @@
 import { checkOptions, warnMissing } from './validate.js';
 import { xzOf } from './math.js';
 
-const KEYS = ['state', 'time', 'weather', 'pos', 'save', 'wait', 'cutscene'];
+const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'save', 'wait', 'cutscene'];
 
 export class UrlState {
   constructor(engine, { fromUrl = false } = {}) {
@@ -54,7 +54,7 @@ export class UrlState {
     const e = this.engine;
     if (p.save != null) await e.saves.load(String(p.save));
     if (p.pos) { const [x, z] = xzOf(p.pos); if (e.player) e.player.placeAt({ x, z }); else e.focus.set(x, e.surface(x, z), z); }
-    await Promise.all(this._hooks(p, ['time', 'weather']));
+    await Promise.all(this._hooks(p, ['time', 'season', 'weather']));
   }
   async _late(p) {
     const e = this.engine;
@@ -63,7 +63,7 @@ export class UrlState {
       e.step(Math.min(0.5, s), { render: false, describe: false });
       await new Promise(r => setTimeout(r, 0));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
     }
-    await Promise.all(this._hooks(p, ['time']));                   // advancing moves time, so align it last
+    await Promise.all(this._hooks(p, ['time', 'season']));         // advancing moves time and the day, so align them last
     this.applied = true;
     e.events.emit('state:applied', p);
   }

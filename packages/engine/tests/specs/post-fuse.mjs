@@ -110,7 +110,7 @@ export const specs = [
         out.costly = [outline().costly, outline({ mode: 'both' }).costly];
         out.badMode = (() => { try { p.add(outline({ enabled: true, mode: 'nope' })); return ''; } catch (e) { return e.message; } })();
         out.badGone = !p.get('outline');
-        // dof 建得起来（它与 outline 同时开会被深度顺序检查拦下，规则本身在 render.mjs 里测）
+        // dof 建得起来（与 outline 同时开见下一项）
         const dof = p.add(E.dof({ enabled: true, focus: 12 })); p.render(0.016); out.dofOk = !!dof._impl;
         out.dofCostly = E.dof().costly;
         dof.remove();
@@ -124,6 +124,57 @@ export const specs = [
       check('mode 非 depth 标 costly；depth 不标', r.costly[0] === false && r.costly[1] === true);
       check('mode 写错报错说明三个选项，且不留半加的效果', /'depth' \| 'normal' \| 'both'/.test(r.badMode) && r.badGone, r.badMode);
       check('dof 可建，标 costly', r.dofOk && r.dofCostly === true, JSON.stringify(r));
+    },
+  },
+  {
+    name: '[守] lowpoly 后期迁到 post-effects：风格里的 bloom / ao / outline 与 post-effects 的是同一份，渲染像素与迁移前逐字节相同',
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE, lowpoly } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext(), sz = R.getSize(new THREE.Vector2()), W = 96, H = 72, out = {};
+        R.setSize(W, H, false); p.enable('antialias', false);
+        // 自己搭一个固定的场景（城市页面里的东西每次载入位置不同），隐藏原有内容
+        const sc = engine.scene, cam = engine.camera, hidden = sc.children.map(c => [c, c.visible]); hidden.forEach(([c]) => { c.visible = false; });
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({ color: 0xcc6644 })), ball = new THREE.Mesh(new THREE.SphereGeometry(1.2, 24, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffeeaa, emissiveIntensity: 0.6 }));
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x66aa55 })); floor.rotation.x = -Math.PI / 2;
+        const lamp = new THREE.DirectionalLight(0xffffff, 3); lamp.position.set(5, 8, 3); const amb = new THREE.AmbientLight(0xffffff, 0.5);
+        box.position.set(-1.5, 1, 0); ball.position.set(1.8, 1.2, -1.5);
+        const mine = [box, ball, floor, lamp, amb]; sc.add(...mine);
+        const bg0 = sc.background, fog0 = sc.fog; sc.background = new THREE.Color(0x88aacc); sc.fog = null;
+        const cp = cam.position.clone(), cq = cam.quaternion.clone(); cam.position.set(0, 4, 9); cam.lookAt(0, 1, 0); cam.updateMatrixWorld();
+        const hash = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); let h = 2166136261, nz = 0; for (const v of b) { h = Math.imul(h ^ v, 16777619); nz += v > 0; } return (h >>> 0) + '/' + nz; };
+        let seed = 12345; const rnd = Math.random; Math.random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;   // GTAO 的噪声纹理用 Math.random
+        p.render(0.016); out.none = hash();
+        for (const [k, o] of [['bloom', { threshold: 0.5, strength: 0.5 }], ['ao', {}], ['outline', { mode: 'depth' }], ['outlineBoth', { mode: 'both', offLayer: 29 }]]) {
+          const name = k.replace('Both', ''), h = p.add({ ...lowpoly.post.find(e => e.name === name), enabled: false }); h.set(o); h.enable(true); p.render(0.016); out[k] = [hash(), hash()]; h.remove();
+        }
+        // dof 与 outline 同时开：dof 把场景深度写进自己的输出（gl_FragDepth），outline 在它后面仍读到真深度；线的位置只取决于深度，所以有无 dof 应一致
+        const Ef = threedogTest.postEffects, bytes = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
+        const dist = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n++; return n; };
+        const frame = fx => { const hs = []; try { fx.forEach(e => hs.push(p.add(e))); p.render(0.016); return { px: bytes(), n: p.composer.passes.length }; } catch (e) { return { err: e.message }; } finally { hs.forEach(h => h.remove()); } };
+        const dofE = () => Ef.dof({ enabled: true, focus: 9, range: 1, falloff: 5, maxBlur: 4 }), lineE = s => Ef.outline({ enabled: true, thickness: 1, strength: s, color: 0x000000 });
+        out.dof = {};
+        for (const aa of [false, true]) {
+          p.enable('antialias', aa);
+          p.render(0.016); const plain = bytes(), d = frame([dofE()]), off = frame([lineE(0)]), on = frame([lineE(1)]), dOff = frame([dofE(), lineE(0)]), dOn = frame([dofE(), lineE(1)]);
+          out.dof[aa] = { err: dOn.err ?? dOff.err ?? d.err, hash: d.px && (() => { let h = 2166136261; for (const v of d.px) h = Math.imul(h ^ v, 16777619); return h >>> 0; })(),
+            blurred: dist(d.px, plain), linesPlain: dist(on.px, off.px), linesWithDof: dOn.px && dist(dOn.px, dOff.px), passes: [d.n, on.n, dOn.n] };
+        }
+        Math.random = rnd; sc.remove(...mine); sc.background = bg0; sc.fog = fog0; hidden.forEach(([c, v]) => { c.visible = v; }); cam.position.copy(cp); cam.quaternion.copy(cq);
+        R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
+        const E = threedogTest.postEffects, mine2 = { bloom: E.bloom(), ao: E.ao(), outline: E.outline() };
+        out.meta = lowpoly.post.map(e => [e.name, e.slot, e.order, e.costly === true, e.needsDepth === true].join());
+        out.same = lowpoly.post.every(e => e.create.toString() === mine2[e.name].create.toString() && e.slot === 'hdr') && out.meta.join('|') === 'outline,hdr,10,false,true|ao,hdr,20,true,false|bloom,hdr,30,true,false';
+        return out;
+      });
+      // 黄金值取自迁移前（效果还在 lowpoly 包里）的代码：固定场景 96x72，软件渲染，ao 的噪声纹理用固定随机数
+      const g = { none: '815777726', bloom: '1311936383', ao: '1234133979', outline: '169695992', outlineBoth: '3597909715' }, got = k => (Array.isArray(r[k]) ? r[k][0] : r[k]).split('/')[0];
+      const dd = r.dof, goldDof = { false: '3391731882', true: '342418655' };
+      check('dof 与 outline 同时开不报错（不论 MSAA），链是 4 个 pass（场景 + dof + outline + 输出），没有多出的 pass', [false, true].every(a => !dd[a].err && dd[a].passes.join() === '3,3,4'), JSON.stringify(dd));
+      check('dof 后面的 outline 画出的线与没有 dof 时一样多（位置只取决于深度）', [false, true].every(a => dd[a].linesPlain > 20 && Math.abs(dd[a].linesWithDof - dd[a].linesPlain) <= dd[a].linesPlain * 0.02), JSON.stringify(dd));
+      check('dof 单开的像素与让出深度之前逐字节相同，且确实糊了画面', [false, true].every(a => String(dd[a].hash) === goldDof[a] && dd[a].blurred > 100), JSON.stringify(dd));
+      check('lowpoly 的 bloom / ao / outline 就是 post-effects 导出的那份（名字 slot order 与旧值一致）', r.same === true, JSON.stringify(r.meta));
+      check('渲染像素与迁移前逐字节相同（none / bloom / ao / outline depth / outline both+offLayer 的哈希）', Object.keys(g).every(k => got(k) === g[k]), JSON.stringify(r));
     },
   },
 ];

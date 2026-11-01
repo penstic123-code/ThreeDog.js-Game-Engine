@@ -48,15 +48,15 @@ export async function vendored(tmp, tools, check, { npm, cli }) {
   const dir = join(tmp, 'vend'), engDir = join(dir, 'vendor', 'threedog');
   mkdirSync(engDir, { recursive: true });
   cpSync(ENGINE, engDir, { recursive: true, filter: p => !/(^|[\\/])(node_modules|\.threedog|dist)([\\/]|$)/.test(relative(ENGINE, p)) });
-  // the template uses two optional packages (the lowpoly style pack and the terrain generator): vendored next to the engine
-  for (const [src, name] of [[styleDir('lowpoly'), 'style-lowpoly'], [addonDir('terrain-noise'), 'terrain-noise']])
+  // the template uses optional packages (the lowpoly style pack, which needs post-effects, and the terrain generator): vendored next to the engine
+  for (const [src, name] of [[styleDir('lowpoly'), 'style-lowpoly'], [addonDir('terrain-noise'), 'terrain-noise'], [addonDir('post-effects'), 'post-effects']])
     cpSync(src, join(dir, 'vendor', name), { recursive: true, filter: p => !/(^|[\\/])node_modules([\\/]|$)/.test(relative(src, p)) });
   copyTemplate(join(TOOLS, 'templates', 'game'), dir);
   mkdirSync(join(dir, 'notes'));
   // a file the game excluded: a type error and a startup placement that would fail check if it were scanned
   writeFileSync(join(dir, 'notes', 'scratch.js'), "// @ts-check\nconst n = 1;\nn.normalise();\nengine.add(n);\n");
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'threedog-vendored-check', private: true, type: 'module', threedog: { exclude: ['notes'] },
-    dependencies: { threedog: 'file:./vendor/threedog', '@threedog/style-lowpoly': 'file:./vendor/style-lowpoly', '@threedog/terrain-noise': 'file:./vendor/terrain-noise', three: '~0.187.0' }, devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
+    dependencies: { threedog: 'file:./vendor/threedog', '@threedog/style-lowpoly': 'file:./vendor/style-lowpoly', '@threedog/terrain-noise': 'file:./vendor/terrain-noise', '@threedog/post-effects': 'file:./vendor/post-effects', three: '~0.187.0' }, devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
   const inst = npm(['install', '--install-links', '--no-audit', '--no-fund', '--loglevel=error'], dir);
   check('vendored engine: npm install of file:./vendor/threedog succeeds', inst.status === 0, (inst.stderr || String(inst.error)).slice(0, 300));
   if (inst.status !== 0) return;

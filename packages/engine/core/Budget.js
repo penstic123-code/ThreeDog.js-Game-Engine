@@ -195,6 +195,10 @@ export class Budget {
   */
   byTag() {
     const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled, shadowCost = SHADOW_TYPES[e.shadowType]?.cost ?? 1;
+    // shadow passes a caster is drawn in: one per shadow-casting light (cascaded shadows add a light per cascade), six for a point light
+    let passes = 0;
+    e.scene.traverseVisible(o => { if (o.isLight && o.castShadow) passes += o.isPointLight ? 6 : 1; });
+    passes = Math.max(1, passes);
     cam.updateMatrixWorld();
     this._frustum.setFromProjectionMatrix(this._m.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
     const walk = (o, tag) => {
@@ -202,8 +206,9 @@ export class Budget {
       tag = o.userData.budgetTag ?? tag;
       if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && (!o.frustumCulled || this._frustum.intersectsObject(o))) {
         const g = o.geometry, groups = Array.isArray(o.material) ? Math.max(1, g?.groups.length ?? 1) : 1;
-        // a caster adds a shadow draw, scaled by the filter's rough cost (estimate: vsm ~1.6x, basic ~0.8x of pcf)
-        const calls = groups * (shadows && o.castShadow ? 1 + shadowCost : 1);
+        // a caster adds a shadow draw, scaled by the filter's rough cost (estimate: vsm ~1.6x, basic ~0.8x of pcf), once per pass
+        // (an upper bound: each light culls to its own shadow box, so a near cascade skips most of the scene)
+        const calls = groups * (shadows && o.castShadow ? 1 + shadowCost * passes : 1);
         const n = g ? (g.index ? g.index.count : g.attributes.position?.count ?? 0) : 0;
         const s = out.get(tag) || out.set(tag, { tag, drawCalls: 0, triangles: 0 }).get(tag);
         s.drawCalls += calls; s.triangles += o.isMesh ? Math.round(n / 3) * (o.count ?? 1) : 0;

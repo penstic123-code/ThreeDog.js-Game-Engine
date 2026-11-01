@@ -11,6 +11,9 @@ With `shading: 'smooth'` or `'flat'` a color is computed at a grid point (or tri
 Raising `resolution` fixes it at the price of triangles (and collision, and edit granularity). `shading: 'texture'` cuts the link: color is
 computed per pixel into a per-chunk image, the mesh stays as coarse as you like.
 
+Material roles (`makeMaterial('role')`) are free labels: a role the style does not list uses `materials.default`, and the engine warns only on a name
+that looks like a typo of a known one (`09-style-pack.md`). A style that wants a special ground surface adds its own role and ground material.
+
 ## 1. `shading: 'texture'` (and `colorResolution`)
 ```js
 engine.use(terrain({ ...terrainPreset(), shading: 'texture', colorResolution: 128 }));
@@ -43,6 +46,8 @@ Cost (software-rendered machine, relative values only):
   program compile plus first uploads, it lands once, not per chunk); upload stage total 41 ms -> 112 ms over 69 chunks.
 - Low-tier devices (`engine.tier === 'low'`, see `core/tier.js`): if you did not set `colorResolution`, the terrain module uses 64 there. To skip the
   color map completely on low tier, choose the shading yourself: `shading: engine.tier === 'low' ? 'smooth' : 'texture'` in your terrain() call.
+- With `terrain({ shape })` (an outline, `42-terrain-shape.md`) the map covers the top only: void pixels keep the color of the ground under them
+  (no seam at the rim) with alpha 0, and island sides and bottom draw with vertex colors (or `shape.side.material`).
 
 ## 2. Lighting normals: `normals` and `normalFn`
 - `shading: 'smooth'` lights with one normal per grid point, `'flat'` one per triangle. In texture mode choose: `normals: 'smooth'` (default) or

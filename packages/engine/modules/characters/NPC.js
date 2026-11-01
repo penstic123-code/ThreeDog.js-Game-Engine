@@ -33,6 +33,7 @@ import { checkOptions, warnOnce, fmt, DEV } from '../../core/validate.js';
 import { NpcAvoid } from './npcAvoid.js';
 import { parseClock } from '../../core/dayTime.js';
 import { xzOf } from '../../core/math.js';
+import { placeY } from '../../core/ground.js';
 import { stopIndex, timeOfDay } from './npcSim.js';
 import { Behaviors } from './behaviors.js';
 
@@ -97,7 +98,7 @@ export class NPC {
     const e = this._m.engine, W = this._m.world, rec = this.data; if (!rec) return this;
     const [x, z] = xzOf(position), ch = this.character;
     if (ch) ch.placeAt({ x, z });
-    W.move(this.id, { x, y: ch ? ch.root.position.y : e.surface(x, z), z });
+    W.move(this.id, { x, y: ch ? ch.root.position.y : placeY(e, `npc.placeAt() (${this.id})`, x, z, undefined, rec.position.y), z });
     rec.nav.path = null; rec.nav.repath = 0;
     return this;
   }
@@ -208,7 +209,7 @@ export class NPCManager {
     } else {
       const i = stopIndex(sched, timeOfDay(e)), [x, z] = xzOf(position ?? (i != null ? sched[i] : { x: 0, z: 0 }));
       const nav = { stop: null, path: null, repath: 0 };
-      W.add({ id, kind: KIND, position: [x, e.surface(x, z), z], ...def, state: 'idle', busy: false, nav, motion: null }, { initial });
+      W.add({ id, kind: KIND, position: [x, placeY(e, `npcs.${id}`, x, z), z], ...def, state: 'idle', busy: false, nav, motion: null }, { initial });
     }
     return this._handle(id);
   }

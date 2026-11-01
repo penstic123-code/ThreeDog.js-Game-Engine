@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { rigModule, defineRig, screenToGround, CAMERA_STRINGS, YAW_RIG } from './common.js';
 import { checkOptions } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
+import { surfaceOr } from '../../core/ground.js';
 
 export class RtsCamera {
   /**
@@ -31,7 +32,7 @@ export class RtsCamera {
     this.following = false;
     const [sx, sz] = start ? xzOf(start) : [0, 0];
     this.focus = new THREE.Vector3(sx, 0, sz);
-    this.focus.y = engine.surface(this.focus.x, this.focus.z);
+    this.focus.y = surfaceOr(engine, this.focus.x, this.focus.z);   // a start beyond the island keeps y = 0 instead of -Infinity
     this._f = this.focus.clone();                // smoothed focus
     this._h = height; this._yaw = yaw;
     this._drag = null;
@@ -107,7 +108,8 @@ export class RtsCamera {
   }
   _place() {
     const cam = this.engine.camera, f = this._f;
-    f.y = this.engine.surface(f.x, f.z);           // focus sticks to the ground
+    const g = this.engine.surface(f.x, f.z);
+    if (g > -Infinity) f.y = g;                    // focus sticks to the ground; over the void of terrain({ shape }) it keeps its last height
     const a = Math.min(Math.PI / 2 - 1e-3, Math.max(0.05, this.angle));
     const back = this._h / Math.tan(a);             // horizontal back-off distance
     cam.position.set(f.x + Math.sin(this._yaw) * back, f.y + this._h, f.z + Math.cos(this._yaw) * back);

@@ -1,5 +1,4 @@
-// Lowpoly post effects: bloom and ambient occlusion (GTAO), plus the outline (outline.js), as engine.post effects.
-// Other style packs reuse them: import { bloom, outline } from '@threedog/style-lowpoly' and list them in their own style.post.
+// Bloom and ambient occlusion (GTAO) as engine.post effects (hdr slot). Both are costly, so they start off on low-tier devices.
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
@@ -27,5 +26,3 @@ export function ao({ enabled = false, order = 20 } = {}) {
   return { name: 'ao', slot: 'hdr', order, enabled, costly: true,
     create: ({ scene, camera, width, height }) => new GTAOPass(scene, camera, width, height) };
 }
-
-export { outline, OUTLINE_OFF_LAYER } from './outline.js';

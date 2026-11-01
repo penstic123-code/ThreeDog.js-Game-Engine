@@ -40,4 +40,18 @@ export const specs = [
       check('种类写错报错列出可选项；失败时相机不变', /firstPerson/.test(r.err) && /thirdPerson/.test(r.err) && r.kindAfterErr === 'follow', JSON.stringify(r));
     },
   },
+  {
+    name: 'RtsCamera 起点在岛外（surface 是 -Infinity）：不崩，焦点 y 退回 0',
+    url: '/tests/cameras/index.html?cam=follow',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.pause();
+        engine.setGround({ height: x => x > 1000 ? -Infinity : 0, has: x => x <= 1000 });
+        let err = null; try { engine.setCamera('rts', { start: { x: 2000, z: 0 } }); engine.step(0.1); } catch (e) { err = e.message; }
+        const f = engine.camera.position;
+        return { err, finite: [f.x, f.y, f.z].every(Number.isFinite) };
+      });
+      check('rts 相机起点在岛外：不抛错，相机位置有限', r.err === null && r.finite, JSON.stringify(r));
+    },
+  },
 ];

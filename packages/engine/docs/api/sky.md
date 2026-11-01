@@ -2,13 +2,16 @@
 
 Sky, day/night, calendar (sky() module)
 
-- Options `SkyOptions` (also includes the fields of StyleSky):
+- Options `SkyOptions` (also includes the fields of Omit<StyleSky, 'fog'>):
+  - `fog?: boolean | 'manual' | StyleFog` Who owns scene.fog: true (default; the sky creates it and writes color and distance every frame) / 'manual' (created once, then never written: the game sets its color / near / far or its own object) / false (scene.fog = null, never touched). An object is style.sky.fog settings (kind, color, density...) and means true. A sky() option, not a style key. Example: `sky({ fog: 'manual' })   // the game manages scene.fog itself`
   - `time?: number` Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay)
   - `dayLength?: number` Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves
   - `hoursPerDay?: number` Hours per day of the displayed clock and of clock notation ('18:30'), default 24. Gameplay timing, so a sky() option and not a style key
   - `day?: number` Which day to start from, default 1
   - `daysPerSeason?: number` Days of each season given by name only, default 7
   - `seasons?: (string | { name: string, days: number })[]` The calendar's seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring', 'summer', 'autumn', 'winter']
+  - `sun?: boolean | 'manual'` Whether the sky drives engine.lights.sun: true (default; color, intensity, direction and shadow box from the keyframes) / 'manual' (still aimed along the time of day with the shadow box; color and intensity are the game's) / false (hidden, never touched: light the world with your own three.js lights). Example: `sky({ sun: false, hemisphere: false })   // a dungeon lit by the game's own lights`
+  - `hemisphere?: boolean | 'manual'` Same for engine.lights.hemi (ambient): true (default) / 'manual' (colors and intensity are the game's) / false (hidden)
 
 ## Methods and properties
 - `sky.modify(owner: string, values: SkyLayer | null)` — Write a modifier layer (only the given fields; unwritten fields have no effect); values null removes the layer. Weather uses the 'weather' layer, games use their own layer name. Layers composite every frame: sun / ambient / fog multiply; tint blends weighted by tintAmount; flash takes the max. Example: `engine.sky.modify('cave', { sun: 0.3, ambient: 0.4 });  engine.sky.modify('cave', null);`
@@ -16,7 +19,7 @@ Sky, day/night, calendar (sky() module)
 - `sky.between(from: string | number, to: string | number, opts: SkyBetweenOptions) → Handle` — Time-range switch: on() while clock time is in [from, to), otherwise off() (from > to wraps midnight). Aligns once immediately on registration, new game, load, applying a scenario and time rewind; afterwards it calls on/off when crossing a boundary. Example: `engine.sky.between('18:00', '06:00', { on: () => lamp.on(), off: () => lamp.off() })`
 - `sky.daily(fn: (day: number) => void, opts?: SkyAtOptions) → Handle` — Call fn(day) at the start of each day (00:00)
 - `sky.onSeason(name: string, fn: (season: string) => void) → Handle` — Call fn(seasonName) on entering season name
-- `sky.setShadow(opts?: Pick<StyleShadow, "bias" | "normalB…)` — Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame); snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view; type = 'basic' (hard edge) / 'pcf' / 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely); radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only)
+- `sky.setShadow(opts?: Partial<SkyShadowParams>)` — Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame); snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view; type = 'basic' (hard edge) / 'pcf' / 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely); radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only); cascades 2-4 = cascaded shadows, 1 = off (recipes/45)
 - `sky.setShadowMapSize(n: number)` — Change shadow resolution (raise temporarily for photo mode)
 - `sky.setEnvironment(opts?: { source?, intensity?, rotation?, interval? } | null)` — Environment lighting (scene.environment), separate from the background and off by default. source 'sky' builds it from the procedural sky (rebuilt at most every `interval` seconds, only when the sky changed); an asset name or path (.hdr, .jpg, .ktx2) is an equirectangular panorama. intensity scales the light (default 1), rotation turns it around Y (radians). Given fields change, the rest stay; null turns it off. Lambert surfaces get soft ambient light from it (no reflections); lower the hemisphere ambient when you turn it on (recipes/09). Example: `engine.sky.setEnvironment({ source: 'sky', intensity: 0.8 });  engine.sky.setEnvironment(null);`
 - Properties:
@@ -30,7 +33,8 @@ Sky, day/night, calendar (sky() module)
   - `sun: any` Sun directional light (engine.lights.sun driven by the sky; moonlight at night, shadows live on it)
   - `sunDir: THREE.Vector3` Sun direction (unit vector toward the sun)
   - `orbit: { tilt: number; sway: number; distance: number }` Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters)
-  - `shadow: { bias, normalBias, updateEvery, snap, ahead, type, … }` Current shadow params (change via setShadow)
+  - `shadow: SkyShadowParams` Current shadow params (change via setShadow)
+  - `csm: any` three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45)
   - `hoursPerDay: number` Hours per day
   - `modifiers: SkyModifiers` Composite of all modifier layers (read-only; use modify to adjust brightness)
   - `shadowMapSize: number` Shadow resolution (pixels)

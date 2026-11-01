@@ -3,6 +3,8 @@
 //     terrainStrings. Where the hills, rivers and biomes are is gameplay: it goes in an add-on package (@threedog/terrain-noise) or the game;
 //   · error: world state in a style: water { level / sea / size } or terrain.config keys other than shading / colorResolution / normals / normalFn (they go to water({...}) / terrain({...}));
 //   · error: a font written as a file (fontFaces: [{ url }], fontCSS: 'https://...'): fonts are asset-pack entries, style.ui.fonts names them.
+//   · error: a style pack imports another style pack (from '@threedog/style-x' or '../x/'). Shared effects live in @threedog/post-effects, shared
+//     art in an asset pack; packs that import each other cannot be installed or removed alone.
 // Detection: line-based regex, lines starting with // or * skipped (so comments may explain the rule). Known limits: a generator under
 //   another name (const shape = (x, z, n) => ...) is not seen; the runtime check for fonts (ui/theme.js) still catches the font case.
 // Why: swapping the look must never move a river or change which file a menu loads; a style that carries world shape or files cannot be
@@ -13,9 +15,12 @@ const SHAPE = /\bfunction\s+(height|groundType|terrainPreset|riverAt)\s*\(|\bexp
 const WORLD_WATER = /\bwater\s*:\s*\{[^}]*\b(level|sea|size)\s*:/;
 const WORLD_TERRAIN = /\bconfig\s*:\s*\{[^}]*\b(?!(?:shading|colorResolution|normals|normalFn)\b)\w+\s*:/;   // style.terrain.config holds the ground's looks only (diagonal moves engine.surface: the game's)
 const FONT_FILE = /\b(fontFaces|fontCSS)\s*:/;
+const PACK_IMPORT = /\b(?:from|import)\s*\(?\s*['"](?:@threedog\/style-([\w-]+)|\.\.\/([\w-]+)\/)/;   // another pack by package name or by sibling folder
+// the pack a file belongs to: packages/styles/<name>/... or node_modules/@threedog/style-<name>/...
+const packOf = f => (f.match(/(?:styles\/|@threedog\/style-)([\w-]+)\//) ?? [])[1];
 
 export default {
-  id: 'R34', title: 'Style packs hold looks only (no world shape, no font files)', game: true,
+  id: 'R34', title: 'Style packs hold looks only (no world shape, no font files, no imports of other packs)', game: true,
   run() {
     const out = [];
     for (const f of walk(P.STYLES_REL, ['.js', '.mjs']).filter(f => P.MODE === 'monorepo' || /\/style-[^/]+\//.test(f))) {
@@ -25,6 +30,9 @@ export default {
           fix: "move the generator to its own package (like @threedog/terrain-noise) or the game; the style keeps only the colors of its ground types (terrain.colors / biomeColors)" });
         if (WORLD_WATER.test(l) || WORLD_TERRAIN.test(l)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack carries world state: ${l.trim().slice(0, 80)}`,
           fix: 'water level / sea / size go to engine.use(water({ level, sea, size })); terrain shape and size go to terrain({...}); style.terrain.config keeps only shading, colorResolution, normals, normalFn' });
+        const imp = l.match(PACK_IMPORT), other = imp && (imp[1] ?? imp[2]);
+        if (other && other !== packOf(f)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack imports another style pack ('${other}'): ${l.trim().slice(0, 80)}`,
+          fix: "import shared effects from '@threedog/post-effects'; to build on another look, mix parts in the game: style: [other, mine]" });
         if (FONT_FILE.test(l)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack writes a font file: ${l.trim().slice(0, 80)}`,
           fix: "register the file in an asset pack (manifest({ fonts: { pixel: 'pixel.woff2' } })) and name it in style.ui: { fonts: ['pixel'] }" });
       });

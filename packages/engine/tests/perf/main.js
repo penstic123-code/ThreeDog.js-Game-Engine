@@ -8,16 +8,18 @@
 // Under software rendering (cloud swiftshader) GPU time counts as CPU time, so use the numbers only for relative comparison.
 import * as THREE from 'three';
 import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, quests, timeline, triggers, entities, particles,
-  hud, level, sky, weather, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial } from '../../index.js';
+  hud, level, sky, weather, water, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial } from '../../index.js';
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
 import { NOISE_GLSL } from '../../render/effects.js';
 import { styleFrom, postAdd, postRemove } from '../../core/styleParts.js';
-import lowpoly, { models as lowpolyModels, assets as lowpolyAssets, outline } from '@threedog/style-lowpoly';
+import lowpoly, { models as lowpolyModels, assets as lowpolyAssets } from '@threedog/style-lowpoly';
 import * as postEffects from '@threedog/post-effects';
+const { outline } = postEffects;
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CopyShader } from 'three/addons/shaders/CopyShader.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { terrainPreset, riverAt } from '@threedog/terrain-noise';
 import vegetationDefs from '../../examples/world/content/vegetation.js';
 
@@ -208,4 +210,4 @@ if (mode === 'native') {
 }
 window.bench = bench;
 window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

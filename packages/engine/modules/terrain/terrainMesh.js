@@ -4,8 +4,10 @@
 
 import { makePlacer } from '../../core/scatter.js';
 import { makeColorMap } from './terrainColorMap.js';
+import { makeIslandBuilder, faceN } from './terrainIsland.js';
 
-export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biomeAt, fbm, faceColor, paintColor, cellType, editedCell, diagOf, userNormal }) {
+// shape (terrain({ shape }), else null): island chunks come from terrainIsland.js and nothing grows where has(x, z) is false
+export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biomeAt, fbm, faceColor, paintColor, cellType, editedCell, diagOf, userNormal, shape }) {
   const SEED = cfg.seed | 0;
   // lighting normal at a grid point: the game's normalFn, else central difference of the neighboring heights
   const gridNormal = userNormal
@@ -16,7 +18,11 @@ export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biome
     };
   const textured = cfg.shading === 'texture';
   const smoothLight = cfg.shading === 'smooth' || textured && cfg.normals !== 'flat';   // smooth: one normal per grid point; else per triangle
-  const colorMap = textured ? makeColorMap({ cfg, CHUNK, CELL, surface, faceColor, paintColor, cellType, gridNormal }) : null;
+  // with a shape the map is colored from the unmasked height (filtering at the rim reads real ground colors) and void pixels get alpha 0
+  const colorMap = textured ? makeColorMap({ cfg, CHUNK, CELL, surface, faceColor, paintColor, cellType, gridNormal, inside: shape?.has }) : null;
+  // chunk bounding sphere [x, y, z, r] for heights minH..maxH, grown by boundsPad
+  const half = CHUNK / 2, pad = cfg.boundsPad;
+  const sphereOf = (ox, oz, minH, maxH) => [ox + half, (minH + maxH) / 2 + pad.up, oz + half, Math.hypot(half, half, (maxH - minH) / 2 + pad.radius)];
   // build one chunk's terrain mesh (flat: one normal and color per triangle; smooth: per grid point; texture: colors come from the color map, vertex colors are white).
   // uv = world xz / chunk size, continuous across chunks for tiling textures
   function buildChunk(cx, cz) {
@@ -32,10 +38,10 @@ export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biome
       p += 3;
       uv[q++] = (ox + x) / CHUNK; uv[q++] = (oz + z) / CHUNK;
     }
+    const N = [0, 0, 0];
     function tri(ax, ay, az, bx, by, bz, qx, qy, qz) {
-      const ux = bx - ax, uy = by - ay, uz = bz - az, vx = qx - ax, vy = qy - ay, vz = qz - az;
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+      faceN(ax, ay, az, bx, by, bz, qx, qy, qz, N);
+      const nx = N[0], ny = N[1], nz = N[2];
       if (!painted) faceColor((ay + by + qy) / 3, ny, ox + (ax + bx + qx) / 3, oz + (az + bz + qz) / 3, tmp);
       vert(ax, ay, az, nx, ny, nz); vert(bx, by, bz, nx, ny, nz); vert(qx, qy, qz, nx, ny, nz);
     }
@@ -71,15 +77,16 @@ export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biome
         tri(x1, hb, z0, x0, hc, z1, x1, hd, z1);
       }
     }
-    const half = CHUNK / 2, pad = cfg.boundsPad;
-    const out = { pos, nor, col, uv, minH, maxH, sphere: [ox + half, (minH + maxH) / 2 + pad.up, oz + half, Math.hypot(half, half, (maxH - minH) / 2 + pad.radius)] };
+    const out = { pos, nor, col, uv, minH, maxH, sphere: sphereOf(ox, oz, minH, maxH) };
     if (colorMap) out.tex = colorMap(cx, cz);
     return out;
   }
 
   function inFlatZone(x, z) { for (const f of cfg.flatten) if (Math.hypot(x - f.x, z - f.z) < f.radius * (f.clearRatio ?? 0.8)) return true; return false; }
   // vegetation placement: the shared rule code (core/scatter.js) over this terrain's height, slope, ground types and edits
-  const place = makePlacer({ chunk: CHUNK, seed: SEED, surface, slope, typeAt: biomeAt, fbm, skip: editedCell, flat: cfg.flatten.length ? inFlatZone : null });
+  const skip = shape ? (x, z) => !shape.has(x, z) || editedCell(x, z) : editedCell;
+  const place = makePlacer({ chunk: CHUNK, seed: SEED, surface, slope, typeAt: biomeAt, fbm, skip, flat: cfg.flatten.length ? inFlatZone : null });
 
-  return { buildChunk, place, gridNormal };
+  const build = shape ? makeIslandBuilder({ CHUNK, RES, CELL, gridH, faceColor, paintColor, cellType, diagOf, gridNormal, textured, smoothLight, colorMap, shape, sphereOf }) : buildChunk;
+  return { buildChunk: build, place, gridNormal };
 }

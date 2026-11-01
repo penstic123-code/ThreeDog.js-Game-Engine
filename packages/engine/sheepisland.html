@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>threedog · sheep island</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#efebe4;color:#4a4640;font:13px system-ui,sans-serif}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  #help{position:fixed;left:12px;top:12px;background:rgba(255,255,255,.6);padding:8px 12px;border-radius:8px;max-width:60vw}
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="help">Sheep island · <code>?time=day|dusk|night</code> <code>weather=clear|snow</code> <code>view=overview|flock|field</code></div>
+<script>if (location.search.includes('threedog-headless')) document.getElementById('help').hidden = true;   // screenshots show the scene only</script>
+<script type="module" src="/examples/sheepisland/main.js"></script>
+</body>
+</html>

@@ -11,7 +11,6 @@ Content loading (content() module)
 - `content.place(name: string) → XZ | null` — Place name -> position (load's places first, then level markers), null if none
 - `content.where(p: { place?, x?, z? }) → XZ` — Position form in content { place?, x?, z? } -> world coordinates
 - `content.template(name: string) → Readonly<ContentTemplate>` — The shared, frozen definition of a content template (content/templates.js); instance state lives on the world record. e.g. template('chest').container.capacity
-- `content.spawn(name: string, at: any, fields?: { id?, rot?, scale?, y?, items?, … }) → WorldRecord` — New runtime instance of a template (inside an op or fixed step), saved whole; returns the world record (kind = template name). e.g. spawn('chest', { x: 10, z: 4 }, { opened: true })
 - Properties:
   - `ready: boolean` All vegetation models are fetched and the models of world data such as nearby props are built (world.ready)
   - `markers: Map<string, HudMarker | undefined>` Markers added by the marker effect: id -> marker

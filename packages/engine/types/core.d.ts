@@ -88,6 +88,8 @@ export interface EventMap extends GameEvents {
   'time:skip': [{ seconds: number }];
   /** Lightning strike (weather module) */
   'weather:lightning': [];
+  /** engine.weather.set switched to another weather name (once, when the blend starts; setting the same name again does not fire) */
+  'weather:change': [change: { from: string; to: string }];
   /** The fixed-shot camera switched shots */
   'camera:shot': [CameraShotEvent];
   /** engine.setCamera switched the camera kind; settings that belong to the camera (sensitivity, invert Y, field of view) are re-applied on it */
@@ -153,6 +155,8 @@ export interface EventMap extends GameEvents {
   'entity:stage': [EntityStageEvent];
   /** The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale */
   'ground:change': [{ x0: number; z0: number; x1: number; z1: number }];
+  /** terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides */
+  'terrain:void': [{ who: any; position: { x: number; y: number; z: number } }];
   /** A vegetation instance was chopped / removed */
   'vegetation:remove': [VegetationRemoveEvent];
   /** A vegetation instance was restored */
@@ -690,6 +694,13 @@ export interface Ground {
   type(x: number, z: number): string;
   /** Global water level (meters); -Infinity when there is no water */
   waterLevel: number;
+  /**
+   * Is there ground at (x, z). Always true except off the outline of terrain({ shape }), where height is -Infinity and slope 0.
+   * @example if (engine.ground.has(x, z)) engine.snapToGround(chest);
+   */
+  has(x: number, z: number): boolean;
+  /** Height below which something has fallen out of the world (terrain:void): engine.terrain.voidY with terrain({ shape }), else -Infinity */
+  voidY(): number;
   /** Optional: iterate the circular colliders (tree trunks etc.) within range meters of (x, z) */
   forEachCollider?(x: number, z: number, range: number, fn: (cx: number, cz: number, r: number) => void): void;
   /** Optional: chunk edge length (meters) */
@@ -927,7 +938,28 @@ export interface RayHit {
    */
   readonly thing?: HitThing;
 }
-/** What a ray hit is (RayHit.thing, engine.inspect(id).thing). id is null for scenery that is no world record (only mesh and material are known then) */
+/** One reason an object is not (or may not be) drawn: level 'hidden' stops it being seen, 'maybe' may explain an odd look (engine.inspect.scene) */
+export interface SceneReason { code: string; level: 'hidden' | 'maybe'; text: string; fix?: string }
+/** engine.inspect.scene() result */
+export interface SceneInspect {
+  camera: { position: { x: number; y: number; z: number }; near: number; far: number } | null;
+  counts: { total: number; drawn: number; notDrawn: number; byType: Record<string, number> };
+  items: { name: string | null; type: 'Mesh' | 'Points' | 'Line' | 'Sprite'; path: string; id: number; position: { x: number; y: number; z: number }; radius: number | null;
+    material: { type: string; purpose: string | null } | null; visible: boolean; drawn: boolean; reasons?: SceneReason[] }[];
+  /** objects left out by limit */
+  truncated: number;
+  text: string;
+}
+/** engine.thing(id): a HitThing with the registry fields always present */
+export interface Thing extends HitThing {
+  id: string; owner: string; at: string | null; phase: 'setup' | 'play'; saved: 'record' | 'code' | 'session' | 'engine'; keeps: string[]; loses: string[];
+  /** the live object (the record's current model, null when not built) */
+  readonly object: Object3D | null;
+}
+/**
+ * What a ray hit is (RayHit.thing, engine.inspect(id).thing; engine.thing gives the same plus owner / saved): the world record it belongs to, else the
+ * engine.add object. id is null for an object neither knows (engine.scene.add: only mesh and material are known then)
+ */
 export interface HitThing {
   id: string | null;
   kind: string | null;
@@ -950,6 +982,21 @@ export interface HitThing {
   fields: Record<string, any>;
   /** one sentence: where to change it for good */
   edit: string | null;
+  /** who manages it: 'game' (engine.add), 'world' (a record), 'level' / 'stream' / 'engine:<module>' (engine internals) */
+  owner?: string;
+  /** dev: 'main.js:50' where engine.add was called (a record: where it was authored); null in release */
+  at?: string | null;
+  /** 'setup' (before engine.ready or in session:start) or 'play' (with op / tick) */
+  phase?: 'setup' | 'play';
+  op?: string | null;
+  tick?: number;
+  /** how much a save keeps (recipe 41): record = world save; code = thing.set / thing.remove overrides; session = nothing; engine = its module's business */
+  saved?: 'record' | 'code' | 'session' | 'engine';
+  /** what a save keeps / loses, in words */
+  keeps?: string[];
+  loses?: string[];
+  /** removed with thing.remove (held for undo) */
+  removed?: boolean;
 }
 /** A module merging in hits: (origin, direction, max distance) => hit or null */
 export type RayProvider = (origin: Vector3, dir: Vector3, far: number) => RayHit | null;
@@ -1056,6 +1103,8 @@ export interface StateParams {
   state?: string;
   /** Time of day: 'HH:MM' or 0–1 */
   time?: string | number;
+  /** Season name from sky({ seasons }): jumps sky.day to that season's first day (time of day kept) */
+  season?: string;
   /** Weather name */
   weather?: string;
   /** Player position: 'x,z' or a position (sets the focus when there is no player) */
@@ -1345,14 +1394,15 @@ export declare class Engine {
    * Ground height (meters) at (x, z); a position or object also works: engine.surface(mesh.position).
    * For multi-layer ground (bridges, caves, interiors) pass a reference height refY: returns the highest layer not above refY + one step (0.45 m), so
    * standing under a bridge gives the ground and standing on it gives the deck;
-   * without it the highest layer is used (as before). Procedural terrain and flat ground have one layer and ignore refY
+   * without it the highest layer is used (as before). Procedural terrain and flat ground have one layer and ignore refY.
+   * Off the outline of terrain({ shape }) it is -Infinity (no ground there; engine.ground.has(x, z) says so as a boolean)
    */
   surface(x: number, z: number, refY?: number): number;
   surface(at: PositionLike, refY?: number): number;
   /** Slope at (x, z); a position or object also works */
   slope(x: number, z: number): number;
   slope(at: PositionLike): number;
-  /** Ground type at (x, z) (for footsteps, particles); a position or object also works */
+  /** Ground type at (x, z) (for footsteps, particles); a position or object also works. 'void' off the outline of terrain({ shape }) */
   groundType(x: number, z: number): string;
   groundType(at: PositionLike): string;
   /**
@@ -1372,8 +1422,19 @@ export declare class Engine {
   // ---------- Common ----------
   /** Get UI text (i18n) */
   t(key: string, params?: Record<string, any>): string;
-  /** Add an object to the scene, returns the first one */
-  add<T = Object3D>(obj: T, ...more: Object3D[]): T;
+  /**
+   * Add objects to the scene and register them (engine.thing), returns the first one. The last argument may be { id?, save? }: id makes thing.set /
+   * thing.remove changes saved (unique, no '#', one object per call); without it a unique obj.name is used, else a session id obj#n. save: true asks dev
+   * to warn when it cannot be saved. engine.scene.add adds without registering.
+   * @example engine.add(windmill, { id: 'windmill' });
+   */
+  add<T = Object3D>(obj: T, ...more: (Object3D | { id?: string; save?: boolean })[]): T;
+  /**
+   * What a thing is and what a save keeps: a world record id, an engine.add id or name, or any Object3D (its registered ancestor). object is the live
+   * Object3D (not enumerable). Throws with the closest id when nothing matches. Change it with ops.run('thing.set' | 'thing.remove', { id, ... }).
+   * @example engine.thing('windmill').saved   // 'code'
+   */
+  thing(idOrObj: string | Object3D): Thing;
   /**
    * Fully delete an object (use it when you no longer want the object): removes it from its parent, unregisters rays, and releases the geometry and
    * materials of it and its children (textures and geometry / materials shared by assets are not released)
@@ -1399,12 +1460,27 @@ export declare class Engine {
   setShadows(on: boolean): void;
   /** Fog distance (meters), also adjusts the camera far plane */
   setFogFar(d: number): void;
+  /** Tone mapping at run time ('aces' | 'agx' | 'neutral' | 'none'); materials recompile on their next draw, so not every frame */
+  setToneMapping(kind: 'aces' | 'agx' | 'neutral' | 'none'): void;
+  /**
+   * Exposure at run time: a number, [[time 0-1, exposure], ...] over the day or (sky) => number (both evaluated by the sky module each frame);
+   * replaces style.exposure
+   * @example engine.setExposure(1.4);  engine.setExposure(sky => sky.isDay ? 1 : 1.5);
+   */
+  setExposure(v: number | [number, number][] | ((sky: any) => number)): void;
+  /** Exposure per frame from style.exposure / setExposure keyframes or function, null for a plain number; the sky module calls it with engine.sky @readonly */
+  exposureDriver: ((sky: any) => number) | null;
 
   // ---------- Rays, scenarios ----------
   /** Ray: shoot from origin along dir, returns the nearest hit or null (by default only registered static objects are hit) */
   raycast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions): RayHit | null;
   /** Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY) */
   pick(ndcX: number, ndcY: number, opts?: RaycastOptions): RayHit | null;
+  /**
+   * New runtime instance of a content template (inside an op or fixed step), saved whole; returns the world record (kind = template name). Needs content().
+   * e.g. engine.spawn('chest', { x: 10, z: 4 }, { opened: true })
+   */
+  spawn(name: string, at: any, fields?: { id?: string; rot?: number; scale?: number; y?: number; items?: Record<string, number>; [stateField: string]: any }): import('./generated/modules/world/World').WorldRecord;
   /** Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes; emits state:applied when done */
   applyState(params: StateParams): Promise<void>;
   /** Name a group of scenario parameters, then use applyState({ state: name }) or URL ?state=name */
@@ -1494,9 +1570,21 @@ export declare class Engine {
    * @example engine.inspect('chest-home').thing.definedAt   // 'content/props.js:14': edit that line to change the level for good
    * thing (when at is a record id): the record as a thing to change, with where it was authored (see HitThing).
    */
-  inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): {
-    actor: string; at: { x: number; z: number }; near: any[]; thing?: HitThing;
-    ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[];
+  inspect: {
+    (at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): {
+      actor: string; at: { x: number; z: number }; near: any[]; thing?: HitThing;
+      ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[];
+    };
+    /**
+     * The mesh exists but is not drawn: use this first. Lists every Mesh / Points / Line / Sprite in the scene (name, type, world position, bounding radius,
+     * material type and purpose, visible, drawn) and, for each one that is not drawn, every reason found, most likely first: own or ancestor visible = false,
+     * layers not matching the camera, material flags (visible, opacity 0, colorWrite / depthWrite off), scale 0 or NaN, NaN position or vertices, empty geometry
+     * or draw range, behind the camera, beyond camera.far, outside the frustum, bounding radius 0 or NaN, swallowed by fog. Computed on call only.
+     * hidden: only the objects not drawn. limit: how many to list (default 40; counts cover everything). text is the same thing as lines to read.
+     * @example engine.inspect.scene({ hidden: true }).items[0].reasons   // [{ code: 'hidden-ancestor', level: 'hidden', text, fix }]
+     * @example engine.inspect.scene().text
+     */
+    scene(opts?: { hidden?: boolean; limit?: number }): SceneInspect;
   };
   /**
    * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it
@@ -1633,6 +1721,11 @@ export interface GameState {
   cutscene: { count: number; skippable: boolean; [key: string]: any } | null;
   /** Installed module names */
   modules: string[];
+  /**
+   * engine.add / world things by save tier (counts only) and what will not survive a load: unsaved ('obj#3 (main.js:88, made during play by op x)'),
+   * conflicts (two systems managing one object), orphans (saved ids no object has); atCapped when dev stopped taking stacks
+   */
+  scene: { game: number; code: number; session: number; world: number; engine: number; unsaved: string[]; conflicts: string[]; orphans: string[]; atCapped?: boolean };
   /** Performance (fps/cpuMs are null while paused) */
   perf: {
     fps: number | null; cpuMs: number | null; drawCalls: number; triangles: number; pixelRatio: number;

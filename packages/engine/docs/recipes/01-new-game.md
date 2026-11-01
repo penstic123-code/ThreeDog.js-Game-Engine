@@ -9,7 +9,7 @@ npm run new-game my-farm            # minimal open world
 npm run new-game my-farm --blank    # flat ground, a player and a follow camera only
 ```
 (npm treats `--blank` as its own config and the script reads it from the `npm_config_blank` environment variable, so write it exactly like this,
-without `-- --blank`.)
+without `-- --blank`. The CLI form takes the flag directly: `npx threedog new-game my-farm --blank`.)
 The name may only contain lowercase letters, digits and dashes; an existing directory under `games/` with the same name is refused. What it does:
 1. Copies `packages/tools/templates/game/` to `games/my-farm/` (`__NAME__` in the files is replaced by the name).
 2. Creates the `node_modules/@threedog/my-farm` link and updates the workspace entry in `package-lock.json` (if offline, only a warning).
@@ -19,6 +19,10 @@ The generated game is a minimal open world: `openWorld` + `interactions / invent
 in `content/templates.js` placed by `content/props.js`, searched through the op `stash.search`); its `main.js` also shows the game's own state
 registered with `describe.add` and `saves.register`, an op with `can` / `run`, and the `onFixed` / `onFrame` split; `--blank` copies the same template
 without `content/` and replaces `main.js` with `templates/blank/main.js` (no inventory, no content). The structure is the same as the manual one below.
+**Start clean from the full template** (when you did not use `--blank`): keep `createEngine`, `openWorld`, `start` and `window.engine`; replace the
+contents of `content/items.js pickups.js props.js templates.js actions.js`; in `main.js` delete the `game` object (hp / hunger), the
+`player.rest` op, the `onFixed` hunger timer, the HP counter in `onFrame` and the `stash.search` op; remove `sky: presets.calendar.cycle` if the
+game has no day cycle. `spawn` and `places` take any `{ x, z }` (or `{ x, y, z }`); `findSpawn` is only for generated terrain.
 To change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` / `firstPerson` / `rts` / `fixed`, or pass a camera module directly; there is
 no default).
 - The comments in `main.js` list further gameplay modules you can add; usage is in `../api/<module>.md`.
@@ -30,7 +34,7 @@ no default).
 ## 1. Creating the files by hand (to learn what each file is, or when the template doesn't fit)
 | File | Content |
 |---|---|
-| `games/farm/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game farm`) and set `name` to `@threedog/farm` (dependencies `threedog`, `@threedog/tools`, plus `@threedog/style-lowpoly` and `@threedog/terrain-noise` when `main.js` imports them; scripts dev/build/preview/test/check/map) |
+| `games/farm/package.json` | Copy `package.json` from the game template (or run `npx threedog new-game farm`) and set `name` to `@threedog/farm` (dependencies `threedog`, `@threedog/tools`, plus `@threedog/style-lowpoly` (it needs `@threedog/post-effects` too) and `@threedog/terrain-noise` when `main.js` imports them; scripts dev/build/preview/test/check/map) |
 | `games/farm/vite.config.js` | One line: `export default gameConfig(import.meta.dirname)` (imported from `@threedog/tools/vite`); *.html files in the directory are bundled automatically, no `input` needed. Without `@threedog/tools`, a plain vite config needs `worker: { format: 'es' }` (the engine's Workers are ES modules) or `vite build` fails; `threedog dev / build` on a folder with no vite config uses the preset |
 | `games/farm/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §5 for embedding |
 | `games/farm/main.js` | Install modules, compute places, `content.load`, game-specific logic |
@@ -42,7 +46,7 @@ no default).
 
 After creating them, run `npm install` once at the repository root (this links the new game into the workspaces so `threedog` can find it).
 
-Outside the engine repository, a game installs `threedog` and `three` (plus `@threedog/style-lowpoly` / `@threedog/terrain-noise` if it imports them,
+Outside the engine repository, a game installs `threedog` and `three` (plus `@threedog/style-lowpoly` + `@threedog/post-effects` / `@threedog/terrain-noise` if it imports them,
 and `@threedog/tools` as a dev dependency for the CLI and the vite preset). To use an engine folder on disk instead of npm, install it with
 `npm install --install-links <folder>`: a plain link skips the engine's own dependencies (Rapier, Recast) and the build cannot resolve them.
 

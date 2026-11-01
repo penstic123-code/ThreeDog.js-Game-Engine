@@ -27,11 +27,11 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
+- water: `node_modules/threedog/docs/recipes/44-water-weather-look-hooks.md` · `node_modules/threedog/docs/api/water.md`
 - collision: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/collision.md`
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - ambience: `node_modules/threedog/docs/recipes/31-audio.md` · `node_modules/threedog/docs/api/ambience.md`
-- settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - …8 more modules: their pages are in `node_modules/threedog/docs/api/`
 
 Not used yet (check these before writing the system yourself):
@@ -90,7 +90,7 @@ Starting inventory: apple×5, key×1, wood×12. Pickups: 0.
 - Place stage: a flat spot near water (found at startup); all exhibits are placed relative to it
 - Place water: the nearest water to the stage (found at startup)
 
-## Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)
+## Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)
 
 | Template | Model | Collide | Interact (op / label) | Container | State (defaults) | Instances |
 |---|---|---|---|---|---|---|
@@ -107,7 +107,7 @@ Starting inventory: apple×5, key×1, wood×12. Pickups: 0.
 - content/npcs.js: 1 (guide)
 - content/vegetation.js: 5 rules (instances generated from each rule)
 
-Placed from code at startup: none (rule R33).
+Code that breaks saves or manages world models: none (rule R33).
 
 ## Timed events (engine.clock, engine.sky)
 

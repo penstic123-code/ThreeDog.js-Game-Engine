@@ -6,6 +6,7 @@
 // (first truthy field in the table's order wins), else neutral gray. tiles: false = off; a function = your own part.
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
+import { surfaceOr } from '../../core/ground.js';
 
 const GAP = 0.03;   // fraction of a cell left between tiles: keeps tiles visibly separate (crisp edges)
 const FALLBACK = 0x9a9a9a;
@@ -31,18 +32,19 @@ export function layerTiles(e, layer) {
   mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
   const geo = new THREE.BufferGeometry(), mesh = new THREE.Mesh(geo, mat);
   mesh.name = `grid:${layer.grid.name}.${name}`; mesh.receiveShadow = true; mesh.frustumCulled = false;
-  e.add(mesh);
+  e.add(mesh, { owner: 'engine:grid' });
   let ver = -1, ground = 0, built = -1;
   const off = e.events.on('level:loaded', () => { ground++; });   // a new level = new ground heights
   const col = new THREE.Color(), g = layer.grid;
   function rebuild() {
     const cells = layer.query(), pos = [], clr = [], idx = [];
+    let last = 0;   // height of the previous corner: a corner beyond the island borrows it instead of -Infinity
     for (const { cell, data } of cells) {
       const c = look(data, cell);
       if (c == null) continue;
       col.set(c);
       const x0 = g.origin.x + (cell[0] + GAP) * g.cell, z0 = g.origin.z + (cell[1] + GAP) * g.cell, s = g.cell * (1 - 2 * GAP), n = pos.length / 3;
-      for (const [x, z] of [[x0, z0], [x0, z0 + s], [x0 + s, z0 + s], [x0 + s, z0]]) { pos.push(x, e.surface(x, z) + lift, z); clr.push(col.r, col.g, col.b); }
+      for (const [x, z] of [[x0, z0], [x0, z0 + s], [x0 + s, z0 + s], [x0 + s, z0]]) { pos.push(x, (last = surfaceOr(e, x, z, undefined, last)) + lift, z); clr.push(col.r, col.g, col.b); }
       idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
     }
     geo.dispose();   // frees the old GPU buffers now (new attributes are uploaded on the next draw) instead of leaving them to GC

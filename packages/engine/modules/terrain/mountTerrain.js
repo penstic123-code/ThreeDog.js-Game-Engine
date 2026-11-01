@@ -10,7 +10,15 @@ export function mountTerrain(m, c, t) {
   g.setAttribute('normal', new THREE.BufferAttribute(t.nor, 3));
   g.setAttribute('color', new THREE.BufferAttribute(t.col, 3));
   g.setAttribute('uv', new THREE.BufferAttribute(t.uv, 2));
-  const mesh = new THREE.Mesh(g, t.tex ? mountColorMap(m, c, t.tex, c.cx * m.T.CHUNK, c.cz * m.T.CHUNK) : m.terrainMat);   // texture shading: a material with this chunk's color map
+  let mat = t.tex ? mountColorMap(m, c, t.tex, c.cx * m.T.CHUNK, c.cz * m.T.CHUNK) : m.terrainMat;   // texture shading: a material with this chunk's color map
+  if (t.top != null) {   // island chunk (terrain({ shape })): vertices are top, side, bottom
+    const rest = t.pos.length / 3 - t.top;
+    // the color map is sampled by world xz, so it would smear down the sides: sides and bottom keep vertex colors (or the game's material)
+    if (rest && (t.tex || m.sideMat)) { g.addGroup(0, t.top, 0); g.addGroup(t.top, rest, 1); mat = [mat, m.sideMat ?? m.terrainMat]; }
+    c.solidCount = t.solid;   // collision takes top and sides, not the bottom
+    m.lowest = Math.min(m.lowest, t.minH);
+  }
+  const mesh = new THREE.Mesh(g, mat);
   mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false;
   c.group = new THREE.Group();
   c.group.userData.budgetTag = 'terrain';

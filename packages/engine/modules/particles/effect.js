@@ -32,7 +32,7 @@ export class Effect {
     this.points = new THREE.Points(g, this.material);
     this.points.frustumCulled = false; this.points.visible = false; this.points.renderOrder = 10;
     this.points.matrixAutoUpdate = false;
-    sys.engine.add(this.points);
+    sys.engine.add(this.points, { owner: 'engine:particles' });
     this._c0 = new THREE.Color(); this._c1 = new THREE.Color();
     if (o.texture) this._loadTexture(o.texture);
   }

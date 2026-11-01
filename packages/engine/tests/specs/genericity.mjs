@@ -256,17 +256,16 @@ export const specs = [
           out.calm = w.types.dust.cloud === 0 && w.types.dust.rain === 0 && w.types.dust.sun === 1;
           out.gameWins = w.types.clear.cloud === 0.1;
           out.heatOnClear = w.types.clear.heat;
-          out.noParticles = w.rain === null && w.snow === null;
+          out.noParticles = w.systems.size === 0;
           w.set('snow', 1); out.afterSnow = w.name;
           w.set('dust', 1); for (let i = 0; i < 120; i++) w.tick(1 / 60);
           out.heat = w.current.heat; out.dust = w.name;
           // no table: the engine assumes no climate, only a calm clear (no rain particles); the preset is opt-in and the style fills its fields
           const def = new Weather(engine, {});
-          out.bare = Object.keys(def.types).join(',') + (def.rain ? '+rain' : '');
+          out.bare = Object.keys(def.types).join(',') + (def.systems.size ? '+rain' : '');
           const t = new Weather(engine, { types: { ...temperate, storm: { lightning: 1 } } });
           out.preset = Object.keys(t.types).length; out.styleFills = t.types.storm.cloud === 0.123 && t.types.clear.cloud === 0.15;
-          t.rain.removeFromParent(); t.snow.removeFromParent();
-          for (const o of [t.rain, t.snow]) { o.geometry.dispose(); o.material.dispose(); }
+          for (const { object: o } of t.systems.values()) { o.removeFromParent(); o.geometry.dispose(); o.material.dispose(); }
           try { new Weather(engine, { types: { dust: {} }, start: 'clear' }); } catch (err) { out.badStart = err.message; }
           try { new Weather(engine, { types: { dust: { wind: 'strong' } } }); } catch (err) { out.badField = err.message; }
         } finally { engine.style.weather = style; }

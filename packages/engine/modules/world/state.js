@@ -54,6 +54,16 @@ class Internals {
     for (const [a, b] of Object.entries(map)) this._renames.set(a, b);
     return renamePending(this);
   }
+  /** @internal Whether id is an authored (content) record, removed or not: thing.remove's undo puts such a record back without a world.add */
+  authored(id) { return this._base.has(id); }
+  /**
+   * @internal Undo of a removal (thing.remove): an authored record loses its tombstone and comes back as it was; a runtime record is added again.
+   * @param {any} rec  the record as it was (a copy) @param {boolean} authored
+   */
+  restore(rec, authored) {
+    if (!authored) { const { id, kind, ...rest } = rec; this.add({ id, kind, ...rest }); return; }
+    this._removed.delete(rec.id); this._insert(structuredClone(rec), true);
+  }
   /** @internal whether some code already called present(kind) (content templates refuse to take over a kind with its own presenter) @param {string} kind */
   presents(kind) { return this._v.presenters.has(kind); }
   /** @internal The gameplay anchor in effect (anchor, else engine.actorPosition(), else engine.focus) */

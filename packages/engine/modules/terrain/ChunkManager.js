@@ -10,7 +10,6 @@ import { createTerrain } from './terrainGen.js';
 import { chunkHandler } from './chunkJob.js';
 import { TerrainEdits } from './terrainEdit.js';
 import { terrainMaterial } from '../../render/materials.js';
-import { xzOf } from '../../core/math.js';
 import { chunkRing } from '../../core/streamSources.js';
 import { chunkQueries } from './chunkQueries.js';
 import { mountTerrain } from './mountTerrain.js';
@@ -38,6 +37,8 @@ export class ChunkManager {
     this.stats = { builtThisFrame: 0, applyMs: 0, queued: 0 };
     this.terrainMat = terrainMaterial(typeof material === 'function' ? material(engine) : material, engine);
     this.centers = [];                            // stream sources in chunk units: { cx, cz, R, simple } (set by update)
+    this.sideMat = null;                          // shape.side.material: island sides and bottoms
+    this.lowest = 0;                              // lowest island point loaded (default voidY)
     this._frustum = new THREE.Frustum();
     this._m = new THREE.Matrix4();
 
@@ -49,6 +50,12 @@ export class ChunkManager {
   }
 
   get CHUNK() { return this.T.CHUNK; }
+  /**
+   * Below it the player or a moving body fell out of the world (terrain:void): shape.voidY, else 50 m under the lowest island
+   * chunk loaded (at most -50); -Infinity without a shape
+   * @example engine.events.on('terrain:void', ({ who }) => { if (who === engine.player) engine.player.placeAt(home); });
+   */
+  get voidY() { return this.T.shape ? this.T.shape.voidY ?? Math.min(0, this.lowest) - 50 : -Infinity; }
   /** Grid spacing (meters): edits snap to it, and paint colors whole cells of this size. Set by chunkSize / resolution */
   get cellSize() { return this.T.CELL; }
   /**
@@ -59,7 +66,7 @@ export class ChunkManager {
    * @param {import('three').Vector3 | {x:number,z:number} | number[]} position
    * @param {{ radius?: number, shape?: 'circle' | 'square', raise?: number, lower?: number, flatten?: number, paint?: string | null }} opts
    *   radius meters (default half a cell); one of raise / lower (meters) / flatten (target height); paint a type name, null gives back the generated type
-   * @returns {{ heights: number, cells: number }} how many grid points and cells changed
+   * @returns {{ heights: number, cells: number }} how many grid points and cells changed (0 and 0 off a shape outline)
    * @example
    * engine.ops.define('farm.till', { args: { at: 'position' },
    *   run(e, a) { e.terrain.edit(a.at, { shape: 'square', radius: e.terrain.cellSize / 2, paint: 'tilled' }); } });
@@ -270,16 +277,6 @@ export class ChunkManager {
 
   /** Stop the chunk workers (called by terrain dispose; in-flight results are discarded) */
   dispose() { this.lane.dispose(); this.ready.length = 0; }
-  /** Whether chunks within `rings` rings (default 1) of a position are generated (for the loading screen); solid: also their collision has taken effect */
-  isReadyAround(position, { rings = 1, solid = false } = {}) {
-    const [x, z] = xzOf(position), CH = this.T.CHUNK, pcx = Math.floor(x / CH), pcz = Math.floor(z / CH);
-    for (let dz = -rings; dz <= rings; dz++) for (let dx = -rings; dx <= rings; dx++) {
-      const c = this.chunks.get((pcx + dx) + ',' + (pcz + dz));
-      if (!c || c.state !== 'ready' || solid && !c.solid) return false;
-    }
-    return true;
-  }
-
   /** @internal vegetation / settings plumbing */
   refreshLevels() { for (const c of this.chunks.values()) c.level = -1; }
 

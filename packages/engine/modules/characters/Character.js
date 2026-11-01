@@ -10,6 +10,7 @@
 // The procedural body (capsule, style-pack rig, limb swing) is in proceduralRig.js.
 import * as THREE from 'three';
 import { xzOf } from '../../core/math.js';
+import { placeY } from '../../core/ground.js';
 import { warnOnce, warnMissing } from '../../core/validate.js';
 import { findClip } from '../../core/Animator.js';
 import { simpleMover } from './movers/simple.js';
@@ -113,7 +114,7 @@ export class Character {
   get object() { return this.root; }
   addTo(scene = this.engine.scene) { scene.add(this.root); return this; }
   /** Place on the ground at a position (Vector3 / Object3D / [x, y, z] / { x, z }) */
-  placeAt(position) { const [x, z] = xzOf(position); this.root.position.set(x, this.engine.surface(x, z), z); this._store(); return this; }
+  placeAt(position) { const [x, z] = xzOf(position); this.root.position.set(x, placeY(this.engine, 'character.placeAt()', x, z, undefined, this.root.position.y), z); this._store(); return this; }
   /** Write position and motion state back to the world record (only if recordId is set; saveMotion writes into the record without allocating) @internal */
   _store() { const id = this.recordId; if (id) { const W = this.engine.world; this.saveMotion(W.get(id)); W.move(id, this.root.position); } }
   /** After moving root yourself (a cutscene path, a scripted pose): write position and motion back to the world record, so a save right after has it */

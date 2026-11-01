@@ -130,6 +130,7 @@ const PAGE = {
       + (o.ok ? '' : ` (${o.reason}${o.why ? ': ' + o.why : ''})`)).join(' · ') || 'No ops on offer',
       r.thing?.edit && `${r.thing.id}: ${r.thing.edit}`].filter(Boolean).join('\n');
   },
+  scene: (a, e) => { const r = e.inspect.scene({ hidden: a.hidden, limit: a.limit }); return { ok: true, text: r.text, data: { camera: r.camera, counts: r.counts, items: r.items, truncated: r.truncated } }; },
   explain: (a, e) => { const r = e.explain({ [a.key]: a.value }); return { ok: r.ok, text: r.text, detail: r.detail }; },
   // pick: screen pixels (from the canvas top-left) -> the thing under them (engine.pick(...).thing): record id, kind, template, where it was authored
   pick: (a, e) => {

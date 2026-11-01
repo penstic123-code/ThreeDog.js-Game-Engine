@@ -6,7 +6,7 @@
 //       container: { capacity: 6, items: { berry: 2 } }, sound: { use: 'chest' },               // container id = record id
 //       animate: (rec, obj, dt) => { obj.rotation.x = rec.opened ? -0.3 : 0; } } };              // per-frame look from the record
 //   content/props.js:  { template: 'chest', id: 'chest-home', place: 'home', x: 3, z: 1, opened: true, items: { film: 2 } }   // position + overrides
-//   code (in an op or fixed step): engine.content.spawn('chest', { x: 10, z: 4 }, { opened: true })                         // runtime copy, saved whole
+//   code (in an op or fixed step): engine.spawn('chest', { x: 10, z: 4 }, { opened: true })                         // runtime copy, saved whole
 // Definition (shared, read-only): model, collide, static, interact, container capacity / starting goods, sound, animate, state defaults.
 // Instance (saved): the record (id, kind, position, rot, scale, y offset, state fields) and the container with the record's id (its goods).
 // A placement may override only rot / scale / y / items and the state fields; a different look or behaviour is a different template.
@@ -16,6 +16,7 @@
 // Ids: an instance with state (state / container / interact / body) should have a written id (ids.js); without one dev warns.
 import { checkOptions, freezeDef, missingText, fmt, DEV } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
+import { placeY } from '../../core/ground.js';
 import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { srcOf, stateful, templateId } from './ids.js';
 
@@ -80,17 +81,17 @@ export function placeTemplate(e, api, st, p, i, zone, ids, origin) {
   if (floor !== undefined) own.floor = floor;   // same as props: a moved instance lands on the same storey
   if (ids && p.id != null) ids.claim(p.id, `props[${i}] (template ${name})`);
   else if (ids && stateful(d)) ids.unnamed(id, `props[${i}] (template ${name})`);
-  const rec = e.world.add({ id, kind: name, position: { x, y: y ?? e.surface(x, z), z }, ...own, ...(zone != null && { zone }) }, { initial: true });
+  const rec = e.world.add({ id, kind: name, position: { x, y: y ?? placeY(e, `props[${i}] (template ${name})`, x, z), z }, ...own, ...(zone != null && { zone }) }, { initial: true });
   if (rec && rec.kind !== name) throw new Error(fmt(STRINGS.clash, { id, kind: rec.kind, name }));
   if (DEV) e.world.setOrigin(id, { ...(typeof origin === 'string' ? { definedAt: origin } : origin), template: name, templateAt: st.templateSrc.get(name) ?? null, model: d.model });
   if (rec) openContainer(e, name, d, id, p.items);   // null = removed in the save: no container either
 }
 
-/** engine.content.spawn: a runtime instance (saved whole). at = position ({ x, z } or [x, y, z]; it sits on the ground, fields.y lifts it). @internal */
+/** engine.spawn: a runtime instance (saved whole). at = position ({ x, z } or [x, y, z]; it sits on the ground, fields.y lifts it). @internal */
 export function spawnTemplate(e, st, name, at, fields = {}) {
   const d = templateOf(st, name), [x, z] = xzOf(at);
   const own = instanceFields(name, d, fields, ['id']);
-  const rec = e.world.add({ ...(fields.id != null && { id: fields.id }), kind: name, position: { x, y: e.surface(x, z) + (fields.y ?? 0), z }, ...own });
+  const rec = e.world.add({ ...(fields.id != null && { id: fields.id }), kind: name, position: { x, y: placeY(e, `engine.spawn('${name}')`, x, z, undefined, 0) + (fields.y ?? 0), z }, ...own });
   if (DEV) e.world.setOrigin(rec.id, { template: name, templateAt: st.templateSrc.get(name) ?? null, model: d.model });   // world.add already noted the op that spawned it
   openContainer(e, name, d, rec.id, fields.items);
   return rec;

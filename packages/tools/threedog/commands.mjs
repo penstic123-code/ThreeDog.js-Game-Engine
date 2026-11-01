@@ -35,6 +35,7 @@ function options(args) {
   const rest = [], opt = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--max') opt.max = +args[++i]; else if (args[i] === '--full') opt.full = true; else if (args[i] === '--all') opt.all = true;
+    else if (args[i] === '--limit') opt.limit = args[++i]; else if (args[i] === '--hidden') opt.hidden = true;
     else if (args[i] === '--only') opt.only = args[++i].split(',').filter(Boolean);
     else if (args[i] === '--ignore') opt.ignore = args[++i].split(',').filter(Boolean);
     else if (args[i] === '--tolerance') opt.tolerance = +args[++i];
@@ -62,6 +63,7 @@ export const COMMANDS = {
   ops: 'what the player can do now (each op offer checked with can): ✓ shop.buy shop=bakery item=bread · ✗ … (reason)',
   op: 'run an op as source bridge (no time passes): op shop.buy shop=bakery item=bread n=2 (values converted by the op args shape)',
   inspect: 'what is around the player (or inspect npc_3 / inspect 10,-4) and which ops it can do now, with reasons',
+  scene: 'the mesh exists but is not drawn: lists every Mesh / Points / Line / Sprite (position, size, material, drawn or not) and WHY each undrawn one is not (visible=false up the parents, layers, material flags, scale 0 / NaN, empty geometry, behind camera, beyond far, outside the view, fog...): scene [--hidden (only undrawn)] [--limit N] [--json]',
   pick: 'what is at screen pixel x,y (from the canvas top-left): pick 480,270 -> record id, kind, template, where it is defined (content file:line), fields',
   explain: 'why: explain op shop.buy shop=bakery item=bread (can it run; --full adds its last attempt) / explain quest first-light (where it is stuck)',
   scenario: 'run one scenario test (tests/scenarios/<name>.json) on this page: scenario barter (prints failed checks; the scenario leaves the page paused)',
@@ -154,6 +156,12 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'inspect': {
       const at = rest[0] && /^-?[\d.]+,-?[\d.]+$/.test(rest[0]) ? rest[0].split(',').map(Number) : rest[0];
       return { ok: true, text: lines(await ev(driver, 'inspect', { at }), 3) };
+    }
+    case 'scene': {
+      const limit = opt.limit ? Number(opt.limit) : undefined;
+      if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) throw new Error('--limit must be a whole number above 0, e.g. threedog scene --hidden --limit 20');
+      const r = await ev(driver, 'scene', { hidden: !!opt.hidden, limit });
+      return { ok: r.ok, text: r.text, data: r.data };
     }
     case 'pick': {
       const m = /^(-?[\d.]+),(-?[\d.]+)$/.exec(rest[0] ?? '');

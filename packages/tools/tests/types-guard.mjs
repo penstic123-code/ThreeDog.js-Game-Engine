@@ -17,6 +17,11 @@ v.set('1', 2, 3);
 createEngine({ canvas: document.createElement('canvas'), styel: {} });
 const home = new THREE.Vector3();
 console.log(home[0]);
+// A plain object literal (no annotation): TypeScript widens 'texture' / 'mix' / a [[t, v]] list; that must still pass. A misspelled field must still fail.
+const okStyle = { terrain: { config: { shading: 'texture' } }, seasons: { mode: 'mix' }, exposure: [[0, 1.6], [0.5, 1]], post: [{ name: 'x', slot: 'ldr' }] };
+const badStyle = { exposur: 1 };
+createEngine({ canvas: document.createElement('canvas'), style: okStyle });
+createEngine({ canvas: document.createElement('canvas'), style: badStyle });
 `;
 
 export async function run({ check }) {
@@ -34,6 +39,8 @@ export async function run({ check }) {
     check('three.js vector argument type: v.set(\'1\', …)', errs.some(l => /probe\.js:5 .*expected number/.test(l)), errs.join(' | '));
     check('engine option typo: styel', errs.some(l => /probe\.js:6 .*styel/.test(l)), errs.join(' | '));
     check('numeric index on a Vector3: home[0] (any would silently turn into NaN)', errs.some(l => /probe\.js:8 .*numeric index/.test(l)), errs.join(' | '));
-    check('no other errors (declarations themselves are clean)', errs.length === 4, errs.join(' | '));
+    check('unannotated style literal with literal-union fields passes (line 12)', !errs.some(l => /probe\.js:12 /.test(l)), errs.join(' | '));
+    check('misspelled style field still fails (line 13)', errs.some(l => /probe\.js:13 /.test(l)), errs.join(' | '));
+    check('no other errors (declarations themselves are clean)', errs.length === 5, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

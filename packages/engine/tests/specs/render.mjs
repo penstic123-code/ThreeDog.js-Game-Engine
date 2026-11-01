@@ -154,10 +154,10 @@ export const specs = [
         console.warn = warn;
         // 引擎自己的着色器材质：天空穹顶、雨雪、水（如果装了）
         engine.particles.define('renderTestGlsl', {});
-        const own = [engine.sky.dome.material, engine.weather.rain.material, engine.water.material].filter(Boolean);
+        const own = [engine.sky.dome.material, engine.weather.systems.get('rain')?.object.material, engine.water.material].filter(Boolean);
         for (const m of own) place(new THREE.Mesh(g, m));
         const dot = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
-        for (const m of [engine.weather.snow.material, engine.particles.effects.get('renderTestGlsl').material]) place(new THREE.Points(dot, m));
+        for (const m of [engine.weather.systems.get('snow').object.material, engine.particles.effects.get('renderTestGlsl').material]) place(new THREE.Points(dot, m));
         // canary: a patch with a GLSL typo must be the one and only error, which proves the check sees real compile failures
         place(new THREE.Mesh(g, applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'canary', glsl: { fragment: { color_fragment: 'diffuseColor.rgb *= threedogNope;' } } }] })));
         const prev = R.debug.onShaderError;
@@ -241,11 +241,11 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const W = engine.weather, out = {};
-        out.chunks = [W.rain.material, W.snow.material].every(m => m.fragmentShader.includes('#include <colorspace_fragment>') && m.fragmentShader.includes('#include <tonemapping_fragment>'));
-        out.noRawTime = ![W.rain.material, W.snow.material].some(m => /uTime/.test(m.vertexShader));
+        const W = engine.weather, out = {}, rain = W.systems.get('rain'), snow = W.systems.get('snow');
+        out.chunks = [rain.object.material, snow.object.material].every(m => m.fragmentShader.includes('#include <colorspace_fragment>') && m.fragmentShader.includes('#include <tonemapping_fragment>'));
+        out.noRawTime = ![rain.object.material, snow.object.material].some(m => /uTime/.test(m.vertexShader));
         engine.step(0.2, { render: false });
-        out.wrapped = W.rainU.uFallOff.value >= 0 && W.rainU.uFallOff.value < W.size && W.snowU.uSway.value < 20 * Math.PI;
+        out.wrapped = rain.uniforms.uFallOff.value >= 0 && rain.uniforms.uFallOff.value < W.area && snow.uniforms.uSway.value < 20 * Math.PI;
         return out;
       });
       check('雨和雪的片元着色器 include 了 tonemapping / colorspace', r.chunks, JSON.stringify(r));

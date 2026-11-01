@@ -23,7 +23,9 @@ export function mountColorMap(m, c, t, ox, oz) {
     uniforms: { uTColorMap: { value: tex }, uTColorRect: { value: rect } },
     glsl: { fragment: {
       pars: 'uniform sampler2D uTColorMap; uniform vec4 uTColorRect;',
-      color_fragment: 'diffuseColor.rgb *= texture2D(uTColorMap, (vThreedogWorld.xz - uTColorRect.xy) * uTColorRect.z + uTColorRect.w).rgb;',
+      // before the vertex colors (white on a textured top): every after-patch on color_fragment, such as the season tint in 'mix'
+      // mode, then sees the mapped color instead of having it multiplied back over its result
+      color_fragment: { before: 'diffuseColor.rgb *= texture2D(uTColorMap, (vThreedogWorld.xz - uTColorRect.xy) * uTColorRect.z + uTColorRect.w).rgb;' },
     } },
   }] });
   c.colorTex = tex; c.colorMat = mat;

@@ -8,18 +8,20 @@
 //
 // three.js objects: engine.water.sea (global water Mesh, may be null), material (shared by all water), bodies (Map: water body → its Mesh)
 // Style pack: water = { color, opacity, flat, waveHeight, waveScale, waveSpeed, normalMap: '/textures/water-n.jpg', normalScale, normalRepeat,
-//                   normalSpeed: [x, z], fresnel: 0.6, segments, material?: (engine, { uniforms, waves, normalMap }) => Material }
+//                   normalSpeed: [x, z], fresnel: 0.6, segments, depthColor, foam, glsl: { wave, surface }, uniforms,
+//                   material?: (engine, { uniforms, waves, surface, normalMap }) => Material }   (look hooks: recipes/44-water-weather-look-hooks.md)
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { placeholderTexture } from '../../render/effects.js';
 import { patchMaterial } from '../../render/patches.js';
 import { checkOptions, warnOnce } from '../../core/validate.js';
+import { waterLook, wavesPatch, surfacePatch } from './surface.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Material, Vector3 } from '../../types/common' */
 /** @import { WaterBody, WaterOptions } from '../../types/world' */
 // Options accepted by water(): sea / level + any appearance item that overrides the style pack's style.water
 const WATER_OPTIONS = ['sea', 'level', 'color', 'opacity', 'flat', 'waveHeight', 'waveScale', 'waveSpeed', 'fresnel', 'size', 'segments', 'normalMap',
-  'normalScale', 'normalRepeat', 'normalSpeed', 'shininess', 'specular', 'material'];
+  'normalScale', 'normalRepeat', 'normalSpeed', 'shininess', 'specular', 'material', 'depthColor', 'foam', 'glsl', 'uniforms'];
 
 /** engine.water */
 export class Water {
@@ -63,15 +65,12 @@ export class Water {
   /** @internal */
   _material() {
     const st = this.st, e = this.engine;
-    const waves = { name: 'waves',
-      uniforms: { uTime: e.uniforms.uTime, uWave: { value: st.waveHeight }, uWaveScale: { value: st.waveScale }, uWaveSpeed: { value: st.waveSpeed } },
-      glsl: { vertex: { pars: 'uniform float uTime; uniform float uWave; uniform float uWaveScale; uniform float uWaveSpeed;', begin_vertex: `
-        vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz * uWaveScale; float tw = uTime * uWaveSpeed;
-        transformed.y += (sin(wp.x * 0.21 + tw * 1.1) * 0.12 + cos(wp.z * 0.17 + tw * 0.9) * 0.12 + sin((wp.x + wp.z) * 0.37 + tw * 1.7) * 0.05) * uWave;` } } };
+    const look = waterLook(st), surface = surfacePatch(e, look), waves = wavesPatch(e, st, look, !!surface);
     // A whole custom surface (toon foam bands, pixel ripples): the engine still builds the meshes and keeps the shared uniforms and the
-    // normal-map scroll running; the built-in look (role 'water', waves, fresnel) is skipped. waves is offered for applyEffects({ patches })
+    // normal-map scroll running; the built-in look (role 'water', waves, fresnel) is skipped. waves (and surface, when depthColor / foam /
+    // glsl.surface ask for one; it needs waves before it) are offered for applyEffects({ patches })
     if (st.material) {
-      const own = st.material(e, { uniforms: waves.uniforms, waves, normalMap: this.normalMap });
+      const own = st.material(e, { uniforms: waves.uniforms, waves, surface, normalMap: this.normalMap });
       if (!own?.isMaterial) throw new Error('style.water.material must return a three.js Material, e.g. material: (engine, { uniforms }) => new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })');
       return own;
     }
@@ -81,7 +80,7 @@ export class Water {
       lit.normalMap = this.normalMap; lit.normalScale = new THREE.Vector2(st.normalScale, st.normalScale);
     }
     const grey = new THREE.Color(0xcccccc);
-    const patches = [waves];
+    const patches = surface ? [waves, surface] : [waves];
     // grazing-angle reflection: the flatter the view, the closer to the fog (horizon) color; the getter follows whatever fog exists at draw time.
     // Basic material has no normal/view variables, so it gets no reflection
     if (!('isMeshBasicMaterial' in m)) patches.push({ name: 'fresnel',
@@ -103,7 +102,7 @@ export class Water {
     const m = new THREE.Mesh(geo, this.material);
     m.position.set(b.x, b.level - 0.1, b.z);
     this._prep(m, b.radius ? b.radius * 2 : Math.max(b.hw, b.hd) * 2);
-    this.engine.add(m);
+    this.engine.add(m, { owner: 'engine:water' });
     this.bodies.set(b, m);
   }
   /** @internal */
@@ -114,7 +113,7 @@ export class Water {
     this.sea = new THREE.Mesh(new THREE.PlaneGeometry(st.size, st.size, st.segments, st.segments).rotateX(-Math.PI / 2), this.material);
     this.sea.position.y = level - 0.2;
     this._prep(this.sea, st.size);
-    this.engine.add(this.sea);
+    this.engine.add(this.sea, { owner: 'engine:water' });
   }
   /**
    * Per-frame update: global water snaps to the focus grid, normal map scrolls (called by the module itself each frame)

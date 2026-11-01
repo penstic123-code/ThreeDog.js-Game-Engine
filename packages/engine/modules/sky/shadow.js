@@ -1,15 +1,17 @@
 // Sky shadow part (mixed into Sky.prototype): shadow params, placing the shadow center at the focus (snapped to a grid or shadow pixels), updating shadows every N frames.
 import * as THREE from 'three';
 import { shadowTypeOf } from '../../core/shadowTypes.js';
+import { checkCascades, syncCascades } from './cascades.js';
 
 /**
  * The shadow settings to start with: low-tier devices default to a 1024 shadow map (a quarter of the fill cost; the update rate stays,
- * since skipping frames makes wind-swayed shadows stutter); the style's shadow.low overrides that, and sky({ shadow }) wins outright
+ * since skipping frames makes wind-swayed shadows stutter) and one shadow map (cascades redraw the casters once per cascade); the style's
+ * shadow.low overrides that, and sky({ shadow }) wins outright except for cascades, which stay at 1 on low unless its low.cascades says so
  */
 export function shadowFor(tier, styleShadow = {}, optionShadow = undefined) {
-  if (optionShadow) return optionShadow;
+  if (optionShadow) { const { low, ...sh } = optionShadow; return tier === 'low' ? { ...sh, cascades: low?.cascades ?? 1 } : sh; }
   const { low, ...sh } = styleShadow;
-  return tier === 'low' ? { ...sh, mapSize: Math.min(sh.mapSize ?? 2048, 1024), ...low } : sh;
+  return tier === 'low' ? { ...sh, mapSize: Math.min(sh.mapSize ?? 2048, 1024), cascades: 1, ...low } : sh;
 }
 
 export const shadowMethods = {
@@ -17,11 +19,13 @@ export const shadowMethods = {
    * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
    * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view;
    * type = 'basic' (hard edge) | 'pcf' | 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely);
-   * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only)
+   * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only);
+   * cascades / maxFar / fade / lightMargin / split = cascaded shadows (cascades.js)
    */
   setShadow(o = {}) {
     const s = this.shadow;
     if (o.type !== undefined) shadowTypeOf(o.type, 'sky.setShadow({ type })');
+    checkCascades(this, o);
     for (const k of Object.keys(s)) if (o[k] !== undefined) s[k] = o[k];
     const sm = this.engine.renderer.shadowMap, sun = this.sun.shadow;
     // validate before applying so a typo leaves the previous type in place
@@ -29,6 +33,7 @@ export const shadowMethods = {
     else s.type = this.engine.shadowType;
     sun.bias = s.bias; sun.normalBias = s.normalBias; sun.radius = s.radius; sun.blurSamples = s.blurSamples;
     sm.autoUpdate = s.updateEvery <= 1;
+    syncCascades(this);
     // needed after a type switch when autoUpdate is off: otherwise the rebuilt map stays empty until the next scheduled update
     sm.needsUpdate = true;
     return this;
@@ -39,7 +44,7 @@ export const shadowMethods = {
     if (n > 1 && ++this._shadowFrame >= n) { this._shadowFrame = 0; this.engine.renderer.shadowMap.needsUpdate = true; this._shadowAt?.copy(this.sun.target.position); }
   },
 
-  /** Change shadow resolution (raise temporarily for photo mode) */
+  /** Change shadow resolution (raise temporarily for photo mode); with cascades it is the nearest cascade's map (the sun's) */
   setShadowMapSize(n) { const sh = this.sun.shadow; if (sh.mapSize.x === n) return; sh.mapSize.set(n, n); sh.map?.dispose(); sh.map = null; },
 
   // Shadow center: the focus (optionally shifted ahead of the view) snapped to a grid or shadow pixels; request an update when the snapped cell changes and shadows are not updated every frame

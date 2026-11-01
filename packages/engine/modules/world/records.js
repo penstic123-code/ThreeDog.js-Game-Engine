@@ -3,6 +3,7 @@
 import { DEV, checkOptionsArg, fmt } from '../../core/validate.js';
 import { checkPlain } from './persist.js';
 import { putPos, centerOf } from './pos.js';
+import { claimId } from '../../core/things.js';
 
 export const STRINGS = {
   noKind: 'world.add() needs a kind (what sort of thing this is), e.g. world.add({ kind: "crate", position: [0, 0, 0] })',
@@ -24,10 +25,12 @@ export function addRecord(w, def, opts) {
   if (initial) {
     if (!w._base.has(id)) w._base.set(id, structuredClone(rec));
     if (have) return have;
+    claimId(w.engine, id);
     if (w._removed.has(id)) return null;
     return w._insert(w._fromBase(id, w._base.get(id)), true);
   }
   if (have) throw new Error(fmt(STRINGS.dupId, { id }));
+  claimId(w.engine, id);
   if (opts?.save === false) w._unsaved.add(id);
   if (DEV) w._origin.set(id, { spawned: { op: w.engine.ops.running, tick: w.engine.tick } });   // who made it (inspect / pick)
   return w._insert(rec, true);

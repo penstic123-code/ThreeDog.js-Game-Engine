@@ -42,7 +42,7 @@ export default {
       },
       ask: { text: '要面包吗？', choices: [
         { text: '要一个', next: 'buy', if: { has: { coin: 1 } } },
-        { text: '不用了' },                                         // no next = the dialogue ends
+        { text: '不用了' },                                         // a choice with no next = the dialogue ends; a plain node with no next waits for one more interact press, then ends
       ] },
       buy: { text: '刚出炉的。', do: [{ take: { coin: 1 } }, { give: { bread: 1 } }], next: 'end' },
     },
@@ -60,6 +60,9 @@ engine.dialogue.define('passerby', { start: { text: '今天天气不错。', spe
 const npc = engine.npcs.add({ id: 'passerby', name: '路人', position: [10, 0, 5], schedule: [{ at: '08:00', position: [20, 0, 5] }], talk: 'passerby' });   // at: 'HH:MM' or 0-1; without id the name is used
 engine.npcs.remove('passerby');                   // remove by id, name or handle
 ```
+
+**An NPC that stands still** (a quest giver): give `start` and omit both `schedule` and `behavior`; the default `schedule` behavior with no stops
+has no goal, so it stays at `start`: `elder: { name: 'Elder', start: { x: 4, z: 6 }, talk: 'elder-hello' }`.
 
 ## NPC data and model (why npc.root is sometimes null)
 The fact of an NPC is one record in the world data `engine.world` (kind `'npc'`, the id is the id above / the key in content): position, schedule,
@@ -140,7 +143,7 @@ engine.npcs.avoid.set(false);                           // turn off (ghosts, cro
   `npm run map` it shows up in the NPC table and dialogue graph of GAMEMAP.md.
 - State: `npm run shot -- / --time 13:10 --wait 20 --describe-only`; the "nearby" list has an entry for `面包师` tagged as an NPC with its distance in
   meters (only listed within 30 meters; add `--pos x,z` to stand by the river).
-- Console / tests: `engine.npcs.get('面包师').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` has speaker, text, choices.
+- Console / tests: `engine.npcs.get('面包师').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], lock }` (absent when no dialogue runs; the text version prints it as a `Dialogue:` line). `describe` does NOT expose the node id or the NPC id: `speaker` is the display name; to inspect the node, read the content file or listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
 - Advancing a dialogue in a headless test (typing and "keys ignored right after opening" both run on game time): press E when near -> `engine.step(1)`
   to finish typing -> press a number key or run `engine.ops.run('dialogue.choose', { index: i })` (while typing it completes the sentence first) ->
   `engine.step(0.3)`. No real-time waiting.

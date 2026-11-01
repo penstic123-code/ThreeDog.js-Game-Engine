@@ -2,10 +2,10 @@
 
 - **Style** fields (all optional):
   - `name?: string` Style pack name
-  - `exposure?: number` Exposure, default 1 (lowpoly: 1.05)
+  - `exposure?: number | number[][] | ((sky: any) => number)` Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number, evaluated by the sky module every frame. engine.setExposure changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
   - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping, default 'neutral' (lowpoly: 'aces')
   - `background?: ColorLike` Background color (when there is no sky module)
-  - `post?: import('./generated/render/PostFX').PostEffect[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/style-lowpoly'
+  - `post?: (Omit<import('./generate… & { slot? })[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/post-effects'
   - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
   - `antialias?: boolean` Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier; createEngine({ antialias }) wins
   - `lighting?: MaterialLighting` Light shaping for every lit material of the pack (shadow tint, rim, wrap, glsl); a material's `lighting` wins, `lighting: false` opts out
@@ -27,6 +27,7 @@
 ## Sub-structures
 - **StyleSky**
   - `keyframes?: SkyKeyframe[]` Colors and light intensities at each time of day
+  - `backdrop?: ColorLike | ((sky: Sky) => ColorLike)` A flat background color in place of the dome (no gradient, horizon line, sun / moon disk, stars or clouds), or (sky) => color per frame. Drawn as written (no tone mapping); the keyframes still light the world; fog in its default horizon color follows it (a fog.color of your own still wins). Leave out for the dome. Not with skybox. recipes/47. Example: `backdrop: sky => sky.isDay ? 0xefebe4 : 0x2c3346`
   - `sunSize?: number` Larger means a smaller sun, default 900
   - `sunGlow?: number` Sun glow, default 0.18
   - `sunBrightness?: number` Sun brightness, default 6
@@ -43,6 +44,8 @@
   - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path
   - `shadow?: StyleShadow` Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow
   - `environment?: StyleEnvironment` Environment lighting (scene.environment), off unless a source is given; see Sky.setEnvironment. A pack can give defaults, sky({ environment }) overrides
+  - `fog?: StyleFog` Fog model and color (default: linear fog in the horizon color); see StyleFog
+  - `layers?: StyleSkyLayer[]` Extra dome layers drawn after the clouds and stars (rainbow, aurora), default none; see StyleSkyLayer
 - **StyleShadow**
   - `mapSize?: number` Shadow resolution (pixels), default 2048
   - `extent?: number` Coverage radius (meters), default 70
@@ -52,19 +55,29 @@
   - `updateEvery?: number` Update shadows every N frames, default 1 (every frame); larger saves more, still updates promptly when the focus moves
   - `snap?: number | 'texel'` Shadow center snapping grid (meters), default 0.5; 'texel' snaps to shadow pixels (shadow edges do not shimmer while moving)
   - `ahead?: number` How far ahead of the view direction the shadow center is shifted (meters), default 0
-  - `type?: 'basic' | 'pcf' | 'vsm'` Shadow filter: 'basic' (hard edge, cheapest) / 'pcf' (default, soft edge) / 'vsm' (softest, costliest). Default: the engine's shadowType option
+  - `type?: Loose<'basic' | 'pcf' | 'vsm'>` Shadow filter: 'basic' (hard edge, cheapest) / 'pcf' (default, soft edge) / 'vsm' (softest, costliest). Default: the engine's shadowType option
   - `radius?: number` Edge softness for 'pcf' and 'vsm' (no effect on 'basic'), default 1
   - `blurSamples?: number` Blur sample count, 'vsm' only, default 8
-  - `low?: Omit<StyleShadow, 'low'>` Overrides used on low-tier devices (engine.tier 'low'), default { mapSize: 1024 }. updateEvery above 1 saves more but makes wind-swayed shadows step visibly. sky({ shadow }) options replace the whole shadow block, low included.
+  - `cascades?: number` Cascaded shadows (recipes/45): 1 (default) = one shadow map around the focus, the plain path; 2-4 split the sun's shadow along the view, sharp near the camera and wide far away. Each cascade draws the casters once more. Low-tier devices stay at 1 unless low.cascades says so. Example: `shadow: { cascades: 3, maxFar: 150, low: { cascades: 2, fade: false } }   // low-tier devices: 2 cascades instead of one map`
+  - `maxFar?: number` Cascades: meters from the camera they cover (no sun shadow beyond), default 120
+  - `fade?: boolean` Cascades: cross-fade at each border so no seam shows (two shadow lookups there), default true
+  - `lightMargin?: number` Cascades: meters behind each cascade box toward the light still caught as casters (tall things outside the view), default 100
+  - `split?: Loose<'practical' | 'un… | ((count, near, far, out) => void)` Cascades: where borders fall, 'practical' (default) / 'uniform' / 'logarithmic' / (count, near, far, out: number[]) => void (three CSM customSplitsCallback)
+  - `low?: Omit<StyleShadow, 'low'>` Overrides used on low-tier devices (engine.tier 'low'), default { mapSize: 1024, cascades: 1 }. updateEvery above 1 saves more but makes wind-swayed shadows step visibly. sky({ shadow }) options replace the whole shadow block, low included.
 - **StyleWeather**
   - `area?: number` Rain / snow coverage (meters, centered on the camera)
   - `overcastColor?: ColorLike` Target color the sky turns to when overcast
   - `lightningBrightness?: number` Lightning brightness multiplier
-  - `rain?: { color?, opacity?, length?, speed?, slant?, texture?, … }` Rain: color, opacity, streak length (meters), fall speed (m/s), slant; texture uses a textured raindrop instead
-  - `snow?: { color?, opacity?, size?, maxSize?, speed?, texture? }` Snow: color, opacity, size, max pixels, fall speed (m/s), snowflake texture
+  - `lightning?: (flash: number, engine: Engine) => number` Lightning look: flash (1 at the strike, fading in a third of a second) -> sky flash amount; default flickers. Return 0 and draw your own bolt on the weather:lightning event for a whole replacement. Example: `lightning: f => f * f * 0.8`
+  - `rain?: StyleWeatherParticles` Rain particles (default streaks: color 0xc8c8c8, opacity 0.55, length 0.7 m, speed 22 m/s, slant 1); a texture or a sprite shape draws drops
+  - `snow?: StyleWeatherSnow` Snow particles (default round sprites: color 0xffffff, opacity 0.9, size 20, maxSize 5 px, speed 1.6 m/s, sway 1.5 m)
   - `types?: Record<string, Partial<WeatherPreset>>` Retune the look of weather types the game has (e.g. a darker storm); never adds a type: the list is the game's weather({ types })
 - **StyleWater**
-  - `material?: (engine, ctx) => Material` Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch and the scrolling normal map (null without one). Example: `material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })`
+  - `material?: (engine, ctx) => Material` Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch, the surface patch (depthColor / foam / glsl.surface; null without them; put it after waves) and the scrolling normal map (null without one). Example: `material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })`
+  - `depthColor?: StyleWaterDepth` Water color from the view angle (by 'view', default: shallow looking down, deep at grazing angles) or the wave height (by 'wave': shallow on crests); replaces color. curve shapes the blend (default 1)
+  - `foam?: StyleWaterFoam | true` Crest foam from the wave height (start / end: fraction of glsl.waveMax where foam begins / is full, default 0.55 / 0.85); true = defaults. Shore foam needs depth: recipes/44
+  - `glsl?: { wave?: string; surface?: string; waveMax?: number }` Your own GLSL. wave: `float threedogWaterWave(vec3 p, float t)` (p = world position * waveScale, t = time * waveSpeed) returns the height before waveHeight; waveMax = its peak (default 0.29), which foam and depthColor 'wave' divide by.
+  - `uniforms?: Record<string, any>` Uniforms for your glsl, in both stages: numbers, colors, [x, y(, z, w)] arrays or textures; live in engine.water.material.uniforms
   - `color?: ColorLike`
   - `opacity?: number` Opacity 0–1
   - `flat?: boolean` Flat shading (low poly)
@@ -116,6 +129,6 @@
   - `normalMap?: string | import('three').Texture`
   - `roughnessMap?: string | import('three').Texture`
   - `repeat?: number | [number, number]` How many times the textures of this material repeat (a number, or [x, y]); default 1
-  - `wrap?: 'repeat' | 'clamp' | 'mirror'` Texture wrapping: 'repeat' (default) / 'clamp' / 'mirror'
+  - `wrap?: Loose<'repeat' | 'clamp' | 'mirror'>` Texture wrapping: 'repeat' (default) / 'clamp' / 'mirror'
   - `detail?: MaterialDetail` Grain, paper, strokes or a texture laid over the surface in world space (no UVs needed); off unless given
   - `lighting?: MaterialLighting | false` Extra light shaping (shadow tint, rim, wrap, your own GLSL); merged over style.lighting, false opts out

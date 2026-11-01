@@ -1,16 +1,20 @@
-// R33 no authored placement in game code: a level is content, code holds only rules.
-// Detection (TypeScript AST, not regex): calls that put a thing into the level (engine.add, engine.scene.add, world.add, stream.add,
-//   collision.addBox|addCircle|addObject, rigid.addBox|addBall|addHull|addVehicle, interactions.add, rays.addStatic, inventory.spawnPickup,
-//   npcs.add, entities.spawn, content.spawn, grids.add, inventory.container with an items option) made at setup time:
-//   module top level, a callback of events.on/once('engine:ready' | 'level:loaded' | 'session:start'), an install / init method,
-//   or a same-file function that is called from one of those (one level of call graph). Array callbacks (forEach, map…) and IIFEs
-//   take the context of the code around them.
-//   Not flagged: any other callback (ops.define run, onFixed, onFrame, world.simulate / present, clock, sky, timeline, input, other events),
-//   a line tagged `// runtime: <reason>` (the reason is required), and level({ scene }) (the allowed way to hand a code-built ground to the engine).
-//   world.add with { initial: true } is flagged anywhere: authored records come only from content loaders.
+// R33 code makes nothing a save would duplicate, and does not manage world models: flags only what would break.
+// Why only these: a startup engine.add / collision.addBox / interactions.add is rebuilt by code on every start, so it never needs saving and is fine
+// (engine.thing says what each object keeps). What breaks is a startup call that creates something saved whole: the save restores it and the code
+// makes it again (a duplicate after every load, or a dupId error). That, and code moving a model world places every frame, are what this rule reports.
+// Detection (TypeScript AST, not regex), each fix names content or an op:
+//   error: world.add (without { save: false }), engine.spawn, inventory.spawnPickup, npcs.add, entities.spawn made at setup time:
+//     module top level, a callback of events.on/once('engine:ready' | 'level:loaded' | 'session:start'), an install / init method, or a same-file
+//     function called from one of those (one level of call graph). Array callbacks (forEach, map…) and IIFEs take the context around them.
+//   error: world.add(…, { initial: true }) anywhere: authored records come only from content loaders (saves diff against that baseline).
+//   warn: a world.view(…) result (directly or through a const) handed to engine.add / scene.add, or its position / rotation / scale written
+//     (assignment or .set / .copy…). present's update gets the model as its argument, so writes there are not flagged.
+//   Not flagged: any other callback (ops.define run, onFixed, onFrame, world.simulate / present, clock, sky, timeline, input, other events) and a
+//   line tagged `// runtime: <reason>` (the reason is required).
+//   The runtime checks (engine.thing registry, recipe 41) cover what a static pass cannot: whether an id is stable, whether an object will be saved,
+//   deeper call graphs and helper modules that take engine as an argument.
 // Scope: game code (.js/.mjs) of the engine examples, the new-game templates and games/*; content/ folders, tests/, dist/ and bake.js are skipped.
-// Level: error for the examples and templates (they teach), warn for games/*.
-// Known limits: call graphs deeper than one level, a game's helper module that takes engine as an argument, dynamic property access.
+// Level: the same everywhere (examples, templates and games/*): error for the saved-whole and initial findings, warn for world models.
 import { walk, read, ts, P, rel, lineOf } from './_lib.mjs';
 
 // Paths skipped with the reason
@@ -21,31 +25,28 @@ const SKIP = [
 ];
 const SETUP_EVENTS = new Set(['engine:ready', 'level:loaded', 'session:start']);
 const PASS_THROUGH = new Set(['forEach', 'map', 'flatMap', 'filter', 'reduce', 'some', 'every', 'find']);
-const CONTENT_HINT = 'move it into content: a template in content/templates.js plus a placement { id, template, place, x, z } in content/props.js; '
-  + 'if it appears during play, create it inside an op with engine.content.spawn(name, at)';
+const CONTENT_HINT = 'it is saved whole, so the save restores it and this code makes it again after every load. Put it in content '
+  + '(a template in content/templates.js plus a placement { id, template, place, x, z } in content/props.js), or create it inside an op during play';
 
-// [callee regex, what it places, extra fix]
+// [callee regex, what it creates, extra fix]: calls that create something saved whole
 const CALLEES = [
-  [/^(engine|e)\.add$/, 'scenery', 'a whole code-built ground or block goes in level({ scene })'],
-  [/\bscene\.add$/, 'scenery', 'a whole code-built ground or block goes in level({ scene })'],
-  [/\bworld\.add$/, 'a world record', 'authored records are props entries with an id (template = kind)'],
-  [/\bstream\.add$/, 'a streamed object', 'streamed scenery is a props entry; it streams through world.present'],
-  [/\bcollision\.(addBox|addCircle|addObject)$/, 'a collider', 'a template carries collide: \'box\' | \'circle\''],
-  [/\brigid\.(addBox|addBall|addHull|addVehicle)$/, 'a physics body', 'create the body in the world.present build of the record\'s kind, so the record (and its saved position) comes from content'],
-  [/\binteractions\.add$/, 'an interaction', 'a template carries interact: { label, op }'],
-  [/\brays\.addStatic$/, 'a ray target', 'template and props models are ray targets already (static)'],
-  [/\binventory\.spawnPickup$/, 'a pickup', 'authored pickups go in content/pickups.js with an id'],
+  [/\bworld\.add$/, 'a world record', 'authored records are props entries with an id (template = kind); a temporary record takes { save: false }'],
+  [/\b(?:content|engine|e)\.spawn$/, 'a template instance', 'at setup it is authored: write it in content/props.js'],
+  [/\bspawnPickup$/, 'a pickup', 'authored pickups go in content/pickups.js with an id'],
   [/\bnpcs\.add$/, 'an NPC', 'authored NPCs go in content/npcs.js'],
   [/\bentities\.spawn$/, 'an entity', 'authored things are template placements in content/props.js'],
-  [/\bcontent\.spawn$/, 'a template instance', 'at setup it is authored: write it in content/props.js'],
-  [/\bgrids\.add$/, 'a grid', 'grid layout is content data'],
-  [/\binventory\.container$/, 'a container with goods', 'authored containers go in content/containers.js'],
 ];
+const VIEW = /\bworld\.view$/, ADD = /^(?:engine|e|this\.engine)\.add$|\bscene\.add$/;
+const XFORM = new Set(['position', 'rotation', 'scale', 'quaternion']);
+const VIEW_FIX = "world places this model on its record every frame (and tears it down when far), so the change is lost: change the record with "
+  + "ops.run('thing.set', { id, position }) or world.set / world.move, or write it in the present's update(rec, obj)";
 
 const calleeText = call => call.expression.getText().replace(/\?\./g, '.').replace(/\s+/g, '');
 const lastName = expr => ts.isPropertyAccessExpression(expr) ? expr.name.text : ts.isIdentifier(expr) ? expr.text : null;
 const objArg = (call, key) => call.arguments.some(a => ts.isObjectLiteralExpression(a) && a.properties.some(p => p.name?.getText() === key
   && (!ts.isPropertyAssignment(p) || p.initializer.kind !== ts.SyntaxKind.FalseKeyword)));
+const saveFalse = call => call.arguments.some(a => ts.isObjectLiteralExpression(a) && a.properties.some(p => p.name?.getText() === 'save'
+  && ts.isPropertyAssignment(p) && p.initializer.kind === ts.SyntaxKind.FalseKeyword));
 const isFn = n => ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n) || ts.isMethodDeclaration(n);
 
 /** Name a function is called by in this file (declaration or const f = () => …), else null */
@@ -91,23 +92,51 @@ function contextOf(n, sf, depth = 1) {
   return setup ? 'setup' : 'runtime';
 }
 
-/** Findings for one source text: [{ line, msg, fix }] (exported for the rule test) */
+/** Names bound in this file to a world.view(…) result: const m = engine.world.view(id) */
+function viewNames(sf) {
+  const out = new Set();
+  (function go(n) {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && isView(n.initializer, null)) out.add(n.name.text);
+    ts.forEachChild(n, go);
+  })(sf);
+  return out;
+}
+/** Is expr a world model: a world.view(…) call, or a name bound to one */
+function isView(expr, names) {
+  while (expr && (ts.isParenthesizedExpression(expr) || ts.isNonNullExpression(expr))) expr = expr.expression;
+  if (ts.isCallExpression(expr)) return VIEW.test(calleeText(expr));
+  return !!names && ts.isIdentifier(expr) && names.has(expr.text);
+}
+/** model.position.x / model.rotation / model.scale.set: true when this access reaches a world model's transform */
+function viewTransform(expr, names) {
+  for (let x = expr; ts.isPropertyAccessExpression(x); x = x.expression) if (XFORM.has(x.name.text) && isView(x.expression, names)) return true;
+  return false;
+}
+const K = ts.SyntaxKind;
+const WRITE_OPS = new Set([K.EqualsToken, K.PlusEqualsToken, K.MinusEqualsToken, K.AsteriskEqualsToken, K.SlashEqualsToken]);
+const WRITE_CALLS = new Set(['set', 'copy', 'add', 'sub', 'setScalar', 'multiplyScalar', 'lerp', 'setFromAxisAngle', 'setFromEuler', 'addScaledVector']);
+
+/** Findings for one source text: [{ line, level, msg, fix }] (exported for the rule test) */
 export function scan(sf) {
-  const out = [];
+  const out = [], names = viewNames(sf);
+  const warn = (n, msg) => out.push({ line: lineOf(n), level: 'warn', msg, fix: VIEW_FIX });
   (function go(n) {
     if (ts.isCallExpression(n)) {
       const text = calleeText(n), hit = CALLEES.find(([re]) => re.test(text));
-      if (hit && !(hit[0].source.includes('container') && !objArg(n, 'items'))) {
-        const initial = /\bworld\.add$/.test(text) && objArg(n, 'initial');
-        const ctx = initial ? 'setup' : contextOf(n, sf);
-        if (ctx === 'setup') out.push({
-          line: lineOf(n),
-          msg: initial ? `${text}(…, { initial: true }) in game code: authored records come only from content loaders`
-            : `${text}() places ${hit[1]} at setup (module top level or a startup event): the level is content, code holds only rules`,
-          fix: `${CONTENT_HINT}; ${hit[2]}`,
-        });
-      }
+      const worldAdd = /\bworld\.add$/.test(text), initial = worldAdd && objArg(n, 'initial');
+      if (hit && (initial || (!(worldAdd && saveFalse(n)) && contextOf(n, sf) === 'setup'))) out.push({
+        line: lineOf(n), level: 'error',
+        msg: initial ? `${text}(…, { initial: true }) in game code: authored records come only from content loaders (saves diff against them)`
+          : `${text}() creates ${hit[1]} at setup (module top level or a startup event)`,
+        fix: initial ? 'write the record in content (content/props.js with an id); content.load adds it as authored' : `${CONTENT_HINT}; ${hit[2]}`,
+      });
+      if (ADD.test(text) && n.arguments.some(a => isView(a, names))) warn(n, `${text}() of a world.view() model: world already adds, places and tears down its models`);
+      const callee = n.expression;
+      if (ts.isPropertyAccessExpression(callee) && WRITE_CALLS.has(callee.name.text) && viewTransform(callee.expression, names))
+        warn(n, `${callee.expression.getText()}.${callee.name.text}(…) writes the transform of a world model`);
     }
+    if (ts.isBinaryExpression(n) && WRITE_OPS.has(n.operatorToken.kind) && viewTransform(n.left, names))
+      warn(n, `${n.left.getText()} = … writes the transform of a world model`);
     ts.forEachChild(n, go);
   })(sf);
   return out;
@@ -136,13 +165,12 @@ export function placementFiles() {
 }
 
 export default {
-  id: 'R33', title: 'No authored placement in game code', game: true,
+  id: 'R33', title: 'Code creates nothing a save would duplicate, and leaves world models alone', game: true,
   run() {
     const out = [];
     for (const f of placementFiles()) {
       const L = read(f).split('\n');
-      const level = f === P.GAMES_REL || f.startsWith(P.GAMES_REL + '/') ? 'warn' : 'error';
-      for (const r of scan(parseText(f, read(f)))) if (!runtimeTag(L, r.line)) out.push({ level, file: f, ...r });
+      for (const r of scan(parseText(f, read(f)))) if (!runtimeTag(L, r.line)) out.push({ file: f, ...r });
     }
     return out;
   },

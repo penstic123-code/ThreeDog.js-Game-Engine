@@ -264,7 +264,7 @@ export class Stream {
     this.queued--;
     if (!h.want || !this.entries.has(h)) { if (obj) this._dispose(h, obj); this.live.delete(h); return; }
     h.object = obj; h.built = true;
-    if (obj && !obj.parent) this.engine.add(obj);
+    if (obj && !obj.parent) this.engine.add(obj, { owner: 'stream' });
   }
   /** @internal */
   _unload(h) {

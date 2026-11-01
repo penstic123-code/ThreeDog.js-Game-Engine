@@ -16,6 +16,7 @@
     "threedog": "^0.1.0",
     "@threedog/tools": "^0.1.0",
     "@threedog/style-lowpoly": "^0.1.0",
+    "@threedog/post-effects": "^0.1.0",
     "@threedog/terrain-noise": "^0.1.0"
   }
 }

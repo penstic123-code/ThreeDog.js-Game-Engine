@@ -2,6 +2,7 @@
 // Seven temperate ones are an opt-in preset: weather(presets.weather.temperate), extend with types: { ...presets.weather.temperate.types, dust: {...} }.
 // All fields blend smoothly on change.
 // Affects: cloud shadows, sky color, sun intensity, fog distance, wind (plants sway), rain/snow particles, lightning, ambience.
+// Particle and lightning looks: style.weather.rain / snow / lightning, engine.weather.define (particles.js, recipes/44).
 //
 // engine.weather.set('rain', 20)   // turn to rain over 20 seconds
 // engine.weather.setAuto(true)     // change weather at random (uses engine.random, so step/tests are reproducible and saved)
@@ -9,7 +10,7 @@
 // i18n.add.
 import * as THREE from 'three';
 import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
-import { rainVert, rainFrag, snowVert, snowFrag, shaderMat, scatter } from './shaders.js';
+import { makeSystem, updateSystem, dropSystem, RAIN, SNOW } from './particles.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../types/world' */
 
@@ -21,6 +22,7 @@ const STRINGS = {
   en: { 'weather.clear': 'Clear', 'weather.cloudy': 'Cloudy', 'weather.overcast': 'Overcast', 'weather.rain': 'Rain', 'weather.storm': 'Storm',
     'weather.snow': 'Snow', 'weather.fog': 'Fog', 'weather.auto': 'Auto' },
 };
+const STYLE_KEYS = ['area', 'overcastColor', 'lightningBrightness', 'lightning', 'rain', 'snow', 'types'];
 const OPTIONS = ['start', 'auto', 'particles', 'types', 'autoPool', 'autoInterval', 'transition', 'area'];
 // Fields a type leaves out: calm (no cloud, rain, snow, grey or lightning; normal sun, fog and wind)
 const CALM = { cloud: 0, sun: 1, fog: 1, wind: 1, rain: 0, snow: 0, grey: 0, lightning: 0 };
@@ -42,6 +44,7 @@ export class Weather {
   constructor(engine, { start, particles = 6000, types, autoPool, autoInterval = [90, 240], transition = 25, area } = {}) {
     /** @internal */ this.engine = engine;
     const st = engine.style.weather || {};
+    checkOptions('style.weather', st, STYLE_KEYS);
     // The game's table is the whole list (a desert game has no snow, a space station no rain); without one only a calm 'clear'.
     // The style pack only fills fields of types the table has (its look of 'storm'), it never adds a kind of weather to a game.
     if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw new Error(ERR.types.replace('{got}', JSON.stringify(types)));
@@ -80,52 +83,53 @@ export class Weather {
     /** Transition seconds for automatic weather @type {number} */
     this.autoTransition = transition;
     /** @internal */ this.flashStrength = st.lightningBrightness ?? 1;
-    /** @internal */ this.rainSlant = st.rain?.slant ?? 1;
+    // lightning look: flash (1 at the strike, fading over a third of a second) -> how bright the sky flashes; default flickers
+    if (st.lightning !== undefined && typeof st.lightning !== 'function') throw new Error('style.weather.lightning must be a function (flash 0..1, engine) => sky flash amount, e.g. lightning: f => f * 0.6; return 0 and draw your own bolt on the weather:lightning event');
+    /** @internal */ this.lightningLook = st.lightning ?? (f => f * (Math.random() > 0.3 ? 1 : 0.4));   // presentation: flash flickers
     /** @internal */ this.flash = 0;
     /** @internal */ this.nextBolt = 5;
     /** @internal */ this.grey = new THREE.Color(st.overcastColor ?? 0x8c8c8c);
     /** @internal */ this._layer = { sun: 1, ambient: 1, fog: 1, tint: this.grey, tintAmount: 0, horizonTintAmount: 0, flash: 0 };   // reused every frame
-    /** Rain/snow particle count @type {number} */
+    /** Default particle count per system (halved on low-tier devices) @type {number} */
     this.particles = engine.tier === 'low' ? Math.round(particles / 2) : particles;
-    // zero cost when unused: a table where nothing ever rains or snows builds no particle meshes (rain / snow stay null)
-    /** @internal */ this.rain = null;
-    /** @internal */ this.snow = null;
-    if (Object.values(this.types).some(v => v.rain > 0 || v.snow > 0)) this._makeParticles(st, area ?? st.area ?? 40);
+    /** @internal */ this.area = area ?? st.area ?? 40;
+    /** Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus define()) @type {Map<string, any>} */
+    this.systems = new Map();
+    // zero cost when unused: a table where nothing ever rains or snows builds no particle meshes
+    const { cover, ...snowLook } = st.snow || {};
+    for (const [k, base] of [['rain', RAIN], ['snow', SNOW]]) if (Object.values(this.types).some(v => v[k] > 0)) this._build(k, k === 'snow' ? snowLook : st[k] || {}, base);
+    // snow cover: foliage / ground season tint moves toward the snow colors as current.snow rises (sky layer cover, layers.js applyCover)
+    if (cover !== undefined) {
+      checkOptions('style.weather.snow.cover', cover, ['foliage', 'ground', 'strength']);
+      if (cover.foliage == null && cover.ground == null) throw new Error("style.weather.snow.cover needs a color for foliage and / or ground, e.g. cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }");
+      /** @internal */ this._cover = { strength: cover.strength ?? 0.8 };
+      Object.assign(this._layer, { foliageCover: cover.foliage ?? null, groundCover: cover.ground ?? null, coverAmount: 0 });
+    }
   }
 
-  // rain (line segments or textured points), snow (points); area: coverage in meters (a cube centered on the camera)
-  /** @internal */
-  _makeParticles(st, size) {
-    const engine = this.engine, rs = st.rain || {}, ss = st.snow || {}, n = this.particles;
-    // rain: each drop is a short line (two vertices); position loops downward in the shader, zero CPU cost
-    const p3 = scatter(n * 3, size), rp = new Float32Array(n * 6), re = new Float32Array(n * 2);
-    for (let i = 0; i < n; i++) { rp.set([p3[i * 3], p3[i * 3 + 1], p3[i * 3 + 2]], i * 6); rp.set([p3[i * 3], p3[i * 3 + 1], p3[i * 3 + 2]], i * 6 + 3); re[i * 2 + 1] = 1; }
-    const rg = new THREE.BufferGeometry();
-    rg.setAttribute('position', new THREE.BufferAttribute(rp, 3)); rg.setAttribute('aEnd', new THREE.BufferAttribute(re, 1));
-    /** @internal */ this.size = size;
-    /** @internal fall speeds (m/s); the shaders get the fall distance wrapped on the CPU */ this.speeds = { rain: rs.speed ?? 22, snow: ss.speed ?? 1.6 };
-    /** @internal */ this.rainU = { uCam: { value: new THREE.Vector3() }, uSize: { value: size }, uFallOff: { value: 0 },
-      uWindDir: { value: new THREE.Vector2(1, 0.3) }, uOpacity: { value: 0 }, uColor: { value: new THREE.Color(rs.color ?? 0xc8c8c8) }, uLen: { value: rs.length ?? 0.7 } };
-    /** @internal */ this.rainOpacity = rs.opacity ?? 0.55;
-    /** @internal */ this.rain = new THREE.LineSegments(rg, shaderMat(rainVert, rainFrag, this.rainU));
+  /**
+   * Draw particles for a field of this game's weather table (its amount is weather.current[field], so they fade with the weather). spec takes the
+   * keys of style.weather.rain (shape, color, size, speed, sway, density, glsl...) or create(engine, { area, count }) => { object, update } for a
+   * system of your own. The same field again replaces it, rain and snow included. See recipes/44-water-weather-look-hooks.md
+   * @example
+   * engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });   // types: { ashfall: { ash: 1, grey: 0.5 } }
+   * @param {string} field
+   * @param {import('../../types/style').StyleWeatherParticles} [spec]
+   * @returns {{ field: string, object: THREE.Object3D, uniforms: Record<string, { value: any }> | null }}
+   */
+  define(field, spec = {}) {
+    const fields = [...new Set(Object.values(this.types).flatMap(v => Object.keys(v)))];
+    if (!fields.includes(field)) throw new Error(`weather.define('${field}'): no weather type has a field '${field}'; add it to a type in weather({ types }) (e.g. ashfall: { ${field}: 1 }), or use one of ${fields.join(', ')}`);
+    return this._build(field, spec, field === 'rain' ? RAIN : field === 'snow' ? SNOW : undefined);
+  }
 
-    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(scatter(n * 3, size), 3));
-    /** @internal */ this.snowU = { uCam: this.rainU.uCam, uSize: { value: size }, uPx: { value: ss.size ?? 20 }, uMaxPx: { value: ss.maxSize ?? 5 },
-      uFallOff: { value: 0 }, uSway: { value: 0 }, uOpacity: { value: 0 }, uColor: { value: new THREE.Color(ss.color ?? 0xffffff) }, uMap: { value: null }, uUseMap: { value: 0 } };
-    /** @internal */ this.snowOpacity = ss.opacity ?? 0.9;
-    if (ss.texture) engine.assets.texture(ss.texture).then(t => { this.snowU.uMap.value = t; this.snowU.uUseMap.value = 1; }).catch(err => warnOnce(err.message));
-    /** @internal */ this.snow = new THREE.Points(sg, shaderMat(snowVert, snowFrag, this.snowU));
-    // rain can also be drawn with a texture (cartoon drops etc.): style pack weather.rain.texture; rain and snow then share the same point-sprite shader
-    /** @internal */ this.rainIsPoints = !!rs.texture;
-    if (this.rainIsPoints) {
-      this.rainU = { ...this.rainU, uPx: { value: rs.size ?? 14 }, uMaxPx: { value: rs.maxSize ?? 8 }, uSway: this.snowU.uSway, uMap: { value: null }, uUseMap: { value: 0 } };
-      this.rain.geometry.dispose(); this.rain.material.dispose();   // switched to textured drops, line rain no longer needed
-      this.rain = new THREE.Points(sg.clone(), shaderMat(snowVert, snowFrag, this.rainU));
-      engine.assets.texture(rs.texture).then(t => { this.rainU.uMap.value = t; this.rainU.uUseMap.value = 1; }).catch(err => warnOnce(err.message));
-    }
-    for (const o of [this.rain, this.snow]) { o.frustumCulled = false; o.visible = false; o.userData.budgetTag = 'weather'; }
-    this.rain.name = 'weather-rain'; this.snow.name = 'weather-snow';
-    engine.scene.add(this.rain, this.snow);
+  /** @internal */
+  _build(field, spec, base) {
+    const old = this.systems.get(field);
+    if (old) dropSystem(this.engine, old);
+    const sys = makeSystem(this.engine, field, spec, { area: this.area, count: this.particles, base });
+    this.systems.set(field, sys);
+    return sys;
   }
 
   /**
@@ -144,7 +148,10 @@ export class Weather {
   set(name, seconds = 15) {
     const p = this.types[name];
     if (!p) { warnMissing('weather', name, Object.keys(this.types)); return; }
+    const from = this.name;
     this.name = name; this.from = { ...this.current }; this.to = { ...p }; this.t = 0; this.dur = Math.max(0.01, seconds);
+    // once per change of name (the blend then runs over `seconds`); setting the same weather again is not a change
+    if (from !== name) this.engine.events.emit('weather:change', { from, to: name });
   }
   /**
    * Display name of a weather (string table weather.<name>, falls back to the name itself); defaults to the current weather
@@ -196,18 +203,10 @@ export class Weather {
     U.uWind.value = c.wind;
     L.sun = c.sun; L.ambient = 0.75 + 0.25 * c.sun; L.fog = c.fog;
     L.tintAmount = c.grey; L.horizonTintAmount = c.grey * 0.8;
-    L.flash = this.flash > 0 ? this.flash * (Math.random() > 0.3 ? 1 : 0.4) * this.flashStrength : 0;   // presentation: flash flickers
+    L.flash = this.flash > 0 ? this.lightningLook(this.flash, this.engine) * this.flashStrength : 0;
+    if (this._cover) L.coverAmount = (c.snow ?? 0) * this._cover.strength;
     this.engine.sky.modify('weather', L);   // weather depends on sky (requires), so it is always present
-    if (!this.rain) return;   // this game's weather never rains or snows: no particles were built
-    // fall distance and sway time wrapped here in double precision (see shaders.js)
-    this.rainU.uFallOff.value = (t * this.speeds.rain) % this.size;
-    this.snowU.uFallOff.value = (t * this.speeds.snow) % this.size;
-    this.snowU.uSway.value = t % (20 * Math.PI);
-    this.rainU.uCam.value.copy(camera.position);
-    this.rainU.uOpacity.value = c.rain * this.rainOpacity; this.rain.visible = c.rain > 0.02;
-    this.rain.geometry.setDrawRange(0, Math.floor(this.particles * Math.min(1, c.rain * 1.2)) * (this.rainIsPoints ? 1 : 2));
-    this.rainU.uWindDir.value.set(c.wind * this.rainSlant, c.wind * this.rainSlant * 0.3);
-    this.snowU.uOpacity.value = c.snow * this.snowOpacity; this.snow.visible = c.snow > 0.02;
+    for (const sys of this.systems.values()) updateSystem(sys, c[sys.field] ?? 0, camera, t, c.wind);
   }
 }
 
@@ -246,7 +245,7 @@ export function weather(opts = {}) {
     describe() {
       const c = w.current, r = v => Math.round(v * 100) / 100;
       return { name: w.name, label: w.label(), progress: r(w.t), auto: w.auto, rain: r(c.rain), snow: r(c.snow), fog: r(c.fog), wind: r(c.wind),
-        cloud: r(c.cloud), lightning: r(c.lightning), rainVisible: !!w.rain?.visible, snowVisible: !!w.snow?.visible };
+        cloud: r(c.cloud), lightning: r(c.lightning), rainVisible: !!w.systems.get('rain')?.object.visible, snowVisible: !!w.systems.get('snow')?.object.visible };
     },
   };
 }

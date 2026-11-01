@@ -1,5 +1,5 @@
 // GAMEMAP sections (used by packages/tools/gamemap.mjs): where the level comes from, and which engine systems the game does not use yet.
-//   placementLines: authored placements per content file (counts by template / model / item / kind), then the placements game code makes at startup (rule R33).
+//   placementLines: authored placements per content file (counts by template / model / item / kind), then what game code creates at startup that a save would duplicate, and code managing world models (rule R33).
 //   unusedLines: the systems from the AI.md "before writing gameplay code" list that this game has not installed, one hint each.
 import { read } from '../lib/text.mjs';
 import { scanText } from '../rules/R33-authored-placement.mjs';
@@ -31,7 +31,7 @@ export function placementLines(c, gameFiles, g) {
     if (!/\.m?js$/.test(f) || /(^|[\\/])bake\.js$/.test(f)) continue;
     for (const r of scanText(read(f), f)) found.push(`- ⚠ ${g(f)}:${r.line} ${r.msg.split(':')[0]}`);
   }
-  out.push('', found.length ? `Placed from code at startup (rule R33; move these into content, or into an op if they appear during play):` : 'Placed from code at startup: none (rule R33).', ...found);
+  out.push('', found.length ? `Code that breaks saves or manages world models (rule R33; move it into content, or into an op if it happens during play):` : 'Code that breaks saves or manages world models: none (rule R33).', ...found);
   return out;
 }
 

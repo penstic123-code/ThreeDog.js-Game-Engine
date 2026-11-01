@@ -62,5 +62,5 @@ export function trailer(rt) {
 export const TIME = {
   advances: ['step', 'press', 'hold', 'scenario', 'verify'],
   frozenTimeSafe: ['op', 'state', 'eval', 'js', 'resume', 'reload'],
-  observes: ['describe', 'ops', 'inspect', 'pick', 'explain', 'loading', 'errors', 'snap', 'snap-describe', 'status'],
+  observes: ['describe', 'ops', 'inspect', 'scene', 'pick', 'explain', 'loading', 'errors', 'snap', 'snap-describe', 'status'],
 };

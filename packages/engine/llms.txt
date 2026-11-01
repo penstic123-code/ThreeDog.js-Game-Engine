@@ -45,4 +45,12 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [35-style-from-reference](docs/recipes/35-style-from-reference.md): Making a new look from a reference picture
 - [36-sky-ground-plant-looks](docs/recipes/36-sky-ground-plant-looks.md): Sky, ground and plant looks: what a style can change
 - [37-terrain-look-hooks](docs/recipes/37-terrain-look-hooks.md): Terrain look open points: shading, color map, triangle cut, normals
+- [38-environment-look-hooks](docs/recipes/38-environment-look-hooks.md): Environment look open points: lights, fog, exposure, sky layers
+- [40-scene](docs/recipes/40-scene.md): Scene: what is in the world, where, and what a save keeps
+- [41-thing-registry](docs/recipes/41-thing-registry.md): Things: what is in the scene, who manages it, what a save keeps (engine.thing)
+- [42-terrain-shape](docs/recipes/42-terrain-shape.md): Terrain outline: islands, floating rocks, a world that ends
 - [43-shader-patches-surface-looks](docs/recipes/43-shader-patches-surface-looks.md): Writing shader patches and surface looks
+- [44-water-weather-look-hooks](docs/recipes/44-water-weather-look-hooks.md): Water and weather look open points: depth color, foam, reflections, rain and snow, lightning, own particles
+- [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Cascaded shadows
+- [46-blender-art-route](docs/recipes/46-blender-art-route.md): Hand-painted art route: from Blender to the game
+- [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Floating island look: round rim, snow that settles, flat backdrop

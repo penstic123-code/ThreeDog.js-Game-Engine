@@ -103,7 +103,7 @@ export function hlod(opts = {}) {
       }
       const group = new THREE.Group();
       group.name = 'hlod'; group.userData.budgetTag = 'hlod'; group.matrixAutoUpdate = false;
-      e.add(group);
+      e.add(group, { owner: 'engine:hlod' });
       const list = [...cells.values()];
       for (const c of list) c.center.divideScalar(c.originals.length);
       const h = {

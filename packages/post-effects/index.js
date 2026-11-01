@@ -1,10 +1,14 @@
-// @threedog/post-effects: optional post effects for engine.post. The engine ships none (it owns no look); a game adds the ones it wants:
+// @threedog/post-effects: optional post effects for engine.post. The engine ships none (it owns no look); a style pack or a game adds the ones it wants:
 //   import { vignette, grain, lut } from '@threedog/post-effects';
 //   createEngine({ canvas, style: [lowpoly, postAdd(vignette({ enabled: true }), grain({ enabled: true }))] });
+// Style packs list bloom / ao / outline in their own style.post; they all import from here, never from each other.
+// hdr slot (linear, before tone mapping): bloom, ao, outline, dof. ldr slot (sRGB, after it): lut, grain, vignette, chromatic.
 // lut / grain / vignette / chromatic carry a `fuse` GLSL snippet, so when several are on they run as one fullscreen pass.
 // All are off unless you pass enabled: true.
 import * as THREE from 'three';
 export { dof } from './dof.js';
+export { bloom, ao } from './hdr.js';
+export { outline, OUTLINE_OFF_LAYER } from './outline.js';
 /** @import { PostEffect } from 'threedog' */
 
 // A 2x2x2 identity LUT stands in until the game gives a real one (a sampler uniform must always hold a texture)

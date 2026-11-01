@@ -12,9 +12,10 @@ one line; the detail is here.
 - **Level ownership**: world data carrying `zone: engine.world.zone` (= the current level name) gets its model built and is simulated only in that
   level; when you leave, the data stays (content NPCs, pickups and props already work this way);
   things that need not be kept (trigger zones, etc.) use `level.track(handle)` and are deleted automatically on level change.
-- **Levels are content**: placements come from `content/` (templates + props with ids, pickups, npcs, containers, game kinds) or the level model; a
-  save stores only changes on top of them. Game code never places level objects at startup (rule R33): it holds ops, simulate / present and UI, and
-  spawns during play with `engine.content.spawn` inside an op (`recipes/30-templates.md` section 5).
+- **Two doors, one scene**: plain three.js (`engine.add(mesh, { id })`) and templates (`engine.spawn`, props) land in the same registry;
+  `engine.thing(id)` says what it is and what a save keeps (`recipes/41-thing-registry.md`). What must be saved with its own state or edited without
+  code goes in `content/` (templates + props with ids, pickups, npcs, containers, game kinds) or the level model; a save stores only changes on top.
+  Startup code never creates what a save stores whole (rule R33): things that appear during play come from `engine.spawn` inside an op.
 - To find leaks read `engine.counts()` (listeners, timers, geometry count; they should not grow when entering and leaving a level repeatedly).
 
 ## Textures

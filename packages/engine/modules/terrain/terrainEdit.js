@@ -41,6 +41,9 @@ export class TerrainEdits {
     if (o.shape != null && o.shape !== 'circle' && o.shape !== 'square') throw new Error(fmt(STRINGS.shape, { got: JSON.stringify(o.shape) }));
     if ('paint' in o && o.paint !== null && typeof o.paint !== 'string') throw new Error(fmt(STRINGS.paint, { got: JSON.stringify(o.paint) }));
     const T = this.mgr.T, C = T.CELL, [x, z] = xzOf(position), r = o.radius ?? C / 2, sq = o.shape === 'square';
+    // off the outline of terrain({ shape }) there is no ground to dig or paint; near the rim the grid points just outside still move,
+    // because the rim's height is interpolated from them. The outline itself is not editable
+    if (!T.has(x, z)) return { heights: 0, cells: 0 };
     const inside = (px, pz) => sq ? Math.abs(px - x) <= r && Math.abs(pz - z) <= r : (px - x) ** 2 + (pz - z) ** 2 <= r * r;
     // grid indices covered: points use (i * C), cells their center ((i + 0.5) * C); an edit smaller than a cell still takes the nearest one
     const pick = (off, fallback) => {

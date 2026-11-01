@@ -5,6 +5,19 @@ const PAGE = '/tests/threads/';
 
 export const specs = [
   {
+    name: 'Core modules: engine.spawn without content() throws a message naming the module to install',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const E = threedogThreads.createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cm-spawn' });
+        let msg = null; try { E.spawn('chest', { x: 0, z: 0 }); } catch (e) { msg = e.message; }
+        E.dispose();
+        return msg;
+      });
+      check('the error says content() is missing and how to add it', /engine\.spawn needs the content module.*content\(\)/.test(r ?? ''), String(r));
+    },
+  },
+  {
     name: 'Core modules: engine.use(a, b) is all-or-nothing -- b failing validation or install leaves no trace of a (modules, engine.a, hooks, dispose called)',
     url: PAGE,
     async run({ check, ev }) {

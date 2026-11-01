@@ -156,3 +156,4 @@ engine.assets.manifest({ name: 'ui-fonts', base: '/fonts/', fonts: { pixel: 'pix
 ## 5. Deleting objects
 `engine.remove(obj)` deletes an object and frees its GPU memory; `engine.detach(obj)` only takes it off for a while (add it back with `engine.add`).
 Don't call `obj.removeFromParent()` or `scene.remove()` on meshes you built: their geometry and materials would leak.
+(`thing.remove` (`41-thing-registry.md`) deletes a registered object so that an undo can bring it back; `engine.remove` is final.)

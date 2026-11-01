@@ -79,7 +79,7 @@ export class RigidBodies {
     const body = this.world.createRigidBody(bd);
     desc.setFriction(friction).setRestitution(restitution).setMass(mass);
     const collider = this.world.createCollider(desc, body);
-    if (!mesh.parent) this.engine.add(mesh);   // shadow casting/receiving follows the model's own settings (not forced)
+    if (!mesh.parent) this.engine.add(mesh, { owner: 'engine:rigid' });   // shadow casting/receiving follows the model's own settings (not forced)
     const entry = { body, collider, mesh, object: mesh, enabled: true, volume: 0, damping, angularDamping, fixed, _x: p.x, _z: p.z };   // _x / _z: where sync.js looks for trunks to give it
     entry.remove = () => this._remove(entry);
     this.bodies.push(entry);
@@ -226,7 +226,11 @@ export class RigidBodies {
       const t = b.body.translation(), r = b.body.rotation();
       b.mesh.position.set(t.x, t.y, t.z);
       b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
-      if (t.y < -200) this.setPosition(b, [t.x, e.surface(t.x, t.z) + 2, t.z]);   // fallback for falling out of the world
+      if (t.y < -200 && e.ground.has(t.x, t.z)) this.setPosition(b, [t.x, e.surface(t.x, t.z) + 2, t.z]);   // fell through the ground
+      // fell off terrain({ shape }): one terrain:void per fall, the game decides what next
+      const under = t.y < e.ground.voidY();
+      if (under && !b._void) e.events.emit('terrain:void', { who: b, position: { x: t.x, y: t.y, z: t.z } });
+      b._void = under;
     }
     for (const v of this.vehicles) v._sync();
   }

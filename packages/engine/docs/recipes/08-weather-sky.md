@@ -31,7 +31,7 @@ With openWorld the weather module is already installed; pass its options through
 `sky.keyframes` in the style pack (lowpoly: its `index.js`):
 `[time 0-1, zenith color, horizon color (= fog color), sunlight color, sunlight intensity, ambient intensity]`, interpolated by time;
 also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (see the comments in lowpoly for what they mean; `hoursPerDay` is timing, so it is a
-`sky()` option, not a style key). The look of rain and snow is in `style.weather.rain / snow`.
+`sky()` option, not a style key). The look of rain and snow is in `style.weather.rain / snow` (shape, density, shaders, the game's own particles: recipe 44).
 
 ## 4. Time and brightness (game code)
 ```js
@@ -39,6 +39,8 @@ engine.sky.timeOfDay = parseClock('19:30');    // jump to a time (0-1)
 engine.clock.timeScale = 0;                 // sky and game seconds stop together (2 = double speed); game seconds per day: sky({ dayLength: 600 }); the three kinds of time are in recipe 06
 engine.setFogFar(300);                    // base fog distance (meters); weather scales it
 ```
+Fixed dusk: `openWorld({ time: 18.5 / 24, ... })` (a 0-1 fraction of the day) and do not pass `sky: presets.calendar.cycle` (the template does; the cycle
+is what moves the clock). `engine.sky.isDay` is `sunHeight > 0` with `sunHeight = sin((timeOfDay - 0.25) * 2π)`: true strictly between timeOfDay 0.25 and 0.75 (06:00 to 18:00 on the default 24-hour face; with `hoursPerDay: H` the same fractions, 0.25H to 0.75H), false at exactly 06:00 and 18:00, so 18:30 already reads as "night" in `describe().time.isDay`. `daylight` = `max(0, sunHeight)`. Keyframes only change colors, not this flip.
 The calendar is the game's: `sky()` alone keeps one time of day (dungeon, arena, space); a day-night cycle is `sky({ dayLength: 360 })` or
 `sky(presets.calendar.cycle)` (`presets.calendar.fourSeasons` includes it); `hoursPerDay` changes the clock face. An audio rule's `time` condition
 takes `'day'`, `'night'` or a range `['18:00', '06:00']`; anything else warns once.

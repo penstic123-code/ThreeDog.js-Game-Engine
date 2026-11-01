@@ -1,7 +1,7 @@
 // World modules: terrain, vegetation, sky, weather, water.
 import type { Object3D, Vector3, Color, Material, BufferGeometry, ColorLike, Handle, PositionLike } from './common';
 import type { Engine, ModuleDef } from './core';
-import type { StyleSky, StyleShadow } from './style';
+import type { StyleSky, StyleShadow, StyleFog } from './style';
 
 // ======================================================================
 // Terrain terrain()
@@ -35,6 +35,42 @@ export interface TerrainEditOptions {
   flatten?: number;
   /** Paint the ground type ('tilled', 'wet', or a game's own with biomeColors[type]); null gives the cells back their generated type */
   paint?: string | null;
+}
+
+/**
+ * World outline, terrain({ shape }): ground only where mask > 0, cut along straight lines through the cells where it crosses 0, with walls
+ * down the rim (side) and optionally a hanging underside (bottom). Off it engine.surface is -Infinity, engine.ground.has false, slope 0,
+ * groundType 'void'; nothing grows there; a fall below voidY emits terrain:void. Without shape the terrain is unchanged.
+ * Depth and mask functions are pure like height (they run in workers). See recipes/42-terrain-shape.md.
+ * @example terrain({ height: (x, z, n) => 6 * n.fbm(x * 0.02, z * 0.02), shape: { mask: (x, z) => 40 - Math.hypot(x, z),
+ *   edge: { noise: 5, size: 14 }, side: { depth: 2, ground: 'cliff' }, bottom: { depth: (x, z, n, m) => 4 + m * 0.6, ground: 'rock' } } })
+ */
+export interface TerrainShape {
+  /**
+   * Where there is ground: (x, z, n) => number, > 0 ground (distance-like values in meters read best: 40 - Math.hypot(x, z) is a 40 m disc).
+   * Or a gray image: whiter is ground, value = gray - threshold (default 0.5); outside the image is void.
+   */
+  mask: ((x: number, z: number, n: TerrainNoise) => number) | string
+    | { url?: string; data?: ArrayLike<number>; width?: number; height?: number; size: number[]; center?: number[]; threshold?: number };
+  /**
+   * The rim's look. noise: meters of fbm added to the mask (a ragged outline), size: its wavelength in meters (default 16; keep it above a cell,
+   * the cut cannot be finer than `resolution`); jitter: meters of per-grid-point random offset (a jagged rim); round: meters the top bends down
+   * towards the rim (0 = a hard cliff edge)
+   */
+  edge?: { noise?: number; size?: number; jitter?: number; round?: number };
+  /**
+   * Wall down from the rim: depth meters (default 2) or (x, z, n) => meters; ground: color = biomeColors[ground] (default 'cliff');
+   * material: a Material (or (engine) => Material) for sides and bottom
+   */
+  side?: { depth?: number | ((x: number, z: number, n: TerrainNoise) => number) | string; ground?: string;
+    material?: Material | ((engine: Engine) => Material) };
+  /**
+   * Underside, below the side band: depth meters (default 4) or (x, z, n, m) => meters, m = mask value there (larger inland, so the middle
+   * hangs lower); ground default 'rock'. Without it the island is open below
+   */
+  bottom?: { depth?: number | ((x: number, z: number, n: TerrainNoise, m: number) => number) | string; ground?: string } | null;
+  /** Height below which a fall emits terrain:void (default 50 m under the lowest island chunk loaded so far); give it for replay-exact games */
+  voidY?: number;
 }
 
 /** Terrain generation parameters (JSON-able; a custom height / groundType function is sent to workers as source text) */
@@ -94,6 +130,8 @@ export interface TerrainConfig {
   diagonal: 'fixed' | 'adaptive' | 'alternate';
   /** Chunk bounding sphere margin in meters (default { up: 3, radius: 8 }): center raised by `up`, radius grown by `radius`. Raise it when a shader moves vertices far */
   boundsPad: { up?: number; radius?: number };
+  /** World outline (default null = ground everywhere): an island, a floating rock, a coastline that ends. World setting, not style */
+  shape: TerrainShape | null;
   /** Palette: color name → color */
   colors: Record<string, ColorLike>;
 }
@@ -121,8 +159,10 @@ export interface TerrainGen {
   CELL: number;
   /** Water level (meters) */
   waterLevel: number;
-  /** Ground height at (x, z) (meters) */
+  /** Ground height at (x, z) (meters); -Infinity off the outline of shape */
   surface(x: number, z: number): number;
+  /** Is there ground at (x, z) (false only off the outline of shape) */
+  has(x: number, z: number): boolean;
   /** Slope at (x, z) */
   slope(x: number, z: number): number;
   /** Ground type name ('default' without a groundType function) */
@@ -142,6 +182,12 @@ export interface Terrain {
   T: TerrainGen;
   /** Chunk edge length (meters) */
   readonly CHUNK: number;
+  /**
+   * terrain({ shape }) only: below this height the player or a moving rigid body has fallen out of the world (one terrain:void per fall).
+   * shape.voidY, else 50 m under the lowest island chunk loaded so far; -Infinity without a shape
+   * @example engine.events.on('terrain:void', ({ who }) => { if (who === engine.player) engine.player.placeAt(home); });
+   */
+  readonly voidY: number;
   /** Loaded chunks: 'cx,cz' → chunk */
   chunks: Map<string, any>;
   /** View distance (in chunks) */
@@ -302,7 +348,15 @@ export interface Vegetation {
 /** What engine.sky.environment reports */
 export interface SkyEnvironmentInfo { source: string, intensity: number, rotation: number, interval: number, builds: number }
 
-export interface SkyOptions extends StyleSky {
+export interface SkyOptions extends Omit<StyleSky, 'fog'> {
+  /**
+   * Who owns scene.fog: true (default; the sky creates it and writes color and distance every frame) | 'manual' (created once, then never written:
+   * the game sets its color / near / far or its own object) | false (scene.fog = null, never touched). An object is style.sky.fog settings (kind,
+   * color, density...) and means true. A sky() option, not a style key. Custom kinds / glsl share the page's shader chunks: a second engine needs
+   * the same setting or it throws. See recipes/38
+   * @example sky({ fog: 'manual' })   // the game manages scene.fog itself
+   */
+  fog?: boolean | 'manual' | StyleFog;
   /** Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay) */
   time?: number;
   /** Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves */
@@ -318,6 +372,15 @@ export interface SkyOptions extends StyleSky {
    * 'summer', 'autumn', 'winter']
    */
   seasons?: (string | { name: string, days: number })[];
+  /**
+   * Whether the sky drives engine.lights.sun: true (default; color, intensity, direction and shadow box from the keyframes) | 'manual' (still aimed
+   * along the time of day with the shadow box; color and intensity are the game's) | false (hidden, never touched: light the world with your own
+   * three.js lights). How the game lights its world, so a sky() option, not a style key. See recipes/38
+   * @example sky({ sun: false, hemisphere: false })   // a dungeon lit by the game's own lights
+   */
+  sun?: boolean | 'manual';
+  /** Same for engine.lights.hemi (ambient): true (default) | 'manual' (colors and intensity are the game's) | false (hidden) */
+  hemisphere?: boolean | 'manual';
 }
 /** Parameters of sky.at() / daily() */
 export interface SkyAtOptions {
@@ -368,6 +431,12 @@ export interface SkyLayer {
   horizonTintAmount?: number;
   /** Lightning brightness, default 0 */
   flash?: number;
+  /** Cover color laid over the foliage season tint (snow, ash, frost); null removes it. Rides the season patch, see recipes/47 */
+  foliageCover?: Color | number | null;
+  /** Cover color laid over the ground season tint */
+  groundCover?: Color | number | null;
+  /** How far toward the cover colors, 0–1, default 0 (style.weather.snow.cover drives the weather layer's from the snow amount) */
+  coverAmount?: number;
 }
 
 // Sky (engine.sky) is generated from the JSDoc in modules/sky/Sky.js (npm run map); only the types are re-exported here
@@ -475,6 +544,10 @@ export interface WaterOptions {
   specular?: ColorLike;
   /** Replace the whole surface material, same as style.water.material */
   material?: import('./style').StyleWater['material'];
+  depthColor?: import('./style').StyleWater['depthColor'];
+  foam?: import('./style').StyleWater['foam'];
+  glsl?: import('./style').StyleWater['glsl'];
+  uniforms?: import('./style').StyleWater['uniforms'];
 }
 
 // Water (engine.water) is generated from the JSDoc in modules/water/Water.js (npm run map); only the types are re-exported here

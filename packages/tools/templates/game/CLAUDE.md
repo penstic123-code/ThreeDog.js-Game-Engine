@@ -9,7 +9,7 @@ Reading order (stop when you have enough):
 
 Use the engine's systems first: inventory, collision, characters, saves, interactions, quests, grids and templates are already built. Check the AI.md entry table before you write any of them yourself.
 
-The level is content: every placed object is a template (`content/templates.js`) plus a placement with an id (`content/props.js`), and `npm run check` (rule R33) rejects objects placed from `main.js` at startup. Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers), `onFrame` for looks (animation, camera, HUD). Things made during play come from `engine.content.spawn` inside an op.
+What is saved with its own state is content: a template (`content/templates.js`) plus a placement with an id (`content/props.js`); code-built scenery may use `engine.add(mesh, { id })` (`engine.thing(id)` says what a save keeps). `npm run check` (rule R33) rejects startup code that creates what a save stores whole (`world.add`, `engine.spawn`, pickups, NPCs). Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers), `onFrame` for looks (animation, camera, HUD). Things made during play come from `engine.spawn` inside an op.
 
 Content (items, NPCs, dialogues, quests...) goes in `content/`; art goes in `public/`.
 

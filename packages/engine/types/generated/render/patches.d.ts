@@ -7,11 +7,13 @@
  */
 export function materialPatches(material: THREE.Material): string[];
 /**
- * code for one anchor (a plain string goes after the include)
+ * code for one anchor (a plain string goes after the include;
+ *   replace swaps the include itself for new code, one patch per anchor)
  */
 export type PatchCode = {
     before?: string;
     after?: string;
+    replace?: string;
 } | string;
 /**
  * glsl.vertex / glsl.fragment: anchor chunk name -> code; the key `pars` is declarations placed at the top of the shader.

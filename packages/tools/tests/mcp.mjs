@@ -11,7 +11,7 @@ import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'snap', 'snap_describe', 'state', 'status', 'step', 'verify'];
+const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'snap', 'snap_describe', 'state', 'status', 'step', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {

@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { injectUICSS, worldToScreen } from '../../ui/UI.js';
 import { checkOptions } from '../../core/validate.js';
 import { vec3 } from '../../core/math.js';
+import { surfaceOr } from '../../core/ground.js';
 import { CSS, defineHudParts } from './parts.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Hud, HudOptions } from '../../types/gameplay' */
@@ -58,12 +59,12 @@ export function hud(opts = {}) {
     if (typeof target === 'string') {
       const p = e.content?.place(target) ?? e.level?.marker(target)?.position;
       if (!p) return null;
-      return v.set(p.x, e.surface(p.x, p.z, p.y) + height, p.z);   // a level marker's own height picks its storey
+      return v.set(p.x, surfaceOr(e, p.x, p.z, p.y, p.y ?? 0) + height, p.z);   // a level marker's own height picks its storey
     }
     const obj = target.root?.isObject3D ? target.root : target;
     if (obj.isObject3D) { obj.getWorldPosition(v); v.y += height; return v; }
     vec3(target, v);
-    if (target.y === undefined) v.y = e.surface(v.x, v.z);
+    if (target.y === undefined) v.y = surfaceOr(e, v.x, v.z);
     v.y += height;
     return v;
   };

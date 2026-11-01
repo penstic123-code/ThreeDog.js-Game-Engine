@@ -8,7 +8,7 @@ A style pack is a plain object passed in as `createEngine({ style })`. It holds 
 materials and shaders, sky and lighting, post effects, UI look. Not part of it: model / texture / sound files and procedural models content names (an
 **asset pack**, `engine.assets.manifest`, recipe 05 "Asset packs"), sounds (section 5), gameplay data and timing (a **content pack**, recipe 20;
 `sky({ hoursPerDay })`). Which key is read by whom is in the "style pack keys" table of `../CODEMAP.md`; the field list is in `../api/style.md`. Every
-entry can be omitted; omitted entries are the neutral placeholders above (the city example passes no style pack at all).
+entry can be omitted; omitted entries are the neutral placeholders above (the city example passes no style pack at all). Write it as a plain object literal, no `@type` or `as const`: fields with a fixed set of words (`shading`, `mode`, `type` …) accept any string in the types, and a wrong word is reported by `threedog style check` with the fix.
 
 ## 0. Installing the lowpoly style pack
 The low-poly look is an optional package, `@threedog/style-lowpoly` (source in the monorepo: `packages/styles/lowpoly/`):
@@ -23,7 +23,7 @@ const engine = createEngine({ canvas, style: lowpoly, strings: terrainStrings })
 engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));   // noise terrain (hills, rivers, biomes) that lowpoly colors, see recipes/28
 ```
 Besides the style object it exports `assets` (an asset pack of procedural trees, rocks, grass, flowers: `engine.assets.manifest(assets)`; the same
-generators as a plain map are `models`) and the post effects `bloom` `outline` `ao`. The terrain generator `terrainPreset` / `riverAt` / `BIOMES` /
+generators as a plain map are `models`). Its `bloom` / `ao` / `outline` come from `@threedog/post-effects` (style packs never import each other; R34 checks). The terrain generator `terrainPreset` / `riverAt` / `BIOMES` /
 `terrainStrings` is a separate package, `@threedog/terrain-noise`: the shape of the world is gameplay, so a style pack keeps only the colors of its
 ground types (`terrain.colors`, `biomeColors`).
 
@@ -43,7 +43,8 @@ parts; parts are never mutated. One object (not a list) is used as it is.
 (exported by `threedog`); they are parts too:
 ```js
 import { createEngine, postAdd, postRemove } from 'threedog';
-import lowpoly, { bloom } from '@threedog/style-lowpoly';
+import lowpoly from '@threedog/style-lowpoly';
+import { bloom } from '@threedog/post-effects';
 createEngine({ canvas, style: [lowpoly, postAdd(myGrain, bloom({ strength: 0.6 })), postRemove('ao')] });
 ```
 `postAdd(...effects)` appends; an effect whose `name` is already in the list (`'bloom'`, `'ao'`, `'outline'`) replaces that one in place.
@@ -70,6 +71,10 @@ Copy `packages/styles/lowpoly/` to your game (or a new package `@threedog/style-
 import toon from './style/index.js';
 const engine = createEngine({ canvas, style: toon });
 ```
+**A material role is a free label inside the style, not a fixed list.** `makeMaterial('anything', { color })` is always legal: a role the style does not
+name falls back to `materials.default`, and a new role (`'lantern'`, `'roof'`) becomes real the moment the style adds `materials.lantern`. The engine
+warns only when a name looks like a typo of a known role (`'buidling'`).
+
 Keys you will change most often:
 | Key | What it controls |
 |---|---|
@@ -160,9 +165,9 @@ palette, grain, vignette) -> `final` (FXAA / SMAA).
 An effect is `{ name, slot, order, params, create(ctx) => pass, update?(pass, params) }`; under WebGL the pass is any three.js postprocessing Pass. It
 is built the first time it is on.
 ```js
-import lowpoly, { bloom, outline } from '@threedog/style-lowpoly';
+import { bloom, outline } from '@threedog/post-effects';   // never from another style pack: packs do not depend on each other
 import { LUTPass } from 'three/addons/postprocessing/LUTPass.js';
-const toon = { ...lowpoly, post: [outline({ enabled: true, thickness: 1.5 }), bloom({ strength: 0.2 }),
+const toon = { name: 'toon', post: [outline({ enabled: true, thickness: 1.5 }), bloom({ strength: 0.2 }),
   { name: 'lut', slot: 'ldr', params: { lut: myLut }, create: ({ params }) => new LUTPass({ lut: params.lut }) }] };
 // at runtime (settings, photo mode, a game's own effect):
 engine.post.get('bloom')?.set({ strength: 0.6 });
@@ -171,14 +176,17 @@ const h = engine.post.add(myVignette, { slot: 'ldr', order: 10 }); h.remove();
 ```
 An effect that reads scene depth (`needsDepth: true`, e.g. `outline`) must run before any pass that swaps buffers (a `ShaderPass`, a scene-slot
 `RenderPixelatedPass`, the tone-mapping output): only the buffer the scene render wrote holds scene depth. A chain that breaks this throws when the
-effect is added or enabled, naming both effects; give the depth reader a lower `order`.
+effect is added or enabled, naming both effects; give the depth reader a lower `order`. `dof` copies the scene depth into its own output
+(`pass.keepsDepth = true`, no extra pass), so `dof` and `outline` can both be on as long as `dof` has the lower `order` (default: dof 5, outline 10;
+lines stay sharp over the blur). `threedog style check` reports the other order as an error.
 `createEngine({ post: { bloom: false } })` overrides an effect's startup on/off; `costly: true` effects start off on low-tier devices. MSAA
 (`antialias`) works with every effect on.
 The settings menu shows `bloom` / `ao` toggles only when the style pack registers effects with those names.
 
 ### Optional post effects package and `fuse`
-The engine ships no effects; `@threedog/post-effects` (install it like `@threedog/terrain-noise`, import only what you use) has `lut` (contrast /
-saturation / warm-cool / optional 3D LUT), `grain`, `vignette`, `chromatic` (all `ldr`) and `dof` (depth of field, `hdr`, reads depth). All are off
+The engine ships no effects; `@threedog/post-effects` (install it like `@threedog/terrain-noise`, import only what you use) has `bloom`, `ao`,
+`outline`, `dof` (all `hdr`; outline and dof read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT), `grain`, `vignette`,
+`chromatic` (`ldr`). A style pack lists the ones it wants in its own `post`. `lut`, `grain`, `vignette`, `chromatic`, `dof`, `ao` and `outline` are off
 until `enabled: true`.
 ```js
 import { vignette, grain, lut } from '@threedog/post-effects';

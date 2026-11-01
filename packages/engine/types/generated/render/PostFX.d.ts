@@ -99,7 +99,7 @@ export type PostFuse = {
  * order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
  * needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  * scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
- * RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. update: apply new params in place;
+ * RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;
  * without it set() rebuilds the implementation.
  */
 export type PostEffect = {

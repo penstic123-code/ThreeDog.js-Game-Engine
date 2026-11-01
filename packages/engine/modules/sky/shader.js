@@ -41,10 +41,13 @@ export function makeSkyUniforms(st, engineUniforms) {
   };
 }
 
-/** The sky dome: a back-faced sphere that follows the camera and is scaled to 0.9 of its far plane (drawn first, no depth) */
-export function makeDome(uniforms, st) {
+/**
+ * The sky dome: a back-faced sphere that follows the camera and is scaled to 0.9 of its far plane (drawn first, no depth).
+ * extra = { decl, body }: GLSL added by fog.js (fog-colored horizon band) and domeLayers.js (style layers); empty keeps the plain shader text
+ */
+export function makeDome(uniforms, st, extra = { decl: '', body: '' }) {
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
-    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: fragment(resolveClouds(st.clouds)), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: fragment(resolveClouds(st.clouds), extra), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
   dome.frustumCulled = false; dome.renderOrder = -1000; dome.userData.budgetTag = 'sky';
   dome.onBeforeRender = (r, sc, cam) => {
     dome.position.copy(cam.position); dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); dome.updateMatrixWorld();
@@ -62,11 +65,11 @@ export function loadSkybox(sky, name) {
 
 const vert = `varying vec3 vDir;
 void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
-const fragment = cl => `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
+const fragment = (cl, x) => `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
 uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
 uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
 ${CLOUD_UNIFORM_DECL}
-${cl.decl}
+${cl.decl}${x.decl ? '\n' + x.decl : ''}
 varying vec3 vDir;
 float h3(vec3 p){ p = fract(p*0.3183099+.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 ${NOISE_GLSL}
@@ -86,7 +89,7 @@ void main(){
     vec4 cl = threedogClouds(d, uTime, uSunDir, uNight, uCloudColor, uCloudShade, cov);
     col = mix(col, cl.rgb, cl.a);
   }
-  col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, 0.25, d.y));
+  col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, 0.25, d.y));${x.body}
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>

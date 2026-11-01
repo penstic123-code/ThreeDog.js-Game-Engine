@@ -77,9 +77,9 @@ main.js. Saving and loading are async (`Promise<boolean>`): await them, and say 
 Loading a slot to keep playing from it is `engine.session.load`, which leaves nothing of the current playthrough behind:
 ```js
 import { toast } from 'threedog';
-engine.onFrame(async () => {
-  if (engine.input.pressed('save') && await engine.saves.save('slot1')) toast(engine, '已存档');
-  if (engine.input.pressed('load') && !(await engine.session.load('slot1'))) toast(engine, '还没有存档');
+engine.onFixed(() => {   // read keys in the fixed step like every gameplay key; the async work runs after it
+  if (engine.input.pressed('save')) engine.saves.save('slot1').then(ok => ok && toast(engine, '已存档'));
+  if (engine.input.pressed('load')) engine.session.load('slot1').then(ok => !ok && toast(engine, '还没有存档'));
 });
 engine.saves.autosave(3);     // autosave to 'auto' every 3 minutes of play (waits while paused, on the title screen and during newGame / load)
 ```
@@ -150,7 +150,7 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
 - **Authored baseline + per-id diff**: everything placed in a level comes from content (props, template instances, pickups, NPCs, grid items in
   `props`, level-model nodes tagged `template` / `id`) with a stable id, and the world part stores only what play changed on top of it, keyed by id:
   `changed` (fields of an authored record that differ), `removed` (authored records removed), `records` (records created during play, such as
-  `content.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same
+  `engine.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same
   world, and a new game's world part is empty: in dev, start warns about records that code created or changed before it, naming them.
 - **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written
   back, <!-- r18-ignore-line -->

@@ -51,7 +51,10 @@ function topLevelFields(rest) {
 export function loadSchema() {
   const text = readFileSync(join(ENGINE, 'types', 'style.d.ts'), 'utf8');
   const interfaces = {};
-  for (const m of text.matchAll(/^export interface (\w+) \{\n([\s\S]*?)\n\}/gm)) {
+  const bases = [];
+  for (const m of text.matchAll(/^export interface (\w+)(?: extends (\w+))? \{\n([\s\S]*?)\n\}/gm)) {
+    if (m[2]) bases.push([m[1], m[2]]);
+    m[2] = m[3];
     const props = {}; let open = false, cur = null;
     for (const line of m[2].split('\n')) {
       const p = /^ {2}([\w$]+)\??:\s*(.*)$/.exec(line);
@@ -65,6 +68,11 @@ export function loadSchema() {
       else if (cur && /^ {3,}/.test(line) && !/^\s*(\/\/|\/?\*)/.test(line)) props[cur] += ' ' + line.trim();
     }
     interfaces[m[1]] = { keys: new Set(Object.keys(props)), open, props };
+  }
+  // `interface StyleWeatherSnow extends StyleWeatherParticles`: the base's keys first, the interface's own win
+  for (const [name, base] of bases) {
+    const I = interfaces[name], B = interfaces[base];
+    if (B) { I.props = { ...B.props, ...I.props }; I.keys = new Set(Object.keys(I.props)); I.open ||= B.open; }
   }
   const mt = /export type MaterialType = Loose<([^>]+)>/.exec(text);
   return { interfaces, materialTypes: mt ? [...mt[1].matchAll(/'([^']+)'/g)].map(x => x[1]) : [] };

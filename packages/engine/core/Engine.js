@@ -45,7 +45,8 @@ import { moduleMethods } from './modules.js';
 import { skipMethods, defineSkipOp } from './skip.js';
 import { styleFrom, NO_STYLE } from './styleParts.js';
 import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
-import { sceneMethods } from './sceneMethods.js';
+import { sceneMethods, TONE } from './sceneMethods.js';
+import { installThings } from './thingOps.js';
 import { shadowTypeOf } from './shadowTypes.js';
 // Options createEngine accepts (must match the constructor destructuring)
 const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'shadowType', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
@@ -74,9 +75,8 @@ export class Engine {
     this._autoSize = undefined;                // decided once the canvas is in the page (sizeMode): true = no CSS size, the engine sizes it to the window
     const box = canvasBox(this);
     r.setSize(box.w, box.h, !!this._autoSize);
-    const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
     r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
-    r.toneMappingExposure = style.exposure ?? 1;
+    this.setExposure(style.exposure ?? 1);   // a number, or day keyframes / a function the sky evaluates each frame
     r.shadowMap.enabled = shadows;
     r.shadowMap.type = shadowTypeOf(shadowType, 'createEngine({ shadowType })');
     r.info.autoReset = false;
@@ -156,6 +156,7 @@ export class Engine {
     this.commits = new Commits(this);          // background results that affect gameplay take effect on a fixed tick (see Commits.js)
     this.ops = new Ops(this);                  // one entry point for actions (define / run / can / list / recent), see Ops.js
     defineSkipOp(this);                        // 'time.skip', behind engine.skip (skip.js)
+    installThings(this);                       // engine.add registry, thing.set / remove, 'scene' save part
     this.jobs = new Jobs(this);                // frame-spread job scheduler
     this.threads = new Threads(threads);       // worker pool (see Threads.js); workers start only when a lane is used
     // spatial stream-in and the stream sources (where the world is loaded: stream, models, terrain, colliders read them)

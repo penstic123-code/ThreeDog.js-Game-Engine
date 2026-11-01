@@ -29,7 +29,7 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - interactions: `node_modules/threedog/docs/recipes/20-content-actions-save.md` · `node_modules/threedog/docs/api/interactions.md`
 - inventory: `node_modules/threedog/docs/recipes/03-items-pickups.md` · `node_modules/threedog/docs/api/inventory.md`
-- content: `node_modules/threedog/docs/recipes/30-templates.md` · `node_modules/threedog/docs/api/content.md`
+- content: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/content.md`
 - hud: `node_modules/threedog/docs/recipes/04-quests.md` · `node_modules/threedog/docs/api/hud.md`
 - debug: `node_modules/threedog/docs/api/debug.md`
 
@@ -79,7 +79,7 @@ Starting inventory: empty. Pickups: 0.
 
 - Place room: the centre of the one room (the origin)
 
-## Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)
+## Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)
 
 | Template | Model | Collide | Interact (op / label) | Container | State (defaults) | Instances |
 |---|---|---|---|---|---|---|
@@ -92,7 +92,7 @@ Starting inventory: empty. Pickups: 0.
 
 - content/props.js: 8 (template floor×1, template wall×4, template pillar×2, template slime×1); 8 with an explicit id, places: room
 
-Placed from code at startup: none (rule R33).
+Code that breaks saves or manages world models: none (rule R33).
 
 ## Objective markers and HUD (hud module)
 

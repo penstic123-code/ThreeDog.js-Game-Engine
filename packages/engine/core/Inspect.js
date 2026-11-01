@@ -4,17 +4,18 @@
 //   engine.inspect([x, z])         things around a spot, ops as the player
 //   engine.explain({ op: 'shop.buy', args })   why an op can / cannot run now (text: reason + fix first; detail: its last attempt and the events around it)
 //   engine.explain({ quest: 'first-light' })  any other key is answered by the module whose definition has explain: { quest(e, id) {...} }
-//   engine.pick(x, y).thing        point -> thing: the world record a ray hit belongs to, with where it was authored (thingOf)
+//   engine.pick(x, y).thing        point -> thing: the world record a ray hit belongs to, else the engine.add object (thingOf; engine.thing is the same lookup)
 // Built on ops because a failed op already carries its reason; explain turns that into a sentence instead of making the AI read can().
 import { closest } from './validate.js';
 import { codedError } from './errorHints.js';
+import { findThing, hintThing } from './thingOps.js';
 
 const OPS_MAX = 8;
 
 /** Where an actor stands: the player, or a world record */
 function placeOf(e, actor) {
   if (actor === 'player') return e.player?.position ?? e.focus;
-  return e.world?.get(actor)?.position ?? null;
+  return e.world?.get(actor)?.position ?? e._things.live(actor)?.getWorldPosition(new e.THREE.Vector3()) ?? null;   // a record, else an engine.add object
 }
 const note = (e, op, reason) => e.ops.defs.get(op)?.reasons?.[reason];
 
@@ -26,11 +27,11 @@ const note = (e, op, reason) => e.ops.defs.get(op)?.reasons?.[reason];
 export function inspect(e, at, { radius = 10 } = {}) {
   const actor = typeof at === 'string' ? at : 'player';
   const p = typeof at === 'string' ? placeOf(e, at) : Array.isArray(at) ? { x: at[0], z: at[at.length - 1] } : at ?? placeOf(e, 'player');
-  if (!p) throw codedError('world-record', `engine.inspect('${at}'): no world record with this id${hintIds(e, at)}. Pass a record id, [x, z] or nothing for the player`);
+  if (!p) throw codedError('world-record', `engine.inspect('${at}'): no world record or engine.add object with this id${hintThing(e, at)}. Pass an id engine.thing knows, [x, z] or nothing for the player`);
   const near = e.describe({ radius, center: { x: p.x, z: p.z } }).nearby;
   const ops = e.ops.list({ available: true, actor }).sort((a, b) => b.ok - a.ok).slice(0, OPS_MAX)
     .map(o => ({ op: o.name, args: o.args, ok: o.ok, ...(o.ok ? {} : { reason: o.reason, why: note(e, o.name, o.reason) ?? null }) }));
-  const thing = typeof at === 'string' && e.world?.get(at) ? recordThing(e, at) : null;
+  const thing = typeof at === 'string' && at !== 'player' ? findThing(e, at, recordThing) : null;
   return { actor, at: { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 }, near, ops, ...(thing && { thing }) };
 }
 
@@ -45,7 +46,7 @@ const NOT_FIELDS = new Set(['id', 'kind', 'position', 'zone', 'floor', 'offsetY'
  * A world record as a thing to change: id, kind, template, where it was authored (definedAt / level node / spawned by which op), model and its fields.
  * @param {any} e @param {string} id @internal
  */
-function recordThing(e, id) {
+export function recordThing(e, id) {
   const rec = e.world.get(id); if (!rec) return null;
   const o = e.world.origin(id) ?? {}, fields = {};
   for (const k in rec) if (!NOT_FIELDS.has(k)) fields[k] = rec[k];
@@ -58,16 +59,16 @@ function recordThing(e, id) {
 
 /**
  * Point -> thing: what a ray hit is. A hit on a batched instance resolves to its original object first (engine.batching.item).
- * Returns the record's thing (recordThing) plus the mesh and material names; for scenery that is no record, id is null and only those are known.
+ * Returns the record's thing (recordThing), else the engine.add object's (engine.thing), plus the mesh and material names; for an object neither knows
+ * (engine.scene.add) id is null and only those are known.
  * @param {any} e @param {any} obj the hit object @param {{ instanceId?: number }} [hit] @internal
  */
 export function thingOf(e, obj, hit) {
   if (obj?.isInstancedMesh && hit?.instanceId != null) obj = e.batching.item(obj, hit.instanceId) ?? obj;
-  const id = e.world?.idOf(obj) ?? null, mat = Array.isArray(obj?.material) ? obj.material[0] : obj?.material;
+  const t = findThing(e, obj, recordThing), mat = Array.isArray(obj?.material) ? obj.material[0] : obj?.material;
   const look = { mesh: obj?.name || null, material: mat?.name || null };
-  return id ? { ...recordThing(e, id), ...look } : { id: null, kind: null, template: null, definedAt: null, model: null, fields: {}, edit: null, ...look };
+  return t ? Object.assign(t, look) : { id: null, kind: null, template: null, definedAt: null, model: null, fields: {}, edit: null, ...look };
 }
-const hintIds = (e, id) => { const c = e.world && closest(String(id), e.world.query({}).map(r => r.id)); return c ? ` (did you mean '${c}'?)` : ''; };
 
 /**
  * @param {any} e

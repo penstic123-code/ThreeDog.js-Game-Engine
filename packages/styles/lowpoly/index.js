@@ -10,9 +10,12 @@
 // Every entry is optional; omitted parts get neutral engine placeholders (gray).
 import { models, PALETTE } from './models.js';
 import { humanoid, pickup } from './shapes.js';
-import { bloom, outline, ao, OUTLINE_OFF_LAYER } from './post.js';
+import { bloom, outline, ao } from '@threedog/post-effects';
 
-export { bloom, outline, ao, models, OUTLINE_OFF_LAYER };
+// bloom / ao / outline / OUTLINE_OFF_LAYER live in @threedog/post-effects (style packs must not depend on each other). Re-exported here only
+// because style packs not merged yet still import them from this package; delete this line once they import from post-effects.
+export { bloom, outline, ao, OUTLINE_OFF_LAYER } from '@threedog/post-effects';
+export { models };
 /** Asset pack of the procedural models: engine.assets.manifest(assets) registers pine, roundTree, rock, flower, grass... as model names */
 export const assets = { name: 'lowpoly', models };
 

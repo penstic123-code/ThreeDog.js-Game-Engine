@@ -17,6 +17,7 @@ Procedural terrain (terrain() module)
 - Properties:
   - `T: TerrainGen` Pure-computation terrain (height, landform)
   - `CHUNK: number` Chunk edge length (meters)
+  - `voidY: number` terrain({ shape }) only: below this height the player or a moving rigid body has fallen out of the world (one terrain:void per fall). shape.voidY, else 50 m under the lowest island chunk loaded so far; -Infinity without a shape. Example: `engine.events.on('terrain:void', ({ who }) => { if (who === engine.player) engine.player.placeAt(home); });`
   - `chunks: Map<string, any>` Loaded chunks: 'cx,cz' → chunk
   - `viewChunks: number` View distance (in chunks)
   - `density: number` Vegetation density multiplier

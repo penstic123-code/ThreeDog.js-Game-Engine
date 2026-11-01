@@ -64,6 +64,8 @@ returns `'halted'`.
 | `inventory.trade` | `{ take, give, takeN?, giveN?, container? }` (all or nothing in `ctx.actor`'s container; reversible with `engine.ops.undo`, recipe 03) | `noContainer` `notEnough` `full` |
 | `inventory.use` | `{ item }` (from `ctx.actor`'s container; runs the item's `use`, see recipe 03) | `notEnough` `notUsable` or the item's `canUse` reason |
 | `inventory.drop` | `{ item, n? }` (a pickup at the actor's feet, data kept) | `notEnough` `noWorld` `noPosition` |
+| `thing.set` | `{ id, position?, rotation?, scale?, visible? }` (core; a world record via `world.set` / `move`, an `engine.add` object saved as an override when it has an id; undoable, recipe 41) | `noThing` `engineOwned` `recordVisible` |
+| `thing.remove` | `{ id }` (core; undoable: an `engine.add` object is detached and kept, a record re-added) | `noThing` `engineOwned` |
 | `photo.take` | none (`r.value` is the shot; can = `photo.canTake()`, the key emits `photo:denied { reason }`) | `denied` or yours |
 
 ## 4. Read the log

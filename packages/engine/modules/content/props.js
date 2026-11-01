@@ -15,6 +15,7 @@
 import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
 import { srcOf } from './ids.js';
+import { placeY } from '../../core/ground.js';
 import { list } from './rules.js';
 import { DEV, fmt } from '../../core/validate.js';
 
@@ -36,7 +37,7 @@ export function addProps(e, api, props, st, zoneOf, ids) {
     const id = propId(p, i), { x, y, z } = api.where(p), zone = zoneOf(p), floor = api._floorOf(p);
     if (p.id != null) ids.claim(p.id, `props[${i}] (model ${JSON.stringify(p.model)})`);
     // compute y from the ground now (same as when the model is built): unmoved props equal the content and stay out of the save
-    const def = { id, kind: 'prop', position: { x, y: y ?? e.surface(x, z), z }, model: p.model };
+    const def = { id, kind: 'prop', position: { x, y: y ?? placeY(e, `props[${i}] (model ${JSON.stringify(p.model)})`, x, z), z }, model: p.model };
     for (const k of ['rot', 'scale', 'collide', 'static', 'batch']) if (p[k] !== undefined) def[k] = p[k];
     if (p.y) def.offsetY = p.y;
     if (floor !== undefined) def.floor = floor;   // kept so a moved prop lands on the same storey

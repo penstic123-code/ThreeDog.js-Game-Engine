@@ -115,6 +115,13 @@ export const specs = [
           for (let i = 0; i < 3; i++) engine.step(1 / 30, { describe: false });
           out[sh] = bank(shot());
         }
+        // texture mode + style.seasons.mode 'mix': the season tint must land on the mapped color (not be multiplied back by the map)
+        const U = engine.uniforms, at = (Math.round(N * 0.1) * N + N / 2) * 4, lo = p => +(Math.min(p[at], p[at + 1], p[at + 2]) / Math.max(1, p[at], p[at + 1], p[at + 2])).toFixed(2);   // whiteness: lowest / highest channel
+        const plain = lo(shot());
+        U.uGroundTint.value.set(0xffffff); U.uGroundMix.value = 0.8;
+        engine.step(1 / 30, { describe: false });
+        out.snowMix = [plain, lo(shot())];
+        U.uGroundMix.value = 0;
         // texture mode now: material per chunk, texture size, paint refreshes it, dispose frees it
         const c = T.chunks.get('40,40'), tex = c.colorTex;
         out.mount = !!tex && tex.image.width === 130 && tex.colorSpace === THREE.SRGBColorSpace && c.terrain.material === c.colorMat && c.colorMat !== T.terrainMat;
@@ -135,6 +142,7 @@ export const specs = [
       check(`河岸（曲线地貌边界）渲染后偏离真实曲线的均方根：texture ${r.texture.rms} m 对 smooth ${r.smooth.rms} m（须小于 1/3）`, r.texture.miss === 0 && r.smooth.miss === 0 && r.texture.rms * 3 < r.smooth.rms, JSON.stringify(r));
       check(`河岸锯齿度（边界误差二阶差分均方根）：texture ${r.texture.saw} 对 smooth ${r.smooth.saw}（须小于 1/2）`, r.texture.saw * 2 < r.smooth.saw, JSON.stringify(r));
       check('texture 区块：每块自己的材质 + 130px sRGB 贴图', r.mount);
+      check('texture + 季节 mix（白色 0.8）：顶面像素明显向白色偏', r.snowMix[0] < 0.1 && r.snowMix[1] > 0.5, JSON.stringify(r.snowMix));
       check('terrain.edit 涂色后同一张贴图被更新，渲染出涂的颜色', r.paintChanged && r.paintGreen, `${r.paintChanged} ${r.paintGreen} ${r.paintPx}`);
       check('区块重建时贴图被释放（dispose 事件）', r.disposed);
     },

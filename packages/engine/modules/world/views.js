@@ -14,6 +14,8 @@ const STRINGS = {
   disposeArgs: 'dispose of world.present(\'{kind}\') declares only one parameter: the parameters are (rec, obj), record first and model second. Example: dispose: (rec, obj) => engine.remove(obj)',
   positionFrom: 'positionFrom of world.present(\'{kind}\') must be \'record\' (the model follows the record, default) or \'view\' (the model moves itself, the record follows the model)',
 };
+/** Dev: code wrote the position of a model world places every frame (positionFrom 'record'): the write is lost next frame */
+const moved = (e, id) => e.thingConflict(`world model of '${id}' was moved by code outside its present update; world puts it back on the record every frame (positionFrom 'record'). Move the record instead: ops.run('thing.set', { id: '${id}', position }) or world.move, or present it with positionFrom: 'view'`);
 const say = (s, kind, id = '', got = '') => s.replace(/\{kind\}/g, kind).replace('{id}', id).replace('{got}', got);
 const OPTS = ['build', 'update', 'dispose', 'show', 'radius', 'positionFrom'];
 const FULL = { detail: 'full' };
@@ -93,9 +95,13 @@ export class Views {
     if (this.presenters.size && (this.dirty || this.moved())) this.refresh(W.engine.ready ? W.buildPerFrame : Infinity);
     for (const [id, v] of this.map) {
       if (!v.obj) continue;
-      const rec = W.records.get(id);
-      if (v.p.positionFrom !== 'view') v.obj.position.copy(rec.position);   // 'view' position is copied back to the record at the end of the fixed step (pull)
+      const rec = W.records.get(id), o = v.obj.position;
+      if (v.p.positionFrom !== 'view') {
+        if (DEV && v.lx !== undefined && (o.x !== v.lx || o.y !== v.ly || o.z !== v.lz)) moved(W.engine, id);
+        o.copy(rec.position);   // 'view' position is copied back to the record at the end of the fixed step (pull)
+      }
       v.p.update?.(rec, v.obj, dt);
+      if (DEV) { v.lx = o.x; v.ly = o.y; v.lz = o.z; }   // after update: present's own update may move the model, other code may not
     }
     this.wake();
   }
@@ -151,7 +157,7 @@ export class Views {
       v.obj = obj; v.pending = false; this.byObj.set(obj, rec.id);
       if (p.positionFrom === 'view') this.moving.add(rec.id);
       obj.position.copy(rec.position);
-      if (!obj.parent) e.add(obj);
+      if (!obj.parent) e.add(obj, { owner: 'world', id: rec.id });   // the registry knows it as the record (engine.thing / hit.thing)
     };
     let out;
     this.w._building = rec.id;   // interactions.add inside build takes this as its stable id (the interaction.use op names it)
