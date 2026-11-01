@@ -32,6 +32,10 @@ export default function threedogBridge() {
       const pending = new Map();    // command id → { resolve, reject, client }
       let seq = 0, headless = null; // headless: Promise<{ browser, page, path }>
       let headlessBusy = 0, closeWhenIdle = false;
+      // A headless page must not burn CPU while nobody asks it for anything (a resumed software-WebGL game runs ~10 cores): a few seconds after
+      // the last command it is paused again (idlePaused), and after IDLE_CLOSE_MIN minutes the browser is closed (the next command opens a new one)
+      const IDLE_PAUSE_MS = +process.env.THREEDOG_HEADLESS_PAUSE_S * 1000 || 15000, IDLE_CLOSE_MS = (+process.env.THREEDOG_HEADLESS_IDLE_MIN || 10) * 60000;
+      let idleTimer = null, idlePaused = false, lastCmd = Date.now();
 
       /** Fail every command waiting on client (it reloaded or closed) */
       const dropClient = client => {
@@ -76,10 +80,20 @@ export default function threedogBridge() {
         return (await headless).page;
       }
       async function closeHeadless() {
-        const h = headless; headless = null;
+        const h = headless; headless = null; idlePaused = false; clearTimeout(idleTimer);
         if (h) await (await h.catch(() => null))?.browser.close().catch(() => {});
       }
       server.httpServer?.on('close', closeHeadless);
+      /** After a command: pause a real-time-running headless page soon, close the browser later */
+      function armIdle() {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(async () => {
+          const h = headless && await headless.catch(() => null);
+          if (!h || headlessBusy) return;
+          idlePaused = await h.page.evaluate(() => { const e = window.engine; if (!e?.headless || e.paused) return false; e.pause('bridge-idle', { kind: 'test' }); return true; }).catch(() => false);
+          idleTimer = setTimeout(() => { if (!headlessBusy) closeHeadless(); }, Math.max(1000, IDLE_CLOSE_MS - IDLE_PAUSE_MS));
+        }, IDLE_PAUSE_MS);
+      }
 
       /** Run one primitive: eval / shot / reload (what the commands mean is in packages/tools/threedog/commands.mjs; this only carries them) */
       async function exec({ op, src, arg, page: path }) {
@@ -96,18 +110,30 @@ export default function threedogBridge() {
         try {
           const page = await openHeadless(path || '/');
           await waitEngine(page, { dir: server.config.root });
+          if (idlePaused) { idlePaused = false; await page.evaluate(() => window.engine?.resume('bridge-idle')); }   // hand the page back as it was before the idle pause
           if (op === 'eval') return await page.evaluate(([s, a]) => (0, eval)('(' + s + ')')(a), [src, arg]);
           if (op === 'shot') return (await page.screenshot()).toString('base64');   // the headless page is captured together with the HTML UI
           await page.reload(); return null;
-        } finally { if (!--headlessBusy && closeWhenIdle) { closeWhenIdle = false; closeHeadless(); } }
+        } finally { if (!--headlessBusy) { if (closeWhenIdle) { closeWhenIdle = false; closeHeadless(); } else armIdle(); } }
       }
+
+      // One command at a time, in arrival order: the MCP server, a session and direct command lines may all call at once, and step / op are
+      // order-dependent (two steps interleaving with an op would give a state nobody asked for)
+      let tail = Promise.resolve();
+      const inOrder = fn => { const run = tail.then(fn); tail = run.catch(() => {}); return run; };
 
       server.middlewares.use('/__threedog/cmd', (req, res) => {
         const reply = (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
         if (req.method !== 'POST' || !isLocalRequest(req)) return reply(403, { ok: false, error: 'the bridge only accepts commands from the local command line' });
         if (req.headers['x-threedog-token'] !== token) return reply(401, { ok: false, error: 'wrong token · was the dev server restarted? just run the command again' });
         readBody(req, 4 << 20).then(async b => {
-          try { reply(200, { ok: true, value: await exec(JSON.parse(String(b))) ?? null }); }
+          try {
+            const cmd = JSON.parse(String(b));
+            if (cmd.op !== 'ping') lastCmd = Date.now();
+            // ping: "is this the bridge, and is a page attached" without touching the page (never opens the headless browser, skips the queue)
+            if (cmd.op === 'ping') return reply(200, { ok: true, value: { live: !!liveClient(cmd.page), headless: !!headless } });
+            reply(200, { ok: true, value: await inOrder(() => exec(cmd)) ?? null });
+          }
           catch (e) { reply(200, { ok: false, error: String(e.message || e) }); }
         }, e => reply(413, { ok: false, error: String(e.message) }));
       });
@@ -116,6 +142,9 @@ export default function threedogBridge() {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, JSON.stringify({ port: server.httpServer.address().port, token, pid: process.pid }));
       });
+      // A server that play started for an agent (THREEDOG_AUTOSTOP_MIN is set by play) exits when no command came and no live page is open for that long
+      const stopMin = +process.env.THREEDOG_AUTOSTOP_MIN;
+      if (stopMin > 0) setInterval(() => { if (!headlessBusy && !pending.size && !focus.size && Date.now() - lastCmd > stopMin * 60000) server.close().finally(() => process.exit(0)); }, 15000).unref();
       const cleanup = () => { try { rmSync(file); } catch { /* already gone */ } };
       server.httpServer?.on('close', cleanup);
       process.once('exit', cleanup);

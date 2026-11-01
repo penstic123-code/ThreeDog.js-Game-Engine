@@ -1,0 +1,48 @@
+// Named camera views (core/Views.js): define, show moves the camera and takes it over through engine.takeCamera (core/holds.js), release gives it back
+// to whoever held it before (a cutscene keeps its takeover); bad input is rejected with a code.
+import * as THREE from 'three';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { ENGINE } from '../paths.mjs';
+
+const { Views } = await import(pathToFileURL(join(ENGINE, 'core/Views.js')).href);
+const { holdMethods } = await import(pathToFileURL(join(ENGINE, 'core/holds.js')).href);
+const { claims } = await import(pathToFileURL(join(ENGINE, 'core/claims.js')).href);
+
+export const name = 'named camera views: define / show / release';
+
+export async function run({ check }) {
+  // a minimal engine with the real camera takeover (holds.js), so views cannot bypass it
+  const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60), _cameraClaims: claims({ what: 'test' }) }, Object.getOwnPropertyDescriptors(holdMethods));
+  const v = new Views(engine);
+  const def = v.define('gate', { position: [0, 2, 10], target: [0, 2, 0], fov: 35 });
+  check('defined view is listed', v.has('gate') && v.list().join() === 'gate');
+  const shown = v.show('gate');
+  check('show places the camera and takes it over', shown && engine.camera.position.z === 10 && engine.camera.fov === 35 && engine.cameraOverride?.owner === 'views');
+  const dir = new THREE.Vector3(); engine.camera.getWorldDirection(dir);
+  check('the camera looks at the target (down -z)', dir.z < -0.99);
+  shown.remove();
+  check('the handle show returns gives the camera back', engine.cameraOverride === null && v.current === null);
+  // a cutscene held the camera first: a view on top, then release, hands it back to the cutscene (not to nobody)
+  const cut = engine.takeCamera('timeline', { focus: null });
+  v.show('gate');
+  check('the latest holder is in charge', engine.cameraOverride.owner === 'views');
+  v.release();
+  check('release hands the camera back to the cutscene that held it', engine.cameraOverride?.owner === 'timeline');
+  cut.remove();
+  check('no holder left: the rig gets the camera', engine.cameraOverride === null);
+  const throwsRenamed = f => { try { f(); return false; } catch (e) { return e.code === 'renamed-api'; } };
+  check('assigning cameraOverride throws renamed-api', throwsRenamed(() => { engine.cameraOverride = { owner: 'legacy' }; }));
+  check('views.define({ pos }) throws renamed-api', throwsRenamed(() => v.define('old', { pos: [1, 2, 3] })) && !v.has('old'));
+  def.remove();
+  check('the handle define returns undeclares the view', !v.has('gate'));
+  let code = null; try { v.define('x', { position: [1, 2] }); } catch (err) { code = err.code; }
+  check('a position that is not [x, y, z] throws views-define', code === 'views-define');
+
+  // the content validator knows the kind: good views pass, each mistake is one error naming the view
+  const { checkViews } = await import(pathToFileURL(join(ENGINE, '../tools/content-check/views.mjs')).href);
+  const run = views => { const errs = []; checkViews({ c: { views }, err: (_, m) => errs.push(m), isObj: x => x && typeof x === 'object' && !Array.isArray(x) }); return errs; };
+  check('valid views produce no errors', run({ a: { pos: [1, 2, 3] }, b: { pos: [0, 1, 0], target: [0, 0, 0], fov: 50 } }).length === 0);
+  const e = run({ a: { pos: [1, 2] }, b: { pos: [0, 0, 0], tgt: [1, 1, 1] }, c: { pos: [0, 0, 0], fov: 400 } });
+  check('bad pos, unknown key and bad fov are each reported: ' + e.join(' | '), e.length === 3 && /"a".*pos/.test(e[0]) && /"b".*tgt/.test(e[1]) && /"c".*fov/.test(e[2]));
+}

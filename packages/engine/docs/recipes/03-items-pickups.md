@@ -39,7 +39,7 @@ changing level and coming back they are still picked up.
 
 ## 2. In code (dynamic drops, custom models)
 ```js
-engine.inventory.define('gem', { name: '宝石', icon: '💎', color: 0x66ccff });
+engine.inventory.define('gem', { name: '宝石', icon: '💎', color: 0x66ccff });   // shape: add mesh: (item, { color, size }, e) => Object3D | geometry, or model: 'generatorName', to set it on the item (wins over style.pickup.model; spawnPickup { mesh } wins over both)
 const gem = engine.inventory.spawnPickup('gem', engine.player.position, { count: 1, respawnSeconds: 0 });   // returns a handle; gem.remove() deletes data and model together
 // handle: { id: item, worldId: id in world, object: current model (null when far), remove() }; opts.id lets you write a stable id (spawning again with the same id reuses the existing one)
 engine.inventory.add('coin', 2);                // give directly; returns the entry key ('coin'), false if it doesn't fit

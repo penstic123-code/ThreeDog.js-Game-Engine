@@ -28,7 +28,8 @@ export function prepareLook(sky, st, over) {
   if (sky._drive.sun === false) { sun.visible = false; sun.castShadow = false; }
   if (sky._drive.hemi === false) hemi.visible = false;
   /** @internal resolved fog settings (fog.js) */
-  sky._fog = resolveFog(fogObj || over.fog == null ? st.fog : sky.engine.style.sky?.fog);
+  sky._fogSpec = fogObj || over.fog == null ? st.fog : sky.engine.style.sky?.fog;   // look.fog's style layer (lookFog.js)
+  sky._fog = resolveFog(sky._fogSpec);
   sky._backdrop = resolveBackdrop(st);
   const f = domeFog(sky._fog), l = resolveDomeLayers(st.layers);
   const uniforms = { ...l.uniforms };
@@ -40,7 +41,7 @@ export function prepareLook(sky, st, over) {
 // style.sky.backdrop: one flat color (or (sky) => color each frame) instead of the dome -- no gradient, horizon, sun / moon disk,
 // stars or clouds. The color goes straight to scene.background (no tone mapping), so what is written is what shows; the keyframes
 // still light the world, and fog in its default 'horizon' color follows the backdrop so far things fade into it.
-function resolveBackdrop(st) {
+export function resolveBackdrop(st) {
   const v = st.backdrop;
   if (v == null) return null;
   const color = typeof v === 'number' || typeof v === 'string' || v.isColor;

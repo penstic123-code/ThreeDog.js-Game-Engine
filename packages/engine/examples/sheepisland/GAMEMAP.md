@@ -26,7 +26,6 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - content: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/content.md`
-- debug: `node_modules/threedog/docs/api/debug.md`
 
 Not used yet (check these before writing the system yourself):
 
@@ -99,7 +98,7 @@ Code that breaks saves or manages world models: none (rule R33).
 ## Saves
 
 - Save prefix saveKey: threedog-sheepisland
-- Content-related saves handled by the engine: story flags and counters (engine.vars), inventory, quest progress, timers (clock, after registered by event name), pickups (world), felled trees (vegetation)
+- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)
 
 ## Style pack keys
 

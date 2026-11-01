@@ -7,6 +7,7 @@
 //     prediction / rollback is a later step).
 //   - world.simulate does not run here: the host simulates and the result arrives as diffs (two simulations would fight).
 import { applyPart, idMap } from './sync.js';
+import { failure } from '../../core/opsFail.js';
 
 const STEP = 1 / 60;
 const ASK_EVERY = 30;   // steps between snapshot requests while out of step
@@ -43,8 +44,8 @@ export class NetClient {
 
   route(d, args, opts) {
     if (d.net === 'local') return null;
-    if (d.net !== 'peer') return { ok: false, reason: 'notAllowed' };
-    if (!this.synced) return { ok: false, reason: 'offline' };
+    if (d.net !== 'peer') return failure('notAllowed');
+    if (!this.synced) return failure('offline');
     const c = this.e.ops.can(d.name, args, opts);
     if (!c.ok) return c;
     const seq = ++this.seq, out = {};
@@ -80,7 +81,7 @@ export class NetClient {
       if (this.synced && m.n > this.n) this.gap();
     } else if (m.t === 'r') {
       this.pending.delete(m.seq);
-      e.events.emit('net:result', { seq: m.seq, name: m.name, ok: m.ok, reason: m.reason, value: m.value, tick: m.tick });
+      e.events.emit('net:result', { seq: m.seq, name: m.name, ok: m.ok, code: m.code, value: m.value, tick: m.tick });
     }
   }
   /** a diff was lost: stop applying diffs and ask for a snapshot (frame asks again if that is lost too) */

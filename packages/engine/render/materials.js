@@ -20,6 +20,7 @@ import { EFFECTS } from './effects.js';
 import { detailPatch } from './detail.js';
 import { applySurface } from './surface.js';
 import { lightingPatch, rampTexture } from './lighting.js';
+import { groundDetail, materialOverrides, materialReplace, materialPatches, materialMade, surfaceLighting, surfaceRamp } from './lookSurface.js';
 /** @import { ColorLike, Material, BufferGeometry } from '../types/common' */
 
 // ---------- style pack per engine ----------
@@ -93,7 +94,8 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
     const known = [...new Set([...MATERIAL_PURPOSES, ...Object.keys(M)])];
     if (closest(purpose, known)) warnMissing('material', purpose, known);
   }
-  const entry = M[purpose] ?? M.default, key = purpose in M ? purpose : 'default', eng = owner(engine);
+  const eng = owner(engine), rep = materialReplace(eng, purpose);   // look.materials.replace(role, ...) beats the style's entry
+  const entry = rep ?? M[purpose] ?? M.default, key = purpose in M ? purpose : 'default';
   let m, props = params;
   if (entry?.isMaterial) m = copyPatches(entry, entry.clone());
   else if (typeof entry === 'function') {
@@ -101,17 +103,20 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
     if (!m?.isMaterial) throw new Error(`style.materials.${key} returned ${m}; the function must return a three.js Material`);
   } else {
     // A spec layers on top of materials.default when that is a spec too
-    const { type = 'lambert', steps = 3, ramp, soften, ...rest } = { ...(isSpec(M.default) ? M.default : {}), ...entry, ...params };
+    // look.materials.set layers (game / debug) lie over the style's spec; look.surface.ramp over a toon material's own ramp
+    const merged = { ...(isSpec(M.default) ? M.default : {}), ...entry, ...materialOverrides(eng, 'default'), ...(purpose === 'default' ? {} : materialOverrides(eng, purpose)), ...params };
+    if ((merged.type ?? 'lambert') === 'toon') Object.assign(merged, surfaceRamp(eng));   // the pack-wide ramp wins over the spec's own
+    const { type = 'lambert', steps = 3, ramp, soften, ...rest } = merged;
     const Ctor = TYPES[type];
     if (!Ctor) throw new Error(`style.materials.${key}: unknown type '${type}'; use ${Object.keys(TYPES).join(' | ')}, or give a Material instance or a function (params, purpose) => Material`);
     m = new Ctor();
     if (type === 'toon') m.gradientMap = ramp ? rampTexture(ramp, soften) : toonRamp(steps);
     else if (ramp || soften !== undefined) throw new Error(`style.materials.${key}: ramp / soften belong to type 'toon' (this is '${type}')`);
-    props = applySurface(m, rest, `style.materials.${key}`, eng, eng?.style?.lighting);
+    props = applySurface(m, rest, `style.materials.${key}`, eng, surfaceLighting(eng));
   }
   // the pack's style.lighting also shapes pack Materials and function results that are plain three.js lit materials (specs got it above)
-  if (props === params && eng?.style?.lighting && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial))
-    patchMaterial(m, [lightingPatch(eng.style.lighting, 'style.lighting')]);
+  if (props === params && surfaceLighting(eng) && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial))
+    patchMaterial(m, [lightingPatch(surfaceLighting(eng), 'style.lighting')]);
   for (const k in props) {
     if (k === 'type' || !(k in m)) continue;
     const v = props[k];
@@ -119,15 +124,22 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
   }
   // A key this material lacks is skipped on purpose (one params object works for any material type), but a key that looks like a typo of a real
   // property ('roughnes') warns once with the suggestion. loose: keys with no close match (a spec shared across types) stay silent.
-  checkOptions(`makeMaterial('${purpose}')`, params, [...Object.keys(m), ...SPEC_KEYS, 'type'], { loose: true });
+  // `k in m` also finds accessor properties on the prototype (MeshPhysicalMaterial clearcoat, sheen, ...), which Object.keys does not list
+  const unknown = Object.fromEntries(Object.entries(params).filter(([k]) => !(k in m)));
+  checkOptions(`makeMaterial('${purpose}')`, unknown, [...Object.keys(m), ...SPEC_KEYS, 'type'], { loose: true });
   m.userData.purpose = purpose;
+  // Minimal provenance for inspect.scene (diagnostic only, one small object per material): which layer supplied the spec
+  m.userData.materialSource = { role: purpose, from: !entry ? (Object.keys(params).length ? 'call-params' : 'default') : entry.isMaterial ? 'pack-instance' : typeof entry === 'function' ? 'pack-function' : 'pack-spec', keys: Object.keys(params) };
+  const added = materialPatches(eng, purpose);   // look.materials.patch(name, patch, { roles })
+  if (added.length) patchMaterial(m, added);
+  materialMade(eng, purpose, m);
   m.needsUpdate = true;
   return m;
 }
 
 // ---------- shader effects (named patches, see patches.js; the built-in ones are in effects.js) ----------
 // A style's own sway function (style.wind.glsl): must define threedogWind(); its uniforms are declared for it
-function windCustom({ glsl, uniforms }) {
+export function windCustom({ glsl, uniforms }) {
   if (!/void\s+threedogWind\s*\(/.test(glsl || '')) throw new Error('style.wind.glsl must define `void threedogWind(inout vec3 transformed, vec3 ip, vec3 position)`: move the vertex (object space) by the sway; ip = world position of this instance, uTime / uWind / uWindFreq / THREEDOG_WIND_AMP are in scope');
   return { glsl, ...declareUniforms('style.wind.uniforms', uniforms) };
 }
@@ -169,10 +181,10 @@ export function applyEffects(material, { wind, clouds = true, season, detail, en
  */
 export function terrainMaterial(base = null, engine = undefined) {
   const e = owner(engine);
-  // style.terrain.detail is the `detail` patch with its texture-only options (top-down world projection, multiply)
-  const det = e?.style?.terrain?.detail, tex = det?.texture && e?.assets;
+  // look.ground.detail (style.terrain.detail) is the `detail` patch with its options (texture, or noise / glsl; top-down world projection, multiply)
+  const det = groundDetail(e), on = det && ((det.texture && e?.assets) || det.noise || det.glsl);
   return applyEffects(base || makeMaterial('terrain', { vertexColors: true }, e ?? undefined),
-    { season: 'ground', engine: e ?? undefined, ...(tex && { detail: { texture: det.texture, scale: det.scale ?? 0.25, strength: det.strength ?? 0.35 } }) });
+    { season: 'ground', engine: e ?? undefined, ...(on && { detail: { scale: 0.25, strength: 0.35, ...det } }) });
 }
 
 /**

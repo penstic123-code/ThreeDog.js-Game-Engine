@@ -92,6 +92,13 @@ What catches up, and how:
 - `timeScale = 0` skips as if at 1x. The jump itself is the op `time.skip { seconds }` (logged and replayable; it refuses `seconds <= 0`).
 - A module that keeps its own time implements the hook `skip(dt, e, done)` (called once per segment; `done` on the last one).
 
+### Order inside one frame
+Each rendered frame runs: input poll -> the fixed steps due (`commits` applied first, then `onFixed`, module `fixed` hooks, clock timers) -> `onFrame`
+callbacks **in the order they were registered** -> module `frame` hooks -> stream / jobs / batching -> render -> `afterRender` hooks. The animation of a model
+from `engine.assets.animate` (and a Character's model) is itself an `onFrame` callback registered when the animator was created, so your `onFrame` runs
+before it if you registered first (you see last frame's pose) and after it if you registered later. To read or override a pose after animation, register
+the callback after the model is created, or use an `afterRender` hook.
+
 ## 3. Verify
 - Without waiting real time: in a test or the console, `engine.sky.timeOfDay = parseClock('17:59'); engine.step(5)`, then look at the result (`step`
   returns the describe).
@@ -101,4 +108,10 @@ What catches up, and how:
   scale is not 1, divide by `timeScale` as well.
 - Reproduce a scenario: `npm run shot -- / --time 17:58 --wait 10 --describe-only`, then look at the time (18:0x) and your effect (lamps, NPCs, items).
 - After `npm run map`, the "timed events" section of GAMEMAP.md lists every `sky.at/between/daily/onSeason` and `clock.after/every`.
+- Is skip the same as living through it? `const r = await engine.checkSkip(600)` skips 600 game seconds, rewinds, steps the same span and compares the
+  saved state: `{ ok, diffs: [{ path, a, b }] }` (refuses with `reason: 'frozen'` / `'timeScale0'` while gameplay is frozen or the clock stopped; pending background results are applied first) (a = skip, b = step; `{ ignore: ['parts.world', 'parts.random'] }` drops paths). Skip does not run near simulation (the weather module has a skip hook, so its timers do advance), so a moving player/NPC
+  always differs: ignore those parts and read the rest. It leaves the world at the stepped state, so run
+  it on a scratch playthrough or in a test. A diff usually means a module with its own time lacks a `skip` hook. `await engine.checkSave()` does the same
+  for save -> load (a diff names a save part whose `load` does not restore what `save` wrote).
+- Why did it fire (or not)? `engine.events.traceSize = 200` records each event with the event or op that caused it: `events.trace('item:add').at(-1).chain`. Failed ops, sight queries and NPC state changes are entries too (with `code`); `events.note(name, { obj, code, data })` adds your own and `events.traceFocus(id)` makes one object verbose (the ring is bounded; size 0 costs nothing). Details: recipe 23 section 12.
 - Related tests: `npm test -- 游戏时钟 SKIP`.

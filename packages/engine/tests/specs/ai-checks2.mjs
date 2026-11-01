@@ -1,0 +1,74 @@
+// AI 友好批 B2：engine.checkSave / checkSkip（一致性检查）、events.trace（事件因果链）、character.onPose（姿势后回调）。
+export const specs = [
+  {
+    name: 'AICHECK2 checkSave 往返一致，坏的存档部件会被点名',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.timeline.skip(); engine.pause();
+        const good = await engine.checkSave();
+        let n = 0;
+        engine.saves.register('badpart', { save: () => ({ n: ++n }), load: () => {} });   // load 不还原：每次 save 数字都变
+        const bad = await engine.checkSave();
+        return { good, bad };
+      });
+      check('正常往返 ok', r.good.ok === true, JSON.stringify(r.good.diffs));
+      check('坏部件 ok=false 且 diffs 点名它', r.bad.ok === false && r.bad.diffs.some(d => d.path.includes('badpart')), JSON.stringify(r.bad.diffs));
+    },
+  },
+  {
+    name: 'AICHECK2 checkSkip 返回 {ok,diffs}，空世界跳过与 step 一致',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.timeline.skip(); engine.pause();
+        const raw = await engine.checkSkip(30);                              // 跳过不跑近处模拟：玩家/NPC 位置、world.step 必然不同，应被报告
+        const ign = await engine.checkSkip(30, { ignore: ['parts.world', 'parts.random'] });
+        return { ok: raw.ok, diffs: raw.diffs, ign };
+      });
+      check('checkSkip 有结果结构', typeof r.ok === 'boolean' && Array.isArray(r.diffs), JSON.stringify(r));
+      check('近处模拟的差异被报告（带路径）', r.ok === false && r.diffs.every(d => d.path.startsWith('parts.')), JSON.stringify(r.diffs.slice(0, 3)));
+      check('忽略 world 后时间类状态一致', r.ign.ok, JSON.stringify(r.ign.diffs.slice(0, 5)));
+    },
+  },
+  {
+    name: 'AICHECK2 events.trace 记录事件由哪个 op/事件引起，关闭时不记录',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const E = engine.events;
+        E.emit('trace:off');                                   // 关着：不记
+        const offLen = E.trace().length;
+        E.traceSize = 50;
+        engine.ops.define('tr.go', { args: {}, run: e => { e.events.emit('tr:a', {}); } });
+        const h = E.on('tr:a', () => E.emit('tr:b', {}));
+        engine.ops.run('tr.go', {});
+        h.remove();
+        const b = E.trace('tr:b').at(-1), a = E.trace('tr:a').at(-1);
+        E.traceSize = 0;
+        return { offLen, a, b };
+      });
+      check('关着时不记录', r.offLen === 0, String(r.offLen));
+      check('tr:a 的父是 op', /^op:tr\.go#\d+$/.test(r.a?.parent ?? ''), JSON.stringify(r.a));
+      check('tr:b 的父是 tr:a，chain 追到 op', r.b?.parent === `ev:${r.a?.id}` && r.b.chain.length === 2 && r.b.chain[1] === r.a.parent, JSON.stringify(r.b));
+    },
+  },
+  {
+    name: 'AICHECK2 character.onPose 每帧在动画姿势后回调，remove 后停止',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.timeline.skip(); engine.pause();
+        const p = engine.player;
+        let n = 0, who = null;
+        const h = p.onPose((c, dt) => { n++; who = c === p && dt > 0; });
+        engine.step(0.5, { render: false });
+        const during = n; h.remove();
+        engine.step(0.5, { render: false });
+        return { during, after: n, who };
+      });
+      check('step 期间被回调', r.during > 0 && r.who === true, JSON.stringify(r));
+      check('remove 后不再回调', r.after === r.during, JSON.stringify(r));
+    },
+  },
+];

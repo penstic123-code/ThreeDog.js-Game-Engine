@@ -228,6 +228,7 @@ export class Animator {
     this._layers.length = j;
     this._weights();
     this.mixer.update(dt);
+    this.afterPose?.(dt);   // Character.onPose callbacks (the pose is final here)
   }
   _weights() {
     let total = 0;

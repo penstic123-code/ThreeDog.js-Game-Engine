@@ -14,20 +14,24 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { placeholderTexture } from '../../render/effects.js';
 import { patchMaterial } from '../../render/patches.js';
-import { checkOptions, warnOnce } from '../../core/validate.js';
+import { warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { waterLook, wavesPatch, surfacePatch } from './surface.js';
+import { defineWaterLook } from './look.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Material, Vector3 } from '../../types/common' */
 /** @import { WaterBody, WaterOptions } from '../../types/world' */
 // Options accepted by water(): sea / level + any appearance item that overrides the style pack's style.water
 const WATER_OPTIONS = ['sea', 'level', 'color', 'opacity', 'flat', 'waveHeight', 'waveScale', 'waveSpeed', 'fresnel', 'size', 'segments', 'normalMap',
   'normalScale', 'normalRepeat', 'normalSpeed', 'shininess', 'specular', 'material', 'depthColor', 'foam', 'glsl', 'uniforms'];
+const WATER_PARAMS = keysSchema(WATER_OPTIONS);
 
 /** engine.water */
 export class Water {
   /** @internal */
   constructor(engine, opts = {}) {
     /** @internal */ this.engine = engine;
+    /** @internal */ this.opts = opts;
     /** @internal */ this.st = { color: 0x888888, opacity: 0.85, flat: true, waveHeight: 1, waveScale: 1, waveSpeed: 1, fresnel: 0.5,
       size: 900, segments: 150, normalScale: 0.4, normalRepeat: 0.05, normalSpeed: [0.01, 0.006], ...(engine.style.water || {}), ...opts };
     const st = this.st;
@@ -57,6 +61,7 @@ export class Water {
     this.sea = null;
     /** @internal */ this._seaChecked = st.sea === false;   // global water is built on the first frame: terrain (water level) is installed by then, so no dependence on install order
     for (const b of engine.waterBodies) this._addBody(b);
+    defineWaterLook(this);   // look.water: the style's values are its style layer, water({...}) options its 'game' layer
     engine.events.on('water:add', b => this._addBody(b));
     // material is shared by all bodies, so not engine.remove (which would dispose it); its ray registration goes too
     engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.rays.forget(m); m.geometry.dispose(); this.bodies.delete(b); } });
@@ -70,6 +75,7 @@ export class Water {
     // normal-map scroll running; the built-in look (role 'water', waves, fresnel) is skipped. waves (and surface, when depthColor / foam /
     // glsl.surface ask for one; it needs waves before it) are offered for applyEffects({ patches })
     if (st.material) {
+      this._u = waves.uniforms;
       const own = st.material(e, { uniforms: waves.uniforms, waves, surface, normalMap: this.normalMap });
       if (!own?.isMaterial) throw new Error('style.water.material must return a three.js Material, e.g. material: (engine, { uniforms }) => new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })');
       return own;
@@ -81,14 +87,23 @@ export class Water {
     }
     const grey = new THREE.Color(0xcccccc);
     const patches = surface ? [waves, surface] : [waves];
+    const uFresnel = { value: st.fresnel };
+    this._u = { ...waves.uniforms, uFresnel };   // the live uniforms look.water.set writes
     // grazing-angle reflection: the flatter the view, the closer to the fog (horizon) color; the getter follows whatever fog exists at draw time.
     // Basic material has no normal/view variables, so it gets no reflection
     if (!('isMeshBasicMaterial' in m)) patches.push({ name: 'fresnel',
-      uniforms: { uFresnel: { value: st.fresnel }, uFresnelColor: { get value() { return e.scene.fog?.color ?? grey; } } },
+      uniforms: { uFresnel, uFresnelColor: { get value() { return e.scene.fog?.color ?? grey; } } },
       glsl: { fragment: { pars: 'uniform float uFresnel; uniform vec3 uFresnelColor;', opaque_fragment: { before: `
         float threedogFres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 3.0) * uFresnel;
         outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));` } } } });
     return patchMaterial(m, patches, { strict: false });
+  }
+  /** Build the shared material again (look.water changed something structural) and hand it to every water mesh @internal */
+  _rebuild() {
+    const old = this.material;
+    this.material = this._material();
+    for (const m of [this.sea, ...this.bodies.values()]) if (m) m.material = this.material;
+    old.dispose();
   }
   /** @internal */
   _prep(mesh, size) {
@@ -139,6 +154,7 @@ export class Water {
  * @returns {ModuleDef<Water>}
  */
 export function water(opts = {}) {
+  readParams('water', WATER_PARAMS, opts);
   let w = null;
-  return { name: 'water', label: 'Water', stage: 'environment', after: ['sky'], install(e) { checkOptions('water()', opts, WATER_OPTIONS); w = new Water(e, opts); return w; }, frame(dt, e) { w.update(e.focus, dt); } };
+  return { name: 'water', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], install(e) { w = new Water(e, opts); return w; }, frame(dt, e) { w.update(e.focus, dt); } };
 }

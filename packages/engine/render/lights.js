@@ -6,11 +6,13 @@
 import * as THREE from 'three';
 
 /** @param {any} engine @returns {{ sun: THREE.DirectionalLight, hemi: THREE.HemisphereLight }} */
-export function createDefaultLights(engine) {
+export function createDefaultLights(engine, { add = true } = {}) {
   const hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2);
   const sun = new THREE.DirectionalLight(0xffffff, 2);
   sun.position.set(40, 80, 30);   // above and to the side, so faces read with some shading
   sun.castShadow = false;         // placeholder lighting casts no shadows; an installed sky module turns them on (sizes from style.sky.shadow)
-  engine.scene.add(hemi, sun, sun.target);
+  // add: false (createEngine({ lights: false })): the objects still exist so engine.lights.sun / hemi and the sky module never hit undefined, but they
+  // are not in the scene, so nothing is lit by them and they cost no shader light slots; the game brings all its own lights
+  if (add) engine.scene.add(hemi, sun, sun.target);
   return { sun, hemi };
 }

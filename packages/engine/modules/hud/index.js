@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { injectUICSS, worldToScreen } from '../../ui/UI.js';
 import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { vec3 } from '../../core/math.js';
 import { surfaceOr } from '../../core/ground.js';
 import { CSS, defineHudParts } from './parts.js';
@@ -27,12 +28,15 @@ const MARKER_KEYS = ['label', 'icon', 'offscreen', 'distance', 'height'];
 const _size = new THREE.Vector2();
 const EDGE = 28;   // how far the arrow sits from the screen edge (px)
 
+const HUD_PARAMS = keysSchema(['questMarkers']);
+
 /**
  * Objective markers, counters, progress bars -> engine.hud
  * @param {HudOptions} [opts]
  * @returns {ModuleDef<Hud>}
  */
 export function hud(opts = {}) {
+  readParams('hud', HUD_PARAMS, opts);
   let e = null, root = null;
   const items = new Map();       // counters, bars: id -> { kind, o, part }
   const quest = new Map();       // quest id -> auto marker
@@ -141,10 +145,9 @@ export function hud(opts = {}) {
   };
 
   return {
-    name: 'hud', label: 'Objective markers', optional: ['inventory', 'content', 'level', 'quests'], stage: 'presentation', after: ['particles', 'settings'], presentation: true,
+    name: 'hud', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['inventory', 'content', 'level', 'quests'], stage: 'presentation', after: ['particles', 'settings'], presentation: true,
     install(engine) {
       e = engine;
-      checkOptions('hud()', opts, ['questMarkers']);
       e.i18n.add(STRINGS);
       defineHudParts(e, containers);
       for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'save:loaded', 'session:start']) e.events.on(ev, syncQuests);

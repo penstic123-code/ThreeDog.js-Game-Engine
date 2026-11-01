@@ -3,6 +3,7 @@
 // A critical asset (manifest critical: true) that fails stops start() with the reason instead of starting a broken game.
 
 import { reportError } from './errors.js';
+import { catalogSnap, catalogClaim } from './catalog.js';
 import { codedError } from './errorHints.js';
 import { touchStart } from './inputTouch.js';
 import { Loading, failureText } from './Loading.js';
@@ -47,7 +48,8 @@ export const startupMethods = {
       ls?.update({ progress: 0.1, text: this.t('common.preparing', { name: this.moduleName(m) }) });
       const t = performance.now();   // measure
       this._setModState(m, 'initializing');      // no hooks until init succeeded (modules.js)
-      try { await m.init(this); L._done(task); this._setModState(m, 'running'); }
+      const snap = catalogSnap(this);   // what init registers belongs to this module in engine.catalog()
+      try { await m.init(this); catalogClaim(this, m.name, snap); L._done(task); this._setModState(m, 'running'); }
       catch (e) {
         L._fail(task, e); this._setModState(m, 'failed');
         // a critical module stops start() with the reason (below); any other failure is reported by severity and start() goes on

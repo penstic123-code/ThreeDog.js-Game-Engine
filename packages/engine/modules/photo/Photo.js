@@ -2,13 +2,14 @@
 //
 // Taking a photo is the op photo.take (recipes/23-ops.md): the photo key, a game's shutter button, the dev bridge and tests all run it, and
 // photo.canTake (true or a reason) is its can. engine.photo.take() is the low-level capture the op calls (no checks).
-// const r = engine.ops.run('photo.take');   // r.value = { url, time, position, subject } or r.reason (e.g. 'noFilm')
-// When the photo key's op is refused the module emits photo:denied { reason } (the game shows it; a button reads r.reason itself).
+// const r = engine.ops.run('photo.take');   // r.value = { url, time, position, subject } or r.code (e.g. 'noFilm')
+// When the photo key's op is refused the module emits photo:denied { reason } (the game shows it; a button reads r.code itself).
 // subject is what is in the middle of the frame { name, kind, distance }: NPC (kind 'npc'), entity ('entity'), named object ('object'),
 // vegetation ('vegetation'; after hitting an instanced mesh, vegetation.instanceAt looks up the kind); null when it hits the sky or an unnamed ground.
 // The photo key (action 'photo') is the game's: photo({ keys: ['KeyC'], pad: ['PadX'] }), photo({ ...presets.keys.photo }) (P / gamepad RB) or keys: [] for no key
 // Shutter sound: the game's createEngine({ audio: { sounds: { shutter } } }) supplies a file, otherwise a synthesized fallback
 import { checkOptions, moduleKeys } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { toast } from '../../ui/UI.js';
 const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
@@ -30,13 +31,13 @@ export class Photo {
     const pr = Math.min(3, prevPR * o.scale);
     r.setPixelRatio(pr); e.post.setPixelRatio(pr);
     if (e.shadows && sky) sky.setShadowMapSize(o.shadowMapSize);
-    e.post.enable('bloom', o.bloom);
+    e.look.post.set({ 'bloom.enabled': o.bloom });
     r.shadowMap.needsUpdate = true;     // shadows may update only every few frames (sky's shadow.updateEvery); force an update on the photo frame
     e.post.render(0);
     const url = r.domElement.toDataURL(o.format, o.quality);
     r.setPixelRatio(prevPR); e.post.setPixelRatio(prevPR);
     if (e.shadows && sky) sky.setShadowMapSize(prevMap);
-    if (prevBloom !== undefined) e.post.enable('bloom', prevBloom);
+    if (prevBloom !== undefined) e.look.post.set({ 'bloom.enabled': prevBloom });
     const p = e.actorPosition() ?? e.cameraRig?.target?.position;   // where whoever the user controls stands (engine.actor)
     const shot = { url, time: sky?.clock ?? '', position: p ? { x: Math.round(p.x), z: Math.round(p.z) } : null, subject: this.subject() };
     this.album.unshift(shot); if (this.album.length > this.maxAlbum) this._drop(this.album.pop());
@@ -105,15 +106,17 @@ function under(o, set) { for (let p = o; p; p = p.parent) if (set.has(p)) return
 
 const STRINGS = { 'zh-CN': { 'photo.action': '拍照' }, en: { 'photo.action': 'Take photo' } };
 
+const PHOTO_PARAMS = keysSchema(['keys', 'pad', 'maxAlbum', ...TAKE_KEYS]);
+
 /** Photo module. Once installed: engine.ops.run('photo.take') takes a photo through photo.canTake; engine.photo.take() captures without checks */
 export function photo(all = {}) {
+  readParams('photo', PHOTO_PARAMS, all);
   const { keys: keys0, pad, ...opts } = all;
   let bound = false;   // the photo action has a key or pad button (set at install)
   let ph = null;
   return {
-    name: 'photo', label: 'Photo mode', optional: ['cameraRig', 'sky', 'vegetation', 'entities'],
+    name: 'photo', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'vegetation', 'entities'],
     install(e) {
-      checkOptions('photo()', all, ['keys', 'pad', 'maxAlbum', ...TAKE_KEYS]);
       e.i18n.add(STRINGS);
       const keys = moduleKeys('photo()', 'photo', keys0, 'photo', e.input);   // the game's key or a presets.keys bundle, never a built-in one
       bound = keys.length > 0 || !!pad;
@@ -137,7 +140,7 @@ export function photo(all = {}) {
     frame(dt, e) {
       if (!bound || !e.input.pressed('photo')) return;
       const r = e.ops.run('photo.take', {}, { source: 'player' });
-      if (!r.ok && r.reason !== 'halted') e.events.emit('photo:denied', { reason: r.reason });
+      if (!r.ok && r.code !== 'halted') e.events.emit('photo:denied', { reason: r.code });
     },
   };
 }

@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from '
 import { join, relative, basename, sep } from 'node:path';
 import { findGames, loadGame, gameSetup } from './content-check.mjs';
 import { describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
-import { ENGINE, workspaceOf, docRef, rel } from './paths.mjs';
+import { ENGINE, onlyGames, workspaceOf, docRef, rel } from './paths.mjs';
 import { MAX_ROWS, read, uniq, walk, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
 import { contentLine, templateLines, gridLines, declaredEvents, eventLines, readForLines } from './gamemap/extra.mjs';
 
@@ -175,7 +175,7 @@ async function buildMap(dir) {
 
 const check = process.argv.includes('--check');
 let stale = 0;
-for (const dir of findGames()) {
+for (const dir of onlyGames(findGames())) {
   const out = join(dir, 'GAMEMAP.md'), content = await buildMap(dir);
   if (check) {
     if ((existsSync(out) ? read(out) : '') !== content) { console.log(`✗ ${rel(out)} is not up to date, run npm run map`); stale++; }

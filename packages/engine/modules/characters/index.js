@@ -15,6 +15,7 @@ import { findPath } from './astar.js';
 import { findSpawn, moveInput } from './moveHelpers.js';
 import { AsyncPaths } from './pathAsync.js';
 import { checkOptions, warnOnce, DEV } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { codedError, coded } from '../../core/errorHints.js';
 import { DEV_STRINGS, STRINGS, validControl } from './playerStrings.js';
 import { footstepSynth, stepSound } from './footsteps.js';
@@ -41,20 +42,22 @@ function solvePath(e, from, to, o) {
   else if (!e.collision) res = { status: 'notReady', path: null };
   else {
     const [sx, sz] = xzOf(from), [gx, gz] = xzOf(to), radius = rest.radius ?? e.movement.radius;
-    const path = findPath((x, z) => e.collision.walkableAt(x, z, radius), sx, sz, gx, gz, rest);
+    const path = findPath((x, z) => e.collision.walkableAt(x, z, radius), sx, sz, gx, gz, { ...rest, radius });
     // nav installed but not ready: A* is only a stand-in, tell the caller honestly
     res = { status: e.nav ? 'notReady' : path ? 'ok' : 'noPath', path };
   }
   return detailed ? res : res.path;
 }
 
+const CHARACTERS_PARAMS = keysSchema(['npcs', 'brakeKeys', 'brakePad']);
+
 export function characters(opts = {}) {
+  readParams('characters', CHARACTERS_PARAMS, opts);
   const { npcs = true, brakeKeys, brakePad } = opts;   // no brake key by default: characters({ ...presets.keys.brake }) or the game's own
   let mgr = null, paths = null, disposePlayer = null;
   return {
-    name: 'characters', label: 'Characters', optional: ['cameraRig', 'sky', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
+    name: 'characters', params: CHARACTERS_PARAMS, options: opts, label: 'Characters', noSkip: 'fixed only flushes path requests; schedules read the sky clock', optional: ['cameraRig', 'sky', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
     install(e) {
-      checkOptions('characters()', opts, ['npcs', 'brakeKeys', 'brakePad']);
       e.i18n.add(STRINGS);
       e.audio.register('footstep', footstepSynth, { builtIn: true });
       if (npcs) { mgr = new NPCManager(e); e.npcs = mgr; }

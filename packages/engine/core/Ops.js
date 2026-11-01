@@ -2,9 +2,9 @@
 // buy, talk, attack, roll, fire, craft, build. Continuous input (stick, look) and simulation (hunger, growth, burning) are not ops;
 // they stay in fixed / world.simulate.
 //   engine.ops.define('shop.buy', { args: { shop: 'string', item: 'string' }, can(e, a, ctx) { return true or 'noMoney' }, run(e, a, ctx) { ... } });
-//   engine.ops.run('shop.buy', { shop: 'bakery', item: 'bread' })   // -> { ok: true, value } or { ok: false, reason: 'noMoney' }
-// Why one entry: UI clicks, keys, the dev bridge, scenario tests, replay and network peers all end in the same run(),
-// checked by the same can() and logged in one history (tick, phase, source, actor). So tests need no key timing,
+//   engine.ops.run('shop.buy', { shop: 'bakery', item: 'bread' })   // -> { ok: true, value } or { ok: false, code, facts, nextActions }
+// Why one entry: UI, keys, bridge, tests, replay and net peers all end in the same run(),
+// checked by the same can(), logged in one history (tick, phase, source, actor): tests need no key timing,
 // the AI can ask "what can I do now", and replay / netcode have a record of who did what on which step.
 // run() is always synchronous: inside a fixed step it is phase 'fixed'; between steps (UI, bridge, tests) phase 'between',
 // which lands "after step N" and replays the same. Args must be plain data and self-contained (aim direction goes in the args).
@@ -12,18 +12,17 @@
 // is reported (see recipes/23-ops.md). Dev argument checks live in opsCheck.js.
 import { DEV, missingText, warnOnce } from './validate.js';
 import { checkDef, checkArgs, devError, fmt, SOURCES } from './opsCheck.js';
-import { reportError } from './errors.js';
 import { coded } from './errorHints.js';
 import { guardWrite } from './opsGuard.js';
+import { failure, isStructured } from './opsFail.js';
+import { runOp } from './opsRun.js';
 import { newRing, logEntry, recentEntries } from './opsHistory.js';
+import { defaultsOf, withDefaults } from './params.js';
 
-const MAX_DEPTH = 16;
 const STRINGS = {
   dup: "ops.define('{name}'): already defined. To replace it call remove() on the handle define returned first",
   unknown: 'ops.run({name}): {text}',
-  canResult: "{name}'s can must return true or a reason string, e.g. return 'noMoney'; got {got}",
-  canRun: "{name}'s can called ops.run('{inner}'). can is read-only; call other ops from run",
-  loop: 'ops call each other in a loop (deeper than ' + MAX_DEPTH + '): {chain}',
+  canResult: "{name}'s can must return true or a reason string, e.g. return 'noMoney' (or { code, facts, nextActions }); got {got}",
   badSource: "ops.run('{name}'): source '{source}' is not one of " + SOURCES.join(', '),
 };
 
@@ -47,8 +46,13 @@ export class Ops {
     /** @internal ctx of the innermost running op (nested ops inherit source and actor) */ this._last = null;
     /** @internal set by net() on clients: (def, args, opts) => result to return instead of running locally, or null to run here */ this._route = null;
     /** @internal set by net() on clients: every write outside allow() is reported, even in fixed steps and ops (own movement, world.move, excepted) */ this._client = false;
+    /** Counter bumped on each committed op (an op that failed or rolled back does not bump it); every run result carries it, so "did anything change since I looked" is one compare */
+    this.revision = 0;
+    /** @internal depth of atomic runs in progress, and after hooks waiting for the outermost one to commit */ this._txDepth = 0; this._txAfter = [];
     this.historySize = 256;
   }
+  /** @internal Stamp a failed result with the current revision */
+  _res(f) { f.revision = this.revision; return f; }
   /** @internal Name of the innermost op running right now, or null (world records who spawned a runtime record with it, dev only) @type {string | null} */
   get running() { return this._stack.at(-1) ?? null; }
 
@@ -62,9 +66,13 @@ export class Ops {
   /**
    * Register an op. Name it noun.verb. run changes state; can (optional) is read-only and returns true or a reason string; offers (optional) lists the arg sets possible now (for list / describe / the dev bridge `ops` command).
    * args shape types: string number int bool position id any, suffix ? for optional. net: 'peer' lets remote players request it (default: host only);
+   * or { type, default, min, max, values, desc } (default is filled in, engine.catalog shows it).
+   * atomic: true = world records, inventory containers and vars written by run are rolled back if run fails or throws (events and other state are not; see recipe 23); after(e, args, value, ctx): sound / animation, runs only once the op committed.
+   * run (and can) may fail with { ok: false, code, facts, nextActions } (facts: object or list [{ id, field, actual, expected? }]); nextActions are the game's own suggestions.
    * owner (optional, checked by net() for peer requests): args => world record id whose `owner` field must equal the requesting actor.
    * @param {string} name
-   * @param {{ run: (e: any, args: any, ctx: OpContext) => any, can?: (e: any, args: any, ctx: OpContext) => true | string, args?: Record<string, string>, offers?: (e: any, ctx: OpContext) => object[], reasons?: Record<string, string>, desc?: string, undo?: (e: any, args: any, value: any) => void, net?: 'peer' | 'local', owner?: (args: any) => string }} def
+   * targets (optional): the thing ids, kinds or template names this op is for; engine.thing(id).explain().ops lists it ('*' = any thing).
+   * @param {{ run: (e: any, args: any, ctx: OpContext) => any, can?: (e: any, args: any, ctx: OpContext) => true | string | { code: string, facts?: object, nextActions?: { op: string, args?: object }[] }, targets?: string | string[], args?: Record<string, string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean }>, offers?: (e: any, ctx: OpContext) => object[], reasons?: Record<string, string>, desc?: string, undo?: (e: any, args: any, value: any) => void, net?: 'peer' | 'local', owner?: (args: any) => string, atomic?: boolean, after?: (e: any, args: any, value: any, ctx: OpContext) => void }} def
    * @returns {{ remove(): void }}
    * @example
    * const PRICE = { bread: 5 };
@@ -87,67 +95,42 @@ export class Ops {
   define(name, def) {
     if (this.defs.has(name)) throw devError(fmt(STRINGS.dup, { name }));
     const shape = checkDef(name, def);
-    const d = { name, ...def, shape };
+    const d = { name, ...def, shape, defaults: defaultsOf(shape) };
     this.defs.set(name, d);
     return { remove: () => { if (this.defs.get(name) === d) this.defs.delete(name); } };
   }
 
   /**
-   * Run an op now (synchronously): checks args (dev), calls can, then run, and logs it. Returns { ok: true, value } or { ok: false, reason }.
+   * Run an op now (synchronously): checks args (dev), calls can, then run, and logs it. Returns { ok: true, value, revision } or { ok: false, code, facts, nextActions, revision } (revision = ops.revision, counts committed ops); can may also return { code, facts?, nextActions? }.
    * Pass a fresh args object each call (it is kept in the history; in dev it is frozen). opts.source: 'player' | 'game' | 'bridge' | 'test' | 'replay' | 'net'
    * (default: 'game' inside a fixed step, 'player' between steps); opts.actor: who does it (world record id, default engine.actor, which is 'player' unless the game hands control elsewhere).
    * @param {string} name
    * @param {object} [args]
    * @param {{ source?: string, actor?: string }} [opts]
-   * @returns {{ ok: boolean, value?: any, reason?: string }}
+   * @returns {{ ok: boolean, value?: any, revision: number, code?: string, facts?: object, nextActions?: { op: string, args?: object }[] }}
    * @example
    * const r = engine.ops.run('shop.buy', { shop: 'bakery', item: 'bread' });
-   * if (!r.ok) showHint(engine.t('op.shop.buy.' + r.reason));
+   * if (!r.ok) showHint(engine.t('op.shop.buy.' + r.code));
    * // from a fixed step, for an input-driven action: e.ops.run('combat.roll', { dir }, { source: 'player' })
    */
   run(name, args = {}, opts) {
-    const e = this.engine, d = this._def(name);
-    if (!d) return { ok: false, reason: 'unknownOp' };
-    if (this._inCan) throw devError(fmt(STRINGS.canRun, { name: this._inCan, inner: name }));
-    if (this._stack.length >= MAX_DEPTH) throw devError(fmt(STRINGS.loop, { chain: this._stack.concat(name).join(' -> ') }));
-    if (this._route) { const r = this._route(d, args, opts); if (r) return r; }   // net client: requests go to the host (also from inside a net: 'local' op)
-    const parent = this._stack.length ? this._last : null;
-    const ctx = this._ctx(name, args, opts, parent);
-    if (DEV && args && typeof args === 'object') Object.freeze(args);
-    const depth = this._stack.length;
-    if (e._freezers.has('error')) { this._log(name, args, ctx, false, 'halted', depth); return { ok: false, reason: 'halted' }; }
-    const where = `ops.run('${name}')`;
-    this._stack.push(name);
-    const prevCtx = this._last; this._last = ctx;
-    let h = null, seq = 0;
-    try {
-      const reason = this._can(d, args, ctx);
-      if (reason !== true) { this._log(name, args, ctx, false, reason, depth); return { ok: false, reason }; }
-      h = this._log(name, args, ctx, true, null, depth); seq = h.seq;   // logged before run so nested ops follow their parent in the history
-      return { ok: true, value: d.run(e, args, ctx) };
-    } catch (err) {
-      if (err?.opsDevError) throw err;
-      if (h?.seq === seq) { h.ok = false; h.reason = 'error'; } else this._log(name, args, ctx, false, 'error', depth);
-      reportError(e, err, where);
-      if (e.error?.where === where && !e.error.ops) e.error.ops = this.recent().slice(-5).map(r => `${r.name}${r.ok ? '' : ' x ' + r.reason}`);
-      return { ok: false, reason: 'error' };
-    } finally { this._stack.pop(); this._last = prevCtx; }
+    return runOp(this, name, args, opts);
   }
 
   /**
    * Reverse a finished op with the undo(e, args, value) its definition declared: pass the same args and the value run returned.
-   * Returns { ok: true }, or { ok: false, reason: 'noUndo' } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
+   * Returns { ok: true }, or { ok: false, code: 'noUndo', facts: { op }, nextActions } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
    * @example const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' }); engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);
    * @param {string} name
    * @param {object} args
    * @param {any} value
    * @param {{ actor?: string }} [opts]
-   * @returns {{ ok: boolean, reason?: string }}
+   * @returns {{ ok: boolean, code?: string, facts?: object, nextActions?: { op: string, args?: object }[] }}
    */
   undo(name, args, value, opts) {
     const d = this._def(name);
-    if (!d) return { ok: false, reason: 'unknownOp' };
-    if (typeof d.undo !== 'function') return { ok: false, reason: 'noUndo' };
+    if (!d) return this._res(failure({ code: 'unknownOp', facts: { op: name } }));
+    if (typeof d.undo !== 'function') return this._res(failure({ code: 'noUndo', facts: { op: name }, nextActions: [] }));
     this._allowDepth++;
     try { d.undo(this.engine, args, value, this._ctx(name, args, opts, null)); } finally { this._allowDepth--; }
     return { ok: true };
@@ -158,45 +141,46 @@ export class Ops {
    * @param {string} name
    * @param {object} [args]
    * @param {{ actor?: string, source?: string }} [opts]
-   * @returns {{ ok: boolean, reason?: string }}
-   * @example const { ok, reason } = engine.ops.can('shop.buy', { shop: 'bakery', item: 'bread' });
+   * @returns {{ ok: boolean, code?: string, facts?: object, nextActions?: { op: string, args?: object }[] }}
+   * @example const { ok, code } = engine.ops.can('shop.buy', { shop: 'bakery', item: 'bread' });
    * button.disabled = !ok;
    */
   can(name, args = {}, opts) {
     const d = this._def(name);
-    if (!d) return { ok: false, reason: 'unknownOp' };
+    if (!d) return this._res(failure('unknownOp'));
+    args = withDefaults(d.defaults, args);
     const ctx = this._ctx(name, args, opts, this._stack.length ? this._last : null);
-    if (this.engine._freezers.has('error')) return { ok: false, reason: 'halted' };
-    let reason;
-    try { reason = this._can(d, args, ctx); } catch (err) { if (err?.opsDevError) throw err; reason = 'error'; }
-    return reason === true ? { ok: true } : { ok: false, reason };
+    if (this.engine._freezers.has('error')) return this._res(failure('halted'));
+    let res;
+    try { res = this._can(d, args, ctx); } catch (err) { if (err?.opsDevError) throw err; res = 'error'; }
+    return this._res(res === true ? { ok: true } : failure(res));
   }
 
   /**
    * What exists, or with { available: true } what is possible now: every arg set from each op's offers checked with can
    * (an op with neither offers nor args is checked once with {}; one with args but no offers is skipped, since its args are free-form).
    * @param {{ available?: boolean, actor?: string }} [opts]
-   * @returns {{ name: string, desc?: string, args?: any, ok?: boolean, reason?: string }[]}
-   * @example engine.ops.list({ available: true });   // [{ name: 'shop.buy', args: { shop: 'bakery', item: 'bread' }, ok: false, reason: 'noMoney' }, ...]
+   * @returns {{ name: string, desc?: string, args?: any, atomic: boolean, ok?: boolean, code?: string }[]}
+   * @example engine.ops.list({ available: true });   // [{ name: 'shop.buy', args: { shop: 'bakery', item: 'bread' }, ok: false, code: 'noMoney' }, ...]
    */
   list({ available = false, actor } = {}) {
-    if (!available) return [...this.defs.values()].map(d => ({ name: d.name, desc: d.desc, args: d.args }));
+    if (!available) return [...this.defs.values()].map(d => ({ name: d.name, desc: d.desc, args: d.args, atomic: d.atomic === true }));
     const out = [];
     for (const d of this.defs.values()) {
       const ctx = this._ctx(d.name, null, { actor }, null);
       let sets;
       try { sets = d.offers ? d.offers(this.engine, ctx) : d.shape ? [] : [{}]; } catch { sets = []; }
-      for (const args of sets || []) { const r = this.can(d.name, args, { actor }); out.push({ name: d.name, args, ok: r.ok, reason: r.reason }); }
+      for (const args of sets || []) { const r = this.can(d.name, args, { actor }); out.push({ name: d.name, args, ...r }); }
     }
     return out;
   }
 
   /**
-   * Recent history (old -> new), optionally of one op: { seq, tick, phase: 'fixed' | 'between', name, args, source, actor, ok, reason, depth, count }.
-   * Consecutive identical failures (same actor, op and reason) merge into one entry with count.
+   * Recent history (old -> new), optionally of one op: { seq, tick, phase: 'fixed' | 'between', name, args, source, actor, ok, code, depth, count }.
+   * Consecutive identical failures (same actor, op and code) merge into one entry with count.
    * @param {string} [name]
-   * @returns {{ seq: number, tick: number, phase: string, name: string, args: any, source: string, actor: string, ok: boolean, reason: string | null, depth: number, count: number }[]}
-   * @example engine.ops.recent('shop.buy').at(-1);   // { tick: 812, phase: 'between', ok: false, reason: 'noMoney', ... }
+   * @returns {{ seq: number, tick: number, phase: string, name: string, args: any, source: string, actor: string, ok: boolean, code: string | null, depth: number, count: number }[]}
+   * @example engine.ops.recent('shop.buy').at(-1);   // { tick: 812, phase: 'between', ok: false, code: 'noMoney', ... }
    */
   recent(name) {
     return recentEntries(this, name);
@@ -257,7 +241,7 @@ export class Ops {
     const prev = this._inCan; this._inCan = d.name;
     let r;
     try { r = d.can(this.engine, args, ctx); } finally { this._inCan = prev; }
-    if (r === true || (typeof r === 'string' && r)) return r;
+    if (r === true || (typeof r === 'string' && r) || isStructured(r)) return r;
     const msg = fmt(STRINGS.canResult, { name: d.name, got: JSON.stringify(r) ?? 'undefined' });
     if (DEV) throw devError(msg);
     warnOnce(coded('op-misuse', msg));   // release: denied, said once

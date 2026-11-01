@@ -32,6 +32,7 @@
 //   In dev builds F4 (action triggersDebug, rebindable) toggles the display; release builds bind no key unless triggers({ keys }) names one.
 import * as THREE from 'three';
 import { checkOptions, DEV } from '../../core/validate.js';
+import { readParams } from '../../core/params.js';
 
 // Zones are indexed by the grid cells their bounding box covers, so a step looks at the zones near the actor instead of every zone. A zone with its own `who`
 // (any position, unknown until it runs) or one covering more than MAX_CELLS cells goes to the always-checked `_global` list.
@@ -238,13 +239,19 @@ export class Triggers {
   }
 }
 
+const TRIGGER_PARAMS = {
+  debug: { type: 'bool', default: false, desc: 'draw all zones as wireframes from the start' },
+  action: { type: 'string', default: 'triggersDebug', desc: 'input action that toggles the debug display' },
+  keys: { type: 'array', optional: true, desc: "keys for that toggle (default ['F4'] in dev builds, none in release)" },
+};
+
 /** Trigger zone module. Provides engine.triggers once installed. Optional dependency: level (used by fromMarkers) */
 export function triggers(opts = {}) {
+  const o = readParams('triggers', TRIGGER_PARAMS, opts);
   let tr = null;
   return {
-    name: 'triggers', label: 'Triggers', optional: ['level'], stage: 'gameplay', after: ['interactions'],
+    name: 'triggers', label: 'Triggers', params: TRIGGER_PARAMS, options: o, noSkip: 'zone enter/exit is re-evaluated on the next fixed step', optional: ['level'], stage: 'gameplay', after: ['interactions'],
     install(e) {
-      checkOptions('triggers()', opts, ['debug', 'action', 'keys']);
       tr = new Triggers(e, opts);
       // audio rule condition { zone: 'cave' | ['cave', 'mine'] }: some trigger zone with that tag is occupied
       e.audio.condition('zone', v => [].concat(v).some(tag => tr.byTag(tag).some(t => t.inside)));

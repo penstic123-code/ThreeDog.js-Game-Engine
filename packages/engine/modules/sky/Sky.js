@@ -18,8 +18,12 @@
 import * as THREE from 'three';
 import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome, loadSkybox } from './shader.js';
 import { shadowMethods, shadowFor } from './shadow.js';
+import { renamed } from '../../core/errorHints.js';
+import { defineSkyLook } from './lookSky.js';
+import { defineFogLook } from './lookFog.js';
+import { defineShadowLook } from './lookShadow.js';
 import { layerMethods, blankLayer } from './layers.js';
-import { environmentMethods, environmentFor } from './environment.js';
+import { environmentMethods, environmentFor, defineEnvLook } from './environment.js';
 import { updateSky, watchOwned } from './frame.js';
 import { prepareLook } from './look.js';
 import { makeFog, applyFogChunks } from './fog.js';
@@ -81,6 +85,7 @@ export class Sky {
 
     scene.fog = this._drive.fog === false ? null : makeFog(this._fog, engine.fogFar);
     /** @internal */ this._fogOff = this._drive.fog === false ? () => {} : applyFogChunks(this._fog);   // throws when another engine holds a different custom fog
+    defineFogLook(this, this._fogSpec);   // look.fog: style.sky.fog / sky({ fog }) is its style layer
     /** Hemisphere ambient light (engine.lights.hemi, driven by the sky) @type {any} */
     this.hemi = engine.lights.hemi;
     /** Sun directional light (engine.lights.sun driven by the sky; moonlight at night, shadows live on it) @type {any} */
@@ -97,14 +102,14 @@ export class Sky {
      */
     this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };
     // Shadow update policy (default: every frame, center snapped to 0.5 m)
-    /** Current shadow params (change via setShadow) @readonly @type {SkyShadowParams} */
+    /** Current shadow params (change via look.shadow.set) @readonly @type {SkyShadowParams} */
     this.shadow = { bias: -0.0006, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0, type: engine.shadowType, radius: 1, blurSamples: 8,
       cascades: 1, maxFar: 120, fade: true, lightMargin: 100, split: 'practical' };
     /** three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45) @type {any} */
     this.csm = null;
     /** @internal */ this._shadowFrame = 0;
     /** @internal */ this._snapKey = '';
-    this.setShadow(sh);
+    defineShadowLook(this, sh);   // look.shadow: the style / options shadow is its style layer; look.shadow.set writes the game layer
     /** Hours per day @type {number} */
     this.hoursPerDay = over.hoursPerDay ?? 24;   // gameplay timing (clock notation, schedules): a sky() option only, never read from the style pack
     // Modifier layers: weather and games each write their own layer (modify); sky composites them into modifiers every frame
@@ -116,7 +121,11 @@ export class Sky {
     /** @internal */ this._lightDir = new THREE.Vector3();
     /** @internal */ this._env = null;
     const env = environmentFor(engine.tier, engine.style.sky?.environment, over.environment);
-    if (env) this.setEnvironment(env);
+    defineEnvLook(this, env);   // look.env: the style / options environment is its style layer, look.env.replace writes the game layer
+    defineSkyLook(this, st);   // look.sky: live cloud uniforms, backdrop, the clouds / layer:<name> hooks, skybox
+    // the keyframes write these light keys every frame: describe().look shows them as style (driver sky) with the live value
+    const D = this._drive;
+    engine.look.lights.drive([...(D.sun === true ? ['sun.intensity', 'sun.color'] : []), ...(D.hemi === true ? ['hemi.intensity', 'hemi.color', 'hemi.ground'] : [])], 'sky');
     // Per-frame recomputed properties: direct edits by games get overwritten, so warn once in dev (frame.js)
     /** @internal */ this._owned = watchOwned(this);
   }
@@ -226,14 +235,11 @@ export class Sky {
 
   // Public shadow methods: implemented in shadow.js, declared here so type and doc tools see them (the rest is mixed in below)
   /**
-   * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
-   * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view;
-   * type = 'basic' (hard edge) | 'pcf' | 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely);
-   * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only); cascades 2-4 = cascaded shadows, 1 = off (recipes/45)
-   * @param {Partial<SkyShadowParams>} [opts]
-   * @returns {this}
+   * Renamed in 0.2: throws and names the new call, engine.look.shadow.set(opts) (fields: bias, normalBias, updateEvery, snap, ahead, type, radius, blurSamples, cascades; recipes/45)
+   * @param {Partial<SkyShadowParams>} [_opts]
+   * @returns {never}
    */
-  setShadow(opts) { return shadowMethods.setShadow.call(this, opts); }
+  setShadow(_opts) { return renamed('setShadow'); }
   /**
    * Change shadow resolution (raise temporarily for photo mode)
    * @param {number} n  pixels
@@ -241,15 +247,11 @@ export class Sky {
    */
   setShadowMapSize(n) { return shadowMethods.setShadowMapSize.call(this, n); }
   /**
-   * Environment lighting (scene.environment), separate from the background and off by default. source 'sky' builds it from the procedural sky (rebuilt at
-   * most every `interval` seconds, only when the sky changed); an asset name or path (.hdr, .jpg, .ktx2) is an equirectangular panorama. intensity scales
-   * the light (default 1), rotation turns it around Y (radians). Given fields change, the rest stay; null turns it off. Lambert surfaces get soft ambient
-   * light from it (no reflections); lower the hemisphere ambient when you turn it on (recipes/09)
-   * @example engine.sky.setEnvironment({ source: 'sky', intensity: 0.8 });  engine.sky.setEnvironment(null);
-   * @param {{ source?: string | null, intensity?: number, rotation?: number, interval?: number } | null} [opts]
-   * @returns {this}
+   * Renamed in 0.2: throws and names the new call, engine.look.env.replace(source) then engine.look.env.set({ intensity, rotation, interval })
+   * @param {{ source?: string | null, intensity?: number, rotation?: number, interval?: number } | null} [_opts]
+   * @returns {never}
    */
-  setEnvironment(opts) { return environmentMethods.setEnvironment.call(this, opts); }
+  setEnvironment(_opts) { return renamed('setEnvironment'); }
   /** Environment lighting now: { source, intensity, rotation, interval, builds }, null when off @type {SkyEnvironmentInfo | null} */
   get environment() { return environmentMethods._envInfo.call(this); }
 }

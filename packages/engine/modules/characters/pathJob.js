@@ -2,7 +2,8 @@
 // and in engine.commits' fallback when a worker reply is late (pathAsync.js). Worker-safe: no three.js, no engine objects.
 // A batch carries everything that is not mirrored in the worker: start / goal (with ground heights), and for A* a raster of the ground half of walkability.
 // The worker mirrors the rest: the navmesh (imported from the bytes the nav module exports) and the collision module's colliders (rebuilt into the same grid).
-import { findPath as astar } from './astar.js';
+import { findPath as astar, astarDefaults } from './astar.js';
+export { astarDefaults };
 import { CollisionGrid, gridBlocks } from '../collision/grid.js';
 import { navSearch } from '../nav/navPath.js';
 

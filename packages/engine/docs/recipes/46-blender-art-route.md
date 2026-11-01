@@ -32,6 +32,13 @@ Do not join meshes or decimate a level: node names are its interface.
 threedog assets check art/models/town.glb   # inspect only: spawns, col_ colliders, trigger_ zones, template / id nodes, material suspicions
 threedog assets                             # compress art/models/*.glb into public/models/ (add -w my-game for a game)
 ```
+`assets check` also lists materials, textures with the color space three gives them (by slot), normal maps, clips, `col_` colliders and template / id nodes.
+After loading, `engine.assets.report('hero')` (or `.reportText`; pass a copy from `model()` to check what the game shows) lists the same from the scene and
+flags what the file has but the scene lost: `normal-map-lost`, `material-replaced` (a style role took over), `clip-lost`, `clip-unmapped` (an animation
+state names a clip the file lacks), `node-lost`, and wrong color spaces. The engine never recomputes normals or drops a normal map on a GLB; only code
+that swaps materials as in section 5 does.
+Swapping an export for a new one: `threedog assets check new.glb --against old.glb` lists what the old file had and the new one lacks (errors: `col_`
+colliders, template / id nodes, spawn / trigger_ / npc_ / marker_ points; warnings: clips, materials, points moved over 0.5 m, a bounding box that changed over 15%).
 `assets check` exits 1 on errors (`--strict`: on warnings too; `--json` for tools). It changes no file.
 `assets` keeps names, hierarchy and materials and only compresses:
 | Step | What it does | When it matters |
@@ -41,6 +48,21 @@ threedog assets                             # compress art/models/*.glb into pub
 | KTX2 (`threedog assets --ktx2`) | textures stay compressed on the GPU too | many or large textures; needs the `ktx` tool (KTX-Software), else falls back to WebP and says so (`--ktx2 --strict` fails instead) |
 
 It needs `@gltf-transform/cli` (`npm i -D @gltf-transform/cli`). Unchanged files are skipped; `--force` redoes everything.
+
+### The same shot again, before and after
+Declare fixed views once: `engine.views.define('gate', { position: [10, 4, 12], target: [0, 1, 0], fov: 50 })` (`views.show(name)` also works in code). Then
+`npm run shot -- -w my-game --view gate --keep` takes the picture from there in any game (the page's own `?view=` still wins where a page handles it, as
+in the style test). After a change, `npm run shot -- -w my-game --view gate --compare .threedog/shots/<before>.png` prints both file names, one pixel-diff
+number (0 = identical) and the brightness / saturation / contrast / detail differences. A view holds the camera (`engine.takeCamera`) until `views.release()` or the handle `show()` returns is removed; a cutscene that held it before gets it back.
+Views can also be content: `content/views.js` = `{ gate: { position: [10, 4, 12], target: [0, 1, 0], fov: 50 } }` is defined by `engine.content.load` (checked by `npm run check`; example: `examples/action/content/views.js`, `npm run shot -- action --view corner`).
+`describe render` also shows the renderer output color space and warns when it is not srgb; `assets.report` flags color maps that are not srgb and data maps that are.
+
+### Looking at one part of the render
+`engine.debug.view('albedo')` shows only the base color and texture (unlit), `'lighting'` plain white clay under the scene lights, `'shadow'` the same with
+ambient and hemisphere light hidden so shadows read black, `'normals'` the normals as color (a normal map shows here); `'off'` restores everything.
+A view is temporary and owner-scoped (`{ owner }`; another owner needs `force: true` to clear it), never saved, and `describe().render` / `describe render`
+start with a DEBUG VIEW line while one is on, so a screenshot of clay is not taken for the real look. Meshes added after the call are not covered: call it again.
+It needs the debug module (`engine.use(debug())`).
 
 ## 4. Use it
 Register the compressed file in the asset pack and refer to it by name everywhere else:

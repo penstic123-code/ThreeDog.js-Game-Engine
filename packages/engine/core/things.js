@@ -47,7 +47,7 @@ const pick = (o, keys) => Object.fromEntries(keys.filter(k => k in o).map(k => [
 export function claimId(e, id, obj = null) {
   const T = e._things, who = obj ? `engine.add(obj, { id: '${id}' })` : `world.add({ id: '${id}' })`;
   if (obj && (typeof id !== 'string' || !id || id.includes('#'))) throw codedError('thing-id', `engine.add(obj, { id: ${JSON.stringify(id)} }): an id is a non-empty string without '#' ('#' marks runtime ids such as obj#3), e.g. { id: 'windmill' }`);
-  if (obj && e.world?.get(id)) throw codedError('thing-id', `${who}: '${id}' is a world record id (engine.thing('${id}') shows it). Ids are shared with world records: pick another`);
+  if (obj && T.source(id)) throw codedError('thing-id', `${who}: '${id}' is a world record id (engine.thing('${id}') shows it). Ids are shared with world records: pick another`);
   const other = T.live(id);
   if (other && other !== obj && T.byObj.get(other).owner !== 'world') {
     const at = T.byObj.get(other).at;
@@ -59,6 +59,7 @@ export function claimId(e, id, obj = null) {
 export class Things {
   constructor(e) {
     this.e = e;
+    this.sources = [];              // record stores (world) registered with addSource; core knows only their shape
     this.byObj = new WeakMap();
     this.byId = new Map();          // id -> WeakRef(root)
     this.n = 0;                     // session ids obj#n
@@ -72,6 +73,19 @@ export class Things {
     this.conflicts = [];            // dev: "two systems manage one object" findings, newest last
     e.events.on('session:start', () => { this.setup = true; queueMicrotask(() => { this.setup = false; }); });
   }
+  /**
+   * A store of records that share the id space with engine.add objects (the world module registers itself at install). The shape core uses:
+   * { has(id), get(id) -> { position, ... }, ids(), idOf(obj) -> id | null (model -> record), view(id) -> Object3D | null,
+   *   explain(id) -> the record as a thing, set(id, patch) -> undo values, remove(id) -> restore token, restore(token) }
+   * @param {any} src @returns {{ remove(): void }}
+   */
+  addSource(src) { this.sources.push(src); return { remove: () => { this.sources = this.sources.filter(s => s !== src); } }; }
+  /** The source that has a record under id, else null */
+  source(id) { return this.sources.find(s => s.has(id)) ?? null; }
+  /** The record id whose model is obj, else null */
+  idOf(obj) { for (const s of this.sources) { const id = s.idOf?.(obj); if (id) return id; } return null; }
+  /** Every record id (for "did you mean") */
+  recordIds() { return this.sources.flatMap(s => s.ids?.() ?? []); }
   /** Whether a dev stack should be taken for this add (cap reached = no) */
   wantStack() { return this.stacks < STACK_CAP && ++this.stacks > 0; }
   get atCapped() { return this.stacks >= STACK_CAP; }

@@ -227,6 +227,33 @@ export function ease(e: Ease): (t: number) => number;
  * @example checkOptions('stamina()', opts, ['max', 'drain', 'regen']);
  */
 export function checkOptions(where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean }): void;
+/** One field of a params / op args schema: 'int?' or the full form (default implies optional) */
+export type ParamSpec = string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean };
+/**
+ * Module options read through a params schema: unknown keys and wrong types throw in dev with the fix, defaults are filled in.
+ * Also put params / options on the module definition so engine.catalog(name) shows them (recipes/51-capability-catalog.md).
+ * @example const o = readParams('magnet', { radius: { type: 'number', default: 2, min: 0 } }, opts);
+ */
+export function readParams<T extends object = any>(where: string, schema: Record<string, ParamSpec>, opts?: object): T;
+/** One look part: engine.look.<id>. set changes parameters for an owner, patch swaps a named GLSL hook, replace takes the whole part over (recipes/52-look.md) */
+export interface LookPart {
+  readonly id: string;
+  readonly object: any;
+  set(params: Record<string, any>, o?: { owner?: string }): { remove(): void };
+  patch(name: string, glsl: any, o?: { owner?: string }): { remove(): void };
+  replace(impl: any, o?: { owner?: string }): { remove(): void };
+  clear(owner: string): void;
+  value(key: string): any;
+  top(key: string): any;
+}
+/**
+ * Register a module's own look part: engine.look.<id> with set / patch / replace, engine.catalog('look.<id>') and describe().look (recipes/52-look.md).
+ * Every param needs a default; a default that changes the picture also needs why and off (or neutral: true).
+ */
+export function defineLookPart(engine: any, spec: { id: string, group?: string, module?: string, object?: () => any, params?: Record<string, any>,
+  style?: () => object, read?: () => object, apply?: (values: any, changed: Set<string>) => void, applyAtStart?: boolean,
+  hooks?: Record<string, { signature?: string, scope?: string[], example?: string }>, applyHook?: (name: string, glsl: any) => void, noPatch?: string,
+  replace?: { accepts: string, loses?: string[] }, applyReplace?: (impl: any) => void, noReplace?: string, docs?: string[] }): LookPart;
 // The Character, NPC and Engine classes are exported by the export * above (tweens use engine.timeline.tween, pathfinding uses engine.characters.findPath)
 
 /** Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed, ...terrainPreset() }).surface(x, z) */

@@ -31,6 +31,7 @@ export class Saves {
      * shape.
      * A save whose part is newer than this build's version is refused as a whole (load returns false, the save is kept).
      * A part registered after a save was loaded (a module installed later) is handed its data from that save at once.
+     * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
      * @param {string} key
      * @param {SaveProvider} provider
      * @example

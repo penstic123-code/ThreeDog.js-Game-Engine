@@ -145,7 +145,7 @@ export interface StyleSky {
   skybox?: string;
   /** Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow */
   shadow?: StyleShadow;
-  /** Environment lighting (scene.environment), off unless a source is given; see Sky.setEnvironment. A pack can give defaults, sky({ environment }) overrides */
+  /** Environment lighting (scene.environment), off unless a source is given; see engine.look.env. A pack can give defaults, sky({ environment }) overrides */
   environment?: StyleEnvironment;
   /** Fog model and color (default: linear fog in the horizon color); see StyleFog */
   fog?: StyleFog;
@@ -165,6 +165,12 @@ export interface StyleFog {
   color?: 'horizon' | ColorLike | ((sky: any) => ColorLike);
   /** Per meter, exp / exp2 / height (default: derived from engine.fogFar, so fog reaches the same distance as linear); weather fog divides it */
   density?: number;
+  /** Linear fog start (meters); default 0.3 x far. Same keys as engine.look.fog.set */
+  near?: number;
+  /** Linear fog end (meters); default engine.fogFar */
+  far?: number;
+  /** false: no fog; default true */
+  enabled?: boolean;
   /** 'height': world y of the fog floor, default 0 */
   height?: number;
   /** 'height': how fast the fog thins above the floor, per meter, default 0.05 */
@@ -185,6 +191,8 @@ export interface StyleFog {
  *   return vec4(uAurora, band * night); }` }]
  */
 export interface StyleSkyLayer {
+  /** The layer's name, the key for engine.look.sky.patch('layer:<name>'); default layer0, layer1 ... by position */
+  name?: string;
   /** Defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)` returning (rgb, amount 0..1); renamed per layer, so layers never clash */
   glsl: string;
   /** Custom uniforms (numbers, THREE.Color, [x, y(, z, w)], THREE.Texture), live in engine.sky.dome.material.uniforms */
@@ -271,10 +279,12 @@ export interface StyleWind {
   uniforms?: Record<string, number | number[] | object>;
 }
 
-/** engine.sky.shadow: the shadow params in use (Sky.setShadow changes them); field meanings as in StyleShadow */
+/** engine.sky.shadow: the shadow params in use (engine.look.shadow.set changes them); field meanings as in StyleShadow */
 export interface SkyShadowParams {
   bias: number; normalBias: number; updateEvery: number; snap: number | 'texel'; ahead: number; type: 'basic' | 'pcf' | 'vsm'; radius: number; blurSamples: number;
   cascades: number; maxFar: number; fade: boolean; lightMargin: number; split: StyleShadow['split'];
+  /** Same keys as engine.look.shadow.set */
+  mapSize?: number; enabled?: boolean;
 }
 
 export interface StyleShadow {
@@ -343,7 +353,7 @@ export interface StyleWeather {
   types?: Record<string, Partial<WeatherPreset>>;
 }
 
-/** Falling weather particles: style.weather.rain / snow and engine.weather.define(field, spec). See recipes/44-water-weather-look-hooks.md */
+/** Falling weather particles: style.weather.rain / snow and engine.look.weather.replace({ field: spec }). See recipes/44-water-weather-look-hooks.md */
 /** style.weather.snow: the snow particles' look plus the cover it leaves */
 export interface StyleWeatherSnow extends StyleWeatherParticles {
   /** Snow lying on foliage / ground while it snows (StyleSnowCover); leave out for particles only */
@@ -395,7 +405,7 @@ export interface StyleWeatherParticles {
   glsl?: { vertex?: string; fragment?: string };
   /** Uniforms for your glsl: numbers, colors, [x, y(, z, w)] arrays, textures; live in engine.weather.systems.get(field).uniforms */
   uniforms?: Record<string, any>;
-  /** A system of your own instead (engine.weather.define only): the engine adds object, shows it while the amount is above 0.02, calls update */
+  /** A system of your own instead (engine.look.weather.replace only): the engine adds object, shows it while the amount is above 0.02, calls update */
   create?: (engine: Engine, ctx: { area: number; count: number }) => {
     object: Object3D; update?: (amount: number, ctx: { camera: any; time: number; wind: number }) => void };
 }
@@ -548,11 +558,11 @@ export interface Style {
   name?: string;
   /**
    * Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number,
-   * evaluated by the sky module every frame. engine.setExposure changes it at run time
+   * evaluated by the sky module every frame. engine.look.tone.set changes it at run time
    * @example exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights
    */
   exposure?: number | number[][] | ((sky: any) => number);
-  /** Tone mapping, default 'neutral' (lowpoly: 'aces') */
+  /** Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look (lowpoly: 'aces') */
   toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>;
   /** Background color (when there is no sky module) */
   background?: ColorLike;

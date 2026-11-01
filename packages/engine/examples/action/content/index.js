@@ -5,5 +5,6 @@ import actions from './actions.js';
 import templates from './templates.js';
 import props from './props.js';
 import audio from './audio.js';
+import views from './views.js';
 
-export default { places, items, actions, templates, props, audio };
+export default { places, items, actions, templates, props, audio, views };

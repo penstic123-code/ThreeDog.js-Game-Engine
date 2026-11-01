@@ -58,7 +58,7 @@ export async function openPanel(engine, base) {
   const env = pane.addFolder({ title: `环境照明 (${LIVE})` });
   const applyEnv = () => {
     const on = envState.on, opts = { source: 'sky', intensity: envState.intensity };
-    engine.sky.setEnvironment(on ? opts : null);
+    (on ? (engine.look.env.replace('sky'), engine.look.env.set({ intensity: opts.intensity })) : engine.look.env.replace(false));
     put(['sky', 'environment'], on ? opts : null);
   };
   env.addBinding(envState, 'on', { label: '开 on' }).on('change', applyEnv);
@@ -77,11 +77,11 @@ export async function openPanel(engine, base) {
   for (const { name, enabled } of engine.post.list()) {
     const h = engine.post.get(name), f = post.addFolder({ title: name, expanded: false });
     const noteOf = () => notes.get(name) ?? notes.set(name, {}).get(name);
-    f.addBinding({ enabled }, 'enabled', { label: '开 on' }).on('change', e => { engine.post.enable(name, e.value); noteOf().enabled = e.value; });
+    f.addBinding({ enabled }, 'enabled', { label: '开 on' }).on('change', e => { engine.look.post.set({ [name + '.enabled']: e.value }); noteOf().enabled = e.value; });
     for (const [k, v] of Object.entries(h.params)) {
       if (typeof v !== 'number' && typeof v !== 'boolean') continue;   // lut textures, functions...: not editable here
       const range = typeof v === 'number' ? { step: Math.abs(v) >= 10 ? 1 : 0.01, min: Math.min(0, v * 2), max: Math.max(1, v * 3) } : {};
-      f.addBinding({ [k]: v }, k, range).on('change', e => { h.set({ [k]: e.value }); noteOf()[k] = e.value; });
+      f.addBinding({ [k]: v }, k, range).on('change', e => { engine.look.post.set({ [name + '.' + k]: e.value }); noteOf()[k] = e.value; });
     }
   }
 

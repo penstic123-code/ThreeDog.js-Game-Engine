@@ -92,16 +92,32 @@ export function warnMissing(kind, name, list) {
 }
 
 /**
- * Check an options object for unknown keys. where is the origin (such as 'npcs.add()'), known are the keys the code actually reads.
- * loose: warn only when a key is "very close to a known key" (for data like items and entities, where games often add their own fields).
+ * The one unknown-option rule, shared by readParams (strict) and checkOptions (loose): text for a key not in known, or null when it is fine.
+ * Why one function: the "did you mean" search and the wording must not drift between the two readers.
+ * soft: a key with no close match is not reported (data like items and entities, where games add their own fields).
+ */
+export function unknownOptionText(where, key, known, { soft = false } = {}) {
+  if (known.includes(key)) return null;
+  const c = closest(key, known);
+  if (!c && soft) return null;
+  return fmt(STRINGS.unknownKey, { where, key, hint: c ? fmt(STRINGS.didYouMean, { name: c }) : fmt(STRINGS.available, { list: known.join(', ') }) });
+}
+/** Is options an object a game passed (not a Three.js object, array or missing)? */
+export const isOptionsObject = o => !!o && typeof o === 'object' && !Array.isArray(o) && !o.isObject3D && !o.isVector3;
+
+/**
+ * Check an options object for unknown keys (the loose mode of readParams: same detection, same hint, but nothing is read or filled in).
+ * where is the origin (such as 'npcs.add()'), known are the keys the code actually reads.
+ * It only warns (once), in every build: the callers are hand-written checks of data and style objects that games and tests deliberately feed
+ * misspellings, and their known lists can lag behind the code. The module factories that went through readParams (the strict mode: dev throws,
+ * release warns once, decision 2026-11-01) get the throw there. loose: report only near-misses (items and entities, where games add their own fields).
  */
 export function checkOptions(where, opts, known, { loose = false } = {}) {
-  if (!enabled || !opts || typeof opts !== 'object' || Array.isArray(opts) || opts.isObject3D || opts.isVector3) return;
+  if (!enabled || !isOptionsObject(opts)) return;
   for (const k of Object.keys(opts)) {
-    if (known.includes(k)) continue;
-    const c = closest(k, known);
-    if (!c && loose) continue;
-    warnOnce(fmt(STRINGS.unknownKey, { where, key: k, hint: c ? fmt(STRINGS.didYouMean, { name: c }) : fmt(STRINGS.available, { list: known.join(', ') }) }));
+    const msg = unknownOptionText(where, k, known, { soft: loose });
+    if (!msg) continue;
+    warnOnce(msg);
   }
 }
 

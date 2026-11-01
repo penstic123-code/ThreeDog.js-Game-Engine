@@ -15,6 +15,7 @@
 // When every point light casts (shadows >= point) there are no plain ones, so sources without castShadow also take the shadow lights (they cast then) instead of never lighting.
 import * as THREE from 'three';
 import { checkOptions, warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { vec3 } from '../../core/math.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { LightPool, LightPoolOptions } from '../../types/world' */
@@ -40,6 +41,8 @@ function glowOf(g) {
   return { m, key, base: m[key], k: -1 };
 }
 
+const LIGHT_POOL_PARAMS = keysSchema(OPT_KEYS);
+
 /**
  * Light pool (many light sources, a fixed number of real lights) -> engine.lightPool
  * @param {LightPoolOptions} [opts]
@@ -49,6 +52,7 @@ function glowOf(g) {
  * for (const t of torchMeshes) engine.lightPool.add(t, { color: 0xffa040, intensity: 4, distance: 8, flicker: (time, i) => 0.85 + 0.15 * Math.sin(time * 13 + i) });
  */
 export function lightPool(opts = {}) {
+  readParams('lightPool', LIGHT_POOL_PARAMS, opts);
   const { point = 8, spot = 0, shadows = 0, every = 0.1, fade = 0.3 } = opts;
   let e = null, timer = Infinity, time = 0, seq = 0;
   const sources = [], groups = [], tmp = new THREE.Vector3(), at = new THREE.Vector3();
@@ -198,10 +202,9 @@ export function lightPool(opts = {}) {
   }
 
   return {
-    name: 'lightPool', label: 'Light pool', stage: 'late', presentation: true,
+    name: 'lightPool', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late', presentation: true,
     install(engine) {
       e = engine;
-      checkOptions('lightPool()', opts, OPT_KEYS);
       const k = Math.max(0, Math.min(shadows, point));
       if (k > 0 && k >= point) warnOnce(STRINGS.allShadow.replace('{n}', String(point)).replace('{m}', String(k + 2)).replaceAll('{k}', String(k)));
       makeGroup('point', true, k);

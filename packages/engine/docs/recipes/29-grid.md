@@ -64,7 +64,7 @@ Cells that exist from the start go in content: `content/grids.js` <!-- r18-ignor
 **Tiles.** The game gives a layer its colors: `farm.layer('soil', { tiles: { look: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
 (what the data means is gameplay, so no style pack ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its
 height (slopes, ramps, level meshes).
-`farm.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
+`tiles: { colors: { watered: 0x5b3d2a, tilled: 0x8a6243 } }` is the same as `look` from a table (first truthy field wins) and wins over a style pack's `style.grid.tiles`; `farm.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
 (engine, layer) => ({ update(cells), dispose() }) }` is your own view. Options are read when the layer is first created.
 
 ## 4. Preview

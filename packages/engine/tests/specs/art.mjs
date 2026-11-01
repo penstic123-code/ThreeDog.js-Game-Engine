@@ -44,11 +44,11 @@ export const specs = [
         const p = engine.post, samples = () => p.composer ? [p.composer.renderTarget1.samples, p.composer.renderTarget2.samples] : null;
         const fake = { enabled: true, needsSwap: false, renderToScreen: false, setSize() {}, render() {}, dispose() {} };
         const out = { canvas: engine.renderer.getContextAttributes().antialias, start: p.antialias };
-        p.enable('antialias', true); engine.step(1 / 30, { render: true });
+        p.setAntialias(true); engine.step(1 / 30, { render: true });
         out.on = { active: p.active, s: samples() };
-        const h = p.add({ name: 'glow', create: () => ({ ...fake }) }); engine.step(1 / 30, { render: true });
+        const h = engine.look.post.add({ name: 'glow', create: () => ({ ...fake }) }); engine.step(1 / 30, { render: true });
         out.fx = samples();
-        p.enable('antialias', false); h.remove(); engine.step(1 / 30, { render: true });
+        p.setAntialias(false); h.remove(); engine.step(1 / 30, { render: true });
         out.off = { active: p.active, s: samples() };
         engine.settings.preset('high'); out.high = p.antialias;
         engine.settings.preset('low'); out.low = p.antialias;
@@ -66,26 +66,26 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const p = engine.post, made = {};
+        const p = engine.post, L = engine.look.post, made = {};
         // 假 Pass：EffectComposer 只要求这几个成员；名字记在 tag 上，好读出链的顺序
         const fx = (name, slot, order, more = {}) => ({ name, slot, order, params: { k: 1 }, ...more,
           create: ({ params }) => { made[name] = (made[name] || 0) + 1; return { tag: name, k: params.k, enabled: true, needsSwap: false, renderToScreen: false, setSize() {}, render() {}, dispose() {} }; } });
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const chain = () => p.composer.passes.map(x => x.tag ?? (x.isRenderPass ? 'RENDER' : x.isOutputPass ? 'OUTPUT' : '?'));
-        const hs = [fx('grain', 'ldr', 0), fx('aa', 'final', 0), fx('late', 'hdr', 50), fx('early', 'hdr', -5), fx('lut', 'ldr', -1)].map(e => p.add(e));
-        const off = p.add(fx('lazy', 'hdr', 0), { enabled: false });
+        const hs = [fx('grain', 'ldr', 0), fx('aa', 'final', 0), fx('late', 'hdr', 50), fx('early', 'hdr', -5), fx('lut', 'ldr', -1)].map(e => L.add(e));
+        const off = L.add(fx('lazy', 'hdr', 0, { enabled: false }));
         engine.step(1 / 30, { render: true });
         const out = { order: chain().join(), list: p.list().map(e => e.name).join(), lazyBuilt: !!made.lazy };
-        const px = p.add(fx('pixel', 'scene', 0));
+        const px = L.add(fx('pixel', 'scene', 0));
         out.scene = chain()[0];
-        out.dupScene = err(() => p.add(fx('pixel2', 'scene', 0)));
-        out.dupName = err(() => p.add(fx('grain', 'hdr', 0)));
-        out.badSlot = err(() => p.add(fx('x', 'post', 0)));
+        out.dupScene = err(() => L.add(fx('pixel2', 'scene', 0)));
+        out.dupName = err(() => L.add(fx('grain', 'hdr', 0)));
+        out.badSlot = err(() => L.add(fx('x', 'post', 0)));
         px.remove(); out.restored = chain()[0];
-        const late = p.get('late'); late.set({ k: 7 });                       // 没有 update：下次开启时重建，拿到新参数
+        L.set({ 'late.k': 7 });                       // 没有 update：下次开启时重建，拿到新参数
         out.rebuilt = { made: made.late, k: p.composer.passes.find(x => x.tag === 'late').k };
-        out.enableMissing = p.enable('nope', true);
-        off.enable(true); out.lazyNow = chain().includes('lazy');
+        out.enableMissing = p.get('nope');
+        L.set({ 'lazy.enabled': true }); out.lazyNow = chain().includes('lazy');
         for (const h of [...hs, off]) h.remove();
         out.after = chain().join();
         return out;
@@ -96,7 +96,7 @@ export const specs = [
       check('scene 槽替换 RenderPass，remove 后恢复', r.scene === 'pixel' && r.restored === 'RENDER');
       check('scene 槽只能一个、重名、未知槽都报错给改法', /remove it first/.test(r.dupScene) && /already added/.test(r.dupName) && /unknown slot 'post'/.test(r.badSlot), JSON.stringify(r));
       check('set 没有 update 时重建并拿到新参数', r.rebuilt.made === 2 && r.rebuilt.k === 7, JSON.stringify(r.rebuilt));
-      check('enable 不存在的名字返回 false', r.enableMissing === false);
+      check('get 不存在的名字返回 undefined', r.enableMissing === undefined);
       check('全部 remove 后只剩 RenderPass 和输出', r.after === 'RENDER,OUTPUT', r.after);
     },
   },

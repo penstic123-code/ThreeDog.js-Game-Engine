@@ -12,11 +12,11 @@ import { TerrainEdits } from './terrainEdit.js';
 import { terrainMaterial } from '../../render/materials.js';
 import { chunkRing } from '../../core/streamSources.js';
 import { chunkQueries } from './chunkQueries.js';
+import { chunkLevels, NO_VEG } from './chunkLevels.js';
 import { mountTerrain } from './mountTerrain.js';
 import { disposeColorMap } from './terrainTexture.js';
 
 const COLLIDER_LAG = 30;   // base delay before chunk collision takes effect (fixed steps, 30 = 0.5 s), multiplied by (1 + ring)
-const NO_VEG = { baseNames: () => [], nearNames: () => [], list: () => [], get: () => null };
 
 export class ChunkManager {
   constructor(engine, terrainCfg, material = null) {
@@ -225,20 +225,6 @@ export class ChunkManager {
   }
 
   /** Due but chunk not ready: if the worker result already arrived, upload it now, else generate on the main thread (same code as the worker, same result) */
-  _forceReady(c) {
-    if (c.state === 'ready') return true;
-    const i = this.ready.findIndex(r => r.terrain && r.cx === c.cx && r.cz === c.cz && r.gen === c.gen && r.ev === this.edits.version(c.key));
-    let r = i >= 0 ? this.ready.splice(i, 1)[0] : null;
-    if (!r) {
-      const veg = this.engine.vegetation || NO_VEG;
-      r = { terrain: this.T.buildChunk(c.cx, c.cz), veg: {} };
-      for (const name of veg.baseNames()) r.veg[name] = this.T.place(c.cx, c.cz, veg.get(name).rule, this.density);
-    }
-    this._applyTerrain(c, r.terrain);
-    for (const name in r.veg) this._applyVeg(c, name, r.veg[name]);
-    c.level = -1;
-    return true;
-  }
 
   _job(c, terrain, species) {
     const ev = this.edits.version(c.key), edits = this.edits.forChunk(c.cx, c.cz);
@@ -257,23 +243,6 @@ export class ChunkManager {
   // the InstancedMesh of one species in a chunk is built by vegetation (the same code builds its chunks on any other ground)
   _applyVeg(c, name, r) { this.engine.vegetation.mount(c, name, r); }
 
-  _setLevel(c, ring) {
-    if (c.level === ring) return;
-    c.level = ring;
-    const veg = this.engine.vegetation || NO_VEG;
-    for (const sp of veg.list()) {
-      const im = c.veg[sp.name];
-      if (sp.nearOnly) {
-        // detailDone: this species was already placed here and came back empty; without it the empty result would reset the level and re-ask forever
-        if (ring <= sp.maxRing && !im && !c.pendingDetail && !c.detailDone.has(sp.name)) {
-          c.pendingDetail = true;
-          this._send(this._job(c, false, veg.nearNames()));
-        } else if (ring > sp.maxRing + 1 && im) { veg.unmount(c, sp.name); c.detailDone.delete(sp.name); }
-        continue;
-      }
-      if (im) veg.levelOf(im, sp, ring);
-    }
-  }
 
   /** Stop the chunk workers (called by terrain dispose; in-flight results are discarded) */
   dispose() { this.lane.dispose(); this.ready.length = 0; }
@@ -288,4 +257,4 @@ export class ChunkManager {
     for (const n in c.veg) c.veg[n].dispose();
   }
 }
-Object.assign(ChunkManager.prototype, chunkQueries);
+Object.assign(ChunkManager.prototype, chunkQueries, chunkLevels);

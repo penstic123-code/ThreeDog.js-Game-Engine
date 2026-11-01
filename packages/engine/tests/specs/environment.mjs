@@ -1,34 +1,34 @@
-// 环境照明（sky.setEnvironment）：默认关、开 / 关、'sky' 来源按间隔重生成而不是每帧、关闭与 dispose 时释放 GPU 资源。
+// 环境照明（look.env）：默认关、开 / 关、'sky' 来源按间隔重生成而不是每帧、关闭与 dispose 时释放 GPU 资源。
 // 画面只验证"能渲染一帧"；harness 会把 console 错误记为失败。
 
 export const specs = [
   {
-    name: '[守] 环境照明：默认关闭；setEnvironment 设 scene.environment / 强度 / 旋转且不动背景；null 关闭并释放',
+    name: '[守] 环境照明：默认关闭；look.env 设 scene.environment / 强度 / 旋转且不动背景；null 关闭并释放',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
         const s = engine.sky, sc = engine.scene, out = {};
         out.defaultOff = sc.environment === null && s.environment === null;
         const bg = sc.background;
-        s.setEnvironment({ source: 'sky', intensity: 0.5, rotation: 1 });
+        engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.5, rotation: 1 });
         out.on = !!sc.environment && sc.environmentIntensity === 0.5 && Math.abs(sc.environmentRotation.y - 1) < 1e-9;
         out.bgSame = sc.background === bg;
-        s.setEnvironment({ intensity: 0.8 });        // 只改给出的字段
+        engine.look.env.set({ intensity: 0.8 });        // 只改给出的字段
         out.info = s.environment;
         out.partial = s.environment.source === 'sky' && sc.environmentIntensity === 0.8 && s.environment.builds === 1;
         const target = s._env.target; let freed = false; target.addEventListener('dispose', () => { freed = true; });
         engine.step(1 / 30, { render: true });       // 开着环境照明渲染一帧
-        s.setEnvironment(null);
+        engine.look.env.replace(false);
         out.off = sc.environment === null && s.environment === null;
         out.freed = freed;
-        try { s.setEnvironment({ intensity: 1 }); out.noSource = ''; } catch (e) { out.noSource = e.message; }
+        try { engine.look.env.set({ intensity: 1 }); out.noSource = ''; } catch (e) { out.noSource = e.message; }
         return out;
       });
       check('默认不设环境（scene.environment 与 sky.environment 都是 null）', r.defaultOff);
-      check('setEnvironment 设上贴图、强度、旋转，背景不变', r.on && r.bgSame, JSON.stringify(r));
+      check('look.env 设上贴图、强度、旋转，背景不变', r.on && r.bgSame, JSON.stringify(r));
       check('只给部分字段时其余保持，且不重复生成', r.partial, JSON.stringify(r.info));
       check('null 关闭：scene.environment 清空且 PMREM 目标已释放', r.off && r.freed, JSON.stringify(r));
-      check('没有 source 时报错并说明怎么写', /source is missing/.test(r.noSource), r.noSource);
+      check('没有 source 时只设强度：不报错，环境保持关闭', r.noSource === '' && r.off, r.noSource);
     },
   },
   {
@@ -40,7 +40,7 @@ export const specs = [
         s.dayLength = Infinity;                       // 时间不自己走，只由测试改
         engine.weather.setAuto(false); engine.weather.set('clear', 0.01);   // 云量跟天气走，先定住
         engine.step(1, { render: false });
-        s.setEnvironment({ source: 'sky', interval: 1 });
+        engine.look.env.replace('sky'); engine.look.env.set({ interval: 1 });
         engine.step(0.05, { render: false });         // 第一帧按当时的天空颜色生成
         const b0 = s.environment.builds;
         engine.step(0.2, { render: false }); engine.step(0.2, { render: false });

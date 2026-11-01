@@ -3,7 +3,7 @@
 // Copies packages/tools/templates/game/ to games/<name>/, replacing __NAME__ in files with the name; then updates the lock, generates GAMEMAP, runs check and the smoke test.
 // The templates are real files; to change the starting point of new games, edit that directory directly.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { npm } from './lib/proc.mjs';
 import { ROOT, TOOLS, GAMES, rel, workspaces } from './paths.mjs';
@@ -27,6 +27,9 @@ function copy(from, to, skip = []) {
 }
 copy(join(TOOLS, 'templates', 'game'), dir, blank ? ['content'] : []);
 if (blank) copy(join(TOOLS, 'templates', 'blank'), dir);   // overwrites main.js
+// MCP for Claude Code opened in the game folder: plain node on this repo's tools (npx costs ~2.5 s and needs `cmd /c` on Windows); the path is relative so the repo can move
+const mcpBin = relative(dir, join(TOOLS, 'bin', 'threedog.mjs')).replaceAll('\\', '/');
+writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [mcpBin, 'mcp'] } } }, null, 2) + '\n');
 console.log(`✓ created ${rel(dir)}${blank ? ' (blank template)' : ''}`);
 
 // Workspace link (node_modules/@threedog/<name> → the game directory), which is how npm builds it too; a junction needs no administrator rights on Windows, and non-ASCII paths are fine.

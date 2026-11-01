@@ -1,4 +1,4 @@
-// Timeline camera and path steps (helper of Timeline.js): a shot takes the camera over through engine.cameraOverride and gives it back when the run ends;
+// Timeline camera and path steps (helper of Timeline.js): a shot takes the camera over with engine.takeCamera (core/holds.js) and gives it back when the run ends;
 // a path moves any object (a character, the camera) along a spline. Each function takes the Timeline as `t`.
 import * as THREE from 'three';
 import { vec3 as v3 } from '../../core/math.js';
@@ -36,8 +36,10 @@ export function cameraStep(t, c, run) {
 function takeCamera(t, run) {
   const e = t.engine;
   if (!run.cam) {
-    run.cam = { prev: e.cameraOverride ?? null, fov: e.camera.fov, look: new THREE.Vector3(), override: { owner: 'timeline', id: run.id, focus: e.focus.clone() } };
-    e.cameraOverride = run.cam.override;
+    // a claim of its own (engine.takeCamera): a named view or a game holding the camera keeps its claim and gets the camera back afterwards.
+    // The owner carries the run id so two overlapping runs are two holders, not one overwriting the other.
+    const override = { owner: 'timeline:' + run.id, id: run.id, focus: e.focus.clone() };
+    run.cam = { fov: e.camera.fov, look: new THREE.Vector3(), override, hold: e.takeCamera(override.owner, override) };
   }
   return run.cam;
 }
@@ -46,7 +48,7 @@ export function releaseCamera(t, run) {
   const st = run.cam; if (!st) return;
   run.cam = null;
   const e = t.engine;
-  if (e.cameraOverride === st.override) e.cameraOverride = st.prev;
+  st.hold.remove();
   if (e.camera.fov !== st.fov) { e.camera.fov = st.fov; e.camera.updateProjectionMatrix(); }
 }
 

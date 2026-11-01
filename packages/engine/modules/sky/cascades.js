@@ -20,15 +20,15 @@ const LIT = new Set(['MeshLambertMaterial', 'MeshPhongMaterial', 'MeshStandardMa
 const lit = m => m.isShaderMaterial ? m.lights && m.fragmentShader.includes('#include <lights_fragment_begin>') : LIT.has(m.type);
 const SPLITS = ['practical', 'uniform', 'logarithmic'];
 const STRINGS = {
-  count: 'sky.setShadow({ cascades }): a whole number 1 (one shadow map, the default) to 4; got {got}',
-  split: "sky.setShadow({ split }): 'practical' (default) | 'uniform' | 'logarithmic' | (count, near, far, out) => void; got {got}",
-  maxFar: 'sky.setShadow({ maxFar }): meters from the camera that cascades cover, a number > 0; got {got}',
-  noSun: "sky.setShadow({ cascades }): cascaded shadows split the engine sun's shadow, and sky({ sun: false }) has no engine sun. " +
+  count: 'look.shadow.set({ cascades }): a whole number 1 (one shadow map, the default) to 4; got {got}',
+  split: "look.shadow.set({ split }): 'practical' (default) | 'uniform' | 'logarithmic' | (count, near, far, out) => void; got {got}",
+  maxFar: 'look.shadow.set({ maxFar }): meters from the camera that cascades cover, a number > 0; got {got}',
+  noSun: "look.shadow.set({ cascades }): cascaded shadows split the engine sun's shadow, and sky({ sun: false }) has no engine sun. " +
     "With your own lights use three's CSM addon on them, or keep sun: true / 'manual'",
 };
 const bad = (k, v) => { throw new Error(STRINGS[k].replace('{got}', JSON.stringify(v) ?? String(v))); };
 
-/** Throw on cascade fields a setShadow call gets wrong, before anything is applied */
+/** Throw on cascade fields a look.shadow.set call gets wrong, before anything is applied */
 export function checkCascades(sky, o) {
   if (o.cascades !== undefined && !(Number.isInteger(o.cascades) && o.cascades >= 1 && o.cascades <= 4)) bad('count', o.cascades);
   if (o.split !== undefined && typeof o.split !== 'function' && !SPLITS.includes(o.split)) bad('split', o.split);
@@ -74,7 +74,7 @@ class SkyCSM extends CSM {
   }
 }
 
-/** Create, rebuild or remove the cascades after setShadow changed shadow fields; copy bias / softness to the extra lights */
+/** Create, rebuild or remove the cascades after look.shadow.set changed shadow fields; copy bias / softness to the extra lights */
 export function syncCascades(sky) {
   const S = sky.shadow, e = sky.engine, want = S.cascades > 1;
   const key = want ? [S.cascades, S.maxFar, S.fade, S.lightMargin, S.split].join('|') : '';

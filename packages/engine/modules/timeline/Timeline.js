@@ -18,7 +18,7 @@
 // Space, which is dialogue "continue"), or click the hint on the letterbox.
 // While frozen (engine.freeze / flow 'paused') wait, tweens, camera and paths do not advance; they resume after unfreezing.
 //   On skip all running tweens jump to their end and the remaining steps finish instantly (do steps still run, so state matches a normal playthrough).
-// Camera takeover: a camera step sets engine.cameraOverride (see camera/common.js) and restores the previous value and view after the whole run; the camera
+// Camera takeover: a camera step takes the camera (engine.takeCamera, see camera/common.js) and releases its claim and restores the view after the whole run; the camera
 // module then resumes.
 //   To hand the camera back midway: { camera: { release: true } }
 // General tween (usable anywhere in a game): await engine.timeline.tween(mesh, { 'position.y': 2, 'material.opacity': 0 }, 1, 'outCubic')
@@ -29,6 +29,7 @@ import { fadeScreen, uiFocus } from '../../ui/UI.js';
 import { cameraStep, pathStep, releaseCamera } from './shots.js';
 import { buildLetterbox } from './letterbox.js';
 import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Ease } from '../../types/common' */
 /** @import { TimelineStep, TimelinePlayOptions, TimelineOptions, TweenTo, TweenPromise } from '../../types/gameplay' */
@@ -217,6 +218,8 @@ const STRINGS = {
   en: { 'timeline.skip': '{key:skip} Skip', 'timeline.skipAction': 'Skip cutscene' },
 };
 
+const TIMELINE_PARAMS = keysSchema(['skipKeys']);
+
 /**
  * Timeline (cutscenes, tweens) -> engine.timeline.
  * timeline({ skipKeys: ['Escape', 'Backspace'] })（timeline({ skipKeys: ['Escape', 'Backspace'] }) (Esc is the back key, dispatched by the UI focus stack)
@@ -225,11 +228,12 @@ const STRINGS = {
  * @returns {ModuleDef<Timeline>}
  */
 export function timeline(opts = {}) {
+  readParams('timeline', TIMELINE_PARAMS, opts);
   let t = null;
   return {
-    name: 'timeline', label: 'Timeline', stage: 'control', before: ['cameraRig'],   // before the camera, so the takeover applies on the same frame
+    name: 'timeline', params: TIMELINE_PARAMS, options: opts, label: 'Timeline', stage: 'control', before: ['cameraRig'],   // before the camera, so the takeover applies on the same frame
     install(e) {
-      checkOptions('timeline()', opts, ['skipKeys']); e.i18n.add(STRINGS); t = new Timeline(e, opts); e.cameraOverride ??= null;
+      e.i18n.add(STRINGS); t = new Timeline(e, opts);
       // a running cutscene ends with its playthrough (session waits one macrotask for its steps to settle)
       e.events.on('session:end', () => { if (t.runs.size) t.skip(); });
       return t;

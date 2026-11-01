@@ -3,6 +3,8 @@
 // Pure checks of what three.js itself would do (visible flags up the parent chain, layers, material flags, transform and geometry validity,
 // the view frustum, fog). It cannot see what a shader does with a pixel, or something drawn over it.
 import * as THREE from 'three';
+import { materialInfo, infoLine } from './MaterialInfo.js';
+import { describeRender } from './describeRender.js';
 
 const KINDS = [['isMesh', 'Mesh'], ['isPoints', 'Points'], ['isLine', 'Line'], ['isSprite', 'Sprite']];
 const kindOf = o => KINDS.find(([k]) => o[k])?.[1] ?? null;
@@ -147,7 +149,7 @@ function checkObject(o, type, ctx) {
   const ranked = [...reasons.filter(x => x.level === 'hidden'), ...reasons.filter(x => x.level !== 'hidden')], mats = (Array.isArray(o.material) ? o.material : [o.material]).filter(Boolean);
   const drawn = !ranked.some(x => x.level === 'hidden');
   return { name: o.name || null, type, path: pathOf(o), id: o.id, position: { x: r1(center.x), y: r1(center.y), z: r1(center.z) }, radius: Number.isFinite(radius) ? r1(radius) : null,
-    material: mats.length ? { type: mats.map(m => m.type).join('+'), purpose: mats[0].userData?.purpose ?? o.userData?.purpose ?? null } : null,
+    material: mats.length ? { type: mats.map(m => m.type).join('+'), purpose: mats[0].userData?.purpose ?? o.userData?.purpose ?? null, info: mats.map(m => materialInfo(m, o)) } : null,
     visible: o.visible, drawn, ...(ranked.length && { reasons: ranked }) };
 }
 
@@ -156,6 +158,7 @@ function lineOf(x) {
   const hard = (x.reasons ?? []).filter(r => r.level === 'hidden'), soft = (x.reasons ?? []).filter(r => r.level === 'maybe');
   return `${x.drawn ? '✓' : '✗'} ${x.name ?? '(unnamed)'} [${x.type}] (${x.position.x}, ${x.position.y}, ${x.position.z}) r=${x.radius ?? '?'}`
     + `${x.material ? ` · ${x.material.type}${x.material.purpose ? '/' + x.material.purpose : ''}` : ''}`
+    + (x.material?.info ? '\n    material: ' + x.material.info.map(infoLine).join('\n    material: ') : '')
     + (hard.length ? '\n    ' + hard.map(r => r.text).join('\n    ') : '') + (soft.length ? `\n    maybe: ${soft.map(r => r.text).join(' · ')}` : '');
 }
 
@@ -180,8 +183,9 @@ export function inspectScene(e, { hidden = false, limit = 40 } = {}) {
   const shown = items.slice(0, limit), cp = ctx.view?.pos, types = Object.entries(counts.byType).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const head = `Scene: ${counts.total} drawable objects (${types}), ${counts.drawn} drawn, ${counts.notDrawn} not drawn`
     + (cp ? ` · camera at (${r1(cp.x)}, ${r1(cp.y)}, ${r1(cp.z)}), far ${cam.far}` : ' · no camera');
-  const text = [head, ...shown.map(lineOf), items.length > shown.length ? `… ${items.length - shown.length} more (limit ${limit}; pass a bigger limit)` : null,
+  const render = describeRender(e)?.text.split('\n')[0];   // the renderer line (tone mapping + exposure), reused from describe().render
+  const text = [head, render, ...shown.map(lineOf), items.length > shown.length ? `… ${items.length - shown.length} more (limit ${limit}; pass a bigger limit)` : null,
     'Checks what three.js would do (visible flags, layers, material flags, transform / geometry validity, frustum, fog). It cannot see shader output or something drawn over it.']
     .filter(Boolean).join('\n');
-  return { camera: cam ? { position: { x: r1(cp.x), y: r1(cp.y), z: r1(cp.z) }, near: cam.near, far: cam.far } : null, counts, items: shown, truncated: items.length - shown.length, text };
+  return { camera: cam ? { position: { x: r1(cp.x), y: r1(cp.y), z: r1(cp.z) }, near: cam.near, far: cam.far } : null, counts, items: shown, truncated: items.length - shown.length, render: render ?? null, text };
 }

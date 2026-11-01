@@ -30,9 +30,9 @@ function pane(title, e) {
   const log = [];
   const act = (name, args) => {
     const r = e.ops.run(name, args);
-    log.unshift(`${name} ${args.item ?? args.id ?? ''}: ${r.pending ? 'sent' : r.ok ? 'ok' : r.reason}`);
+    log.unshift(`${name} ${args.item ?? args.id ?? ''}: ${r.pending ? 'sent' : r.ok ? 'ok' : r.code}`);
   };
-  e.events.on('net:result', r => log.unshift(`  host: ${r.name} ${r.ok ? 'ok' : r.reason} (tick ${r.tick})`));
+  e.events.on('net:result', r => log.unshift(`  host: ${r.name} ${r.ok ? 'ok' : r.code} (tick ${r.tick})`));
   /** @type {[string, string, Record<string, any>][]} */
   const buttons = [
     ['Buy apple', 'shop.buy', { item: 'apple' }], ['Buy bread', 'shop.buy', { item: 'bread' }], ['Sell apple', 'shop.sell', { item: 'apple' }],

@@ -83,6 +83,9 @@ export function loadContent(e, api, c, st, ids) {
   // twice never stacks its rules (a fresh key per load did); two different unnamed objects both keep theirs
   if (c.audio) e.audio.contentPack(c.name ? 'pack:' + c.name : c, c.name ? `pack "${c.name}"` : 'pack (no name)', c.audio);
 
+  // views: named fixed camera views (core/Views.js); defining a name again replaces it, so a hot reload just works
+  each(c.views, (name, v) => e.views.define(name, v));
+
   // vegetation: generator models go through assets.cached (baked file -> dev cache -> compute), file models give their first mesh's geometry; register all
   // kinds at the same moment once all models are ready
   // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them

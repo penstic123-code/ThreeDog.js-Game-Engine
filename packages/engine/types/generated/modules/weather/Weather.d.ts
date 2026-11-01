@@ -29,22 +29,12 @@ export class Weather {
     /** Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus define()) @type {Map<string, any>} */
     systems: Map<string, any>;
     /**
-     * Draw particles for a field of this game's weather table (its amount is weather.current[field], so they fade with the weather). spec takes the
-     * keys of style.weather.rain (shape, color, size, speed, sway, density, glsl...) or create(engine, { area, count }) => { object, update } for a
-     * system of your own. The same field again replaces it, rain and snow included. See recipes/44-water-weather-look-hooks.md
-     * @example
-     * engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });   // types: { ashfall: { ash: 1, grey: 0.5 } }
-     * @param {string} field
-     * @param {import('../../../style').StyleWeatherParticles} [spec]
-     * @returns {{ field: string, object: THREE.Object3D, uniforms: Record<string, { value: any }> | null }}
+     * Renamed in 0.2: throws and names the new call, engine.look.weather.replace({ [field]: spec }) (recipes/44-water-weather-look-hooks.md)
+     * @param {string} _field
+     * @param {import('../../../style').StyleWeatherParticles} [_spec]
+     * @returns {never}
      */
-    define(field: string, spec?: import("../../../style").StyleWeatherParticles): {
-        field: string;
-        object: THREE.Object3D;
-        uniforms: Record<string, {
-            value: any;
-        }> | null;
-    };
+    define(_field: string, _spec?: import("../../../style").StyleWeatherParticles): never;
     /**
      * Automatic weather on/off
      * @param {boolean} on

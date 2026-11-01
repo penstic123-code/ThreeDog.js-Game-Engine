@@ -68,11 +68,10 @@ const STAGES = Object.fromEntries([...read(P.abs(`${P.CORE_REL}/modules.js`)).ma
 const rig = mods.find(m => m.name === 'cameraRig' && !m.alias);   // cameras share one rigModule definition: each camera row uses its fields
 for (const m of mods) if (m.alias) Object.assign(m, { requires: rig.requires, optional: rig.optional, stage: rig.stage, before: rig.before, after: rig.after });
 const modRows = mods.filter(m => m !== rig).sort((a, b) => STAGES[a.stage] - STAGES[b.stage]);
-const join_ = a => a.length ? a.join(', ') : '—';
 md.push('## Modules (installed with engine.use)', '',
-  `Per-frame hook order: by stage (${Object.keys(STAGES).join(' → ')}; none = late), then before / after, then install order.`, '',
-  '| Module (engine.xxx) | File | Requires | Optional | Stage | Within stage |', '|---|---|---|---|---|---|');
-for (const m of modRows) md.push(`| ${m.alias ? `${m.name} (${m.alias}())` : m.name} | ${sp(m.file)} | ${join_(m.requires)} | ${join_(m.optional)} | ${m.stage} | ${[m.before.length ? 'before ' + m.before.join(', ') : '', m.after.length ? 'after ' + m.after.join(', ') : ''].filter(Boolean).join('; ') || '—'} |`);
+  'Requires, optional, stage, run order, params, ops, saves and time model of each module: `npx threedog catalog` (and `catalog <module>`); only the file is listed here.', '',
+  '| Module (engine.xxx) | File |', '|---|---|');
+for (const m of modRows) md.push(`| ${m.alias ? `${m.name} (${m.alias}())` : m.name} | ${sp(m.file)} |`);
 
 // Files: one row per file for index.js, core/, render/, ui/ (opened by name); one row per folder for modules/* (summary from its index.js)
 md.push('', '## Files', '');

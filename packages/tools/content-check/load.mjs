@@ -13,6 +13,8 @@ export { ROOT, rel };
 /** All game folders: those in packages/engine/examples/* and games/* that have a main.js (gameDirs in paths.mjs) */
 export const findGames = gameDirs;
 
+let loadSeq = 0;
+
 /** Read all content files of a game: { data: { items, … }, files: { items: path }, errors } */
 export async function loadGame(dir) {
   const data = {}, files = {}, errors = [];
@@ -24,7 +26,8 @@ export async function loadGame(dir) {
     const path = join(cdir, name + '.js');
     if (!contentFiles(data.rules)[name]) { errors.push(`${rel(path)}: ${unknownContent(name, data.rules)}`); continue; }
     try {
-      const mod = await import(pathToFileURL(path).href);
+      // ?t= : a content file rewritten during this process (content set checks before and after the edit) must not come back from the ESM cache
+      const mod = await import(pathToFileURL(path).href + '?t=' + Date.now() + '-' + (++loadSeq));
       data[name] = mod.default; files[name] = path;
       if (mod.startItems) { data.startItems = mod.startItems; files.startItems = path; }
     } catch (err) { errors.push(`${rel(path)}: the file cannot be loaded (most likely a syntax error, such as a missing comma or bracket): ${err.message}`); }

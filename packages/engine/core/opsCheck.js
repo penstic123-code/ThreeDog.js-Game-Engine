@@ -2,11 +2,11 @@
 // Each message says what is wrong and how to write it, because the reader is usually an AI that will fix the call from the text alone.
 import { closest, fmt } from './validate.js';
 import { codedError } from './errorHints.js';
+import { parseSchema, whyBad, CHECK, OP_TYPES as TYPES } from './params.js';   // one type check for op args and module params
 
 export const SOURCES = ['player', 'game', 'bridge', 'test', 'replay', 'net'];
-const TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any'];
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const DEF_KEYS = ['desc', 'args', 'can', 'run', 'offers', 'reasons', 'undo', 'net', 'owner'];
+const DEF_KEYS = ['desc', 'args', 'can', 'run', 'offers', 'reasons', 'undo', 'net', 'owner', 'targets', 'atomic', 'after'];
 export { fmt };
 const STRINGS = {
   badName: "ops.define('{name}'): name an op noun.verb, e.g. 'shop.buy' (lowercase start, camelCase)",
@@ -14,12 +14,15 @@ const STRINGS = {
   badKey: "ops.define('{name}'): unknown field '{key}'{hint}. Fields: " + DEF_KEYS.join(', '),
   badType: "ops.define('{name}'): args.{key} has type '{type}'; use one of " + TYPES.join(' ') + " (add ? for optional, e.g. 'int?')",
   badNet: "ops.define('{name}'): net is 'peer' (remote players may request it) or 'local' (runs on each machine, e.g. UI settings); leave it out to let only the host run it",
+  badTargets: "ops.define('{name}'): targets is a thing id, kind or template name (or a list of them, or '*'), the things this op is meant for, e.g. targets: 'chest'",
   badOwner: "ops.define('{name}'): owner is a function of the args returning the world record id the actor must own, e.g. owner: a => a.id",
   notPlain: "ops.run('{name}'): argument {key} is {what}; pass plain data: {fix}",
   argsObj: "ops.run('{name}'): args must be a plain object like { item: 'bread' }, got {what}",
   missing: "ops.run('{name}') is missing {key} (args: {shape})",
   extra: "ops.run('{name}'): unknown argument {key}{hint} (args: {shape})",
   wrong: "ops.run('{name}'): {key} should be {type}, got {got} (args: {shape})",
+  badAtomic: "ops.define('{name}'): atomic is true/false and after is a function (e, args, value, ctx) for sound / animation; it runs only when the op committed",
+  range: "ops.run('{name}'): {key} {why} (args: {shape})",
   noRecord: "ops.run('{name}'): {key} '{id}' is not a world record id",
 };
 const what = v => typeof v === 'function' ? 'a function' : v?.isVector3 ? 'a Vector3' : v?.isObject3D ? 'a three.js object' : (v?.constructor?.name ? 'a ' + v.constructor.name : typeof v);
@@ -35,11 +38,6 @@ function notPlain(v, depth = 0) {
   for (const k in v) { const b = notPlain(v[k], depth + 1); if (b) return b; }
   return null;
 }
-const isPos = v => Array.isArray(v) && (v.length === 2 || v.length === 3) && v.every(Number.isFinite);
-const CHECK = {
-  string: v => typeof v === 'string', number: v => Number.isFinite(v), int: v => Number.isInteger(v), bool: v => typeof v === 'boolean',
-  position: isPos, id: v => typeof v === 'string', any: () => true,
-};
 
 /** Dev mistakes (wrong name, args, can result) are thrown straight to the caller, not treated as gameplay errors */
 export function devError(msg) { const err = codedError('op-misuse', msg); err.opsDevError = true; return err; }
@@ -54,14 +52,13 @@ export function checkDef(name, def) {
     throw devError(fmt(STRINGS.badKey, { name, key, hint: c ? ` (did you mean ${c}?)` : '' }));
   }
   if (def.net !== undefined && def.net !== 'peer' && def.net !== 'local') throw devError(fmt(STRINGS.badNet, { name }));
+  if (def.targets !== undefined && ![def.targets].flat().every(t => typeof t === 'string' && t)) throw devError(fmt(STRINGS.badTargets, { name }));
   if (def.owner !== undefined && typeof def.owner !== 'function') throw devError(fmt(STRINGS.badOwner, { name }));
+  if ((def.atomic !== undefined && typeof def.atomic !== 'boolean') || (def.after !== undefined && typeof def.after !== 'function')) throw devError(fmt(STRINGS.badAtomic, { name }));
   if (!def.args) return null;
-  const shape = {};
-  for (const key in def.args) {
-    const t = String(def.args[key]), type = t.replace(/\?$/, '');
-    if (!TYPES.includes(type)) throw devError(fmt(STRINGS.badType, { name, key, type: t }));
-    shape[key] = { type, optional: t.endsWith('?') };
-  }
+  // the same schema form as module params (params.js): 'int?' or { type, default, min, max, values, desc }
+  const shape = parseSchema(`ops.define('${name}') args`, def.args, devError);
+  for (const key in shape) if (!TYPES.includes(shape[key].type)) throw devError(fmt(STRINGS.badType, { name, key, type: shape[key].type }));
   return shape;
 }
 
@@ -81,6 +78,20 @@ export function checkArgs(e, d, args) {
     const s = d.shape[key], v = args[key];
     if (v === undefined) { if (!s.optional) throw devError(fmt(STRINGS.missing, { name, key, shape: shapeText })); continue; }
     if (!CHECK[s.type](v)) throw devError(fmt(STRINGS.wrong, { name, key, type: s.type === 'position' ? '[x, y, z]' : s.type, got: JSON.stringify(v), shape: shapeText }));
-    if (s.type === 'id' && e.world && !e.world.get(v)) throw devError(fmt(STRINGS.noRecord, { name, key, id: v }));
+    const range = whyBad(s, v);   // min / max / values of the full schema form
+    if (range) throw devError(fmt(STRINGS.range, { name, key, why: range, shape: shapeText }));
+    if (s.type === 'id' && e._things.sources.length && !e._things.source(v)) throw devError(fmt(STRINGS.noRecord, { name, key, id: v }));
   }
+}
+
+/** Release builds: the range part of the schema (min / max / values) is still checked, because a bad number from a UI or a net peer must not reach run. Returns a failure spec or null */
+export function argRange(d, args) {
+  if (!d.shape || !args) return null;
+  for (const key in d.shape) {
+    const s = d.shape[key], v = args[key];
+    if (v === undefined || !CHECK[s.type](v)) { if (v !== undefined) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: s.type }] }; continue; }
+    const why = whyBad(s, v);
+    if (why) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: why }] };
+  }
+  return null;
 }

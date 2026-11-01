@@ -6,7 +6,7 @@
   - `renderer?: any` A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48)
   - `style?: StyleInput` Style pack (looks only: materials, sky, lighting, post, UI look), e.g. import lowpoly from '@threedog/style-lowpoly', or a list of parts deep-merged left to right: [lowpoly, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders
   - `shadows?: boolean` Real-time shadows, default true
-  - `shadowType?: 'basic' | 'pcf' | 'vsm'` Shadow filter: 'basic' (hard edge) / 'pcf' / 'vsm' (softest, costliest), default 'pcf'. Change later with engine.sky.setShadow({ type })
+  - `shadowType?: 'basic' | 'pcf' | 'vsm'` Shadow filter: 'basic' (hard edge) / 'pcf' / 'vsm' (softest, costliest), default 'pcf'. Change later with engine.look.shadow.set({ type })
   - `antialias?: boolean` MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices
   - `post?: Record<string, boolean>` Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices)
   - `pixelRatio?: number` Render resolution, default min(device pixel ratio, 1.5)
@@ -32,10 +32,13 @@
   - `movement?: Partial<MovementProfile>` Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default { radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 }
   - `threads?: 'auto' | number | false` (experimental) Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created)
   - `pauseOnBlur?: boolean` Gameplay waits while the window is in the background or the tab is hidden; default true (engine.page)
+  - `lights?: boolean` false: no default lights in the scene at all (engine.lights.sun / hemi still exist, detached, so sky and describe never see undefined); the game adds its own. Default true
   - `batching?: false | BatchingOptions` Automatic instancing of repeated static models (engine.batching): false turns it off; default { minCount: 8, cell: engine.stream.cellSize }
 
 ## engine methods
 - `engine.actorPosition(id?: string) → { x, y, z } | null` — Where an actor is now (default engine.actor): the player's position for 'player' (engine.focus without a player), else its model or world record position; null when unknown. Example: `engine.actor = 'boat_1'; engine.actorPosition()`
+- `engine.catalog(id?: string | { find?: string }) → any` — What this game can do, read from the existing registrations (modules, ops, save parts, describe, params schemas). No argument: short list; a module id / op name: that entry expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md. Example: `engine.catalog('shop').ops[0].failures   // ['soldOut', 'noMoney']`
+- `engine.takeCamera(owner: string | ({ owner: string } & Partial<CameraOverride>), opts?: Partial<CameraOverride>) → OwnerHandle` — Take the camera over (camera modules leave it alone) until remove(); the latest holder is in charge, releasing hands it back to the previous one
 - `engine.setCamera(kind: CameraKind, opts?: object) → CameraRig` — Switch the camera at runtime (only exists with a camera module installed): the target and horizontal heading carry over; the first-person camera hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for switching back. Passing opts rebuilds this kind of camera with the new parameters. A wrong kind throws and lists the available options. Example: `engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' : 'follow'); });`
 - `engine.use(...mods: ModuleInput[])` — Install one or more modules (in order; dependencies must be installed first)
 - `engine.has(name: string) → boolean` — Whether a module is installed
@@ -57,20 +60,21 @@
 - `engine.setPixelRatio(p: number)` — Render resolution
 - `engine.setShadows(on: boolean)` — Shadow toggle
 - `engine.setFogFar(d: number)` — Fog distance (meters), also adjusts the camera far plane
-- `engine.setToneMapping(kind: 'aces' | 'agx' | 'neutral' | 'none')` — Tone mapping at run time ('aces' / 'agx' / 'neutral' / 'none'); materials recompile on their next draw, so not every frame
-- `engine.setExposure(v: number | [number, number][] | ((sky: any) => number))` — Exposure at run time: a number, [[time 0-1, exposure], ...] over the day or (sky) => number (both evaluated by the sky module each frame); replaces style.exposure. Example: `engine.setExposure(1.4);  engine.setExposure(sky => sky.isDay ? 1 : 1.5);`
 - `engine.raycast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions) → RayHit | null` — Ray: shoot from origin along dir, returns the nearest hit or null (by default only registered static objects are hit)
 - `engine.pick(ndcX: number, ndcY: number, opts?: RaycastOptions) → RayHit | null` — Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY)
 - `engine.spawn(name: string, at: any, fields?: { id?, rot?, scale?, y?, items?, … }) → import('./generated/modules/world…` — New runtime instance of a content template (inside an op or fixed step), saved whole; returns the world record (kind = template name). Needs content(). e.g. engine.spawn('chest', { x: 10, z: 4 }, { opened: true })
 - `engine.applyState(params: StateParams) → Promise<void>` — Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes; emits state:applied when done
 - `engine.defineState(name: string, params: StateParams)` — Name a group of scenario parameters, then use applyState({ state: name }) or URL ?state=name
 - `engine.start() → Promise<this>` — Start: initialize modules, preload assets, wait for the world to be ready
-- `engine.pause()` — Pause the real-time loop: the picture stops and even rendering stops, only step() advances (for tests and screenshots). Use freeze() for a game menu pause
-- `engine.resume()` — Resume the real-time loop
-- `engine.freeze(owner?: string)` — Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame hooks and rendering continue and the UI works. So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's name, default 'game'
-- `engine.unfreeze(owner?: string)` — Release the freeze of owner (gameplay resumes only when all freezers are released)
+- `engine.pause(owner?: string | { owner?, kind? }, opts?: { kind?: 'test' }) → ChainedHandle` — Pause the real-time loop: the picture stops and even rendering stops, only step() advances (for tests and screenshots). Use freeze() for a game menu pause
+- `engine.resume(owner?: string | { owner?: string })` — Resume the real-time loop (only this owner's pause)
+- `engine.nextFixed(fn: () => T) → Promise<T>` — Run fn at the start of the next fixed step (via commits); a Promise of fn's value
+- `engine.freeze(owner?: string | { owner?, kind? }, opts?: { kind?: 'title' }) → ChainedHandle` — Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame hooks and rendering continue and the UI works. So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's name, default 'game'
+- `engine.unfreeze(owner?: string | { owner?: string })` — Release the freeze of owner (gameplay resumes only when all freezers are released)
 - `engine.step(seconds: number, opts?: { render?, frameEvery?, describe? }) → GameState | null` — Advance seconds of fixed-step time synchronously; seconds must be a finite number >= 0: 0 advances nothing (no step, no render), negative or non-finite throws (code step-seconds), any positive value runs at least one fixed step (60Hz; when timeScale is not 1, game seconds clock.now and sky time of day run faster or slower than it; frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()). jobs ignore real time and finish every frame; results of stream's synchronous build are attached to the scene before returning. When render is true (default) one frame is rendered at the end. Returns the describe() result after advancing
 - `engine.skip(opts: SkipOptions) → Promise<{ seconds: number; clock:…` — Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step. clock.after / every, sky.at / daily / between, day:start and season:change fire in time order as if stepped (each crossing once); world records with far catch up the span in one far(rec, dt). onFixed, module fixed hooks, physics and near simulation do not run; engine.elapsed does not move. Input is locked and gameplay frozen during the skip; emits time:skip. fade 0 (default): the time has moved when skip returns. fade > 0: fade out, jump, save, fade in; the Promise resolves after the fade in (it needs frames). session.newGame / load / quit cancel a running skip: it resolves null. Example: `await engine.skip({ to: '06:00' })`
+- `engine.checkSkip(seconds: number, opts?: { ignore?: string[] }) → Promise<{ ok: boolean; diffs: { p…` — Consistency check: engine.skip({ seconds }) vs stepping the same span in fixed steps; compares the saved state. Leaves the world at the stepped state (use a scratch playthrough or a test). Example: `const r = await engine.checkSkip(600); if (!r.ok) console.log(r.diffs);`
+- `engine.checkSave(opts?: { ignore?: string[] }) → Promise<{ ok: boolean; diffs: { p…` — Consistency check: save -> load gives the same saved state back (nothing is written to the browser). Example: `const r = await engine.checkSave(); if (!r.ok) console.log(r.diffs);`
 - `engine.describeText(opts?: { radius?, full?, path? }) → string` — The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, one line per module with its key counts), ending with how to expand. { path: 'world.byKind' } returns one part of describe() as JSON; { full: true } returns everything (all nearby things, every module's full data). Example: `engine.describeText()   engine.describeText({ path: 'quests' })   engine.describeText({ full: true })`
 - `engine.explain(q: { op, args?, actor? } | Record<string, any>) → { ok, reason?, text, detail?, recent?, events?, … }` — Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it (reason first); detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one. Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }. Example: `engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'`
 - `engine.profile(on: boolean)` / `profile() → Record<string, number> | null` — Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per rendered frame } and resets, or null when not on
@@ -87,7 +91,7 @@
 - `camera: import('three').PerspectiveCamera` three.js perspective camera
 - `focus: Vector3` Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the player by default), which does not follow the camera
 - `shadows: boolean` Whether shadows are on
-- `shadowType: 'basic' | 'pcf' | 'vsm'` Shadow filter in use; change it with sky.setShadow({ type })
+- `shadowType: 'basic' | 'pcf' | 'vsm'` Shadow filter in use; change it with look.shadow.set({ type })
 - `ground: Ground` Current ground
 - `movement: Readonly<MovementProfile>` Shared parameters for whether a character can walk somewhere (set by createEngine({ movement }), read-only); same-named options of individual modules are only overrides
 - `player: Character | null` The player (exists only after characters.createPlayer()). Its position belongs to the character's mover: other systems request movement (placeAt / move / vehicle enter), don't modify position directly
@@ -113,11 +117,13 @@
 - `assets: Assets` Assets
 - `loading: Loading` Observable loading: every asset load, module init / isReady and track() step as a task (phase, error, source manifest)
 - `post: PostFX` Post-processing: named effects in slots (add / get / enable / list)
+- `look: Look` Every look in one place: engine.look.<part>.set / patch / replace (recipes/52-look.md)
 - `ui: UIParts` UI parts: every piece of screen UI is replaceable or off (see recipes/26-ui-parts.md)
 - `adaptive: AdaptiveState` Automatic resolution state
 - `cpuMs: number` Main-thread CPU milliseconds of the last real-time frame: input, fixed steps, frame hooks, render submission and afterRender hooks (not GPU time, not the wait for the next frame). Only the real-time loop updates it; step() does not.
 - `cpuPhases: { fixed, frame, render, afterRender }` cpuMs split by phase (last frame): fixed = input + fixed steps, frame = frame hooks incl. stream / jobs, render = draw submission, afterRender = its hooks
-- `cameraOverride: CameraOverride | null` Camera takeover (for cutscenes), null when unused
+- `cameraOverride: CameraOverride | null` The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Assigning { owner } / null is the old alias of takeCamera
+- `runState: RunState` Why the page is (not) advancing; the dev bridge and MCP tools copy it as-is
 - `decoders: string` Draco/KTX2 decoder directory
 - `clock: Clock` Game clock: game seconds now, after / every (clock-time / season timers are on engine.sky)
 - `vars: Vars` Story flags and counters (autosaved)
@@ -127,6 +133,7 @@
 - `commits: Commits` Background results that affect gameplay take effect on a fixed tick (chunk collision, spread jobs with apply...), see Commits
 - `threads: Threads` (experimental) Worker pool (createEngine({ threads })): lane() for your own worker script, pure() for self-contained functions, array() for shared typed arrays. Results that affect gameplay go through commits
 - `ops: Ops` One entry point for actions players and NPCs decide to do: define / run / can / list / recent, see Ops and recipes/23-ops.md
+- `views: Views` Named fixed camera views for repeatable screenshots: define / show / release (recipes/46-blender-art-route.md)
 - `tick: number` Fixed-step count (the gameplay timeline: does not advance while frozen; commits due times, event history and the operation log use it)
 - `random: Random` Seeded random numbers (use for gameplay randomness: reproducible and saved with the game)
 - `stream: Stream` Spatial stream-in and the stream sources (where the world is loaded: terrain, colliders, models, stream entries; built-in player and camera sources, add one for a teleport destination)
@@ -135,7 +142,8 @@
 - `elapsed: number` Run seconds: unaffected by the sky time scale, does not advance while frozen or paused; for presentation animation (swaying, floating). The other two "times": game seconds engine.clock.now (= fixed-step seconds x clock.timeScale, saved); sky time of day engine.sky.timeOfDay (0–1, one day = dayLength game seconds)
 - `uniforms: EngineUniforms` This engine's shader uniforms, read by the built-in effects (wind, clouds, season, water, sky, rain). Share these objects in your own ShaderMaterial or patch instead of making your own uTime. Weather and sky write them; uTime follows engine.elapsed. Example: `new THREE.ShaderMaterial({ uniforms: { uTime: engine.uniforms.uTime }, vertexShader, fragmentShader });`
 - `waterLevel: number` Global water level (meters); -Infinity when there is no water
-- `exposureDriver: ((sky: any) => number) | null` Exposure per frame from style.exposure / setExposure keyframes or function, null for a plain number; the sky module calls it with engine.sky
+- `debug: DebugOverrides & { panel: DebugPanel | null }` Diagnostic overrides and view modes with an owner (override / clear / view: core, always there); panel is the F3 panel, null without the debug() module
+- `exposureDriver: ((sky: any) => number) | null` Exposure per frame from style.exposure / look.tone keyframes or function, null for a plain number; the sky module calls it with engine.sky
 - `stateApplied: boolean` Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it: page.waitForFunction(() => window.engine?.stateApplied)
 - `headless: boolean` Whether in headless mode (createEngine({ headless: true }))
 - `paused: boolean` Whether paused (headless mode is paused by default, only step() advances)

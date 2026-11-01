@@ -109,7 +109,7 @@ export const specs = [
       await ev(setup);
       const r = await ev(async () => {
         const T = window.TE, { createEngine, terrain } = threedogTerrain;
-        const E = await T.make(2, { height: (x, z) => 2 + x * 0.25, groundType: (x, z, h) => h > 5 ? 'rock' : null, rivers: false }, 'tg');
+        const E = await T.make(2, { height: (x, z) => 2 + x * 0.25, groundType: (x, z, h) => h > 5 ? 'rock' : null }, 'tg');
         const out = { s: E.surface(8, 12), far: T.vtx(E, 64, 0), rock: E.groundType(40, 0), low: E.groundType(0, 0), workers: E.threads.size };
         E.dispose();
         const k = 5, X = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads: 0, urlState: false, saveKey: 'tg-bad' });

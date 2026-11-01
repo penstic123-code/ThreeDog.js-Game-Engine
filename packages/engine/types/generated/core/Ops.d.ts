@@ -4,15 +4,21 @@
  * Inside an op use ctx.actor (world record id, default engine.actor = 'player'), never engine.player: NPCs and network peers run the same op as themselves.
  */
 export class Ops {
+    /** Counter bumped on each committed op (an op that failed or rolled back does not bump it); every run result carries it, so "did anything change since I looked" is one compare */
+    revision: number;
     set historySize(n: number);
     /** History entries kept (ring, default 256); setting it clears the history */
     get historySize(): number;
     /**
      * Register an op. Name it noun.verb. run changes state; can (optional) is read-only and returns true or a reason string; offers (optional) lists the arg sets possible now (for list / describe / the dev bridge `ops` command).
      * args shape types: string number int bool position id any, suffix ? for optional. net: 'peer' lets remote players request it (default: host only);
+     * or { type, default, min, max, values, desc } (default is filled in, engine.catalog shows it).
+     * atomic: true = world records, inventory containers and vars written by run are rolled back if run fails or throws (events and other state are not; see recipe 23); after(e, args, value, ctx): sound / animation, runs only once the op committed.
+     * run (and can) may fail with { ok: false, code, facts, nextActions } (facts: object or list [{ id, field, actual, expected? }]); nextActions are the game's own suggestions.
      * owner (optional, checked by net() for peer requests): args => world record id whose `owner` field must equal the requesting actor.
      * @param {string} name
-     * @param {{ run: (e: any, args: any, ctx: OpContext) => any, can?: (e: any, args: any, ctx: OpContext) => true | string, args?: Record<string, string>, offers?: (e: any, ctx: OpContext) => object[], reasons?: Record<string, string>, desc?: string, undo?: (e: any, args: any, value: any) => void, net?: 'peer' | 'local', owner?: (args: any) => string }} def
+     * targets (optional): the thing ids, kinds or template names this op is for; engine.thing(id).explain().ops lists it ('*' = any thing).
+     * @param {{ run: (e: any, args: any, ctx: OpContext) => any, can?: (e: any, args: any, ctx: OpContext) => true | string | { code: string, facts?: object, nextActions?: { op: string, args?: object }[] }, targets?: string | string[], args?: Record<string, string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean }>, offers?: (e: any, ctx: OpContext) => object[], reasons?: Record<string, string>, desc?: string, undo?: (e: any, args: any, value: any) => void, net?: 'peer' | 'local', owner?: (args: any) => string, atomic?: boolean, after?: (e: any, args: any, value: any, ctx: OpContext) => void }} def
      * @returns {{ remove(): void }}
      * @example
      * const PRICE = { bread: 5 };
@@ -34,28 +40,46 @@ export class Ops {
      */
     define(name: string, def: {
         run: (e: any, args: any, ctx: OpContext) => any;
-        can?: (e: any, args: any, ctx: OpContext) => true | string;
-        args?: Record<string, string>;
+        can?: (e: any, args: any, ctx: OpContext) => true | string | {
+            code: string;
+            facts?: object;
+            nextActions?: {
+                op: string;
+                args?: object;
+            }[];
+        };
+        targets?: string | string[];
+        args?: Record<string, string | {
+            type: string;
+            default?: any;
+            min?: number;
+            max?: number;
+            values?: any[];
+            desc?: string;
+            optional?: boolean;
+        }>;
         offers?: (e: any, ctx: OpContext) => object[];
         reasons?: Record<string, string>;
         desc?: string;
         undo?: (e: any, args: any, value: any) => void;
         net?: "peer" | "local";
         owner?: (args: any) => string;
+        atomic?: boolean;
+        after?: (e: any, args: any, value: any, ctx: OpContext) => void;
     }): {
         remove(): void;
     };
     /**
-     * Run an op now (synchronously): checks args (dev), calls can, then run, and logs it. Returns { ok: true, value } or { ok: false, reason }.
+     * Run an op now (synchronously): checks args (dev), calls can, then run, and logs it. Returns { ok: true, value, revision } or { ok: false, code, facts, nextActions, revision } (revision = ops.revision, counts committed ops); can may also return { code, facts?, nextActions? }.
      * Pass a fresh args object each call (it is kept in the history; in dev it is frozen). opts.source: 'player' | 'game' | 'bridge' | 'test' | 'replay' | 'net'
      * (default: 'game' inside a fixed step, 'player' between steps); opts.actor: who does it (world record id, default engine.actor, which is 'player' unless the game hands control elsewhere).
      * @param {string} name
      * @param {object} [args]
      * @param {{ source?: string, actor?: string }} [opts]
-     * @returns {{ ok: boolean, value?: any, reason?: string }}
+     * @returns {{ ok: boolean, value?: any, revision: number, code?: string, facts?: object, nextActions?: { op: string, args?: object }[] }}
      * @example
      * const r = engine.ops.run('shop.buy', { shop: 'bakery', item: 'bread' });
-     * if (!r.ok) showHint(engine.t('op.shop.buy.' + r.reason));
+     * if (!r.ok) showHint(engine.t('op.shop.buy.' + r.code));
      * // from a fixed step, for an input-driven action: e.ops.run('combat.roll', { dir }, { source: 'player' })
      */
     run(name: string, args?: object, opts?: {
@@ -64,31 +88,42 @@ export class Ops {
     }): {
         ok: boolean;
         value?: any;
-        reason?: string;
+        revision: number;
+        code?: string;
+        facts?: object;
+        nextActions?: {
+            op: string;
+            args?: object;
+        }[];
     };
     /**
      * Reverse a finished op with the undo(e, args, value) its definition declared: pass the same args and the value run returned.
-     * Returns { ok: true }, or { ok: false, reason: 'noUndo' } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
+     * Returns { ok: true }, or { ok: false, code: 'noUndo', facts: { op }, nextActions } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
      * @example const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' }); engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);
      * @param {string} name
      * @param {object} args
      * @param {any} value
      * @param {{ actor?: string }} [opts]
-     * @returns {{ ok: boolean, reason?: string }}
+     * @returns {{ ok: boolean, code?: string, facts?: object, nextActions?: { op: string, args?: object }[] }}
      */
     undo(name: string, args: object, value: any, opts?: {
         actor?: string;
     }): {
         ok: boolean;
-        reason?: string;
+        code?: string;
+        facts?: object;
+        nextActions?: {
+            op: string;
+            args?: object;
+        }[];
     };
     /**
      * Ask without doing: runs only can (no state change, no history). For greying out buttons and input buffers.
      * @param {string} name
      * @param {object} [args]
      * @param {{ actor?: string, source?: string }} [opts]
-     * @returns {{ ok: boolean, reason?: string }}
-     * @example const { ok, reason } = engine.ops.can('shop.buy', { shop: 'bakery', item: 'bread' });
+     * @returns {{ ok: boolean, code?: string, facts?: object, nextActions?: { op: string, args?: object }[] }}
+     * @example const { ok, code } = engine.ops.can('shop.buy', { shop: 'bakery', item: 'bread' });
      * button.disabled = !ok;
      */
     can(name: string, args?: object, opts?: {
@@ -96,14 +131,19 @@ export class Ops {
         source?: string;
     }): {
         ok: boolean;
-        reason?: string;
+        code?: string;
+        facts?: object;
+        nextActions?: {
+            op: string;
+            args?: object;
+        }[];
     };
     /**
      * What exists, or with { available: true } what is possible now: every arg set from each op's offers checked with can
      * (an op with neither offers nor args is checked once with {}; one with args but no offers is skipped, since its args are free-form).
      * @param {{ available?: boolean, actor?: string }} [opts]
-     * @returns {{ name: string, desc?: string, args?: any, ok?: boolean, reason?: string }[]}
-     * @example engine.ops.list({ available: true });   // [{ name: 'shop.buy', args: { shop: 'bakery', item: 'bread' }, ok: false, reason: 'noMoney' }, ...]
+     * @returns {{ name: string, desc?: string, args?: any, atomic: boolean, ok?: boolean, code?: string }[]}
+     * @example engine.ops.list({ available: true });   // [{ name: 'shop.buy', args: { shop: 'bakery', item: 'bread' }, ok: false, code: 'noMoney' }, ...]
      */
     list({ available, actor }?: {
         available?: boolean;
@@ -112,15 +152,16 @@ export class Ops {
         name: string;
         desc?: string;
         args?: any;
+        atomic: boolean;
         ok?: boolean;
-        reason?: string;
+        code?: string;
     }[];
     /**
-     * Recent history (old -> new), optionally of one op: { seq, tick, phase: 'fixed' | 'between', name, args, source, actor, ok, reason, depth, count }.
-     * Consecutive identical failures (same actor, op and reason) merge into one entry with count.
+     * Recent history (old -> new), optionally of one op: { seq, tick, phase: 'fixed' | 'between', name, args, source, actor, ok, code, depth, count }.
+     * Consecutive identical failures (same actor, op and code) merge into one entry with count.
      * @param {string} [name]
-     * @returns {{ seq: number, tick: number, phase: string, name: string, args: any, source: string, actor: string, ok: boolean, reason: string | null, depth: number, count: number }[]}
-     * @example engine.ops.recent('shop.buy').at(-1);   // { tick: 812, phase: 'between', ok: false, reason: 'noMoney', ... }
+     * @returns {{ seq: number, tick: number, phase: string, name: string, args: any, source: string, actor: string, ok: boolean, code: string | null, depth: number, count: number }[]}
+     * @example engine.ops.recent('shop.buy').at(-1);   // { tick: 812, phase: 'between', ok: false, code: 'noMoney', ... }
      */
     recent(name?: string): {
         seq: number;
@@ -131,7 +172,7 @@ export class Ops {
         source: string;
         actor: string;
         ok: boolean;
-        reason: string | null;
+        code: string | null;
         depth: number;
         count: number;
     }[];

@@ -33,7 +33,7 @@ export class Sky {
         sway: number;
         distance: number;
     };
-    /** Current shadow params (change via setShadow) @readonly @type {SkyShadowParams} */
+    /** Current shadow params (change via look.shadow.set) @readonly @type {SkyShadowParams} */
     readonly shadow: SkyShadowParams;
     /** three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45) @type {any} */
     csm: any;
@@ -110,14 +110,11 @@ export class Sky {
      */
     onSeason(name: string, fn: (season: string) => void): Handle;
     /**
-     * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
-     * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view;
-     * type = 'basic' (hard edge) | 'pcf' | 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely);
-     * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only); cascades 2-4 = cascaded shadows, 1 = off (recipes/45)
-     * @param {Partial<SkyShadowParams>} [opts]
-     * @returns {this}
+     * Renamed in 0.2: throws and names the new call, engine.look.shadow.set(opts) (fields: bias, normalBias, updateEvery, snap, ahead, type, radius, blurSamples, cascades; recipes/45)
+     * @param {Partial<SkyShadowParams>} [_opts]
+     * @returns {never}
      */
-    setShadow(opts?: Partial<SkyShadowParams>): this;
+    setShadow(_opts?: Partial<SkyShadowParams>): never;
     /**
      * Change shadow resolution (raise temporarily for photo mode)
      * @param {number} n  pixels
@@ -125,20 +122,16 @@ export class Sky {
      */
     setShadowMapSize(n: number): void;
     /**
-     * Environment lighting (scene.environment), separate from the background and off by default. source 'sky' builds it from the procedural sky (rebuilt at
-     * most every `interval` seconds, only when the sky changed); an asset name or path (.hdr, .jpg, .ktx2) is an equirectangular panorama. intensity scales
-     * the light (default 1), rotation turns it around Y (radians). Given fields change, the rest stay; null turns it off. Lambert surfaces get soft ambient
-     * light from it (no reflections); lower the hemisphere ambient when you turn it on (recipes/09)
-     * @example engine.sky.setEnvironment({ source: 'sky', intensity: 0.8 });  engine.sky.setEnvironment(null);
-     * @param {{ source?: string | null, intensity?: number, rotation?: number, interval?: number } | null} [opts]
-     * @returns {this}
+     * Renamed in 0.2: throws and names the new call, engine.look.env.replace(source) then engine.look.env.set({ intensity, rotation, interval })
+     * @param {{ source?: string | null, intensity?: number, rotation?: number, interval?: number } | null} [_opts]
+     * @returns {never}
      */
-    setEnvironment(opts?: {
+    setEnvironment(_opts?: {
         source?: string | null;
         intensity?: number;
         rotation?: number;
         interval?: number;
-    } | null): this;
+    } | null): never;
     /** Environment lighting now: { source, intensity, rotation, interval, builds }, null when off @type {SkyEnvironmentInfo | null} */
     get environment(): SkyEnvironmentInfo | null;
 }

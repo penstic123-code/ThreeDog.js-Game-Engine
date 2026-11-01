@@ -10,8 +10,8 @@
 // Zero cost when unused: a single object (not a list) is used as it is, engine.style === that object.
 // Looks only: a style never holds world state (water level, sea, terrain shape); checkStyleLooks throws in dev.
 import { DEV } from './validate.js';
+import { isPlainObject as plain, getPath } from './util.js';
 
-const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 
 // A post edit is a function carrying this mark: mergeInto calls it with the list built so far instead of replacing the list
 const EDIT = Symbol('threedog.postEdit');
@@ -83,7 +83,7 @@ const WORLD = [
 ];
 function checkStyleLooks(style) {
   for (const [path, isWorld, where] of WORLD) {
-    const obj = path.split('.').reduce((o, k) => o?.[k], style);
+    const obj = getPath(style, path);
     if (!obj || typeof obj !== 'object') continue;
     for (const k of Object.keys(obj))
       if (isWorld(k)) throw new Error(`style.${path}.${k} is world state, not a look: swapping the style would change the map or the rules. Set it where the world is made: ${where}`);

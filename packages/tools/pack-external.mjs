@@ -187,7 +187,7 @@ export async function packExternal({ check, browser, keep = false }) {
       // a few more frames: Worker / physics / navmesh errors often only show up after startup
       await page.evaluate(() => new Promise(r => { let k = 0; const h = window['engine'].onFrame(() => { if (++k >= 5) { h.remove(); r(); } }); }));
       check('preview: page opens, engine.ready is true', true);
-      const tpl = await page.evaluate(() => { const e = window['engine'], r = e.ops.run('stash.search', { id: 'stash-home' }); return { game: e.describe().game, ok: r.ok, apples: e.inventory.count('apple'), again: e.ops.run('stash.search', { id: 'stash-home' }).reason }; });
+      const tpl = await page.evaluate(() => { const e = window['engine'], r = e.ops.run('stash.search', { id: 'stash-home' }); return { game: e.describe().game, ok: r.ok, apples: e.inventory.count('apple'), again: e.ops.run('stash.search', { id: 'stash-home' }).code }; });
       check('template: describe().game is registered; the stash (template + placement in content) gives its goods through its op once', tpl.game?.hp === 10 && tpl.ok && tpl.apples >= 2 && tpl.again === 'empty', JSON.stringify(tpl));
     } catch (e) { check('preview: page opens, engine.ready is true', false, String(e).split('\n')[0]); }
     check('preview: no failed resource loads (Workers, wasm, decoders, assets)', badRes.length === 0, badRes.slice(0, 3).join(' | '));

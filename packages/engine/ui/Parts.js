@@ -142,8 +142,12 @@ export class UIParts {
     if (!p) return false;
     if (this.opened.has(name)) return true;
     const e = this.engine, m = d.modal;
-    if (m.freeze) e.freeze('ui-' + name);
-    this.opened.set(name, { focus: uiFocus(e).push('ui-' + name, { cancel: m.cancel ? () => m.cancel(e) : null }), ctx: e.input.push('menu') });   // 'menu' context: gameplay actions stop responding
+    // Each modal part owns its own freeze ('ui-<name>') and its own input context, so closing help releases only help's hold, never a player pause or another part's.
+    // m.freeze may be a function (inventory: pauseGame is switchable at runtime)
+    // a string names the freeze kind engine.runState reads ('title' = waiting for start), so core never matches part names
+    const fr = typeof m.freeze === 'function' ? m.freeze(e) : m.freeze;
+    if (fr) e.freeze('ui-' + name, { kind: typeof fr === 'string' ? fr : undefined });
+    this.opened.set(name, { focus: uiFocus(e).push('ui-' + name, { cancel: m.cancel ? () => m.cancel(e) : null }), ctx: e.input.push('ui-' + name) });   // own opaque context: gameplay actions stop responding
     p.show({ ...m.data?.(e, this._resolve(name).options), ...data });
     e.events.emit('ui:open', name);
     return true;

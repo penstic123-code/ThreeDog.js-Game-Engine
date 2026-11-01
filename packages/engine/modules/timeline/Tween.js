@@ -9,18 +9,14 @@
 import * as THREE from 'three';
 import { ease as easing } from '../../core/easing.js';
 import { allowOwned } from '../../core/validate.js';
+import { getPath } from '../../core/util.js';
 
 const COMPS = ['x', 'y', 'z', 'w'];
 
 /** 'material.color' → { obj: target.material, key: 'color' } */
 function resolve(target, path) {
-  const parts = path.split('.');
-  let obj = target;
-  for (let i = 0; i < parts.length - 1; i++) {
-    obj = obj?.[parts[i]];
-    if (obj == null) return null;
-  }
-  return { obj, key: parts[parts.length - 1] };
+  const i = path.lastIndexOf('.'), obj = i < 0 ? target : getPath(target, path.slice(0, i));
+  return obj == null ? null : { obj, key: path.slice(i + 1) };
 }
 
 /** Build an interpolator for a property: returns k => apply progress k (0..1) */

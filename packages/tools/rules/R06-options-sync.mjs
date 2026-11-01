@@ -1,5 +1,6 @@
 // R6 options-table consistency (two parts, both warnings)
-// A. Fields of the d.ts options interface vs the runtime checkOptions(label, object, known keys):
+// A. Fields of the d.ts options interface vs the runtime key table: checkOptions(label, object, known keys), or the params schema of
+//    readParams(name, SCHEMA, object) (label = 'name()'; SCHEMA is keysSchema([...keys]) or an object literal of fields):
 //    in d.ts but not in checkOptions → a game written to the d.ts gets an "unknown option" hint at runtime;
 //    in checkOptions but not in d.ts → npm run types reports the correct spelling as a "misspelled option", and the docs cannot find it.
 //    How the matching d.ts type is found: derived from the conventional form of checkOptions' first argument (the label) —
@@ -17,7 +18,7 @@
 //    (chunks → viewChunks) or range (a distance → radius) → error.
 // Limitation: A only understands known-key arrays resolvable in the same file (literals, ...constants, ...Object.keys(constant)); B ignores variable shadowing
 // and cannot see reads in a game repo.
-import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, dtsProgram, dtsFiles, abs, P } from './_lib.mjs';
+import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, objectKeys, constInit, dtsProgram, dtsFiles, abs, P } from './_lib.mjs';
 
 // Allowlist: [label, key, reason] (part A); [file, name, reason] (part B)
 const ALLOW_KEYS = [];
@@ -86,8 +87,8 @@ function resolveParamType(T, label, paramIndex) {
 
 function enclosingFn(n) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p)) return p; return null; }
 /** Position of the checked variable in the outer function's parameters (opts = {} counts too) */
-function paramIndexOf(call) {
-  const arg = call.arguments[1];
+function paramIndexOf(call, argAt = 1) {
+  const arg = call.arguments[argAt];
   if (!arg || !ts.isIdentifier(arg)) return null;
   for (let fn = enclosingFn(call); fn; fn = enclosingFn(fn)) {
     const i = fn.parameters.findIndex(p => ts.isIdentifier(p.name) && p.name.text === arg.text);
@@ -96,16 +97,26 @@ function paramIndexOf(call) {
   return null;
 }
 
+/** Keys of a readParams schema: keysSchema([...]) -> its key list; an object literal -> its field names (a spread makes it incomplete) */
+function schemaKeys(sf, node, depth = 0) {
+  if (!node || depth > 5) return { vals: [], complete: false };
+  if (ts.isIdentifier(node)) return schemaKeys(sf, constInit(sf, node.text), depth + 1);
+  if (ts.isCallExpression(node) && node.expression.getText() === 'keysSchema') return stringArray(sf, node.arguments[0]);
+  const r = objectKeys(sf, node, depth + 1);
+  return { vals: r.keys, complete: r.complete };
+}
+
 function partA(out, stats) {
   const T = typeTools();
   for (const f of engineFiles()) {
     const sf = parse(f);
     visit(sf, n => {
-      if (!ts.isCallExpression(n) || n.expression.getText() !== 'checkOptions' || n.arguments.length < 3) return;
-      const labelNode = n.arguments[0];
-      const label = labelNode.getText().slice(1, -1);
-      const known = stringArray(sf, n.arguments[2]);
-      const t = resolveParamType(T, label, paramIndexOf(n));
+      const fnName = ts.isCallExpression(n) ? n.expression.getText() : '';
+      if ((fnName !== 'checkOptions' && fnName !== 'readParams') || n.arguments.length < 3) return;
+      const isParams = fnName === 'readParams';   // readParams('sky', SCHEMA, opts): the label is the factory call 'sky()'
+      const label = isParams ? n.arguments[0].getText().slice(1, -1) + '()' : n.arguments[0].getText().slice(1, -1);
+      const known = isParams ? schemaKeys(sf, n.arguments[1]) : stringArray(sf, n.arguments[2]);
+      const t = resolveParamType(T, label, paramIndexOf(n, isParams ? 2 : 1));
       const dts = t && T.fields(t);
       if (!dts) { stats.skipped.push(`${f}:${lineOf(n)} ${label}`); return; }
       stats.matched++;
@@ -113,9 +124,9 @@ function partA(out, stats) {
       const allow = k => ALLOW_KEYS.some(([l, kk]) => l === label && kk === k);
       const onlyDts = [...dts].filter(k => !js.has(k) && !allow(k));
       const onlyJs = [...js].filter(k => !dts.has(k) && !allow(k));
-      if (onlyDts.length && known.complete) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `${label}: in d.ts but unknown to checkOptions: ${onlyDts.join(', ')}`,
+      if (onlyDts.length && known.complete) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `${label}: in d.ts but unknown to ${fnName}: ${onlyDts.join(', ')}`,
         fix: 'add these keys to the known keys of checkOptions (if they are really supported), otherwise delete them from the d.ts' });
-      if (onlyJs.length) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `${label}: known to checkOptions but missing from d.ts: ${onlyJs.join(', ')}`,
+      if (onlyJs.length) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `${label}: known to ${fnName} but missing from d.ts: ${onlyJs.join(', ')}`,
         fix: 'add these fields (with JSDoc) to the matching options interface in the d.ts, otherwise delete them from the known keys' });
     });
   }
@@ -186,13 +197,13 @@ function partC(out) {
 }
 
 export default {
-  id: 'R6', title: 'd.ts vs checkOptions table, dead parameters',
+  id: 'R6', title: 'd.ts vs checkOptions / readParams tables, dead parameters',
   run() {
     const out = [], stats = { matched: 0, skipped: [] };
     partA(out, stats);
     partB(out);
     partC(out);
-    out.note = `${stats.matched} checkOptions calls matched, ${stats.skipped.length} skipped because the label cannot be resolved to a d.ts type (add --verbose for the list)`;
+    out.note = `${stats.matched} checkOptions calls (checkOptions + readParams) matched, ${stats.skipped.length} skipped because the label cannot be resolved to a d.ts type (add --verbose for the list)`;
     out.verbose = stats.skipped;
     return out;
   },

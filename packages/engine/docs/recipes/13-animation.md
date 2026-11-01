@@ -133,6 +133,9 @@ engine.onFixed(() => {                                              // one call 
 Use `anim:end` only for presentation (change an expression, play the next clip). Native objects: `anim.mixer` (AnimationMixer), `anim.actions` (clip
 name -> AnimationAction). Things without a skeleton that only move/rotate as a whole use `engine.timeline.tween`, not an Animator.
 
+Bones after the pose: `const h = player.onPose((c, dt) => { sword.position.copy(hand.getWorldPosition(v)); })` runs every frame right after the character's pose is
+applied (clips or procedural rig); `h.remove()` stops it. Presentation only.
+
 ## 6. Verify
 - `anim.describe()` -> `{ state, clip, time, progress, driven, t, weights }` (clip seconds, 0-1 progress, whether sync drives it, the last gameplay t,
   each fading state's share); the player's is in `describe().player.anim`.

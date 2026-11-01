@@ -53,7 +53,7 @@ class DofPass extends Pass {
  * Depth of field (hdr slot, costly): everything farther from `focus` than `range` blurs, up to `maxBlur` pixels over `falloff` meters.
  * It reads scene depth, so it must run before any pass that swaps buffers; it passes the scene depth on in its output, so a depth reader
  * after it (outline, whose default order is later) works: both can be on, lines drawn over the blurred image. Move the focus per frame with
- * engine.post.get('dof').set({ focus: distanceToTarget }).
+ * engine.look.post.set({ 'dof.focus': distanceToTarget }).
  * @example post: [dof({ enabled: true, focus: 8, range: 3, maxBlur: 5 })]
  * @param {{ focus?: number, range?: number, falloff?: number, maxBlur?: number, enabled?: boolean, order?: number }} [o]
  *   focus, range, falloff in meters; maxBlur in device pixels

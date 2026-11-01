@@ -58,7 +58,9 @@ export { terrain, vegetation, sky, weather, water, collision, rigid, followCamer
 export { net, fakeNetwork, webSocket } from './modules/net/index.js';
 export { screenToGround } from './core/screenToGround.js';
 export { EASINGS, ease } from './core/easing.js';
-export { checkOptions };   // for game-made modules (recipes/14): the package exposes no core/* deep paths
+export { checkOptions };
+export { defineLookPart } from './core/look/part.js';   // a module's own look part: engine.look.<id> with set / patch / replace, catalog and describe (recipes/52)
+export { readParams } from './core/params.js';   // params schema for game-made modules: validated, defaults filled, shown by engine.catalog()   // for game-made modules (recipes/14): the package exposes no core/* deep paths
 export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
 export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself

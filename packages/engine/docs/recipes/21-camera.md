@@ -41,7 +41,7 @@ engine.setCamera?.('follow', { distance: 8, pitch: 0.3 });
 - **Teleport, then lookAt**: `await engine.stream.teleport(p); engine.cameraRig.lookAt(target);` works in that order: `lookAt` aims from the body's
   current position, not from the last drawn frame. Call it after the move (the angles do not follow later moves).
 - **Player movement direction follows the camera**: `engine.cameraRig.forward()` / `right()` change automatically after switching.
-- **Cutscene takeover**: while `engine.cameraOverride` is not null the camera module leaves the camera alone; see `../api/cameraRig.md`.
+- **Cutscene takeover**: while anyone holds `engine.takeCamera(owner)` (`engine.cameraOverride` is not null) the camera module leaves the camera alone; see [the engine API](../api/engine.md).
 - **Shooting games**: bind first-person firing to a mouse-button action, see `19-shooting-picking.md`.
 
 ## 4. Over the shoulder, lock-on framing, mouse lock (follow camera)
@@ -51,7 +51,7 @@ engine.cameraRig.shoulder = -0.7;       // switch shoulders at any time (plain p
 engine.cameraRig.frame(enemy.object);   // lock-on: turn to "behind the player, looking at the enemy"; frame(null) lets go
 ```
 - **`shoulder`**: meters the aim point (and so the camera) moves to the right along `right()`; negative = left, 0 = centered (default).
-- **`pointerLock`** (default false): a click on the canvas locks the mouse, so moving it turns the view with no dragging; Esc releases. Not on phones.
+- **`pointerLock`** (default false): a click on the canvas locks the mouse, so moving it turns the view with no dragging; Esc releases. Not on phones. If the browser refuses the lock the camera falls back to dragging; `describe().camera.pointerLock` is a state machine: `state` is `off` / `unsupported` / `waiting-click` / `requesting` / `locked` / `refused`, plus `covered` (what sits on the canvas centre and eats the click), `cameraOverride` (a takeover blocks locking) and `lastFailure { reason, agoSec }`; the text line shows the same.
   The press that locks is swallowed (no `Mouse0`, no click) so it cannot attack or fire; `swallowLockClick: false` delivers it.
   Leave it off when the mouse buttons are for UI or clicking the ground.
 - **`yaw` means which side of the player the camera is on**: `camera = focus + (sin yaw, cos yaw) * distance`, so the camera looks along
@@ -122,15 +122,16 @@ engine.setCamera('follow', { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'or
 - Limits: on the follow camera the mouse wheel changes `size` (clamped to the `minDistance`/`maxDistance` ratio of the starting `distance`).
   The `fov` slider in the settings menu has no effect. Cascaded shadows, `dof` and `outline` handle orthographic depth; a custom post pass that assumes perspective depth must do the same.
 
-**Placing the camera yourself (cutscene, photo mode, your own rig).** Set `engine.cameraOverride`; the camera module then leaves the camera alone until you set it back to null.
+**Placing the camera yourself (cutscene, photo mode, your own rig).** Take it with `engine.takeCamera(owner, { focus })`; the camera module leaves the camera alone until you `remove()` the handle.
+Several holders can take it (a cutscene, then a named view on top): the latest is in charge, and removing it hands the camera back to the previous one, not to nobody.
 
 ```js
 let t = 0;
-engine.cameraOverride = { owner: 'my-orbit', focus: engine.player.position };   // focus (optional): where the world loads around
+const cam = engine.takeCamera('my-orbit', { focus: engine.player.position });   // focus (optional): where the world loads around
 const frame = engine.onFrame(dt => {
   t += dt; engine.camera.position.set(Math.cos(t) * 12, 8, Math.sin(t) * 12); engine.camera.lookAt(0, 1, 0);
 });
-// done: frame.remove(); engine.cameraOverride = null;   // the rig resumes from its own state
+// done: frame.remove(); cam.remove();   // the rig resumes from its own state
 ```
 
 To use your own `THREE.OrthographicCamera` instead of flipping `engine.camera`:
@@ -142,10 +143,10 @@ function fit() {   // the engine only updates engine.camera.aspect on resize, so
   const s = engine.renderer.getSize(new THREE.Vector2()), a = s.x / s.y;
   ortho.left = -size * a / 2; ortho.right = size * a / 2; ortho.top = size / 2; ortho.bottom = -size / 2; ortho.updateProjectionMatrix();
 }
-engine.cameraOverride = { owner: 'my-ortho' };
+const cam = engine.takeCamera('my-ortho');
 engine.camera = ortho;   // the plain render path, cascaded shadows and modules read engine.camera live
 ortho.position.set(10, 10, 10); ortho.lookAt(0, 0, 0); fit(); addEventListener('resize', fit);
-// give it back: removeEventListener('resize', fit); engine.camera = original; engine.cameraOverride = null;
+// give it back: removeEventListener('resize', fit); engine.camera = original; cam.remove();
 ```
 
 Swapping the object only works while no post effect is active: the post chain's scene pass keeps the camera it was built with. With post effects, use

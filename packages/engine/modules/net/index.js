@@ -3,7 +3,7 @@
 //   engine.use(net({ role: 'client', transport }))   // friends: mirror the host, send op requests
 // Only ops defined with net: 'peer' can be requested by clients (default deny); the actor comes from the connection, not the message.
 // Transports: fakeNetwork() (in-process, tests) and webSocket(url) (with packages/tools/net-relay.mjs); see transports.js for the shape.
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { Net } from './Net.js';
 
 export { fakeNetwork, webSocket } from './transports.js';
@@ -13,6 +13,8 @@ const STRINGS = {
   role: "net({ role }): role is 'host' (owns the game) or 'client' (mirrors the host), got {got}",
   transport: 'net(): transport is required, e.g. net({ role, transport: webSocket(url) }) or fakeNetwork().connect() in tests',
 };
+
+const NET_PARAMS = keysSchema(OPTS);
 
 /**
  * Optional co-op multiplayer: one host owns the state, clients mirror it and ask for changes through ops. Installed as engine.net.
@@ -41,7 +43,7 @@ const STRINGS = {
  * @experimental
  */
 export function net(opts = {}) {
-  checkOptions('net()', opts, OPTS);
+  readParams('net', NET_PARAMS, opts);
   if (opts.role !== 'host' && opts.role !== 'client') throw new Error(STRINGS.role.replace('{got}', JSON.stringify(opts.role)));
   if (!opts.transport) throw new Error(STRINGS.transport);
   const left = new Map();   // actor -> last position, so a peer that reconnects comes back where it left
@@ -65,7 +67,7 @@ export function net(opts = {}) {
   };
   let n = null;
   return {
-    name: 'net', label: 'Multiplayer', stage: 'late', optional: ['world', 'inventory'],
+    name: 'net', params: NET_PARAMS, options: opts, label: 'Multiplayer', stage: 'late', optional: ['world', 'inventory'],
     install(e) { return (n = new Net(e, o)); },
     fixed(dt) { n._fixed(dt); },
     frame(dt) { n._frame(dt); },

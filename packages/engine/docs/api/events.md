@@ -1,11 +1,15 @@
 # engine.events (Events) — engine.events: the event bus; modules "shout" and whoever cares listens
 
+- `events.traceFocus(id: string | null)` — Verbose trace for one object (needs traceSize > 0): perception queries and state checks that name `obj` === id are recorded in full (misses too), the rest of the world only records what changed. null clears. For "why did this guard not see me": traceFocus('guard-1'), play, then read trace('sight'). Example: `engine.events.traceSize = 300; engine.events.traceFocus('guard-1');`
+- `events.note(name: string, info?: { code?, obj?, data?, verbose?, parent? }) → string | null` — Add one entry to the cause trace (no-op while traceSize is 0; check `events.traceSize > 0` first to skip building info). Returns its parent id (`ev:<n>`) to pass as info.parent of follow-ups, or null. info: code (failure code), obj (world record id it is about), data (small plain values), verbose (true = only recorded while traceFocus(obj)), parent (default: the event or op running now). The engine notes failed ops (`op:<name>`), collision.lineClear (`sight`) and NPC state changes (`npc:state`); a game's behaviors can note their own, e.g. 'npc:mode' patrol -> investigate. Example: `if (e.events.traceSize > 0) e.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } });`
+- `events.trace(name?: string) → { id, tick, name, parent, chain, code?, … }[]` — Cause chains (needs traceSize > 0): each emitted event is recorded with parent = the event (`ev:<id>`) or op (`op:<name>#<seq>`) whose handler emitted it, null when it came from outside any. chain lists the causes from the nearest to the root (as far as the ring still holds). For "why did this fire". Example: `engine.events.traceSize = 200; engine.ops.run('shop.buy', { item: 'bread' }); engine.events.trace('item:add').at(-1).chain;   // ['op:shop.buy#12']`
 - `events.recent(name?: string) → { tick, name, data }[]` — Recent events (old -> new); with name, only that kind: { tick = which fixed step, name, data = summary (simple values only; objects become '…') }. For "why did it not fire", first check whether it happened at all. Example: `engine.events.recent('item:add');`
 - `events.on(name: K, fn: (args) => void) → Handle` — Listen to an event; returns a handle { remove() }. Example: `const h = engine.events.on('item:add', ({ id, count }) => console.log(id, count)); h.remove();`
 - `events.once(name: K, fn: (args) => void) → Handle` — Listen once; returns a handle { remove() } (can be removed before it fires)
 - `events.emit(name: K, ...args: EventArgs<K & string>)` — Emit an event. Example: `engine.events.emit('item:add', { id: 'fish', count: 1 });`
 - Properties:
   - `historySize: number` How many history entries to keep, default 200; 0 records nothing
+  - `traceSize: number` Cause trace ring size, default 0 = off (no cost). Set e.g. 200 in dev to record which event or op caused which follow-up event; read with trace()
 
 ## Event table (engine.events.on(name, (args…) => …), the [] lists the callback arguments)
 - `engine:ready` [] Loading finished; the world is playable
@@ -74,7 +78,7 @@
 - `net:open` [{}] Client (net): connected to the host (the first snapshot follows)
 - `net:close` [{}] Client (net): connection lost
 - `net:sync` [{ tick: number; full: boolean }] Client (net): host state applied (full: a whole snapshot, else a diff); redraw UI from state here
-- `net:result` [{ seq: number; name: string; ok: boolean; reason: string | null; val… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
+- `net:result` [{ seq: number; name: string; ok: boolean; code: string | null; value… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
 - `engine:error` [EngineError] A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error)
 - `module:disabled` [{ name: string; message: string }] A presentation module errored and was disabled (the game continues)
 - `vehicle:enter` [{ character: Character; vehicle: Vehicle }] A character boarded a vehicle

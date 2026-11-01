@@ -6,6 +6,7 @@
 import { Things, snap, write } from './things.js';
 import { closest } from './validate.js';
 import { codedError } from './errorHints.js';
+import { explainThing } from './thingExplain.js';
 
 const SAY = {
   record: { keeps: ['record fields and position (world save part)'], loses: ['the built model itself: it is rebuilt from its template / present after a load'] },
@@ -25,40 +26,43 @@ function editText(en, tier, rec) {
   return `made during play${en.op ? ` by op ${en.op}` : ''}${at}: to keep it, make it a template and create it inside the op with engine.spawn(name, at)`;
 }
 
+/** thing.explain(): the whole story of the id in one object (thingExplain.js); a method, not a field, so the thing stays small */
+const withExplain = (e, t) => Object.defineProperty(t, 'explain', { value: () => explainThing(e, t), enumerable: false });
+
 /** A registered plain object as a thing (same shape as hit.thing); `object` is a non-enumerable getter so the result stays JSON-able */
 function nativeThing(e, en, root) {
   const tier = e._things.tier(en), say = SAY[tier];
   const out = { id: en.id, kind: root.type, owner: en.owner, at: en.at, phase: en.phase, ...(en.op && { op: en.op, tick: en.tick }), saved: tier,
     keeps: say.keeps, loses: say.loses, edit: editText(en, tier), removed: e._things.gone.has(en.id),
     template: null, definedAt: null, model: null, fields: {} };
-  return Object.defineProperty(out, 'object', { get: () => root, enumerable: false });
+  return withExplain(e, Object.defineProperty(out, 'object', { get: () => root, enumerable: false }));
 }
 
 /**
- * The thing for a world record id (recordThing from Inspect.js, passed in to avoid an import cycle), a registered id / name, or any Object3D (its
+ * The thing for a record id (from a source, see Things.addSource), a registered id / name, or any Object3D (its
  * registered ancestor). null when nothing matches.
  * @internal
  */
-export function findThing(e, q, recordThing) {
+export function findThing(e, q) {
   const T = e._things;
   if (typeof q === 'string') {
-    if (e.world?.get(q)) return recordAsThing(e, q, recordThing);
+    if (T.source(q)) return recordAsThing(e, q);
     const o = T.live(q) ?? e.scene.getObjectByName(q);
     return native(e, o && T.entryOf(o));
   }
   if (!q?.isObject3D) return null;
-  const id = e.world?.idOf(q);
-  return id ? recordAsThing(e, id, recordThing) : native(e, T.entryOf(q));
+  const id = T.idOf(q);
+  return id ? recordAsThing(e, id) : native(e, T.entryOf(q));
 }
 /** A world-owned entry that world no longer answers for is a torn-down model (template models are only detached): not a thing */
 const native = (e, hit) => hit && hit[0].owner !== 'world' ? nativeThing(e, hit[0], hit[1]) : null;
-function recordAsThing(e, id, recordThing) {
-  const r = recordThing(e, id);
+function recordAsThing(e, id) {
+  const src = e._things.source(id), r = src.explain(id);
   const out = { ...r, owner: 'world', at: r.definedAt ?? null, phase: r.spawned ? 'play' : 'setup', saved: 'record', ...SAY.record, edit: editText(null, 'record', r.edit) };
-  return Object.defineProperty(out, 'object', { get: () => e.world.view(id), enumerable: false });
+  return withExplain(e, Object.defineProperty(out, 'object', { get: () => src.view(id), enumerable: false }));
 }
 /** Every id engine.thing knows (for "did you mean") */
-function thingIds(e) { return [...(e.world ? e.world.query({}).map(r => r.id) : []), ...e._things.byId.keys()]; }
+function thingIds(e) { return [...e._things.recordIds(), ...e._things.byId.keys()]; }
 export const hintThing = (e, id) => { const c = closest(String(id), thingIds(e)); return c ? ` (did you mean '${c}'?)` : ''; };
 
 /** Normalise thing.set args into a patch of arrays (rotation as a number = yaw; scale as a number = uniform) */
@@ -77,26 +81,32 @@ const uni = s => typeof s === 'number' ? s : s[0];
 /** Register the registry, engine.thing's ops, the 'scene' save part and the session:start setup window (called once by the Engine constructor) */
 export function installThings(e) {
   const T = e._things = new Things(e);
+  T.explainers = [];   // explain contributions from modules (see thingExplain.js)
+  /**
+   * Add a contribution to engine.thing(id).explain(): fn(engine, thing, out) may fill out.state / out.rules (or add keys) for the things its module owns.
+   * For module authors: core never reads another module's record or template shape, the module hands it over here. A throwing fn is skipped.
+   * @param {(e: any, t: any, out: any) => void} fn
+   * @example engine.explainWith((e, t, out) => { const r = e.myRecords.get(t.id); if (r) out.state = { ...r }; });
+   */
+  e.explainWith = fn => { T.explainers.push(fn); };
   // content() replaces this; without it a bare "spawn is not a function" would not say which module to install
   e.spawn = () => { throw new Error("engine.spawn needs the content module: add content() to engine.use(...) (import { content } from 'threedog')"); };
-  e.saves.register('scene', { save: () => T.save(), load: d => T.load(d) });
-  const kindOf = id => e.world?.get(id) ? 'record' : T.live(id) ? T.tier(T.byObj.get(T.live(id))) : null;
+  e.saves.register('scene', { atomic: true, save: () => T.save(), load: d => T.load(d) });
+  const kindOf = id => T.source(id) ? 'record' : T.live(id) ? T.tier(T.byObj.get(T.live(id))) : null;
   const reasons = {
     noThing: 'no world record or engine.add object has this id (engine.thing(id) suggests the closest one)',
     engineOwned: 'an engine module manages this object (water, particles, physics…); change it through that module',
     recordVisible: 'a world record has no visible flag: hide its model with present({ show: rec => … }) and a field set by world.set',
   };
   e.ops.define('thing.set', {
+    targets: '*',
     desc: 'Move / turn / scale / show or hide a thing: a world record (via world.set / move) or an engine.add object (saved as an override when it has an id)',
     args: { id: 'string', position: 'any?', rotation: 'any?', scale: 'any?', visible: 'bool?' },
     can: (_, a) => { const k = kindOf(a.id); return !k ? 'noThing' : k === 'engine' ? 'engineOwned' : k === 'record' && a.visible != null ? 'recordVisible' : true; },
     run(eng, a) {
       if (kindOf(a.id) === 'record') {
-        // rot / scale are the template instance fields (templates.js); a record without them reads as rot 0, scale 1
-        const rec = eng.world.get(a.id), before = { position: { ...rec.position }, ...(a.rotation != null && { rot: rec.rot ?? 0 }), ...(a.scale != null && { scale: rec.scale ?? 1 }) };
         const patch = { ...(a.position && { position: xyz(a.position) }), ...(a.rotation != null && { rot: yaw(a.rotation) }), ...(a.scale != null && { scale: uni(a.scale) }) };
-        eng.world.set(a.id, patch);
-        return { record: true, before };
+        return { record: true, before: T.source(a.id).set(a.id, patch) };
       }
       const obj = T.live(a.id), p = patchOf(obj, a);
       if (T.tier(T.byObj.get(obj)) === 'code') return T.override(a.id, obj, p);
@@ -105,7 +115,7 @@ export function installThings(e) {
       return before;
     },
     undo(eng, a, v) {
-      if (v.record) { eng.world.set(a.id, v.before); return; }
+      if (v.record) { T.source(a.id).set(a.id, v.before); return; }
       const obj = T.live(a.id); if (!obj) return;
       write(obj, v.patch);
       if (v.session) return;
@@ -114,21 +124,21 @@ export function installThings(e) {
     reasons,
   });
   e.ops.define('thing.remove', {
+    targets: '*',
     desc: 'Remove a thing (undoable): a world record via world.remove, or an engine.add object (detached and kept; saved when it has an id)',
     args: { id: 'string' },
     can: (_, a) => { const k = kindOf(a.id); return !k || T.gone.has(a.id) ? 'noThing' : k === 'engine' ? 'engineOwned' : true; },
     run(eng, a) {
       if (kindOf(a.id) === 'record') {
-        const w = eng.world, rec = structuredClone(w.get(a.id)), authored = w.authored(a.id);
-        w.remove(a.id);
-        return { record: rec, authored };
+        const src = T.source(a.id);
+        return { record: src.remove(a.id), src };
       }
       T.hide(a.id, T.live(a.id), T.tier(T.byObj.get(T.live(a.id))) === 'code');
       return {};
     },
     undo(eng, a, v) {
       if (!v.record) { T.unhide(a.id); return; }
-      eng.world.restore(v.record, v.authored);
+      v.src.restore(v.record);
     },
     reasons,
   });
@@ -142,15 +152,16 @@ export function describeScene(e) {
     const en = T.byObj.get(o), tier = T.tier(en);
     if (en.owner === 'game') { n.game++; n[tier]++; } else if (tier === 'record') { if (o.parent) n.world++; } else n.engine++;
   }
-  const out = { ...n, unsaved: T.lost().map(en => `${en.id} (${en.at ? en.at + ', ' : ''}${en.phase === 'play' ? 'made during play' : 'no stable id'}${en.op ? ` by op ${en.op}` : ''})`),
+  const ov = e.debug.overrides();
+  const out = { ...n, ...(ov.length && { overrides: ov, overridesNote: 'diagnostic: the screen differs from the real state until engine.debug.clear(owner)' }), unsaved: T.lost().map(en => `${en.id} (${en.at ? en.at + ', ' : ''}${en.phase === 'play' ? 'made during play' : 'no stable id'}${en.op ? ` by op ${en.op}` : ''})`),
     conflicts: [...T.conflicts], orphans: T.orphans() };
   if (T.atCapped) out.atCapped = true;   // dev stacks stopped: later objects have at: null
   return out;
 }
 
 /** engine.thing(idOrObj): throws with the closest id when nothing matches @internal */
-export function thing(e, q, recordThing) {
-  const t = findThing(e, q, recordThing);
+export function thing(e, q) {
+  const t = findThing(e, q);
   if (t) return t;
   const what = typeof q === 'string' ? `'${q}'` : q?.isObject3D ? `an unregistered ${q.type}` : JSON.stringify(q);
   throw codedError('thing-id', `engine.thing(${what}): nothing has this id or name${typeof q === 'string' ? hintThing(e, q) : ''}. Pass a world record id, the id given to engine.add(obj, { id }), an object name or any Object3D added with engine.add (engine.scene.add does not register)`);

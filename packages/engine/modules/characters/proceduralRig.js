@@ -3,6 +3,7 @@
 // A rig is { root, body?, head?, joints?: { name: Group }, limbs: [{ joint, offset: 0 | Math.PI, amp, kind: 'arm' | 'leg', side? }] }; the style pack builds it.
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
+import { warnOnce } from '../../core/validate.js';
 
 /** Warned once when no style pack and no model give the character a body */
 export const NO_CHARACTER = 'characters: no style pack / model given, so characters are gray capsules (a placeholder). Pass one: a model '
@@ -25,7 +26,10 @@ export function useRig(ch, rig) {
   ch.bodyBase = ch.hips.position.y;
   ch.limbs = rig.limbs || [];
   // named joints (lowpoly humanoid: armL armR legL legR) become properties so game poses can grab them; never shadow a Character field
-  for (const k in rig.joints || {}) if (!(k in ch)) ch[k] = rig.joints[k];
+  for (const k in rig.joints || {}) {
+    if (!(k in ch)) ch[k] = rig.joints[k];
+    else if (ch[k] !== rig.joints[k]) warnOnce(`character rig: joint "${k}" has the same name as the Character field ch.${k}, so ch.${k} stays the field; use rig.joints.${k} (or rename the joint)`);
+  }
 }
 
 /** Swing the limbs and bob the body for the current state (sp = move amount, t = elapsed seconds, st = character state) */

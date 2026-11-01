@@ -53,8 +53,7 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   const auto = code.match(/saves\.autosave\(([^)]*)\)/); if (auto) sv.push(`- Autosave: every ${auto[1] || 'default'} minutes`);
   const reg = uniq([...code.matchAll(/saves\.register\('([^']+)'/g)].map(m => m[1])); if (reg.length) sv.push(`- Save entries the game registers itself: ' +
     '${reg.join(', ')}`);
-  sv.push('- Content-related saves handled by the engine: story flags and counters (engine.vars), inventory, quest progress, ' +
-    'timers (clock, after registered by event name), pickups (world), felled trees (vegetation)');
+  sv.push('- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)');
   sec('Saves', sv);
 
   // Style pack keys

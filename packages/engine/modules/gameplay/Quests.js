@@ -19,6 +19,7 @@
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
 import { checkOptions, warnMissing, DEV, moduleKeys } from '../../core/validate.js';
+import { readParams } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
@@ -44,7 +45,7 @@ export class Quests {
     this.win = questLogWindow(engine, this);   // { open, toggle, refresh } over engine.ui
     // counters live in engine.vars
     // saved by stable step ids (questSave.js); version 1 saved positions
-    engine.saves.register('quests', { version: 2, migrate: { 1: d => migrateV1(this.defs, d) }, save: () => this._save(), load: d => this._load(d) });
+    engine.saves.register('quests', { atomic: true, version: 2, migrate: { 1: d => migrateV1(this.defs, d) }, save: () => this._save(), load: d => this._load(d) });
   }
 
   /**
@@ -162,15 +163,24 @@ export class Quests {
   }
 }
 
+const QUEST_PARAMS = {
+  action: { type: 'string', default: 'quests', desc: 'input action that opens the quest log' },
+  keys: { type: 'array', optional: true, desc: 'keys that open the log (required unless createEngine({ bindings }) binds the action; [] = no key)' },
+  pad: { type: 'array', optional: true, desc: 'gamepad buttons that open the log' },
+  checkInterval: { type: 'number', default: 0.5, min: 0, desc: 'seconds (game time) between quest condition checks' },
+  notify: { type: 'any', default: true, desc: 'true = toast, false = silent, or a function ({ type, id, text }) => void' },
+};
+
 /**
  * Quests module. Installs engine.quests. keys / pad open the quest log: required (keys: [] for none; presets.keys.quests has J / gamepad Select) @example
  * engine.use(quests({ ...presets.keys.quests }))
  */
 export function quests(opts = {}) {
+  const o = readParams('quests', QUEST_PARAMS, opts);
   let q = null;
   return {
-    name: 'quests', label: 'Quests',
-    install(e) { checkOptions('quests()', opts, ['action', 'keys', 'pad', 'checkInterval', 'notify']); q = new Quests(e, opts); return q; },
+    name: 'quests', label: 'Quests', params: QUEST_PARAMS, options: o, noSkip: 'conditions are re-checked on the next fixed step after the jump',
+    install(e) { q = new Quests(e, opts); return q; },
     // Check quests in the fixed step (game time; not while frozen or flow is paused, so no rewards are granted while paused)
     fixed(dt) { q._t -= dt; if (q._t <= 0) { q._t = q.checkInterval; q.check(); } },
     frame(dt, e) { toggleOnKey(e, q.win, q.action); },

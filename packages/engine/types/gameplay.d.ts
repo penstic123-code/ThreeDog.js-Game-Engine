@@ -699,6 +699,11 @@ export declare class Character {
   /** Play a one-shot action (e.g. 'wave'); skipped if the model has no such clip */
   playAction(name: string): void;
   /**
+   * Run fn(character, dt) every frame right after the animation pose is applied (model clips or procedural rig): attach things to bones or adjust bones. h.remove() stops it. Presentation only.
+   * @example const h = player.onPose(() => sword.position.copy(hand.getWorldPosition(v)));
+   */
+  onPose(fn: (character: Character, dt: number) => void): { remove(): void };
+  /**
    * Fully delete this character: exits the vehicle first, releases animation and movement, removes it from the scene and releases geometry and materials
    * (used by npcs.remove / removePlayer)
    */
@@ -714,6 +719,11 @@ export declare class Character {
    * after has it
    */
   syncRecord(): this;
+  /**
+   * Walk to a point along characters.findPath on fixed steps; never rejects. One walk per character: a new walkTo, dispose() or a save load ends the old
+   * one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip
+   */
+  walkTo(target: Vector3 | { x: number; z: number } | [number, number, number], opts?: { speed?: number; arrive?: number; turnRate?: number; stuckSeconds?: number; maxRepaths?: number; run?: boolean }): Promise<{ status: 'arrived' | 'noPath' | 'stuck' | 'cancelled' }> & { remove(): void };
   /** Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1), run to run, dt in seconds */
   move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number): void;
   /** Ground type underfoot ('water' while swimming) */

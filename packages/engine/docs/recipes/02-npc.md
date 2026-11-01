@@ -138,6 +138,22 @@ engine.npcs.avoid.set(false);                           // turn off (ghosts, cro
 - Behaviors you write are not avoided automatically: after your own `character.move`, call `engine.npcs.avoid.push(rec, npc.character, dt)` once
   (inside `near`, before writing back to the data).
 
+
+## A guard you build yourself (`Character` + `walkTo`)
+
+For a one-off (guard, pet, follower) that `schedule` / `wander` do not cover: `new Character(engine, { rig })` takes a ready body (same shape as
+`style.character.create` returns: `{ root, body?, head?, limbs?, joints? }`) instead of the style pack's; call `character.animate(dt)` each frame.
+`character.walkTo(target, { speed, arrive, turnRate, run })` follows `characters.findPath` on fixed steps (turns at `turnRate` rad/s, skips passed
+points, re-plans when it makes no progress for `stuckSeconds`, up to `maxRepaths`). It returns a promise of `{ status }`: `'arrived'` | `'noPath'` |
+`'stuck'` | `'cancelled'` (never rejects), with `remove()` to cancel.
+
+```js
+const guard = new Character(engine, { rig: { root: myGuardMesh } }).addTo();
+guard.placeAt(post);
+const walk = guard.walkTo(player.position, { arrive: 1.5 });
+if ((await walk).status === 'noPath') guard.face(player);   // walk.remove() cancels
+```
+
 ## 3. Verify
 - `npm run check`: content validation catches "dialogue id does not exist", "bad clock-time format", "node next points to a missing node". After
   `npm run map` it shows up in the NPC table and dialogue graph of GAMEMAP.md.

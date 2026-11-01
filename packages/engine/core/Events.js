@@ -27,6 +27,47 @@ export class Events {
     /** @internal */ this._head = 0;
     /** How many history entries to keep, default 200; 0 records nothing */
     this.historySize = 200;
+    /** @internal >0 while an atomic rollback reloads state: emit does nothing */ this.muted = 0;
+    /** Cause trace ring size, default 0 = off (no cost). Set e.g. 200 in dev to record which event or op caused which follow-up event; read with trace() */
+    this.traceSize = 0;
+    /** @internal trace ring: arrival order until full, then _th marks the oldest */ this._trace = []; this._th = 0; this._tid = 0; this._cur = null; this._focus = null;
+  }
+  /**
+   * Verbose trace for one object (needs traceSize > 0): perception queries and state checks that name `obj` === id are recorded in full (misses too), the rest of the world only
+   * records what changed. null clears. For "why did this guard not see me": traceFocus('guard-1'), play, then read trace('sight').
+   * @param {string | null} id world record id
+   * @example engine.events.traceSize = 300; engine.events.traceFocus('guard-1');
+   */
+  traceFocus(id) { this._focus = id ?? null; }
+  /**
+   * Add one entry to the cause trace (no-op while traceSize is 0; check `events.traceSize > 0` first to skip building info). Returns its parent id (`ev:<n>`) to pass as info.parent of follow-ups, or null.
+   * info: code (failure code), obj (world record id it is about), data (small plain values), verbose (true = only recorded while traceFocus(obj)), parent (default: the event or op running now).
+   * The engine notes failed ops (`op:<name>`), collision.lineClear (`sight`) and NPC state changes (`npc:state`); a game's behaviors can note their own, e.g. 'npc:mode' patrol -> investigate.
+   * @param {string} name
+   * @param {{ code?: string, obj?: string, data?: object, verbose?: boolean, parent?: string }} [info]
+   * @returns {string | null}
+   * @example if (e.events.traceSize > 0) e.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } });
+   */
+  note(name, info = {}) {
+    if (this.traceSize <= 0 || (info.verbose && info.obj !== this._focus)) return null;
+    return `ev:${this._note(name, info)}`;
+  }
+  /**
+   * Cause chains (needs traceSize > 0): each emitted event is recorded with parent = the event (`ev:<id>`) or op (`op:<name>#<seq>`) whose handler emitted it, null when
+   * it came from outside any. chain lists the causes from the nearest to the root (as far as the ring still holds). For "why did this fire".
+   * @param {string} [name] only events of this name
+   * Entries also carry code (failure code), obj and data when noted with events.note.
+   * @returns {{ id: number, tick: number, name: string, parent: string | null, chain: string[], code?: string, obj?: string, data?: object }[]}
+   * @example engine.events.traceSize = 200; engine.ops.run('shop.buy', { item: 'bread' }); engine.events.trace('item:add').at(-1).chain;   // ['op:shop.buy#12']
+   */
+  trace(name) {
+    const all = this._ordered();
+    const byId = new Map(all.map(t => [`ev:${t.id}`, t]));
+    return all.filter(t => !name || t.name === name).map(t => {
+      const chain = []; let p = t.parent;
+      while (p && chain.length < 32) { chain.push(p); p = byId.get(p)?.parent ?? null; }
+      return { ...t, chain };
+    });
   }
   /**
    * Recent events (old -> new); with name, only that kind: { tick = which fixed step, name, data = summary (simple values only; objects become '…') }. For "why did it not fire", first check whether it happened at all
@@ -79,9 +120,26 @@ export class Events {
    * @example engine.events.emit('item:add', { id: 'fish', count: 1 });
   */
   emit(name, ...args) {
+    if (this.muted > 0) return;   // set by an atomic rollback: the load must not announce changes that never happened
     this.seen && this._check(name);
     if (this.historySize > 0) this._record(name, brief(args[0]));   // 0 = no history: no allocation, no copying
-    const s = this.map.get(name); if (s) for (const fn of [...s]) { try { fn(...args); } catch (err) { if (this.onError) this.onError(name, err); else console.error(`[event ${name}]`, err); } } }
+    const s = this.map.get(name); if (!s) { if (this.traceSize > 0) this._note(name); return; }
+    const prev = this._cur;
+    if (this.traceSize > 0) this._cur = `ev:${this._note(name)}`;   // handlers run under this event: what they emit names it as parent
+    try { for (const fn of [...s]) { try { fn(...args); } catch (err) { if (this.onError) this.onError(name, err); else console.error(`[event ${name}]`, err); } } }
+    finally { this._cur = prev; }
+  }
+  /** @internal trace entries old -> new */
+  _ordered() { const t = this._trace; return this._th ? t.slice(this._th).concat(t.slice(0, this._th)) : t; }
+  /** @internal Record one trace entry, returns its id */
+  _note(name, info) {
+    const id = ++this._tid, n = this.traceSize;
+    if (this._trace.length > n || (this._th && this._trace.length < n)) { this._trace = this._ordered().slice(-n); this._th = 0; }   // traceSize changed: re-lay in order
+    const e = { id, tick: this.now(), name, parent: info?.parent ?? this._cur };
+    if (info) { if (info.code) e.code = info.code; if (info.obj) e.obj = info.obj; if (info.data) e.data = info.data; }
+    if (this._trace.length < n) this._trace.push(e); else { this._trace[this._th] = e; this._th = (this._th + 1) % n; }
+    return id;
+  }
 }
 
 /** Summary of event data: keeps simple values only; objects and arrays become '…' (history must not hold scene objects) */

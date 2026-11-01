@@ -7,7 +7,8 @@ export function applySetting(s, key, val) {
     switch (key) {
       case 'pixelRatio': if (e.adaptive) e.adaptive.max = val; if (Math.abs(e.renderer.getPixelRatio() - val) > 0.001) e.setPixelRatio(val); break;
       case 'shadows': if (e.shadows !== val) e.setShadows(val); break;
-      case 'antialias': case 'bloom': case 'ao': e.post.enable(key, val); break;
+      case 'antialias': e.post.setAntialias(val); break;
+      case 'bloom': case 'ao': if (e.post.get(key)) e.look.post.set({ [key + '.enabled']: val }); break;   // a style without this effect has nothing to switch (look.post.set would throw on the unknown key)
       case 'adaptive': if (e.adaptive) { e.adaptive.on = val; if (!val && e.adaptive.max) e.setPixelRatio(e.adaptive.max); } break;
       case 'viewChunks': { const H = s.chunkHost(); if (H?.setViewChunks && H.viewChunks !== val) H.setViewChunks(val); break; }
       case 'density': { const H = s.chunkHost(); if (H?.setDensity && H.density !== val) H.setDensity(val); break; }

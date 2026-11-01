@@ -52,7 +52,7 @@ export const specs = [
       const r = await ev(() => {
         const cam = engine.camera, b = engine.level.root.getObjectByName('building_1_1');
         cam.position.set(22, 30, 60); cam.lookAt(22, 5, 22); cam.updateMatrixWorld();
-        engine.cameraOverride = { owner: 'test' };
+        globalThis.__cam = engine.takeCamera('test');
         const hit = engine.pick(0, 0);
         // 1000 rays from a height toward the surrounding buildings
         const rays = [];
@@ -88,7 +88,7 @@ export const specs = [
       const r = await ev(() => {
         engine.timeline.skip?.();
         const npc = engine.npcs.list()[0], p = npc.root.position, cam = engine.camera;
-        engine.cameraOverride = { owner: 'test' };
+        globalThis.__cam = engine.takeCamera('test');
         cam.position.set(p.x + 4, p.y + 1.5, p.z + 4); cam.lookAt(p.x, p.y + 1, p.z); cam.updateMatrixWorld();
         const shot = engine.ops.run('photo.take', {}, { source: 'test' }).value;
         return { subject: shot.subject, npc: npc.name };

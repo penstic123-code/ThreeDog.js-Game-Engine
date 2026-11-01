@@ -76,7 +76,7 @@ export function defineCoreParts(e) {
   e.ui.define('title', titleScreen, {
     on: false,
     modal: {
-      freeze: true,
+      freeze: 'title',   // freezes gameplay; the kind tells engine.runState this is a title screen waiting for start
       // items default to continue / start / settings, each shown only when it applies (a save exists, settings is installed)
       data: (eng, o) => ({ title: o.title ?? '', items: titleItems(eng, o.items ?? ['continue', 'start', 'settings']) }),
     },

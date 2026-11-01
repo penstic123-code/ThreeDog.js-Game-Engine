@@ -22,6 +22,9 @@
 import { requiresText, warnOnce, DEV, fmt } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { reportError } from './errors.js';
+import { catalog, catalogSnap, catalogClaim } from './catalog.js';
+import { readParams } from './params.js';
+import { disposeLooksOf } from './look/part.js';
 
 /** Stage -> sort position */
 const STAGES = { control: 100, world: 200, environment: 300, gameplay: 400, presentation: 450, late: 500, audio: 510 };
@@ -91,18 +94,20 @@ export const moduleMethods = {
     const plan = this._planUse(mods.flat()), done = [];
     try {
       for (const m of plan) {
-        const had = Object.hasOwn(this, m.name), api = m.install?.(this) ?? m;
+        const had = Object.hasOwn(this, m.name), prev = this[m.name], snap = catalogSnap(this), api = m.install?.(this) ?? m;
+        catalogClaim(this, m.name, snap);   // ops / save parts / describe names it registered show under it in engine.catalog()
         this.modules.set(m.name, m);
         if (m.name) this[m.name] = api;
-        done.push({ m, had });
+        done.push({ m, had, prev });
         this._modState.set(m.name, m.init ? (this._started ? 'initializing' : 'registered') : 'running');
       }
     } catch (err) {
-      for (const { m, had } of done.reverse()) {   // undo in reverse install order, like dispose
+      for (const { m, had, prev } of done.reverse()) {   // undo in reverse install order, like dispose
         this.modules.delete(m.name); this._modState.delete(m.name);
-        if (had) this[m.name] = undefined; else delete this[m.name];
+        if (had) this[m.name] = prev; else delete this[m.name];   // put back what was there (an undefined slot stays undefined), never blank it
         try { m.dispose?.(this); } catch { /* the install error below is the one to report */ }
       }
+      for (const m of plan) disposeLooksOf(this, m.name);   // look parts and driven keys of every module in the batch, the one that threw too (review M9)
       this._sortHooks();
       throw err;
     }
@@ -124,6 +129,7 @@ export const moduleMethods = {
         throw codedError('module-stage', fmt(STRINGS.stage, { name: m.name, stage: m.stage, list: Object.keys(STAGES).join(', ') }));
       for (const dep of m.requires || []) if (!names.has(dep))
         throw codedError('module-requires', requiresText(m.name, dep, [...names]) ?? fmt(STRINGS.needs, { name: m.name, dep }));
+      if (DEV && m.params && m.options) readParams(m.name, m.params, m.options);   // a definition built by hand still gets its options checked
       if (m.name in this && this[m.name] !== undefined) throw codedError('module-name', fmt(STRINGS.clash, { name: m.name }));
       names.add(m.name); plan.push(m);
     }
@@ -135,8 +141,9 @@ export const moduleMethods = {
   _lateInit(m) {
     const L = this.loading, task = L._begin(m.name, 'module');
     task.phase('build');
+    const snap = catalogSnap(this);
     L._track(Promise.resolve().then(() => m.init(this)).then(
-      () => { L._done(task); this._setModState(m, 'running'); },
+      () => { catalogClaim(this, m.name, snap); L._done(task); this._setModState(m, 'running'); },
       e => { L._fail(task, e); this._setModState(m, 'failed'); reportError(this, e, fmt(STRINGS.lateInit, { name: m.name }), { module: m }); }));
   },
   /** @internal move a module to a new state and refresh the hooks (initializing / failed modules run none) */
@@ -151,6 +158,13 @@ export const moduleMethods = {
    * @example engine.use(shop()); await engine.loading.settled(); engine.moduleStates.shop   // 'running'
    */
   get moduleStates() { return Object.fromEntries(this._modState); },
+  /**
+   * What this game can do, read from the registrations (see core/catalog.js): no argument = short list, a module id or op name = that entry expanded.
+   * @param {string | { find?: string }} [id]
+   * @returns {any}
+   * @example engine.catalog();  engine.catalog('sky');  engine.catalog('shop.buy');  engine.catalog({ find: 'buy' })
+   */
+  catalog(id) { return catalog(this, id); },
   /** Is this module installed? */
   has(name) { return this.modules.has(name); },
   /** Run order of module hooks (module names, first to last), for debugging "who runs first". */

@@ -2,8 +2,8 @@
 
 - **Style** fields (all optional):
   - `name?: string` Style pack name
-  - `exposure?: number | number[][] | ((sky: any) => number)` Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number, evaluated by the sky module every frame. engine.setExposure changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
-  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping, default 'neutral' (lowpoly: 'aces')
+  - `exposure?: number | number[][] | ((sky: any) => number)` Exposure, default 1 (lowpoly: 1.05): a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number, evaluated by the sky module every frame. engine.look.tone.set changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
+  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look (lowpoly: 'aces')
   - `background?: ColorLike` Background color (when there is no sky module)
   - `post?: (Omit<import('./generate… & { slot? })[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/post-effects'
   - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
@@ -43,7 +43,7 @@
   - `clouds?: StyleSkyClouds` Clouds in the sky (cloud cover follows the weather); see StyleSkyClouds
   - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path
   - `shadow?: StyleShadow` Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow
-  - `environment?: StyleEnvironment` Environment lighting (scene.environment), off unless a source is given; see Sky.setEnvironment. A pack can give defaults, sky({ environment }) overrides
+  - `environment?: StyleEnvironment` Environment lighting (scene.environment), off unless a source is given; see engine.look.env. A pack can give defaults, sky({ environment }) overrides
   - `fog?: StyleFog` Fog model and color (default: linear fog in the horizon color); see StyleFog
   - `layers?: StyleSkyLayer[]` Extra dome layers drawn after the clouds and stars (rainbow, aurora), default none; see StyleSkyLayer
 - **StyleShadow**

@@ -1,6 +1,9 @@
 // Stable error codes: errors the engine raises by name end their message with "[code]" and carry err.code / err.fix / err.docs (codedError in errorHints.js).
 // Plain data with no imports (node tools load it through threedog/error-hints). A code never changes meaning once shipped: tools and tests match on it.
 
+// Naming rule for a NEW code: `<area>-<problem>` in lowercase with hyphens (save-version, look-verb, unknown-name): the area first so the codes sort
+// and grep by subsystem. Codes already published keep their names even where they do not follow it (renaming would break the tools and tests that match them).
+
 /**
  * Errors the engine raises by name (the message ends with "[code]"): code -> { fix, docs }. Codes are stable: tools and tests may match on them.
  * @type {Record<string, { fix: string, docs: string[] }>}
@@ -79,6 +82,18 @@ export const ERROR_CODES = {
     docs: ['recipes/23-ops.md', 'api/engine.md'],
     fix: 'Ops are defined with ops.define(name, { can, run }) and run with ops.run(name, args); args are plain data and can() only ' +
       'reads. The message says which rule was broken.' },
+  'pause-owner': {
+    docs: ['recipes/23-ops.md', 'api/engine.md'],
+    fix: 'engine.pause(owner) and engine.resume(owner) must use the same owner name; the loop resumes only when every owner has resumed.' },
+  'claim-owner': {
+    docs: ['api/engine.md'],
+    fix: 'pause / freeze / takeCamera / debug.view name who holds them with a non-empty owner string; only that owner releases it (resume, unfreeze, handle.remove()).' },
+  'views-define': {
+    docs: ['recipes/46-blender-art-route.md', 'api/engine.md'],
+    fix: "engine.views.define(name, { position: [x, y, z], target?: [x, y, z], fov? }): position and target are 3-number arrays." },
+  'renamed-api': {
+    docs: ['recipes/52-look.md'],
+    fix: 'The call was renamed in 0.2 and the old name now throws; the message names the new call. The table is in recipes/52-look.md "Renamed in 0.2".' },
   'ops-guard': {
     docs: ['recipes/23-ops.md'],
     fix: 'Gameplay state (world, containers, vars, quests) was changed outside a fixed step and outside an op. Do it inside ' +
@@ -115,6 +130,10 @@ export const ERROR_CODES = {
     docs: ['api/engine.md'],
     fix: 'The browser dropped the WebGL context (GPU reset, too many tabs); gameplay waits until it is restored. Nothing to fix ' +
       'unless it repeats: then lower quality or texture sizes.' },
+  'module-params': {
+    docs: ['recipes/51-capability-catalog.md'],
+    fix: 'A module option does not fit the module params schema (unknown key, wrong type, out of range or not one of the allowed values). ' +
+      'The message names the option and what it should be; engine.catalog(name).params lists every option with its default.' },
   'module-dispose': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'A module\'s dispose(e) threw; the other modules and core were still cleaned up. Fix that module\'s dispose.' },
@@ -144,6 +163,16 @@ export const ERROR_CODES = {
   'open-world-camera': {
     docs: ['recipes/21-camera.md', 'api/openWorld.md'],
     fix: "openWorld() installs no camera on its own: pass camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | a camera module | false." },
+  'look-param': {
+    docs: ['recipes/52-look.md'],
+    fix: 'A look part was given a key it does not have, a value of the wrong type, or a spec without a default. engine.catalog("look.<part>").params lists every key, its default, why and how to turn it off.' },
+  'look-verb': {
+    docs: ['recipes/52-look.md'],
+    fix: 'This look part does not support that verb (set / patch / replace), or the hook name is unknown. engine.catalog("look.<part>").verbs lists what it supports; the message names the verb to use instead.' },
+  'debug-override': {
+    docs: ['recipes/41-thing-registry.md'],
+    fix: "engine.debug.override(owner, target, patch): owner names who sets it (engine.debug.clear(owner) removes all of them), target is a thing id or Object3D, " +
+      "patch is { visible?, material?: 'flat' | 'wire', apply? }. Overrides change only what the screen shows and are never saved." },
   'thing-id': {
     docs: ['recipes/41-thing-registry.md'],
     fix: "Ids given to engine.add(obj, { id }) are non-empty strings without '#', unique across engine.add objects and world records. " +
@@ -163,6 +192,10 @@ export const ERROR_CODES = {
   'engine-misuse': {
     docs: ['api/engine.md'],
     fix: 'An engine call got an argument it cannot use; the message names the call and the accepted forms.' },
+  'many-lights': {
+    docs: ['recipes/09-style-pack.md', 'api/lightPool.md'],
+    fix: 'More than 8 real-time lights are in the scene. Use engine.use(lightPool({ point: 8 })) and register torches / lamps with ' +
+      'engine.lightPool.add(...) so a fixed small set of real lights follows the nearest sources.' },
   'light-recompile': {
     docs: ['recipes/09-style-pack.md', 'api/lightPool.md'],
     fix: 'The number of lights changed during play, so three.js compiled new shader programs (a long frame). Keep the light ' +

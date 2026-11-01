@@ -170,28 +170,30 @@ export const specs = [
     },
   },
   {
-    name: '[守] 曝光与色调映射：style.exposure 数字照旧；关键帧按时间插值并跨午夜；函数每帧求值；engine.setExposure / setToneMapping 运行时改；写错报错',
+    name: '[守] 曝光与色调映射：style.exposure 数字照旧；关键帧按时间插值并跨午夜；函数每帧求值；engine.look.tone.set 运行时改；写错报错',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {};
         const n = make({ exposure: 1.05, toneMapping: 'aces' }).e; n.sky.update(n.focus);
         out.num = n.renderer.toneMappingExposure === 1.05 && n.exposureDriver === null && n.renderer.toneMapping === THREE.ACESFilmicToneMapping;
+        out.defTone = make({}).e.renderer.toneMapping === THREE.NoToneMapping;   // engine default: none; the pack value above applies
         const k = make({ exposure: [[0, 2], [0.5, 1]] }).e, at = t => { k.sky.timeOfDay = t; k.sky.update(k.focus); return k.renderer.toneMappingExposure; };
         out.keys = [at(0), at(0.25), at(0.5), at(0.75)];
         const fn = make({ exposure: sky => sky.isDay ? 1 : 3 }).e; fn.sky.timeOfDay = 0.9; fn.sky.update(fn.focus); out.fn = fn.renderer.toneMappingExposure;
-        fn.setExposure(1.3); fn.sky.update(fn.focus); out.set = fn.renderer.toneMappingExposure;
-        fn.setToneMapping('agx'); out.tone = fn.renderer.toneMapping === THREE.AgXToneMapping;
-        try { fn.setToneMapping('filmic'); } catch (e) { out.badTone = e.message; }
+        fn.look.tone.set({ exposure: 1.3 }); fn.sky.update(fn.focus); out.set = fn.renderer.toneMappingExposure;
+        fn.look.tone.set({ mapping: 'agx' }); out.tone = fn.renderer.toneMapping === THREE.AgXToneMapping;
+        try { fn.look.tone.set({ mapping: 'filmic' }); } catch (e) { out.badTone = e.message; }
         try { make({ exposure: [[0.5, 1], [0.2, 2]] }); } catch (e) { out.badKeys = e.message; }
-        try { fn.setExposure('bright'); } catch (e) { out.badKeys2 = e.message; }
+        try { fn.look.tone.set({ exposure: 'bright' }); } catch (e) { out.badKeys2 = e.message; }
         for (const e of [n, k, fn]) e.dispose();
         return out;
       }));
       check('数字曝光与色调映射照旧（不建每帧驱动）', r.num);
+      check('没有风格包的色调映射：引擎默认 none', r.defTone);
       check('关键帧 [[0,2],[0.5,1]]：0 → 2，0.25 → 1.5，0.5 → 1，0.75 跨午夜 → 1.5', JSON.stringify(r.keys) === '[2,1.5,1,1.5]', JSON.stringify(r.keys));
-      check('函数曝光每帧求值（夜里 3），setExposure(1.3) 取代它', r.fn === 3 && r.set === 1.3, `${r.fn} ${r.set}`);
-      check("setToneMapping('agx') 生效；写错报错给可选值", r.tone && /'aces' \| 'agx' \| 'neutral' \| 'none'/.test(r.badTone || ''), r.badTone);
+      check('函数曝光每帧求值（夜里 3），look.tone.set({ exposure: 1.3 }) 取代它', r.fn === 3 && r.set === 1.3, `${r.fn} ${r.set}`);
+      check("look.tone.set({ mapping: 'agx' }) 生效；写错报错给可选值", r.tone && /"aces", "agx", "neutral", "none"/.test(r.badTone || ''), r.badTone);
       check('关键帧没排序 / 类型不对：报错给写法', /sorted by time/.test(r.badKeys || '') && /sorted by time/.test(r.badKeys2 || ''), `${r.badKeys} | ${r.badKeys2}`);
     },
   },

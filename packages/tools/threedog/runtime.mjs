@@ -1,31 +1,28 @@
 // What state the running game is in, as data (runtime) and as one plain sentence (trailer). Every bridge command result carries it, so an AI that
 // just pressed a key knows at once whether the game now runs, is paused (and how to resume) or is frozen by a menu, without a second command.
-//   runtime = { ready, mode: 'running' | 'paused' | 'frozen' | null, tick, headless, blockedBy: string[] }
-//   mode null = no engine could be read (server down, page still loading); blockedBy entries are "window:settings", "dialogue", "cutscene", "error", "loading".
+//   runtime = { ready, mode: 'running' | 'paused' | 'frozen' | null, tick, headless, blockedBy: string[], run: { state, by, blockedBy } }
+//   mode null = no engine could be read (server down, page still loading). run and blockedBy are copied as-is from engine.runState (core/holds.js), the
+//   one source for "why is it not advancing" (before, this file rebuilt its own list with other names): blockedBy entries are the opaque input contexts
+//   ('win-settings', 'ui-title', 'dialogue', 'cutscene'...), 'error' and 'loading'.
 
 /** Runs in the page (self-contained, sent as source). Reads only public engine fields, never waits, never throws. */
 export const RUNTIME_FN = () => {
   const e = window.engine;
   if (!e) return { attached: false };
-  let d = {};
-  try { d = e.describe(); } catch { /* describe can throw before start() finishes */ }
-  const by = [];
-  for (const w of d.ui?.windows ?? []) by.push('window:' + (w.id || w));
-  if (d.ui?.dialogue) by.push('dialogue');
-  if (d.cutscene) by.push('cutscene');
-  if (e.error) by.push('error');
+  let run = null;
+  try { run = e.runState ?? null; } catch { /* runState can throw before start() finishes */ }
   const lv = e.loading?.view?.();
-  if (lv?.blocked) by.push('loading');
-  return { attached: true, ready: !!e.stateApplied, paused: !!e.paused, frozen: !!e.frozen, headless: !!e.headless, tick: e.tick ?? null, blockedBy: by,
+  return { attached: true, ready: !!e.stateApplied, paused: !!e.paused, frozen: !!e.frozen, headless: !!e.headless, tick: e.tick ?? null, blockedBy: run?.blockedBy ?? [], run,
     loading: lv ? { done: lv.done, waiting: lv.waiting, failed: lv.failed.length, blocked: !!lv.blocked } : null, page: location.pathname + location.search };
 };
 
-const NONE = { ready: false, mode: null, tick: null, headless: false, blockedBy: [] };
+/** The runtime when no engine answered (the one copy: dispatch.mjs and the MCP server use it too) */
+export const NONE = Object.freeze({ ready: false, mode: null, tick: null, headless: false, blockedBy: Object.freeze([]) });
 
 /** Raw page reading → runtime. Without an engine: ready false, mode null */
 export function toRuntime(raw) {
-  if (!raw?.attached) return { ...NONE };
-  return { ready: raw.ready, mode: raw.frozen ? 'frozen' : raw.paused ? 'paused' : 'running', tick: raw.tick, headless: raw.headless, blockedBy: raw.blockedBy };
+  if (!raw?.attached) return { ...NONE, blockedBy: [] };
+  return { ready: raw.ready, mode: raw.frozen ? 'frozen' : raw.paused ? 'paused' : 'running', tick: raw.tick, headless: raw.headless, blockedBy: raw.blockedBy, run: raw.run ?? null };
 }
 
 /** Read it through a driver; a driver that cannot answer (page reloading, bridge down) gives the empty runtime, never an exception */
@@ -33,12 +30,13 @@ export async function readRuntime(driver, ms = 5000) {
   try {
     const raw = await Promise.race([driver.evaluate(RUNTIME_FN.toString()), new Promise((_, no) => setTimeout(no, ms).unref())]);
     return { runtime: toRuntime(raw), raw };
-  } catch { return { runtime: { ...NONE }, raw: null }; }
+  } catch { return { runtime: { ...NONE, blockedBy: [] }, raw: null }; }
 }
 
 /** What each blocker means for the player and how to clear it */
 const BLOCK = (b) => {
-  if (b.startsWith('window:')) return `the ${b.slice(7)} window is open (press menu or its close action closes it)`;
+  if (b.startsWith('win-')) return `the ${b.slice(4)} window is open (press menu or its close action closes it)`;
+  if (b.startsWith('ui-')) return `the ${b.slice(3)} screen is up (its own action closes it, e.g. start on a title)`;
   return { dialogue: 'a dialogue is open (finish it: press interact, or op dialogue.choose)', cutscene: 'a cutscene is playing (threedog state cutscene=skip)',
     error: 'the engine froze gameplay on an error (threedog errors)', loading: 'startup is blocked by a failed asset (threedog loading)' }[b] ?? b;
 };
@@ -56,11 +54,12 @@ export function trailer(rt) {
 }
 
 /**
- * Which commands move game time. Shown at the front of every MCP tool description and used by `threedog help`-style listings.
- * advances: step, press, hold (and scenario, which uses them); op / state / eval / ops run between steps and move no game time.
+ * Which commands move game time: THE table. The MCP tool labels and the server instructions (mcp-extra.mjs) are generated from it, and COMMANDS.md
+ * says the same in words (tests/mcp.mjs checks both).
+ * advances: step, press, hold, skip (and scenario / verify, which use them); op / state / eval run between steps and move no game time.
  */
 export const TIME = {
-  advances: ['step', 'press', 'hold', 'scenario', 'verify'],
+  advances: ['step', 'press', 'hold', 'skip', 'scenario', 'verify'],
   frozenTimeSafe: ['op', 'state', 'eval', 'js', 'resume', 'reload'],
-  observes: ['describe', 'ops', 'inspect', 'scene', 'pick', 'explain', 'loading', 'errors', 'snap', 'snap-describe', 'status'],
+  observes: ['describe', 'catalog', 'ops', 'inspect', 'scene', 'pick', 'thing', 'explain', 'loading', 'errors', 'snap', 'snap-describe', 'status'],
 };

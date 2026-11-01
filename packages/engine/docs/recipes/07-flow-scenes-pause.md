@@ -32,6 +32,10 @@ state when the menu closes; without flow it calls `engine.freeze('settings')` di
 Stopped while frozen: the fixed step (movement, physics), module `fixed`, the game clock `clock`, quest checks (they run in the fixed step), timeline
 `wait` / tweens / camera / paths. Still running: rendering, UI, `onFrame`, the fade-to-black `fadeScreen`.
 
+Restarting a run from a UI button (retry, "play again"): do not reset positions, health and spawns inside the click handler or an `onFrame` callback; that is
+mid-frame and can leave half the world on the old tick. Apply it on a fixed tick: `engine.nextFixed(resetRun)`
+(runs at the start of the next fixed step, in a stable order), or set a flag in the handler and reset in `onFixed`.
+
 ### Back key (Esc): the UI focus stack
 Windows (inventory, quests, settings), dialogue and cutscenes are pushed onto the stack in the order they open (`uiFocus(engine)` in `ui/Focus.js`),
 and Esc goes **only to the top one**:

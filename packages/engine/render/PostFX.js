@@ -1,5 +1,5 @@
 // Post-processing as an ordered list of named effects in four slots. The engine owns no look of its own here: bloom, AO and
-// outline are effects a style pack registers (they come from @threedog/post-effects); games add theirs with engine.post.add().
+// outline are effects a style pack registers (they come from @threedog/post-effects); games add theirs with look.post.replace([...]).
 // An effect promises only a name, params and on/off; how it draws is its create() (a three.js Pass under WebGLRenderer),
 // so a WebGPU backend can later bring its own implementation without changing callers.
 //
@@ -13,8 +13,10 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { warnMissing } from '../core/validate.js';
-import { FusedPass, groupFuse } from './fuse.js';
+import { warnMissing, warnOnce } from '../core/validate.js';
+import { renamed } from '../core/errorHints.js';
+import { FusedPass, groupFuse, checkDepthOrder } from './fuse.js';
+import { definePostLook } from './postLook.js';
 /** @import { Engine } from '../types/core' */
 
 /**
@@ -40,22 +42,10 @@ import { FusedPass, groupFuse } from './fuse.js';
  *   RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;
  *   without it set() rebuilds the implementation.
  * @typedef {{ readonly name: string, readonly slot: PostSlot, readonly order: number, readonly enabled: boolean,
- *   readonly params: Record<string, any>, enable(on: boolean): void, set(params: Record<string, any>): void, remove(): void }} PostHandle
+ *   readonly params: Record<string, any> }} PostHandle
  */
 
 const SLOTS = ['scene', 'hdr', 'ldr', 'final'];
-
-// Only the buffer the scene render wrote holds scene depth: after a pass that swaps buffers, readBuffer.depthTexture is another
-// target's (a fullscreen quad's, or stale). A depth reader behind such a pass would silently find nothing, so the chain refuses it.
-function checkDepthOrder(chain) {
-  let swapped = null;
-  for (const e of chain) {
-    if (e._def?.needsDepth && swapped)
-      throw new Error(`post effect '${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers, so the depth it would read is not the scene's; ` +
-        `give '${e.name}' a lower order or an earlier slot than '${swapped}', or turn one of them off`);
-    if (e._impl.needsSwap && !e._impl.keepsDepth) swapped ??= e.name;
-  }
-}
 
 export class PostFX {
   /**
@@ -75,13 +65,22 @@ export class PostFX {
     /** @internal */ this._scenePass = /** @type {any} */ (null);
     /** @internal */ this._output = /** @type {any} */ (null);
     /** @internal */ this._building = true;     // add() skips chain rebuilds until every style effect is in
-    for (const e of effects) this.add(e, { enabled: enabled[e.name] ?? (e.costly && engine.tier === 'low' ? false : undefined) });
+    /** Why a costly effect started off (name -> reason), shown by describe().render and logged once: a silent "bloom is missing" in headless / software rendering looked like a bug @internal */
+    this._offWhy = /** @type {Record<string, string>} */ ({});
+    for (const e of effects) {
+      const lowOff = enabled[e.name] == null && e.costly && engine.tier === 'low';
+      if (lowOff) this._offWhy[e.name] = `starts off: costly effect on a low-tier device (${engine.headless ? 'headless runs use software rendering, which is low tier' : 'weak GPU or software rendering'}); turn it on with createEngine({ post: { ${e.name}: true } }) or engine.look.post.set({ '${e.name}.enabled': true })`;
+      this._add(e, { enabled: enabled[e.name] ?? (lowOff ? false : undefined) });
+    }
+    const why = Object.entries(this._offWhy);
+    if (why.length) warnOnce(`post: ${why.map(([n]) => n).join(', ')} ${why.length > 1 ? 'are' : 'is'} off by default here. ${why[0][1]}`);
     this._building = false;
     this._sync();
+    /** look.post: the style's effects are its style layer; look.post.set writes its 'game' layer @internal */ this._look = definePostLook(this, effects);
   }
 
   /**
-   * MSAA on (read-only; switch with post.enable('antialias', on))
+   * MSAA on (read-only; switch with post.setAntialias(on))
    * @returns {boolean}
    */
   get antialias() { return this._aa; }
@@ -92,22 +91,18 @@ export class PostFX {
   get active() { return this._aa || this._list.some(e => e.enabled); }
 
   /**
-   * Add a named effect; returns its handle. Slot and order come from the effect unless given here.
-   * @example
-   * import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js';
-   * const pixels = engine.post.add({ name: 'pixelate', slot: 'scene', params: { size: 4 },
-   *   create: ({ scene, camera, width, height, params }) => new RenderPixelatedPass(params.size, scene, camera),
-   *   update: (pass, p) => pass.setPixelSize(p.size) });
-   * pixels.set({ size: 6 }); pixels.enable(false); pixels.remove();
-   * @param {PostEffect} effect
-   * @param {{ slot?: PostSlot, order?: number, enabled?: boolean }} [opts]
-   * @returns {PostHandle}
+   * Renamed in 0.2: throws and names the new call (engine.look.post.patch / engine.look.post.replace, recipes/52-look.md)
+   * @param {PostEffect} _effect
+   * @param {{ slot?: PostSlot, order?: number, enabled?: boolean }} [_opts]
+   * @returns {never}
    * @experimental
    */
-  add(effect, { slot, order, enabled } = {}) {
+  add(_effect, _opts) { return renamed('postAdd'); }
+  /** Effects are added by look.post (patch generates a fuse effect, replace swaps the chain) with this @internal */
+  _add(effect, { slot, order, enabled } = {}) {
     if (!effect || typeof effect.name !== 'string' || (typeof effect.create !== 'function' && !effect.fuse))
-      throw new Error("post.add(effect): effect needs { name: 'myEffect', create: (ctx) => pass } (or a fuse snippet, see PostEffect)");
-    if (this.get(effect.name)) throw new Error(`post effect '${effect.name}' is already added; change it with post.get('${effect.name}').set(params), or remove() it first`);
+      throw new Error("post effect: needs { name: 'myEffect', create: (ctx) => pass } (or a fuse snippet, see PostEffect)");
+    if (this.get(effect.name)) throw new Error(`post effect '${effect.name}' is already added; change it with look.post.set({ '${effect.name}.<param>': value }), or drop it with look.post.replace([...])`);
     const s = slot ?? effect.slot ?? 'hdr';
     if (!SLOTS.includes(s)) throw new Error(`post effect '${effect.name}': unknown slot '${s}', use ${SLOTS.join(' | ')}`);
     if (effect.fuse && s === 'scene') throw new Error(`post effect '${effect.name}': a fuse snippet colors an existing image, it cannot replace the scene render; use slot 'hdr' | 'ldr' | 'final'`);
@@ -117,14 +112,17 @@ export class PostFX {
     const h = {
       name: effect.name, slot: s, order: order ?? effect.order ?? 0, enabled: enabled ?? effect.enabled ?? true,
       params: { ...effect.params }, _def: effect, _impl: /** @type {any} */ (null), _removed: false,
-      enable(on) { const was = h.enabled; post._change(() => { h.enabled = !!on; }, () => { h.enabled = was; }); },
-      set(p) {
+      enable() { return renamed('postHandle'); },   // the old handle verbs throw renamed-api; look.post writes through _enable / _set / _remove
+      set() { return renamed('postHandle'); },
+      remove() { return renamed('postHandle'); },
+      _enable(on) { const was = h.enabled; post._change(() => { h.enabled = !!on; }, () => { h.enabled = was; }); },
+      _set(p) {
         Object.assign(h.params, p);
         if (effect.fuse) { for (const p of post._fused.values()) p.refresh(); return; }
         if (!h._impl) return;
         if (effect.update) effect.update(h._impl, h.params); else { h._impl.dispose?.(); h._impl = null; post._sync(); }
       },
-      remove() {
+      _remove() {
         if (h._removed) return;
         h._removed = true; h._impl?.dispose?.(); h._impl = null;
         post._list = post._list.filter(e => e !== h); post._sync();
@@ -135,32 +133,31 @@ export class PostFX {
     return h;
   }
   /**
-   * Handle of an added effect, or undefined: engine.post.get('bloom')?.set({ strength: 0.6 })
+   * Read-only record of an added effect (name, slot, order, enabled, params), or undefined. Change one with engine.look.post.set({ 'bloom.strength': 0.6 })
    * @param {string} name
    * @returns {PostHandle | undefined}
    * @experimental
    */
   get(name) { return this._list.find(e => e.name === name); }
   /**
-   * Turn an effect, or 'antialias' (MSAA), on or off; false (and a dev warning naming the effects) when no such effect is added
-   * @example
-   * engine.post.enable('bloom', false); engine.post.enable('antialias', true);
-   * @param {string} name
-   * @param {boolean} on
-   * @returns {boolean}
+   * Renamed in 0.2: throws and names the new call (engine.look.post.set({ 'bloom.enabled': on }); MSAA: engine.post.setAntialias(on))
+   * @param {string} _name
+   * @param {boolean} _on
+   * @returns {never}
    * @experimental
    */
-  enable(name, on) {
-    if (name === 'antialias') {
-      this._aa = !!on;
-      if (this.composer) for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) { rt.samples = on ? 4 : 0; rt.dispose(); }
-      this._sync();
-      return true;
-    }
-    const h = this.get(name);
-    if (!h) { warnMissing('post effect', name, ['antialias', ...this._list.map(e => e.name)]); return false; }
-    h.enable(on);
-    return true;
+  enable(_name, _on) { return renamed('postEnable'); }
+  /**
+   * Turn MSAA (antialiasing of the post chain) on or off. It is a render target setting, not a look part.
+   * @example engine.post.setAntialias(false);
+   * @param {boolean} on
+   * @returns {void}
+   * @experimental
+   */
+  setAntialias(on) {
+    this._aa = !!on;
+    if (this.composer) for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) { rt.samples = on ? 4 : 0; rt.dispose(); }
+    this._sync();
   }
   /**
    * Effects in render order: [{ name, slot, order, enabled }]

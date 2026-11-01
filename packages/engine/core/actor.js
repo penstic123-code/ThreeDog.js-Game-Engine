@@ -13,11 +13,11 @@ export const actorMethods = {
    */
   actorPosition(id = this.actor) {
     // without any player (builder, strategy view) the camera focus stands in for 'player'
-    return this._actorObject(id)?.position ?? this.world?.get(id)?.position ?? (id === 'player' ? this.focus : null);
+    return this._actorObject(id)?.position ?? this._things.source(id)?.get(id).position ?? (id === 'player' ? this.focus : null);
   },
   /** @internal The actor's three.js object right now (player root, or the world model when built); null when it has none */
   _actorObject(id = this.actor) {
     if (id === 'player' && this.player) return this.player.root;
-    return this.world?.view(id) ?? null;
+    return this._things.source(id)?.view?.(id) ?? null;
   },
 };

@@ -26,6 +26,7 @@
 // Events: music:change { from, to }, music:stinger { name }
 
 import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { pickTrack, evaluateRules } from './rules.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
@@ -269,6 +270,8 @@ export class Music {
   }
 }
 
+const MUSIC_PARAMS = keysSchema(['tracks', 'rules', ...Object.keys(DEFAULTS)], DEFAULTS);
+
 /**
  * Background music -> engine.music. tracks; rules; fade: default fade seconds (2); duckDialogue: duck the music bus to this level during dialogue (default
  * false = off; e.g. 0.35); duckFade; hold: rule debounce seconds (2)
@@ -277,11 +280,12 @@ export class Music {
  * @example engine.use(music({ tracks: { explore: '/music/explore.ogg' }, rules: [{ track: 'explore' }] }));
  */
 export function music(opts = {}) {
+  readParams('music', MUSIC_PARAMS, opts);
   let m = null;
   return {
-    name: 'music', label: 'Music', optional: ['dialogue'], stage: 'audio', presentation: true,
+    name: 'music', params: MUSIC_PARAMS, options: opts, label: 'Music', optional: ['dialogue'], stage: 'audio', presentation: true,
     install(e) {
-      checkOptions('music()', opts, ['tracks', 'rules', ...Object.keys(DEFAULTS)]); m = new Music(e, opts);
+      m = new Music(e, opts);
       e.events.on('session:end', () => m.stop(0));   // a playthrough ends: its music stops at once
       return m;
     },

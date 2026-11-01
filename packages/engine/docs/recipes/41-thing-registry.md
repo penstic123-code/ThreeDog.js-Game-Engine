@@ -62,3 +62,32 @@ the override applies the moment `engine.add(obj, { id })` runs. One that never c
 - Rule R33 (`npm run check`) flags the static half: startup calls that create things saved whole, and code writing `world.view()` models.
 - Cost: a release build pays two table writes per `engine.add` (about 2 µs per add in `tests/specs/things.mjs`); dev builds also take a short stack
   for `at`, at most 2000 per session (`describe().scene.atCapped` after that).
+
+## 6. One id, everything: explain() and the three kinds of change
+```js
+engine.thing('chest-home').explain();    // CLI: npx threedog thing chest-home (MCP: thing); the same JSON
+// { id, kind, owner, definition: { at: 'content/props.js:14', template, templateAt, level?, node?, spawned? }, model, materials: [{ role, name, from, keys }],
+//   state, rules: { blocksMovement, pickable, interact, height }, ops: [{ op, desc, args }], saved: { tier, keeps, loses }, change: {…}, overrides? }
+```
+`ops` lists the ops whose definition names this id, kind or template in the optional `targets` field (`engine.ops.define('chest.toggle', { targets: 'chest', … })`;
+`'*'` = any thing, which `thing.set` / `thing.remove` use). `definition.at` is null in release builds and for code run without a file (page `eval`).
+`thing.explain()` (type `ThingExplanation`) is not `engine.explain({ op | quest | … })`: that one takes a question and answers `{ ok, text }` about why an op or quest cannot run now (recipe 23); this one takes no question and returns the facts about one id. `rules.blocksMovement` is the template's / prop's `collide` shape; the engine does not model blocking sight. Pick the kind of change first:
+
+| Kind | How | Lasts |
+|---|---|---|
+| Game state (a chest opens, a door moves) | an op: `ops.run('chest.toggle', { id })`, `thing.set`, `thing.remove` (section 3) | by the thing's save tier |
+| Permanent edit (another model, place, material role) | content entry: `npx threedog content set <id> <field> <json>` (below); template or `engine.add` line: edit the file:line `explain().change.permanent` prints; then reload | forever |
+| Diagnostic override ("show me without it") | `engine.debug.override(owner, id, { visible: false, material: 'flat' \| 'wire', apply })` | until `handle.remove()` / `engine.debug.clear(owner)`; never saved |
+
+```js
+const h = engine.debug.override('ai-session', 'windmill', { material: 'flat' });   // unlit base colour: is the colour wrong, or the light?
+engine.debug.override('ai-session', 'fence', { visible: false });
+engine.describe().scene.overrides;       // [{ owner, target, material: 'flat' }, …]: the screen differs from the real state while this is non-empty
+h.remove(); engine.debug.clear('ai-session');   // clear removes every override of that owner (and its debug.view) and nothing else
+```
+`apply(obj)` may return its undo function: any other look (a view mode) uses the same owner mechanism. Overrides do not touch game state, ops or saves.
+
+`npx threedog content set cabin x=12 z=3 place=home --in props` sets several fields in one call (one write, one check, all or nothing; a bare word is a string). `npx threedog content set cabin x 12 --in props` writes a permanent change into the content entry (`-w game` or `--dir folder` picks the game; `--dry` only shows it). It edits just that
+value in place (comments and spacing stay), adds the field when missing, runs the content check (reverting if it fails) and tells you to reload. Fields are the content file's names
+(`x`, `z`, `y`, `rot`, `scale`, `template`, `place`, `model`), not the record's `position`; the value is JSON (`'"home"'` for a string). It refuses, and says why, for an entry built
+by code (loop, spread, computed value) or an id matching several entries (`--in props`). A placed entry wins over a template or npc of the same name.

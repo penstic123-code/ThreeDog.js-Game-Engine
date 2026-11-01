@@ -94,20 +94,21 @@ export const loopMethods = {
     return r;
   },
 
-  // ---------- pause and freeze (the other half of the loop: step() below is the deterministic way to advance) ----------
-  /** Pause the real-time loop (the picture stops and the game stops advancing) */
-  pause() { this.paused = true; return this; },
-  /** Resume the real-time loop (in headless mode this starts live running) */
-  resume() { if (!this.disposed) { this.paused = false; this._loop(); } return this; },
-  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, game clock and engine.elapsed all stop) while frame hooks
-  // and rendering go on, so the picture and UI stay alive.
-  // Gameplay logic (quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame (see the top of this file).
-  // Unlike pause(), which stops rendering too and is for tests and step(). owner is the freezer's name; play resumes only when all
-  // have unfrozen. step() obeys freezes as well.
-  freeze(owner = 'game') { this._freezers.add(owner); return this; },
-  unfreeze(owner = 'game') { this._freezers.delete(owner); return this; },
-  /** True while someone has frozen gameplay */
-  get frozen() { return this._freezers.size > 0; },
+  // ---------- nextFixed (pause / freeze / runState live in holds.js; step() below is the deterministic way to advance) ----------
+  /**
+   * Run fn at the start of the next fixed step (before that step's fixed hooks), from any callback (UI click, promise, worker result): gameplay state is safe to write there.
+   * Returns a Promise of fn's value (rejects if fn throws). Waits while frozen or loading. Built on engine.commits: applies in request order and survives save loads.
+   * @template T
+   * @param {() => T} fn
+   * @returns {Promise<T>}
+   * @example engine.nextFixed(() => engine.ops.run('door.open', { id: 'gate' }));
+   */
+  nextFixed(fn) {
+    return new Promise((resolve, reject) => {
+      const t = this.commits.request({ lag: 1, valid: () => true, fallback: () => undefined, apply: () => { try { resolve(fn()); } catch (err) { reject(err); } } });
+      t.resolve(undefined);   // nothing to wait for: otherwise the fallback would count as late
+    });
+  },
 
   _loop() {
     if (this._looping) return;

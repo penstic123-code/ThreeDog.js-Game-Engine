@@ -1,6 +1,6 @@
 # Engine API index (generated, do not edit by hand; produced by npm run map)
 
-> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style-pack · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-style-from-reference · 36-sky-ground-plant-looks · 37-terrain-look-hooks · 38-environment-look-hooks · 40-scene · 41-thing-registry · 42-terrain-shape · 43-shader-patches-surface-looks · 44-water-weather-look-hooks · 45-cascaded-shadows · 46-blender-art-route · 47-island-snow-backdrop · 48-make-material · 49-game-module-contract · 50-own-renderer
+> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style-pack · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-style-from-reference · 36-sky-ground-plant-looks · 37-terrain-look-hooks · 38-environment-look-hooks · 40-scene · 41-thing-registry · 42-terrain-shape · 43-shader-patches-surface-looks · 44-water-weather-look-hooks · 45-cascaded-shadows · 46-blender-art-route · 47-island-snow-backdrop · 48-make-material · 49-game-module-contract · 50-own-renderer · 51-capability-catalog · 52-look
 > The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types are in `types/*.d.ts`.
 > With no matching recipe: read this page first: the core everyday API + one line per core object / module (listing method names). For the one you need, **read only that page** `api/<name>.md` (methods, parameters, properties and data structures are all in it).
 > Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from 'threedog'` (the engine package's own examples use relative paths); a module that is not installed is undefined, so use `engine.xxx?.method()`.
@@ -21,8 +21,8 @@
 - `engine.snapToGround(obj: T, offset?: number) → T` — Put an object on the ground under it (y = ground height + offset) and return the object
 - `engine.raycast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions) → RayHit | null` — Ray: shoot from origin along dir, returns the nearest hit or null…
 - `engine.pick(ndcX: number, ndcY: number, opts?: RaycastOptions) → RayHit | null` — Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY)
-- `engine.freeze(owner?: string)` — Gameplay pause (menu, flow's paused): fixed steps are skipped entirely…
-- `engine.pause()` — Pause the real-time loop: the picture stops and even rendering stops, only step() advances…
+- `engine.freeze(owner?: string | { owner?, kind? }, opts?: { kind?: 'title' }) → ChainedHandle` — Gameplay pause (menu, flow's paused): fixed steps are skipped entirely…
+- `engine.pause(owner?: string | { owner?, kind? }, opts?: { kind?: 'test' }) → ChainedHandle` — Pause the real-time loop: the picture stops and even rendering stops, only step() advances…
 - `engine.stateApplied` — Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been …
 - `engine.ready` — True once start() completes and the loading screen is gone…
 - `engine.player` — The player (exists only after characters.createPlayer())
@@ -30,7 +30,7 @@
 - `engine.camera` — three.js perspective camera
 
 ## Core objects (engine.xxx, no install needed)
-- [`engine.events`](api/events.md) the event bus: recent on once emit; event table
+- [`engine.events`](api/events.md) the event bus: traceFocus note trace recent on once emit; event table
 - [`engine.input`](api/input.md) Input: read by "action": define touchButton simulate rebind keysOf label down pressed released pressedRaw push
 - [`engine.clock`](api/clock.md) game seconds and "after how long / every how long": after every
 - [`engine.vars`](api/vars.md) story flags and counters (autosaved): flag setFlag counter bump
@@ -42,7 +42,7 @@
 - [`engine.jobs`](api/jobs.md) engine.jobs queues build work in a binary heap: add run
 - [`engine.stream`](api/stream.md) engine.stream builds on demand by space: only entries n…: add setRadius source teleport readyCheck sources
 - [`engine.budget`](api/budget.md) performance budget (turned on by createEngine: enable disable metric limitOf report checkStartup values byTag
-- [`engine.post`](api/post.md) PostFX: add get enable list
+- [`engine.post`](api/post.md) PostFX: add get enable setAntialias list
 - [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type has voidY forEachCollider viewRange chunkCollision staticTrimeshes staticVersion navGeometry
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
@@ -54,7 +54,7 @@
 - [`engine.world`](api/world.md)  World data: add origin idOf get set move remove query forEachNear present view refresh …
 - [`engine.net`](api/net.md)  net: reconnect
 - [`engine.grids`](api/grids.md)  grids: add get list define preview
-- [`engine.collision`](api/collision.md) collision() Lightweight collision: addCircle addBox addSegment addBlocked blockedAt addObject forEachStatic walkable walkableAt
+- [`engine.collision`](api/collision.md) collision() Lightweight collision: addCircle addBox addSegment addBlocked blockedAt addObject forEachStatic walkable walkableAt lineClear
 - [`engine.rigid`](api/rigid.md) rigid() Real physics, Rapier: addBox addBall addHull impulse setPosition groundReady addVehicle
 - [`engine.cameraRig`](api/cameraRig.md) followCamera() / firstPersonCamera() / fixedCamera() / rtsCamera() Current camera: follow forward right focusPoint update onOverride onEnter onExit
 - [`engine.timeline`](api/timeline.md) timeline() Cutscenes, tweens: tween play skip
@@ -71,7 +71,6 @@
 - [`engine.quests`](api/quests.md) quests() Quests: define start isDone isActive isFailed check list
 - [`engine.photo`](api/photo.md) photo() Photo mode: take subject
 - [`engine.ambience`](api/ambience.md) ambience() Ambience: add rules nearWater
-- [`engine.debug`](api/debug.md) debug() F3 debug panel: startBench
 - [`engine.nav`](api/nav.md) nav() Navmesh: findPath dispose
 - [`engine.hlod`](api/hlod.md) hlod() hlod: add
 - [`engine.lightPool`](api/lightPool.md) lightPool() Light pool: add usage
@@ -81,4 +80,4 @@
 
 ## Other
 - [Style pack Style](api/style.md): all look options (sky, weather, water, terrain, UI, materials, particles, sound, models)
-- [Utility functions](api/tools.md): postAdd postRemove presets world net fakeNetwork webSocket grids screenToGround EASINGS ease checkOptions createTerrain terrainMaterial mergeColored applyEffects MATERIAL_PURPOSES makeMaterial materialPatches toast makeWindow worldToScreen fadeScreen uiFocus …
+- [Utility functions](api/tools.md): postAdd postRemove presets world net fakeNetwork webSocket grids screenToGround EASINGS ease checkOptions readParams defineLookPart createTerrain terrainMaterial mergeColored applyEffects MATERIAL_PURPOSES makeMaterial materialPatches toast makeWindow worldToScreen …

@@ -66,6 +66,7 @@ const RULE_STRINGS = {
     props: 'props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand',
     templates: 'reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions',
     audio: 'sounds by asset name, ambience and music rules as data, footsteps (sounds, ambience, music: { tracks, rules }, footsteps)',
+    views: 'named fixed camera views (name -> { position: [x, y, z], target?: [x, y, z], fov? }); engine.views.show(name), ?view=name, npm run shot -- -w game --view name',
     grids: 'placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved',
     renames: "renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id",
     rules: 'condition words added by the game ({ conditions }); actions are ops, not effect words',

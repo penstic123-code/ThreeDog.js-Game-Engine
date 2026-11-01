@@ -1,10 +1,12 @@
 // Performance panel + time/weather debugging + stress test. Collapsed by default; F3 shows/hides it (debug({ open: true }) shows it at start). Quality, view distance and density are in the settings menu. Do not install this module in a release.
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { esc } from '../../ui/UI.js';
 /** @import { ModuleDef } from '../../types/core' */
 
 // Note: the debug panel is a dev tool; its UI text is plain English, not in the string table; do not install this module in a release.
-/** engine.debug (F3 panel) */
+// The panel sits next to the core diagnostics as engine.debug.panel (composition): engine.debug (override / clear / view) is core and works without it.
+// It used to subclass DebugOverrides and replace engine.debug, which needed shared state on the engine and a module-name exception; nothing of that is left.
+/** engine.debug.panel (F3 panel) */
 export class DebugPanel {
   /** @internal */
   constructor(engine, { open = false } = {}) {
@@ -145,16 +147,20 @@ export class DebugPanel {
   }
 }
 
+const DEBUG_PANEL_PARAMS = keysSchema(['open']);
+
 /**
- * F3 F3 debug panel -> engine.debug: performance panel, settings, stress test. Collapsed by default; F3 shows/hides it; open: true shows it at start. Just do not install it in a release
+ * F3 debug panel -> engine.debug.panel: performance panel, settings, stress test. Collapsed by default; F3 shows/hides it; open: true shows it at start. Just do not install it in a release
  * @param {{ open?: boolean }} [opts]
  * @returns {ModuleDef<DebugPanel>}
  */
 export function debug(opts = {}) {
+  readParams('debugPanel', DEBUG_PANEL_PARAMS, opts);
   let d = null; const prof = { n: 0, t: 0, cpu: 0 };
   return {
-    name: 'debug', label: 'Debug panel', optional: ['sky', 'weather', 'terrain'], presentation: true,
-    install(e) { checkOptions('debug()', opts, ['open']); d = new DebugPanel(e, opts); return d; },
+    name: 'debugPanel', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['sky', 'weather', 'terrain'], presentation: true,
+    install(e) { d = new DebugPanel(e, opts); e.debug.panel = d; return d; },
+    dispose(e) { if (e.debug.panel === d) e.debug.panel = null; d?.el.remove(); },
     frame(dt, e) { if (e.input.pressedRaw('debugPanel')) d.el.hidden = !d.el.hidden; },
     afterRender(dt, e) {
       d.frame(dt, e.terrain?.stats.builtThisFrame || 0);

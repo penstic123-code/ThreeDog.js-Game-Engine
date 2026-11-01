@@ -61,4 +61,62 @@ export const specs = [
       check('window blur and tab hidden release all held keys', r.blur === 0 && r.hidden === 0, J);
     },
   },
+  {
+    name: '运行状态：每个界面件各用自己的冻结者与输入情境，关一个不放开另一个；runState 说清原因',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.timeline.skip(); engine.step(1, { render: false });
+        const o = {};
+        engine.pause('threedog', { kind: 'test' }); o.test = engine.runState;
+        engine.pause('player'); o.two = engine.runState;
+        engine.resume('threedog'); o.after = engine.runState; engine.resume('player');
+        engine.freeze('ui-help'); engine.freeze('ui-inventory'); engine.unfreeze('ui-help'); o.still = engine.runState;
+        engine.unfreeze('ui-inventory'); engine.pause('threedog', { kind: 'test' }); engine.resume('threedog'); o.run = engine.runState.state;
+        const h = engine.freeze({ owner: 'menu' }); o.handle = engine.runState.by.join(); h.remove(); o.handleGone = engine.runState.by.join();
+        engine.pause({ owner: 'obj' }); engine.resume({ owner: 'obj' }); o.objForm = engine.runState.state; o.blocked = engine.runState.blockedBy;
+        o.desc = engine.describe().time.run.state; o.pl = engine.describe().camera.pointerLock;
+        return o;
+      });
+      const J = JSON.stringify(r);
+      check('only the bridge paused: test-paused', r.test.state === 'test-paused', J);
+      check('a player pause on top is paused(by both); resuming the bridge keeps the player pause', r.two.state === 'paused' && r.two.by.join() === 'threedog,player' && r.after.state === 'paused' && r.after.by.join() === 'player', J);
+      check('closing help releases only help: inventory still holds the freeze', r.still.state === 'paused' && r.still.by.join() === 'ui-inventory', J);
+      check('freeze returns a handle: remove() releases only that owner; { owner } works for pause / resume too', r.handle === 'menu' && r.handleGone === '' && r.objForm === 'running', J);
+      check('blockedBy is a list of input contexts / error / loading', Array.isArray(r.blocked), J);
+      check('everyone released: running; describe carries it; the pointer-lock block always has a state', r.run === 'running' && r.desc === 'running' && typeof r.pl?.state === 'string', J);
+    },
+  },
+  {
+    name: '指针锁定：浏览器拒绝时 lastFailure 说明原因与时间、状态变 refused；画布中心有别的元素盖住时 covered 指出是谁',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.timeline.skip(); engine.step(1, { render: false }); await new Promise(r => setTimeout(r, 50)); engine.step(1, { render: false });   // intro cutscene holds the camera and input until skipped
+        const c = engine.renderer.domElement, o = {}, saved = c.requestPointerLock;
+        // headless Chromium may really grant or refuse a lock; stub the request so both outcomes are deterministic
+        c.requestPointerLock = () => new Promise(() => {});          // a request that never answers
+        engine.setCamera('firstPerson', { pointerLock: true });      // a runtime switch asks for the lock at once
+        o.before = engine.describe().camera.pointerLock;
+        c.requestPointerLock = () => Promise.reject(new Error('not allowed without a user gesture'));
+        c.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 50));
+        o.refused = engine.describe().camera.pointerLock;
+        c.requestPointerLock = saved;
+        // an element above the canvas centre: describe names it
+        const b = c.getBoundingClientRect(), cover = document.createElement('div');
+        cover.id = 'test-cover'; cover.style.cssText = `position:fixed;left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px;z-index:99999`;
+        document.body.appendChild(cover);
+        o.covered = engine.describe().camera.pointerLock.covered;
+        cover.remove();
+        o.clear = engine.describe().camera.pointerLock.covered;
+        engine.setCamera('follow');
+        return o;
+      });
+      const J = JSON.stringify(r);
+      check('configured and asked, no answer yet: requesting, no failure recorded', r.before.state === 'requesting' && r.before.lastFailure === null, J);
+      check('a refused lock: state refused, lastFailure carries the reason and an age in seconds', r.refused.state === 'refused' && /user gesture/.test(r.refused.lastFailure?.reason) && typeof r.refused.lastFailure.agoSec === 'number', J);
+      check('an element over the canvas centre is named in covered (#id); nothing over it gives null', r.covered === '#test-cover' && r.clear === null, J);
+    },
+  },
 ];

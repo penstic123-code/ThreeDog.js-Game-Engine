@@ -8,6 +8,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { join, relative, dirname, sep, resolve, basename } from 'node:path';
 import { TOOLS, readJson, subdirs, project } from './project.mjs';
+import { devServerInfo } from './devinfo.mjs';
 export { TOOLS, project };
 
 const PROJECT = project();
@@ -47,7 +48,7 @@ export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
-  `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
+  `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Views.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/DebugOverrides.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
 ];
 /**
  * APIs that may still change: each [file, declared name] must carry @experimental in the JSDoc right above it (R07-H); AI.md "Stability" lists them for readers
@@ -210,7 +211,21 @@ export function pickWorkspace(argv, { cwd = process.cwd(), fallback = ENGINE } =
     return { dir, args };
   }
   const here = workspaceOf(cwd);
-  return { dir: here && workspaces().includes(here) ? here : fallback, args };
+  if (here && workspaces().includes(here)) return { dir: here, args };
+  // Not inside a known workspace (e.g. a game laid out differently): the nearest folder upward that has a running dev server's .threedog/dev.json
+  // is the right one; falling straight back to the engine made the command talk to another game's server when several were running
+  for (let d = resolve(cwd); d === ROOT || d.startsWith(ROOT + sep); d = dirname(d)) {
+    if (devServerInfo(d).state === 'live') return { dir: d, args };
+    if (d === ROOT) break;
+  }
+  return { dir: fallback, args };
+}
+
+/** `-w name` in argv narrows a per-game tool to that one game: the games to process (all of them without -w); throws for an unknown name */
+export function onlyGames(all, argv = process.argv.slice(2)) {
+  if (!argv.some(a => a === '-w' || a === '--workspace')) return all;
+  const { dir } = pickWorkspace(argv);
+  return all.filter(g => g === dir);
 }
 
 /** Whether a file is under a directory (both as paths relative to the repo root) */

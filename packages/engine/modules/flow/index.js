@@ -8,11 +8,14 @@
 // engine.session.newGame / load / quit move flow too: back to the start state when a playthrough ends, then 'playing' when the next starts.
 // Esc is not handled here: back goes through the UI focus stack (ui/Focus.js), and opens the settings menu when the stack is empty. Events: flow:change { from, to }, flow:transition { phase: 'start' | 'end' }.
 import { checkOptions, warnMissing } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { fadeScreen } from '../../ui/UI.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Flow, FlowOptions } from '../../types/gameplay' */
 
 const STATE_KEYS = ['enter', 'exit', 'freeze', 'lockInput', 'music'];
+
+const FLOW_PARAMS = keysSchema(['start']);
 
 /**
  * Game flow and scene transitions → engine.flow
@@ -20,6 +23,7 @@ const STATE_KEYS = ['enter', 'exit', 'freeze', 'lockInput', 'music'];
  * @returns {ModuleDef<Flow>}
  */
 export function flow(opts = {}) {
+  readParams('flow', FLOW_PARAMS, opts);
   let e = null, chain = Promise.resolve(), held = null;
   const states = new Map([['playing', {}], ['paused', { freeze: true, lockInput: true }]]);
   // turn freeze / input lock on or off for one state
@@ -82,10 +86,9 @@ export function flow(opts = {}) {
     },
   };
   return {
-    name: 'flow', label: 'Game flow', optional: ['music'],
+    name: 'flow', params: FLOW_PARAMS, options: opts, label: 'Game flow', optional: ['music'],
     install(engine) {
       e = engine;
-      checkOptions('flow()', opts, ['start']);
       // initial state (title screen etc.): entered once the world is ready, so the game can define it after use()
       if (opts.start && opts.start !== 'playing') e.events.once('engine:ready', () => api.go(opts.start));
       // a playthrough ends (engine.session): back to the start state, so its enter() runs again; a new one starts in 'playing'

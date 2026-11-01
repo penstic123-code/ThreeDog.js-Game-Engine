@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline';
 import { pickWorkspace } from '../paths.mjs';
 import { execute } from './dispatch.mjs';
 import { EXTRA_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA } from './mcp-extra.mjs';
+import { NONE } from './runtime.mjs';
 
 // stdout carries protocol messages only: anything else that prints goes to stderr
 console.log = console.info = console.warn = console.error;
@@ -37,107 +38,106 @@ const opt = (name, v) => v === undefined || v === null || v === '' ? [] : [name,
 /** name → { description, schema, args(input) → command line args, cmd? (bridge command, default the name) } */
 const TOOLS = {
   describe: {
-    description: 'Look at the running game: what is going on now. No arguments: a 3-line summary (player position, time and weather, nearby things, ' +
-      'quest). path: one field of engine.describe() as JSON (e.g. "player.position", "quests.active", "nearby", "ui", or a game\'s own describe.add ' +
-      'name). full: the whole text description (thousands of characters). Use this first, before screenshots, to check logic.',
-    schema: obj({ path: str('Dotted path into engine.describe(), e.g. "player.position" or "time.clock"'),
-      full: { type: 'boolean', description: 'The text summary (describeText, at most 30 lines)' },
+    description: 'Look at the running game: no args = 3-line summary; path = one field as JSON; full = text summary. Use first, before screenshots, to check logic.',
+    schema: obj({ path: str('Dotted path into engine.describe() (returned as JSON), e.g. "player.position", "quests.active", "nearby", "ui" or a game describe.add name'),
+      full: { type: 'boolean', description: 'The text summary (describeText, at most 30 lines) instead of the 3-line one' },
       all: { type: 'boolean', description: 'Everything (describeText({ full: true })); large' }, max: MAX }),
     args: a => [...(a.full ? ['--full'] : []), ...(a.all ? ['--all'] : []), ...(a.path ? [a.path] : []), ...opt('--max', a.max)],
   },
   step: {
-    description: 'Advance game time by N seconds, deterministically (a real browser page is paused first; call resume afterwards). Returns the new ' +
-      'summary. Changes only this session (and its saves), never the level: to change the level, edit content/*.js and reload.',
+    description: 'Advance game time N seconds, deterministically (a real page is paused first; resume afterwards). Changes this session only, not the level (edit content/*.js for that).',
     schema: obj({ seconds: num('Game seconds to advance (default 1)') }),
     args: a => [String(a.seconds ?? 1)],
   },
   press: {
-    description: 'Press an input action or key once, like a real keyboard: an action name ("interact", "jump", "menu") or a key code ("KeyE", "Space", ' +
-      '"Escape", "e"). Advances about 0.117 game seconds (0.1 s held + one frame); "for" shortens the hold. Pauses a real page.',
-    schema: obj({ key: str('Action name or key code'), for: num('Hold time in seconds (default 0.1, minimum one frame)') }, ['key']),
+    description: 'Press an input action or key once, like a real keyboard (about 0.117 game s: 0.1 s held + one frame). Pauses a real page.',
+    schema: obj({ key: str('Action name ("interact", "jump", "menu") or key code ("KeyE", "Space", "Escape", "e")'), for: num('Hold time in seconds (default 0.1, minimum one frame)') }, ['key']),
     args: a => [a.key, ...opt('--for', a.for)],
   },
   hold: {
-    description: 'Hold an input action or key for N game seconds (e.g. "moveForward" for 1.5 to walk). Pauses a real page.',
+    description: 'Hold an input action or key for N game seconds (e.g. moveForward 1.5 to walk). Pauses a real page.',
     schema: obj({ key: str('Action name or key code'), seconds: num('How long to hold, in game seconds (default 1)') }, ['key']),
     args: a => [a.key, String(a.seconds ?? 1)],
   },
+  skip: {
+    description: 'Jump the clock like sleeping (to a time of day or by N seconds); the sky clock and time-keeping modules catch up. Pauses a real page.',
+    schema: obj({ to: str('Clock time to jump to, e.g. "06:00" (give to OR seconds)'), seconds: num('Game seconds to jump (give seconds OR to)'),
+      fade: num('Optional fade length in seconds, e.g. 0.6'), save: str('Optional: "auto" to save after the jump') }),
+    args: a => Object.entries(a).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${v}`),
+  },
   state: {
-    description: 'Jump the scene to a state (same as URL parameters): time "18:30", weather "rain", player pos "x,z", plus wait, cutscene "skip", save, ' +
-      'or a named state. For setting up a test situation, not for gameplay actions (use op).',
+    description: 'Jump the scene to a state (like URL parameters) to set up a test situation. For gameplay actions use op.',
     schema: obj({ time: str('Clock time, e.g. "18:30"'), weather: str('Weather name, e.g. "rain"'), pos: str('Player position "x,z", e.g. "40,-20"'),
-      wait: str('Game seconds to wait after applying'), cutscene: str('"skip" to skip cutscenes'), save: str('Save slot to load'),
+      wait: str('Game seconds to advance after applying'), cutscene: str('"skip" to skip cutscenes'), save: str('Save slot name to load (this does not write a save)'),
         state: str('A named state (engine.defineState)') },
     [], { additionalProperties: { type: 'string' } }),
     args: a => Object.entries(a).filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`),
   },
   ops: {
-    description: 'List what the player can do right now: every op offer checked with its can() rule, ✓ runnable / ✗ with the reason, plus ops that take ' +
-      'free-form arguments. Use before op.',
+    description: 'List what the player can do now: each op offer checked with can(), runnable or not with the reason. Use before op.',
     schema: obj(),
     args: () => [],
   },
+  catalog: {
+    description: 'What the game can do, read from its registrations: no id = one line per module; an id = that module or op in detail. Ask before reading API docs.',
+    schema: obj({ id: str('Optional: a module id ("sky"; its params, ops, saved parts, time hooks, problems, source / doc files), an op name ("shop.buy": args, failure codes, last attempt), "core" (engine-provided parts) or "game" (this game\'s own)'), find: str('Optional: filter the list by a word') }),
+    args: a => [...(a.id ? [a.id] : []), ...opt('--find', a.find)],
+  },
   op: {
-    description: 'Run a game op (a gameplay action such as shop.buy) as source "bridge", without advancing time. This is the right way to change game ' +
-      'state; values are converted by the op\'s args shape. Returns ✓ with the value and bag, or ✗ with the reason. ops lists what exists. Runtime ops ' +
-      'change only the current session and its saves; to change the level itself, edit the content files (content/*.js, content/templates.js) or the ' +
-      'level model, then reload.',
+    description: 'Run a game op (e.g. shop.buy) as source bridge, no time passes: the way to change game state. Result: value and bag, or the failure reason. ops lists them.',
     schema: obj({ name: str('Op name, e.g. "shop.buy"'),
-      args: { type: 'object', description: 'Op arguments, e.g. { "shop": "bakery", "item": "bread", "n": 2 }; positions as [x, y, z]',
+      args: { type: 'object', description: 'Op arguments, converted by the op\'s args shape, e.g. { "shop": "bakery", "item": "bread", "n": 2 }; positions as [x, y, z]',
       additionalProperties: true } }, ['name']),
     args: a => [a.name, ...pairs(a.args)],
   },
   inspect: {
-    description: 'What is around the player (or around an actor id / a spot) and which ops can run there now, with reasons why not.',
+    description: 'What is around the player (or an actor id / a spot) and which ops can run there now, with reasons why not.',
     schema: obj({ target: str('Optional: an actor id such as "npc_3", or a spot "x,z" such as "10,-4"') }),
     args: a => a.target ? [String(a.target)] : [],
   },
   pick: {
-    description: 'What is at a screen point: the world record under pixel (x, y) from the canvas top-left, with its id, kind, template, where it is ' +
-      'defined (content file:line) and its fields. Use it to find which content entry to edit for something you see.',
+    description: 'The world record under a screen pixel: id, kind, template, where it is defined (file:line), fields. Use to find which content entry to edit.',
     schema: obj({ x: num('Pixels from the left edge of the game canvas'), y: num('Pixels from the top edge of the game canvas') }, ['x', 'y']),
     args: a => [`${a.x},${a.y}`],
   },
+  thing: {
+    description: 'Everything about one id as JSON: definition file:line, template, model, materials, state, collision, related ops, save status. Use before changing an object.',
+    schema: obj({ id: str('A thing id from describe, scene or pick') }, ['id']),
+    args: a => [String(a.id)],
+  },
   explain: {
-    description: 'Explain why: about "op" says whether an op can run now and its last attempts; about "quest" (or another key a module explains) says ' +
-      'where it is stuck.',
-    schema: obj({ about: str('"op", "quest", or another key a module explains'), name: str('The op name or the quest id'),
+    description: 'Explain why an op cannot run now (with its last attempts), or where a quest is stuck.',
+    schema: obj({ about: str('"op" (name = the op, args = its arguments) or "quest" (name = the quest id), or another key a module explains'), name: str('The op name or the quest id'),
       args: { type: 'object', description: 'Op arguments (about "op" only)', additionalProperties: true } }, ['about', 'name']),
     args: a => [a.about, a.name, ...(a.about === 'op' ? pairs(a.args) : [])],
   },
   errors: {
-    description: 'Page errors with id, time, tick, source and count (known error classes come with the likely cause and the doc page to read). Default: new ' +
-      'since the last call. latest: the last N, readable again and again. since: errors after an id (the cursor a result prints), never moves the read position. ' +
-      'Check this after a change or when something looks wrong.',
-    schema: obj({ latest: num('Show the last N errors (e.g. 3); the same ones show again on the next call'), since: str('Error id such as "E5" or "5": list only what came after') }),
+    description: 'Page errors with id, time, tick, source, count and, for known classes, the likely cause and doc page. Default: new since the last call. Check after a change.',
+    schema: obj({ latest: num('Show the last N errors (e.g. 3); the same ones show again on the next call'), since: str('Error id such as "E5" or "5": list only what came after; never moves the read position') }),
     args: a => a.latest ? ['latest', String(a.latest)] : a.since ? ['--since', String(a.since)] : [],
   },
   loading: {
-    description: 'Loading status: what the game is waiting for, which assets failed (file, HTTP status, fallback) and whether startup is blocked. Works ' +
-      'while start() is stuck. name: one task with its manifest and path.',
-    schema: obj({ name: str('Optional: an asset, module or track() name') }),
+    description: 'What loading waits for, which assets failed (file, HTTP status, fallback) and whether startup is blocked. Works while start() is stuck.',
+    schema: obj({ name: str('Optional: one task by asset, module or track() name, with its manifest and path') }),
     args: a => a.name ? [a.name] : [],
   },
   snap: {
-    description: 'Screenshot of the game, returned as an image (also saved to .threedog/shots/<name>.png). Only for what needs eyes (looks, animation, ' +
-      'UI overlap); use describe for logic.',
+    description: 'Screenshot returned as an image (also saved to .threedog/shots/). Only for what needs eyes (looks, animation, UI overlap); use describe for logic.',
     schema: obj({ name: str('File name without extension (default "snap")') }),
     args: a => a.name ? [a.name] : [],
   },
   snap_describe: {
     cmd: 'snap-describe',
-    description: 'Describe snapshot instead of a screenshot: "save" stores the gameplay part of describe() as a baseline ' +
-      '(tests/snapshots/<name>.describe.json); "diff" lists what changed since, as text.',
-    schema: obj({ mode: { type: 'string', enum: ['save', 'diff'], description: 'save or diff' }, name: str('Baseline name'),
+    description: 'Describe snapshot instead of a screenshot: save stores a baseline of describe(), diff lists what changed since.',
+    schema: obj({ mode: { type: 'string', enum: ['save', 'diff'], description: 'save = store tests/snapshots/<name>.describe.json (gameplay part of describe); diff = list what changed since' }, name: str('Baseline name'),
       only: { type: 'array', items: { type: 'string' }, description: 'Compare only these fields (dotted paths); use the same list for save and diff' },
       ignore: { type: 'array', items: { type: 'string' }, description: 'Extra fields to skip' }, tolerance: num('Number tolerance (default 0.5)') },
         ['mode', 'name']),
     args: a => [a.mode, a.name, ...opt('--only', a.only?.join(',')), ...opt('--ignore', a.ignore?.join(',')), ...opt('--tolerance', a.tolerance)],
   },
   scenario: {
-    description: 'Run one scenario test file (tests/scenarios/<name>.json) on the running page; returns the failed checks or a pass count. Leaves the ' +
-      'page paused.',
-    schema: obj({ name: str('Scenario file name without .json') }, ['name']),
+    description: 'Run one scenario file on the running page; returns failed checks or a pass count. Leaves the page paused. verify adds what it never touched.',
+    schema: obj({ name: str('Scenario file name without .json (tests/scenarios/<name>.json)') }, ['name']),
     args: a => [a.name],
   },
   reload: {
@@ -146,15 +146,15 @@ const TOOLS = {
     args: () => [],
   },
   resume: {
-    description: 'Resume real-time running of a browser page paused by step, press, hold or scenario.',
+    description: 'Resume real-time running of a page paused by step, press, hold or scenario.',
     schema: obj(),
     args: () => [],
   },
 };
 Object.assign(TOOLS, EXTRA_TOOLS);
 if (allowJs) TOOLS.js = {
-  description: 'DEV ONLY, DANGEROUS: run arbitrary JavaScript in the game page (engine is in scope, await works; statements need their own return). Last ' +
-    'resort for reading something describe cannot show. Never change game state with it (use op): writes bypass the op log.',
+  description: 'DEV ONLY, DANGEROUS: run arbitrary JavaScript in the game page (engine in scope, await works). Last resort for reading what describe cannot show; ' +
+    'never change state with it (use op).',
   schema: obj({ code: str('An expression ("engine.sky.timeOfDay") or statements with return'), max: MAX }, ['code']),
   args: a => [a.code, ...opt('--max', a.max)],
 };
@@ -166,7 +166,7 @@ async function callTool(name, input = {}) {
   const t = TOOLS[name];
   if (!t) return { content: [{ type: 'text',
     text: `No tool "${name}". Available: ${Object.keys(TOOLS).join(', ')}${name === 'js' ? ' (js needs threedog mcp --allow-js)' : ''}` }],
-    structuredContent: { ok: false, code: 'command-error', summary: `No tool "${name}"`, runtime: { ready: false, mode: null, tick: null, blockedBy: [] }, data: null }, isError: true };
+    structuredContent: { ok: false, code: 'command-error', summary: `No tool "${name}"`, runtime: NONE, data: null }, isError: true };
   let png;
   try {
     const { text, ...structured } = await execute(dir, t.cmd || name, t.args(input), { page: pagePath, onShot: b => { png = b; } });
@@ -174,7 +174,7 @@ async function callTool(name, input = {}) {
     if (png) content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' });
     return { content, structuredContent: structured, isError: !structured.ok };
   } catch (e) {
-    return { content: [{ type: 'text', text: '✗ ' + e.message }], structuredContent: { ok: false, code: 'command-error', summary: e.message, runtime: { ready: false, mode: null, tick: null, blockedBy: [] }, data: null }, isError: true };
+    return { content: [{ type: 'text', text: '✗ ' + e.message }], structuredContent: { ok: false, code: 'command-error', summary: e.message, runtime: NONE, data: null }, isError: true };
   }
 }
 

@@ -5,14 +5,13 @@
 //   - screenToGround(ndcX, ndcY) -> ground point under a screen point (for click-to-move and placing buildings)
 //   - After follow(object) the focus tracks it (done automatically when the player is created) and WASD goes to the character; manual drag/edge pan drops the follow (unless followLock: true)
 //     To not follow: call engine.cameraRig.follow(null) after creating the player, and WASD pans the camera
-// Cutscene takeover: when engine.cameraOverride is set the camera is left alone (see common.js).
+// Cutscene takeover: while someone holds engine.takeCamera (engine.cameraOverride is not null) the camera is left alone (see common.js).
 //
 //   engine.use(rtsCamera({ height: 30, angle: 0.95, panSpeed: 1, edgePan: true, bounds: { minX: -100, maxX: 100, minZ: -100, maxZ: 100 } }));
 //   const p = engine.cameraRig.screenToGround(engine.input.pointer.ndcX, engine.input.pointer.ndcY);
 //   engine.cameraRig.moveTo(position);   // move the view somewhere; { instant: true } skips smoothing
 import * as THREE from 'three';
 import { rigModule, defineRig, screenToGround, CAMERA_STRINGS, YAW_RIG } from './common.js';
-import { checkOptions } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
 import { surfaceOr } from '../../core/ground.js';
 
@@ -127,8 +126,7 @@ for (const k of ['forward', 'right']) RtsCamera.prototype[k] = YAW_RIG[k];
  */
 export function rtsCamera(opts = {}) { return rigModule('rts', opts); }
 defineRig('rts', (e, opts) => {
-  checkOptions('rtsCamera()', opts, ['height', 'minHeight', 'maxHeight', 'angle', 'yaw', 'panSpeed', 'dragPan', 'edgePan', 'edgeSize', 'bounds', 'rotateKeys',
-    'rotateSpeed', 'zoomStep', 'smoothing', 'fov', 'followLock', 'start']);
   e.i18n.add(CAMERA_STRINGS);
   return new RtsCamera(e, opts);
-});
+}, ['height', 'minHeight', 'maxHeight', 'angle', 'yaw', 'panSpeed', 'dragPan', 'edgePan', 'edgeSize', 'bounds', 'rotateKeys',
+    'rotateSpeed', 'zoomStep', 'smoothing', 'fov', 'followLock', 'start']);

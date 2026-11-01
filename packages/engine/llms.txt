@@ -57,3 +57,5 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [48-make-material](docs/recipes/48-make-material.md): 48. `engine.makeMaterial(role, spec)`: which keys work, who wins
 - [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (crops, burning, a production machine) that plugs into the engine's contracts
 - [50-own-renderer](docs/recipes/50-own-renderer.md): Bring your own renderer: `createEngine({ renderer })`
+- [51-capability-catalog](docs/recipes/51-capability-catalog.md): Capability catalog: ask what the game can do before reading docs
+- [52-look](docs/recipes/52-look.md): 52 Change any look: `engine.look`

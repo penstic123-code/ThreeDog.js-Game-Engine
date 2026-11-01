@@ -69,3 +69,11 @@ engine.collision.addSegment([-18, 0, 0], [-18, 0, 12], { thickness: 0.4 });
 ```
 
 Walkers stop at the edge and slide along it; `collision.walkable()` and A* pathing, sync and async, see both. `fn` must be pure and deterministic (no clock, no random). Async paths cannot send a function to the worker, so `fn` is sampled into the 1 m ground raster instead (re-sampled when you add or remove a field): give `bounds`, or every requested tile is sampled in full. Navmesh mode (`nav()` installed) does not see `addBlocked`; use `addSegment` or bake the river into the mesh there.
+
+## Line of sight and straight-line checks: collision.lineClear
+`engine.collision.lineClear(a, b, { radius })` answers "is anything solid between a and b?" for a 3D segment: boxes, circles and terrain trees, with heights (a 1 m wall does not block a sight line 3 m above it; a collider's `y` / `height` count). It is a boolean; `addBlocked` water is ignored. Give eye heights in `a` / `b`; `radius` fattens the line (pass the character radius for "can I walk straight there").
+```js
+const sees = engine.collision.lineClear([guard.x, 1.6, guard.z], [player.x, 1.6, player.z]);   // true = clear view
+const straight = engine.collision.lineClear(me.position, goal, { radius: engine.movement.radius });
+```
+The A* fallback smooths paths with the same idea: it samples each shortcut at most one character radius apart (so a thin fence cannot be skipped), starts from the character's real position, and its cell size follows `radius` (1-2 m) unless you pass `step`.

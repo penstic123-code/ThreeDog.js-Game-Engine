@@ -4,7 +4,7 @@
 // solveBatch runs here at the due step. The batch is tagged with the walkable state it was computed on (navmesh revision or collision version);
 // if that changed before it lands, it is recomputed here on the current state, so threads on / off / slow / crashed give identical paths.
 import { xzOf } from '../../core/math.js';
-import { solveBatch, pathHandler, RES, TILE, tileOf } from './pathJob.js';
+import { solveBatch, pathHandler, astarDefaults, RES, TILE, tileOf } from './pathJob.js';
 
 /** Steps between sending a batch and its answers taking effect (4 = 67 ms): enough for a worker round trip, short enough that an NPC barely waits */
 const PATH_LAG = 4;
@@ -53,7 +53,7 @@ export class AsyncPaths {
     const reqs = list.map(({ sx, sz, gx, gz, o }) => {
       if (mode === 'nav') return { mode, s: { x: sx, y: e.surface(sx, sz), z: sz }, g: { x: gx, y: e.surface(gx, gz), z: gz }, reach: e.nav.reach(o.radius) };
       if (mode === 'none') return { mode };
-      const radius = o.radius ?? e.movement.radius, step = o.step ?? 2, maxNodes = o.maxNodes ?? 6000;
+      const radius = o.radius ?? e.movement.radius, dflt = astarDefaults(radius), step = o.step ?? dflt.step, maxNodes = o.maxNodes ?? dflt.maxNodes;
       // A* may wander this far beyond the start-goal box; bounded by how far maxNodes cells can reach
       const m = Math.min(step * Math.sqrt(maxNodes / Math.PI), 16 + Math.hypot(gx - sx, gz - sz) / 2);
       for (let tx = tileOf(Math.min(sx, gx) - m); tx <= tileOf(Math.max(sx, gx) + m); tx++)

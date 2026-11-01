@@ -6,6 +6,7 @@ import type {
 } from './world';
 import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
+import type { PostEffect } from './generated/render/PostFX';
 import type { Grids } from './generated/modules/grid/index';
 import type { Collision, RigidBodies, CameraRig, CameraKind, CameraShotEvent, Animator, AnimatorOptions, Vehicle } from './physics';
 import type { Nav } from './nav';
@@ -22,6 +23,8 @@ import type { Events } from './generated/core/Events';
 import type { Commits } from './generated/core/Commits';
 import type { Threads } from './generated/core/Threads';
 import type { Ops } from './generated/core/Ops';
+import type { Views } from './generated/core/Views';
+import type { DebugOverrides } from './generated/core/DebugOverrides';
 import type { Jobs } from './generated/core/Jobs';
 import type { Random } from './generated/core/Random';
 import type { PostFX } from './generated/render/PostFX';
@@ -188,7 +191,7 @@ export interface EventMap extends GameEvents {
   /** Client (net): host state applied (full: a whole snapshot, else a diff); redraw UI from state here */
   'net:sync': [{ tick: number; full: boolean }];
   /** Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused */
-  'net:result': [{ seq: number; name: string; ok: boolean; reason: string | null; value?: any; tick: number }];
+  'net:result': [{ seq: number; name: string; ok: boolean; code: string | null; value?: any; tick: number }];
   /** A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error) */
   'engine:error': [EngineError];
   /** A presentation module errored and was disabled (the game continues) */
@@ -290,6 +293,8 @@ export interface SaveProvider {
   load: (data: any) => void | Promise<void>;
   /** Load before the other parts (such as the level) */
   first?: boolean;
+  /** Join atomic ops: copied before an atomic op runs, put back if it fails (plain data; afterLoad does not run on rollback) */
+  atomic?: boolean;
   /** This part's format version, default 1: raise it by 1 when what save() returns changes shape. A save with a newer version is refused */
   version?: number;
   /** Upgrade steps: old version -> data => data in the next version's shape, e.g. { 1: d => ({ ...d, beds: [] }) }.
@@ -446,6 +451,18 @@ export interface Assets {
   draco: any;
   /** three.js KTX2Loader (created only the first time a KTX2 texture is met, null before) */
   ktx2: any;
+  /** Import report of a loaded model (by name, or a copy from model()): materials, textures with colorSpace, clips, colliders, templates, and issues for what the file has but the scene lost */
+  report(nameOrRoot: string | Object3D): AssetReport;
+  /** assets.report as text for the console / describe */
+  reportText(nameOrRoot: string | Object3D): string;
+}
+/** engine.assets.report(): see recipes/46-blender-art-route.md */
+export interface AssetReport {
+  name: string | null; url: string | null; fromFile: boolean;
+  counts: Record<string, number>;
+  materials: { name: string; type: string; maps: Record<string, any>; flatShading: boolean; vertexColors: boolean; madeByStyle: boolean }[];
+  textures: any[]; clips: { name: string; seconds: number }[]; colliders: any[]; templates: any[];
+  issues: { severity: 'warn' | 'info'; code: string; msg: string }[];
 }
 
 /** Phase of a loading task */
@@ -622,7 +639,7 @@ export type UIPartValue = boolean | Record<string, any> | UIPartFactory;
 export interface UIPartDef {
   on?: boolean;
   multi?: boolean;
-  modal?: { freeze?: boolean; cancel?: (engine: Engine) => void; data?: (engine: Engine, options: Record<string, any>) => object } | null;
+  modal?: { freeze?: boolean | ((engine: Engine) => boolean); cancel?: (engine: Engine) => void; data?: (engine: Engine, options: Record<string, any>) => object } | null;
 }
 /**
  * What the 'touch' UI part receives in show(view) and update(view) (buttons added later, language changed). Call move / press / release from your controls:
@@ -821,7 +838,7 @@ export interface EngineOptions {
   style?: StyleInput;
   /** Real-time shadows, default true */
   shadows?: boolean;
-  /** Shadow filter: 'basic' (hard edge) | 'pcf' | 'vsm' (softest, costliest), default 'pcf'. Change later with engine.sky.setShadow({ type }) */
+  /** Shadow filter: 'basic' (hard edge) | 'pcf' | 'vsm' (softest, costliest), default 'pcf'. Change later with engine.look.shadow.set({ type }) */
   shadowType?: 'basic' | 'pcf' | 'vsm';
   /** MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices */
   antialias?: boolean;
@@ -894,6 +911,8 @@ export interface EngineOptions {
   threads?: 'auto' | number | false;
   /** Gameplay waits while the window is in the background or the tab is hidden; default true (engine.page) */
   pauseOnBlur?: boolean;
+  /** false: no default lights in the scene at all (engine.lights.sun / hemi still exist, detached, so sky and describe never see undefined); the game adds its own. Default true */
+  lights?: boolean;
   /** Automatic instancing of repeated static models (engine.batching): false turns it off; default { minCount: 8, cell: engine.stream.cellSize } */
   batching?: false | BatchingOptions;
 }
@@ -958,6 +977,22 @@ export interface Thing extends HitThing {
   id: string; owner: string; at: string | null; phase: 'setup' | 'play'; saved: 'record' | 'code' | 'session' | 'engine'; keeps: string[]; loses: string[];
   /** the live object (the record's current model, null when not built) */
   readonly object: Object3D | null;
+  /** everything about this id in one JSON-able object: definition file:line, template, model, materials, state, collision rules, related ops, save status, how to change it. Not engine.explain(): that answers "why can this op / quest not run" (recipes/41 section 6) */
+  explain(): ThingExplanation;
+}
+/** What thing.explain() returns (`threedog thing <id>` prints the same JSON); modules add keys to rules / state through their explainers */
+export interface ThingExplanation {
+  id: string; kind: string; owner: string;
+  /** at: 'content/props.js:14' (null in release builds and for code without a file) */
+  definition: { at: string | null; template: string | null; templateAt: string | null; level?: string; node?: string; spawned?: boolean; [k: string]: any };
+  model: string | null;
+  materials: ({ role: string | null; name: string | null; from: string | null; keys: string[]; type: string; color: string | null; mesh: string | null } | { more: number })[];
+  state: { position?: number[]; visible?: boolean; scale?: number[]; [k: string]: any };
+  rules: { height?: number; blocksMovement?: any; pickable?: boolean; interact?: any; [k: string]: any };
+  ops: { op: string; desc: string | null; args: any }[];
+  saved: { tier: 'record' | 'code' | 'session' | 'engine'; keeps: string[]; loses: string[]; overridden?: boolean; removed?: boolean };
+  change: { runtime: string; permanent: string; diagnostic: string };
+  overrides?: any[];
 }
 /**
  * What a ray hit is (RayHit.thing, engine.inspect(id).thing; engine.thing gives the same plus owner / saved): the world record it belongs to, else the
@@ -1120,7 +1155,19 @@ export interface StateParams {
   cutscene?: 'skip' | 'keep';
 }
 
-/** Camera takeover: when non-null no camera module moves the camera (for cutscenes); set back to null when done */
+/** A claim on something only its owner releases (pause, freeze, takeCamera, views) */
+export interface OwnerHandle { owner: string; remove(): void }
+/** What pause / freeze return: the claim handle, plus the old chaining calls forwarded to the engine */
+export interface ChainedHandle extends OwnerHandle {
+  pause(owner?: string | { owner?: string; kind?: 'test' }, opts?: { kind?: 'test' }): ChainedHandle;
+  resume(owner?: string | { owner?: string }): Engine;
+  freeze(owner?: string | { owner?: string; kind?: 'title' }, opts?: { kind?: 'title' }): ChainedHandle;
+  unfreeze(owner?: string | { owner?: string }): Engine;
+  step(seconds: number, opts?: { render?: boolean; frameEvery?: number; describe?: boolean }): GameState | null;
+}
+/** engine.runState: state in one word, by = every pause / freeze owner, blockedBy = opaque input contexts plus 'error' / 'loading' */
+export interface RunState { state: 'loading' | 'title-frozen' | 'test-paused' | 'paused' | 'running'; by: string[]; blockedBy: string[] }
+/** Camera takeover: when non-null no camera module moves the camera (for cutscenes); see engine.takeCamera */
 export interface CameraOverride {
   /** Who took over (any name) */
   owner: string;
@@ -1130,6 +1177,128 @@ export interface CameraOverride {
 }
 /** State of automatic resolution */
 export interface AdaptiveState { paused: boolean; on: boolean; target: number; min: number; max: number; [key: string]: any }
+
+// ======================================================================
+// Look parts engine.look.<part> (recipes/52-look.md)
+// ======================================================================
+
+/** Returned by set / patch / replace: remove() takes that owner's layer back off */
+export interface LookHandle { remove(): void }
+/** engine.look.post: a LookPart with add() for one custom pass */
+export interface LookPost extends LookPart {
+  /** Add ONE custom post pass (name, create | fuse, slot, order, params) without replacing the chain; remove() takes it out again. Slot, order and depth-order errors throw and add nothing. Change its params with set({ '<name>.<param>': v }) */
+  add(effect: PostEffect, opts?: LookOptions): LookHandle;
+}
+/** owner: who writes the layer (non-empty name, default 'game'); roles: only materials.patch, the material roles that get the patch */
+export interface LookOptions { owner?: string; roles?: string[] }
+/** patch(name, spec): a spec instead of plain GLSL. post: fuse snippet (glsl, slot, order, uniforms, values); sky 'layer:<name>': glsl, blend, order, uniforms */
+export interface LookPatchSpec {
+  glsl?: string | Record<string, any>;
+  /** post: 'hdr' | 'ldr' */
+  slot?: string;
+  /** post and sky layers: draw order, smaller first */
+  order?: number;
+  uniforms?: Record<string, any>;
+  /** post: live values of the generated effect */
+  values?: Record<string, any>;
+  /** sky layer: 'mix' | 'add' */
+  blend?: string;
+}
+
+/**
+ * One look part. Layers, upper wins: engine default < style < game (per owner, last write wins) < engine.debug.override.
+ * A part offers only the verbs that make sense for it; the others throw naming the verb to use.
+ */
+export interface LookPart<P = Record<string, any>> {
+  /** 'look.<part>': the id engine.catalog() and debug.override use */
+  readonly id: string;
+  /** Shallow-merge into the owner's layer, only the keys given; null drops a key so the layer below shows again. Keys that recompile shaders warn once in dev */
+  set(params: { [K in keyof P]?: P[K] | null } & Record<string, any>, opts?: LookOptions): LookHandle;
+  /** Swap one named GLSL hook the part registered (names: engine.catalog('look.<part>').hooks); the same name again overrides; patch(name, null) restores the default */
+  patch(name: string, glsl: string | LookPatchSpec | null, opts?: LookOptions): LookHandle;
+  /** Take the whole part over (Material, texture, object, effect list ...: see the catalog); replace(null) gives it back. materials.replace takes the role first */
+  replace(impl: any, opts?: LookOptions): LookHandle;
+  replace(role: string, impl: any, opts?: LookOptions): LookHandle;
+  /** Drop every game and debug layer of that owner (the style value shows again); returns how many layers were removed, like engine.debug.clear */
+  clear(owner: string): number;
+  /** The resolved value of a key (what is in use now) */
+  value(key: string): any;
+  /** The value from the highest game / debug layer for the key (undefined when only style or default gives it) */
+  top(key: string): any;
+  /** The three.js object(s) behind the part (renderer, lights, scene.fog ...); changing it directly works but describe tags it 'three'.
+   *  look.materials: a function, object('wool') = the last Material made for that role, object() = all of them */
+  readonly object: any;
+  /** Each verb's call shape, e.g. { set: 'set(params, { owner })', replace: 'replace(role, ...)' } (also in engine.catalog('look.<part>')) */
+  readonly signatures: Record<string, string>;
+  // ---- for authors of a part made with defineLookPart (recipes/52-look.md) ----
+  /** Write raw keys (params, 'hook:<name>', '@replace') for an owner, no normalize; null drops a key */
+  write(owner: string, values: Record<string, any>, opts?: { layer?: 'game' | 'debug' }): LookHandle;
+  /** What one owner holds for a key, or undefined */
+  ownerValue(owner: string, key: string, opts?: { layer?: 'game' | 'debug' }): any;
+  /** Add declared keys to a started part (same fields as defineLookPart params) */
+  extend(params: Record<string, any>): void;
+  /** Remove every key starting with prefix, with every layer's value for them */
+  retract(prefix: string): void;
+  /** Is key a declared param */
+  has(key: string): boolean;
+  /** [key, value] pairs in effect whose key starts with prefix */
+  resolved(prefix?: string): Array<[string, any]>;
+  /** Replace the style layer */
+  restyle(values: Record<string, any>): void;
+  /** Declare keys a style-driven system writes every frame (by = the driver's module name); drive(keys, null) hands them back */
+  drive(keys: string[], by: string | null): void;
+  /** Unregister the part (its module went away) */
+  dispose(): void;
+}
+
+export interface LookTone { mapping: string; exposure: number | Array<[number, number]> | ((t: number) => number) }
+export interface LookLightSide { color?: ColorLike; intensity?: number }
+export interface LookLights { sun: LookLightSide | 'manual' | false; hemi: LookLightSide | 'manual' | false }
+/** The map itself is the replace slot: look.env.replace('sky' | Texture | null) */
+export interface LookEnv { intensity: number; rotation: number; interval: number }
+export interface LookFog { kind: string; color: ColorLike | 'horizon'; density: number; near: number; far: number; height: number; falloff: number; enabled: boolean }
+export interface LookSky { clouds: Record<string, any>; backdrop: ColorLike | null }
+export interface LookShadow {
+  type: 'basic' | 'pcf' | 'vsm'; radius: number; blurSamples: number; bias: number; normalBias: number; mapSize: number; updateEvery: number;
+  snap: number | 'texel'; ahead: number; cascades: number; maxFar: number; fade: boolean; lightMargin: number; enabled: boolean;
+  split: 'practical' | 'uniform' | 'logarithmic' | ((count: number, near: number, far: number, out: number[]) => void);
+}
+export interface LookCloudShadow { shadow: number; scale: number; speed: [number, number] }
+export interface LookWind { frequency: number; amplitude: number }
+export interface LookGround {
+  colors: Record<string, ColorLike>; biomeColors: Record<string, string | string[]>; steep: Array<{ maxNormalY: number; colors: any }>;
+  variation: any; detail: any; shading: string;
+}
+export interface LookSurface { lighting: Record<string, any>; detail: Record<string, any>; ramp: number[]; soften: number }
+export interface LookWater {
+  color: ColorLike; opacity: number; depthColor: { shallow?: ColorLike; deep?: ColorLike }; foam: Record<string, any>;
+  waveHeight: number; waveScale: number; waveSpeed: number; fresnel: number;
+}
+
+/** engine.look: the parts by name. A part exists only when the module that provides it is installed (fog / sky / shadow / env: sky(); ground: terrain(); wind: vegetation(); water; weather) */
+export interface Look {
+  tone: LookPart<LookTone>;
+  lights: LookPart<LookLights>;
+  cloudShadow: LookPart<LookCloudShadow>;
+  /** Old name of cloudShadow (recipes/52-look.md, Old names) */
+  clouds: LookPart<LookCloudShadow>;
+  env: LookPart<LookEnv>;
+  fog: LookPart<LookFog>;
+  sky: LookPart<LookSky>;
+  shadow: LookPart<LookShadow>;
+  /** Roles are the keys: set({ wool: { roughness: 0.4 } }), patch(name, spec, { roles }), replace('wool', Material | fn) */
+  materials: LookPart<Record<string, Record<string, any>>>;
+  surface: LookPart<LookSurface>;
+  ground: LookPart<LookGround>;
+  wind: LookPart<LookWind>;
+  water: LookPart<LookWater>;
+  /** Keys 'rain.speed', 'snow.size', 'lightning.brightness', overcastColor ...; patch('rain.fragment', wholeShaderText) */
+  weather: LookPart;
+  /** Per effect: set({ bloom: { strength: 0.6 }, vignette: false }); patch(name, { glsl, slot, order, uniforms, values }); add(effect, { owner }); replace([effects]) */
+  post: LookPost;
+  /** Parts made with defineLookPart */
+  [custom: string]: LookPart;
+}
 
 /**
  * The engine. Created by createEngine({ canvas, style }); engine.use(module...) installs modules, engine.start() starts it.
@@ -1163,7 +1332,7 @@ export declare class Engine {
   focus: Vector3;
   /** Whether shadows are on */
   shadows: boolean;
-  /** Shadow filter in use; change it with sky.setShadow({ type }) */
+  /** Shadow filter in use; change it with look.shadow.set({ type }) */
   shadowType: 'basic' | 'pcf' | 'vsm';
   /** Current ground */
   ground: Ground;
@@ -1198,6 +1367,12 @@ export declare class Engine {
    * A module installed after start() runs no fixed / frame hook until it is 'running'; `await engine.loading.settled()` waits for that
    */
   readonly moduleStates: Record<string, 'registered' | 'initializing' | 'running' | 'failed' | 'disposed'>;
+  /**
+   * What this game can do, read from the existing registrations (modules, ops, save parts, describe, params schemas).
+   * No argument: short list; a module id / op name: that entry expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md
+   * @example engine.catalog('shop').ops[0].failures   // ['soldOut', 'noMoney']
+   */
+  catalog(id?: string | { find?: string }): any;
   /**
    * Gameplay error in development / testing (module hooks, onFixed / onFrame / clock callbacks, event listeners): { where (location of the error),
    * message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console
@@ -1238,6 +1413,8 @@ export declare class Engine {
   readonly loading: Loading;
   /** Post-processing: named effects in slots (add / get / enable / list) */
   post: PostFX;
+  /** Every look in one place: engine.look.<part>.set / patch / replace (recipes/52-look.md) */
+  look: Look;
   /** UI parts: every piece of screen UI is replaceable or off (see recipes/26-ui-parts.md) */
   ui: UIParts;
   /** Automatic resolution state */
@@ -1249,8 +1426,12 @@ export declare class Engine {
   cpuMs: number;
   /** cpuMs split by phase (last frame): fixed = input + fixed steps, frame = frame hooks incl. stream / jobs, render = draw submission, afterRender = its hooks */
   cpuPhases: { fixed: number; frame: number; render: number; afterRender: number };
-  /** Camera takeover (for cutscenes), null when unused */
+  /** The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Assigning { owner } / null is the old alias of takeCamera */
   cameraOverride: CameraOverride | null;
+  /** Take the camera over (camera modules leave it alone) until remove(); the latest holder is in charge, releasing hands it back to the previous one */
+  takeCamera(owner: string | ({ owner: string } & Partial<CameraOverride>), opts?: Partial<CameraOverride>): OwnerHandle;
+  /** Why the page is (not) advancing; the dev bridge and MCP tools copy it as-is */
+  readonly runState: RunState;
   /** Draco/KTX2 decoder directory */
   decoders: string;
   /** Game clock: game seconds now, after / every (clock-time / season timers are on engine.sky) */
@@ -1272,6 +1453,8 @@ export declare class Engine {
   threads: Threads;
   /** One entry point for actions players and NPCs decide to do: define / run / can / list / recent, see Ops and recipes/23-ops.md */
   ops: Ops;
+  /** Named fixed camera views for repeatable screenshots: define / show / release (recipes/46-blender-art-route.md) */
+  views: Views;
   /** Fixed-step count (the gameplay timeline: does not advance while frozen; commits due times, event history and the operation log use it) */
   readonly tick: number;
   /** Seeded random numbers (use for gameplay randomness: reproducible and saved with the game) */
@@ -1366,8 +1549,8 @@ export declare class Engine {
   photo?: Photo;
   /** Ambience (ambience() module) */
   ambience?: Ambience;
-  /** F3 debug panel (debug() module) */
-  debug?: DebugPanel;
+  /** Diagnostic overrides and view modes with an owner (override / clear / view: core, always there); panel is the F3 panel, null without the debug() module */
+  debug: DebugOverrides & { panel: DebugPanel | null };
   /** Navmesh (nav() module) */
   nav?: Nav;
   /** HLOD, merged distant geometry (hlod() module) @experimental */
@@ -1463,15 +1646,7 @@ export declare class Engine {
   setShadows(on: boolean): void;
   /** Fog distance (meters), also adjusts the camera far plane */
   setFogFar(d: number): void;
-  /** Tone mapping at run time ('aces' | 'agx' | 'neutral' | 'none'); materials recompile on their next draw, so not every frame */
-  setToneMapping(kind: 'aces' | 'agx' | 'neutral' | 'none'): void;
-  /**
-   * Exposure at run time: a number, [[time 0-1, exposure], ...] over the day or (sky) => number (both evaluated by the sky module each frame);
-   * replaces style.exposure
-   * @example engine.setExposure(1.4);  engine.setExposure(sky => sky.isDay ? 1 : 1.5);
-   */
-  setExposure(v: number | [number, number][] | ((sky: any) => number)): void;
-  /** Exposure per frame from style.exposure / setExposure keyframes or function, null for a plain number; the sky module calls it with engine.sky @readonly */
+  /** Exposure per frame from style.exposure / look.tone keyframes or function, null for a plain number; the sky module calls it with engine.sky @readonly */
   exposureDriver: ((sky: any) => number) | null;
 
   // ---------- Rays, scenarios ----------
@@ -1509,18 +1684,20 @@ export declare class Engine {
    * Pause the real-time loop: the picture stops and even rendering stops, only step() advances (for tests and screenshots). Use freeze() for a game menu
    * pause
    */
-  pause(): this;
-  /** Resume the real-time loop */
-  resume(): this;
+  pause(owner?: string | { owner?: string; kind?: 'test' }, opts?: { kind?: 'test' }): ChainedHandle;
+  /** Resume the real-time loop (only this owner's pause) */
+  resume(owner?: string | { owner?: string }): this;
+  /** Run fn at the start of the next fixed step (via commits); a Promise of fn's value */
+  nextFixed<T>(fn: () => T): Promise<T>;
   /**
    * Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame
    * hooks and rendering continue and the UI works.
    * So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's
    * name, default 'game'
    */
-  freeze(owner?: string): this;
+  freeze(owner?: string | { owner?: string; kind?: 'title' }, opts?: { kind?: 'title' }): ChainedHandle;
   /** Release the freeze of owner (gameplay resumes only when all freezers are released) */
-  unfreeze(owner?: string): this;
+  unfreeze(owner?: string | { owner?: string }): this;
   /** Is anyone freezing gameplay? */
   readonly frozen: boolean;
   /**
@@ -1544,6 +1721,18 @@ export declare class Engine {
    * @example engine.skip({ seconds: 600 })
    */
   skip(opts: SkipOptions): Promise<{ seconds: number; clock: string | null; day: number | null } | null>;
+  /**
+   * Consistency check: engine.skip({ seconds }) vs stepping the same span in fixed steps; compares the saved state. Leaves the world at the stepped state (use a scratch playthrough or a test).
+   * @param ignore state paths (or prefixes) not to compare
+   * @returns a = after skip, b = after stepping
+   * @example const r = await engine.checkSkip(600); if (!r.ok) console.log(r.diffs);
+   */
+  checkSkip(seconds: number, opts?: { ignore?: string[] }): Promise<{ ok: boolean; diffs: { path: string; a: any; b: any }[] }>;
+  /**
+   * Consistency check: save -> load gives the same saved state back (nothing is written to the browser).
+   * @example const r = await engine.checkSave(); if (!r.ok) console.log(r.diffs);
+   */
+  checkSave(opts?: { ignore?: string[] }): Promise<{ ok: boolean; diffs: { path: string; a: any; b: any }[] }>;
   /**
    * Call engine.describe(opts?: { radius?: number }) to get the current game state (a plain object, JSON.stringify-able); radius is how far counts as
    * "nearby" (meters, default 30).

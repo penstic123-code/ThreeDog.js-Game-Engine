@@ -32,7 +32,7 @@ import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
 import { applySetting } from './apply.js';
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 
 // Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
 const PRESETS = {
@@ -276,6 +276,8 @@ export class Settings extends SettingsView {
 }
 
 
+const SETTINGS_PARAMS = keysSchema(['action', 'keys', 'storageKey', 'presets', 'sections', 'freezeWorld']);
+
 /**
  * Settings menu module. Installs engine.settings. Install it after the other modules.
  * @param opts action/keys action that opens the menu (default 'menu' = Esc); storageKey storage key; presets override graphics presets;
@@ -284,10 +286,11 @@ export class Settings extends SettingsView {
  * freezeWorld pause gameplay while the menu is open (with flow it switches to flow's 'paused', otherwise engine.freeze; rendering continues), default false
  */
 export function settings(opts = {}) {
+  readParams('settings', SETTINGS_PARAMS, opts);
   let s = null;
   return {
-    name: 'settings', label: 'Settings', optional: ['terrain', 'vegetation'], stage: 'presentation',
-    install(e) { checkOptions('settings()', opts, ['action', 'keys', 'storageKey', 'presets', 'sections', 'freezeWorld']); s = new Settings(e, opts); return s; },
+    name: 'settings', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation'], stage: 'presentation',
+    install(e) { s = new Settings(e, opts); return s; },
     init() { s.init(); },
     frame(dt) { s.frame(dt); },
   };

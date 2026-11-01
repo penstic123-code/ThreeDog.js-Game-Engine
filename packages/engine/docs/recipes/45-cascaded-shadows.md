@@ -6,7 +6,7 @@ world is bigger than one map covers well.
 
 ```js
 engine.use(sky({ shadow: { cascades: 3 } }));             // or the style pack: style.sky.shadow.cascades
-engine.sky.setShadow({ cascades: 3, maxFar: 150 });         // at run time; { cascades: 1 } switches back
+engine.look.shadow.set({ cascades: 3, maxFar: 150 });       // at run time; { cascades: 1 } switches back
 ```
 
 | field | default | meaning |

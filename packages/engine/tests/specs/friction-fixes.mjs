@@ -18,11 +18,11 @@ export const specs = [
         out.can = engine.ops.can('inventory.trade', args);
         const t = engine.ops.run('inventory.trade', args);
         out.trade = { ok: t.ok, key1: I.count('key1'), key2: I.count('key2'), gem: I.count('gem') };
-        out.badReason = engine.ops.run('inventory.trade', { take: 'key1', give: 'gem' }).reason;   // key1 is gone now
+        out.badReason = engine.ops.run('inventory.trade', { take: 'key1', give: 'gem' }).code;   // key1 is gone now
         const u = engine.ops.undo('inventory.trade', args, t.value);
         out.undo = { ok: u.ok, key1: I.count('key1'), key2: I.count('key2'), data: I.list().find(x => x.id === 'key1')?.data };
         const full = engine.ops.run('inventory.trade', { take: 'gem', give: 'key2', giveN: 2 });   // two keys cannot fit after removing one gem
-        out.fullReason = full.reason; out.afterFull = { key1: I.count('key1'), gem: I.count('gem'), key2: I.count('key2') };
+        out.fullReason = full.code; out.afterFull = { key1: I.count('key1'), gem: I.count('gem'), key2: I.count('key2') };
         bag.capacity = cap0;
         return out;
       });

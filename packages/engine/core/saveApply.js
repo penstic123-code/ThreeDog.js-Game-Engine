@@ -113,8 +113,8 @@ export function loadSlot(s, slot, base) {
 export async function afterLoad(e) {
   const hooks = [...e.modules.values()].filter(m => m.afterLoad);
   if (!hooks.length) return;
-  e.freeze('load');
-  try { await Promise.all(hooks.map(m => m.afterLoad(e))); } finally { e.unfreeze('load'); }
+  e.freeze('threedog:load');   // a namespaced owner: a game's own freeze('load') must not be released by (or release) the engine's
+  try { await Promise.all(hooks.map(m => m.afterLoad(e))); } finally { e.unfreeze('threedog:load'); }
 }
 
 /** Collect every part: { data, failed: [[key, error]] }. Parts of the loaded save that no module owns are carried along. */

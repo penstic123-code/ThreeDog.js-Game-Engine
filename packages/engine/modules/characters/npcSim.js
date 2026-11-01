@@ -56,6 +56,12 @@ export function advance(e, W, rec, seconds) {
   settle(e, W, rec, x, z, Math.hypot(g.x - x, g.z - z) > rec.arriveDistance);
 }
 
+/** Set rec.state; with events.traceSize > 0 a change is noted as an `npc:state` trace entry (from, to), so "why did it stop" has a cause chain */
+function noteState(e, rec, next) {
+  if (rec.state !== next && e.events.traceSize > 0) e.events.note('npc:state', { obj: rec.id, data: { from: rec.state ?? null, to: next } });
+  rec.state = next;
+}
+
 /**
  * Settle without a model: write the computed x, z back to data (position, facing, animation state); shared by every behaviour's far. The path is for the model,
  * so it is re-found at the new position after the model is built
@@ -65,7 +71,7 @@ export function settle(e, W, rec, x, z, moving) {
   const m = rec.motion ??= {};
   const facing = x !== p.x || z !== p.z ? Math.atan2(x - p.x, z - p.z) : m.facing ?? 0;
   Object.assign(m, { vx: 0, vz: 0, vy: 0, amount: 0, facing, grounded: true, swimming: false, coyote: 0 });
-  rec.state = moving ? 'walk' : 'idle';
+  noteState(e, rec, moving ? 'walk' : 'idle');
   // NPC of another level: this level's ground height is meaningless for it, keep its y
   const here = rec.zone == null || W.zone == null || rec.zone === W.zone;
   W.move(rec.id, { x, y: here ? e.surface(x, z) : p.y, z });
@@ -121,7 +127,7 @@ export function goTo(e, W, rec, ch, goal, dt) {
   // position belongs to the mover: copy the model position back to data here (world also copies at the end of each fixed step; copying now means later
   // simulation and saves this step see the latest)
   rec.motion = ch.saveMotion(rec.motion ?? {});
-  rec.state = ch.state;
+  noteState(e, rec, ch.state);
   W.move(rec.id, p);
 }
 

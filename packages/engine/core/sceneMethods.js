@@ -2,32 +2,12 @@
 // tone mapping and exposure.
 // add registers each root in the thing registry (things.js) so engine.thing / hit.thing can say what it is and what a save keeps; engine.scene.add
 // stays the plain three.js way in, with no registration.
-import * as THREE from 'three';
 import { DEV } from './validate.js';
-import { codedError } from './errorHints.js';
+import { codedError, renamed } from './errorHints.js';
 import { thing } from './thingOps.js';
-import { recordThing } from './Inspect.js';
+import { TONE, exposureDriver } from './look/coreParts.js';
 
-/** style.toneMapping names -> three constants */
-export const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
-
-/**
- * Exposure over the day: [[time 0-1, exposure], ...] sorted by time, wrapping across midnight (after the last row it blends back to the first),
- * or (sky) => number. Returns the per-frame function, null for a plain number (set once)
- */
-function exposureDriver(v) {
-  if (typeof v === 'number') return null;
-  if (typeof v === 'function') return v;
-  const ok = Array.isArray(v) && v.length > 0 && v.every((k, i) => Array.isArray(k) && typeof k[0] === 'number' && typeof k[1] === 'number' && k[0] >= 0 && k[0] <= 1 && (i === 0 || k[0] > v[i - 1][0]));
-  if (!ok) throw new Error(`exposure must be a number, [[time 0-1, exposure], ...] sorted by time (e.g. [[0, 1.6], [0.5, 1], [0.8, 1.3]]) or (sky) => number; got ${JSON.stringify(v)}`);
-  return sky => {
-    const t = sky.timeOfDay, n = v.length;
-    let i = -1; for (let k = 0; k < n; k++) if (v[k][0] <= t) i = k;
-    const a = v[i < 0 ? n - 1 : i], b = v[(i + 1) % n];   // before the first row or after the last: the segment across midnight
-    const span = (b[0] - a[0] + 1) % 1 || 1, f = ((t - a[0] + 1) % 1) / span;
-    return a[1] + (b[1] - a[1]) * f;
-  };
-}
+export { TONE } from './look/coreParts.js';   // style.toneMapping names -> three constants (kept here for older imports)
 
 /** A short stack for "added at main.js:50" (dev): 4 frames are enough (this, add, its caller) and keep the cost low; it is formatted only when read */
 function captureStack() {
@@ -51,7 +31,7 @@ export const sceneMethods = {
     if (opts?.id != null && objs.length > 1) throw codedError('thing-id', `engine.add(a, b, …, { id: '${opts.id}' }): an id names one object; add the others in their own call`);
     const T = this._things, stack = DEV && !opts?.owner && T.wantStack() ? captureStack() : null;
     if (DEV && opts?.owner !== 'world') for (const o of objs) {
-      const rid = this.world?.idOf(o);
+      const rid = this._things.idOf(o);
       if (rid) throw codedError('thing-owned', `engine.add(): this object is the model of world record '${rid}' (world builds, places and tears it down). Change the record instead: ops.run('thing.set', { id: '${rid}', position }) or world.set / world.move`);
     }
     this.scene.add(...objs);
@@ -67,7 +47,7 @@ export const sceneMethods = {
    * @param {string | import('three').Object3D} idOrObj
    * @returns {import('../types/core').Thing}
    */
-  thing(idOrObj) { return thing(this, idOrObj, recordThing); },
+  thing(idOrObj) { return thing(this, idOrObj); },
   /** @internal Dev: a module found two systems managing one object; listed in describe().scene.conflicts and warned once (code thing-owned) */
   thingConflict(text) { this._things.conflict(text); },
   /** Detach from the parent only (no GPU release; use when you will add it back). Use remove for objects you are done with */
@@ -113,13 +93,8 @@ export const sceneMethods = {
     if (this.scene.fog) { this.scene.fog.far = d; this.scene.fog.near = d * 0.3; }
     this.camera.far = d + 150; this.camera.updateProjectionMatrix();
   },
-  setToneMapping(kind) {
-    if (!(kind in TONE)) throw new Error(`engine.setToneMapping('${kind}'): use ${Object.keys(TONE).map(k => `'${k}'`).join(' | ')}`);
-    this.renderer.toneMapping = TONE[kind];   // three recompiles each material on its next draw (tone mapping is part of its program)
-  },
-  setExposure(v) {
-    // keyframes / a function become exposureDriver, which a time-of-day module (sky) evaluates each frame; core knows no time of day
-    this.exposureDriver = exposureDriver(v);
-    if (typeof v === 'number') this.renderer.toneMappingExposure = v;
-  }
+  /** Renamed in 0.2: throws and names the new call, engine.look.tone.set({ mapping }). @param {string} _kind @returns {never} */
+  setToneMapping(_kind) { return renamed('setToneMapping'); },
+  /** Renamed in 0.2: throws and names the new call, engine.look.tone.set({ exposure }). @param {any} _v @returns {never} */
+  setExposure(_v) { return renamed('setExposure'); }
 };

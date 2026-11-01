@@ -77,3 +77,32 @@ write a template, add a placement with an id. Delete the `engine.add` line. Noth
 ## 6. Verify
 `threedog check` flags the startup calls above; `engine.world.origin(id)` and `engine.pick(x, y).thing` say where a record came from (`30-templates.md`
 §5); `engine.world.query({ kind: 'windmill' })` lists the records a save would hold.
+
+## 7. Why is this mesh this colour? (material provenance)
+
+`engine.inspect.scene()` / `npx threedog scene` list, for each mesh, one `material:` line and the renderer line (tone mapping, exposure; the same text as `describe().render`). Diagnostics only: nothing about the look changes.
+
+```
+renderer: ACES (style) exposure 1.1 (style) shadows soft (engine)
+✓ roof [Mesh] (4, 3, 0) r=2 · MeshLambertMaterial/roof
+    material: roof from pack-spec [color] · MeshLambertMaterial #3b5168 · map x color #3b5168 (vertexColors off) · map (base colour)
+      note: map already carries colour and color #3b5168 is not white: the result is map x color (fine when it is a tint)
+```
+
+- `from` is `pack-spec | pack-instance | pack-function | call-params | default`, `keys` the params the call passed; both come from `userData.materialSource`, which `makeMaterial` records (a material made by hand shows `unknown`).
+- `--json` carries `material.info[]` per mesh: role, from, keys, type, color, maps (base colour vs detail), vertexColors, side, transparent, opacity, colorPath, notes.
+- The tint note is not an error: a map times a non-white colour is how tinting works.
+
+## 8. When to write plain three.js directly, and which integrations you lose
+
+Plain three.js is always allowed (`engine.scene`, `engine.renderer`, `engine.camera` are the real objects; `engine.add(obj, { id })` keeps it saveable). Write it directly for a one-off effect, a special mesh, a shader nothing else shares. What you give up depends on how the material or pass was made:
+
+| You wrote | Not applied to it |
+|---|---|
+| `new THREE.MeshStandardMaterial(...)` (not `makeMaterial` / a look material) | wind sway, snow and season cover, cloud shadows, the engine fog hook, cascaded shadows, `look.surface` lighting and detail, `look.materials` roles, `debug.view` modes |
+| your own `EffectComposer` / render call | `engine.post` effects, `look.post`, adaptive resolution, photo mode, `describe().render.post` |
+| `renderer.toneMappingExposure = x`, `scene.fog = ...` | the owner record and the debug layer (`describe().look` tags it `three`); the sky keeps writing fog unless `look.fog.replace('manual')` |
+
+Keep the integrations by going through the engine: `engine.makeMaterial('role', {...})` for the material, `look.materials.patch(name, { glsl }, { roles })` to add GLSL to a role, `look.post.patch(name, { glsl, slot })` or `look.post.replace([...])` for a screen effect.
+
+`patch` vs `replace`: `patch(hook, glsl)` swaps one registered hook (`threedogWind`, `threedogFog`, `threedogLighting`, the water `wave`) and the rest of the engine's shader stays, so the integrations above still work. `replace(impl)` hands over the whole part (the ground material, the water surface, the whole post chain): everything that part did is now yours, including the fog, shadow and season hooks inside it. Prefer `patch`; use `replace` when the hook is too small. `engine.catalog('look.<part>')` lists the hooks and what each `replace` loses.

@@ -101,3 +101,14 @@ export function formatCompare(r) {
     r.summary, r.note,
   ].join('\n');
 }
+
+/** One number for "did the picture change": mean absolute RGB difference of the two pictures at 128x72, 0 = identical, 1 = black vs white */
+export async function pixelDiff(fileA, fileB) {
+  const a = await openImage(fileA), b = await openImage(fileB).catch(async e => { await a.close(); throw e; });
+  try {
+    const size = [128, 72], [A, B] = [await a.read(undefined, { size }), await b.read(undefined, { size })];
+    let sum = 0, n = 0;
+    for (let i = 0; i < A.data.length; i += 4) { for (let c = 0; c < 3; c++) sum += Math.abs(A.data[i + c] - B.data[i + c]); n += 3; }
+    return +(sum / n / 255).toFixed(4);
+  } finally { await a.close(); await b.close(); }
+}

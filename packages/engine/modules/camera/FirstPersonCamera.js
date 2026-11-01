@@ -3,7 +3,7 @@
 //   - Mobile: drag to turn
 //   - Slight vertical bob while walking (headBob), can be turned off
 //   - hideTarget: hide the followed character from the camera (no seeing inside your own body); the shadow stays
-// Cutscene takeover: when engine.cameraOverride is set the camera is left alone (see common.js).
+// Cutscene takeover: while someone holds engine.takeCamera (engine.cameraOverride is not null) the camera is left alone (see common.js).
 //
 //   engine.use(firstPersonCamera({ height: 1.6, sensitivity: 1, fov: 70, headBob: 0.04, pointerLock: true }));
 //   engine.cameraRig.yaw = Math.PI;       // set facing directly
@@ -11,7 +11,6 @@
 //   engine.setCamera('follow');           // switch back to third person at runtime (mouse lock releases, body shows again); see recipes/21-camera.md
 import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, clickToLock, releaseLock } from './common.js';
-import { checkOptions } from '../../core/validate.js';
 import { vec3 } from '../../core/math.js';
 
 export class FirstPersonCamera {
@@ -127,7 +126,6 @@ Object.assign(FirstPersonCamera.prototype, YAW_RIG);   // forward / right / focu
  */
 export function firstPersonCamera(opts = {}) { return rigModule('firstPerson', opts); }
 defineRig('firstPerson', (e, opts) => {
-  checkOptions('firstPersonCamera()', opts, ['height', 'sensitivity', 'fov', 'headBob', 'bobFrequency', 'hideTarget', 'hideLayer', 'pointerLock', 'yaw', 'pitch',
-    'minPitch', 'maxPitch', 'yawLimits', 'smoothing', 'invertY', 'swallowLockClick']);
   return new FirstPersonCamera(e, opts);
-});
+}, ['height', 'sensitivity', 'fov', 'headBob', 'bobFrequency', 'hideTarget', 'hideLayer', 'pointerLock', 'yaw', 'pitch',
+    'minPitch', 'maxPitch', 'yawLimits', 'smoothing', 'invertY', 'swallowLockClick']);

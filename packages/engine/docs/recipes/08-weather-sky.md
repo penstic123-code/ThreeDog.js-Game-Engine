@@ -52,7 +52,7 @@ sky({ seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }], dayLength
 **Don't modify directly** `sky.sun.intensity / color`, `sky.hemi`, `scene.fog`: the sky recomputes them every frame and overwrites your change (the
 console warns about it during development).
 To darken or tint everything (a cave, a horror segment), write a modifier layer of your own; it stacks with the weather's 'weather' layer without
-overwriting it:
+overwriting it (multiplier layers vs `look.lights` overrides: [recipe 52](52-look.md#skymodify-vs-looklights)):
 ```js
 engine.sky.modify('cave', { sun: 0.3, ambient: 0.4, fog: 0.5 });     // enter the cave: layers multiply
 engine.sky.modify('cave', { tint: 0x402030, tintAmount: 0.5 });       // changes only the given fields (this layer's sun/ambient stay)

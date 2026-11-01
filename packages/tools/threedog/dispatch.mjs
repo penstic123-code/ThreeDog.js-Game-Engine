@@ -8,11 +8,11 @@
 //     text     what the CLI prints and the MCP text content carries: the command's lines, then one line saying the state and the way back to normal.
 //              Plain-data outputs (eval / js, describe with a path or --full / --all) get no state line, so their text stays parseable; runtime still has it.
 import { run, COMMANDS } from './commands.mjs';
-import { bridgeDriver, devServer, errorText, scenario } from './connect.mjs';
+import { bridgeDriver, devServer, errorText } from './connect.mjs';
 import { diagnose } from './diagnose.mjs';
-import { readRuntime, trailer } from './runtime.mjs';
+import { readRuntime, trailer, NONE } from './runtime.mjs';
 import { play, status } from './play.mjs';
-import { verify } from './verify.mjs';
+import { verify, scenarioReport } from './verify.mjs';
 
 /** Commands outside commands.mjs: they work (or explain why not) without a running page */
 export const EXTRA = {
@@ -30,6 +30,11 @@ const plain = (cmd, args) => cmd === 'eval' || cmd === 'js' || (cmd === 'describ
   || (!a.startsWith('--') && args[i - 1] !== '--max')));
 
 export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
+  // a mistyped command name is answered as that, not as "no dev server" (which is what the bridge check below would say first)
+  if (!ALL[cmd]) {
+    const text = `✗ no command "${cmd}"\nAvailable: ${Object.keys(ALL).join(', ')}, session`;
+    return { ok: false, code: 'command-error', summary: `no command "${cmd}"`, runtime: { ...NONE, blockedBy: [] }, data: null, text };
+  }
   let r, driver, runtime = null, thrown = false, code = null;
   try {
     if (cmd === 'play') r = await play(dir, { page, stop: args.includes('--stop') });
@@ -38,7 +43,7 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
       devServer(dir);
       const base = bridgeDriver(dir, { page });
       driver = { ...base, screenshot: async () => { const png = await base.screenshot(); onShot?.(png); return png; } };
-      r = cmd === 'verify' ? await verify(driver, dir, args[0]) : cmd === 'scenario' ? await scenario(driver, dir, args[0]) : await run(driver, cmd, args, { dir });
+      r = cmd === 'verify' ? await verify(driver, dir, args[0]) : cmd === 'scenario' ? await scenarioReport(driver, dir, args[0]) : await run(driver, cmd, args, { dir });
     }
     runtime = r.runtime ?? null;
   } catch (e) {
@@ -49,7 +54,7 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
     if (dx) driver = null;
   }
   if (driver) runtime = (await readRuntime(driver)).runtime;
-  const rt = runtime ?? { ready: false, mode: null, tick: null, headless: false, blockedBy: [] };
+  const rt = runtime ?? { ...NONE, blockedBy: [] };
   // code tells the three kinds of "not ok" apart without reading prose: blocked (the command ran and was refused / found a problem), not-ready (the page is not
   // ready), a connection cause (no-server | starting | page-error | no-bridge), command-error (bad arguments or an exception in the page)
   code ??= r.ok ? 'ok' : r.kind ?? (rt.ready ? 'blocked' : 'not-ready');

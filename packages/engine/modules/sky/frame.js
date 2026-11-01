@@ -12,7 +12,7 @@ const STRINGS = {
   sunColor: "edit style pack sky.keyframes or use engine.sky.modify('layerName', { tint, tintAmount })",
   sunPos: 'sun position is driven by sky.timeOfDay',
   hemi: "use engine.sky.modify('layerName', { ambient })",
-  fog: "use engine.sky.modify('layerName', { fog }) or engine.setFogFar(); to own scene.fog, create the sky with sky({ fog: 'manual' }) (or false)",
+  fog: "use look.fog.set({ color, density, far }), engine.sky.modify('layerName', { fog }) or engine.setFogFar(); to own scene.fog, create the sky with sky({ fog: 'manual' }) (or false)",
   modifiers: "sky.modifiers is the composite of all layers; use engine.sky.modify('layerName', { sun, ambient, fog, ... })",
 };
 
@@ -27,7 +27,7 @@ export function watchOwned(sky) {
     D.sun !== false && ownedProps('sky.sun.position', () => sky.sun.position.toArray(), STRINGS.sunPos),
     D.hemi === true && ownedProps('sky.hemi', () => [sky.hemi.intensity, ...sky.hemi.color.toArray(), ...sky.hemi.groundColor.toArray()], STRINGS.hemi),
     // fog: the object itself, color, near/far ratio (engine.setFogFar keeps the ratio, so it is not a violation)
-    D.fog === true && ownedProps('scene.fog', () => [fog(), ...(fog()?.color?.toArray() ?? []), fog()?.near / fog()?.far], STRINGS.fog),
+    D.fog === true && ownedProps('scene.fog', () => sky._fogHeld ? [null] : [fog(), ...(fog()?.color?.toArray() ?? []), fog()?.near / fog()?.far], STRINGS.fog),
     ownedProps('sky.modifiers', () => { const M = sky.modifiers; return [M.sun, M.ambient, M.fog, M.tintAmount, M.horizonTintAmount, M.flash, ...M.tint.toArray()]; }, STRINGS.modifiers),
   ].filter(Boolean);
 }
@@ -66,8 +66,9 @@ export function updateSky(sky, focus) {
     sky.hemi.color.copy(u.uTop.value).lerp(u.uHorizon.value, 0.5);
     sky.hemi.groundColor.copy(sky.groundTint).multiplyScalar(0.4 + 0.6 * Math.min(1, hemiI));
   }
+  sky.engine.look.lights.applyTop();   // a game look.lights.set({ sun: { intensity } }) wins over the keyframes (look/part.js)
   const ex = sky.engine.exposureDriver;
-  if (ex) sky.engine.renderer.toneMappingExposure = ex(sky);   // style.exposure keyframes / function (engine.setExposure)
+  if (ex) sky.engine.renderer.toneMappingExposure = ex(sky);   // style.exposure keyframes / function (engine.look.tone.set)
 
   if (sky.skybox) sky.engine.scene.backgroundIntensity = Math.max(0.05, hemiI * M.ambient / 1.2);
   if (sky.csm) cascadeFrame(sky, lightDir);   // cascades place their own lights from the camera (cascades.js)

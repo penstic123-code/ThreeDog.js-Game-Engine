@@ -70,3 +70,15 @@ export function groupFuse(on) {
   }
   return out;
 }
+
+// Only the buffer the scene render wrote holds scene depth: after a pass that swaps buffers, readBuffer.depthTexture is another
+// target's (a fullscreen quad's, or stale). A depth reader behind such a pass would silently find nothing, so the chain refuses it.
+export function checkDepthOrder(chain) {
+  let swapped = null;
+  for (const e of chain) {
+    if (e._def?.needsDepth && swapped)
+      throw new Error(`post effect '${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers, so the depth it would read is not the scene's; ` +
+        `give '${e.name}' a lower order or an earlier slot than '${swapped}', or turn one of them off`);
+    if (e._impl.needsSwap && !e._impl.keepsDepth) swapped ??= e.name;
+  }
+}

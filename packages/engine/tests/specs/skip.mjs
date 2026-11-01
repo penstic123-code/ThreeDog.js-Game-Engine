@@ -73,7 +73,7 @@ export const specs = [
       const want = days.flatMap(d => [`new${d}`, ...(d === 8 ? ['summer'] : d === 15 ? ['autumn'] : []), `d${d}`, `n${d}`]).concat(`skip${8 * r.dayLength}`);
       check('8 days from day 7 23:00: day 15, 23:00, autumn', r.startSeason === 'spring' && r.day === 15 && r.clock === '23:00' && r.season === 'autumn', JSON.stringify(r));
       check('day:start, onSeason, daily and at fire once per crossing in time order', r.log.join(',') === want.join(','), `got  ${r.log.join(',')}\nwant ${want.join(',')}`);
-      check('time.skip op refuses seconds <= 0; skip({}) throws with the fix', r.bad.ok === false && r.bad.reason === 'notForward' && /to: "06:00"/.test(r.threw), JSON.stringify(r.bad) + ' ' + r.threw);
+      check('time.skip op refuses seconds <= 0; skip({}) throws with the fix', r.bad.ok === false && r.bad.code === 'notForward' && /to: "06:00"/.test(r.threw), JSON.stringify(r.bad) + ' ' + r.threw);
     },
   },
   {

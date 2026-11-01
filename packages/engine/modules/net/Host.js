@@ -57,7 +57,7 @@ export class NetHost {
 
   request(peer, m) {
     const e = this.e, seq = isNum(m.seq) ? m.seq : 0, name = typeof m.name === 'string' ? m.name : '';
-    const reply = (ok, reason, value) => peer.results.push({ t: 'r', seq, name, ok, reason: reason ?? null, value: plain(value), tick: e.tick });
+    const reply = (ok, code, value) => peer.results.push({ t: 'r', seq, name, ok, code: code ?? null, value: plain(value), tick: e.tick });
     const d = e.ops.defs.get(name), args = m.args ?? {};
     const reason = this.gate(peer, d, args);
     if (reason) {
@@ -67,7 +67,7 @@ export class NetHost {
       return;
     }
     const r = e.ops.run(name, args, { source: 'net', actor: peer.actor });
-    reply(r.ok, r.reason, r.value);
+    reply(r.ok, r.code, r.value);
   }
   /** returns a reason string when the request is refused at the door */
   gate(peer, d, args) {

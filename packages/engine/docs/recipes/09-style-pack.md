@@ -170,9 +170,9 @@ import { LUTPass } from 'three/addons/postprocessing/LUTPass.js';
 const toon = { name: 'toon', post: [outline({ enabled: true, thickness: 1.5 }), bloom({ strength: 0.2 }),
   { name: 'lut', slot: 'ldr', params: { lut: myLut }, create: ({ params }) => new LUTPass({ lut: params.lut }) }] };
 // at runtime (settings, photo mode, a game's own effect):
-engine.post.get('bloom')?.set({ strength: 0.6 });
-engine.post.enable('outline', false);          // also engine.post.enable('antialias', false)
-const h = engine.post.add(myVignette, { slot: 'ldr', order: 10 }); h.remove();
+engine.look.post.set({ 'bloom.strength': 0.6 });
+engine.look.post.set({ 'outline.enabled': false });   // MSAA: engine.post.setAntialias(false)
+engine.look.post.patch('vignette', { glsl: 'color.rgb *= 0.9;', slot: 'ldr', order: 10 });   // patch('vignette', null) removes it
 ```
 An effect that reads scene depth (`needsDepth: true`, e.g. `outline`) must run before any pass that swaps buffers (a `ShaderPass`, a scene-slot
 `RenderPixelatedPass`, the tone-mapping output): only the buffer the scene render wrote holds scene depth. A chain that breaks this throws when the
@@ -191,8 +191,8 @@ until `enabled: true`.
 ```js
 import { vignette, grain, lut } from '@threedog/post-effects';
 createEngine({ canvas, style: [lowpoly, postAdd(lut({ saturation: 1.1, temperature: 0.15 }), vignette(), grain({ amount: 0.04 }))] });
-engine.post.enable('vignette', true);             // photo mode, settings...
-engine.post.get('grain')?.set({ amount: 0.1 });   // updates in place
+engine.look.post.set({ 'vignette.enabled': true });   // photo mode, settings...
+engine.look.post.set({ 'grain.amount': 0.1 });        // updates in place
 ```
 `fuse` is how a light color effect avoids a fullscreen pass of its own: instead of `create()` it carries a GLSL snippet
 `fuse: { uniforms: { uMyAmount: 'float' }, values: p => ({ uMyAmount: p.amount }), glsl: 'color.rgb *= 1.0 - uMyAmount * length(vUv - 0.5);' }`.

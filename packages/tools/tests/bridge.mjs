@@ -92,6 +92,9 @@ export async function run({ check, browser }) {
       ex.code === 1 && /notEnough \(Not enough\)[\s\S]*last attempt/.test(ex.out) && ins.out.includes('test.take item=film') && sc.code === 0
         && /scenario tmp-bridge: 2 checks passed/.test(sc.out), [ex.out, ins.out, sc.out].join(' | '));
     check('verify: PASS, tested and not tested', vf.code === 0 && /verify tmp-bridge: PASS/.test(vf.out) && vf.out.includes('Tested: ops test.take') && vf.out.includes('Not tested:'), vf.out);
+    check('verify: evidence report has layers, NOT proven (pointer lock / GPU / FPS) and untested coverage',
+      /Evidence \(per check[\s\S]*direct: 2 checks/.test(vf.out) && /NOT proven: .*pointer lock.*real GPU.*real FPS/.test(vf.out) && /Coverage \([\w. +]+\): ops [1-9]\d*\/\d+ ran \(refused: test\.take\) · modules \d+ tested, \d+ indirect, \d+ untested/.test(vf.out)
+        && /scenario tmp-bridge: 2 checks passed\nCoverage[^\n]*refused: test\.take/.test(sc.out), vf.out.split('\n').filter(l => /^Coverage|untested/.test(l)).join(' | ').slice(0, 300) + ' || ' + sc.out);
     // loading: the same view as describe().loading; a degradable missing file shows as a failure with path and fallback, exit code 1
     await threedog('js', "engine.assets.manifest({ name: 'bridge-test', textures: { bridgeMissing: '/textures/bridge-missing.png' } }); await " +
       "engine.assets.texture('bridgeMissing'); return 1");

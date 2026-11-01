@@ -11,7 +11,7 @@
 import { checkOptions } from '../../core/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 
-const KEYS = ['glsl', 'uniforms', 'order', 'blend'];
+const KEYS = ['glsl', 'uniforms', 'order', 'blend', 'name'];   // name: the layer's name for look.sky.patch('layer:<name>')
 
 /** Check the layer list and return { uniforms, decl, body } for the dome shader (empty strings without layers) */
 export function resolveDomeLayers(list) {

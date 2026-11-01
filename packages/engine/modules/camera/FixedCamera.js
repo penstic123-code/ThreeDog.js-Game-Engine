@@ -4,7 +4,7 @@
 //     and a tag 'camera:<shot name>' switches to that shot (triggerBlend decides how)
 //   - A shot can look at a fixed point (lookAt) or turn with the player via track: true
 //   - Movement direction follows the current view: pressing "up" walks into the screen. If a direction key is still held at a shot change, the old direction is kept until release
-// Cutscene takeover: when engine.cameraOverride is set the camera is left alone (see common.js).
+// Cutscene takeover: while someone holds engine.takeCamera (engine.cameraOverride is not null) the camera is left alone (see common.js).
 //
 //   engine.use(fixedCamera({
 //     shots: {
@@ -157,6 +157,6 @@ export class FixedCamera {
  */
 export function fixedCamera(opts = {}) { return rigModule('fixed', opts); }
 defineRig('fixed', (e, opts) => {
-  checkOptions('fixedCamera()', opts, ['shots', 'start', 'auto', 'autoInterval', 'hysteresis', 'triggerBlend', 'trackHeight', 'trackSmoothing', 'holdDirection', 'ease']);
   return new FixedCamera(e, opts);
-});
+}, ['shots', 'start', 'auto', 'autoInterval', 'hysteresis', 'triggerBlend', 'trackHeight', 'trackSmoothing', 'holdDirection', 'ease',
+  'position', 'lookAt', 'track', 'fov', 'projection', 'size', 'at']);   // the last row: setCamera('fixed', { position, lookAt }) is a one-shot form

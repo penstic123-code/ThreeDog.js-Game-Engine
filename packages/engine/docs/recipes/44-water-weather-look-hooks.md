@@ -118,16 +118,18 @@ engine.events.on('weather:lightning', () => spawnBolt());          // when it st
 ```
 
 ## Particles of the game's own weather
-A field of the game's own weather table (`ash`, `petals`, `sparks`) gets particles with `engine.weather.define(field, spec)`; the amount is
+A field of the game's own weather table (`ash`, `petals`, `sparks`) gets particles with `engine.look.weather.replace({ [field]: spec })`; the amount is
 `engine.weather.current[field]`, so they fade in and out with the weather. The spec takes the rain / snow keys above (default: drifting
 round sprites), or `create` for a system of your own:
 
 ```js
 engine.use(sky(), weather({ types: { clear: {}, ashfall: { ash: 1, grey: 0.5, sun: 0.6 } } }));
-engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
-engine.weather.define('rain', { create: (engine, { area, count }) => {   // the same call replaces rain or snow
+engine.look.weather.replace({ ash: { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 } });
+engine.look.weather.replace({ rain: { create: (engine, { area, count }) => {   // the same call replaces rain or snow
   const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03), new THREE.MeshBasicMaterial({ color: 0x99bbff }), count);
   return { object: drops, update(amount, { camera, time, wind }) { /* move the instances; shown while amount > 0.02 */ } };
-} });
+} } });
 ```
 A field no type has throws with the table's fields. Rain and snow are built only when a type rains or snows, so a desert pays nothing.
+
+> Water and weather are also look parts (`engine.look.water`, `engine.look.weather`): recipes/52-look.md, "Water, weather, post".

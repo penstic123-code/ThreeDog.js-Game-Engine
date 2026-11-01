@@ -74,7 +74,7 @@ function pageRun(seq) {
         const can = ops.can('inventory.transfer', { from: cid(s.from), to: cid(s.to), item: s.item, n: s.n });
         const r = ops.run('inventory.transfer', { from: cid(s.from), to: cid(s.to), item: s.item, n: s.n }, { source: 'test' });
         if (total() !== tBefore) return fail(`rule 1: total ${tBefore} -> ${total()}`);
-        if (!r.ok && snap() !== before) return fail(`rule 2: op refused (${r.reason}) but state changed`);
+        if (!r.ok && snap() !== before) return fail(`rule 2: op refused (${r.code}) but state changed`);
         if ((can === true || can?.ok) !== r.ok) return fail(`can() said ${JSON.stringify(can)} but run gave ok=${r.ok}`);
       } else if (s.t === 'badTransfer') {
         const args = s.kind === 'noBox' ? { from: 'nowhere', to: 'bag', item: s.item } : s.kind === 'zero' ? { from: 'chest', to: 'bag', item: s.item, n: 0 } : { from: 'chest', to: 'bag', item: s.item, n: 999 };
@@ -83,7 +83,7 @@ function pageRun(seq) {
         if (snap() !== before) return fail('rule 2: an invalid transfer changed state');
       } else if (s.t === 'trade') {
         const r = ops.run('inventory.trade', { take: s.take, give: s.give }, { source: 'test' });
-        if (!r.ok && snap() !== before) return fail(`rule 2: trade refused (${r.reason}) but state changed`);
+        if (!r.ok && snap() !== before) return fail(`rule 2: trade refused (${r.code}) but state changed`);
         if (r.ok && s.take === s.give && total() !== tBefore) return fail('trade of an item for itself changed the total');
       } else if (s.t === 'save') {
         await E.saves.save('pbt'); await E.saves.flush(); saved = true; snapAtSave = snap();

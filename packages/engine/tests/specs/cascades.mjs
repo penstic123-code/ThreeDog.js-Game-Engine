@@ -27,7 +27,7 @@ export const specs = [
         const basic = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
         engine.scene.add(tree, basic);
         const right0 = sun.shadow.camera.right, calls1 = engine.budget.byTag().reduce((a, s) => a + s.drawCalls, 0);
-        sky.setShadow({ cascades: 3 });
+        engine.look.shadow.set({ cascades: 3 });
         engine.step(1 / 30, { describe: false });
         out.on = { names: materialPatches(m).join(), before, depth: materialPatches(tree.customDepthMaterial).join(), basic: materialPatches(basic.material).join(),
           lights: sky.csm.lights.length, sunFirst: sky.csm.lights[0] === sun, inScene: sky.csm.lights.every(l => l.parent === engine.scene), cast: sky.csm.lights.every(l => l.castShadow) };
@@ -41,11 +41,11 @@ export const specs = [
         const late = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()); engine.scene.add(late);
         engine.step(1 / 30, { describe: false });
         out.late = materialPatches(late.material).join();
-        out.bad = { count: err(() => sky.setShadow({ cascades: 5 })), split: err(() => sky.setShadow({ cascades: 2, split: 'logarithmc' })), kept: sky.shadow.cascades };
+        out.bad = { count: err(() => engine.look.shadow.set({ cascades: 5 })), split: err(() => engine.look.shadow.set({ cascades: 2, split: 'logarithmc' })), kept: sky.shadow.cascades };
         out.clash = err(() => patchMaterial(new THREE.MeshLambertMaterial(), [{ name: 'a', glsl: { fragment: { lights_fragment_begin: { replace: '// a' } } } },
           { name: 'b', glsl: { fragment: { lights_fragment_begin: { replace: '// b' } } } }]));
         const extra = sky.csm.lights.slice(1);
-        sky.setShadow({ cascades: 1 });
+        engine.look.shadow.set({ cascades: 1 });
         engine.step(1 / 30, { describe: false });
         out.off = { names: materialPatches(m).join(), late: materialPatches(late.material).join(), csm: sky.csm, gone: extra.every(l => !l.parent), right: sun.shadow.camera.right === right0,
           chunks: THREE.ShaderChunk.lights_fragment_begin === chunks[0] };
@@ -124,16 +124,16 @@ export const specs = [
           out.perf[mode] = { ms: +((performance.now() - t0) / 6).toFixed(1), calls: Math.round(info.render.calls / 6), passes: R.shadowMap.enabled ? engine.scene.children.filter(o => o.isLight && o.castShadow && o.visible).length : 0 };
           info.autoReset = auto;
         };
-        sky.setShadow({ cascades: 1 }); measure('single');
-        sky.setShadow({ cascades: 3 }); measure('csm3');
+        engine.look.shadow.set({ cascades: 1 }); measure('single');
+        engine.look.shadow.set({ cascades: 3 }); measure('csm3');
         // seams: borders close in (maxFar 50 m: about 9 m, 21 m, 50 m), so the poles at 7-22 m straddle both borders; the shadow of
         // each pole must sit where the single map puts it and the lit floor must be as bright as with one map
         const seam = mode => {
           engine.ops.run('styletest.view', { name: 'path' }); frame(); frame(); frame();
           return poles.map(pl => { const p = profile(pl); return { dist: pl.dist, center: (p.e1 + p.e2) / 2, lit: p.lit, dark: p.dark }; });
         };
-        sky.setShadow({ cascades: 1 }); const a = seam('single');
-        sky.setShadow({ cascades: 3, maxFar: 50 }); const b = seam('csm3');
+        engine.look.shadow.set({ cascades: 1 }); const a = seam('single');
+        engine.look.shadow.set({ cascades: 3, maxFar: 50 }); const b = seam('csm3');
         const far = Math.min(cam.far, 50);
         out.seam.breaks = sky.csm.breaks.map(x => +(x * far).toFixed(1));
         out.seam.shift = +Math.max(...a.map((x, i) => Math.abs(x.center - b[i].center) * 100)).toFixed(2);
@@ -141,7 +141,7 @@ export const specs = [
         out.seam.litRatio = +Math.max(...a.map((x, i) => Math.abs(b[i].lit / x.lit - 1))).toFixed(3);
         out.seam.nan = b.filter(x => Number.isNaN(x.center)).length;
         out.seam.centers = [a, b].map(l => l.map(x => +(x.center * 100).toFixed(1)));
-        sky.setShadow({ cascades: 1, maxFar: 120 });
+        engine.look.shadow.set({ cascades: 1, maxFar: 120 });
         engine.scene.remove(rig); for (const o of kept) o.visible = true;
         engine.ops.run('styletest.view', { name: 'overview' }); engine.resume();
         return out;

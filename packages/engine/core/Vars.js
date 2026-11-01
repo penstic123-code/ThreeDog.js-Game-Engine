@@ -11,6 +11,7 @@ export class Vars {
     this.flags = {};
     this.counters = {};
     engine.saves.register('vars', {
+      atomic: true,
       save: () => ({ flags: { ...this.flags }, counters: { ...this.counters } }),   // copy: save data must not share objects with the live state
       load: d => { this.replace(d?.flags, d?.counters); },
     });

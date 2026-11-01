@@ -47,7 +47,8 @@ export async function planIds(dir) {
 
 async function main(argv) {
   const [sub, ...rest] = argv;
-  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies)'); return 1; }
+  if (sub === 'set') return (await import('./content-set.mjs')).main(rest);
+  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies) · threedog content set <id> <field> <json> [--in file] [--dry]'); return 1; }
   let dir, args;
   try { ({ dir, args } = pickWorkspace(rest)); } catch (e) { console.log('✗ ' + e.message); return 1; }
   const folder = args.find(a => !a.startsWith('-'));   // or a game folder by path (the engine's examples are not workspaces)

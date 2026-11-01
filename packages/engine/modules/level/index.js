@@ -60,7 +60,7 @@
 import * as THREE from 'three';
 import { buildHeightfield } from './heightfield.js';
 import { toast } from '../../ui/UI.js';
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { MARKER_RE, levelNodes } from './nodes.js';
 import { worldTrimeshes, colliderBoxes } from './geometry.js';
 
@@ -82,7 +82,10 @@ function chainValue(o, root, key) {
   return undefined;
 }
 
+const LEVEL_PARAMS = keysSchema(['url', 'scene', 'walkable', 'colliders', 'cellSize', 'outside', 'waterLevel', 'colliderPad', 'colliderHeight', 'sharpEdge', 'hideMarkers', 'addToScene']);
+
 export function level(opts = {}) {
+  readParams('level', LEVEL_PARAMS, opts);
   const { url = null, scene = null, walkable = null, colliders = 'named', cellSize = 0.5, outside = 0, waterLevel = -Infinity,
     colliderPad = 0, colliderHeight = 0, sharpEdge = 0.6, hideMarkers = true, addToScene = true } = opts;
   let e = null, hf = null, done = false, version = 0, trimeshCache = null, pendingColliders = null;
@@ -197,11 +200,10 @@ export function level(opts = {}) {
   }
 
   return {
-    name: 'level', label: 'Level', stage: 'world', after: ['terrain'], optional: ['world', 'content'],
+    name: 'level', params: LEVEL_PARAMS, options: opts, label: 'Level', stage: 'world', after: ['terrain'], optional: ['world', 'content'],
     install(engine) {
       e = engine;
       nodeSet = levelNodes(e, () => api.root, () => current);
-      checkOptions('level()', opts, ['url', 'scene', 'walkable', 'colliders', 'cellSize', 'outside', 'waterLevel', 'colliderPad', 'colliderHeight', 'sharpEdge', 'hideMarkers', 'addToScene']);
       e.i18n.add(STRINGS);
       // ground API: before the heightfield is built, return the outside height
       e.setGround({

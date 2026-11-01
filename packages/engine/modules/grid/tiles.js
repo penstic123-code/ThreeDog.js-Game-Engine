@@ -2,7 +2,7 @@
 // whose four corners sit on engine.surface + lift, so tiles hug a ramp or terrain and work on any ground provider
 // (procedural terrain, a Blender level, a flat greenhouse floor). One merged mesh = one draw call; it is rebuilt only when
 // the layer version or the ground (level:loaded) changes.
-// Look: layer option tiles.look(data, cell) -> color | null, else the style pack table style.grid.tiles[layer] = { field: color }
+// Look: layer option tiles.look(data, cell) -> color | null, else tiles.colors = { field: color } (call site, same shape as the style table), else the style pack table style.grid.tiles[layer] = { field: color }
 // (first truthy field in the table's order wins), else neutral gray. tiles: false = off; a function = your own part.
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
@@ -11,12 +11,16 @@ import { surfaceOr } from '../../core/ground.js';
 const GAP = 0.03;   // fraction of a cell left between tiles: keeps tiles visibly separate (crisp edges)
 const FALLBACK = 0x9a9a9a;
 
-/** Look function from the style pack table (null if the style has none for this layer) @internal */
-function styleLook(e, name) {
-  const table = e.style.grid?.tiles?.[name];
+/** Look function from a { field: color } table: the first truthy field in the table's order wins (same table shape as style.grid.tiles[layer]; the call-site option tiles.colors wins over the style) @internal */
+function tableLook(table) {
   if (!table) return null;
   const order = Object.entries(table);
   return d => { for (const [f, c] of order) if (d[f]) return c; return null; };
+}
+
+/** Look function from the style pack table (null if the style has none for this layer) @internal */
+function styleLook(e, name) {
+  return tableLook(e.style.grid?.tiles?.[name]);
 }
 
 /** Build the tile view of a layer, or null when off. Returns { frame(), dispose() } @internal */
@@ -24,7 +28,7 @@ export function layerTiles(e, layer) {
   const t = layer.opts.tiles, name = layer.name;
   if (t === false) return null;
   if (typeof t === 'function') return customTiles(e, layer, t(e, layer));
-  const look = (t && typeof t === 'object' && t.look) || styleLook(e, name) || (t ? () => FALLBACK : null);
+  const look = (t && typeof t === 'object' && (t.look || tableLook(t.colors))) || styleLook(e, name) || (t ? () => FALLBACK : null);
   if (!look) return null;   // no style table and not asked for: a pure data layer
   const lift = (t && typeof t === 'object' && t.lift) ?? e.style.grid?.tileLift ?? 0.03;
   const mat = makeMaterial('decal', { vertexColors: true }, e);

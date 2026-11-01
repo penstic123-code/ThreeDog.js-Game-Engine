@@ -5,7 +5,8 @@
 // Positions are always a single argument (Vector3 / Object3D / [x, y, z] / { x, z }); sizes go in the options object:
 //   const h = engine.collision.addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 });   h.remove();
 import { xzOf } from '../../core/math.js';
-import { checkOptions, checkOptionsArg } from '../../core/validate.js';
+import { checkOptionsArg } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { CollisionGrid, gridBlocks } from './grid.js';
 
 /** One axis of the slab test: narrows S.t0 / S.t1 to where the ray is inside |o + d t| <= h; false when it misses */
@@ -35,6 +36,7 @@ export class Collision {
     this.version = 0;   // +1 on every static collider add/remove; the physics module syncs on it
     this._onGroundCircle = (cx, cz, r) => this._pushCircle(this._rPos, cx, cz, r, this._rRad);   // built once: ground.forEachCollider callback
     this._camS = { from: null, to: null, ux: 0, uz: 0, len: 0, pad: 0, want: 0, best: 0, t0: 0, t1: 0 };   // cameraDistance scratch for its callbacks
+    this._lineS = { t0: 0, t1: 0 };   // lineClear slab scratch
     this._onCamCircle = (a, b, c) => this._camCircle(a, b, c);
   }
   /** Iterate all manually added static colliders (for the physics module): fn('box' | 'circle', data) */
@@ -137,6 +139,66 @@ export class Collision {
 
   /** Can anyone stand here (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (m, default engine.movement.radius) */
   walkable(position, { radius = this.engine.movement.radius } = {}) { const [x, z] = xzOf(position); return this.walkableAt(x, z, radius); }
+  /**
+   * Line of sight with height: is the 3D segment a -> b free of colliders (boxes, circles, terrain trees)? Positions like addBox ([x, y, z] / Vector3 / Object3D).
+   * Heights count: a 1 m wall does not block a sight line passing 3 m above it; a collider's `y` and `height` are honoured (no `y` = sits on the ground).
+   * Give real eye heights in a and b (`[x, 1.6, z]`); a plain { x, z } counts as y = 0. opts.radius (default 0) fattens the line, e.g. the character radius for "can I walk straight there".
+   * Ignores addBlocked fields (water is not a wall). Terrain trees have no stored height and block below `canopyHeight` above the ground. Allocates a little: not for hundreds of pairs per frame.
+   * opts.who: world record id of the asker; with events.traceSize > 0 every query is noted as a `sight` trace entry (data: from, to, clear), in full for who === events.traceFocus.
+   * @param {any} a @param {any} b @param {{ radius?: number, who?: string }} [opts]
+   * @returns {boolean} true = nothing in the way
+   * @example if (engine.collision.lineClear(guard.position, player.position, { who: 'guard-1' })) alert();   // guard sees the player
+   */
+  lineClear(a, b, opts = {}) {
+    const clear = this._lineClear(a, b, opts), ev = this.engine.events;
+    if (ev.traceSize > 0) { const A = this._vec(a), B = this._vec(b), r = x => Math.round(x * 10) / 10; ev.note('sight', { obj: opts.who, verbose: clear, data: { from: [r(A.x), r(A.y), r(A.z)], to: [r(B.x), r(B.y), r(B.z)], clear } }); }   // a clear line is the common case: only kept for the focused object; a blocked one is always kept
+    return clear;
+  }
+  /** @internal */
+  _lineClear(a, b, opts) {
+    checkOptionsArg('collision.lineClear()', opts, ['radius', 'who']); if (typeof opts !== 'object') opts = {};
+    const rad = opts.radius ?? 0;
+    const A = this._vec(a), B = this._vec(b), dx = B.x - A.x, dz = B.z - A.z, dy = B.y - A.y;
+    const S = this._lineS;
+    // y of the segment is linear in t; an obstacle occupying t in [t0, t1] blocks if the segment's y range there overlaps [bottom, top]
+    const blocks = (t0, t1, bottom, top) => {
+      t0 = Math.max(t0, 0); t1 = Math.min(t1, 1);
+      if (t0 > t1) return false;
+      const y0 = A.y + dy * t0, y1 = A.y + dy * t1;
+      return Math.max(y0, y1) > bottom && Math.min(y0, y1) < top;
+    };
+    const circle = (cx, cz, r, bottom, top) => {
+      const ox = A.x - cx, oz = A.z - cz, R = r + rad, qa = dx * dx + dz * dz, qb = 2 * (ox * dx + oz * dz), qc = ox * ox + oz * oz - R * R;
+      if (qa < 1e-12) return qc < 0 && blocks(0, 1, bottom, top);   // straight up / down
+      const disc = qb * qb - 4 * qa * qc; if (disc < 0) return false;
+      const sq = Math.sqrt(disc);
+      return blocks((-qb - sq) / (2 * qa), (-qb + sq) / (2 * qa), bottom, top);
+    };
+    const len = Math.hypot(dx, dz), mx = A.x + dx / 2, mz = A.z + dz / 2;
+    const list = this._grid.query(mx, mz, len / 2 + rad + 1);
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i];
+      if (!it._b) { const g = this.engine.surface(it.x, it.z); if (circle(it.x, it.z, it.r, g, g + it.h)) return false; continue; }
+      const ox = A.x - it.x, oz = A.z - it.z;
+      const lx = ox * it.c - oz * it.s, lz = ox * it.s + oz * it.c, ldx = dx * it.c - dz * it.s, ldz = dx * it.s + dz * it.c;
+      S.t0 = 0; S.t1 = 1;
+      if (!slab(S, lx, ldx, it.hw + rad) || !slab(S, lz, ldz, it.hd + rad)) continue;
+      const bottom = it.y ?? this.engine.surface(it.x, it.z);
+      if (blocks(S.t0, S.t1, bottom, bottom + it.h)) return false;
+    }
+    let treeHit = false;
+    this.engine.ground.forEachCollider?.(mx, mz, len / 2 + rad + 1, (cx, cz, r) => {
+      if (!treeHit) { const g = this.engine.surface(cx, cz); treeHit = circle(cx, cz, r, g, g + this.canopyHeight); }
+    });
+    return !treeHit;
+  }
+  /** @internal position argument -> { x, y, z } (y 0 when only x, z are given) */
+  _vec(p) {
+    const [x, z] = xzOf(p);
+    const q = p.isObject3D ? p.position : p;
+    const y = (Array.isArray(q) ? q[1] : q.y) ?? 0;
+    return { x, y, z };
+  }
   /** @internal The collider grid (boxes and circles added through this module), read by async pathfinding on the main thread */
   get grid() { return this._grid; }
   /** Same as walkable but takes plain numbers (inner loop of A* pathfinding and spawn search, allocates nothing; like engine.surface(x, z)). radius defaults to engine.movement.radius */
@@ -203,7 +265,10 @@ export class Collision {
   }
 }
 
+const COLLISION_PARAMS = keysSchema(['maxClimb', 'canopyHeight', 'cameraPad', 'cameraMin', 'walkableWaterMargin', 'cameraOcclusion']);
+
 /** Collision module: lightweight character walking collision, covers the whole map. Once installed: engine.collision */
 export function collision(opts = {}) {
-  return { name: 'collision', label: 'Collision', install(e) { checkOptions('collision()', opts, ['maxClimb', 'canopyHeight', 'cameraPad', 'cameraMin', 'walkableWaterMargin', 'cameraOcclusion']); return new Collision(e, opts); } };
+  readParams('collision', COLLISION_PARAMS, opts);
+  return { name: 'collision', params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { return new Collision(e, opts); } };
 }

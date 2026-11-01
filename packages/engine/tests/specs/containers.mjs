@@ -243,7 +243,7 @@ export const specs = [
         el.querySelector('[data-op="inventory.use"][data-key="potion"]').click();
         el.querySelector('[data-op="inventory.drop"][data-key="stone"]').click();
         const afterClicks = { potion: I.count('potion'), stone: I.count('stone'), redrawn: el.textContent.includes('×1'), used: used.join() };
-        const notUsable = engine.ops.can('inventory.use', { item: 'stone' }).reason;
+        const notUsable = engine.ops.can('inventory.use', { item: 'stone' }).code;
         engine.ui.close('inventory');
         // drop the blade, walk back onto it: the picked-up piece has the same data
         const p = engine.player.position;

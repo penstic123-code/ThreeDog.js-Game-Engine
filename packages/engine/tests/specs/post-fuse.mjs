@@ -7,27 +7,27 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { lut, grain, vignette, chromatic } = threedogTest.postEffects, p = engine.post, out = {};
+        const { lut, grain, vignette, chromatic } = threedogTest.postEffects, p = engine.post, L = engine.look.post, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        p.enable('antialias', false);
-        const hs = [chromatic({ enabled: true }), lut({ enabled: true }), vignette({ enabled: true, strength: 0.5 }), grain({ enabled: true })].map(e => p.add(e));
+        p.setAntialias(false);
+        const hs = [chromatic({ enabled: true }), lut({ enabled: true }), vignette({ enabled: true, strength: 0.5 }), grain({ enabled: true })].map(e => L.add(e));
         p.render(0.016);
         const fused = () => p.composer.passes.filter(x => x.items);
         out.passes4 = p.composer.passes.length; out.fused4 = fused().length; out.items4 = fused()[0]?.items.length;
-        hs[3].enable(false);
+        L.set({ 'grain.enabled': false });
         out.items3 = fused()[0]?.items.length; out.fused3 = fused().length;
-        hs[2].set({ strength: 0.9 });
+        L.set({ 'vignette.strength': 0.9 });
         out.uniform = fused()[0].material.uniforms.uVigStrength.value;
         hs[1].remove();
         out.afterRemove = fused().map(x => x.items.map(i => i.name).join('+'));
         // 改 order 让 chromatic 排在 vignette 后面：它读输入，必须另起一个 pass
-        hs[0].enable(false); const late = p.add({ ...chromatic({ enabled: true, order: 50 }), name: 'chromatic2' });
+        L.set({ 'chromatic.enabled': false }); const late = L.add({ ...chromatic({ enabled: true, order: 50 }), name: 'chromatic2' });
         p.render(0.016);
         out.split = fused().map(x => x.items.map(i => i.name).join('+'));
         late.remove(); hs[2].remove(); hs[3].remove(); hs[0].remove();
-        out.sceneErr = err(() => p.add({ name: 'fz', slot: 'scene', fuse: { glsl: '' } }));
-        out.dupErr = err(() => { const a = p.add(vignette({ enabled: true })); p.add({ name: 'v2', slot: 'ldr', enabled: true, fuse: { uniforms: { uVigStrength: 'float' }, glsl: '' } }); });
-        p.get('vignette')?.remove(); p.get('v2')?.remove();
+        out.sceneErr = err(() => L.add({ name: 'fz', slot: 'scene', fuse: { glsl: '' } }));
+        out.dupErr = err(() => { const a = L.add(vignette({ enabled: true })); L.add({ name: 'v2', slot: 'ldr', enabled: true, fuse: { uniforms: { uVigStrength: 'float' }, glsl: '' } }); });
+        L.clear('game');
         out.dupGone = !p.get('v2');
         p.render(0.016);
         out.clean = p.list().length;
@@ -48,9 +48,9 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, postEffects: E, ShaderPass, CopyShader } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext();
+        const { THREE, postEffects: E, ShaderPass, CopyShader } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext();
         const sz = R.getSize(new THREE.Vector2()), W = 64, H = 48;
-        R.setSize(W, H, false); p.enable('antialias', false);
+        R.setSize(W, H, false); p.setAntialias(false);
         // 一个 4x4x4 的小 LUT：红绿互换并压暗，确保 LUT 路径真的被采样
         const n = 4, data = new Uint8Array(n * n * n * 4);
         for (let b = 0; b < n; b++) for (let g = 0; g < n; g++) for (let rr = 0; rr < n; rr++) {
@@ -61,11 +61,11 @@ export const specs = [
           E.vignette({ enabled: true, strength: 0.6 }), E.grain({ enabled: true, amount: 0.1, animated: false })];
         const read = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
         const run = hs => { p.render(0.016); const px = read(); for (const h of hs) h.remove(); return px; };
-        const sep = (i, order) => p.add({ name: 'sep' + i, slot: 'ldr', order, enabled: true, create: () => new ShaderPass(CopyShader) });
-        const fused = run(fx().map(e => p.add(e)));
-        const fusedPasses = (() => { const hs = fx().map(e => p.add(e)); p.render(0.016); const c = p.composer.passes.length; for (const h of hs) h.remove(); return c; })();
+        const sep = (i, order) => L.add({ name: 'sep' + i, slot: 'ldr', order, enabled: true, create: () => new ShaderPass(CopyShader) });
+        const fused = run(fx().map(e => L.add(e)));
+        const fusedPasses = (() => { const hs = fx().map(e => L.add(e)); p.render(0.016); const c = p.composer.passes.length; for (const h of hs) h.remove(); return c; })();
         // 逐个：每个效果之间插一个非 fuse 的直通 pass，每个效果自成一组
-        const hs = []; fx().forEach((e, i) => { hs.push(p.add(e)); hs.push(sep(i, e.order + 1)); });
+        const hs = []; fx().forEach((e, i) => { hs.push(L.add(e)); hs.push(sep(i, e.order + 1)); });
         const chain = p.composer.passes.length; const serial = run(hs); const serialPasses = chain;
         const plain = (() => { p.render(0.016); return read(); })();
         let maxD = 0, sum = 0, vs = 0;
@@ -83,13 +83,13 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, outline, postEffects: E } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext(), sc = engine.scene;
+        const { THREE, outline, postEffects: E } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext(), sc = engine.scene;
         const sz = R.getSize(new THREE.Vector2()), W = 160, H = 120, out = {};
-        R.setSize(W, H, false); p.enable('antialias', false);
+        R.setSize(W, H, false); p.setAntialias(false);
         const read = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
         const diff = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n++; return n; };
         const shot = (o, setup) => {
-          const h = p.add(outline({ enabled: true, thickness: 2, strength: 1, color: 0x000000, ...o })), pass = h._impl;
+          const h = L.add(outline({ enabled: true, thickness: 2, strength: 1, color: 0x000000, ...o })), pass = p.composer.passes.find(x => 'normalRT' in x);
           setup?.();
           p.render(0.016); const px = read(), info = { normal: !!pass.normalRT, mask: !!pass.maskRT, override: sc.overrideMaterial, bg: sc.background };
           h.remove(); return { px, info };
@@ -108,10 +108,10 @@ export const specs = [
         meshes.forEach((m, i) => { m.layers.mask = masks[i]; });
         out.offEdges = diff(off.px, dark); out.offInfo = [off.info.normal, off.info.mask];
         out.costly = [outline().costly, outline({ mode: 'both' }).costly];
-        out.badMode = (() => { try { p.add(outline({ enabled: true, mode: 'nope' })); return ''; } catch (e) { return e.message; } })();
+        out.badMode = (() => { try { L.add(outline({ enabled: true, mode: 'nope' })); return ''; } catch (e) { return e.message; } })();
         out.badGone = !p.get('outline');
         // dof 建得起来（与 outline 同时开见下一项）
-        const dof = p.add(E.dof({ enabled: true, focus: 12 })); p.render(0.016); out.dofOk = !!dof._impl;
+        const n0 = p.composer.passes.length, dof = L.add(E.dof({ enabled: true, focus: 12 })); p.render(0.016); out.dofOk = p.composer.passes.length > n0;
         out.dofCostly = E.dof().costly;
         dof.remove();
         R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
@@ -131,8 +131,8 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, lowpoly } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext(), sz = R.getSize(new THREE.Vector2()), W = 96, H = 72, out = {};
-        R.setSize(W, H, false); p.enable('antialias', false);
+        const { THREE, lowpoly } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext(), sz = R.getSize(new THREE.Vector2()), W = 96, H = 72, out = {};
+        R.setSize(W, H, false); p.setAntialias(false);
         // 自己搭一个固定的场景（城市页面里的东西每次载入位置不同），隐藏原有内容
         const sc = engine.scene, cam = engine.camera, hidden = sc.children.map(c => [c, c.visible]); hidden.forEach(([c]) => { c.visible = false; });
         const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({ color: 0xcc6644 })), ball = new THREE.Mesh(new THREE.SphereGeometry(1.2, 24, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffeeaa, emissiveIntensity: 0.6 }));
@@ -146,16 +146,16 @@ export const specs = [
         let seed = 12345; const rnd = Math.random; Math.random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;   // GTAO 的噪声纹理用 Math.random
         p.render(0.016); out.none = hash();
         for (const [k, o] of [['bloom', { threshold: 0.5, strength: 0.5 }], ['ao', {}], ['outline', { mode: 'depth' }], ['outlineBoth', { mode: 'both', offLayer: 29 }]]) {
-          const name = k.replace('Both', ''), h = p.add({ ...lowpoly.post.find(e => e.name === name), enabled: false }); h.set(o); h.enable(true); p.render(0.016); out[k] = [hash(), hash()]; h.remove();
+          const name = k.replace('Both', ''), def = lowpoly.post.find(e => e.name === name), h = L.add({ ...def, enabled: true, params: { ...def.params, ...o } }); p.render(0.016); out[k] = [hash(), hash()]; h.remove();
         }
         // dof 与 outline 同时开：dof 把场景深度写进自己的输出（gl_FragDepth），outline 在它后面仍读到真深度；线的位置只取决于深度，所以有无 dof 应一致
         const Ef = threedogTest.postEffects, bytes = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
         const dist = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n++; return n; };
-        const frame = fx => { const hs = []; try { fx.forEach(e => hs.push(p.add(e))); p.render(0.016); return { px: bytes(), n: p.composer.passes.length }; } catch (e) { return { err: e.message }; } finally { hs.forEach(h => h.remove()); } };
+        const frame = fx => { const hs = []; try { fx.forEach(e => hs.push(L.add(e))); p.render(0.016); return { px: bytes(), n: p.composer.passes.length }; } catch (e) { return { err: e.message }; } finally { hs.forEach(h => h.remove()); } };
         const dofE = () => Ef.dof({ enabled: true, focus: 9, range: 1, falloff: 5, maxBlur: 4 }), lineE = s => Ef.outline({ enabled: true, thickness: 1, strength: s, color: 0x000000 });
         out.dof = {};
         for (const aa of [false, true]) {
-          p.enable('antialias', aa);
+          p.setAntialias(aa);
           p.render(0.016); const plain = bytes(), d = frame([dofE()]), off = frame([lineE(0)]), on = frame([lineE(1)]), dOff = frame([dofE(), lineE(0)]), dOn = frame([dofE(), lineE(1)]);
           out.dof[aa] = { err: dOn.err ?? dOff.err ?? d.err, hash: d.px && (() => { let h = 2166136261; for (const v of d.px) h = Math.imul(h ^ v, 16777619); return h >>> 0; })(),
             blurred: dist(d.px, plain), linesPlain: dist(on.px, off.px), linesWithDof: dOn.px && dist(dOn.px, dOff.px), passes: [d.n, on.n, dOn.n] };
@@ -164,7 +164,8 @@ export const specs = [
         R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
         const E = threedogTest.postEffects, mine2 = { bloom: E.bloom(), ao: E.ao(), outline: E.outline() };
         out.meta = lowpoly.post.map(e => [e.name, e.slot, e.order, e.costly === true, e.needsDepth === true].join());
-        out.same = lowpoly.post.every(e => e.create.toString() === mine2[e.name].create.toString() && e.slot === 'hdr') && out.meta.join('|') === 'outline,hdr,10,false,true|ao,hdr,20,true,false|bloom,hdr,30,true,false';
+        // 不再比 create.toString()：构建后两份代码被各自压缩成不同的变量名，文本必然不同；"同一份"由下面的逐字节像素哈希保证
+        out.same = lowpoly.post.every(e => e.slot === 'hdr' && typeof mine2[e.name].create === 'function') && out.meta.join('|') === 'outline,hdr,10,false,true|ao,hdr,20,true,false|bloom,hdr,30,true,false';
         return out;
       });
       // 黄金值取自迁移前（效果还在 lowpoly 包里）的代码：固定场景 96x72，软件渲染，ao 的噪声纹理用固定随机数

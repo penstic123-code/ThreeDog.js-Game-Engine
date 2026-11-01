@@ -23,9 +23,19 @@ The opts of `assets.texture(name, opts)` are part of the cache key: the same ima
 
 ## Adjusting sky brightness
 The engine overwrites `sky.sun / sky.hemi` (intensity, color, position), `scene.fog` and the `camera` pose every frame; don't set them directly.
-Adjust brightness with a modifier layer `engine.sky.modify('layer', { sun, ambient, fog, tint, tintAmount })`: layers multiply, and it doesn't clash
-with the weather's `'weather'` layer; `modify('layer', null)` removes it, and `sky.modifiers` is the combined result (read-only). Take over the camera
-with `engine.cameraOverride = { owner }` or a timeline camera step.
+Change the light through `engine.look.lights` / `engine.look.fog` (overrides), or `engine.sky.modify` for a layer that multiplies the sky's own output
+(which to pick: `recipes/52-look.md`). Take over the camera with `engine.takeCamera(owner)` (or a timeline camera step).
+
+## Owners
+Everything that holds the engine is named by an owner, and only that owner releases it. Positional `pause('menu')` and `pause({ owner: 'menu' })` are the same.
+
+| What | Take | Release | Returns |
+|---|---|---|---|
+| Real-time loop | `pause(owner, { kind? })` | `resume(owner)` | handle `{ remove() }` |
+| Gameplay freeze | `freeze(owner, { kind? })` | `unfreeze(owner)` | handle |
+| Camera | `takeCamera(owner, { focus? })` | `handle.remove()` | handle |
+| Debug override / view | `debug.override(owner, ...)`, `debug.view(mode, { owner })` | `debug.clear(owner)` | handle / state |
+| Look values | `look.<part>.set(values, { owner })` | `look.<part>.clear(owner)` | handle |
 
 ## Worker limits
 `modules/terrain/terrainGen.js` (via `chunkJob.js`) runs in a Worker and must not import three.js; a vegetation `rule` is sent to the Worker and must
@@ -113,11 +123,9 @@ inside template strings, which then throw on the first call).
 - To be saved, call `engine.saves.register(key, { save, load })` (`load` may return a Promise); `saves.save / load` always return `Promise<boolean>`,
   so `await` them. Saved data names things by stable ids, never positions; when it changes shape raise `version` and add a `migrate` step
   (`recipes/20-content-actions-save.md` "Save format").
-- The engine overwrites `sky.sun / sky.hemi`, `scene.fog` and the `camera` position/orientation every frame; don't set them. Adjust brightness with
-  `engine.sky.modify('layer', {...})`; take over the camera with `engine.cameraOverride = { owner }` or a timeline camera step (see "Adjusting sky
-  brightness" above).
 - Day / night comes only from sky: read `sky.isDay`, use `sky.daylight` (0-1) for fades; don't judge by clock time yourself.
 - A game's own look parameters (colors, materials) belong in its style pack (`style`) or the content, never hard-coded into logic.
+- Whatever a style pack provides as a factory can also be passed at the call site, and the call site wins (`new Character(e, { rig })` over `style.character.create`; `spawnPickup(item, pos, { mesh })` over `style.pickup.model`); look-driven parts (sky, clouds, water, materials) are overridden with `engine.look.<part>.set / patch / replace`. A new style factory must ship with its call-site option.
 - Vegetation `rule` must not contain functions (it is sent to a Worker).
 - Terrain is editable: `engine.terrain.edit(pos, { lower|raise|flatten|paint })`, only inside an op or fixed step; custom
   `terrain({ height, groundType })` must be pure functions.
@@ -132,3 +140,6 @@ inside template strings, which then throw on the first call).
   vertex patches, so wind-swayed meshes cast swaying shadows with nothing to set up; assigning your own value still wins. Shader time, wind and cloud
   cover are per engine in `engine.uniforms` (share them in your own `ShaderMaterial`); with two engines on a page, pass the engine to
   `makeMaterial(role, params, engine)`.
+
+## Failures: which shape
+A runtime "can't" (not enough money, shelf empty) is returned as `{ ok: false, code, facts, nextActions }` (ops.run / can / undo). Misuse (a wrong call, a typo) is a thrown `codedError`. Documented exceptions: `checkSkip` / `checkSave` return `{ ok, diffs }`, `walkTo` returns `{ status }`. Read `code`; `reason` is a deprecated alias of it until 1.0.

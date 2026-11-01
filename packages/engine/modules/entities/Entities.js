@@ -40,6 +40,7 @@
 // Appearance: the engine ships no default models - the game supplies create(), usually from an asset pack (engine.assets.model / cached).
 import { xzOf } from '../../core/math.js';
 import { checkOptions, checkOptionsArg, missingText, warnOnce, freezeDef } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { buildEntity } from './build.js';
 
 const DEF_KEYS = ['create', 'state', 'stages', 'update', 'interact', 'collider', 'colliderHeight', 'save', 'dispose', 'canGrow'];
@@ -216,12 +217,15 @@ export class Entities {
   }
 }
 
+const ENTITIES_PARAMS = keysSchema([]);
+
 /** Entities module. Installs engine.entities. Data lives in engine.world (needs the world module, included by openWorld). */
 export function entities(opts = {}) {
-  checkOptions('entities()', opts, []);   // takes no options: what an entity is and does goes in entities.define(type, {...})
+  readParams('entities', ENTITIES_PARAMS, opts);
+  // takes no options: what an entity is and does goes in entities.define(type, {...})
   let ents = null;
   return {
-    name: 'entities', label: 'Entities', requires: ['world'], optional: ['sky', 'interactions', 'collision'], stage: 'gameplay', after: ['interactions', 'dialogue', 'triggers'],
+    name: 'entities', params: ENTITIES_PARAMS, options: opts, label: 'Entities', requires: ['world'], optional: ['sky', 'interactions', 'collision'], stage: 'gameplay', after: ['interactions', 'dialogue', 'triggers'],
     install(e) {
       ents = new Entities(e);
       return ents;

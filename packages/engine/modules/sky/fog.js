@@ -18,7 +18,8 @@ import * as THREE from 'three';
 import { checkOptions, closest } from '../../core/validate.js';
 
 const KINDS = ['linear', 'exp', 'exp2', 'height'];
-const KEYS = ['kind', 'color', 'density', 'height', 'falloff', 'glsl'];
+export const FOG_KINDS = KINDS;
+const KEYS = ['kind', 'color', 'density', 'height', 'falloff', 'glsl', 'near', 'far', 'enabled'];   // near / far / enabled: look.fog (lookFog.js)
 const NAMES = ['fog_pars_vertex', 'fog_vertex', 'fog_pars_fragment', 'fog_fragment'];
 const ORIGINAL = Object.fromEntries(NAMES.map(n => [n, THREE.ShaderChunk[n]]));
 // fog amount reached at the far distance with the derived density: exp(-3.9) = 2% (exp, height), exp(-1.98^2) = 2% (exp2)
@@ -47,7 +48,7 @@ export function resolveFog(spec) {
     throw new Error('style.sky.fog.glsl must be GLSL that defines `vec4 threedogFog(vec3 color, float depth, vec3 worldPos)` returning (fog rgb, amount 0..1); see modules/sky/fog.js');
   const color = s.color ?? 'horizon';
   return { kind, color: color === 'horizon' || typeof color === 'function' ? color : new THREE.Color(color), density: s.density ?? null,
-    height: s.height ?? 0, falloff: s.falloff ?? 0.05, glsl: s.glsl ?? FN[kind] ?? null };
+    height: s.height ?? 0, falloff: s.falloff ?? 0.05, glsl: s.glsl ?? FN[kind] ?? null, near: s.near ?? null, far: s.far ?? null, enabled: s.enabled !== false };
 }
 
 /** The fog object for the kind: density-based kinds use FogExp2 (its fogDensity uniform is live), linear uses Fog */
@@ -119,14 +120,16 @@ function release(h) {
 /** Per frame: fog color and distance / density from the sky's horizon and the modifier layers (fog multiplies the distance) */
 export function updateFog(sky, horizon, M) {
   // only when the sky drives fog (sky({ fog: true })) and scene.fog is still a fog object: the game may have nulled or replaced it
-  const fog = sky.engine.scene.fog, f = sky._fog, far = sky.engine.fogFar * M.fog;
-  if (sky._drive.fog !== true || !fog?.color) return;
+  const fog = sky.engine.scene.fog, f = sky._fog;
+  if (sky._drive.fog !== true || sky._fogHeld || !fog?.color) return;   // _fogHeld: look.fog.replace(...) gave the fog to the game
+  // look.fog: far / near set explicitly are the base distance (weather still scales it); enabled false pushes the fog out of reach without a recompile
+  const far = f.enabled ? (f.far ?? sky.engine.fogFar) * M.fog : 1e9;
   if (f.color === 'horizon') fog.color.copy(horizon);
   else if (typeof f.color === 'function') fog.color.set(f.color(sky));
   else fog.color.copy(f.color);
   // near / far are written for every kind: engine.setFogFar and the dev guard read them
-  fog.far = far; fog.near = far * 0.3;
-  if (f.kind !== 'linear') fog.density = f.density != null ? f.density / M.fog : REACH[f.kind] / far;
+  fog.far = far; fog.near = f.enabled && f.near != null ? f.near * M.fog : far * 0.3;
+  if (f.kind !== 'linear') fog.density = !f.enabled ? 0 : f.density != null ? f.density / M.fog : REACH[f.kind] / far;
 }
 
 /** Dome addition when the fog color is not the horizon: the dome's lower band fades to the fog color so the horizon line does not show */

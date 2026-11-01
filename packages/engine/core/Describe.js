@@ -20,12 +20,13 @@ import { inspectScene } from './InspectScene.js';
 import { codedError } from './errorHints.js';
 import { r1 } from './math.js';
 import { describeRender } from './describeRender.js';
+import { describeLook } from './look/report.js';
 import { describeScene } from './thingOps.js';
 
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
 const RELATIVE = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];   // relative to the camera heading
-const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render']);
+const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'look']);
 const ACTIONS_MAX = 8;   // what the player can do now, with why not: saves the AI a guess for a few dozen characters   // the core's own fields
 const sector = a => Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8;
 
@@ -44,6 +45,7 @@ export function describeApi(e) {
    * @param {{ radius?: number, center?: { x: number, z: number } }} [opts] center: measure "nearby" from here instead of the player (inspect uses it)
   */
   const api = opts => describe(e, opts, extras);
+  /** @internal engine.catalog() reads which names were added (and by which module) */ api._extras = extras;
   /**
    * Register the game's own state: the return value of fn(engine, ctx) (must be JSON-able) goes into describe().<name>; undefined is omitted
    * @param {string} name key in the result; must not match an existing field or module name
@@ -69,6 +71,12 @@ function pendingModules(e) {
   return Object.keys(out).length ? { moduleStates: out } : {};
 }
 
+/** Everyone who holds the engine still or takes something over, in one shape: { pause|freeze|camera|debugView: [{ owner, at }] } (empty kinds left out) */
+function heldBy(e) {
+  const all = { pause: e._pausers, freeze: e._freezers, camera: e._cameraClaims, debugView: e.debug?._view };
+  return Object.fromEntries(Object.entries(all).map(([k, c]) => [k, c?.owners() ?? []]).filter(([, o]) => o.length));
+}
+
 /** Build the state object. radius: how far counts as "nearby"; extras: those registered by describe.add */
 function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
   const p = e.player?.position, center = at || p || e.focus, cam = e.camera;
@@ -79,7 +87,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
     disabledModules: [...e.disabledModules],           // presentation modules disabled after an error
     ...pendingModules(e),                              // { moduleStates } while a module is initializing or failed
     loading: e.loading.view(),                         // what is pending / failed and whether it blocks the start (Loading.js)
-    time: { elapsed: r1(e.elapsed), paused: e.paused, frozen: e.frozen, headless: e.headless },
+    time: { elapsed: r1(e.elapsed), paused: e.paused, frozen: e.frozen, headless: e.headless, run: e.runState, heldBy: heldBy(e) },
     player: p ? {
       x: r1(p.x), y: r1(p.y), z: r1(p.z),
       ground: e.groundType(p.x, p.z),
@@ -97,6 +105,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
     cutscene: null,
     modules: [...e.modules.keys()],
     scene: describeScene(e),                           // engine.add / world things: counts by save tier and what will not survive a load (thingOps.js)
+    look: describeLook(e),                             // every look part key, its value and who set it (look/report.js)
     render: describeRender(e),                         // renderer / post / lights and who set each (describeRender.js)
     perf: {
       fps: e.paused ? null : Math.round(e.fps), cpuMs: e.paused ? null : r1(e.cpuMs),
@@ -131,6 +140,6 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
   out.nearby = [...found.values()].sort((a, b) => a.dist - b.dist).slice(0, NEAR_MAX);
   // ops on offer for the player (engine.ops.list({ available: true })): possible ones first; omitted when the game has none
   const acts = e.ops.list({ available: true }).sort((a, b) => b.ok - a.ok).slice(0, ACTIONS_MAX);
-  if (acts.length) out.actions = acts.map(a => ({ op: a.name, args: a.args, ok: a.ok, ...(a.ok ? {} : { reason: a.reason }) }));
+  if (acts.length) out.actions = acts.map(a => ({ op: a.name, args: a.args, ok: a.ok, ...(a.ok ? {} : { code: a.code, facts: a.facts, nextActions: a.nextActions }) }));
   return out;
 }

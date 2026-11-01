@@ -5,7 +5,6 @@
 //   threedog describe -w my-farm        pick a workspace (or just run it inside the game directory)
 //   --page /tests/city/index.html              pick the page path (default: the real page that last got focus, otherwise a headless /)
 import { pickWorkspace } from '../paths.mjs';
-import { execute, ALL } from './dispatch.mjs';
 
 const [cmd, ...argv] = process.argv.slice(2);
 const fail = text => { console.log(text); process.exit(1); };
@@ -13,11 +12,21 @@ const fail = text => { console.log(text); process.exit(1); };
 let dir, args;
 try { ({ dir, args } = pickWorkspace(argv)); } catch (e) { fail('✗ ' + e.message); }
 const pi = args.indexOf('--page'), pagePath = pi >= 0 ? args.splice(pi, 2)[1] : undefined;
-
-if (!ALL[cmd]) fail(`✗ no command "${cmd}"\nAvailable: ${Object.keys(ALL).join(', ')}`);
-// execute() does not throw: a failure comes back as ok false with its explanation in text (the matching one of four causes when the bridge is unreachable)
 // --json: the unified result (the same object the MCP server returns as structuredContent) instead of the text
 const ji = args.indexOf('--json'), asJson = ji >= 0 && !!args.splice(ji, 1);
-const r = await execute(dir, cmd, args, { page: pagePath }), { ok, text } = r;
+
+// Heavy modules (commands, dispatch, playwright-facing code) load only when a command really runs here: `session` and a command answered by a running
+// session (session.mjs, which only needs node:http) never pay for them. `session` is the only command with no bridge behind it.
+let r;
+if (cmd === 'session') { const { sessionCommand } = await import('./session.mjs'); r = await sessionCommand(dir, args); }
+else {
+  if (cmd !== 'play') { const { viaSession } = await import('./session.mjs'); r = await viaSession(dir, cmd, args, pagePath); }
+  if (!r) {
+    const { execute } = await import('./dispatch.mjs');
+    // execute() does not throw: a failure comes back as ok false with its explanation in text (the matching one of four causes when the bridge is unreachable; an unknown command name is answered there too)
+    r = await execute(dir, cmd, args, { page: pagePath });
+  }
+}
+const { ok, text } = r;
 console.log(asJson ? JSON.stringify({ ok, code: r.code, summary: r.summary, runtime: r.runtime, data: r.data, text }, null, 2) : text);
 process.exit(ok ? 0 : 1);

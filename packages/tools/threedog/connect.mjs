@@ -1,16 +1,22 @@
-// Dev bridge client side, shared by the command line (cli.mjs) and the MCP server (mcp.mjs).
-// Finds the running dev server through <workspace>/.threedog/dev.json { port, token } (written by vite-threedog-bridge.js) and builds the
-//   driver commands.mjs needs. Only talks to the bridge as a local client: no listener of its own.
-import { readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { rel, MODE, ENGINE } from '../paths.mjs';
-import { runScenario, scenarioFiles, readScenario } from '../scenario.mjs';
+import { devServerInfo } from '../devinfo.mjs';
+
+export { devServerInfo };
+
+const startHint = dir => `npm run dev${MODE === 'monorepo' && dir !== ENGINE ? ' -- ' + basename(dir) : ''}`;
 
 /** { port, token } of the dev server running for this workspace; throws an English "how to fix" message when none is running */
 export function devServer(dir) {
-  const file = join(dir, '.threedog/dev.json');
-  if (!existsSync(file)) throw new Error(`no dev server is running for ${rel(dir) || basename(dir)}\nStart it in another terminal first: npm run dev${MODE === 'monorepo' && dir !== ENGINE ? ' -- ' + basename(dir) : ''} (then retry)`);
-  return JSON.parse(readFileSync(file, 'utf8'));
+  const info = devServerInfo(dir), ws = rel(dir) || basename(dir);
+  if (info.state === 'none') throw new Error(`no dev server is running for ${ws}
+Start it in another terminal first: ${startHint(dir)} (then retry)`);
+  if (info.state === 'unreadable') throw new Error(`${rel(info.file)} cannot be read (the dev server may be writing it right now)
+Retry in a moment; if it stays like this delete the file and run ${startHint(dir)}`);
+  // A leftover file from a server that died: its port may now belong to ANOTHER game's server, so never talk to it
+  if (info.state === 'stale') throw new Error(`the dev server recorded for ${ws} (pid ${info.pid}) is no longer running (stale .threedog/dev.json)
+Start it again: ${startHint(dir)}`);
+  return info;
 }
 
 /**
@@ -28,6 +34,9 @@ export function bridgeDriver(dir, { page } = {}) {
     return r.value;
   };
   return {
+    page,
+    /** The same driver aimed at another page path (a scenario file's own url) */
+    withPage: p => bridgeDriver(dir, { page: p }),
     evaluate: (src, arg) => call({ op: 'eval', src, arg }),
     screenshot: async () => Buffer.from(await call({ op: 'shot' }), 'base64'),
     reload: () => call({ op: 'reload' }),
@@ -36,13 +45,3 @@ export function bridgeDriver(dir, { page } = {}) {
 
 /** Bridge errors as one readable message: Playwright errors carry a "page.evaluate: Error:" prefix and a stack, keep only the first line */
 export const errorText = e => /^page\./.test(e.message) ? e.message.split('\n')[0].replace(/^page\.evaluate: (\w*Error: )?/, '') : e.message;
-
-/** threedog scenario name: run tests/scenarios/<name>.json on the running page; { ok, text } with failed checks only (at most 3 lines) */
-export async function scenario(driver, dir, name) {
-  const files = scenarioFiles(dir), stem = x => basename(x, '.json'), f = files.find(x => stem(x) === name);
-  if (!f) throw new Error(`Usage: threedog scenario name (a file in tests/scenarios/). Have: ${files.map(stem).join(', ') || 'none'}`);
-  const res = [];
-  await runScenario(driver, readScenario(f), { check: (label, ok, detail) => res.push({ label, ok, detail }), file: name, snapDir: join(dir, 'tests', 'snapshots') });
-  const bad = res.filter(r => !r.ok);
-  return { ok: !bad.length, text: bad.length ? bad.slice(0, 3).map(r => `✗ ${r.label} → ${r.detail}`).join('\n') : `✓ scenario ${name}: ${res.length} checks passed` };
-}

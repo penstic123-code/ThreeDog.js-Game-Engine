@@ -77,7 +77,7 @@ On a client `engine.ops.run` returns `{ ok: true, pending: true, seq }` after th
 real result comes later:
 ```js
 engine.events.on('net:sync', () => redrawBag());                         // state changed (snapshot or diff)
-engine.events.on('net:result', r => { if (!r.ok) hint(engine.t('op.' + r.name + '.' + r.reason)); });   // after the state it caused
+engine.events.on('net:result', r => { if (!r.ok) hint(engine.t('op.' + r.name + '.' + r.code)); });   // after the state it caused
 ```
 Single-player gets the same events from your own domain events, so writing "react to state" now means nothing changes when net() is added. Other
 events: `net:join` / `net:leave` (host), `net:open` / `net:close` (client). `engine.net.reconnect(webSocket(url, { key }))` reconnects with the same

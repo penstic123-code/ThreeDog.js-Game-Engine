@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { movesVertices } from '../../render/patches.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Hlod, HlodOptions } from '../../types/world' */
@@ -39,6 +40,8 @@ function mergeGroup(meshes) {
 }
 
 const FULL = { detail: 'full' };
+const HLOD_PARAMS = keysSchema(['level', ...ADD_KEYS]);
+
 /**
  * HLOD (merge far buildings into a few meshes) -> engine.hlod
  * @param {HlodOptions} [opts]
@@ -46,6 +49,7 @@ const FULL = { detail: 'full' };
  * @experimental
  */
 export function hlod(opts = {}) {
+  readParams('hlod', HLOD_PARAMS, opts);
   const { level: autoLevel = true, ...defaults } = opts;
   let e = null, timer = 0, levelHandle = null;
   const handles = new Set();
@@ -148,10 +152,9 @@ export function hlod(opts = {}) {
 
   const addLevel = root => { levelHandle?.remove(); levelHandle = root ? api.add(root) : null; };
   return {
-    name: 'hlod', label: 'HLOD', optional: ['terrain', 'level'], presentation: true,
+    name: 'hlod', params: HLOD_PARAMS, options: opts, label: 'HLOD', optional: ['terrain', 'level'], presentation: true,
     install(engine) {
       e = engine;
-      checkOptions('hlod()', opts, ['level', ...ADD_KEYS]);
       if (autoLevel) {
         e.events.on('level:loaded', ({ root }) => addLevel(root));
         if (e.level?.ready && e.level.root) addLevel(e.level.root);   // install hlod only after the level is ready

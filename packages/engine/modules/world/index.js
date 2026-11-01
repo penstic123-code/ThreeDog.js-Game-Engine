@@ -2,13 +2,18 @@
 //   engine.use(world())                     // the openWorld() preset installs it by default
 //   engine.use(world({ radius: 80 }))       // distance (meters) for building models and counting as near, default 60
 // Save key world (runtime records whole, initial records only changes and removals, see the top of World.js); emits world:load after loading. The loading screen waits for world.ready (nearby models all built). describe() reports world.total / byKind / presented, and nearby records with a name go into nearby.
+import { recordSource } from './thingSource.js';
 import { World } from './World.js';
 import { WORLD_MIGRATE } from './persist.js';
-import { checkOptions, closest, warnOnce, DEV } from '../../core/validate.js';
+import { worldExplain } from './explain.js';
+import { closest, warnOnce, DEV } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 
 const ORPHAN = '[world] the save has changes for {n} id(s) that the content no longer defines: {list}. They are kept in the save (restoring the entry brings them back); '
   + "if an entry was renamed, add the pair to content/renames.js (export default { 'oldId': 'newId' }) and the saved state follows it; 'oldId': null drops it";
 const RENAME_TARGET = '[world] content/renames.js moves saved state to {list}, which no content entry defines: fix the new id (did you mean {near}?)';
+
+const WORLD_PARAMS = keysSchema(['cellSize', 'radius', 'farEvery', 'farMaxPerTick', 'buildPerFrame']);
 
 /**
  * World data module: installed as engine.world. Put things here that must be saved, survive level changes and keep changing while far away; models are only built while nearby
@@ -17,15 +22,17 @@ const RENAME_TARGET = '[world] content/renames.js moves saved state to {list}, w
  * @returns {import('../../types/core').ModuleDef<World>}
  */
 export function world(opts = {}) {
-  checkOptions('world()', opts, ['cellSize', 'radius', 'farEvery', 'farMaxPerTick', 'buildPerFrame']);
+  readParams('world', WORLD_PARAMS, opts);
   let w = null;
   return {
-    name: 'world', label: 'World data', stage: 'world',
+    name: 'world', label: 'World data', params: WORLD_PARAMS, options: opts, stage: 'world',
     install(e) {
       w = new World(e, opts);
       e.stream.player.at(() => w.center);   // the default stream source sits where gameplay is simulated (world.anchor, else the player)
       e.stream.readyCheck('world', s => s.detail !== 'full' || w.ready);
-      e.saves.register('world', { version: 3, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
+      e.saves.register('world', { atomic: true, version: 3, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
+      e._things.addSource(recordSource(w));   // engine.thing / thing.set / the shared id space reach the records through this
+      e.explainWith(worldExplain);
       e.budget.metric('worldRecords', () => w.records.size);
       if (DEV) {   // orphans are known once content loaded (engine:ready), after a load, and per level for `<level>/<node>` ids
         const warn = () => {

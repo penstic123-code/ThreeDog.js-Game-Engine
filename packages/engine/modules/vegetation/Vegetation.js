@@ -6,6 +6,7 @@ import { makeMaterial, applyEffects } from '../../render/materials.js';
 import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
 import { GroundChunks } from './groundChunks.js';
+import { swayOf } from './lookWind.js';
 // parameters read by vegetation.add(); keys inside rule (sent to the worker thread)
 const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
@@ -78,7 +79,7 @@ export class Vegetation {
   add(name, o) {
     checkOptions(`vegetation.add('${name}')`, o, ADD_KEYS);
     checkOptions(`vegetation.add('${name}').rule`, o.rule, RULE_KEYS);
-    const sw = this.engine.style.wind, wind = o.wind && sw?.glsl ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // style.wind.glsl replaces the sway shape
+    const sw = swayOf(this.engine), wind = o.wind && sw ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // look.wind 'sway' (style.wind.glsl or a game's patch) replaces the sway shape
     const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage' });
     const mdl = o.model && fromModel(o.model, `vegetation.add('${name}')`);
     let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, `vegetation.add('${name}').lodGeometry`).geometry : o.lodGeometry || null;

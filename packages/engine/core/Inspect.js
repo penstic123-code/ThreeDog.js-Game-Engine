@@ -9,13 +9,14 @@
 import { closest } from './validate.js';
 import { codedError } from './errorHints.js';
 import { findThing, hintThing } from './thingOps.js';
+import { atomicNote } from './opsAtomic.js';
 
 const OPS_MAX = 8;
 
 /** Where an actor stands: the player, or a world record */
 function placeOf(e, actor) {
   if (actor === 'player') return e.player?.position ?? e.focus;
-  return e.world?.get(actor)?.position ?? e._things.live(actor)?.getWorldPosition(new e.THREE.Vector3()) ?? null;   // a record, else an engine.add object
+  return e._things.source(actor)?.get(actor).position ?? e._things.live(actor)?.getWorldPosition(new e.THREE.Vector3()) ?? null;   // a record, else an engine.add object
 }
 const note = (e, op, reason) => e.ops.defs.get(op)?.reasons?.[reason];
 
@@ -30,42 +31,20 @@ export function inspect(e, at, { radius = 10 } = {}) {
   if (!p) throw codedError('world-record', `engine.inspect('${at}'): no world record or engine.add object with this id${hintThing(e, at)}. Pass an id engine.thing knows, [x, z] or nothing for the player`);
   const near = e.describe({ radius, center: { x: p.x, z: p.z } }).nearby;
   const ops = e.ops.list({ available: true, actor }).sort((a, b) => b.ok - a.ok).slice(0, OPS_MAX)
-    .map(o => ({ op: o.name, args: o.args, ok: o.ok, ...(o.ok ? {} : { reason: o.reason, why: note(e, o.name, o.reason) ?? null }) }));
-  const thing = typeof at === 'string' && at !== 'player' ? findThing(e, at, recordThing) : null;
+    .map(o => ({ op: o.name, args: o.args, ok: o.ok, ...(o.ok ? {} : { code: o.code, why: note(e, o.name, o.code) ?? null, facts: o.facts, nextActions: o.nextActions }) }));
+  const thing = typeof at === 'string' && at !== 'player' ? findThing(e, at) : null;
   return { actor, at: { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 }, near, ops, ...(thing && { thing }) };
-}
-
-const SAY = {
-  defined: 'defined in {at}: edit it there to change the level for good (ops change only this session)',
-  node: 'level {level} node {node}: change it in the level model',
-  spawned: 'made during play{op}: not in content, saved whole',
-};
-const NOT_FIELDS = new Set(['id', 'kind', 'position', 'zone', 'floor', 'offsetY']);
-
-/**
- * A world record as a thing to change: id, kind, template, where it was authored (definedAt / level node / spawned by which op), model and its fields.
- * @param {any} e @param {string} id @internal
- */
-export function recordThing(e, id) {
-  const rec = e.world.get(id); if (!rec) return null;
-  const o = e.world.origin(id) ?? {}, fields = {};
-  for (const k in rec) if (!NOT_FIELDS.has(k)) fields[k] = rec[k];
-  const how = o.definedAt ? SAY.defined.replace('{at}', o.definedAt) : o.node ? SAY.node.replace('{level}', o.level).replace('{node}', o.node)
-    : o.spawned ? SAY.spawned.replace('{op}', o.spawned.op ? ` by op ${o.spawned.op} at tick ${o.spawned.tick}` : '') : null;
-  return { id, kind: rec.kind, template: o.template ?? null, definedAt: o.definedAt ?? null, ...(o.templateAt && { templateAt: o.templateAt }),
-    ...(o.node && { level: o.level, node: o.node }), ...(o.spawned && { spawned: o.spawned }), model: o.model ?? rec.model ?? null,
-    position: { ...rec.position }, fields, edit: how };
 }
 
 /**
  * Point -> thing: what a ray hit is. A hit on a batched instance resolves to its original object first (engine.batching.item).
- * Returns the record's thing (recordThing), else the engine.add object's (engine.thing), plus the mesh and material names; for an object neither knows
+ * Returns the record's thing (a source's explain), else the engine.add object's (engine.thing), plus the mesh and material names; for an object neither knows
  * (engine.scene.add) id is null and only those are known.
  * @param {any} e @param {any} obj the hit object @param {{ instanceId?: number }} [hit] @internal
  */
 export function thingOf(e, obj, hit) {
   if (obj?.isInstancedMesh && hit?.instanceId != null) obj = e.batching.item(obj, hit.instanceId) ?? obj;
-  const t = findThing(e, obj, recordThing), mat = Array.isArray(obj?.material) ? obj.material[0] : obj?.material;
+  const t = findThing(e, obj), mat = Array.isArray(obj?.material) ? obj.material[0] : obj?.material;
   const look = { mesh: obj?.name || null, material: mat?.name || null };
   return t ? Object.assign(t, look) : { id: null, kind: null, template: null, definedAt: null, model: null, fields: {}, edit: null, ...look };
 }
@@ -89,9 +68,10 @@ function explainOp(e, { op, args = {}, actor }) {
   const last = recent.at(-1);
   // events within a step of the last attempt: what else changed when it ran / failed
   const events = last ? e.events.recent().filter(h => Math.abs((h.tick ?? 0) - last.tick) <= 1).slice(-8).map(h => h.name) : [];
-  const why = now.ok ? 'can run now' : `cannot run now: ${now.reason}${note(e, op, now.reason) ? ` (${note(e, op, now.reason)})` : ''}`;
-  const target = typeof args.id === 'string' && e.world?.get(args.id) ? recordThing(e, args.id) : null;   // the thing it acts on: where to change it for good
-  const before = last ? `last attempt at tick ${last.tick} (${last.source}, ${last.actor}): ${last.ok ? 'ok' : last.reason}${last.count > 1 ? ` x${last.count}` : ''}` : 'never run';
-  const detail = before + (events.length ? `; events around it: ${events.join(', ')}` : '');
-  return { ok: now.ok, reason: now.reason ?? null, text: `${op} ${JSON.stringify(args)} ${why}${target?.edit ? ` · ${args.id} ${target.edit}` : ''}`, detail, recent, events, ...(target && { thing: target }) };
+  const why = now.ok ? 'can run now' : `cannot run now: ${now.code}${note(e, op, now.code) ? ` (${note(e, op, now.code)})` : ''}`;
+  const target = typeof args.id === 'string' ? e._things.source(args.id)?.explain(args.id) ?? null : null;   // the thing it acts on: where to change it for good
+  const before = last ? `last attempt at tick ${last.tick} (${last.source}, ${last.actor}): ${last.ok ? 'ok' : last.code}${last.count > 1 ? ` x${last.count}` : ''}` : 'never run';
+  const def = e.ops.defs.get(op), atom = def && atomicNote(def);
+  const detail = (atom ? atom + '; ' : '') + before + (events.length ? `; events around it: ${events.join(', ')}` : '');
+  return { ok: now.ok, code: now.code ?? null, atomic: def?.atomic === true, revision: e.ops.revision, facts: now.facts ?? {}, nextActions: now.nextActions ?? [], text: `${op} ${JSON.stringify(args)} ${why}${target?.edit ? ` · ${args.id} ${target.edit}` : ''}`, detail, recent, events, ...(target && { thing: target }) };
 }

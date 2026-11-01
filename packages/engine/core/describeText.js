@@ -20,9 +20,11 @@ const STRINGS = {
   changing: ', transitioning ({pct}%)',
   player: 'Player: ({x}, {y}, {z}), ground {ground}, {water}, state {state}',
   inWater: 'in water', dry: 'not in water', noPlayer: 'Player: none',
+  pointerLock: 'Pointer lock: {state}',
   camera: 'Camera: {type}, position ({x}, {y}, {z}), focus ({fx}, {fz}){over}',
   override: ', taken over by "{owner}"',
   cutscene: 'Cutscene: {n} playing{skip}',
+  overrides: 'Diagnostic overrides active (the screen is not the real state): {list}',
   skippable: ' (skippable)',
   dialogue: 'Dialogue: {speaker}: "{text}"{choices}',
   choices: ' Choices: {list}',
@@ -50,6 +52,7 @@ const STRINGS = {
 };
 import { fmt } from './validate.js';
 import { r1 } from './math.js';
+import { getPath } from './util.js';
 
 const NEAR_SUMMARY = 5, LINE = 110;
 const tr = (table, k) => (k != null && STRINGS[table][k]) || (k ?? STRINGS.none);
@@ -72,8 +75,7 @@ function summary(v) {
 
 /** describe() at a dotted path as JSON text, or why there is nothing there */
 function atPath(d, path) {
-  let v = d;
-  for (const k of path.split('.')) v = v?.[k];
+  const v = getPath(d, path);
   return v === undefined ? fmt(STRINGS.noPath, { path, keys: Object.keys(d).join(', ') }) : `${path}: ${JSON.stringify(v, null, 1)}`;
 }
 
@@ -109,6 +111,10 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   const c = d.camera;
   L.push(fmt(STRINGS.camera, { type: tr('camType', c.type), x: c.x, y: c.y, z: c.z, fx: c.focus.x, fz: c.focus.z, over: c.override
     ? fmt(STRINGS.override, { owner: c.override }) : '' }));
+  const pl = c.pointerLock;   // state machine from lockView (camera/common.js); only cameras with click-to-lock report a line
+  if (pl?.configured) L.push(fmt(STRINGS.pointerLock, { state: pl.state + (pl.lastFailure ? ` (${pl.lastFailure.reason}, ${pl.lastFailure.agoSec} s ago)` : '')
+    + (pl.covered ? `; canvas centre covered by ${pl.covered}` : '') + (pl.cameraOverride ? `; cameraOverride ${pl.cameraOverride} blocks locking` : '') }));
+  if (d.scene?.overrides) L.push(fmt(STRINGS.overrides, { list: d.scene.overrides.map(o => `${o.owner}:${o.target}`).join(', ') }));
   if (d.cutscene) L.push(fmt(STRINGS.cutscene, { n: d.cutscene.count, skip: d.cutscene.skippable ? STRINGS.skippable : '' }));
   const dl = d.ui.dialogue;
   if (dl) L.push(fmt(STRINGS.dialogue, { speaker: dl.speaker, text: dl.text, choices: dl.choices.length
@@ -123,7 +129,7 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
     : '' }));
   if (near.length < d.nearby.length) L.push(fmt(STRINGS.nearMore, { n: d.nearby.length - near.length }));
   if (d.actions) L.push(fmt(STRINGS.actions,
-    { list: d.actions.map(a => `${a.ok ? '✓' : '✗'} ${a.op}${a.args && Object.keys(a.args).length ? ' ' + argText(a.args) : ''}${a.ok ? '' : ` (${a.reason})`}`).join(' · ') }));
+    { list: d.actions.map(a => `${a.ok ? '✓' : '✗'} ${a.op}${a.args && Object.keys(a.args).length ? ' ' + argText(a.args) : ''}${a.ok ? '' : ` (${a.code})`}`).join(' · ') }));
   const pf = d.perf;
   L.push(fmt(STRINGS.perf, { fps: pf.fps ?? '-', cpu: pf.cpuMs ?? '-', calls: pf.drawCalls, tris: pf.triangles, chunks: pf.chunks
     ? fmt(STRINGS.chunks, pf.chunks) : '' }));

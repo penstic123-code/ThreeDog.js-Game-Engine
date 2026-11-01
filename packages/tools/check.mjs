@@ -99,6 +99,21 @@ for (const file of files.filter(f => P.under(P.rel(f), P.MODULES_REL))) {
 }
 
 const argv = process.argv.slice(2);
+// check -w <game>: only that game's checks (content validation + GAMEMAP up to date); the engine's hard rules and the whole-repo checks are skipped
+const wi = argv.findIndex(a => a === '-w' || a === '--workspace');
+if (wi >= 0) {
+  const wsDir = P.findWorkspace(argv[wi + 1]);
+  if (!wsDir) { console.log(`workspace "${argv[wi + 1]}" not found. Available: ${P.workspaces().map(P.rel).join(', ')}`); process.exit(1); }
+  const w = ['-w', argv[wi + 1]];
+  let bad = 0;
+  for (const r of await Promise.all([['gamemap.mjs', '--check', ...w], ['content-check.mjs', ...w]].map(([f, ...a]) => new Promise(res => {
+    const c = spawn(process.execPath, [join(TOOLS, f), ...a]); let out = '';
+    c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d); c.on('close', code => res({ out, code }));
+  })))) { process.stdout.write(r.out); if (r.code) bad++; }
+  console.log(`
+check -w ${P.rel(wsDir)}: ${bad ? 'FAILED' : 'passed'} (content + GAMEMAP only; run plain npm run check before committing engine changes)`);
+  process.exit(bad ? 1 : 0);
+}
 const ruleArg = argv.includes('--rule') ? argv[argv.indexOf('--rule') + 1] : undefined;
 if (argv.includes('--rule') && !ruleArg) { console.log('Usage: npm run check -- --rule R4,R8'); process.exit(1); }
 const onlyRules = ruleArg ? ruleArg.toUpperCase().split(',') : null;

@@ -7,15 +7,16 @@
 //   forward() / right() unit directions {x, z} on the XZ plane; player movement uses them
 //   update(dt, input)   per-frame camera update
 //
-// Cutscene takeover contract: engine.cameraOverride
-//   A cutscene (timeline module) that places the camera itself sets engine.cameraOverride = { owner: 'who', focus?: Vector3 }.
-//   While it is not null the camera module leaves the camera alone; with a focus, engine.focus is set to it (the world loads around it).
-//   Set it back to null when done; the camera module resumes from its previous state.
+// Cutscene takeover contract: engine.takeCamera(owner, { focus? }) -> { remove() } (core/holds.js); engine.cameraOverride is the holder in charge.
+//   A cutscene, a named view or a photo mode that places the camera itself takes it; several can hold it, the latest is in charge.
+//   While anyone holds it the camera module leaves the camera alone; with a focus, engine.focus is set to it (the world loads around it).
+//   When the last holder removes its claim the camera module resumes from its previous state. cameraOverride itself is read-only.
 import * as THREE from 'three';
 import { ownedProps } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { setProjection } from './projection.js';
 
-const STRINGS = { ownedHint: 'To place the camera yourself, set engine.cameraOverride = { owner: \'me\' } and set it back to null when done' };
+const STRINGS = { ownedHint: 'To place the camera yourself, take it: const cam = engine.takeCamera(\'me\'); ... cam.remove() when done' };
 
 /** True during a cutscene takeover, and updates engine.focus from the focus the owner supplied */
 function applyOverride(e) {
@@ -52,15 +53,37 @@ export function clickToLock(rig, switched) {
   const e = rig.engine, canvas = e.renderer.domElement;
   const wouldLock = () => rig.pointerLock && !e.cameraOverride && e.input.enabled
     && !matchMedia('(pointer: coarse)').matches && document.pointerLockElement !== canvas;
+  // Last outcome, shown by describe(): the drag fallback stays, but a refused lock is no longer silent
+  const st = rig.lockState = { configured: !!rig.pointerLock, requested: false, locked: document.pointerLockElement === canvas, lastError: null,
+    supported: typeof canvas.requestPointerLock === 'function' };
+  const fail = err => { st.locked = false; st.lastError = String(err?.message ?? err ?? 'refused'); st.failedAt = e.elapsed; };
   const lock = () => {
+    st.configured = !!rig.pointerLock;
     if (!wouldLock()) return;
-    try { const r = canvas.requestPointerLock?.(); r?.catch?.(() => {}); } catch { /* browser refused the lock; fall back to dragging */ }
+    st.requested = true;
+    try { const r = canvas.requestPointerLock?.(); r?.catch?.(fail); } catch (err) { fail(err); }   // browser refused the lock: fall back to dragging
   };
   rig._off = new AbortController();
+  const sig = { signal: AbortSignal.any([e.signal, rig._off.signal]) };
+  document.addEventListener('pointerlockchange', () => { st.locked = document.pointerLockElement === canvas; if (st.locked) st.lastError = null; else st.requested = false; }, sig);
+  document.addEventListener('pointerlockerror', () => fail('pointerlockerror (browser refused: needs a user gesture, or the page lost focus)'), sig);
   const swallow = () => rig.swallowLockClick !== false && wouldLock();
   e.input.swallowLockClick = swallow; rig._swallow = swallow;
-  canvas.addEventListener('click', lock, { signal: AbortSignal.any([e.signal, rig._off.signal]) });   // removed on switch-away or engine.dispose()
+  canvas.addEventListener('click', lock, sig);   // removed on switch-away or engine.dispose()
   if (switched) lock();   // a runtime switch (a key press counts as a gesture) locks at once
+}
+/**
+ * The pointer-lock state machine for describe(): off (not configured) / unsupported / locked / refused (browser denied) / requesting / waiting-click;
+ * plus covered (an element other than the canvas sits at its centre, so a click never reaches it), cameraOverride (a takeover blocks locking) and the last failure
+ * @internal
+ */
+export function lockView(e, st) {
+  if (!st?.configured) return { state: 'off' };
+  const state = !st.configured ? 'off' : !st.supported ? 'unsupported' : st.locked ? 'locked' : st.lastError ? 'refused' : st.requested ? 'requesting' : 'waiting-click';
+  const c = e.renderer.domElement, r = c.getBoundingClientRect();
+  const top = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+  return { ...st, state, covered: top && top !== c ? (top.id ? '#' + top.id : top.className ? '.' + String(top.className).split(' ')[0] : top.tagName.toLowerCase()) : null,
+    cameraOverride: e.cameraOverride?.owner ?? null, lastFailure: st?.lastError ? { reason: st.lastError, agoSec: Math.round((e.elapsed - st.failedAt) / 100) / 10 } : null };
 }
 /** Release the mouse lock; stop listening for clicks too when switched away (call from onExit; from onOverride with keepListening) */
 export function releaseLock(rig, keepListening = false) {
@@ -81,7 +104,9 @@ export { screenToGround } from '../../core/screenToGround.js';   // shared with 
 
 /** Camera kind table: kind name -> build(engine, opts). Each camera file registers once with defineRig; setCamera switches by name */
 const RIGS = new Map();
-export function defineRig(kind, build) { RIGS.set(kind, build); }
+const RIG_PARAMS = new Map();   // kind -> params schema (the option keys of that camera)
+/** keys: the options that camera takes; they become its params schema (engine.catalog) and a misspelled one throws in dev */
+export function defineRig(kind, build, keys = []) { RIGS.set(kind, build); RIG_PARAMS.set(kind, keysSchema(keys)); }
 
 /**
  * Wrap a camera as a module: handles cutscene takeover, updates engine.focus, and provides runtime switching engine.setCamera(kind, options?).
@@ -94,6 +119,7 @@ export function rigModule(kind, opts) {
   const make = (k, o) => {
     const build = RIGS.get(k);
     if (!build) throw new Error(`setCamera() has no camera kind '${k}'; available: ${[...RIGS.keys()].join(', ')}`);
+    readParams(`${k}Camera`, RIG_PARAMS.get(k), o);   // also covers setCamera(kind, options)
     const r = build(engine, o ?? {});
     r.kind = k; cache.set(k, r);
     return r;
@@ -114,7 +140,7 @@ export function rigModule(kind, opts) {
     return c;
   }
   return {
-    name: 'cameraRig', label: 'Camera', optional: ['collision'], stage: 'control',
+    name: 'cameraRig', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision'], stage: 'control',
     install(e) {
       engine = e; fov0 = e.camera.fov;
       e.setCamera = setCamera;
@@ -144,7 +170,8 @@ export function rigModule(kind, opts) {
       e.focus.copy(c.focusPoint());   // decides only where the view (terrain, models) loads; the gameplay simulation center is world.anchor (default the player), so moving the camera away changes nothing
       owned.mark(); fresh = false;
     },
-    describe(e, ctx) { ctx.out.camera.type = c.kind; if (c.current !== undefined) ctx.out.camera.shot = c.current; },
+    describe(e, ctx) { ctx.out.camera.type = c.kind; if (c.current !== undefined) ctx.out.camera.shot = c.current;
+      ctx.out.camera.pointerLock = lockView(e, c.lockState); },
   };
 }
 

@@ -29,22 +29,26 @@ async function loadGray(url) {
 import { ChunkManager } from './ChunkManager.js';
 import { DEFAULT_TERRAIN } from './terrainGen.js';
 import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { compilePure } from '../../core/threadPure.js';
 import { warnOnce } from '../../core/validate.js';
 import { prepareShape, voidWatcher } from './terrainShapeMain.js';
+import { defineGroundLook } from './lookGround.js';
 
 const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a look). '
   + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/terrain-noise';
 
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
+const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
+
 export function terrain(opts = {}) {
+  readParams('terrain', TERRAIN_PARAMS, opts);
   const { viewChunks = 4, density = 1, material, viewFog = false, ...cfg } = opts;
   let w = null, watchVoid = null;
   return {
-    name: 'terrain', label: 'Terrain', optional: ['vegetation'], stage: 'world',
+    name: 'terrain', label: 'Terrain', params: TERRAIN_PARAMS, options: opts, noSkip: 'void-fall watch only; nothing accumulates over time', optional: ['vegetation'], stage: 'world',
     install(e) {
-      checkOptions('terrain()', opts, ['viewChunks', 'density', 'material', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)]);
       const style = e.style.terrain || {};
       for (const k in cfg) if (cfg[k] === undefined) delete cfg[k];
       // a game's generator functions go to the workers as source text: checked here (outside variables name themselves) so the error points at this call
@@ -69,6 +73,9 @@ export function terrain(opts = {}) {
       w.density = density;
       w.viewFog = viewFog;   // opt-in: the fog ends where the chunks end (hides the edge); otherwise createEngine({ fogFar }) / the game's fog stays
       this._cfg = terrainCfg;
+      // look.ground: what terrain({...}) itself was given goes on the game layer (owner 'terrain()'); the style's values are the style layer
+      defineGroundLook(e, w, { cfg: () => this._cfg, setCfg: c => { this._cfg = c; },
+        game: { colors: cfg.colors && terrainCfg.colors, biomeColors: cfg.biomeColors && terrainCfg.biomeColors, steep: cfg.steep, shading: cfg.shading, material } });
       e.setGround({
         height: (x, z) => w.T.surface(x, z),
         slope: (x, z) => w.T.slope(x, z),
@@ -99,6 +106,7 @@ export function terrain(opts = {}) {
       const needH = hm?.url && !hm.data, needM = mk?.url && !mk.data;
       if (!needH && !needM) return;
       const cfg2 = { ...this._cfg };
+      this._cfg = cfg2;   // look.ground rebuilds from the current config
       if (needH) cfg2.heightmap = { ...hm, ...await loadGray(hm.url), url: undefined };
       if (needM) cfg2.shape = { ...cfg2.shape, mask: { ...mk, ...await loadGray(mk.url), url: undefined } };
       const species = {}; for (const sp of e.vegetation?.list() || []) species[sp.name] = sp.rule;

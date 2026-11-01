@@ -126,10 +126,10 @@ export const specs = [
         const at = W.view('sp-3').position, hit = engine.raycast([W.get('sp-3').position.x, at.y + 30, W.get('sp-3').position.z], [0, -1, 0]);
         const t = hit?.thing;
         // screen pick: aim the camera ray at the hit point
-        const cam = engine.camera; engine.cameraOverride = { owner: 'test' };
+        const cam = engine.camera; globalThis.__cam = engine.takeCamera('test');
         cam.position.set(hit.point.x, hit.point.y + 12, hit.point.z + 4); cam.lookAt(hit.point); cam.updateMatrixWorld();
         const v = hit.point.clone().project(cam), pk = engine.pick(v.x, v.y)?.thing ?? { v: [v.x, v.y, v.z] };
-        engine.cameraOverride = null;
+        globalThis.__cam?.remove();
         // a template instance from props
         const ta = W.view('ss-a').position, th = engine.raycast([W.get('ss-a').position.x, ta.y + 30, W.get('ss-a').position.z], [0, -1, 0])?.thing;
         // physics body: the model moves itself and the record follows it, so a pushed position is in the save

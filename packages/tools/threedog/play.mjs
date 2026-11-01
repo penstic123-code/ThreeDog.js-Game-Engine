@@ -11,6 +11,7 @@ import { bridgeDriver } from './connect.mjs';
 import { probe, diagnose } from './diagnose.mjs';
 import { readRuntime } from './runtime.mjs';
 import { allErrors, isError } from './errorlog.mjs';
+import { devServerInfo, pidAlive } from '../devinfo.mjs';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs'), wait = ms => new Promise(r => setTimeout(r, ms));
 const playFile = dir => join(dir, '.threedog/play.json');
@@ -20,7 +21,8 @@ const tail = (file, n = 6) => { try { return readFileSync(file, 'utf8').split('\
 function startServer(dir) {
   mkdirSync(join(dir, '.threedog'), { recursive: true });
   const log = join(dir, '.threedog/dev.log'), fd = openSync(log, 'w');
-  const child = spawn(process.execPath, [BIN, 'dev'], { cwd: dir, detached: true, windowsHide: true, stdio: ['ignore', fd, fd] });
+  const child = spawn(process.execPath, [BIN, 'dev'], { cwd: dir, detached: true, windowsHide: true, stdio: ['ignore', fd, fd],
+    env: { ...process.env, THREEDOG_AUTOSTOP_MIN: process.env.THREEDOG_AUTOSTOP_MIN || '30' } });   // a server play started exits by itself after 30 idle min (the bridge reads this)
   closeSync(fd);
   let code = null;
   child.on('exit', c => { code = c ?? 1; });
@@ -38,7 +40,9 @@ async function ready(dir, driver, ms) {
 export async function play(dir, { page, stop, timeout = 90000 } = {}) {
   if (stop) return stopServer(dir);
   let p = await probe(dir), started = false;
-  if (p.state === 'missing') return { ok: false, ...await diagnose(dir) };
+  // a default-port server found by scanning may be another project's: it does not stop this workspace from starting its own; one named in dev.json does
+  if (p.state === 'missing' && !p.scanned) return { ok: false, ...await diagnose(dir) };
+  if (p.scanned) p = { state: 'none' };
   if (p.state === 'none') {
     const srv = startServer(dir);
     started = true;
@@ -69,15 +73,21 @@ export async function status(dir, { page } = {}) {
     : `still loading (waiting: ${lv.waiting})`;
   const bad = !runtime.ready || lv?.blocked || errs.length > 0;
   const head = `${bad ? '✗' : '✓'} ${runtime.ready ? 'Ready' : 'Not ready'}: ${loading}, ${errs.length ? `${errs.length} page error${errs.length === 1 ? '' : 's'}` : 'no page errors'}`;
-  return { ok: !bad, runtime, data: { port: p.port, loading: lv, errors: { count: errs.length, latest: last ?? null } },
-    text: `${head}${last ? ` (latest E${last.id}: ${last.message.split('\n')[0].slice(0, 100)}; threedog errors latest)` : ''}` };
+  const rs = raw.run, run = rs ? `
+Run state: ${rs.state === 'paused' ? `paused(by ${rs.by.join(', ')})` : rs.state}` : '';
+  return { ok: !bad, runtime, data: { port: p.port, loading: lv, run: rs, errors: { count: errs.length, latest: last ?? null } },
+    text: `${head}${last ? ` (latest E${last.id}: ${last.message.split('\n')[0].slice(0, 100)}; threedog errors latest)` : ''}${run}` };
 }
 
-function stopServer(dir) {
-  const pids = [];
-  for (const f of [playFile(dir), join(dir, '.threedog/dev.json')]) try { pids.push(JSON.parse(readFileSync(f, 'utf8')).pid); } catch { /* absent */ }
+export async function stopServer(dir) {
   const own = (() => { try { return JSON.parse(readFileSync(playFile(dir), 'utf8')).pid; } catch { return null; } })();
   if (!own) return { ok: false, text: '✗ threedog play did not start a server for this workspace.\nNext: close the terminal where you ran npm run dev.' };
+  // Kill only a process the dev bridge itself vouches for (it answers with the token in dev.json): a recorded pid alone may have been reused by an unrelated program
+  const live = (await probe(dir)).state === 'ok', pids = live ? [own, devServerInfo(dir).pid] : [];
+  if (!live) {
+    for (const f of [playFile(dir), join(dir, '.threedog/dev.json')]) rmSync(f, { force: true });
+    return { ok: true, text: `✓ No dev server of this workspace answers any more (the record was removed${pidAlive(own) ? `; pid ${own} is alive but is not confirmed as the dev server, so it was left alone` : ''}).` };
+  }
   for (const pid of new Set(pids.filter(Boolean))) {
     if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
     else try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ } }

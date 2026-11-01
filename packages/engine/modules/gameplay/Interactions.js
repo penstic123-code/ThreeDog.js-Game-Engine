@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { worldToScreen } from '../../ui/UI.js';
 import { promptPart } from './interactionPrompt.js';
 import { checkOptions } from '../../core/validate.js';
+import { readParams } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
 import { vec3 } from '../../core/math.js';
 
@@ -194,6 +195,14 @@ export class Interactions {
 
 const labelOf = it => typeof it.label === 'function' ? it.label() : it.label;
 
+const INTERACTION_PARAMS = {
+  action: { type: 'string', default: 'interact', desc: 'input action that uses the interaction' },
+  pick: { type: 'any', optional: true, desc: "which one counts as in front of you: 'nearest' | 'facing' | 'aim' | a function (required; checked with a fix hint on install)" },
+  keys: { type: 'array', optional: true, desc: "keys that use it, e.g. ['KeyE'] (required unless createEngine({ bindings }) binds the action)" },
+  radius: { type: 'number', default: 2.5, min: 0, desc: 'reach in meters (add() can set its own)' },
+  promptHeight: { type: 'number', optional: true, desc: 'prompt height above the target (meters)' },
+};
+
 /**
  * Interactions module. Installs engine.interactions.
  * pick and keys are required (the engine picks neither; presets.interactions.* bundle them). radius: default reach of add() in meters (2.5); pick: how the
@@ -209,9 +218,10 @@ const labelOf = it => typeof it.label === 'function' ? it.label() : it.label;
  * string[] }} opts
  */
 export function interactions(opts) {
+  const o = readParams('interactions', INTERACTION_PARAMS, opts ?? {});
   let i = null;
-  return { name: 'interactions', label: 'Interactions', stage: 'gameplay',
-    install(e) { checkOptions('interactions()', opts ?? {}, ['action', 'promptHeight', 'radius', 'pick', 'keys']); i = new Interactions(e, opts); defineUse(e, i); return i; },
+  return { name: 'interactions', label: 'Interactions', params: INTERACTION_PARAMS, options: o, noSkip: 'input and prompt state only', stage: 'gameplay',
+    install(e) { i = new Interactions(e, opts); defineUse(e, i); return i; },
     fixed() { i.fixed(); }, frame() { i.update(); },
     // interactions are "weak" info: when an NPC, pickup or entity already reported the same object, only add "interactable: xxx"
     describe(e, ctx) {

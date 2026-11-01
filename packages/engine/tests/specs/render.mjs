@@ -9,7 +9,7 @@ export const specs = [
       const r = await ev(() => {
         const p = engine.post, pr0 = engine.renderer.getPixelRatio(), out = { fresh: !p.composer };
         engine.setPixelRatio(1.5);   // 后期在像素比不是 1 时建起来，才会暴露"设备像素再乘像素比"
-        p.enable('antialias', true); engine.step(1 / 30, { render: true });
+        p.setAntialias(true); engine.step(1 / 30, { render: true });
         const css = engine.renderer.getSize(new engine.THREE.Vector2());
         for (const pr of [1, 2, 1.4]) {
           engine.setPixelRatio(pr); engine.step(1 / 30, { render: true });
@@ -29,31 +29,31 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const p = engine.post, out = {};
+        const p = engine.post, L = engine.look.post, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const pass = (swap, disposed = { n: 0 }) => ({ enabled: true, needsSwap: swap, renderToScreen: false, setSize() {}, render() {}, dispose() { disposed.n++; } });
         const before = p.list().map(e => e.name).join();
-        out.ldr = err(() => p.add({ name: 'ldrDepth', slot: 'ldr', needsDepth: true, create: () => pass(false) }));   // 色调映射输出之后已经没有场景深度
-        const grade = p.add({ name: 'grade', slot: 'hdr', order: 5, create: () => pass(true) });
-        out.late = err(() => p.add({ name: 'edges', slot: 'hdr', order: 50, needsDepth: true, create: () => pass(true) }));
+        out.ldr = err(() => L.add({ name: 'ldrDepth', slot: 'ldr', needsDepth: true, create: () => pass(false) }));   // 色调映射输出之后已经没有场景深度
+        const grade = L.add({ name: 'grade', slot: 'hdr', order: 5, create: () => pass(true) });
+        out.late = err(() => L.add({ name: 'edges', slot: 'hdr', order: 50, needsDepth: true, create: () => pass(true) }));
         out.lateGone = !p.get('edges');
-        const edges = p.add({ name: 'edges', slot: 'hdr', order: 1, needsDepth: true, create: () => pass(true) });   // 先读深度再换缓冲：可以
+        const edges = L.add({ name: 'edges', slot: 'hdr', order: 1, needsDepth: true, create: () => pass(true) });   // 先读深度再换缓冲：可以
         out.earlyOk = !!p.get('edges');
         // enable 打开一个会破坏顺序的效果：报错并保持关着
-        const late2 = p.add({ name: 'late2', slot: 'hdr', order: 60, needsDepth: true, enabled: false, create: () => pass(false) });
-        out.enable = err(() => late2.enable(true));
-        out.enableKept = late2.enabled === false;
+        const late2 = L.add({ name: 'late2', slot: 'hdr', order: 60, needsDepth: true, enabled: false, create: () => pass(false) });
+        out.enable = err(() => L.set({ 'late2.enabled': true }));
+        out.enableKept = p.get('late2').enabled === false;
         late2.remove();
         // create 抛错：不留在链里，后面的调用不受影响
-        out.create = err(() => p.add({ name: 'boom', create: () => { throw new Error('boom!'); } }));
-        out.createGone = !p.get('boom') && err(() => p.enable('antialias', true)) === '';
+        out.create = err(() => L.add({ name: 'boom', create: () => { throw new Error('boom!'); } }));
+        out.createGone = !p.get('boom') && err(() => p.setAntialias(true)) === '';
         // remove 两次只 dispose 一次
-        const d = { n: 0 }, once = p.add({ name: 'once', create: () => pass(false, d) });
+        const d = { n: 0 }, once = L.add({ name: 'once', create: () => pass(false, d) });
         once.remove(); once.remove(); out.disposed = d.n;
-        // enable 拼错：返回 false 并在开发版提示
+        // look.post.set 拼错：报错并提示 did you mean
         const warn = console.warn; let w = ''; console.warn = m => { w += m; };
-        out.typo = p.enable('grde', false); console.warn = warn; out.typoWarn = w;
-        grade.remove(); edges.remove(); p.enable('antialias', false);
+        out.typo = err(() => engine.look.post.set({ 'grde.enabled': false })); console.warn = warn; out.typoWarn = out.typo;
+        grade.remove(); edges.remove(); p.setAntialias(false);
         out.after = p.list().map(e => e.name).join() === before;
         return out;
       });
@@ -63,7 +63,7 @@ export const specs = [
       check('enable 打开会破坏顺序的效果：报错并保持关着', /'late2' reads scene depth/.test(r.enable) && r.enableKept, r.enable);
       check('create 抛错：效果被移除，别的调用照常', /boom!/.test(r.create) && r.createGone, JSON.stringify(r));
       check('句柄 remove() 可重复调用，只 dispose 一次', r.disposed === 1, String(r.disposed));
-      check('enable 拼错名字：返回 false 并提示 did you mean', r.typo === false && /grade/.test(r.typoWarn), r.typoWarn);
+      check('look.post.set 拼错名字：报错并点出这个键', /unknown key.*grde.enabled/.test(r.typo), r.typo);
       check('全部还原', r.after);
     },
   },
@@ -214,6 +214,7 @@ export const specs = [
         makeMaterial('typo-probe', { type: 'standard', color: 0xff0000, roughnes: 0.3 });
         const typo = w; w = '';
         makeMaterial('typo-probe', { color: 0xff0000, roughness: 0.3, transparent: true, opacity: 0.5, side: 2 });
+        makeMaterial('typo-probe', { type: 'physical', clearcoat: 1, clearcoatRoughness: 0.2, sheen: 0.5 });   // accessor properties on the prototype are real properties
         console.warn = warn;
         return { typo, ok: w };
       });

@@ -5,12 +5,12 @@
 // the rest go to the module hook applyState(e, params) (written like the describe hook): sky -> time and season, weather -> weather, timeline -> cutscene.
 // Two phases, both called from start():
 //   early(): before modules are ready, applies save, pos, time, weather (terrain is generated directly at the new position)
-//   late(): after engine:ready, cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
+//   late(): after engine:ready, view (engine.views), cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
 // In a game, await engine.applyState({...}) at any time runs both phases back to back.
 import { checkOptions, warnMissing } from './validate.js';
 import { xzOf } from './math.js';
 
-const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'save', 'wait', 'cutscene'];
+const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'save', 'wait', 'cutscene', 'view'];
 
 export class UrlState {
   constructor(engine, { fromUrl = false } = {}) {
@@ -64,6 +64,7 @@ export class UrlState {
       await new Promise(r => setTimeout(r, 0));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
     }
     await Promise.all(this._hooks(p, ['time', 'season']));         // advancing moves time and the day, so align them last
+    if (p.view && e.views.list().length) e.views.show(p.view);   // a page with its own ?view= (no engine.views declared) handles it itself
     this.applied = true;
     e.events.emit('state:applied', p);
   }

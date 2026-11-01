@@ -37,16 +37,16 @@ export const specs = [
         let n = 0;
         sm.render = (...a) => { if (sm.autoUpdate || sm.needsUpdate) n++; orig(...a); };
         const def = { ...engine.sky.shadow, bias: engine.sky.sun.shadow.bias, auto: sm.autoUpdate };
-        engine.sky.setShadow({ updateEvery: 4, bias: -0.001 });
-        engine.step(1 / 60);   // first frame (setShadow requests one update)
+        engine.look.shadow.set({ updateEvery: 4, bias: -0.001 });
+        engine.step(1 / 60);   // first frame (look.shadow.set requests one update)
         n = 0;
         for (let i = 0; i < 8; i++) engine.step(1 / 60);
         const every4 = n, bias = engine.sky.sun.shadow.bias;
-        engine.sky.setShadow({ updateEvery: 1, bias: def.bias, snap: 'texel' });
+        engine.look.shadow.set({ updateEvery: 1, bias: def.bias, snap: 'texel' });
         n = 0;
         for (let i = 0; i < 4; i++) engine.step(1 / 60);
         const every1 = n;
-        engine.sky.setShadow({ snap: 0.5 });
+        engine.look.shadow.set({ snap: 0.5 });
         sm.render = orig; engine.resume();
         return { def, every4, every1, bias };
       });
@@ -64,17 +64,17 @@ export const specs = [
         engine.pause();
         const sm = engine.renderer.shadowMap, T = engine.THREE;
         const out = { def: sm.type === T.PCFShadowMap && engine.shadowType === 'pcf' };
-        engine.sky.setShadow({ type: 'vsm', radius: 3, blurSamples: 6 });
+        engine.look.shadow.set({ type: 'vsm', radius: 3, blurSamples: 6 });
         out.vsm = sm.type === T.VSMShadowMap && engine.sky.sun.shadow.radius === 3 && engine.sky.sun.shadow.blurSamples === 6 && engine.sky.shadow.type === 'vsm';
-        engine.sky.setShadow({ updateEvery: 4 });
+        engine.look.shadow.set({ updateEvery: 4 });
         sm.needsUpdate = false;
-        engine.sky.setShadow({ type: 'basic' });
+        engine.look.shadow.set({ type: 'basic' });
         out.basic = sm.type === T.BasicShadowMap && engine.shadowType === 'basic';
         out.needs = sm.needsUpdate === true && sm.autoUpdate === false;
-        try { engine.sky.setShadow({ type: 'pcfsoft' }); out.err = ''; } catch (e) { out.err = e.message; }
+        try { engine.look.shadow.set({ type: 'pcfsoft' }); out.err = ''; } catch (e) { out.err = e.message; }
         out.kept = sm.type === T.BasicShadowMap;
         engine.step(1 / 60);   // renders with the new type without throwing
-        engine.sky.setShadow({ type: 'pcf', updateEvery: 1, radius: 1, blurSamples: 8 });
+        engine.look.shadow.set({ type: 'pcf', updateEvery: 1, radius: 1, blurSamples: 8 });
         engine.resume();
         return out;
       });

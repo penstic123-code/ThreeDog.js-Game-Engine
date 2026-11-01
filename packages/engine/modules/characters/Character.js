@@ -12,20 +12,21 @@ import * as THREE from 'three';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
 import { warnOnce, warnMissing } from '../../core/validate.js';
-import { findClip } from '../../core/Animator.js';
+import { reportError } from '../../core/errors.js';
 import { simpleMover } from './movers/simple.js';
 import { rapierMover } from './movers/rapier.js';
 import { loadAssetModel } from './assetModel.js';
 import { NO_CHARACTER, capsule, useRig, animateRig } from './proceduralRig.js';
+import { walkTo } from './walkTo.js';
+import { useModel } from './useModel.js';
 
 const STRINGS = { noClip: 'character has no skeletal animation; playAction(\'{name}\') skipped (the model needs this action)' };
 const MOVERS = { simple: simpleMover, rapier: rapierMover };
 // Default action names for the clips shorthand (character state -> glTF action name)
-const DEFAULT_CLIPS = { idle: 'Idle', walk: 'Walk', run: 'Run', swim: 'Swim', jump: 'Jump', fall: 'Fall', drive: 'Drive' };
 
 // Options Character understands (shared by player and NPC)
 export const CHARACTER_KEYS = ['colors', 'speed', 'runSpeed', 'radius', 'canSwim', 'swimDepth', 'swimSpeed', 'turnSpeed', 'acceleration', 'gravity',
-  'jumpSpeed', 'stepHeight', 'airControl', 'coyoteTime', 'canJump', 'model', 'clips', 'animation', 'mover', 'faceMode', 'faceTarget'];
+  'jumpSpeed', 'stepHeight', 'airControl', 'coyoteTime', 'canJump', 'model', 'clips', 'animation', 'mover', 'faceMode', 'faceTarget', 'rig'];
 const FACE_MODES = ['move', 'camera', 'target', 'manual'];
 
 export class Character {
@@ -40,6 +41,7 @@ export class Character {
    *           model + clips: optional glTF model and action-name map { idle, walk, run, swim, jump, fall, drive } (shorthand for animation)
    *           animation: animation state machine config (see core/Animator.js), state names are character state names;
    *                      without walk/run, move (blend tree, param speed) is used
+   *           rig: a ready body in the format style.character.create returns (proceduralRig.js), used instead of the style pack's (hand-built guard / pet)
    *           mover: 'simple' (default) | 'rapier' (Rapier character controller, needs the rigid module)
    *           faceMode which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward(), over-the-shoulder aiming)
    *                    | 'target' (toward faceTarget: Object3D / Vector3 / { x, z }, lock-on strafing) | 'manual' (only face() turns it);
@@ -50,7 +52,7 @@ export class Character {
   constructor(engine, { colors = {}, speed = 4.5, runSpeed = 7, radius = engine.movement.radius, canSwim = true, swimDepth = 1.0, swimSpeed = 0.45,
     turnSpeed = 10, acceleration = 12, gravity = -24, jumpSpeed = 8, stepHeight = engine.movement.stepHeight, airControl = 0.35, coyoteTime = 0.12,
     canJump = true,
-    model = null, clips = null, animation = null, mover = 'simple', faceMode = 'move', faceTarget = null } = {}) {
+    model = null, clips = null, animation = null, mover = 'simple', faceMode = 'move', faceTarget = null, rig = null } = {}) {
     this.engine = engine;
     Object.assign(this, { speed, runSpeed, radius, canSwim, swimDepth, swimSpeedFactor: swimSpeed, turnSpeed, acceleration, gravity, jumpSpeed, stepHeight,
       airControl, coyoteTime, canJump });
@@ -80,22 +82,19 @@ export class Character {
     model ??= engine.style.character?.model ?? null;
     if (model && typeof model !== 'string') { this._useModel(model, clips, animation); return; }
     // style-pack procedural character: the rig format is in proceduralRig.js
-    const rig = engine.style.character?.create?.(engine, c);
+    rig ??= engine.style.character?.create?.(engine, c);
     if (!rig && !model) warnOnce(NO_CHARACTER);
     useRig(this, rig || capsule(c.body, engine));
     if (model) this._whenReady = loadAssetModel(this, model, m => this._useModel(m, clips, animation));
   }
-  _useModel(model, clips, animation) {
-    const engine = this.engine; this.root.add(model);
-    const states = {};
-    // default names only where the model has the clip (a model without Swim is fine) and the manifest mapped nothing (Assets.animate merges that under
-    // these states, so a default Idle must not shadow a mapped Idle_Sword); names the game wrote are always kept so a typo is reported
-    const have = model.userData.animations || [], map = engine.assets.mapping(model), mapped = map?.states || {};
-    for (const [st, clip] of Object.entries(DEFAULT_CLIPS)) if (!mapped[st] && findClip(have, clip)) states[st] = { clip };
-    for (const [st, clip] of Object.entries(clips || {})) states[st] = { clip };
-    // the model's own mapping (fade, transitions) beats the style pack's default for every character; the game's per-character config beats both
-    this.anim = engine.assets.animate(model, { ...engine.style.character?.animation, ...map, states, ...(animation || {}) });
-  }
+  _useModel(model, clips, animation) { useModel(this, model, clips, animation); }
+
+  /**
+   * Walk to a point along characters.findPath on fixed steps (turn rate, skips passed points, re-plans when stuck). Returns a promise of
+   * { status: 'arrived' | 'noPath' | 'stuck' | 'cancelled' } (never rejects) with remove() to cancel; a new walkTo, dispose() or a save load cancels it (not saved). speed m/s, arrive metres, turnRate rad/s
+   * @example await guard.walkTo(player.position, { arrive: 1.5 })
+   */
+  walkTo(target, opts) { return walkTo(this, target, opts); }
 
   /** Request a jump (call when the jump key is pressed; has a jump buffer, so pressing slightly before landing counts) */
   jump() { if (this.canJump) this._jumpBuffer = 0.12; }
@@ -155,6 +154,7 @@ export class Character {
   /** Dispose this character completely: exit the vehicle first, release animation and mover, remove from the scene and dispose geometries and materials */
   dispose() {
     this._disposed = true;   // a model still loading by asset name is dropped on arrival
+    this._walk?.remove();    // a walk in progress ends 'cancelled' (walkTo.js)
     this.exit();
     this.anim?.dispose();
     this.mover.dispose?.();
@@ -202,8 +202,20 @@ export class Character {
     this.root.rotation.y = this.facing;
   }
 
+  /**
+   * Run fn(character, dt) every frame right after this character's animation pose is applied (model clips or procedural rig), so a game can attach things to bones
+   * or adjust bones on top of the pose. Returns a handle; h.remove() stops it. Presentation only: never read it for gameplay timing.
+   * @param {(character: Character, dt: number) => void} fn
+   * @returns {{ remove(): void }}
+   * @example const h = player.onPose(() => sword.position.copy(player.object.getObjectByName('Hand_R').getWorldPosition(v)));
+   */
+  onPose(fn) { (this._poseFns ??= new Set()).add(fn); return { remove: () => this._poseFns.delete(fn) }; }
+  /** @internal */
+  _firePose(dt) { if (this._poseFns?.size) for (const f of [...this._poseFns]) { try { f(this, dt); } catch (err) { reportError(this.engine, err, 'character.onPose callback'); } } }
   /** @internal Call every frame: play animation */
-  animate(dt) {
+  animate(dt) { this._animate(dt); if (!this.anim) this._firePose(dt); }
+  /** @internal */
+  _animate(dt) {
     const sp = this.moveAmount, t = this.engine.elapsed, st = this.state;
     this.phase += dt * (2.2 + sp * 1.25);
     const s = Math.sin(this.phase);

@@ -22,11 +22,13 @@ Characters: createPlayer() (characters() module)
 - `player.enter(vehicle: Vehicle)` — Board a vehicle (the vehicle returned by rigid.addVehicle)
 - `player.exit()` — Exit the vehicle
 - `player.playAction(name: string)` — Play a one-shot action (e.g. 'wave'); skipped if the model has no such clip
+- `player.onPose(fn: (character, dt) => void) → { remove(): void }` — Run fn(character, dt) every frame right after the animation pose is applied (model clips or procedural rig): attach things to bones or adjust bones. h.remove() stops it. Presentation only. Example: `const h = player.onPose(() => sword.position.copy(hand.getWorldPosition(v)));`
 - `player.dispose()` — Fully delete this character: exits the vehicle first, releases animation and movement, removes it from the scene and releases geometry and materials (used by npcs.remove / removePlayer)
 - `player.jump()` — Request a jump
 - `player.addTo(scene?: any)` — Add to the scene
 - `player.placeAt(position: PositionLike)` — Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z })
 - `player.syncRecord()` — After moving root yourself (a cutscene path, a scripted pose): write position and motion back to its world record (the player's), so a save right after has it
+- `player.walkTo(target: Vector3 | { x: number; z: number } | [number, number, number] | …, opts?: { speed?, arrive?, turnRate?, stuckSeconds?, maxRepaths?, run? }) → Promise<{ status: 'arri… & { remove(): void }` — Walk to a point along characters.findPath on fixed steps; never rejects. One walk per character: a new walkTo, dispose() or a save load ends the old one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip
 - `player.move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number)` — Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1), run to run, dt in seconds
 - `player.groundType() → string` — Ground type underfoot ('water' while swimming)
 - `player.face(target: PositionLike | number)` — Turn at once to a position, or to an angle in radians (0 = +Z)

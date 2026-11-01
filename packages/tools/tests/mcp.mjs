@@ -7,11 +7,13 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
+import { readFileSync } from 'node:fs';
+import { TIME } from '../threedog/runtime.mjs';
 
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'snap', 'snap_describe', 'state', 'status', 'step', 'verify'];
+const EXPECTED = ['catalog', 'describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'thing', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -44,6 +46,11 @@ async function steps(check, plain) {
       info.protocolVersion === '2025-06-18' && info.capabilities.tools && info.serverInfo.name === 'threedog', JSON.stringify(info).slice(0, 200));
     check('tools/list: one tool per bridge command, each with an object schema and a description',
       JSON.stringify(names(list)) === JSON.stringify(EXPECTED) && list.tools.every(t => t.inputSchema.type === 'object' && t.description.length > 20), names(list).join(', '));
+    // the descriptions are sent every turn: short; the time rule comes from the one TIME table; recipe 16 lists exactly the tools the server has
+    const recipe = readFileSync(join(ENGINE, 'docs/recipes/16-dev-bridge.md'), 'utf8'), inRecipe = list.tools.filter(t => !recipe.includes('`' + t.name + '`')).map(t => t.name);
+    check('tool descriptions are at most 230 characters; skip is labelled as advancing time like TIME says; recipe 16 names every tool',
+      list.tools.every(t => t.description.length <= 230) && TIME.advances.every(c => !list.tools.some(t => t.name === c.replace('-', '_') && !t.description.startsWith('ADVANCES')))
+        && !inRecipe.length, `too long: ${list.tools.filter(t => t.description.length > 230).map(t => t.name + ':' + t.description.length)}; missing in recipe 16: ${inRecipe}`);
     await withJs.init;
     const js = (await withJs.rpc('tools/list')).tools.find(t => t.name === 'js');
     const denied = await plain.rpc('tools/call', { name: 'js', arguments: { code: '1 + 1' } });
@@ -81,6 +88,23 @@ async function steps(check, plain) {
     const s = await plain.rpc('tools/call', { name: 'snap', arguments: { name: 'mcp-test' } });
     const img = s.content.find(c => c.type === 'image');
     check('snap: an MCP image (PNG) next to the text', !s.isError && img?.mimeType === 'image/png' && Buffer.from(img.data, 'base64').subarray(1, 4).toString() === 'PNG', JSON.stringify(s).slice(0, 200));
+    // thing: the tool and the CLI (threedog thing <id>) end to end against the live page; ids come from the scene tool so no example data is assumed
+    const sc = await plain.rpc('tools/call', { name: 'scene', arguments: {} });
+    const id = 'player';   // the world example's player (describe names it); 'engine.thing' takes an object name too
+    const t = id ? await plain.rpc('tools/call', { name: 'thing', arguments: { id } }) : null;
+    check('thing: the tool returns the id\'s explain() JSON (the name is echoed back in the text)', !!t && !t.isError && t.content[0].text.includes(id), `${id} ${JSON.stringify(t?.content?.[0]?.text).slice(0, 200)}`);
+    const stt = await plain.rpc('tools/call', { name: 'status', arguments: {} });
+    check('status: against a live page the text has a "Run state:" line (running / paused(by …) / test-paused)', /Run state: (running|paused|test-paused|frozen)/.test(stt.content[0].text), stt.content[0].text);
+    const nt = await plain.rpc('tools/call', { name: 'thing', arguments: { id: 'no-such-thing-xyz' } });
+    check('thing: an unknown id is a tool error with a message, not a crash', nt.isError && nt.content[0].text.length > 5, nt.content[0].text);
+    // async spawn on purpose: the dev server lives in this process, a blocking spawnSync would starve it
+    const cli = await new Promise(res => {
+      const c = spawn(process.execPath, [BIN, 'thing', id ?? 'x', '-w', 'engine'], { cwd: ROOT }); let out = '';
+      c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
+      const t = setTimeout(() => { c.kill(); res({ status: 'timeout', out }); }, 90000);
+      c.on('close', status => { clearTimeout(t); res({ status, out }); });
+    });
+    check('threedog thing <id>: CLI prints the same JSON and exits 0', cli.status === 0 && cli.out.includes(id ?? '?'), `${cli.status} ${cli.out.slice(0, 200)}`);
   } finally {
     await server.close();
   }

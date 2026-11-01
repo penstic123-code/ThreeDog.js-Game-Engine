@@ -8,7 +8,7 @@ engine's part off and bringing your own three.js objects.
 ## Lights: let the sky drive them, drive them yourself, or switch them off
 The engine has one directional light (`engine.lights.sun`, also `engine.sky.sun`; moonlight at night, the shadows live on it) and one hemisphere
 ambient (`engine.lights.hemi` = `engine.sky.hemi`). The sky module rewrites their color and intensity every frame from `style.sky.keyframes`,
-so editing them directly is overwritten (a dev warning says so). Choose per light:
+so editing them directly is overwritten (a dev warning says so). **Without the sky module** both lights still exist as a bright placeholder (hemi 1.2, white sun 2 at (40, 80, 30), no shadows): for a night scene set them yourself (`engine.lights.sun.color/intensity`, `engine.lights.hemi.intensity`) or install `sky`. Choose per light:
 
 ```js
 engine.use(sky({ sun: 'manual' }));                     // the sky still aims the sun along the time of day and moves the shadow box
@@ -18,12 +18,14 @@ engine.use(sky({ sun: false, hemisphere: false }));     // a dungeon: both hidde
 const torch = new THREE.PointLight(0xffa040, 6, 12); engine.add(torch);   // add your own lights before engine.start()
 ```
 
+- `createEngine({ lights: false })` goes one step further: the default sun and hemisphere are never put in the scene (no placeholder light even before a sky is installed), `engine.lights.sun` / `hemi` stay as detached objects so nothing reads `undefined`. Use it for a scene lit entirely by your own lights.
+- Many lights indoors (lamps, torches in every room): do not add a `PointLight` per lamp; `lightPool({ point: 6 })` keeps a fixed number of real lights and moves them to the nearest sources, so the light count (and shader recompiles) stays constant.
 - Default `true`: the sky drives everything (as before). `'manual'`: color and intensity are the game's; the sun keeps its direction and shadow box.
   `false`: `visible = false`, no shadows, never touched (lightning no longer flashes the ambient either).
-- Shadows: only the engine sun's shadow is managed (size, bias, snapping via `engine.sky.setShadow`). Your own `castShadow` lights work as in
+- Shadows: only the engine sun's shadow is managed (size, bias, snapping via `engine.look.shadow.set`). Your own `castShadow` lights work as in
   three.js, each costing its own shadow pass; `engine.setShadows(false)` turns theirs off too and restores them after.
 - Add or remove lights before `engine.start()`: a light count that changes mid-play recompiles every material (one long frame). Many torches:
-  `lightPool()`. Brightness tweaks without giving up the keyframes: `engine.sky.modify('cave', { sun: 0.3, ambient: 0.4 })`.
+  `lightPool()`. Brightness tweaks without giving up the keyframes: a multiplier layer, see [recipe 52](52-look.md#skymodify-vs-looklights).
 
 ## Fog: kind, color, density, or your own math
 `style.sky.fog` (a look; `sky({ fog })` overrides it):
@@ -57,8 +59,8 @@ fog: { kind: 'exp', glsl: `vec4 threedogFog(vec3 c, float depth, vec3 p){
 ```js
 exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]               // style: per time of day (0-1), wraps across midnight
 exposure: sky => sky.isDay ? 1 : 1.5                       // or a function, evaluated by the sky module every frame
-engine.setExposure(1.3);                                    // at run time: number, keyframes or function (replaces the style's)
-engine.setToneMapping('agx');                               // 'aces' | 'agx' | 'neutral' | 'none'; materials recompile on their next draw
+engine.look.tone.set({ exposure: 1.3 });                    // at run time: number, keyframes or function (replaces the style's); 
+engine.look.tone.set({ mapping: 'agx' });                   // 'aces' | 'agx' | 'neutral' | 'none'; materials recompile on their next draw
 ```
 A plain number behaves as before (set once, no per-frame work). Keyframes and functions need the sky module (it knows the time of day).
 
@@ -78,4 +80,4 @@ hide `engine.sky.dome` and add your own background.
 
 ## Water and weather particles
 Water depth color, crest foam, wave / surface GLSL, reflections; rain and snow shape, size, density and shaders, the lightning look, and
-particles for the game's own weather (`engine.weather.define`): `44-water-weather-look-hooks.md`.
+particles for the game's own weather (`engine.look.weather.replace`): `44-water-weather-look-hooks.md`.

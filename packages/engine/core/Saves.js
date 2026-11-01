@@ -59,6 +59,7 @@ export class Saves {
    * shape.
    * A save whose part is newer than this build's version is refused as a whole (load returns false, the save is kept).
    * A part registered after a save was loaded (a module installed later) is handed its data from that save at once.
+   * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
    * @param {string} key
    * @param {SaveProvider} provider
    * @example
@@ -67,10 +68,10 @@ export class Saves {
    * engine.saves.register('garden', { version: 2, migrate: { 1: d => ({ ...d, beds: [] }) }, save: () => garden.toJSON(), load: d => garden.fromJSON(d) });
    */
   register(key, provider) {
-    checkOptions(`saves.register('${key}')`, provider, ['save', 'load', 'first', 'version', 'migrate']);
-    const { save, load, first = false, version = 1, migrate = {} } = provider;
+    checkOptions(`saves.register('${key}')`, provider, ['save', 'load', 'first', 'version', 'migrate', 'atomic']);
+    const { save, load, first = false, version = 1, migrate = {}, atomic = false } = provider;
     checkPartVersion(key, version, migrate);
-    this.providers.set(key, { save, load, first, version, migrate });
+    this.providers.set(key, { save, load, first, version, migrate, atomic: atomic === true });
     this.engine.session._late(key);   // a part registered after start() (a module installed later) joins the new-game state as it is now
     if (key in this._foreign.parts) adoptPart(this, key);
   }
@@ -142,7 +143,7 @@ export class Saves {
    * @param {string} [slot]  for messages only
    * @returns {Promise<boolean>}
    */
-  apply(data, slot = '(data)') { return applySave(this, data, slot).then(async ok => { if (ok) await afterLoad(this.engine); return ok; }); }
+  apply(data, slot = '(data)') { return applySave(this, data, slot).then(async ok => { if (ok) { this.engine.ops.revision++; await afterLoad(this.engine); } return ok; }); }   // a load is a state change: ops.revision moves
   /** @internal Put a save in memory and queue the disk write; returns Promise<boolean> (write succeeded) */
   _put(slot, json, savedAt) {
     const prev = this._json.get(slot), prevAt = this._meta.get(slot);

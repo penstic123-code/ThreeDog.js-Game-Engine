@@ -10,8 +10,9 @@
 // Look:
 // window UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via style.ui.templates.inventory(data, { esc, t, icon })
 //   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in style.ui.css)
-//   pickups        style pack style.pickup = { color, size, lift, model: (item, { color, size }) => Object3D | BufferGeometry }, or pass a mesh each time
+//   pickups        style pack style.pickup = { color, size, lift, model: (item, { color, size }) => Object3D | BufferGeometry }, or pass a mesh each time, or set it on the item: define(id, { mesh: (item, { color, size }, e) => ... }) / { model: 'generatorName' } (item wins over style)
 import { checkOptions, warnMissing, freezeDef, moduleKeys } from '../../core/validate.js';
+import { readParams } from '../../core/params.js';
 import { Container } from './Container.js';
 import { Containers } from './Containers.js';
 import { followRuntimeIds } from '../../core/saveIds.js';
@@ -38,19 +39,19 @@ export class Inventory {
     engine.i18n.add(INVENTORY_STRINGS);
     keys = moduleKeys('inventory()', action, keys, 'inventory', engine.input);   // the game's key or a presets.keys bundle, never a built-in one
     if (keys.length || pad) { engine.input.define(action, keys, 'inventory.action', { pad }); engine.input.touchButton(action, 'inventory.action'); }
-    engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), data: () => windowData(this) } });
+    engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), freeze: () => this.pauseGame, data: () => windowData(this) } });
     for (const ev of ['i18n:change', 'input:rebind']) engine.events.on(ev, () => this._refresh());
     // pickup state lives in world and is saved with it
     // version 1 is the current shape; raise it with a migrate step when it changes. seq: the numbering of entry keys (sword#3); a save without it continues
     // after the highest key it holds
-    engine.saves.register('inventory', { version: 1, save: () => ({ seq: this._seq, items: this.bag._save() }), load: d => {
+    engine.saves.register('inventory', { atomic: true, version: 1, save: () => ({ seq: this._seq, items: this.bag._save() }), load: d => {
       this.bag._load(d?.items);
       const top = Math.max(0, ...this.bag._entries.map(x => Number(x.key.split('#')[1]) || 0));
       this._seq = Number.isInteger(d?.seq) && d.seq >= top ? d.seq : top;
       this._refresh();
     } });
     // version 2: container ids that are runtime record ids (a spawned chest) follow the world part's `kind-n` -> `kind#n` rename (world/persist.js)
-    engine.saves.register('containers', { version: 2, migrate: { 1: followRuntimeIds }, save: () => this._containers.save(), load: d => this._containers.load(d) });
+    engine.saves.register('containers', { atomic: true, version: 2, migrate: { 1: followRuntimeIds }, save: () => this._containers.save(), load: d => this._containers.load(d) });
   }
 
   /** Max slots of the player inventory (Infinity = no limit). */
@@ -111,7 +112,7 @@ export class Inventory {
    */
   define(id, def) {
     if (id.includes('#')) throw new Error(`inventory.define('${id}'): '#' is reserved for entry keys (sword#3); pick an id without it`);
-    checkOptions(`inventory.define('${id}')`, def, ['name', 'icon', 'iconUrl', 'desc', 'stack', 'color', 'weight', 'use', 'canUse', 'consume'], { loose: true });   // only near-miss spellings warn
+    checkOptions(`inventory.define('${id}')`, def, ['name', 'icon', 'iconUrl', 'desc', 'stack', 'color', 'weight', 'use', 'canUse', 'consume', 'mesh', 'model'], { loose: true });   // only near-miss spellings warn
     this.defs.set(id, freezeDef({ stack: this.defaultStack, name: id, ...def })); return this;   // shared by every entry of this item: read-only
   }
   // using an undefined item: warn when other items are defined (none defined means the game doesn't use define)
@@ -173,6 +174,18 @@ export class Inventory {
   _refresh() { const ui = this.engine.ui; if (ui.isOpen('inventory')) ui.get('inventory')?.update(windowData(this)); }
 }
 
+const INVENTORY_PARAMS = {
+  action: { type: 'string', default: 'inventory', desc: 'input action that opens the bag' },
+  keys: { type: 'array', optional: true, desc: 'keys that open the bag (required unless createEngine({ bindings }) binds the action; [] = no key)' },
+  pad: { type: 'array', optional: true, desc: 'gamepad buttons that open the bag' },
+  capacity: { type: 'number', optional: true, min: 0, desc: 'slot limit of the player inventory (default Infinity = no limit)' },
+  maxWeight: { type: 'number', optional: true, min: 0, desc: 'weight limit of the player inventory (default Infinity = no limit)' },
+  defaultStack: { type: 'number', default: 99, min: 1, desc: 'stack limit of items that set none' },
+  pickupRadius: { type: 'number', default: 2, min: 0, desc: 'reach of pickups that set no radius (meters)' },
+  bobDistance: { type: 'number', default: 60, min: 0, desc: 'pickups float and spin only within this distance of the focus (meters)' },
+  pauseGame: { type: 'bool', optional: true, desc: 'true: gameplay freezes while the window is open (default false)' },
+};
+
 /**
  * Inventory module. Installs engine.inventory, the 'inventory' UI part and the ops inventory.transfer / use / drop / trade; ground pickups need world() and
  * interactions().
@@ -182,19 +195,16 @@ export class Inventory {
  * @example engine.use(inventory({ ...presets.keys.inventory, pauseGame: true }))   // opening the bag with I stops the world until it closes
  */
 export function inventory(opts = {}) {
+  const o = readParams('inventory', INVENTORY_PARAMS, opts);
   let inv = null;
   return {
-    name: 'inventory', label: 'Inventory', optional: ['world'],
+    name: 'inventory', label: 'Inventory', params: INVENTORY_PARAMS, options: o, noSkip: 'auto-pickup is spatial; no timers', optional: ['world'],
     install(e) {
-      checkOptions('inventory()', opts, ['action', 'keys', 'pad', 'capacity', 'maxWeight', 'defaultStack', 'pickupRadius', 'bobDistance', 'pauseGame']);
       inv = new Inventory(e, opts);
-      // pauseGame: true freezes gameplay (engine.freeze, the same mechanism flow's 'paused' and settings({ freezeWorld }) use) while the window is open.
+      // pauseGame: true freezes gameplay (engine.freeze('ui-inventory'), the part's own owner; the same mechanism flow's 'paused' and settings({ freezeWorld }) use) while the window is open.
       // Rendering and UI go on; the freeze is released when the window closes or the inventory is turned off with engine.ui.set('inventory', false).
       if (opts.pauseGame != null && typeof opts.pauseGame !== 'boolean') throw new Error(`inventory({ pauseGame: ${JSON.stringify(opts.pauseGame)} }): pauseGame must be true or false. Example: engine.use(inventory({ pauseGame: true }))`);
       inv.pauseGame = !!opts.pauseGame;   // also settable at runtime: engine.inventory.pauseGame = true
-      e.events.on('ui:open', id => { if (id === 'inventory' && inv.pauseGame) e.freeze('inventory'); });
-      // always: switching pauseGame off while open must not leave the world frozen
-      e.events.on('ui:close', id => { if (id === 'inventory') e.unfreeze('inventory'); });
       defineInventoryOps(e, inv);
       return inv;
     },

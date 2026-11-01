@@ -125,7 +125,7 @@ export const specs = [
     name: 'openWorld parts: every part takes false or its own options (nested sky / terrain reach the modules), shorthand still works, bad values explain the fix',
     url: '/tests/entities/index.html',   // built with openWorld({ camera: 'follow', terrain: { seed }, sky: { time: 0.4, daysPerSeason: 28 }, debug: false, ambience: false })
     async run({ check, ev }) {
-      const r = await ev(() => ({ days: engine.sky.daysPerSeason, time: engine.sky.timeOfDay, debug: !!engine.debug, ambience: !!engine.ambience, terrain: !!engine.terrain }));
+      const r = await ev(() => ({ days: engine.sky.daysPerSeason, time: engine.sky.timeOfDay, debug: !!engine.debug?.el, ambience: !!engine.ambience, terrain: !!engine.terrain }));
       check('[guard] nested options reach the module: sky daysPerSeason 28, time ~0.4; false parts are absent', r.days === 28 && Math.abs(r.time - 0.4) < 0.05 && !r.debug && !r.ambience && r.terrain, JSON.stringify(r));
       const { openWorld } = await import('../../index.js');
       const names = o => openWorld(o).map(m => m.name).join(',');
@@ -133,7 +133,7 @@ export const specs = [
         names({ seed: 3, time: 0.3, camera: 'follow' }) === 'world,terrain,vegetation,sky,weather,water,collision,rigid,cameraRig,characters,ambience,settings', names({ seed: 3, camera: 'follow' }));
       let noCam = ''; try { openWorld({ seed: 3 }); } catch (e) { noCam = e.message; }
       check('[guard] openWorld picks no camera: leaving camera out throws open-world-camera with the choices', /\[open-world-camera\]/.test(noCam) && /camera: 'follow'/.test(noCam), noCam);
-      check('false drops any part, camera too; debug: true forces the panel in', names({ sky: false, camera: false, collision: false, debug: true }) === 'world,terrain,vegetation,weather,water,rigid,characters,ambience,settings,debug');
+      check('false drops any part, camera too; debug: true forces the panel in', names({ sky: false, camera: false, collision: false, debug: true }) === 'world,terrain,vegetation,weather,water,rigid,characters,ambience,settings,debugPanel');
       let err = ''; try { openWorld({ camera: 'follow', terrain: 'island' }); } catch (e) { err = e.message; }
       check('a non-object part value names the fix', /terrain must be false .* or an options object/.test(err), err);
     },

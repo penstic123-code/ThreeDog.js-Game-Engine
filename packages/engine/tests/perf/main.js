@@ -12,6 +12,7 @@ import { createEngine, presets, Character, createTerrain, openWorld, world, inte
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
+import { defineLookPart } from '../../core/look/part.js';
 import { NOISE_GLSL } from '../../render/effects.js';
 import { styleFrom, postAdd, postRemove } from '../../core/styleParts.js';
 import lowpoly, { models as lowpolyModels, assets as lowpolyAssets } from '@threedog/style-lowpoly';
@@ -210,4 +211,4 @@ if (mode === 'native') {
 }
 window.bench = bench;
 window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector, defineLookPart };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

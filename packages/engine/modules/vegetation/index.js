@@ -1,8 +1,10 @@
 // Vegetation module factory: engine.use(vegetation(...)). The class and its chunk plumbing are in Vegetation.js.
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { Vegetation } from './Vegetation.js';
+import { defineWindLook } from './lookWind.js';
 
 const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
+const VEG_PARAMS = keysSchema(OPTS, { chunkSize: 32, viewChunks: 3, density: 1, seed: 1 });   // defaults of the own-chunks mode (without terrain)
 /**
  * Vegetation module. Provides engine.vegetation.add(name, {...}) once installed.
  * With terrain() installed first it grows on the terrain chunks and takes no options (density and view distance are terrain options).
@@ -18,10 +20,11 @@ const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
  * engine.vegetation.add('grass', { geometry, nearOnly: true, rule: { perChunk: 400, biomes: { lawn: 1 } } });   // only on 'lawn' surfaces
  */
 export function vegetation(opts = {}) {
-  checkOptions('vegetation()', opts, OPTS);
+  readParams('vegetation', VEG_PARAMS, opts);
   let v = null, own = null, cols = null, ready = null;
-  return { name: 'vegetation', label: 'Vegetation', stage: 'world', after: ['terrain', 'level'], optional: ['terrain', 'level'],
+  return { name: 'vegetation', label: 'Vegetation', params: VEG_PARAMS, options: opts, stage: 'world', after: ['terrain', 'level'], optional: ['terrain', 'level'],
     install(e) {
+      defineWindLook(e);   // look.wind
       v = new Vegetation(e, opts);
       if (v.host !== e.terrain) {
         own = v.host;

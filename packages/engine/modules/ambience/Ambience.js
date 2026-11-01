@@ -18,6 +18,7 @@
 
 import * as THREE from 'three';
 import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 /** @import { ModuleDef, AmbienceRule } from '../../types/core' */
 /** @import { AmbienceOptions } from '../../types/gameplay' */
 const RULE_KEYS = ['sound', 'when', 'volume', 'fade', 'every', 'bus'];
@@ -160,6 +161,8 @@ const SYNTHS = {
   },
 };
 
+const AMBIENCE_PARAMS = keysSchema(['rules', 'interval']);
+
 /**
  * Ambience -> engine.ambience. Rules come from createEngine({ audio: { ambience: [...] } }) plus opts.rules
  * @param {AmbienceOptions} [opts]
@@ -167,10 +170,10 @@ const SYNTHS = {
  * @example engine.use(ambience({ rules: [{ sound: 'hum', when: { zone: 'lab' }, volume: 0.4 }] }));
  */
 export function ambience(opts = {}) {
+  readParams('ambience', AMBIENCE_PARAMS, opts);
   let a = null;
-  return { name: 'ambience', label: 'Ambience', stage: 'late', presentation: true,
+  return { name: 'ambience', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late', presentation: true,
     install(e) {
-      checkOptions('ambience()', opts, ['rules', 'interval']);
       for (const [name, fn] of Object.entries(SYNTHS)) e.audio.register(name, fn, { builtIn: true, bus: 'ambience' });
       a = new Ambience(e, opts);
       // measures for data rules (content packs hold no functions). Each reads the listener position itself: music rules call them too,

@@ -37,6 +37,7 @@ export const lifecycleMethods = {
       try { m.dispose(this); } catch (err) { console.error(coded('module-dispose', STRINGS.failed.replace('{name}', m.name)), err); }
     }
     this._abort.abort();
+    this.debug.dispose();   // before the scene is disposed: undoes every diagnostic override and view (puts swapped materials back)
     for (const part of [this.saves, this.audio, this.clock, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
     this._fixed = []; this._frame = []; this._hooks = { fixed: [], frame: [], afterRender: [], skip: [] }; this._afterTick = null;
     this.scene.traverse(disposeObject);

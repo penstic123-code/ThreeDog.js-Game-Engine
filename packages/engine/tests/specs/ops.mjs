@@ -21,9 +21,9 @@ export const specs = [
         const a = O.run('test.buy', { n: 2 }), b = O.run('test.buy', { n: 2 }), c = O.run('test.buy', { n: 2 });
         const npc = O.run('test.buy', { n: 1 }, { actor: 'npc_1', source: 'test' });
         const asked = O.can('test.buy', { n: 5 }), before = O.recent().length;
-        const hist = O.recent().filter(h => h.name.startsWith('test.')).map(h => [h.name, h.ok, h.reason, h.depth, h.count, h.phase]);
+        const hist = O.recent().filter(h => h.name.startsWith('test.')).map(h => [h.name, h.ok, h.code, h.depth, h.count, h.phase]);
         gold = 5;
-        const avail = O.list({ available: true }).filter(x => x.name.startsWith('test.')).map(x => `${x.name}:${JSON.stringify(x.args)}:${x.ok}:${x.reason ?? ''}`);
+        const avail = O.list({ available: true }).filter(x => x.name.startsWith('test.')).map(x => `${x.name}:${JSON.stringify(x.args)}:${x.ok}:${x.code ?? ''}`);
         const names = O.list().filter(x => x.name.startsWith('test.')).map(x => x.name);
         // ring: wrap around a 4-entry history
         O.historySize = 4;
@@ -39,7 +39,7 @@ export const specs = [
         for (const h of hs) h.remove();
         return { a, b, c, npc, asked, before, hist, avail, names, log, ring, ringLen, ph, after: O.list().some(x => x.name.startsWith('test.')) };
       });
-      check('run returns { ok, value } / { ok: false, reason }; can only asks', r.a.ok && r.a.value === 2 && !r.b.ok && r.b.reason === 'noMoney' && r.npc.ok && !r.asked.ok && r.asked.reason === 'noMoney', JSON.stringify(r));
+      check('run returns { ok, value } / { ok: false, code }; can only asks', r.a.ok && r.a.value === 2 && !r.b.ok && r.b.code === 'noMoney' && r.npc.ok && !r.asked.ok && r.asked.code === 'noMoney', JSON.stringify(r));
       check('Nested op: depth 1, logged after its parent; actor and source are inherited', JSON.stringify(r.hist.slice(0, 2)) === JSON.stringify([['test.buy', true, null, 0, 1, 'between'], ['test.give', true, null, 1, 1, 'between']]) && r.log.join() === 'player/player,give:player,test/npc_1,give:npc_1', JSON.stringify({ hist: r.hist, log: r.log }));
       check('Consecutive identical failures merge into one entry with count', r.hist[2]?.[0] === 'test.buy' && r.hist[2][4] === 2, JSON.stringify(r.hist));
       check('list() names, list({ available }) runs can on each offer; an op without args or offers is checked with {}',
@@ -93,7 +93,7 @@ export const specs = [
       check('Ops calling each other in a loop are reported', /in a loop.*test\.loop -> test\.loop/.test(e.loop), e.loop);
       check('Args passed to run are frozen in dev (pass a fresh object each call)', /read.only|frozen|not extensible/i.test(e.frozenArgs || ''), e.frozenArgs);
       check('run throwing: reason error, engine.error.where names the op, recent ops attached, gameplay frozen; later ops are halted',
-        r.boom.reason === 'error' && r.err?.where === "ops.run('test.boom')" && r.err.frozen && r.err.ops?.at(-1) === 'test.boom x error' && r.halted.reason === 'halted', JSON.stringify(r));
+        r.boom.code === 'error' && r.err?.where === "ops.run('test.boom')" && r.err.frozen && r.err.ops?.at(-1) === 'test.boom x error' && r.halted.code === 'halted', JSON.stringify(r));
       check('Ops still run while frozen by a menu; ctx.frozen is true', r.pk.ok && r.seen === true, JSON.stringify({ pk: r.pk, seen: r.seen }));
     },
   },
@@ -159,7 +159,7 @@ export const specs = [
         document.querySelector('.threedog-prompt').click();   // the default 'prompt' UI part
         const click = engine.ops.recent('interaction.use').at(-1);
         h.remove();
-        const gone = engine.ops.run('interaction.use', { id: 'test-lever' }).reason;
+        const gone = engine.ops.run('interaction.use', { id: 'test-lever' }).code;
         // dialogue: digits pick through dialogue.choose
         const D = engine.dialogue;
         D.define('ops-test', { start: { text: 'x', choices: [{ text: 'A', next: 'a' }, { text: 'B', next: 'end' }] }, a: { text: 'picked A' } });
@@ -167,13 +167,13 @@ export const specs = [
         inp._keyDown('Digit1', 'keyboard'); engine.step(1 / 30, { render: false }); inp._keyUp('Digit1'); engine.step(1 / 30, { render: false });
         const chose = engine.ops.recent('dialogue.choose').at(-1), line = D.full;
         D.end();
-        const noDlg = engine.ops.can('dialogue.advance').reason;
+        const noDlg = engine.ops.can('dialogue.advance').code;
         // inventory.transfer
         const inv = engine.inventory;
         engine.ops.allow(() => { inv.container('ops-chest', { capacity: 2 }); inv.add('film', 2, { silent: true }); });
         const t1 = engine.ops.run('inventory.transfer', { from: 'player', to: 'ops-chest', item: 'film', n: 2 });
-        const t2 = engine.ops.run('inventory.transfer', { from: 'player', to: 'ops-chest', item: 'film', n: 99 }).reason;
-        const t3 = engine.ops.run('inventory.transfer', { from: 'nope', to: 'player', item: 'film' }).reason;
+        const t2 = engine.ops.run('inventory.transfer', { from: 'player', to: 'ops-chest', item: 'film', n: 99 }).code;
+        const t3 = engine.ops.run('inventory.transfer', { from: 'nope', to: 'player', item: 'film' }).code;
         // content: { op } / { can } and a misspelled op name
         let n = 0;
         const hd = engine.ops.define('test.count', { can: () => n < 1 || 'enough', run: () => { n++; } });
@@ -249,7 +249,7 @@ export const specs = [
         const key = engine.ops.recent('photo.take').at(-1), film1 = engine.inventory.count('film');
         engine.ops.allow(() => engine.inventory.remove('film', film1));
         document.getElementById('shoot').click();
-        return { key: key && key.source + '/' + key.ok, film1, last: engine.ops.recent('photo.take').at(-1).reason, denied: window._denied };
+        return { key: key && key.source + '/' + key.ok, film1, last: engine.ops.recent('photo.take').at(-1).code, denied: window._denied };
       });
       check('[guard] P runs photo.take (source player) and the film is used inside the op', r.key === 'player/true' && r.film1 === film0 - 1, JSON.stringify(r));
       await page.keyboard.down('KeyP'); await ev(() => engine.step(1 / 30)); await page.keyboard.up('KeyP');
@@ -269,12 +269,94 @@ export const specs = [
         E.quests.define('t-q', { title: 'T', steps: [{ text: 'find the key', done: () => false }] });
         E.ops.allow(() => E.quests.start('t-q'));
         let bad; try { E.explain({ qeust: 'x' }); } catch (e) { bad = e.message; }
-        return { sold: sold.reason, ex, ins: ins.ops.find(o => o.args?.item === 'feather'), npcActor: npc.actor, q: E.explain({ quest: 't-q' }).text, bad };
+        return { sold: sold.code, ex, ins: ins.ops.find(o => o.args?.item === 'feather'), npcActor: npc.actor, q: E.explain({ quest: 't-q' }).text, bad };
       });
       check('explain({ op }) says why not, with the reasons note and the last attempt', r.sold === 'soldOut' && !r.ex.ok && /soldOut \(The basket has none left\)$/.test(r.ex.text) && /last attempt.*soldOut/.test(r.ex.detail) && r.ex.recent.length === 2, JSON.stringify(r.ex));
       check('inspect() lists ops on offer with reason and why; inspect(id) acts as that record', r.ins?.ok === false && r.ins.why === 'The basket has none left' && r.npcActor === 'fisher', JSON.stringify(r.ins));
       check('explain({ quest }) names the step it waits on (module explain hook)', /waits on step 1\/1 "find the key"/.test(r.q), r.q);
       check('explain with an unknown key -> did you mean', /did you mean 'quest'/.test(r.bad || ''), r.bad);
+    },
+  },
+  {
+    name: 'ops-b1: structured failures, engine.nextFixed, pause owners',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const E = engine, O = E.ops;
+        const hs = [
+          O.define('test.s', { can: () => 'noMoney', run() {} }),
+          O.define('test.o', { can: () => ({ code: 'noMoney', facts: { need: 5 }, nextActions: [{ op: 'test.s', args: {} }] }), run() {}, offers: () => [{}] }),
+        ];
+        const s = O.run('test.s'), o = O.run('test.o'), c = O.can('test.o');
+        const lst = O.list({ available: true }).find(x => x.name === 'test.o');
+        const hist = O.recent('test.o').at(-1).code; let trap = ''; try { void s.reason; } catch (e) { trap = e.code; }
+        hs.forEach(h => h.remove());
+        const t0 = E.tick; let at = -1;
+        const p = E.nextFixed(() => { at = E.tick; return 7; });
+        const before = at; E.step(2);
+        const val = await p;
+        const was = E.paused; E.pause('a'); E.pause('b'); E.resume('a');
+        const stillPaused = E.paused; E.resume('b');
+        const wasOwner = E.paused; E.pause('x'); E.resume('y'); const kept = E.paused; E.resume('x'); E.paused = was;
+        return { s: { ...s, trap }, o, c, lstFacts: lst?.facts, hist, before, at, t0, val, stillPaused, wasOwner, kept };
+      });
+      check('string failure normalized: code only (reason is a trap), facts {}, nextActions []', r.s.code === 'noMoney' && r.s.trap === 'renamed-api' && Object.keys(r.s.facts).length === 0 && r.s.nextActions.length === 0, JSON.stringify(r.s));
+      check('structured failure carries facts and nextActions through run, can, list; history keeps the code', r.o.code === 'noMoney' && r.o.facts.need === 5 && r.o.nextActions[0].op === 'test.s' && r.c.facts.need === 5 && r.lstFacts?.need === 5 && r.hist === 'noMoney', JSON.stringify(r));
+      check('nextFixed runs at the next fixed step and resolves with the value', r.before === -1 && r.at === r.t0 + 1 && r.val === 7, JSON.stringify([r.before, r.at, r.t0, r.val]));
+      check('pause owners: resume by another owner does not unpause; all owners must resume', r.stillPaused === true && r.kept === true, JSON.stringify([r.stillPaused, r.wasOwner, r.kept]));
+    },
+  },
+  {
+    name: 'ops-atomic: run failures (return / throw) with list facts, rollback of world + inventory + vars, after hook on commit only, revision, trace notes and focus',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const E = engine, O = E.ops, W = E.world, I = E.inventory, V = E.vars;
+        const body = e => { e.world.add({ id: 'tx_crate', kind: 'crate', position: [0, 0, 0] }); e.inventory.add('film', 1, { silent: true }); e.vars.setFlag('tx_flag', true); e.vars.bump('tx_n'); };
+        const afters = [];
+        const FACTS = [{ id: 'tx_crate', field: 'hp', actual: 0, expected: 1 }];
+        const hs = [
+          O.define('test.ok', { atomic: true, run: e => { body(e); return 'done'; }, after: (e, a, v) => afters.push('ok:' + v) }),
+          O.define('test.ret', { atomic: true, run: e => { body(e); return { ok: false, code: 'broken', facts: FACTS, nextActions: [{ op: 'test.ok', args: {} }] }; }, after: () => afters.push('ret') }),
+          O.define('test.thr', { atomic: true, run: e => { body(e); throw { ok: false, code: 'thrown', facts: { x: 1 } }; }, after: () => afters.push('thr') }),
+          O.define('test.plain', { run: e => { body(e); return { ok: false, code: 'nope' }; } }),
+          O.define('test.outer', { atomic: true, run: e => { e.ops.run('test.ok'); return { ok: false, code: 'late' }; } }),
+        ];
+        const state = () => [!!W.get('tx_crate'), I.count('film'), V.flag('tx_flag') === true, V.counter('tx_n')].join(',');
+        const s0 = state(), rev0 = O.revision;
+        E.events.traceSize = 50;
+        const ret = O.run('test.ret'), s1 = state();
+        const thr = O.run('test.thr'), s2 = state();
+        const outer = O.run('test.outer'), s4 = state(), aOuter = afters.slice();
+        const revFail = O.revision;
+        const plain = O.run('test.plain'), s5 = state();   // not atomic: failure is reported but nothing is undone
+        const notes = E.events.trace('op:test.ret').map(t => t.code);
+        E.ops.allow(() => W.remove('tx_crate')); V.flags.tx_flag = false; V.counters.tx_n = 0; I.remove('film', I.count('film') - 12);
+        const ok = O.run('test.ok'), s6 = state();
+        const catalog = O.list().filter(x => x.name.startsWith('test.')).map(x => x.name + ':' + x.atomic).join(' ');
+        const ex = E.explain({ op: 'test.ok' });
+        // trace focus: a clear sight line is only recorded for the focused object, a blocked one always
+        E.events.traceSize = 50; E.events.traceFocus(null);
+        const p = [0, 1.6, 0], q = [5, 1.6, 0];
+        E.collision.lineClear(p, q, { who: 'g1' });
+        const unfocused = E.events.trace('sight').length;
+        E.events.traceFocus('g1'); E.collision.lineClear(p, q, { who: 'g1' }); E.collision.lineClear(p, q, { who: 'g2' });
+        const focused = E.events.trace('sight').map(t => t.obj);
+        E.events.traceFocus(null); E.events.traceSize = 0;
+        const n0 = E.events.trace().length; E.events.note('x:y'); const offLen = E.events.trace().length - n0;
+        for (const h of hs) h.remove();
+        for (const k of ['tx_crate']) W.get(k) && W.remove(k);
+        return { s0, rev0, ret, s1, thr, s2, outer, s4, aOuter, revFail, plain, s5, notes, ok, s6, catalog, exAtomic: ex.atomic, exText: ex.detail, afters, rev: O.revision, unfocused, focused, offLen };
+      });
+      check('run returning a failure: ok false, code, list facts and nextActions kept; all writes undone', !r.ret.ok && r.ret.code === 'broken' && r.ret.facts[0].field === 'hp' && r.ret.nextActions[0].op === 'test.ok' && r.s1 === r.s0, JSON.stringify([r.ret, r.s0, r.s1]));
+      check('run throwing a structured failure behaves the same', r.thr.code === 'thrown' && r.thr.facts.x === 1 && r.s2 === r.s0, JSON.stringify([r.thr, r.s2]));
+      check('failed outer op rolls back a committed inner op and its after hook never runs', r.outer.code === 'late' && r.s4 === r.s0 && r.aOuter.length === 0, JSON.stringify([r.outer, r.s4, r.aOuter]));
+      check('revision only goes up: a rolled-back run bumps it (new state), results carry it, a commit bumps once', r.revFail >= r.rev0 && r.ret.revision > r.rev0 && r.ok.ok && r.ok.revision > r.ret.revision && r.rev === r.ok.revision, JSON.stringify([r.rev0, r.revFail, r.ok.revision, r.rev]));   // a rolled-back outer also takes back the revision of the inner commit
+      check('non-atomic op: structured failure counts as failed but writes stay (honest: only atomic rolls back)', r.plain.code === 'nope' && r.s5 !== r.s0, JSON.stringify([r.plain, r.s5]));
+      check('commit keeps the writes and runs after once with the value', r.s6.startsWith('true,') && r.afters.join() === 'ok:done', JSON.stringify([r.s6, r.afters]));
+      check('catalog and explain say which ops are atomic', r.catalog.includes('test.ok:true') && r.catalog.includes('test.plain:false') && r.exAtomic === true && r.exText.includes('atomic'), r.catalog + ' ' + r.exText);
+      check('trace: failed op noted with its code', r.notes.includes('broken'), JSON.stringify(r.notes));
+      check('trace focus: clear sight lines recorded only for the focused object; off = nothing', r.unfocused === 0 && r.focused.length === 1 && r.focused[0] === 'g1' && r.offLen === 0, JSON.stringify([r.unfocused, r.focused, r.offLen]));
     },
   },
 ];

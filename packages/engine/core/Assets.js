@@ -23,6 +23,7 @@
 // engine.assets.manifest({ name: 'forest', base: '/packs/forest/', models: { oak: 'oak.glb' } });   // -> /packs/forest/oak.glb
 // await engine.assets.preload(p => console.log(p));     // p: 0-1 (code-generated models are built ahead only if marked preload)
 // const house = await engine.assets.model('house');      // get by name
+import { reportGltf, reportText } from './assetReport.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -143,6 +144,21 @@ export class Assets {
     if (isStatic) this.engine.rays.addStatic(root);
     return root;
   }
+  /**
+   * Import report of a loaded model: materials, textures with their colorSpace, normal maps, clips, nodes, template / id nodes and col_ colliders,
+   * with issues for what the file has but the scene lost (normal map, material replaced by a style role, clip not loaded, clip mapping that names
+   * no clip) and for wrong color spaces. Pass a name (the loaded template) or a copy from model() (what the game shows). Text: assets.reportText(name)
+   * @example console.table(engine.assets.report('hero').issues);
+   * @param {string | any} nameOrRoot
+   */
+  report(nameOrRoot) {
+    const root = typeof nameOrRoot === 'string' ? null : nameOrRoot, e = root ? this._instances.get(root) : this.entries.get(nameOrRoot);
+    const gltf = e?.value;
+    if (!gltf?.scene) throw new Error(`assets.report: ${root ? 'that object is not a model copy from assets.model()' : `model "${nameOrRoot}" is not loaded yet (await engine.assets.model(...) first)`}`);
+    return reportGltf(gltf, e, root ?? gltf.scene, this.engine.renderer);
+  }
+  /** assets.report as text for the console / describe */
+  reportText(nameOrRoot) { return reportText(this.report(nameOrRoot)); }
   /** Get the geometry of the first mesh in a model (for vegetation and bulk placement) */
   async geometry(nameOrUrl) {
     const e = this._resolve(nameOrUrl, 'model'), gltf = await this._fetch(e);

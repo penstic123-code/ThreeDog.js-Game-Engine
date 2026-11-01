@@ -14,6 +14,7 @@ const UNIFORM_DEFAULTS = {
   uCloudScale: 0.006,                        // cloud size (smaller = bigger clouds)
   uCloudSpeed: () => new THREE.Vector2(0.012, 0.006),   // cloud drift direction and speed
   uWindFreq: 1,                              // sway frequency multiplier
+  uWindAmp: 1,                               // sway amplitude multiplier (look.wind.amplitude); every wind patch's amplitude is scaled by it
   uFoliageTint: () => new THREE.Color(1, 1, 1),         // season: foliage tint (driven by the sky module's calendar)
   uGroundTint: () => new THREE.Color(1, 1, 1),          // season: ground tint
   uFoliageMix: 0, uGroundMix: 0,             // season mode 'mix': how far the surface moves to the tint (0 = multiply, the default)
@@ -111,8 +112,9 @@ export const EFFECTS = {
       'reflectedLight.directDiffuse *= threedogCloudLight(vThreedogWorld.xz);\n  reflectedLight.directSpecular *= threedogCloudLight(vThreedogWorld.xz);' } } }),
   // wind(amplitude) or wind(amplitude, { glsl, uniforms, decl }): a style's own sway function replaces the default one (see StyleWind in types/style.d.ts)
   wind: (amplitude, custom) => ({ name: 'wind', cacheKey: custom ? `${amplitude}|${hashText(custom.glsl)}` : amplitude, shadow: true,
-    uniforms: { ...pick('uTime', 'uWind', 'uWindFreq'), ...custom?.uniforms }, glsl: {
-    vertex: { pars: `#define THREEDOG_WIND_AMP ${(+amplitude).toFixed(4)}
+    uniforms: { ...pick('uTime', 'uWind', 'uWindFreq', 'uWindAmp'), ...custom?.uniforms }, glsl: {
+    vertex: { pars: `uniform float uWindAmp;
+#define THREEDOG_WIND_AMP (${(+amplitude).toFixed(4)} * uWindAmp)
 #include <threedog_wind_pars_vertex>` + (custom
       ? `
 #define THREEDOG_WIND_CUSTOM

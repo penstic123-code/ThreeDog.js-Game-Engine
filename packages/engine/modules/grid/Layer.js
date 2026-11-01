@@ -137,6 +137,6 @@ export class Layer {
 
 /**
  * Options of grid.layer(name, opts)
- * @typedef {{ tiles?: boolean | { look?: (data: Record<string, any>, cell: [number, number]) => any, lift?: number }
+ * @typedef {{ tiles?: boolean | { look?: (data: Record<string, any>, cell: [number, number]) => any, colors?: Record<string, number | string>, lift?: number }
  *   | ((engine: any, layer: Layer) => { update?: (cells: { cell: [number, number], data: Record<string, any> }[]) => void, dispose?: () => void }) }} LayerOptions
  */

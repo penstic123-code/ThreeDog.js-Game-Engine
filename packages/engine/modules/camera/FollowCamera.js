@@ -2,12 +2,11 @@
 // optional shoulder offset and lock-on framing.
 // yaw is which side of the focus the camera sits on: camera = focus + (sin yaw, cos yaw) * distance, so it looks along forward() = -(sin yaw, cos yaw).
 // To see a character facing angle f from behind, yaw = f + PI.
-// Cutscene takeover: when engine.cameraOverride is set the camera is left alone (see common.js).
+// Cutscene takeover: while someone holds engine.takeCamera (engine.cameraOverride is not null) the camera is left alone (see common.js).
 // Other cameras: firstPersonCamera, fixedCamera, rtsCamera (top-down strategy); all are engine.cameraRig; switch at runtime with engine.setCamera('firstPerson').
 import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, clickToLock, releaseLock } from './common.js';
 import { setProjection } from './projection.js';
-import { checkOptions } from '../../core/validate.js';
 
 export class FollowCamera {
   /** yaw/pitch initial angles (yaw: see the top of this file); distance (min/max zoom range); height how high on the character to look; smoothing follow smoothness;
@@ -87,7 +86,6 @@ Object.assign(FollowCamera.prototype, YAW_RIG);
  */
 export function followCamera(opts = {}) { return rigModule('follow', opts); }
 defineRig('follow', (e, opts) => {
-  checkOptions('followCamera()', opts, ['yaw', 'pitch', 'distance', 'minDistance', 'maxDistance', 'height', 'smoothing', 'sensitivity', 'minPitch', 'maxPitch',
-    'zoomStep', 'groundClearance', 'invertY', 'lockPitch', 'shoulder', 'pointerLock', 'swallowLockClick', 'projection', 'size']);
   const c = new FollowCamera(e, opts); if (opts.lockPitch) c.lockPitch = true; return c;
-});
+}, ['yaw', 'pitch', 'distance', 'minDistance', 'maxDistance', 'height', 'smoothing', 'sensitivity', 'minPitch', 'maxPitch',
+    'zoomStep', 'groundClearance', 'invertY', 'lockPitch', 'shoulder', 'pointerLock', 'swallowLockClick', 'projection', 'size']);

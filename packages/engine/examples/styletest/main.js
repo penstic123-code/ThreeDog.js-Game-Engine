@@ -44,7 +44,7 @@ engine.assets.manifest(lowpolyAssets);
 engine.assets.manifest({ name: 'styletest', models: { woodBlock, stoneBlock, metalBall, glassPanes, shadowStage, room } });   // the names content/templates.js uses
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: stage.x + 0.5, z: stage.z + 6 } });
 engine.content.load(data, { places: { stage, water } });
-if (params.env) { engine.sky.setEnvironment({ source: 'sky', intensity: 0.8 }); engine.sky.modify('env', { ambient: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
+if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.sky.modify('env', { ambient: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
 
 // ---------- 2. The room's lamp: emissive plus one pooled light, on from 18:00 to 06:00 ----------
 const lampPos = [stage.x + 14, engine.surface(stage.x + 14, stage.z - 2) + 2.7, stage.z - 2];

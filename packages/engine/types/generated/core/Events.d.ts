@@ -3,6 +3,49 @@
 export class Events {
     /** How many history entries to keep, default 200; 0 records nothing */
     historySize: number;
+    /** Cause trace ring size, default 0 = off (no cost). Set e.g. 200 in dev to record which event or op caused which follow-up event; read with trace() */
+    traceSize: number;
+    /**
+     * Verbose trace for one object (needs traceSize > 0): perception queries and state checks that name `obj` === id are recorded in full (misses too), the rest of the world only
+     * records what changed. null clears. For "why did this guard not see me": traceFocus('guard-1'), play, then read trace('sight').
+     * @param {string | null} id world record id
+     * @example engine.events.traceSize = 300; engine.events.traceFocus('guard-1');
+     */
+    traceFocus(id: string | null): void;
+    /**
+     * Add one entry to the cause trace (no-op while traceSize is 0; check `events.traceSize > 0` first to skip building info). Returns its parent id (`ev:<n>`) to pass as info.parent of follow-ups, or null.
+     * info: code (failure code), obj (world record id it is about), data (small plain values), verbose (true = only recorded while traceFocus(obj)), parent (default: the event or op running now).
+     * The engine notes failed ops (`op:<name>`), collision.lineClear (`sight`) and NPC state changes (`npc:state`); a game's behaviors can note their own, e.g. 'npc:mode' patrol -> investigate.
+     * @param {string} name
+     * @param {{ code?: string, obj?: string, data?: object, verbose?: boolean, parent?: string }} [info]
+     * @returns {string | null}
+     * @example if (e.events.traceSize > 0) e.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } });
+     */
+    note(name: string, info?: {
+        code?: string;
+        obj?: string;
+        data?: object;
+        verbose?: boolean;
+        parent?: string;
+    }): string | null;
+    /**
+     * Cause chains (needs traceSize > 0): each emitted event is recorded with parent = the event (`ev:<id>`) or op (`op:<name>#<seq>`) whose handler emitted it, null when
+     * it came from outside any. chain lists the causes from the nearest to the root (as far as the ring still holds). For "why did this fire".
+     * @param {string} [name] only events of this name
+     * Entries also carry code (failure code), obj and data when noted with events.note.
+     * @returns {{ id: number, tick: number, name: string, parent: string | null, chain: string[], code?: string, obj?: string, data?: object }[]}
+     * @example engine.events.traceSize = 200; engine.ops.run('shop.buy', { item: 'bread' }); engine.events.trace('item:add').at(-1).chain;   // ['op:shop.buy#12']
+     */
+    trace(name?: string): {
+        id: number;
+        tick: number;
+        name: string;
+        parent: string | null;
+        chain: string[];
+        code?: string;
+        obj?: string;
+        data?: object;
+    }[];
     /**
      * Recent events (old -> new); with name, only that kind: { tick = which fixed step, name, data = summary (simple values only; objects become '…') }. For "why did it not fire", first check whether it happened at all
      * @param {string} [name]

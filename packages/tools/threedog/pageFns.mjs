@@ -3,7 +3,7 @@
 
 
 /** Wait for the engine to be ready (right after the page opens / reloads, commands arrive first) */
-const READY = async () => {
+export const READY = async () => {
   for (let i = 0; i < 600 && !window.engine?.stateApplied; i++) await new Promise(r => setTimeout(r, 100));
   if (!window.engine?.stateApplied) throw new Error('no ready engine in the page (is this a game page?)');
   return window.engine;
@@ -27,8 +27,18 @@ const BRIEF = e => {
   return [l1, near && 'Nearby: ' + near, q && `Quest: ${q.title}: ${q.step}`].filter(Boolean);
 };
 
-/** Wrap fn(arg, engine, brief) into the source evaluate takes */
-const page = fn => `async a => { const engine = await (${READY})(); return (${fn})(a, engine, ${BRIEF}); }`;
+/** The page's run state after a step or test command: running / title-frozen / test-paused / paused(by owners) / loading (engine.runState) */
+const RUN = e => { const r = e.runState; return 'Run state: ' + (r.state === 'paused' ? `paused(by ${r.by.join(', ')})` : r.state) + (r.state === 'test-paused' && !e.headless ? ' (threedog resume restores real-time running)' : ''); };
+
+/**
+ * Value at a describe path: 'player.x', 'nearby[0].name', 'player.position' (-> { x, y, z }). The ONE parser: describe <path> and a scenario's
+ * expect keys both use it (it runs in the page for describe, so it is self-contained).
+ */
+export const atPath = (obj, path) => String(path).split(/\.|(?=\[)/).filter(Boolean).reduce((v, k) => v == null ? undefined
+  : v[k.startsWith('[') ? +k.slice(1, -1) : k] ?? (k === 'position' && typeof v === 'object' && 'x' in v ? { x: v.x, y: v.y, z: v.z } : undefined), obj);
+
+/** Wrap fn(arg, engine, brief, run, at) into the source evaluate takes */
+const page = fn => `async a => { const engine = await (${READY})(); return (${fn})(a, engine, ${BRIEF}, ${RUN}, ${atPath}); }`;
 /** Only waits for window.engine to exist: `loading` must answer while start() is still running or stuck */
 const ATTACHED = async () => {
   for (let i = 0; i < 300 && !window.engine?.loading; i++) await new Promise(r => setTimeout(r, 100));
@@ -41,25 +51,23 @@ export const KEY = new RegExp('^(Key[A-Z]|Digit\\d|Arrow(Up|Down|Left|Right)|Spa
 
 // ── Functions executed in the page ─────────────────────────────────────
 const PAGE = {
-  describe: (a, e, brief) => {
+  describe: (a, e, brief, run, at) => {
     if (a.all) return e.describeText({ full: true });   // everything: every nearby thing, every module's full data
     if (a.full) return e.describeText();   // the summary (at most 30 lines)
     if (!a.path) return brief(e).join('\n');
-    let v = e.describe();
-    for (const k of a.path.split('.')) v = v?.[k] ?? (k === 'position' && v && 'x' in v ? { x: v.x,
-      y: v.y, z: v.z } : undefined);   // player.position gives {x,y,z}
+    const v = at(e.describe(), a.path);
     if (v === undefined) throw new Error(`describe has no "${a.path}"; top-level keys: ${Object.keys(e.describe()).join(', ')}`);
     return JSON.stringify(v, null, 1).slice(0, a.max);
   },
-  step: (a, e, brief) => {
-    e.pause();   // stop a real-time page first, so the real-time loop and step do not both advance it
+  step: (a, e, brief, run) => {
+    e.pause('threedog', { kind: 'test' });   // stop a real-time page first, so the real-time loop and step do not both advance it
     e.step(a.seconds, { render: false });
     e.step(1 / 60);   // render one frame so the picture matches the state
     const b = brief(e).slice(0, 2);
-    if (!e.headless) b.push('page is paused (threedog resume restores real-time running)');
+    b.push(run(e));
     return b.join('\n');
   },
-  press: (a, e, brief) => {
+  press: (a, e, brief, run) => {
     const inp = e.input;
     let code = a.key;
     const action = inp.actions.has(code) ? code : null;
@@ -69,7 +77,7 @@ const PAGE = {
     else if (!new RegExp(a.valid).test(code)) throw new Error(`Unknown "${a.key}". Action names: ${[...inp.actions.keys()].slice(0, 14).join(', ')}…; `
       + 'or a key code such as KeyE, Space, Escape');
     if (!code) throw new Error(`action "${a.key}" has no keyboard key`);
-    e.pause();
+    e.pause('threedog', { kind: 'test' });
     // Actions go through the public input.simulate (same path as a real key press: the fixed snapshot and the frame "just pressed" see it).
     // A raw key code is sent as a real keyboard event: the engine's own window listener takes it, no private input call
     const down = on => action ? inp.simulate(action, on) : dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code }));
@@ -79,15 +87,15 @@ const PAGE = {
     e.step(1 / 60);
     const b = brief(e).slice(0, 2), hold = a.seconds > 0.1;
     b[0] = `${hold ? 'Held' : 'Pressed'} ${a.key}${code === a.key ? '' : ' (' + code + ')'}${hold ? ' for ' + a.seconds + ' s' : ''} · ` + b[0];
-    if (!e.headless) b.push('page is paused (threedog resume restores real-time running)');
+    b.push(run(e));
     return b.join('\n');
   },
   // skip: engine.skip({ to | seconds }): the jump itself is the op time.skip; the sky clock moves, no fixed steps run
-  skip: async (a, e, brief) => {
-    e.pause();
+  skip: async (a, e, brief, run) => {
+    e.pause('threedog', { kind: 'test' });
     const v = await e.skip(a.opts);
     e.step(1 / 60);
-    return [`Skipped ${a.desc}` + (v === null || v === undefined ? '' : ' → ' + JSON.stringify(v).slice(0, 80)), ...brief(e).slice(0, 2)].join('\n');
+    return [`Skipped ${a.desc}` + (v === null || v === undefined ? '' : ' → ' + JSON.stringify(v).slice(0, 80)), ...brief(e).slice(0, 2), run(e)].join('\n');
   },
   state: async (a, e, brief) => { await e.applyState(a.params); e.step(1 / 60); return brief(e).slice(0, 2).join('\n'); },
   eval: async (a, e) => {
@@ -99,7 +107,28 @@ const PAGE = {
     if (v === undefined) return '(no return value)';
     try { return JSON.stringify(v, (k, x) => typeof x === 'function' ? '[function]' : x, 1).slice(0, a.max); } catch { return String(v).slice(0, a.max); }
   },
-  resume: (a, e) => { e.resume(); return 'Real-time running resumed'; },
+  // steps: a script that checks things (js --file steps.js). Globals: engine, assert(cond, msg), expect(v).toBe/toEqual/toBeCloseTo/toBeGreaterThan(x, msg),
+  // step(seconds = 1/60) (pauses the real-time loop first, like the step command), log(...). A failed check is recorded and the script goes on;
+  // a throw ends it and counts as one failure. Returns the records; steps.mjs prints them.
+  steps: async (a, e) => {
+    const AsyncFunction = (async () => {}).constructor, res = [], logs = [];
+    const show = v => { try { return JSON.stringify(v); } catch { return String(v); } };
+    const rec = (ok, msg, detail) => { res.push({ ok, msg: msg || 'check ' + (res.length + 1), detail: ok ? '' : detail }); };
+    const assert = (c, msg) => rec(!!c, msg, 'assert failed');
+    const expect = v => ({
+      toBe: (x, m) => rec(Object.is(v, x), m, `expected ${show(x)}, got ${show(v)}`),
+      toEqual: (x, m) => rec(show(v) === show(x), m, `expected ${show(x)}, got ${show(v)}`),
+      toBeCloseTo: (x, tol = 0.01, m) => rec(Math.abs(v - x) <= tol, m, `expected ${x} ± ${tol}, got ${show(v)}`),
+      toBeGreaterThan: (x, m) => rec(v > x, m, `expected > ${show(x)}, got ${show(v)}`),
+    });
+    const step = (s = 1 / 60) => { e.pause('threedog', { kind: 'test' }); e.step(s, { render: false }); e.step(1 / 60); };
+    const log = (...x) => logs.push(x.map(y => typeof y === 'string' ? y : show(y)).join(' '));
+    let value, threw = null;
+    try { value = await new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', a.src)(e, assert, expect, step, log); }
+    catch (err) { threw = String(err?.message ?? err); }
+    return { res, logs, threw, value: value === undefined ? undefined : show(value)?.slice(0, 300) };
+  },
+  resume: (a, e, brief, run) => { e.resume('threedog'); return 'Real-time running resumed\n' + run(e); },
   settled: async (a, e) => { await e.ui.settled?.(); return true; },   // fading UI parts (the loading screen) finished: snap waits for it
   raw: (a, e) => e.describe(),   // the whole describe() object, compared in node (describe-snapshot.mjs)
   // op: raw key=value strings are converted by the op's args shape (n=2 -> 2, position=3,0,-2 -> [3, 0, -2]);
@@ -115,7 +144,7 @@ const PAGE = {
     if (e.paused) e._render(1 / 60);   // show the result without advancing game time
     const bag = e.inventory ? 'Bag ' + (e.inventory.list().slice(0, 6).map(x => `${x.id}×${x.count}`).join(' ') || 'empty') : '';
     const head = r.ok ? `✓ ${a.name}${r.value === undefined ? '' : ' → ' + JSON.stringify(r.value).slice(0, 80)}`
-      : `✗ ${a.name}: ${r.reason}${d?.reasons?.[r.reason] ? ' (' + d.reasons[r.reason] + ')' : ''}`;
+      : `✗ ${a.name}: ${r.code}${d?.reasons?.[r.code] ? ' (' + d.reasons[r.code] + ')' : ''}`;
     return { ok: r.ok, text: [head + (bag ? ' · ' + bag : ''), ...brief(e).slice(0, 2)].join('\n') };
   },
   ops: (a, e) => {
@@ -124,17 +153,18 @@ const PAGE = {
     if (!all.length) return 'No ops defined (engine.ops.define(name, { can, run }), see recipes/23-ops.md)';
     const now = e.ops.list({ available: true });
     const shown = now.slice(0, 12).map(o => `${o.ok ? '✓' : '✗'} ${o.name}`
-      + `${o.args && Object.keys(o.args).length ? ' ' + fmtArgs(o.args) : ''}${o.ok ? '' : ' (' + o.reason + ')'}`);
+      + `${o.args && Object.keys(o.args).length ? ' ' + fmtArgs(o.args) : ''}${o.ok ? '' : ' (' + o.code + ')'}`);
     const free = all.filter(o => o.args && !e.ops.defs.get(o.name).offers).map(o => `${o.name} ${fmtArgs(o.args)}`);
     const freeLine = free.length ? 'Free-form args: ' + free.slice(0, 6).join(' · ') : '';
     return [shown.join(' · ') || 'Nothing on offer right now', freeLine].filter(Boolean).join('\n');
   },
   brief: (a, e, brief) => brief(e).join('\n'),
+  catalog: (a, e) => ({ data: e.catalog(a.id ?? (a.find ? { find: a.find } : undefined)), ids: [...e.modules.keys()], ops: [...e.ops.defs.keys()] }),
   inspect: (a, e) => {
     const r = e.inspect(a.at), args = x => Object.entries(x || {}).map(([k, v]) => ` ${k}=${v}`).join('');
     return [`${r.actor} at (${r.at.x}, ${r.at.z}) · near: ${r.near.slice(0, 4).map(n => `${n.name} ${n.dist} m`).join(', ') || 'nothing'}`,
       r.ops.map(o => `${o.ok ? '✓' : '✗'} ${o.op}${args(o.args)}`
-      + (o.ok ? '' : ` (${o.reason}${o.why ? ': ' + o.why : ''})`)).join(' · ') || 'No ops on offer',
+      + (o.ok ? '' : ` (${o.code}${o.why ? ': ' + o.why : ''})`)).join(' · ') || 'No ops on offer',
       r.thing?.edit && `${r.thing.id}: ${r.thing.edit}`].filter(Boolean).join('\n');
   },
   scene: (a, e) => { const r = e.inspect.scene({ hidden: a.hidden, limit: a.limit }); return { ok: true, text: r.text, data: { camera: r.camera, counts: r.counts, items: r.items, truncated: r.truncated } }; },
@@ -151,6 +181,8 @@ const PAGE = {
       t.edit ?? (t.id ? 'no source known (a record added from code)' : 'part of a level model or added with engine.add'), f && 'fields '
         + f].filter(Boolean).join('\n'), thing: t };
   },
+  // thing: engine.thing(id).explain() as JSON text (the same object tests and describe read)
+  thing: (a, e) => { try { const d = e.thing(a.id).explain(); return { ok: true, text: JSON.stringify(d, null, 1), data: d }; } catch (x) { return { ok: false, text: String(x.message ?? x) }; } },
   // loading: the same view as describe().loading, or one task with its source; formatted in node so the hint table applies
   loading: (a, e) => (a.name ? { task: e.loading.get(a.name) } : { view: e.loading.view(), ready: e.ready }),
 };

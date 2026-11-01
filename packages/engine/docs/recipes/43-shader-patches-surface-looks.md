@@ -116,3 +116,5 @@ const looks = {
 };
 ```
 Fetch them with `engine.makeMaterial('wool')`. Check a pack with `threedog style check`; the pixel and program-count guarantees are in `tests/specs/surface.mjs`.
+
+To change these from code at run time (`materials`, `surface`, `ground`, `wind` look parts), see recipe 52.

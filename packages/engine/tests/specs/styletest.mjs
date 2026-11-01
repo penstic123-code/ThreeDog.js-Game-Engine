@@ -30,7 +30,7 @@ export const specs = [
       }
       check('六个机位里镜头位置互不相同（总览和界面共用一个镜头除外）', new Set(Object.values(seen)).size >= 5, JSON.stringify(seen));
       const bad = await ev(() => engine.ops.run('styletest.view', { name: 'nowhere' }));
-      check('机位名写错：op 不执行并说明可用名字', !bad.ok && bad.reason === 'unknownView', JSON.stringify(bad));
+      check('机位名写错：op 不执行并说明可用名字', !bad.ok && bad.code === 'unknownView', JSON.stringify(bad));
 
       // path: constant speed along a fixed line, so the distance between two readings is speed x elapsed time (the line is 24 m, so 2 s never reaches the turn)
       await ev(() => engine.ops.run('styletest.view', { name: 'path' }));

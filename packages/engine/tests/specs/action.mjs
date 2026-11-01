@@ -82,7 +82,7 @@ export const specs = [
     async run({ page, check, ev, frames }) {
       await page.waitForFunction(() => engine.world.ready, null, READY);
       await ev(() => { engine.ops.run('enemy.damage', { id: 'slime-1', amount: 1 }); engine.ops.run('player.die'); });
-      check('gameover: dying stops the game', await ev(() => engine.describe().action.over && engine.ops.run('player.attack').reason === 'dead'));
+      check('gameover: dying stops the game', await ev(() => engine.describe().action.over && engine.ops.run('player.attack').code === 'dead'));
       await page.keyboard.press('KeyR');
       const back = await ev(() => __t.until(() => !engine.describe().action.over, 10000).then(() => ({ ...engine.describe().action }), () => null));
       check('R starts a new game: hp full, the slime back at 3 hp', back?.hp === 5 && back.slimes[0]?.hp === 3 && back.deaths === 0, JSON.stringify(back));

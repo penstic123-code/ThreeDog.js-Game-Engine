@@ -6,6 +6,7 @@ import { placeholderTexture, EFFECTS } from './effects.js';
 import { detailPatch } from './detail.js';
 import { lightingPatch } from './lighting.js';
 import { patchMaterial } from './patches.js';
+import { surfaceDetail } from './lookSurface.js';
 
 // Color textures are sRGB; the rest hold data and stay linear (three would otherwise gamma-decode normals and roughness)
 const COLOR_SLOTS = ['map', 'emissiveMap', 'lightMap', 'sheenColorMap', 'specularColorMap'];
@@ -60,7 +61,8 @@ export function applySurface(m, props, where, engine, lit) {
       loadSlot(m, k, v, tex, where, engine);
     } else rest[k] = v;
   }
-  if (props.detail) patchMaterial(m, [EFFECTS.world(), detailPatch(props.detail, engine, `${where}.detail`)]);
+  const det = props.detail === false ? null : props.detail ?? surfaceDetail(engine);   // look.surface.detail is the pack-wide default
+  if (det) patchMaterial(m, [EFFECTS.world(), detailPatch(det, engine, `${where}.detail`)]);
   const l = props.lighting === false ? null : { ...lit, ...props.lighting };
   if (l && Object.keys(l).length) patchMaterial(m, [lightingPatch(l, `${where}.lighting`)]);
   return rest;

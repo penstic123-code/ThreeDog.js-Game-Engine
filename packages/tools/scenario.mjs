@@ -16,16 +16,15 @@ import { join, basename } from 'node:path';
 import { closest } from './lib/text.mjs';
 import { expectDescribe } from './describe-snapshot.mjs';
 import { run as command } from './threedog/commands.mjs';
+import { READY, atPath } from './threedog/pageFns.mjs';
 
 const TOP = ['name', 'url', 'state', 'steps', 'version'];   // version: optional, 1
 const KINDS = { op: ['op', 'args', 'actor', 'expect'], step: ['step'], press: ['press'], state: ['state'], expect: ['expect'], snapshot: ['snapshot', 'only', 'ignore', 'tolerance'] };
 const TOL = 0.01;
 
 // ── Functions executed in the page (sent as source, so self-contained) ──
-async function pagePrepare(a) {
-  for (let i = 0; i < 600 && !window.engine?.stateApplied; i++) await new Promise(r => setTimeout(r, 100));
-  const e = window.engine;
-  if (!e?.stateApplied) throw new Error('no ready engine in the page (is this a game page?)');
+// the wait for the engine is pageFns READY (one poll for the commands and the scenarios)
+async function pagePrepare(a, e) {
   e.pause();
   const s = { ...a.state };
   if (typeof s.pos === 'string' && s.pos.startsWith('@')) {
@@ -41,14 +40,12 @@ function pageOp(a) {
   const e = window.engine, r = e.ops.run(a.op, a.args ?? {}, { source: 'test', ...(a.actor && { actor: a.actor }) });
   const why = r.ok ? '' : e.explain({ op: a.op, args: a.args ?? {}, actor: a.actor }).text;
   let value; try { value = JSON.parse(JSON.stringify(r.value ?? null)); } catch { value = String(r.value); }
-  return { ok: r.ok, reason: r.reason ?? null, value, why };
+  return { ok: r.ok, code: r.code ?? null, value, why };
 }
 const pageStep = a => { window.engine.step(a.seconds, { render: false }); };
 const pageState = async a => { await window.engine.applyState(a.state); };
 const pageDescribe = () => JSON.parse(JSON.stringify(window.engine.describe()));
 
-/** Value at a describe path such as 'inventory.items.berry' or 'nearby[0].name' */
-const at = (obj, path) => path.split(/\.|(?=\[)/).reduce((v, k) => v == null ? undefined : v[k.startsWith('[') ? +k.slice(1, -1) : k], obj);
 function same(got, want) {
   if (want === null) return got == null;
   if (typeof want === 'number' && typeof got === 'number') return Math.abs(got - want) <= TOL;
@@ -76,20 +73,26 @@ const hint = (name, list) => { const c = name && closest(name, list); return c ?
 /**
  * Run one scenario through a driver ({ evaluate(src, arg) }, the same one the dev bridge commands use). Results go to check(label, ok, detail).
  * Stops at the first failed step: later steps build on it and would only repeat the failure.
+ * Returns { layers }: per step that ran, which layer it exercised ('direct' = op / describe call, 'simulated-input' = bridge press event);
+ * time steps and state changes check nothing and are not listed. Scenarios have no real-browser-input or pixel step, so those layers never appear here.
  * @param {{ evaluate(src: string, arg?: any): Promise<any> }} driver
  * @param {any} sc parsed scenario JSON
- * @param {{ check: (label: string, ok: boolean, detail?: string) => void, file?: string, snapDir?: string }} opts
+ * @param {{ check: (label: string, ok: boolean, detail?: string) => void, file?: string, snapDir?: string, onPrepared?: () => Promise<void> }} opts
  */
-export async function runScenario(driver, sc, { check, file = sc.name, snapDir }) {
+export async function runScenario(driver, sc, { check, file = sc.name, snapDir, onPrepared }) {
   const ev = (fn, arg) => driver.evaluate(fn.toString(), arg);
   lint(sc, null, file);   // a malformed file fails before the page state changes
-  const ops = await ev(pagePrepare, { state: sc.state ?? {} });
+  const ops = await ev(`async a => (${pagePrepare})(a, await (${READY})())`, { state: sc.state ?? {} });
   lint(sc, ops, file);
+  await onPrepared?.();   // evidence takes its baseline here: scenario state applied, no step run yet
+  const layers = [];
   for (const [i, s] of sc.steps.entries()) {
     const n = `${i + 1}. `;
     let ok = true;
+    const layer = 'op' in s || 'expect' in s || 'snapshot' in s ? 'direct' : 'press' in s ? 'simulated-input' : null;
+    if (layer) layers.push({ step: i + 1, layer });
     if ('op' in s) {
-      const want = s.expect ?? 'ok', r = await ev(pageOp, s), got = r.ok ? 'ok' : r.reason;
+      const want = s.expect ?? 'ok', r = await ev(pageOp, s), got = r.ok ? 'ok' : r.code;
       ok = got === want;
       check(`${n}${s.op} ${JSON.stringify(s.args ?? {})} -> ${want}`, ok, `got ${got}${r.why ? ': ' + r.why : ''}`);
     } else if ('step' in s) await ev(pageStep, { seconds: s.step });
@@ -98,7 +101,7 @@ export async function runScenario(driver, sc, { check, file = sc.name, snapDir }
     else if ('expect' in s) {
       const d = await ev(pageDescribe);
       for (const [path, want] of Object.entries(s.expect)) {
-        const got = at(d, path), good = same(got, want);
+        const got = atPath(d, path), good = same(got, want);
         ok &&= good;
         check(`${n}${path} = ${JSON.stringify(want)}`, good, `got ${JSON.stringify(got) ?? 'nothing'}`);
       }
@@ -108,8 +111,9 @@ export async function runScenario(driver, sc, { check, file = sc.name, snapDir }
       await expectDescribe({ check: (l, g, dt) => { good = g; check(n + l, g, dt); }, ev }, snapshot, { ...o, dir: snapDir });
       ok = good;
     }
-    if (!ok) return;
+    if (!ok) break;
   }
+  return { layers };
 }
 
 /** Scenario files of a workspace (tests/scenarios/*.json) */

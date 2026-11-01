@@ -84,9 +84,11 @@ function model(inv, rec) {
   let obj = inv._meshes.get(rec.id);
   if (!obj) {
     const color = def.color ?? st.color ?? 0xcccccc, size = st.size ?? 0.25;
-    // shape is the style pack's; without one a neutral box
-    if (!st.model) warnOnce(NO_PICKUP);
-    const m = st.model ? st.model(def, { color, size }, e) : new THREE.BoxGeometry(size, size, size);
+    // shape: the item definition's own (mesh function, or model = a generator name from the assets), else the style pack's; without one a neutral box
+    const gen = typeof def.model === 'string' ? e.assets.builder(def.model) : null;
+    if (typeof def.model === 'string' && !gen) warnOnce(`pickups: item '${rec.item}' has model '${def.model}' but no generator of that name is registered (assets); using the style pack shape`);
+    else if (!def.mesh && !gen && !st.model) warnOnce(NO_PICKUP);
+    const m = typeof def.mesh === 'function' ? def.mesh(def, { color, size }, e) : gen ? gen() : st.model ? st.model(def, { color, size }, e) : new THREE.BoxGeometry(size, size, size);
     obj = m.isObject3D ? m : new THREE.Mesh(m, makeMaterial('pickup', { color }, e));
   }
   obj.castShadow = true;

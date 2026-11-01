@@ -66,7 +66,7 @@ export const specs = [
         engine.pause();
         const W = engine.world, T = engine.THREE, p = engine.player.position, box = new Function('return ' + mk);
         const cs = W._cells.size, x0 = Math.floor(p.x / cs) * cs + 4, z = Math.floor(p.z / cs) * cs + 16, f = new T.Vector3(x0, p.y, z);
-        engine.cameraOverride = { owner: 's1', focus: f };   // the test places the camera focus
+        globalThis.__cam = engine.takeCamera('s1', { focus: f });   // the test places the camera focus
         W.present('s1acc', { build: box, radius: 20 });
         W.add({ id: 's1-a', kind: 's1acc', position: [x0 + 26, p.y, z] });       // 26 m: outside the radius
         W.add({ id: 's1-b', kind: 's1acc', position: [x0 - 2 + 32 * 3, p.y, z] });  // very far
@@ -78,7 +78,7 @@ export const specs = [
         const cBefore = !!W.view('s1-c');
         W.move('s1-c', [x0 + 13 + 18, p.y, z]); engine.step(0.1);                // record moves into the radius, same cell
         const cAfter = !!W.view('s1-c');
-        engine.cameraOverride = null;
+        globalThis.__cam?.remove();
         return { before, afterFocus, cBefore, cAfter };
       }, box);
       check('focus moved 9 m within the cell: the model inside the radius is built', !r.before && r.afterFocus, JSON.stringify(r));
@@ -135,14 +135,14 @@ export const specs = [
         W.present('s1an', { build: box, radius: 30 });
         W.add({ id: 's1-home', kind: 's1an', position: [p.x + 3, p.y, p.z], tag: 'home' });
         W.add({ id: 's1-away', kind: 's1an', position: [p.x + 600, p.y, p.z], tag: 'away' });
-        engine.cameraOverride = { owner: 's1', focus: new T.Vector3(p.x + 600, p.y, p.z) };   // the camera moves far away (like a cutscene)
+        globalThis.__cam = engine.takeCamera('s1', { focus: new T.Vector3(p.x + 600, p.y, p.z) });   // the camera moves far away (like a cutscene)
         engine.step(1, { render: false });
         const cam = { ...n, homeView: !!W.view('s1-home'), awayView: !!W.view('s1-away') };
         n.home = n.away = 0;
         W.anchor = { x: p.x + 600, z: p.z };   // move the simulation center next to the far record
         engine.step(1, { render: false });
         const anchored = { ...n };
-        W.anchor = null; engine.cameraOverride = null;
+        W.anchor = null; globalThis.__cam?.remove();
         // positionFrom 'view': near simulation moves the model, and at the start of the next step (onFixed runs before world) the data read = the model position
         W.present('s1v', { positionFrom: 'view', build: box });
         W.simulate('s1v', { near: (rec, dt, obj) => { if (obj) obj.position.x += 0.1; } });

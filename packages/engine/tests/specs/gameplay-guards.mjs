@@ -24,7 +24,7 @@ export const specs = [
           engine.grids.define('g-crate', { size: [1, 1] });
           grid = engine.ops.can('grid.place', { grid: 'g-grid', item: 'g-crate', cell: [0, 0], fields: { id: 'stolen' } });
         }
-        return { can: can.ok ? true : can.reason, can1: can1.ok, dropY: seen[0], py: p.y, grid };
+        return { can: can.ok ? true : can.code, can1: can1.ok, dropY: seen[0], py: p.y, grid };
       });
       check('3 entries into 1 free slot is refused as full; 1 is fine', r.can === 'full' && r.can1, JSON.stringify(r));
       check('drop passes the actor height as the floor reference', Math.abs(r.dropY - r.py) < 1e-6, JSON.stringify(r));

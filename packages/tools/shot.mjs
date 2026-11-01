@@ -15,13 +15,14 @@
 //   --time HH:MM   set the time of day (needs the sky module)
 //   --weather name  clear / cloudy / overcast / rain / storm / snow / fog (needs the weather module)
 //   --pos x,z      put the player here (on the ground)
-//   --view name    a named camera position, for pages that read ?view= (the style test: overview, character, water, room, path, ui)
+//   --view name    a named camera view: engine.views.define(name, { pos, target, fov }) in any game, or a page's own ?view= (the style test: overview, character, water, room, path, ui)
 //   --wait seconds  game seconds to advance after setup (default 1)
 //   --size WxH      screenshot resolution, default 960x540
 //   --keep-cutscene  do not skip a cutscene that is playing
 //   --describe-only  print describeText() only, no screenshot
 //   --keep         do not overwrite: add a timestamp to the file name, so shots of several runs sit side by side
 //   --look         also print numbers from the pixels: mean luminance, mean saturation, share overexposed (all channels >= 250), share dark (all <= 20)
+//   --compare before.png  after the shot, print both file names, a pixel-diff number (0 = identical) and the look differences; take `before` with --keep
 //   --no-build     do not rebuild, use the last dist/ (saves a few seconds when code did not change)
 //   -w name         which workspace (engine, my-game…); default the one containing the current directory, then the engine package
 process.env.THREEDOG_TEST = '1';
@@ -72,6 +73,13 @@ try {
     const file = join(dir, '.threedog', 'shots', `${name}${stamp}.png`);
     await page.screenshot({ path: file });
     console.log(`Screenshot: ${rel(file)} (${W}×${H})`);
+    if (opt.compare && opt.compare !== true) {   // before / after: the earlier picture against this one
+      const { compareImages, formatCompare, pixelDiff } = await import('./style/compare.mjs');
+      console.log(`Before: ${opt.compare}
+After:  ${rel(file)}
+Pixel diff: ${await pixelDiff(opt.compare, file)} (0 = identical, 1 = black vs white)`);
+      console.log(formatCompare(await compareImages(opt.compare, file)));
+    }
     if (opt.look) {
       const img = await openImage(file);
       try {

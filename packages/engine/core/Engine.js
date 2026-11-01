@@ -3,56 +3,39 @@
 // Split: main loop and step in loop.js, start() in startup.js, ground API in ground.js, module install in modules.js, dispose and counts in lifecycle.js (all
 // mixed into Engine.prototype).
 import * as THREE from 'three';
-import { Events } from './Events.js';
-import { Input } from './Input.js';
-import { I18n } from './I18n.js';
-import { Saves } from './Saves.js';
-import { Session } from './session.js';
 import { Page } from './page.js';
-import { Assets } from './Assets.js';
-import { Audio } from './Audio.js';
+import { createServices } from './services.js';
 import { PostFX } from '../render/PostFX.js';
 import { createDefaultLights } from '../render/lights.js';
-import { registerEngine, makeMaterial } from '../render/materials.js';
+import { registerEngine, makeMaterial, MATERIAL_PURPOSES } from '../render/materials.js';
+import { defineMaterialsLook, defineSurfaceLook } from '../render/lookSurface.js';
 import { createUniforms } from '../render/effects.js';
 import { bindUniforms } from '../render/engineUniforms.js';
 import { UIParts } from '../ui/Parts.js';
 import { defineCoreParts } from '../ui/defaults.js';
 import { applyUIStyle } from '../ui/theme.js';
-import { describeApi } from './Describe.js';
 import { setValidate, checkOptions, warnOnce, DEV } from './validate.js';
-import { Clock } from './Clock.js';
-import { Vars } from './Vars.js';
-import { Budget } from './Budget.js';
-import { Rays } from './Rays.js';
-import { UrlState } from './UrlState.js';
-import { Jobs } from './Jobs.js';
-import { Threads } from './Threads.js';
-import { Commits } from './Commits.js';
-import { Ops } from './Ops.js';
-import { Stream } from './Stream.js';
-import { Batching } from './Batching.js';
-import { Random } from './Random.js';
 import { loopMethods } from './loop.js';
+import { holdMethods } from './holds.js';
 import { startupMethods } from './startup.js';
 import { groundMethods, flatGround } from './ground.js';
 import { actorMethods } from './actor.js';
 import { detectTier } from './tier.js';
 import { lifecycleMethods } from './lifecycle.js';
-import { reportListenerError } from './errors.js';
 import { createMovement } from './movement.js';
 import { moduleMethods } from './modules.js';
-import { skipMethods, defineSkipOp } from './skip.js';
+import { skipMethods } from './skip.js';
+import { checkMethods } from './checks.js';
 import { styleFrom, NO_STYLE } from './styleParts.js';
 import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
-import { sceneMethods, TONE } from './sceneMethods.js';
-import { installThings } from './thingOps.js';
+import { sceneMethods } from './sceneMethods.js';
 import { recordRender } from './describeRender.js';
+import { defineCoreLook, defineCloudShadowLook } from './look/coreParts.js';
 import { shadowTypeOf } from './shadowTypes.js';
 // Options createEngine accepts (must match the constructor destructuring)
 const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'shadowType', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',
-  'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching', 'renderer'];
+  'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching', 'lights', 'renderer'];
 
 export class Engine {
   /**
@@ -65,7 +48,7 @@ export class Engine {
     const { canvas: canvasIn, renderer: rendererIn, style: styleIn, shadows = true, shadowType = 'pcf', antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
       fov = 55, near = 0.3, fogFar = 600, locale = 'auto', strings = {}, bindings = {}, saveKey = 'game', joystick = 'auto', padBindings = {},
       headless = new URLSearchParams(location.search).has('threedog-headless'), validate = true,
-      decoders = null, budget = null, urlState = DEV, seed, movement, threads = 'auto', pauseOnBlur = true, batching = {} } = opts;
+      decoders = null, budget = null, urlState = DEV, seed, movement, threads = 'auto', pauseOnBlur = true, batching = {}, lights = true } = opts;
     this.THREE = THREE;
     const canvas = canvasIn ?? rendererIn?.domElement;
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
@@ -79,8 +62,6 @@ export class Engine {
     this._autoSize = undefined;                // decided once the canvas is in the page (sizeMode): true = no CSS size, the engine sizes it to the window
     const box = canvasBox(this);
     if (owned) r.setSize(box.w, box.h, !!this._autoSize);
-    if (owned) r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
-    if (owned) this.setExposure(style.exposure ?? 1);   // a number, or day keyframes / a function the sky evaluates each frame
     if (owned) {
       r.shadowMap.enabled = shadows;
       r.shadowMap.type = shadowTypeOf(shadowType, 'createEngine({ shadowType })');
@@ -90,13 +71,16 @@ export class Engine {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(style.background ?? 0x8c8c8c);
     /** Default lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral without sky, driven by sky when installed @type {{ sun: any, hemi: any }} */
-    this.lights = createDefaultLights(this);
+    /** Look parts by name, each with set / patch / replace (recipes/52-look.md): tone, lights, cloudShadow from core, the rest from the modules that provide them @type {Record<string, import('../index').LookPart>} */
+    this.look = {};
+    this.lights = createDefaultLights(this, { add: lights !== false });
+    defineCoreLook(this, { owned });   // look.tone (style.toneMapping / exposure; none and 1 without a style pack) and look.lights (coreParts.js)
     recordRender(this, { owned });   // baseline for describe().render: which values the engine / style set
     this.camera = new THREE.PerspectiveCamera(fov, box.w / box.h, near, 1500);
     this.camera.position.set(0, 10, 20);
     this.focus = new THREE.Vector3();          // camera focus (updated by the camera module): the view loads around it; simulation follows world.anchor
     this.shadows = shadows;
-    /** Shadow filter in use ('basic' | 'pcf' | 'vsm'); change it with sky.setShadow({ type }) @type {string} */
+    /** Shadow filter in use ('basic' | 'pcf' | 'vsm'); change it with look.shadow.set({ type }) @type {string} */
     this.shadowType = shadowType;
     this.ground = flatGround;
     this.player = null;
@@ -136,39 +120,11 @@ export class Engine {
      */
     this.uniforms = createUniforms(style);
     bindUniforms(r, this.uniforms);             // built-in shader effects read this engine's uniforms when compiled by this renderer
+    defineCloudShadowLook(this);                // look.cloudShadow: the cloud-shadow patch every engine material carries, declared (coreParts.js)
+    defineMaterialsLook(this, MATERIAL_PURPOSES); defineSurfaceLook(this);   // look.materials / look.surface: what makeMaterial reads (render/lookSurface.js)
     this._materials = registerEngine(this);    // makeMaterial without an engine argument uses the first live engine's style pack
 
-    this.events = new Events({ check: import.meta.env?.DEV && validate !== false,   // event-name spelling check runs in development only
-      onError: (name, err) => reportListenerError(this, name, err), now: () => this.tick });   // listener errors are handled by severity (errors.js)
-    this.i18n = new I18n(this, { locale, strings });
-    this.saves = new Saves(this, { prefix: saveKey + '-' });
-    this.session = new Session(this);          // new game / continue / back to title from a clean slate (session.js)
-    this.input = new Input(this, canvas, { joystick, bindings, padBindings });
-    this.events.on('ui:open', id => this.openWindows.add(id));
-    this.events.on('ui:close', id => this.openWindows.delete(id));
-    this.audio = new Audio(this, audio);
-    this.decoders = decoders;
-    this.assets = new Assets(this);
-    this.clock = new Clock(this);              // game clock (game seconds, timers)
-    this.vars = new Vars(this);                // story flags and counters
-    this.budget = new Budget(this);            // performance budget (default off)
-    if (budget) this.budget.enable(budget);
-    this.rays = new Rays(this);        // ray registry: engine.raycast / pick
-    Object.assign(this, describeApi(this));     // describe / describeText / inspect / explain, see Describe.js
-    this.random = new Random(seed ?? (headless ? 1 : Date.now()));   // wall-clock: differs per run when no seed is given
-    this.saves.register('random', { save: () => this.random.toJSON(), load: d => this.random.fromJSON(d) });
-    this._urlState = new UrlState(this, { fromUrl: urlState });
-    this._freezers = new Set();                // who froze gameplay (freeze)
-    this.tick = 0;                             // fixed-step count (the gameplay timeline: commits, event history and input records use it; stops while frozen)
-    this.commits = new Commits(this);          // background results that affect gameplay take effect on a fixed tick (see Commits.js)
-    this.ops = new Ops(this);                  // one entry point for actions (define / run / can / list / recent), see Ops.js
-    defineSkipOp(this);                        // 'time.skip', behind engine.skip (skip.js)
-    installThings(this);                       // engine.add registry, thing.set / remove, 'scene' save part
-    this.jobs = new Jobs(this);                // frame-spread job scheduler
-    this.threads = new Threads(threads);       // worker pool (see Threads.js); workers start only when a lane is used
-    // spatial stream-in and the stream sources (where the world is loaded: stream, models, terrain, colliders read them)
-    this.stream = new Stream(this);
-    this.batching = new Batching(this, batching);   // repeated static models drawn as InstancedMesh batches (Batching.js)
+    createServices(this, { canvas, validate, locale, strings, saveKey, joystick, bindings, padBindings, audio, decoders, budget, seed, headless, urlState, threads, batching });
     this.startup = null;                       // startup timing report (set once start() finishes)
     this._prof = null;                         // module hook timing (profile(true) turns it on)
     this._afterTick = null;                    // at startup, checked once at the end of each frame for readiness
@@ -224,5 +180,5 @@ export class Engine {
 }
 
 // Mix in by property descriptor (Object.assign would evaluate getters on the spot and lose them)
-for (const part of [loopMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods, resizeMethods, sceneMethods])
+for (const part of [loopMethods, holdMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods, checkMethods, resizeMethods, sceneMethods])
   Object.defineProperties(Engine.prototype, Object.getOwnPropertyDescriptors(part));

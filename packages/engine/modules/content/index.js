@@ -18,6 +18,7 @@
 // result.
 // Positions that use level markers belong to the current level: the data carries a zone, and a level change only tears down models (pickups taken and removals
 // are remembered); trigger zones are removed on level change.
+import { contentExplain } from './explain.js';
 import { warnMissing, missingText } from '../../core/validate.js';
 import { reportError } from '../../core/errors.js';
 import { parseClock } from '../../core/dayTime.js';
@@ -128,6 +129,7 @@ export function content() {
     optional: ['level', 'sky', 'inventory', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions', 'grids', 'rigid'],
     install(engine) {
       e = engine;
+      engine.explainWith(contentExplain);
       /**
        * Place a new instance of a content template at runtime (a gameplay change: call it inside an op or a fixed step); saved whole.
        * Returns the world record (kind = template name). at is a ground position ({ x, z }, [x, y, z] or an object);

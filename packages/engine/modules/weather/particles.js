@@ -1,5 +1,5 @@
 // Weather particle systems (recipes/44). Built-in rain and snow are two specs of one falling-particle system; a game draws a field of its
-// own table (ash, petals, sparks) with engine.weather.define(field, spec), and the same call replaces rain or snow. The amount each frame is
+// own table (ash, petals, sparks) with engine.look.weather.replace({ field: spec }), and the same call replaces rain or snow. The amount each frame is
 // weather.current[field], so the table's smooth blending drives particles too.
 //
 // spec (style.weather.rain / snow, or define): shape 'line' (streaks that slant with the wind) | 'round' | 'soft' | 'square' (point sprites

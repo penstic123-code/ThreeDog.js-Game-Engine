@@ -17,6 +17,7 @@
 // all run them, so a choice's do (which may change gameplay state) always runs inside a logged op.
 import { uiFocus } from '../../ui/UI.js';
 import { checkOptions, warnMissing } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { dialogueBox } from './dialogueBox.js';
 // 'data' is the one slot for game-specific fields: other unknown keys stay typos (a misspelled next would silently end the dialogue)
 const NODE_KEYS = ['text', 'next', 'choices', 'do', 'speaker', 'data'], CHOICE_KEYS = ['text', 'next', 'if', 'do', 'data'];
@@ -178,14 +179,16 @@ const STRINGS = {
   en: { 'dialogue.continue': '{key} to continue ▸', 'dialogue.choice': 'Choose option' },
 };
 
+const DIALOGUE_PARAMS = keysSchema(['charsPerSecond', 'advanceActions', 'choiceKeys', 'holdSeconds']);
+
 /** Dialogue module. Installs engine.dialogue; story flags engine.dialogue.state.flags are engine.vars.flags. Declares the UI part 'dialogue'. */
 export function dialogue(opts = {}) {
+  readParams('dialogue', DIALOGUE_PARAMS, opts);
   let d = null;
   return {
-    name: 'dialogue', label: 'Dialogue', stage: 'gameplay', after: ['interactions'],
+    name: 'dialogue', params: DIALOGUE_PARAMS, options: opts, label: 'Dialogue', stage: 'gameplay', after: ['interactions'],
     install(e) {
       e.i18n.add(STRINGS);
-      checkOptions('dialogue()', opts, ['charsPerSecond', 'advanceActions', 'choiceKeys', 'holdSeconds']);
       d = new Dialogue(e, opts);
       e.events.on('session:end', () => d._cancel());   // per-playthrough state (recipes/14-custom-module.md "Per-playthrough state")
       e.ui.define('dialogue', dialogueBox);

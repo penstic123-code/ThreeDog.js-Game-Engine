@@ -80,7 +80,7 @@ export function makeWindow(engine, opts) {
     toggle(on = w.hidden) {
       if (on === !w.hidden) return;
       w.hidden = !on;
-      if (on) { ctx = engine.input.push('menu'); focus = uiFocus(engine).push('win-' + id, { cancel: onCancel || (() => api.toggle(false)) }); }
+      if (on) { ctx = engine.input.push('win-' + id); focus = uiFocus(engine).push('win-' + id, { cancel: onCancel || (() => api.toggle(false)) }); }
       else { ctx?.remove(); ctx = null; focus?.remove(); focus = null; }
       api.refresh();
       engine.events.emit(on ? 'ui:open' : 'ui:close', id);

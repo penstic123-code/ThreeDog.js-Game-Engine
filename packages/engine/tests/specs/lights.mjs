@@ -61,4 +61,21 @@ export const specs = [
       check('adding a light after ready: warning with code light-recompile pointing to lightPool and recipe 09', /\[light-recompile\]/.test(r.w) && /lightPool/.test(r.w) && /09-style-pack/.test(r.w), r.w);
     },
   },
+  {
+    name: 'dev hint: more than 8 loose real-time lights warn once with code many-lights',
+    url: '/tests/lights/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE } = threedogTest, warn = console.warn; let w = '';
+        console.warn = (...a) => { w += a.join(' ') + '\n'; };
+        try {
+          for (let i = 0; i < 9; i++) engine.scene.add(new THREE.PointLight(0xffffff, 1, 5));
+          engine.step(0.2); engine.step(0.2);
+          return w;
+        } finally { console.warn = warn; }
+      });
+      check('many-lights warning names lightPool', /\[many-lights\]/.test(r) && /lightPool/.test(r), r);
+      check('the warning appears once', (r.match(/\[many-lights\]/g) || []).length === 1, r);
+    },
+  },
 ];

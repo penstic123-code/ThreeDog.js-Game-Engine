@@ -47,7 +47,7 @@ export function makeSkyUniforms(st, engineUniforms) {
  */
 export function makeDome(uniforms, st, extra = { decl: '', body: '' }) {
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
-    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: fragment(resolveClouds(st.clouds), extra), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: domeFragment(resolveClouds(st.clouds), extra), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
   dome.frustumCulled = false; dome.renderOrder = -1000; dome.userData.budgetTag = 'sky';
   dome.onBeforeRender = (r, sc, cam) => {
     dome.position.copy(cam.position); dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); dome.updateMatrixWorld();
@@ -65,7 +65,7 @@ export function loadSkybox(sky, name) {
 
 const vert = `varying vec3 vDir;
 void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
-const fragment = (cl, x) => `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
+export const domeFragment = (cl, x) => `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
 uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
 uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
 ${CLOUD_UNIFORM_DECL}

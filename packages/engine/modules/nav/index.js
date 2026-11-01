@@ -10,11 +10,14 @@
 // The mesh is built once per level: ground edits (engine.terrain.edit, 'ground:change') do not update it, so paths keep following the ground as it was
 // at level load (rebuilding all tiles per edit is too slow to do automatically). A game that reshapes walkable ground at runtime leaves nav out:
 // characters.findPath then uses A*, which resamples the edited area (its rasters are dropped on 'ground:change').
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { xzOf } from '../../core/math.js';
 import { navSearch } from './navPath.js';
 
+const NAV_PARAMS = keysSchema(['cellSize', 'agentRadius', 'agentHeight', 'maxClimb', 'maxSlope', 'tileSize', 'crowd', 'debug']);
+
 export function nav(opts = {}) {
+  readParams('nav', NAV_PARAMS, opts);
   const { cellSize = 0.3, tileSize = 32, crowd = false, debug = false } = opts;
   // agent size defaults come from engine.movement (filled at install); opts values override them
   let agentRadius, agentHeight, maxClimb, maxSlope;
@@ -129,13 +132,12 @@ export function nav(opts = {}) {
   function flush() { queued = 0; for (let i = 0; i < 256 && !api.tileCache.update(api.navMesh).upToDate; i++); }
 
   return {
-    name: 'nav', label: 'Navmesh',
+    name: 'nav', params: NAV_PARAMS, options: opts, label: 'Navmesh',
     install(engine) {
       e = engine;
       const mv = e.movement;
       ({ agentRadius = mv.radius, agentHeight = mv.height, maxClimb = mv.stepHeight, maxSlope = mv.maxSlope } = opts);
       api.agent = { radius: agentRadius, height: agentHeight, maxClimb, maxSlope };
-      checkOptions('nav()', opts, ['cellSize', 'agentRadius', 'agentHeight', 'maxClimb', 'maxSlope', 'tileSize', 'crowd', 'debug']);
       e.events.on('level:loaded', () => { if (lib) build(); else pending = true; });
       return api;
     },

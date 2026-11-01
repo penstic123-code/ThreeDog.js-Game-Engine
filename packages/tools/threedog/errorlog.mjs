@@ -41,6 +41,11 @@ export const allErrors = dir => parseErrors(readLog(dir));
 /** Records that count as errors (warnings are listed but do not fail a check) */
 export const isError = r => r.kind !== 'warning';
 
+/** Snapshot before a run: id -> count. A repeat of an old error only raises its count (no new record), so ids alone would miss it */
+export const errorMark = dir => new Map(allErrors(dir).map(r => [r.id, r.count]));
+/** Errors that appeared (or repeated) since errorMark */
+export const errorsSince = (dir, mark) => allErrors(dir).filter(r => isError(r) && (!mark.has(r.id) || r.count > mark.get(r.id)));
+
 /** Records after the saved read position; saves the new position */
 export function newErrors(dir) {
   const text = readLog(dir), list = parseErrors(text), epoch = epochOf(text);

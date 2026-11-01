@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { vec3, xzOf } from '../../core/math.js';
 import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { cellsChanged } from '../../core/streamCells.js';
 import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
 import { syncTerrain, syncTrees, treesChanged, syncGroundTrees, syncStatics, syncLevel } from './sync.js';
@@ -241,13 +242,15 @@ export class RigidBodies {
   }
 }
 
+const RIGID_PARAMS = keysSchema(['gravity', 'terrainRing', 'buoyancy', 'buoyancyForce', 'waterDrag', 'floatLine', 'floatDepth', 'treeColliderHeight', 'treeRadius', 'playerCapsule']);
+
 /** Real physics module (Rapier). Installs as engine.rigid. Requires collision() to be installed first */
 export function rigid(opts = {}) {
+  readParams('rigid', RIGID_PARAMS, opts);
   let r = null;
   return {
-    name: 'rigid', label: 'Physics', optional: ['interactions'], requires: ['collision'],
+    name: 'rigid', params: RIGID_PARAMS, options: opts, label: 'Physics', noSkip: 'bodies rest while time jumps (stepping seconds of physics would only scatter them)', optional: ['interactions'], requires: ['collision'],
     install(e) {
-      checkOptions('rigid()', opts, ['gravity', 'terrainRing', 'buoyancy', 'buoyancyForce', 'waterDrag', 'floatLine', 'floatDepth', 'treeColliderHeight', 'treeRadius', 'playerCapsule']);
       e.i18n.add(STRINGS); r = new RigidBodies(e, opts);
       e.budget.metric('rigidBodies', () => r.bodies.length);
       e.stream.readyCheck('rigid', s => !s.physics || r.ready && r.groundReady(s));   // a physics stream source waits for the collider under it

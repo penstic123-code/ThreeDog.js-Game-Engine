@@ -58,8 +58,8 @@ export const specs = [
       const r = await ev(inPage(`
         const { H, A, B, go, bag, end } = await rig();
         const results = [];
-        A.events.on('net:result', x => results.push(x.name + ':' + x.reason));
-        B.events.on('net:result', x => results.push('B ' + x.name + ':' + x.reason));
+        A.events.on('net:result', x => results.push(x.name + ':' + x.code));
+        B.events.on('net:result', x => results.push('B ' + x.name + ':' + x.code));
         const local = A.ops.run('cheat.gold', { n: 99 });
         const raw = m => A.net._side.send(m);   // a hacked client: skips the client code and writes messages itself
         raw({ t: 'op', seq: 50, name: 'cheat.gold', args: { n: 99 } });
@@ -73,9 +73,9 @@ export const specs = [
         A.ops.run('plot.water', { id: 'plot-1' }); go(300);
         const out = { local, results, hostGold: bag(H).gold, guestGold: bag(H, 'guest-1').gold, hostApples: bag(H).apple ?? 0, guestApples: bag(H, 'guest-1').apple ?? 0,
           plotH: H.world.get('plot-1'), plotA: A.world.get('plot-1'), plotB: B.world.get('plot-1'),
-          refused: H.ops.recent('cheat.gold').map(h => h.source + '/' + h.actor + '/' + h.reason) };
+          refused: H.ops.recent('cheat.gold').map(h => h.source + '/' + h.actor + '/' + h.code) };
         end(); return out;`));
-      check('client refuses a non-peer op locally', !r.local.ok && r.local.reason === 'notAllowed', JSON.stringify(r.local));
+      check('client refuses a non-peer op locally', !r.local.ok && r.local.code === 'notAllowed', JSON.stringify(r.local));
       check('host refuses it too when sent raw (logged with the peer actor)', r.results.includes('cheat.gold:notAllowed') && r.refused.join() === 'net/guest-1/notAllowed' && r.guestGold === 10 && r.hostGold === 20, JSON.stringify([r.refused, r.guestGold, r.hostGold]));
       check('a forged actor field is ignored: the item goes to the sender', r.results.includes('chest.take:null') && r.guestApples === 1 && r.hostApples === 0, JSON.stringify([r.guestApples, r.hostApples]));
       check('extra args (actor inside args) are refused as badArgs', r.results.includes('shop.buy:badArgs'), r.results.join());
@@ -91,16 +91,16 @@ export const specs = [
       const r = await ev(inPage(`
         const { H, A, B, go, bag, end } = await rig();
         const reasons = {};
-        A.events.on('net:result', x => { reasons[x.reason] = (reasons[x.reason] || 0) + 1; });
+        A.events.on('net:result', x => { reasons[x.code] = (reasons[x.code] || 0) + 1; });
         for (let i = 0; i < 60; i++) A.net._side.send({ t: 'op', seq: 100 + i, name: 'shop.sell', args: { item: 'bread' } });
         go(300);
         const burst = { ...reasons };
         go(1500);
         let later = null;
-        A.events.on('net:result', x => { if (x.seq === 999) later = x.reason; });
+        A.events.on('net:result', x => { if (x.seq === 999) later = x.code; });
         A.net._side.send({ t: 'op', seq: 999, name: 'shop.sell', args: { item: 'bread' } });
         let bOk = 'none';
-        B.events.on('net:result', x => { bOk = x.reason; });
+        B.events.on('net:result', x => { bOk = x.code; });
         B.ops.run('chest.take', { item: 'apple' });
         go(300);
         // a client writing shared state itself (not through an op) is reported, and the host never hears of it
@@ -132,7 +132,7 @@ export const specs = [
         const out = { away, actor: A.net.actor, bag: bag(A), chest: bag(A, 'chest'), peers: H.net.peers.map(p => p.actor), snaps: A.net.stats.snapshots, avatar: !!H.world.get('guest-1') };
         end(); return out;`));
       check('host sees the peer leave and removes its avatar', r.away.peers.join() === 'guest-2' && !r.away.avatar, JSON.stringify(r.away));
-      check('a disconnected client cannot send', r.away.offline.reason === 'offline', JSON.stringify(r.away.offline));
+      check('a disconnected client cannot send', r.away.offline.code === 'offline', JSON.stringify(r.away.offline));
       check('reconnect keeps the actor and the bag', r.actor === 'guest-1' && r.bag.bread === 1 && r.bag.gold === 5, JSON.stringify([r.actor, r.bag]));
       check('reconnect brings changes made while away (full snapshot)', r.chest.gold === 3 && r.snaps === 2, JSON.stringify([r.chest, r.snaps]));
       check('the avatar comes back', r.avatar && r.peers.join() === 'guest-2,guest-1', r.peers.join());

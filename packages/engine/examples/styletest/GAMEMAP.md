@@ -32,7 +32,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - ambience: `node_modules/threedog/docs/recipes/31-audio.md` · `node_modules/threedog/docs/api/ambience.md`
-- …8 more modules: their pages are in `node_modules/threedog/docs/api/`
+- …7 more modules: their pages are in `node_modules/threedog/docs/api/`
 
 Not used yet (check these before writing the system yourself):
 
@@ -126,7 +126,7 @@ Code that breaks saves or manages world models: none (rule R33).
 ## Saves
 
 - Save prefix saveKey: threedog-styletest
-- Content-related saves handled by the engine: story flags and counters (engine.vars), inventory, quest progress, timers (clock, after registered by event name), pickups (world), felled trees (vegetation)
+- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)
 
 ## Style pack keys
 

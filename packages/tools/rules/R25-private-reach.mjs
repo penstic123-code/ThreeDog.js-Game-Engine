@@ -13,7 +13,10 @@ const ALLOW = [
   ['net', 'ops._log', 'host logs refused peer requests into the op history; net is deferred (user decision)'],
   ['net', 'world._s', 'client switches off world simulation; net is deferred (user decision)'],
   ['net', 'inventory._containers', 'container sync; net is deferred (user decision)'],
+  ['world', '_things', 'adds its record store with engine._things.addSource at install: the one door core offers to record stores'],
 ];
+// LookPart private fields reached through any name (part._owners, p._write, look.fog._params ...): the engine-prefix pattern above misses an alias
+const LOOK_REACH = /\b(?:part|p|lp|look(?:\??\.\w+)?)\??\.(_(?:owners|params|meta|resolved|style|write|drop|spec|driven|setOn|setStyle|check|flat|source|keys|refresh|seq|started|made))\b/g;
 const REACH = /\b(?:e|engine|this\.engine|this\.e)(?:\?)?\.(?:(\w+)\??\.)?(_\w+)/g;
 
 export default {
@@ -30,8 +33,15 @@ export default {
           out.push({ level: 'error', file: f, line: i + 1, msg: `module folder ${folder} reaches into ${owner ? `engine.${owner}` : 'the engine'}'s private ${priv} (${m[0]})`,
             fix: 'add a small documented method or getter to the owner (an @internal one is fine when only modules need it) and call that; or add [folder, member, reason] to ALLOW in this file' });
         }
+        // a look part held in a local (const part = defineLookPart(...); p = e.look.weather): its `_` fields are core/look's (review r2 #2)
+        for (const m of codeOnly(raw).matchAll(LOOK_REACH)) out.push({ level: 'error', file: f, line: i + 1, msg: `${folder} reaches into a look part's private ${m[1]} (${m[0]})`,
+          fix: 'use the LookPart author methods (write, ownerValue, extend, retract, has, resolved, restyle, top, value; core/look/part.js) or add one there' });
       });
     }
+    for (const f of walk(P.ENGINE_REL + '/render').filter(x => /\/look\w*\.js$/.test(x))) read(f).split('\n').forEach((raw, i) => {
+      for (const m of codeOnly(raw).matchAll(LOOK_REACH)) out.push({ level: 'error', file: f, line: i + 1, msg: `render look file reaches into a look part's private ${m[1]} (${m[0]})`,
+        fix: 'use the LookPart author methods (core/look/part.js) or add one there' });
+    });
     out.note = `${ALLOW.length} allowlisted members`;
     return out;
   },

@@ -24,6 +24,12 @@ const ALLOW = [
   ['*', 'noun:action', 'the naming convention itself'],
   ['*', 'noun:verb', 'the naming convention itself'],
   [`${P.RECIPES_REL}/14-custom-module.md`, 'stamina:empty', 'the event the example module in this recipe defines'],
+  [`${P.RECIPES_REL}/23-ops.md`, 'npc:state', 'an example of an event name a game may declare'],
+  [`${P.RECIPES_REL}/16-dev-bridge.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
+  [`${P.RECIPES_REL}/16-dev-bridge.md`, 'toBeCloseTo', 'a matcher of `threedog js --file` scripts'],
+  ['COMMANDS.md', 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
+  [`${P.RECIPES_REL}/49-game-module-contract.md`, 'engine.crops', 'the example module of this recipe'],
+  [`${P.RECIPES_REL}/51-capability-catalog.md`, 'engine.shop', 'the example module of this recipe'],
   [`${P.RECIPES_REL}/15-perf.md`, 'serve', 'the worker-side helper of core/threadServe.js, imported inside the worker file'],
 ];
 const GLOBALS = new Set(('setTimeout setInterval clearTimeout clearInterval requestAnimationFrame cancelAnimationFrame fetch structuredClone queueMicrotask ' +
@@ -167,12 +173,12 @@ function checkEvents(doc, item, ctx) {
   });
 }
 
-function checkMembers(item, ctx) {
+function checkMembers(doc, item, ctx) {
   const out = [], { checker, engine, typeOf } = ctx.api;
   if (!engine) return out;
   for (const m of item.text.matchAll(/(?<![\w.$])engine\.([A-Za-z_$][\w$]*)(?:\??\.([A-Za-z_$][\w$]*))?/g)) {
     const [, a, b] = m;
-    if (PLACEHOLDER.test(a) || (b && PLACEHOLDER.test(b))) continue;
+    if (PLACEHOLDER.test(a) || (b && PLACEHOLDER.test(b)) || allowed(doc, `engine.${a}`)) continue;   // ALLOW: 'engine.crops' = an example module's member
     const sa = checker.getPropertyOfType(engine, a);
     if (!sa) { const near = closest(a, checker.getPropertiesOfType(engine).map(s => s.name)); out.push({ level: 'warn',
       msg: `\`engine.${a}\` is not on Engine${near ? `; did you mean \`engine.${near}\`?` : ''}`,
@@ -205,7 +211,7 @@ export function checkDoc(doc, text, ctx) {
     if (it.span) { const p = checkPath(doc, it.text.trim(), ctx); if (p) out.push(at(p)); }
     if (it.lang === 'js') continue;   // R13 type-checks js blocks; commands in their comments are examples
     for (const r of [...checkTests(it.text, ctx), ...checkCli(it.text, ctx)]) out.push(at(r));
-    for (const r of [...checkEvents(doc, it, ctx), ...checkMembers(it, ctx), ...checkFn(it, ctx)]) out.push(at(r));
+    for (const r of [...checkEvents(doc, it, ctx), ...checkMembers(doc, it, ctx), ...checkFn(it, ctx)]) out.push(at(r));
   }
   return out;
 }

@@ -3,7 +3,7 @@
 //   firstPersonCamera()  first person
 //   fixedCamera()        fixed shots (camera cuts)
 //   rtsCamera()          strategy top-down (pan, zoom, rotate, screen point -> ground)
-// Cutscene takeover contract engine.cameraOverride: see common.js.
+// Cutscene takeover contract engine.takeCamera / cameraOverride: see common.js.
 export { followCamera, FollowCamera } from './FollowCamera.js';
 export { firstPersonCamera, FirstPersonCamera } from './FirstPersonCamera.js';
 export { fixedCamera, FixedCamera } from './FixedCamera.js';

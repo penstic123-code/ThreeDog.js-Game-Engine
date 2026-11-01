@@ -23,7 +23,7 @@ write it the three.js way you already know, as long as you follow the convention
 | Rays | `engine.raycast(origin, direction)` / `engine.pick(ndcX, ndcY)` return three hits (`object` is the mesh, `face` and `point` unchanged); `{ targets: 'all' }` hits rigid bodies too (the hit carries `entry` and `kind: 'rigid'`); the underlying `engine.rays.ray` (THREE.Raycaster, `firstHitOnly` on) |
 | Ray acceleration (BVH) | three-mesh-bvh: on import (`import 'threedog'`) the engine replaces `Mesh.prototype.raycast` page-wide, the way three-mesh-bvh recommends, so your own `new THREE.Raycaster()` uses it too (meshes without a `boundsTree` take three's normal path); a registered mesh has `mesh.geometry.boundsTree` (MeshBVH, built only from 256 triangles up) |
 | Streamed-in objects | `.object` of the handle returned by `engine.stream.add({ position, build })` (the Object3D that build returned; null before it is built) |
-| Post-processing | `engine.post.add({ name, slot, create: ctx => pass })` takes any three.js Pass as a named effect in a slot (`scene` / `hdr` / `ldr` / `final`); `h.enable(false)`, `h.remove()` |
+| Post-processing | `engine.look.post.replace([{ name, slot, create: ctx => pass }, ...])` takes any three.js Pass as a named effect in a slot (`scene` / `hdr` / `ldr` / `final`); `look.post.set({ 'name.enabled': false })` |
 | Where the mouse points | Ground: `screenToGround(engine, input.pointer.ndcX, ndcY)` -> Vector3; objects: `engine.pick(input.pointer.ndcX, ndcY)` (registered static objects; for any object pass `{ targets: [object] }`) |
 
 Returned positions are all `THREE.Vector3` (the camera's `forward()/right()` are planar directions `{x, z}`; positions in photo records are saveable `{x, z}`).
@@ -55,8 +55,8 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    `engine.sky.modify('layer', { sun, ambient, fog, tint, tintAmount })` (multipliers, layers multiply; `null` removes), and don't change
    `sky.sun.intensity` or `sky.modifiers` (the combined result, read-only). Adding your own point lights (street lamps, campfires) is fine.
 7. **Camera**: only change properties of `engine.camera`, never replace it with a new camera (post-processing is bound to this one). When a camera
-   module is installed it places the camera every frame; to control the view yourself set `engine.cameraOverride = { owner: 'me' }` and set it back to
-   `null` when done.
+   module is installed it places the camera every frame; to control the view yourself take it with `const cam = engine.takeCamera('me')` and `cam.remove()` it
+   (`engine.cameraOverride` is read-only: it shows the holder in charge, or `null`).
 8. Collision: the player only respects `engine.collision` (`addCircle / addBox / addObject(mesh)`); a mesh alone does not block anyone.
 9. **Big code-generated things** (a city block, a whole group of houses): write them as a function registered in the manifest
    `assets.manifest({ models: { block: buildBlock } })` and fetch with `assets.model('block')`; in development it is cached automatically, after

@@ -81,6 +81,8 @@ export interface Collision {
   walkable(position: PositionLike, opts?: { radius?: number }): boolean;
   /** walkable with plain numbers, allocating nothing (A* inner loops); radius defaults to engine.movement.radius */
   walkableAt(x: number, z: number, radius?: number): boolean;
+  /** Line of sight with height: is the 3D segment a -> b free of boxes, circles and terrain trees? radius fattens the line; addBlocked water is ignored. Give eye heights in a / b */
+  lineClear(a: PositionLike, b: PositionLike, opts?: { radius?: number }): boolean;
 }
 
 // ======================================================================

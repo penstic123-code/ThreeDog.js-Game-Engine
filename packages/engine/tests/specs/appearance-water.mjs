@@ -22,7 +22,7 @@ const HELPERS = `
     R.debug.onShaderError = prev; rt.dispose();
     return { px: Array.from(bytes).join(','), err: err.slice(0, 400) };
   };
-  const warns = fn => { const got = [], w = console.warn; console.warn = (...a) => got.push(a.join(' ')); try { fn(); } finally { console.warn = w; } return got.join('\\n'); };
+  const warns = fn => { const got = [], w = console.warn; console.warn = (...a) => got.push(a.join(' ')); try { fn(); } catch (x) { got.push(x.message); } finally { console.warn = w; } return got.join('\\n'); };
 `;
 // the weather particle shaders before particles.js, verbatim (the oracle for "default rain and snow unchanged")
 const OLD_PARTICLES = {
@@ -141,7 +141,7 @@ export const specs = [
     },
   },
   {
-    name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；weather.define 注册自己的粒子；写错报错给改法',
+    name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；look.weather.replace 注册自己的粒子；写错报错给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
@@ -173,19 +173,19 @@ export const specs = [
         out.lightning = Math.abs(zap.weather._layer.flash - 0.25) < 1e-6;
         // game-defined systems
         const g = at({}).e;
-        const ash = g.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
+        g.look.weather.replace({ ash: { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 } }); const ash = g.weather.systems.get('ash');
         g.weather.set('ashfall', 0.01); g.step(0.2, { render: false }); g.weather.apply(cam);
         out.ash = ash.object.parent === g.scene && ash.object.name === 'weather-ash' && ash.object.visible && !px(ash.object).err;
         let seen = -1; const own = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
-        g.weather.define('ash', { create: () => ({ object: own, update(a) { seen = a; } }) }); g.weather.apply(cam);
+        g.look.weather.replace({ ash: { create: () => ({ object: own, update(a) { seen = a; } }) } }); g.weather.apply(cam);
         out.own = !ash.object.parent && own.parent === g.scene && seen > 0.9;
         const drops = new THREE.Points(new THREE.BufferGeometry());
-        g.weather.define('rain', { create: () => ({ object: drops }) });
+        g.look.weather.replace({ rain: { create: () => ({ object: drops }) } });
         out.replaced = !g.scene.getObjectByName('weather-rain') || g.scene.getObjectByName('weather-rain') === drops;
         out.zero = at({}, { types: { clear: {}, dusk: { grey: 0.4 } }, start: 'clear' }).e.weather.systems.size === 0;
         // wrong settings
         const err = fn => { try { fn(); return ''; } catch (e) { return e.message; } };
-        out.badField = err(() => g.weather.define('ahs', {}));
+        out.badField = err(() => g.look.weather.replace({ ahs: {} }));
         out.badShape = at({ snow: { shape: 'sqare' } }).error;
         out.badDensity = at({ rain: { density: 0.5 } }).error;
         out.badKey = warns(() => { const m = at({ rain: { colour: 0xffffff }, lightnig: 1 }); m.e?.dispose(); });
@@ -196,7 +196,7 @@ export const specs = [
       check('密度曲线、长度、颜色、大小、飘移、soft 形状生效；square 形状把雨换成点', r.density && r.params && r.points, JSON.stringify([r.density, r.params, r.points]));
       check('glsl.fragment 替换带自定义 uniform 能编译且画面不同', r.glsl, r.glslErr);
       check('style.weather.lightning 换闪电亮度曲线', r.lightning);
-      check('weather.define：自己的字段画粒子；create 整体替换；同名替换内置雨；不用就不建', r.ash && r.own && r.replaced && r.zero, JSON.stringify([r.ash, r.own, r.replaced, r.zero]));
+      check('look.weather.replace：自己的字段画粒子；create 整体替换；同名替换内置雨；不用就不建', r.ash && r.own && r.replaced && r.zero, JSON.stringify([r.ash, r.own, r.replaced, r.zero]));
       check('写错：字段不存在列出可用字段；形状拼错给近似名；density 不是函数给写法', /ashfall: \{ ahs: 1 \}/.test(r.badField) && /did you mean 'square'/.test(r.badShape || '') && /density: a => a \* a/.test(r.badDensity || ''), `${r.badField} | ${r.badShape} | ${r.badDensity}`);
       check('写错键：style.weather.rain / style.weather 拼错提示近似名', /`color`/.test(r.badKey) && /lightning/.test(r.badKey), r.badKey);
     },

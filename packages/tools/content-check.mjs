@@ -12,7 +12,9 @@ import { checkWorldData } from './content-check/world.mjs';
 import { checkQuests } from './content-check/quests.mjs';
 import { checkKinds } from './content-check/kinds.mjs';
 import { checkAudio } from './content-check/audio.mjs';
+import { checkViews } from './content-check/views.mjs';
 import { glbLevels } from './content-check/glb.mjs';
+import { onlyGames } from './paths.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameSetup, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameSetup };
 
@@ -206,6 +208,7 @@ export async function checkGame(dir) {
 
   // 10. Audio (sounds by asset name, rules as data)
   checkAudio({ c, err, warn, isObj, known, code });
+  checkViews({ c, err, isObj });
 
   // 11. The game's vocabulary and its own content kinds
   checkKinds({ c, err, warn, known });
@@ -227,12 +230,12 @@ export async function checkGame(dir) {
 // Run directly: validate all games
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   let nErr = 0, nWarn = 0;
-  for (const dir of findGames()) {
+  for (const dir of onlyGames(findGames())) {
     const { errors, warnings } = await checkGame(dir);
     for (const e of errors) console.log('✗ ' + e);
     for (const w of warnings) console.log('! ' + w);
     nErr += errors.length; nWarn += warnings.length;
   }
-  console.log(`Content validation: ${nErr} errors, ${nWarn} warnings (${findGames().map(rel).join(', ')})`);
+  console.log(`Content validation: ${nErr} errors, ${nWarn} warnings (${onlyGames(findGames()).map(rel).join(', ')})`);
   process.exit(nErr ? 1 : 0);
 }

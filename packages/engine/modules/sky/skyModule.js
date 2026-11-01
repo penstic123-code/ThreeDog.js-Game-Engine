@@ -3,7 +3,7 @@
 import { Sky } from './Sky.js';
 import { dropCascades } from './cascades.js';
 import { timeCondition } from './calendar.js';
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { parseClock } from '../../core/dayTime.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { SkyOptions } from '../../types/world' */
@@ -12,6 +12,7 @@ import { parseClock } from '../../core/dayTime.js';
 const SKY_OPTIONS = ['time', 'dayLength', 'day', 'daysPerSeason', 'seasons', 'keyframes', 'groundTint', 'sunSize', 'sunGlow', 'sunBrightness', 'moonBrightness',
   'moonSize', 'moonColor', 'clouds', 'starDensity', 'starScale', 'gradientCurve', 'skybox', 'shadow', 'orbitTilt', 'orbitSway', 'hoursPerDay', 'environment',
   'sun', 'hemisphere', 'fog', 'layers', 'backdrop'];
+const SKY_PARAMS = keysSchema(SKY_OPTIONS);   // keys only: the values take several shapes (time: 'HH:MM' | 0-1), Sky checks them
 
 /**
  * Sky, day/night, calendar -> engine.sky
@@ -19,11 +20,11 @@ const SKY_OPTIONS = ['time', 'dayLength', 'day', 'daysPerSeason', 'seasons', 'ke
  * @returns {ModuleDef<Sky>}
  */
 export function sky(opts = {}) {
+  readParams('sky', SKY_PARAMS, opts);
   let s = null;
   return {
-    name: 'sky', label: 'Sky', stage: 'environment',
+    name: 'sky', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
     install(e) {
-      checkOptions('sky()', opts, SKY_OPTIONS);
       s = new Sky(e, opts);
       // audio rule condition { time: 'day' | 'night' | ['18:00', '06:00'] } for music / ambience rule lists
       e.audio.condition('time', timeCondition(s));

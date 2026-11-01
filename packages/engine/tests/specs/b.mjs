@@ -168,7 +168,7 @@ export const specs = [
       const r = await ev(async () => {
         const during = await __t.warns(() => {
           engine.pause(); engine.step(0.1);
-          engine.cameraOverride = { owner: 'test' }; engine.camera.position.x += 5; engine.step(0.1); engine.cameraOverride = null; engine.step(0.1);
+          globalThis.__cam = engine.takeCamera('test'); engine.camera.position.x += 5; engine.step(0.1); globalThis.__cam?.remove(); engine.step(0.1);
         });
         const after = await __t.warns(() => { engine.camera.position.x += 5; engine.step(0.1); engine.camera.position.x += 5; engine.step(0.1); });
         return { clean: during.warns.length, n: [...during.warns, ...after.warns].filter(w => w.includes('camera.position')).length };

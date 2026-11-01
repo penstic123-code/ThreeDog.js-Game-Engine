@@ -1,10 +1,13 @@
 // One-shot health check: npm run doctor [--ci]
 // One line per item: ✓ passed / ✗ problem (followed by the fix) / – info only. The browser WebGL check runs last; everything else finishes in a few milliseconds.
 // --ci only prints and never fails the command (no GPU and the like are normal on CI machines).
-import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync, realpathSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join, dirname } from 'node:path';
 import { createConnection } from 'node:net';
-import { ROOT, workspaces, rel } from './paths.mjs';
+import { ROOT, ENGINE, workspaces, rel } from './paths.mjs';
+import { TOOLS } from './project.mjs';
+import { devServerInfo } from './devinfo.mjs';
 
 const ci = process.argv.includes('--ci');
 let bad = 0;
@@ -36,6 +39,39 @@ else {
   else ok('package-lock.json matches the workspaces');
 }
 
+// ── Which physical copy each context really uses (read-only; nothing is started) ──
+// Why: a worktree, vendor/ or a stale node_modules copy can make dev, check and build load different engines or three.js, and the symptoms look like game bugs.
+// Contexts: run / build = vite resolves from the game folder (the vite config sets no alias, so plain Node resolution picks the engine: the workspace link or node_modules);
+// check = this tools package and ENGINE from paths.mjs. A copy is identified by real path + version + package.json mtime.
+const probe = (from, name) => {
+  try {
+    // some packages hide package.json behind "exports": then resolve the package itself and walk up to its package.json
+    const req = createRequire(join(from, 'package.json'));
+    let file;
+    try { file = req.resolve(`${name}/package.json`); } catch {
+      for (let d = dirname(realpathSync(req.resolve(name))); !file && d !== dirname(d); d = dirname(d)) if (existsSync(join(d, 'package.json')) && JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')).name === name) file = join(d, 'package.json');
+    }
+    const real = realpathSync(file), j = JSON.parse(readFileSync(real, 'utf8'));
+    return { dir: rel(join(real, '..')) || '.', real: join(real, '..'), tag: `${j.version ?? '?'} @ ${statSync(real).mtime.toISOString().slice(0, 16)}` };
+  } catch { return null; }
+};
+const ctxs = [['check', TOOLS], ...workspaces().filter(d => existsSync(join(d, 'vite.config.js'))).map(d => [`run/build ${rel(d)}`, d])];
+const seen = new Map();
+for (const [pkg, label] of [['threedog', 'engine'], ['@threedog/tools', 'tools'], ['three', 'three']]) {
+  for (const [ctx, from] of ctxs) {
+    const r = probe(from, pkg);
+    if (r) seen.set(label, [...(seen.get(label) ?? []), { ctx, real: r.real, dir: r.dir, tag: r.tag }]);
+    else info(`${label} (${ctx}): not resolvable`);
+  }
+}
+seen.set('engine', [...(seen.get('engine') ?? []), { ctx: 'check (paths.mjs ENGINE)', real: realpathSync(ENGINE), dir: rel(ENGINE) }]);
+for (const [label, list] of seen) {
+  // one line per distinct copy, listing the contexts that use it (keeps the output short when everything agrees)
+  for (const real of new Set(list.map(x => x.real))) { const g = list.filter(x => x.real === real); info(`${label}: ${g[0].dir}  v${g[0].tag ?? '(ENGINE constant)'}  used by ${g.length > 3 ? `${g.length} contexts` : g.map(x => x.ctx).join(', ')}`); }
+  const copies = [...new Set(list.map(x => x.real.toLowerCase()))];
+  if (copies.length > 1) no(`MISMATCH ${label}: ${copies.length} different physical copies in use (${list.map(x => `${x.ctx} -> ${x.dir}`).join('; ')})`, 'reinstall from the repo root (npm install) so every context resolves one copy; remove vendor/ or stray node_modules copies');
+}
+
 // ── .threedog is writable (cache, error log and dev bridge info live there) ──
 const threedogDir = join(ROOT, '.threedog');
 try { mkdirSync(threedogDir, { recursive: true }); writeFileSync(join(threedogDir, '.doctor'), ''); rmSync(join(threedogDir, '.doctor')); ok('.threedog is writable'); }
@@ -51,13 +87,12 @@ if (await portBusy(5173)) info('port 5173 is in use; npm run dev will pick the n
 else ok('port 5173 is free');
 // The dev bridge writes .threedog/dev.json { port, token } in every workspace running dev and deletes it when the server stops; a leftover means the last run did not shut down cleanly
 for (const ws of workspaces()) {
-  const devFile = join(ws, '.threedog', 'dev.json');
-  if (!existsSync(devFile)) continue;
-  const where = rel(devFile);
-  let port;
-  try { port = JSON.parse(readFileSync(devFile, 'utf8')).port; } catch { no(`${where} cannot be read`, `delete it (PowerShell: Remove-Item "${where}"), then run npm run dev again`); continue; }
-  const url = `http://127.0.0.1:${port}`;
-  const alive = await fetch(url, { signal: AbortSignal.timeout(1500) }).then(() => true, () => false);
+  const info = devServerInfo(ws);
+  if (info.state === 'none') continue;
+  const where = rel(info.file);
+  if (info.state === 'unreadable') { no(`${where} cannot be read`, `delete it (PowerShell: Remove-Item "${where}"), then run npm run dev again`); continue; }
+  const url = `http://127.0.0.1:${info.port}`;
+  const alive = info.state === 'live' && await fetch(url, { signal: AbortSignal.timeout(1500) }).then(() => true, () => false);
   if (alive) ok(`dev server running: ${url} (${rel(ws)})`);
   else no(`the dev server recorded in ${where} is gone (${url})`, `a record left by an unclean shutdown: delete it (PowerShell: Remove-Item "${where}") or run npm run dev again`);
 }

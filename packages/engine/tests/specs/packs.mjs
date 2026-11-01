@@ -91,7 +91,7 @@ export const specs = [
           // post helpers
           const g = { name: 'grain', create: () => ({}) }, bl = { name: 'bloom', create: () => ({}) };
           const names = parts => styleFrom(parts).post.map(p => p.name).join();
-          out.post = { base: lowpoly.post.map(p => p.name).join(), add: names([lowpoly, postAdd(g)]), swap: names([lowpoly, postAdd(bl)]), rm: names([lowpoly, postRemove('ao', 'outline')]),
+          out.post = { base: lowpoly.post.map(p => p.name).join(), appended: names([lowpoly, postAdd(g)]), swap: names([lowpoly, postAdd(bl)]), rm: names([lowpoly, postRemove('ao', 'outline')]),
             first: names([postAdd(g)]), replace: names([lowpoly, { post: [g] }]), untouched: lowpoly.post.length === 3 };
           a.dispose(); b.dispose(); red.dispose();
           return out;
@@ -103,7 +103,7 @@ export const specs = [
       check('材质按引擎归属：第二个引擎（toon）的角色、拾取物、engine.makeMaterial 都是 toon，第一个引擎（lowpoly）的是 lambert，不串',
         r.iso.a.join() === 'MeshLambertMaterial' && r.iso.b.join() === 'MeshToonMaterial' && r.iso.pickupA === 'MeshLambertMaterial' && r.iso.pickupB === 'MeshToonMaterial' && r.iso.methodA === 'MeshLambertMaterial' && r.iso.methodB === 'MeshToonMaterial', JSON.stringify(r.iso));
       check('style.palette 一处改色：改 pine 后松树锥体是新色，树干等没改的键保持，旧色消失；不改时和原来一样；手工调 models.pine() 用默认色', r.pal.redHas && r.pal.redKeepsBark && r.pal.redNoOldPine && r.pal.defHas && r.pal.hand && r.pal.styleKeep, JSON.stringify(r.pal));
-      check('postAdd 追加、同名替换原位置；postRemove 按名删；整体替换规则不变；原包不被改', r.post.add === r.post.base + ',grain' && r.post.swap === r.post.base && r.post.rm === 'bloom' && r.post.first === 'grain' && r.post.replace === 'grain' && r.post.untouched, JSON.stringify(r.post));
+      check('post 追加、同名替换原位置；按名删；整体替换规则不变；原包不被改', r.post.appended === r.post.base + ',grain' && r.post.swap === r.post.base && r.post.rm === 'bloom' && r.post.first === 'grain' && r.post.replace === 'grain' && r.post.untouched, JSON.stringify(r.post));
     },
   },
   {

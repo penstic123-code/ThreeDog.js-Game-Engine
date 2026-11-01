@@ -12,6 +12,8 @@
 // Doc paths are relative to the package docs (recipes/..., api/..., CONVENTIONS.md), same as the shipped docs.
 // Plain data (it imports only errorCodes.js, also plain data), so node tools can load it too. To add a class: append an entry (first match wins, so put specific ones first).
 import { ERROR_CODES } from './errorCodes.js';
+import { RENAMED } from './renamed.js';
+export { RENAMED };
 
 
 /** @typedef {{ id: string, match: RegExp, cause: string, docs: string[] }} ErrorHint */
@@ -106,7 +108,7 @@ export const ERROR_HINTS = [
     cause: 'A module rewrites this property every frame, so a direct assignment is lost. Use the module API named in the message (e.g. sky.modify).',
     docs: ['recipes/08-weather-sky.md', 'api/sky.md'] },
   { id: 'camera-kind', match: /has no camera kind/,
-    cause: 'setCamera() got an unknown camera kind. Use one of the listed kinds; for a camera of your own, set engine.cameraOverride = { owner } and place engine.camera yourself (recipes/21-camera.md).',
+    cause: 'setCamera() got an unknown camera kind. Use one of the listed kinds; for a camera of your own, take it with engine.takeCamera(owner) and place engine.camera yourself (recipes/21-camera.md).',
     docs: ['recipes/21-camera.md', 'api/cameraRig.md'] },
   { id: 'movement', match: /movement\.\w+ must be a positive number/,
     cause: 'A movement parameter was zero, negative or not a number (a typo in a name gives undefined).',
@@ -186,6 +188,9 @@ export function codedError(code, message, Type = Error) {
   const err = /** @type {any} */ (new Type(coded(code, message)));
   return Object.assign(err, errorInfo({ code }));
 }
+
+/** The stub every removed old name becomes: throws `<old> was renamed: <new call>` [renamed-api]. @param {keyof RENAMED} key @param {string} [oldOverride] @returns {never} */
+export function renamed(key, oldOverride) { throw codedError('renamed-api', `${oldOverride ?? RENAMED[key].old} was renamed: ${RENAMED[key].now}`); }
 
 /** A message tagged with its code, for warnings: warnOnce(coded('save-refused', text)). @param {string} code @param {string} message */
 export function coded(code, message) { return `${message} [${code}]`; }

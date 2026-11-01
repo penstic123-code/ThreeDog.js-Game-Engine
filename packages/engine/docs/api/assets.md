@@ -15,6 +15,8 @@
 - `assets.cached(name: string, build: (params?: any) => T | Promise<T>, params?: any) → Promise<T>` — Code-generated model: generated only once per name + params, returns a copy (for geometry, the same one). Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or a file it imports changes) -> compute now. When the generator is newer than the baked file during development, it computes now and prints a one-time hint "run npm run bake once it is final"
 - `assets.animate(root: Object3D, config?: AnimatorOptions) → Animator` — Create an animation state machine for a skinned model (without config it is simple play-by-name). A copy of a manifest model whose entry has `animation` starts from that mapping; config wins per state
 - `assets.mapping(root: Object3D) → AnimatorOptions | null` — The manifest entry's animation mapping for a model copy, or null (not a manifest copy, or no mapping)
+- `assets.report(nameOrRoot: string | Object3D) → AssetReport` — Import report of a loaded model (by name, or a copy from model()): materials, textures with colorSpace, clips, colliders, templates, and issues for what the file has but the scene lost
+- `assets.reportText(nameOrRoot: string | Object3D) → string` — assets.report as text for the console / describe
 - Properties:
   - `cacheMinMs: number` Generations faster than this many milliseconds are not written to the automatic cache (reading the file would be slower), default 20
   - `shared: WeakSet<object>` Geometry and materials shared by model copies (engine.remove does not release them, use release)

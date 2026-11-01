@@ -25,6 +25,16 @@ export function makeMaterial(purpose?: string, params?: {
 }, engine?: {
     style: any;
 }): THREE.Material;
+export function windCustom({ glsl, uniforms }: {
+    glsl: any;
+    uniforms: any;
+}): {
+    uniforms: Record<string, {
+        value: any;
+    }>;
+    decl: string;
+    glsl: any;
+};
 /**
  * Add effects to any material (built-in, from a style pack, or third-party); returns the same material. The one entry for shader effects:
  * wind (sway amplitude; the shadow sways too, nothing else to set up), clouds (drifting cloud shadows, default on; how dark is

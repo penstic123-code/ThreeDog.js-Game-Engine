@@ -31,12 +31,20 @@ import { specs as specsUIParts } from './specs/ui-parts.mjs';
 import { specs as specsInputContext } from './specs/input-context.mjs';
 import { specs as specsThreads } from './specs/threads.mjs';
 import { specs as specsPaths } from './specs/paths.mjs';
+import { specs as specsWalkTo } from './specs/walk-to.mjs';
 import { specs as specsS1Load } from './specs/s1-load.mjs';
 import { specs as specsArt } from './specs/art.mjs';
 import { specs as specsRender } from './specs/render.mjs';
 import { specs as specsPostFuse } from './specs/post-fuse.mjs';
 import { specs as specsGenericity } from './specs/genericity.mjs';
 import { specs as specsOps } from './specs/ops.mjs';
+import { specs as specsCatalog } from './specs/catalog.mjs';
+import { specs as specsLook } from './specs/look.mjs';
+import { specs as specsLookSurface } from './specs/look-surface.mjs';
+import { specs as specsLookAtmosphere } from './specs/look-atmosphere.mjs';
+import { specs as specsRenamedApi } from './specs/renamed-api.mjs';
+import { specs as specsLookLive } from './specs/look-live.mjs';
+import { specs as specsLookWaterPost } from './specs/look-water-post.mjs';
 import { specs as specsArtShapes } from './specs/art-shapes.mjs';
 import { specs as specsAnim } from './specs/anim.mjs';
 import { specs as specsCharacterModel } from './specs/character-model.mjs';
@@ -47,11 +55,13 @@ import { specs as specsGrid } from './specs/grid.mjs';
 import { specs as specsRigidTrees } from './specs/rigid-trees.mjs';
 import { specs as specsTriggersGrid } from './specs/triggers-grid.mjs';
 import { specs as specsSkip } from './specs/skip.mjs';
+import { specs as specsAiChecks2 } from './specs/ai-checks2.mjs';
 import { specs as specsInspectScene } from './specs/inspect-scene.mjs';
 import { specs as specsSession } from './specs/session.mjs';
 import { specs as specsTemplates } from './specs/templates.mjs';
 import { specs as specsSingleSource } from './specs/single-source.mjs';
 import { specs as specsThings } from './specs/things.mjs';
+import { specs as specsThingsExplain } from './specs/things-explain.mjs';
 import { specs as specsSaveFormat } from './specs/save-format.mjs';
 import { specs as specsGameplayGuards } from './specs/gameplay-guards.mjs';
 import { specs as specsBatching } from './specs/batching.mjs';
@@ -77,6 +87,7 @@ import { specs as specsStyletest } from './specs/styletest.mjs';
 import { specs as specsSurface } from './specs/surface.mjs';
 import { specs as specsCascades } from './specs/cascades.mjs';
 import { specs as specsCollisionSegBlocked } from './specs/collision-segment-blocked.mjs';
+import { specs as specsCollisionLineClear } from './specs/collision-lineclear-astar.mjs';
 
 
 export const specs = [
@@ -343,5 +354,5 @@ export const specs = [
       check('按 W 沿相机前方移动', moved !== null && moved > 0.9, String(moved));
     },
   })),
-  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsDescribeRender, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsPaths, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards, ...specsAction, ...specsCoreModules, ...specsProperties, ...specsPerfMeasure, ...specsEnvironment, ...specsAppearance, ...specsTerrainLook, ...specsPostFuse, ...specsStyletest, ...specsRigidTrees, ...specsTriggersGrid, ...specsSurface, ...specsAppearanceEnv, ...specsInspectScene, ...specsThings, ...specsTerrainShape, ...specsIslandSnowBackdrop, ...specsAppearanceWater, ...specsCascades, ...specsCollisionSegBlocked,
+  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsDescribeRender, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsCatalog, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsAiChecks2, ...specsPaths, ...specsWalkTo, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards, ...specsAction, ...specsCoreModules, ...specsProperties, ...specsPerfMeasure, ...specsEnvironment, ...specsAppearance, ...specsTerrainLook, ...specsPostFuse, ...specsStyletest, ...specsRigidTrees, ...specsTriggersGrid, ...specsSurface, ...specsAppearanceEnv, ...specsInspectScene, ...specsThings, ...specsThingsExplain, ...specsTerrainShape, ...specsIslandSnowBackdrop, ...specsAppearanceWater, ...specsCascades, ...specsCollisionSegBlocked, ...specsCollisionLineClear, ...specsLook, ...specsLookSurface, ...specsLookAtmosphere, ...specsLookWaterPost, ...specsRenamedApi, ...specsLookLive,
 ];

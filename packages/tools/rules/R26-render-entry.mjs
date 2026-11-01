@@ -17,7 +17,7 @@ const CHECKS = [
   { re: /\.onBeforeCompile\s*=(?!=)/, what: 'assigns onBeforeCompile directly', why: "it replaces every engine patch on that material (wind, clouds, season, a pack's own) and their shadow pass",
     fix: "use applyEffects(material, { patches: [{ name, glsl: { vertex|fragment: { anchor: code } } }] }) (render/patches.js); it stacks with the material's own onBeforeCompile and the engine's effects" },
   { re: /\.customProgramCacheKey\s*=(?!=)/, what: 'assigns customProgramCacheKey directly', why: 'it replaces the program key the engine patches build, so differently patched materials can share one program', fix: 'give the patch a cacheKey instead: applyEffects(material, { patches: [{ name, cacheKey, glsl }] })' },
-  { re: /\bnew\s+EffectComposer\s*\(/, what: 'builds its own EffectComposer', why: 'the engine renders through the engine.post slots, so a second composer runs a chain it does not know (MSAA, resize, settings toggles, dispose)', fix: "add a named effect instead: engine.post.add({ name, slot: 'scene' | 'hdr' | 'ldr' | 'final', create: ctx => pass }) (recipe 09 §2c)" },
+  { re: /\bnew\s+EffectComposer\s*\(/, what: 'builds its own EffectComposer', why: 'the engine renders through the engine.post slots, so a second composer runs a chain it does not know (MSAA, resize, settings toggles, dispose)', fix: "add a named effect instead: engine.look.post.replace([...effects]) with { name, slot: 'scene' | 'hdr' | 'ldr' | 'final', create: ctx => pass } (recipe 09 §2c)" },
 ];
 
 export default {

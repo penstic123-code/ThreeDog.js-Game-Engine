@@ -213,7 +213,7 @@ export function grids() {
     name: 'grids', label: 'Grid placement', stage: 'gameplay', requires: ['world'],
     install(e) {
       G = new Grids(e);
-      e.saves.register('grids', { version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
+      e.saves.register('grids', { atomic: true, version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
       offOps = defineGridOps(e, G);
       subs.push(
         e.events.on('world:add', ({ id }) => G._reindex(id)),

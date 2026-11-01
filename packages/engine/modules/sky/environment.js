@@ -10,14 +10,15 @@
 //   - The hemisphere light adds on top of it. A style that turns the environment on usually lowers its ambient column of sky.keyframes.
 // The engine sets no environment by default, so the plain low-poly Lambert look is unchanged until a style or the game asks for one.
 import * as THREE from 'three';
-import { checkOptions, warnOnce } from '../../core/validate.js';
+import { warnOnce } from '../../core/validate.js';
+import { defineLookPart, REPLACE } from '../../core/look/part.js';
 
 const KEYS = ['source', 'intensity', 'rotation', 'interval'];
 const DEFAULT_INTERVAL = 1;   // seconds between regenerations of a procedural environment (only when the sky actually changed)
 const STRINGS = {
-  noSource: "sky.setEnvironment({ source }): source is missing. Use 'sky' (built from the procedural sky) or the name of an HDR / panorama asset, " +
-    "or sky.setEnvironment(null) to turn the environment lighting off",
-  badSource: "sky.setEnvironment({ source }): source must be 'sky', an asset name / path (.hdr, .jpg, .ktx2...) or null; got {got}",
+  noSource: "look.env.replace(source): source is missing. Use 'sky' (built from the procedural sky) or the name of an HDR / panorama asset, " +
+    "or look.env.replace(false) to turn the environment lighting off",
+  badSource: "look.env.replace(source): source must be 'sky', an asset name / path (.hdr, .jpg, .ktx2...) or null; got {got}",
 };
 
 /**
@@ -37,16 +38,41 @@ function skyKey(u) {
   return [...u.uTop.value.toArray(), ...u.uHorizon.value.toArray(), ...u.uSunDir.value.toArray(), ...u.uSunColor.value.toArray(), u.uNight.value, u.uCloud.value].map(f).join(',');
 }
 
+/**
+ * look.env: environment lighting as a look part. set({ intensity, rotation, interval }) tunes it, replace(source) swaps the map ('sky', an asset
+ * name, or false = off), replace(null) gives it back to the style. The style layer is style.sky.environment merged with sky({ environment }).
+ * Why the asset stays a name: loading belongs to engine.assets; the part only says which map to use.
+ * @param {any} sky @param {object | null} env environmentFor(...) at start
+ */
+export function defineEnvLook(sky, env) {
+  const e = sky.engine, scene = e.scene;
+  let src = null, vals = { intensity: 1, rotation: 0, interval: DEFAULT_INTERVAL };
+  const sync = () => (src ? sky._envApply({ source: src, ...vals }) : sky._envOff());
+  const { source, low, ...tune } = env ?? {};
+  defineLookPart(e, {
+    id: 'env', group: 'atmosphere', module: 'sky', object: () => scene.environment, docs: ['recipes/52-look.md'],
+    params: {
+      intensity: { type: 'number', default: 1, min: 0, neutral: true, cost: 'uniform', desc: 'scene.environmentIntensity' },
+      rotation: { type: 'number', default: 0, neutral: true, cost: 'uniform', desc: 'turns the map around Y (radians)' },
+      interval: { type: 'number', default: DEFAULT_INTERVAL, min: 0, neutral: true, cost: 'gpu', desc: "seconds between rebuilds of a 'sky' map (only when the sky changed)" },
+    },
+    style: () => ({ ...tune, ...(source ? { [REPLACE]: source } : {}) }),
+    read: () => (src ? { intensity: scene.environmentIntensity, rotation: scene.environmentRotation.y } : {}),
+    apply(v) { vals = v; sync(); },
+    replace: { accepts: "'sky' (built from the procedural sky) | an asset name or path (.hdr, .jpg, .ktx2) | false (off)", loses: ['nothing: intensity and rotation still apply to your map'] },
+    applyReplace(impl) {
+      if (impl != null && impl !== false && typeof impl !== 'string') throw new Error(STRINGS.badSource.replace('{got}', String(impl)));
+      src = impl || null; sync();
+    },
+    noPatch: 'environment lighting has no GLSL hook: it is a texture; swap it with look.env.replace(...) or tune it with look.env.set({ intensity })',
+  });
+}
+
 export const environmentMethods = {
-  /**
-   * Environment lighting for the scene, separate from the background. Fields given change, the rest stay; null or { source: null } turns it off.
-   * source 'sky' builds it from the procedural sky (rebuilt at most every `interval` seconds, and only when the sky changed); an asset name or path
-   * (.hdr, .jpg, .ktx2) is an equirectangular panorama. intensity scales the light (default 1), rotation turns it around Y (radians)
-   */
-  setEnvironment(o) {
+  // (the environment is changed through engine.look.env.replace(source) / .set({ intensity, rotation, interval }))
+  // Apply settings to the scene (look.env's apply): a changed source rebuilds or reloads the map, the same source only retunes it
+  _envApply(o) {
     const cur = this._env;
-    if (o == null || o === false || o.source === null) { this._envOff(); return this; }
-    checkOptions('sky.setEnvironment()', o, KEYS);
     const next = { source: cur?.source, intensity: cur?.intensity ?? 1, rotation: cur?.rotation ?? 0, interval: cur?.interval ?? DEFAULT_INTERVAL };
     for (const k of KEYS) if (o[k] !== undefined) next[k] = o[k];
     if (!next.source) throw new Error(STRINGS.noSource);
@@ -89,7 +115,7 @@ export const environmentMethods = {
     e.builds++; e.key = skyKey(this.uniforms);
   },
 
-  // Panorama asset (.hdr goes through HDRLoader in the asset loader). A newer setEnvironment call makes the token stale and the late result is dropped
+  // Panorama asset (.hdr goes through HDRLoader in the asset loader). A newer look.env.replace call makes the token stale and the late result is dropped
   _envFromAsset(name, token) {
     this.engine.assets.texture(name).then(t => {
       if (this._env?.token !== token || this.engine.disposed) return;
