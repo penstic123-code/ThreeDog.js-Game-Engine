@@ -17,29 +17,33 @@
 import * as THREE from 'three';
 import { vec3, xzOf } from '../../core/math.js';
 import { checkOptions } from '../../core/validate.js';
+import { cellsChanged } from '../../core/streamCells.js';
 import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
-import { syncTerrain, syncGroundTrees, syncStatics, syncLevel, dropTerrain } from './sync.js';
+import { syncTerrain, syncTrees, treesChanged, syncGroundTrees, syncStatics, syncLevel } from './sync.js';
 // Params of addBox / addBall / addHull
+const PHYSICS = { physics: true };   // stream source filter (shared, not rebuilt every step)
 const BODY_KEYS = ['mass', 'friction', 'restitution', 'damping', 'angularDamping', 'fixed'];
 
 export class RigidBodies {
   /** gravity gravity = gravity; terrainRing = chunk rings around each physics stream source that get terrain collision; buoyancy = buoyancy toggle; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
    * floatLine / floatDepth： floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth
-   * meters deeper; treeColliderHeight = trunk collision cylinder height;
+   * meters deeper; treeColliderHeight = trunk collision cylinder height; treeRadius = trunks get cylinders only in chunks within this many meters of the player or a non-fixed body;
    *  playerCapsule { halfHeight, radius }  playerCapsule { halfHeight, radius } = player capsule size (default derived from engine.movement radius / height) */
   constructor(engine, { gravity = -9.81, terrainRing = 1, buoyancy = true, buoyancyForce = 1.6, waterDrag = 2.5, floatLine = 0.3, floatDepth = 0.8,
-    treeColliderHeight = 6, playerCapsule } = {}) {
+    treeColliderHeight = 6, treeRadius = 16, playerCapsule } = {}) {
     const mv = engine.movement;   // default capsule uses the shared character radius / height: total height = 2 * halfHeight + 2 * radius
     playerCapsule ??= { halfHeight: Math.max(0.05, (mv.height - 2 * mv.radius) / 2), radius: mv.radius };
     this.engine = engine;
     this.gravity = gravity;
     this.terrainRing = terrainRing;
     this.buoyancy = buoyancy; this.buoyancyForce = buoyancyForce; this.waterDrag = waterDrag; this.playerCapsule = playerCapsule;
-    this.floatLine = floatLine; this.floatDepth = floatDepth; this.treeColliderHeight = treeColliderHeight;
+    this.floatLine = floatLine; this.floatDepth = floatDepth; this.treeColliderHeight = treeColliderHeight; this.treeRadius = treeRadius;
     this._staticVersion = -1;
     this.R = null; this.world = null;
     this.bodies = [];                 // { body, mesh, offset, enabled }
     this.terrain = new Map();         // chunk key -> { colliders: [] }
+    this.trees = new Map();           // chunk key -> { token, colliders }: trunk cylinders of the chunks near the player / bodies (see sync.js)
+    this._anchors = []; this._treeMemo = [];
     this.groundTrees = new Map();     // 'x,z,r' -> cylinder collider: circles from ground.forEachCollider when the ground has no chunked collision
     this.statics = new Map();         // houses/pillars from Physics.js -> collider
     this.vehicles = [];
@@ -76,7 +80,7 @@ export class RigidBodies {
     desc.setFriction(friction).setRestitution(restitution).setMass(mass);
     const collider = this.world.createCollider(desc, body);
     if (!mesh.parent) this.engine.add(mesh);   // shadow casting/receiving follows the model's own settings (not forced)
-    const entry = { body, collider, mesh, object: mesh, enabled: true, volume: 0, damping, angularDamping };
+    const entry = { body, collider, mesh, object: mesh, enabled: true, volume: 0, damping, angularDamping, fixed, _x: p.x, _z: p.z };   // _x / _z: where sync.js looks for trunks to give it
     entry.remove = () => this._remove(entry);
     this.bodies.push(entry);
     return entry;
@@ -148,6 +152,7 @@ export class RigidBodies {
   /** Teleport to position (velocity zeroed) */
   setPosition(entry, position) {
     const { x, y, z } = vec3(position);
+    entry._x = x; entry._z = z;
     entry.body.setTranslation({ x, y, z }, true); entry.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
   }
 
@@ -173,12 +178,17 @@ export class RigidBodies {
     const e = this.engine, G = e.ground, CH = G.chunkSize ?? 64, chunked = !!G.chunkCollision;
     const focus = e.player ? e.player.position : e.focus;   // player-body: the player's own kinematic body follows the character, not engine.actor
     // terrain collision around physics stream sources: sync at once when their chunks change, otherwise check every 0.5 s (tree felling etc.)
-    const src = e.stream.sources({ physics: true }).map(s => [Math.floor(s.x / CH), Math.floor(s.z / CH), Math.min(this.terrainRing, s.radius == null ? Infinity : Math.max(1, Math.ceil(s.radius / CH)))]);
-    const key = src.join(';');
+    // compared in place against last step's cells (no array, no string key while nothing crosses a chunk border); the list is built only when syncing
+    const memo = this._srcMemo || (this._srcMemo = []);
+    const moved = cellsChanged(e.stream, memo, CH, this.terrainRing, PHYSICS), n = memo.length;
+    const treesMoved = chunked && treesChanged(this, focus, CH);
     this._syncT = (this._syncT || 0) + dt;
-    if (key !== this._srcKey || this._syncT > 0.5) {
-      if (chunked) syncTerrain(this, src); else syncGroundTrees(this, src, CH);
-      this._srcKey = key; this._syncT = 0;
+    if (moved || treesMoved || this._srcPending || this._syncT > 0.5) {
+      const src = [];
+      for (let i = 0; i < n; i += 3) src.push([memo[i], memo[i + 1], memo[i + 2]]);
+      let pending = false;
+      if (chunked) { pending = syncTerrain(this, src); pending = syncTrees(this, focus, CH) || pending; } else syncGroundTrees(this, src, CH);
+      this._srcPending = pending; this._syncT = 0;   // pending: chunks still waiting for their turn, sync again next step
     }
     syncStatics(this);
     syncLevel(this);
@@ -192,6 +202,7 @@ export class RigidBodies {
     // freeze bodies without terrain collision under them (unfrozen they would fall through)
     for (const b of this.bodies) {
       const t = b.body.translation();
+      b._x = t.x; b._z = t.z;
       const ok = !chunked || !!this.terrain.get(Math.floor(t.x / CH) + ',' + Math.floor(t.z / CH))?.ready;
       if (ok !== b.enabled) { b.body.setEnabled(ok); b.enabled = ok; }
       // buoyancy: the submerged part gets an upward force, and water adds drag
@@ -232,7 +243,7 @@ export function rigid(opts = {}) {
   return {
     name: 'rigid', label: 'Physics', optional: ['interactions'], requires: ['collision'],
     install(e) {
-      checkOptions('rigid()', opts, ['gravity', 'terrainRing', 'buoyancy', 'buoyancyForce', 'waterDrag', 'floatLine', 'floatDepth', 'treeColliderHeight', 'playerCapsule']);
+      checkOptions('rigid()', opts, ['gravity', 'terrainRing', 'buoyancy', 'buoyancyForce', 'waterDrag', 'floatLine', 'floatDepth', 'treeColliderHeight', 'treeRadius', 'playerCapsule']);
       e.i18n.add(STRINGS); r = new RigidBodies(e, opts);
       e.budget.metric('rigidBodies', () => r.bodies.length);
       e.stream.readyCheck('rigid', s => !s.physics || r.ready && r.groundReady(s));   // a physics stream source waits for the collider under it

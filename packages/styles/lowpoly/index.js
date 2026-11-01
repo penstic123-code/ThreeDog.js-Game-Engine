@@ -8,11 +8,11 @@
 // New art style = copy this folder, change values / swap model files; engine code stays untouched.
 //
 // Every entry is optional; omitted parts get neutral engine placeholders (gray).
-import { models } from './models.js';
+import { models, PALETTE } from './models.js';
 import { humanoid, pickup } from './shapes.js';
-import { bloom, outline, ao } from './post.js';
+import { bloom, outline, ao, OUTLINE_OFF_LAYER } from './post.js';
 
-export { bloom, outline, ao, models };
+export { bloom, outline, ao, models, OUTLINE_OFF_LAYER };
 /** Asset pack of the procedural models: engine.assets.manifest(assets) registers pine, roundTree, rock, flower, grass... as model names */
 export const assets = { name: 'lowpoly', models };
 
@@ -31,6 +31,9 @@ export default {
     water: { type: 'phong', shininess: 90, specular: 0x9ac8e0 },
     character: { flatShading: true },   // faceted character parts
   },
+
+  // Procedural-model colors (trees, rocks, grass, flowers), read by the generators in models.js; change one value to recolor every one of them
+  palette: PALETTE,
 
   // Season tint (multiplied onto base color): foliage, ground. Fades to the next season at season end
   seasons: {

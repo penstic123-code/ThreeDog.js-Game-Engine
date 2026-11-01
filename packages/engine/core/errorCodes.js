@@ -118,6 +118,21 @@ export const ERROR_CODES = {
   'module-dispose': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'A module\'s dispose(e) threw; the other modules and core were still cleaned up. Fix that module\'s dispose.' },
+  'module-order': {
+    docs: ['recipes/14-custom-module.md', 'api/engine.md'],
+    fix: 'A module\'s before / after contradicts the stage order (stages always run in order; before / after only order modules inside one ' +
+      'stage). Give both modules the same stage, or remove the before / after.' },
+  'module-critical': {
+    docs: ['recipes/14-custom-module.md', 'api/engine.md'],
+    fix: 'A module declared critical: true failed in init(), so start() stopped instead of starting a broken game. The message names the module ' +
+      'and the reason: fix its init(), or drop critical if the game can run without it.' },
+  'module-not-ready': {
+    docs: ['recipes/14-custom-module.md', 'api/engine.md'],
+    fix: 'start() waited longer than engine.loading.timeoutMs for modules whose isReady(e) stays false. Fix what that module waits for, ' +
+      'or raise engine.loading.timeoutMs if the load is only slow. engine.loading.view().waiting names the current item.' },
+  'step-seconds': {
+    docs: ['api/engine.md'],
+    fix: 'engine.step(seconds) takes a finite number >= 0 in game seconds: 0 advances nothing, 0.5 is half a second, 1 / 60 is one fixed step.' },
   'player-control': {
     docs: ['recipes/01-new-game.md', 'api/characters.md'],
     fix: "createPlayer() has no default feel: give control. Usually createPlayer({ ...presets.player.thirdPerson, spawn }); else control: 'camera' | " +

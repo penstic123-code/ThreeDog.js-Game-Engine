@@ -13,7 +13,7 @@ import { Assets } from './Assets.js';
 import { Audio } from './Audio.js';
 import { PostFX } from '../render/PostFX.js';
 import { createDefaultLights } from '../render/lights.js';
-import { registerEngine } from '../render/materials.js';
+import { registerEngine, makeMaterial } from '../render/materials.js';
 import { createUniforms } from '../render/effects.js';
 import { bindUniforms } from '../render/engineUniforms.js';
 import { UIParts } from '../ui/Parts.js';
@@ -46,8 +46,9 @@ import { skipMethods, defineSkipOp } from './skip.js';
 import { styleFrom, NO_STYLE } from './styleParts.js';
 import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
 import { sceneMethods } from './sceneMethods.js';
+import { shadowTypeOf } from './shadowTypes.js';
 // Options createEngine accepts (must match the constructor destructuring)
-const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
+const ENGINE_OPTIONS = ['canvas', 'style', 'shadows', 'shadowType', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',
   'locale', 'strings', 'bindings', 'saveKey', 'joystick', 'padBindings', 'headless', 'validate', 'decoders', 'budget', 'urlState', 'seed', 'movement', 'threads', 'pauseOnBlur', 'batching'];
 
@@ -59,7 +60,7 @@ export class Engine {
   constructor(opts = {}) {
     setValidate(opts.validate);
     checkOptions('createEngine()', opts, ENGINE_OPTIONS);
-    const { canvas, style: styleIn, shadows = true, antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
+    const { canvas, style: styleIn, shadows = true, shadowType = 'pcf', antialias, post, pixelRatio, adaptiveResolution = true, targetFps = 55, ui = {}, audio = {},
       fov = 55, near = 0.3, fogFar = 600, locale = 'auto', strings = {}, bindings = {}, saveKey = 'game', joystick = 'auto', padBindings = {},
       headless = new URLSearchParams(location.search).has('threedog-headless'), validate = true,
       decoders = null, budget = null, urlState = DEV, seed, movement, threads = 'auto', pauseOnBlur = true, batching = {} } = opts;
@@ -77,7 +78,7 @@ export class Engine {
     r.toneMapping = TONE[style.toneMapping ?? 'none'];   // no tone mapping without a style pack: the look (ACES, exposure) is the style pack's
     r.toneMappingExposure = style.exposure ?? 1;
     r.shadowMap.enabled = shadows;
-    r.shadowMap.type = THREE.PCFShadowMap;
+    r.shadowMap.type = shadowTypeOf(shadowType, 'createEngine({ shadowType })');
     r.info.autoReset = false;
 
     this.scene = new THREE.Scene();
@@ -88,6 +89,8 @@ export class Engine {
     this.camera.position.set(0, 10, 20);
     this.focus = new THREE.Vector3();          // camera focus (updated by the camera module): the view loads around it; simulation follows world.anchor
     this.shadows = shadows;
+    /** Shadow filter in use ('basic' | 'pcf' | 'vsm'); change it with sky.setShadow({ type }) @type {string} */
+    this.shadowType = shadowType;
     this.ground = flatGround;
     this.player = null;
     /**
@@ -108,9 +111,12 @@ export class Engine {
     this.headless = headless;
     this.paused = headless;                    // while paused the real-time loop does not advance; only step() does
     this.fps = 0;
+    this.cpuMs = 0;                            // main-thread ms of the last real-time frame; cpuPhases splits it (loop.js)
+    this.cpuPhases = { fixed: 0, frame: 0, render: 0, afterRender: 0 };
     this.openWindows = new Set();              // ids of open windows (for describe)
     this.fogFar = fogFar;                       // base fog distance; terrain view range changes it, weather scales it
     this.modules = new Map();
+    this._modState = new Map();                // module name -> registered | initializing | running | failed | disposed (modules.js)
     this.waterBodies = [];
     this._fixed = []; this._frame = []; this._hooks = { fixed: [], frame: [], afterRender: [], skip: [] };
     this._hookErrors = new Set();              // places that already reported an error (once per place, see errors.js)
@@ -188,6 +194,8 @@ export class Engine {
    * (= fixed-step seconds × timeScale); sky time of day is sky.timeOfDay
    */
   get elapsed() { return this._elapsed; }
+  /** Material by role from this engine's style pack: engine.makeMaterial('prop', { color: 0x8a5a36 }) */
+  makeMaterial(purpose, params) { return makeMaterial(purpose, params, this); }
   /** Ray cast: the nearest hit or null, see Rays.js */
   raycast(origin, dir, opts) { return this.rays.cast(origin, dir, opts); }
   /** Cast a ray from screen coordinates (-1..1) */
@@ -205,21 +213,6 @@ export class Engine {
 
   /** @internal Display name of a module (loading screen): module.<name> from the string table, else the module's own label */
   moduleName(m) { return this.i18n.has('module.' + m.name) ? this.t('module.' + m.name) : (m.label || m.name); }
-
-  // ---------- pause and deterministic stepping (tests, screenshots, AI checks) ----------
-  /** Pause the real-time loop (the picture stops and the game stops advancing) */
-  pause() { this.paused = true; return this; }
-  /** Resume the real-time loop (in headless mode this starts live running) */
-  resume() { if (!this.disposed) { this.paused = false; this._loop(); } return this; }
-  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, game clock and engine.elapsed all stop) while frame hooks and rendering go on, so
-  // the picture and UI stay alive.
-  // Gameplay logic (quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame (see the top of loop.js).
-  // Unlike pause(), which stops rendering too and is for tests and step(). owner is the freezer's name; play resumes only when all have unfrozen. step() obeys
-  // freezes as well.
-  freeze(owner = 'game') { this._freezers.add(owner); return this; }
-  unfreeze(owner = 'game') { this._freezers.delete(owner); return this; }
-  /** True while someone has frozen gameplay */
-  get frozen() { return this._freezers.size > 0; }
 }
 
 // Mix in by property descriptor (Object.assign would evaluate getters on the spot and lose them)

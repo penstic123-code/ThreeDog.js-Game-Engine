@@ -74,7 +74,7 @@ export async function loadGltf(assets, url, task) {
   const parsing = assets.gltf.parseAsync(buf, THREE.LoaderUtils.extractUrlBase(url));
   assets.gltf.manager = prev;
   let gltf;
-  try { gltf = restoreBaked(await parsing); }   // baked file: restore materials etc.
+  try { gltf = restoreBaked(await parsing, assets.engine); }   // baked file: restore materials etc.
   catch (err) { throw new LoadError(String(err?.message ?? err) + (missing.length ? ` (missing: ${missing.join(', ')})` : ''), { url: missing[0] ?? url }); }
   task.source.animations = gltf.animations.map(a => a.name);
   const tex = new Set();
@@ -83,19 +83,24 @@ export async function loadGltf(assets, url, task) {
   return gltf;
 }
 
-/** Load a texture (.ktx2 through KTX2Loader), apply the entry's options and upload it */
+/** Load a texture (.ktx2 through KTX2Loader, .hdr through HDRLoader), apply the entry's options and upload it */
 export async function loadTexture(assets, e, task) {
   task.phase('download');
   const ktx = /\.ktx2(\?|$)|^data:image\/ktx2/i.test(e.url);
+  const hdr = /\.hdr(\?|$)/i.test(e.url);   // Radiance HDR (environment lighting): float data in linear color
   let t;
-  try { t = ktx ? await (await decoder(assets, 'ktx2')).loadAsync(e.url) : await assets.tex.loadAsync(e.url); }
+  try {
+    if (ktx) t = await (await decoder(assets, 'ktx2')).loadAsync(e.url);
+    else if (hdr) t = await new (await import('three/addons/loaders/HDRLoader.js')).HDRLoader().loadAsync(e.url);
+    else t = await assets.tex.loadAsync(e.url);
+  }
   catch (err) {
     // an <img> error carries no status: ask the server once so the report says 404 vs a broken file
     const status = await fetch(e.url, { method: 'HEAD' }).then(r => (!r.ok ? r.status : isHtml(r) ? 404 : 0), () => 0);
     throw new LoadError(status === 404 ? NOT_THERE : status ? `HTTP ${status}` : String(err?.message ?? 'not a decodable image'), { url: e.url, status });
   }
   if (e.opts.color === false) t.colorSpace = THREE.NoColorSpace;
-  else if (!t.isCompressedTexture) t.colorSpace = THREE.SRGBColorSpace;   // KTX2 carries its own color space
+  else if (!t.isCompressedTexture && !hdr) t.colorSpace = THREE.SRGBColorSpace;   // KTX2 carries its own color space
   t.anisotropy = assets.engine.renderer.capabilities.getMaxAnisotropy();
   if (e.opts.pixelated) { t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapNearestFilter; }
   if (e.opts.repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(e.opts.repeat[0], e.opts.repeat[1]); }
@@ -143,11 +148,11 @@ export async function loadFont(assets, e, task) {
 }
 
 /** Stand-ins for a degradable asset that failed: neutral gray (hard rule 1: the engine has no art of its own) */
-export function placeholder(type) {
+export function placeholder(type, engine) {
   if (type === 'texture') { const t = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); t.needsUpdate = true; return t; }
   if (type === 'model') {
     const g = new THREE.Group();
-    g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), makeMaterial('default')));
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), makeMaterial('default', {}, engine)));
     g.name = 'placeholder';
     return { scene: g, animations: [] };
   }
@@ -157,25 +162,26 @@ export function placeholder(type) {
 /** Code-generated model: baked file -> dev cache -> build now (see Assets.cached); returns { scene, animations, geometry? } */
 export async function generated(assets, name, build, params, task) {
   const wrap = v => v.isBufferGeometry
-    ? { geometry: v, scene: new THREE.Mesh(v, makeMaterial('default', { vertexColors: !!v.attributes.color })), animations: [] }
+    ? { geometry: v, scene: new THREE.Mesh(v, makeMaterial('default', { vertexColors: !!v.attributes.color }, assets.engine)), animations: [] }
     : { scene: v, animations: v.animations ?? [] };
   const same = JSON.stringify(params ?? null);
+  const ctx = { palette: assets.engine.style.palette, engine: assets.engine };   // a function() generator reads this.palette (style.palette)
   const baked = (await bakedIndex(assets))[name];
   const bakedOk = baked && JSON.stringify(baked.params ?? null) === same;
   const file = async url => wrap(fromGLTF(await loadGltf(assets, url, task)));
-  if (!DEV_SERVER) return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build(params));
+  if (!DEV_SERVER) return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params));
   // In dev: ask the dev server for the current hash of this generator (with its file and imports)
   // a plain Vite dev server without threedog's plugin answers with index.html: no cache then, build now (said once)
-  const info = await fetch(CACHE + 'key', { method: 'POST', body: JSON.stringify({ name, src: String(build), params: params ?? null }) }).then(r => r.json()).catch(() => null);
-  if (!info) { warnOnce(coded('asset-cache', NO_CACHE)); return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build(params)); }
+  const info = await fetch(CACHE + 'key', { method: 'POST', body: JSON.stringify({ name, src: String(build), params: ctx.palette ? [params ?? null, ctx.palette] : params ?? null }) }).then(r => r.json()).catch(() => null);
+  if (!info) { warnOnce(coded('asset-cache', NO_CACHE)); return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params)); }
   if (bakedOk) {
     if (baked.source === 'file' || baked.key === info.key) return file(BASE + 'models/baked/' + baked.file);
     warnOnce(coded('asset-cache', STALE.replace('{name}', name)));
   }
   if (info.hit) return file(CACHE + info.key + '.glb');
-  const t0 = performance.now(), v = await build(params);   // measure：build time
+  const t0 = performance.now(), v = await build.call(ctx, params);   // measure：build time
   if (performance.now() - t0 >= assets.cacheMinMs)   // measure
-    toGLB(v).then(buf => fetch(CACHE + info.key + '.glb', { method: 'PUT', body: buf })).catch(err => warnOnce(coded('asset-cache', '[cache] could not store a built model in .threedog/cache (' + err.message + '); it is built again next time')));
+    toGLB(v, assets.engine).then(buf => fetch(CACHE + info.key + '.glb', { method: 'PUT', body: buf })).catch(err => warnOnce(coded('asset-cache', '[cache] could not store a built model in .threedog/cache (' + err.message + '); it is built again next time')));
   return wrap(v);
 }
 /** Bake manifest public/models/baked/index.json (empty if missing) */

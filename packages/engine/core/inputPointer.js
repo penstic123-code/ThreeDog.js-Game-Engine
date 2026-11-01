@@ -13,9 +13,13 @@ export function bindPointer(input, canvas, signal) {
   };
   canvas.addEventListener('pointerdown', e => {
     place(e);   // a touch tap has no pointermove before it: without this, ndc would still point at the last drag
-    input.pointer.down = true; input.pointer.button = e.button;
-    if (e.pointerType === 'mouse') input._keyDown('Mouse' + e.button, 'keyboard');
-    drag = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: 0 }; canvas.focus();
+    // The press that only locks the mouse (camera pointerLock) is not an action: no Mouse0, no click, no pointer.down
+    const swallowed = e.pointerType === 'mouse' && !!input.swallowLockClick?.();
+    if (!swallowed) {
+      input.pointer.down = true; input.pointer.button = e.button;
+      if (e.pointerType === 'mouse') input._keyDown('Mouse' + e.button, 'keyboard');
+    }
+    drag = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: 0, swallowed }; canvas.focus();
     // While the mouse is locked (first person) Chromium rejects pointer capture with InvalidStateError; capture is only needed for drag-to-look anyway
     if (document.pointerLockElement !== canvas) canvas.setPointerCapture(e.pointerId);
   }, { signal });
@@ -30,8 +34,11 @@ export function bindPointer(input, canvas, signal) {
   // When the mouse is locked (first person), use relative movement
   addEventListener('mousemove', e => { if (document.pointerLockElement === canvas) { input.look.dx += e.movementX; input.look.dy += e.movementY; } }, { signal });
   const end = e => {
-    if (drag && drag.moved < 6) input.pointer.clicked = true;
-    drag = null; input.pointer.down = false;
+    const swallowed = drag?.swallowed;
+    if (drag && !swallowed && drag.moved < 6) input.pointer.clicked = true;
+    drag = null;
+    if (swallowed) return;
+    input.pointer.down = false;
     if (e.pointerType === 'mouse') input._keyUp('Mouse' + e.button);
   };
   canvas.addEventListener('pointerup', end, { signal }); canvas.addEventListener('pointercancel', end, { signal });

@@ -14,7 +14,9 @@ const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.0
 const hexToLinear = h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255].map(srgbToLinear);
 
 export function createTerrain(userCfg = {}) {
-  const cfg = { ...DEFAULT_TERRAIN, ...userCfg, colors: { ...DEFAULT_TERRAIN.colors, ...(userCfg.colors || {}) } };
+  const cfg = { ...DEFAULT_TERRAIN, ...userCfg, colors: { ...DEFAULT_TERRAIN.colors, ...(userCfg.colors || {}) }, boundsPad: { ...DEFAULT_TERRAIN.boundsPad, ...(userCfg.boundsPad || {}) } };
+  for (const [k, ok] of [['shading', ['smooth', 'flat', 'texture']], ['diagonal', ['fixed', 'adaptive', 'alternate']], ['normals', [null, 'smooth', 'flat']]])
+    if (!ok.includes(cfg[k])) throw new Error(`terrain({ ${k} }) must be ${ok.filter(Boolean).map(v => `'${v}'`).join(' | ')}, got ${JSON.stringify(cfg[k])}`);
   const SEED = cfg.seed | 0, CHUNK = cfg.chunkSize, RES = cfg.resolution, CELL = CHUNK / RES, WATER = cfg.waterLevel;
   const PAL = {};
   for (const k in cfg.colors) PAL[k] = hexToLinear(cfg.colors[k]);
@@ -35,6 +37,7 @@ export function createTerrain(userCfg = {}) {
   const NOISE = { fbm, noise: vnoise, hash: hash2, seed: SEED, waterLevel: WATER, params: cfg.params ?? {} };
   const userHeight = cfg.height && compilePure(cfg.height, 'terrain({ height })').call;
   const userType = cfg.groundType && compilePure(cfg.groundType, 'terrain({ groundType })').call;
+  const userNormal = cfg.normalFn && compilePure(cfg.normalFn, 'terrain({ normalFn })').call;
   // no generator of its own: the engine draws flat ground at y = 0 (a placeholder; the terrain module warns in dev)
   const naturalHeight = userHeight ? (x, z) => userHeight(x, z, NOISE) : cfg.heightmap?.data ? heightmapHeight : () => 0;
   function rawHeight(x, z) {
@@ -77,9 +80,15 @@ export function createTerrain(userCfg = {}) {
     return h;
   }
   // height exactly matching the low-poly triangles (characters and vegetation use it, so nothing floats)
+  // diagonal of a cell: 0 = b-c (the original cut), 1 = a-d; the mesh and surface() read this one function, so characters never float or sink
+  const DIAG = cfg.diagonal;
+  const diagOf = DIAG === 'fixed' ? () => 0
+    : DIAG === 'alternate' ? (i, j) => (i + j) & 1
+    : (i, j, ha, hb, hc, hd) => (Math.abs(ha - hd) < Math.abs(hb - hc) ? 1 : 0);
   function surface(x, z) {
     const gx = x / CELL, gz = z / CELL, i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
     const ha = gridH(i, j), hb = gridH(i + 1, j), hc = gridH(i, j + 1), hd = gridH(i + 1, j + 1);
+    if (diagOf(i, j, ha, hb, hc, hd)) return fz >= fx ? ha + (hc - ha) * fz + (hd - hc) * fx : ha + (hb - ha) * fx + (hd - hb) * fz;
     return fx + fz <= 1 ? ha + (hb - ha) * fx + (hc - ha) * fz : hd + (hc - hd) * (1 - fx) + (hb - hd) * (1 - fz);
   }
   function slope(x, z) {
@@ -108,14 +117,31 @@ export function createTerrain(userCfg = {}) {
     return mix(cols || BCOL[naturalBiome(x, z, h, 1 - ny)] || GRAY, x, z, out);
   }
   const paintColor = (type, x, z, out) => mix(BCOL[type] || GRAY, x, z, out);
+  // Ground color variation (style.terrain.variation, plain data so it travels to workers): defaults are the original look.
+  // blend: wavelength of the two-color noise; jitter: per-cell brightness grain; patches: optional large painterly color blocks
+  const V = cfg.variation || {}, BL = V.blend || {}, JT = V.jitter || {}, PT = V.patches;
+  const bFreq = BL.size ? 1 / BL.size : 0.03, bStrength = BL.strength ?? 1, jInv = JT.size ? 1 / JT.size : 3, jMin = JT.min ?? 0.92, jRange = JT.range ?? 0.12;
+  const pFreq = PT ? 1 / (PT.size || 90) : 0, pLevels = PT?.levels | 0, pTint = PT?.tint != null ? hexToLinear(PT.tint) : null;
   function mix(cols, x, z, out) {
     if (cols === GRAY) { out[0] = out[1] = out[2] = FALLBACK[0]; return out; }
-    const a = cols[0], b = cols[1] || a, t = cols.length > 1 ? vnoise(x * 0.03, z * 0.03) : 0;
-    const j = 0.92 + hash2(Math.floor(x * 3), Math.floor(z * 3), 7) * 0.12;
+    const a = cols[0], b = cols[1] || a;
+    let t = cols.length > 1 ? vnoise(x * bFreq, z * bFreq) : 0;
+    if (bStrength !== 1) t = Math.min(1, Math.max(0, 0.5 + (t - 0.5) * bStrength));
+    const j = jMin + hash2(Math.floor(x * jInv), Math.floor(z * jInv), 7) * jRange;
     out[0] = (a[0] + (b[0] - a[0]) * t) * j; out[1] = (a[1] + (b[1] - a[1]) * t) * j; out[2] = (a[2] + (b[2] - a[2]) * t) * j;
+    if (PT) patch(x, z, out);
     return out;
   }
+  // Second, much larger noise (own offsets so it is not correlated with the blend): levels > 0 snaps it to flat blocks (brush strokes
+  // instead of soft clouds). Brightens/darkens by strength, or pulls towards `tint` where the noise is high.
+  function patch(x, z, out) {
+    let n = vnoise(x * pFreq + 91.7, z * pFreq + 17.3);
+    if (pLevels > 0) n = Math.floor(n * pLevels) / pLevels;
+    const s = PT.strength ?? 0.15;
+    if (pTint) { const k = n * s; for (let i = 0; i < 3; i++) out[i] += (pTint[i] - out[i]) * k; }
+    else { const k = 1 + (n - 0.5) * 2 * s; out[0] *= k; out[1] *= k; out[2] *= k; }
+  }
 
-  const { buildChunk, place } = makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biomeAt, fbm, faceColor, paintColor, cellType, editedCell });
+  const { buildChunk, place } = makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biomeAt, fbm, faceColor, paintColor, cellType, editedCell, diagOf, userNormal });
   return { config: cfg, CHUNK, RES, CELL, waterLevel: WATER, surface, slope, biomeAt, fbm, noise: NOISE, buildChunk, place, gridH, setEdits, useEdits, key };
 }

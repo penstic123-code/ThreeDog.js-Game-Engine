@@ -1,35 +1,11 @@
-# ThreeDog.js-Game-Engine
-<p align="center">
-  <img
-    src="https://github.com/user-attachments/assets/1f8c2da7-0ffe-433f-b3db-eec7f2eabac6"
-    alt="threedog-logo"
-    width="160"
-  />
-</p>
+# threedog.js
 
-An AI-Native Game Development Engine built on three.js, designed for AI-assisted game development.
+A web 3D game engine on three.js 0.187, in three layers (core, modules, style pack) that [packages/engine/README.md](packages/engine/README.md) lays out.
+The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. An optional low-poly style pack (`@threedog/style-lowpoly`) and two examples come with the repository: an open-world photography game (`/`) whose level lives entirely in content files, and a one-room action game (`/action.html`: player, enemy, drop; the combat rules are the example's own ops).
 
-Build games with modular systems, data-driven content, and interchangeable style packs. Inspect game state as structured data, reproduce scenarios, and validate changes through automated checks.
+中文说明见 [README.zh-CN.md](README.zh-CN.md).
 
-Designed for AI-assisted workflows
-
-Inspectable state — Read game state as JSON or concise text to understand what is happening.
-
-Reproducible testing — Set up scenarios, simulate input, and advance fixed-step simulation.
-
-Data-driven gameplay — Define items, NPCs, dialogue, quests, and world content in game-owned data files.
-
-Modular systems — Install the systems your game needs, with explicit dependencies.
-
-Separate art and gameplay — Keep visual choices in style packs, sounds in the game's own config or content packs.
-
-Direct three.js access — Work with native three.js scenes, cameras, meshes, and materials.
-
-Project status
-
-Under active development. APIs and workflows may change before the first stable release
-
----
+The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (the optional style pack `@threedog/style-lowpoly`), `packages/terrain-noise` (the optional terrain generator `@threedog/terrain-noise`), `games/*` (one folder per game).
 
 ## Features
 
@@ -65,6 +41,7 @@ Under active development. APIs and workflows may change before the first stable 
 | Style packs | Colors, shapes, lighting and post effects live in a swappable style pack; the engine itself has no default look |
 | Optional low-poly look | `@threedog/style-lowpoly`: a style pack (sky, materials, post, terrain colors) and an asset pack of low-poly models, installed only if you want it; style parts mix: `style: [lowpoly, { sky }]` |
 | Optional noise terrain | `@threedog/terrain-noise`: `terrainPreset()` hills / island / canyon / plain, rivers and a biome table (world shape only, colored by whichever style pack you use) |
+| Optional post effects | `@threedog/post-effects`: `lut`, `grain`, `vignette`, `chromatic`, `dof` (off by default; adjacent ldr effects fuse into one pass), added with `postAdd(...)` |
 | Day, night and sky | Sun movement, sky colors over time, moving cloud shadows |
 | Weather and seasons | Rain and snow; plant colors change with the season |
 | Wind | Grass and trees sway |
@@ -96,17 +73,6 @@ Under active development. APIs and workflows may change before the first stable 
 | No hard-coded UI | HUD, dialogue box, menus, inventory and loading screen are defaults you can replace or turn off |
 | Not tied to one genre | Usable for farming, action, exploration and building games |
 | It is three.js | Engine objects are native three.js objects; three.js knowledge and add-ons still apply |
-
-## Getting started
-
-> **Early preview.** APIs and names will still change, and it is not published to npm yet. Expect breaking changes until v0.1.0. Licensed MIT.
-
-A web 3D game engine on three.js 0.187, in three layers (core, modules, style pack) that [packages/engine/README.md](packages/engine/README.md) lays out.
-The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. An optional low-poly style pack (`@threedog/style-lowpoly`) and two examples come with the repository: an open-world photography game (`/`) whose level lives entirely in content files, and a one-room action game (`/action.html`: player, enemy, drop; the combat rules are the example's own ops).
-
-中文说明见 [README.zh-CN.md](README.zh-CN.md).
-
-The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (the optional style pack `@threedog/style-lowpoly`), `packages/terrain-noise` (the optional terrain generator `@threedog/terrain-noise`), `games/*` (one folder per game).
 
 ## Run it
 1. Install [Node.js](https://nodejs.org) (LTS).

@@ -10,9 +10,9 @@ export const NO_CHARACTER = 'characters: no style pack / model given, so charact
   + "e.g. createEngine({ style: lowpoly }) with lowpoly from '@threedog/style-lowpoly'";
 
 /** Neutral placeholder when the style pack draws no character: one gray capsule, no limbs (the shape belongs to style packs) */
-export function capsule(color) {
+export function capsule(color, engine) {
   const body = new THREE.Group(); body.position.y = 0.85;
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), makeMaterial('character', { color }));
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), makeMaterial('character', { color }, engine));
   m.castShadow = true; body.add(m);
   const root = new THREE.Group(); root.add(body);
   return { root, body };

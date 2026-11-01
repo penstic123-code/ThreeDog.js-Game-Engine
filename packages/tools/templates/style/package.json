@@ -1,0 +1,30 @@
+{
+  "name": "@threedog/style-__NAME__",
+  "version": "0.1.0",
+  "description": "__NAME__ look for threedog: a style pack (colors, materials, sky, post effects) and an asset pack with a procedural example model",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git",
+    "directory": "packages/styles/__NAME__"
+  },
+  "homepage": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine#readme",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.js",
+    "*.d.ts"
+  ],
+  "peerDependencies": {
+    "threedog": "^0.1.0",
+    "three": "^0.187.0"
+  }
+}

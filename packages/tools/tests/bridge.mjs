@@ -35,7 +35,8 @@ export async function run({ check, browser }) {
     // 2. Headless fallback page (no real browser connected)
     const d = (await threedog('describe'));
     const startClock = (await threedog('describe', 'time.clock')).out.replace(/"/g, '');
-    check('describe: compact, at most 3 lines', d.code === 0 && d.out.includes('Player') && d.out.split('\n').length <= 3 && d.out.length < 400, d.out);
+    check('describe: compact plus the state line', d.code === 0 && d.out.includes('Player') && d.out.split('\n').length <= 4 && d.out.length < 600
+      && /Headless page paused, tick \d+/.test(d.out), d.out);
     check('describe --full: the full text', (await threedog('describe', '--full')).out.includes('[Game state]'));
     check('describe path: one item', /^\d\d:\d\d$/.test(startClock), startClock);
     const clockOf = async () => (await threedog('eval', 'engine.describe().time.elapsed')).out.replace('✓ ', '');
@@ -79,16 +80,18 @@ export async function run({ check, browser }) {
     check('[guard] op runs are logged with source bridge, phase between', oh === '✓ "bridge/between,bridge/between"', oh);
     const ex = await threedog('explain', 'op', 'test.take', 'item=film', 'n=999', '--full'), ins = await threedog('inspect');
     const scDir = join(dir, 'tests', 'scenarios'), scFile = join(scDir, 'tmp-bridge.json'), hadDir = existsSync(scDir);
-    let sc;
+    let sc, vf;
     try {
       mkdirSync(scDir, { recursive: true });
       writeFileSync(scFile, JSON.stringify({ name: 'tmp',
         steps: [{ op: 'test.take', args: { item: 'film', n: 999 }, expect: 'notEnough' }, { expect: { 'ui.dialogue': null } }] }));
       sc = await threedog('scenario', 'tmp-bridge');
+      vf = await threedog('verify', 'tmp-bridge');
     } finally { rmSync(hadDir ? scFile : scDir, { recursive: true, force: true }); }
     check('explain op / inspect / scenario: why not with the note, offers with reasons, a scenario file runs on the page',
       ex.code === 1 && /notEnough \(Not enough\)[\s\S]*last attempt/.test(ex.out) && ins.out.includes('test.take item=film') && sc.code === 0
         && /scenario tmp-bridge: 2 checks passed/.test(sc.out), [ex.out, ins.out, sc.out].join(' | '));
+    check('verify: PASS, tested and not tested', vf.code === 0 && /verify tmp-bridge: PASS/.test(vf.out) && vf.out.includes('Tested: ops test.take') && vf.out.includes('Not tested:'), vf.out);
     // loading: the same view as describe().loading; a degradable missing file shows as a failure with path and fallback, exit code 1
     await threedog('js', "engine.assets.manifest({ name: 'bridge-test', textures: { bridgeMissing: '/textures/bridge-missing.png' } }); await " +
       "engine.assets.texture('bridgeMissing'); return 1");
@@ -114,6 +117,11 @@ export async function run({ check, browser }) {
       er.code === 1 && er.out.includes('bridge test deliberate error') && (await threedog('errors')).out.includes('No new errors'), er.out);
     (await threedog('eval', "setTimeout(() => { throw new Error('world data must be plain values (number, string): x is a function'); }, 0)"));
     const er2 = await until(async () => { const r = await threedog('errors'); return r.out.includes('plain values') && r; }) || { out: '(no error arrived)' };
+    const lt1 = await threedog('errors', 'latest'), lt2 = await threedog('errors', 'latest'), cur = /Cursor E(\d+)/.exec(lt1.out)?.[1];
+    const sn0 = await threedog('errors', '--since', String(Math.max(0, +cur - 2))), sn1 = await threedog('errors', '--since', cur ?? '0');
+    check('errors latest: repeatable, with id and tick; --since lists only later ones',
+      lt1.code === 1 && lt1.out.includes('deliberate') && lt1.out === lt2.out && /E\d+ \d\d:\d\d:\d\d tick \d+/.test(lt1.out) && sn0.out.includes('deliberate')
+        && sn1.out.includes('No errors since E' + cur), [lt1.out, sn1.out].join(' | '));
     check('errors: a known error class comes with the likely cause and the doc page',
       er2.out.includes('Possible cause:') && er2.out.includes('Read: recipes/18-world.md'), er2.out);
     const sd = join(dir, 'tests/snapshots/bridge-test.describe.json');

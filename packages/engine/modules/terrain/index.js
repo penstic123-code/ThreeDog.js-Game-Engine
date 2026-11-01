@@ -9,6 +9,7 @@
 //   Settings a function needs travel as params (plain data, read as n.params). The engine still does chunks, streaming, collision, flatten and edits on top.
 // Height map: terrain({ heightmap: { url: '/textures/height.png', size: [1024, 1024], min: -5, max: 60 } }), a grayscale image, whiter is higher, read at startup.
 // Colors come from the style pack style.terrain (colors palette, biomeColors per ground type, steep); a type without a color is neutral gray.
+// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-look-hooks.md).
 // Material: terrain({ material }) or style.terrain.material, a Material or (engine) => Material; chunks carry position, normal, color
 //   and uv (world xz / chunk size, continuous across chunks). Cloud shadows and season tint are added to it.
 // Edits: engine.terrain.edit(pos, { radius: 2, lower: 1 }) digs; { paint: 'tilled' } paints a ground type (its color: style.terrain.biomeColors). Saved, see terrainEdit.js.
@@ -43,10 +44,19 @@ export function terrain(opts = {}) {
       const style = e.style.terrain || {};
       for (const k in cfg) if (cfg[k] === undefined) delete cfg[k];
       // a game's generator functions go to the workers as source text: checked here (outside variables name themselves) so the error points at this call
-      for (const k of ['height', 'groundType']) if (typeof cfg[k] === 'function') cfg[k] = compilePure(cfg[k], `terrain({ ${k} })`).src;
       const terrainCfg = { ...(style.config || {}), ...cfg, colors: { ...(style.colors || {}), ...(cfg.colors || {}) } };
+      for (const k of ['height', 'groundType', 'normalFn']) if (typeof terrainCfg[k] === 'function') terrainCfg[k] = compilePure(terrainCfg[k], `terrain({ ${k} })`).src;   // also a style's normalFn
+      // low-tier devices start with a coarser color map (a quarter of the pixels and upload); the game's own colorResolution wins
+      if (terrainCfg.shading === 'texture' && terrainCfg.colorResolution == null && e.tier === 'low') terrainCfg.colorResolution = 64;
       if (style.biomeColors) terrainCfg.biomeColors = { ...style.biomeColors, ...(cfg.biomeColors || {}) };
       if (style.steep && !cfg.steep) terrainCfg.steep = style.steep;
+      if (style.variation) {   // look only (plain data), so it rides along to the workers
+        checkOptions('style.terrain.variation', style.variation, ['blend', 'jitter', 'patches']);
+        checkOptions('style.terrain.variation.blend', style.variation.blend || {}, ['size', 'strength']);
+        checkOptions('style.terrain.variation.jitter', style.variation.jitter || {}, ['size', 'min', 'range']);
+        checkOptions('style.terrain.variation.patches', style.variation.patches || {}, ['size', 'strength', 'levels', 'tint']);
+        terrainCfg.variation = style.variation;
+      }
       if (!terrainCfg.height && !terrainCfg.heightmap) warnOnce(NO_HEIGHT);
       w = new ChunkManager(e, terrainCfg, material ?? style.material);
       w.density = density;
@@ -73,6 +83,7 @@ export function terrain(opts = {}) {
     frame(dt, e) { w.update(e.stream.sources(), e.camera); },   // chunks load around every engine.stream source
     describe(e, ctx) { ctx.out.perf.chunks = { loaded: w.stats.loaded ?? 0, visible: w.stats.visible ?? 0, queued: w.stats.queued }; },
     // height map waits for the image: after it loads, rebuild terrain with the new config (both the main-thread copy and the workers)
+    critical: true,   // a missing height map would start the game on flat ground: stop start() with the reason instead
     async init(e) {
       const hm = this._cfg.heightmap;
       if (!hm?.url || hm.data) return;

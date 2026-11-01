@@ -71,8 +71,29 @@ export interface TerrainConfig {
   groundType: ((x: number, z: number, h: number, slope: number, n: TerrainNoise) => string | null) | string | null;
   /** Plain data handed to height / groundType as n.params (a preset's settings); must be serializable */
   params: Record<string, any> | null;
-  /** 'flat' one color per triangle (low poly) | 'smooth' smooth shading */
-  shading: 'flat' | 'smooth';
+  /**
+   * How the ground gets its color: 'smooth' (default) blended per grid point | 'flat' one color and normal per triangle (low poly) |
+   * 'texture' per-chunk color map sampled per pixel, so color borders (a river bank) are not confined to triangle edges and the mesh can stay coarse.
+   * See recipes/37-terrain-look-hooks.md. A style may set it (style.terrain.config.shading).
+   */
+  shading: 'flat' | 'smooth' | 'texture';
+  /** Texture shading: color map pixels per chunk edge (default 128, 64 on low-tier devices; independent of `resolution`). A style may set it */
+  colorResolution: number;
+  /** Texture shading only: lighting normals 'smooth' (default) | 'flat'. A style may set it */
+  normals: 'smooth' | 'flat' | null;
+  /**
+   * Replace the smooth normal at grid point (i, j): (i, j, h, cell) => [nx, ny, nz] (any length; the engine normalizes). h(i, j) is a grid-point
+   * height, cell the grid spacing in meters. Pure, like height (workers get its source). Default: central difference of the neighbors.
+   * @example terrain({ normalFn: (i, j, h, cell) => [(h(i - 1, j) - h(i + 1, j)) / (2 * cell), 2, (h(i, j - 1) - h(i, j + 1)) / (2 * cell)] })   // flatter lighting
+   */
+  normalFn: ((i: number, j: number, h: (i: number, j: number) => number, cell: number) => number[]) | string | null;
+  /**
+   * How each cell is cut into two triangles: 'fixed' (default, the same diagonal everywhere) | 'adaptive' (along the diagonal with the smaller
+   * height difference, fewer zigzag ridges on slopes) | 'alternate' (flips every other cell). It is shape: engine.surface follows it. World setting, not style
+   */
+  diagonal: 'fixed' | 'adaptive' | 'alternate';
+  /** Chunk bounding sphere margin in meters (default { up: 3, radius: 8 }): center raised by `up`, radius grown by `radius`. Raise it when a shader moves vertices far */
+  boundsPad: { up?: number; radius?: number };
   /** Palette: color name → color */
   colors: Record<string, ColorLike>;
 }
@@ -277,6 +298,9 @@ export interface Vegetation {
 // ======================================================================
 // Sky sky()
 // ======================================================================
+
+/** What engine.sky.environment reports */
+export interface SkyEnvironmentInfo { source: string, intensity: number, rotation: number, interval: number, builds: number }
 
 export interface SkyOptions extends StyleSky {
   /** Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay) */
@@ -645,6 +669,12 @@ export interface BudgetLimits {
   chunkApplyMs?: number;
   /** Rigid body count */
   rigidBodies?: number;
+  /** Per-frame cost of applying background results, by stage (engine.budget.cost): worker transit (approximate), creating three.js objects, colliders, GPU upload (approximate), stream build() */
+  applyTransitMs?: number;
+  applyBuildMs?: number;
+  applyColliderMs?: number;
+  applyUploadMs?: number;
+  applyStreamMs?: number;
   /** Time from opening to playable (milliseconds); when exceeded, the slowest module is named */
   startupMs?: number;
   /** Single module startup (init + wait for ready, milliseconds); when exceeded, that module is named */

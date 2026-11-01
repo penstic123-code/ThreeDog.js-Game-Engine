@@ -81,17 +81,19 @@ export class Character {
     // style-pack procedural character: the rig format is in proceduralRig.js
     const rig = engine.style.character?.create?.(engine, c);
     if (!rig && !model) warnOnce(NO_CHARACTER);
-    useRig(this, rig || capsule(c.body));
+    useRig(this, rig || capsule(c.body, engine));
     if (model) this._whenReady = loadAssetModel(this, model, m => this._useModel(m, clips, animation));
   }
   _useModel(model, clips, animation) {
     const engine = this.engine; this.root.add(model);
     const states = {};
-    // default names only where the model has the clip (a model without Swim is fine); names the game wrote are always kept so a typo is reported
-    const have = model.userData.animations || [];
-    for (const [st, clip] of Object.entries(DEFAULT_CLIPS)) if (findClip(have, clip)) states[st] = { clip };
+    // default names only where the model has the clip (a model without Swim is fine) and the manifest mapped nothing (Assets.animate merges that under
+    // these states, so a default Idle must not shadow a mapped Idle_Sword); names the game wrote are always kept so a typo is reported
+    const have = model.userData.animations || [], map = engine.assets.mapping(model), mapped = map?.states || {};
+    for (const [st, clip] of Object.entries(DEFAULT_CLIPS)) if (!mapped[st] && findClip(have, clip)) states[st] = { clip };
     for (const [st, clip] of Object.entries(clips || {})) states[st] = { clip };
-    this.anim = engine.assets.animate(model, { ...engine.style.character?.animation, states, ...(animation || {}) });
+    // the model's own mapping (fade, transitions) beats the style pack's default for every character; the game's per-character config beats both
+    this.anim = engine.assets.animate(model, { ...engine.style.character?.animation, ...map, states, ...(animation || {}) });
   }
 
   /** Request a jump (call when the jump key is pressed; has a jump buffer, so pressing slightly before landing counts) */

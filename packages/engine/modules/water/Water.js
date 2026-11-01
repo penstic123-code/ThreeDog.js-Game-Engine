@@ -3,11 +3,12 @@
 //
 // engine.use(water());                                      // global water only (level taken from the terrain water level)
 // engine.use(water({ sea: false }));                         // no global water
+// engine.use(water({ level: 4, size: 1200 }));              // level and size are world state: here, never in the style
 // const lake = engine.addWaterBody({ position: [120, 0, -40], radius: 25, level: 18 });   // add a mountain lake (can be added any time); lake.remove()
 //
 // three.js objects: engine.water.sea (global water Mesh, may be null), material (shared by all water), bodies (Map: water body → its Mesh)
 // Style pack: water = { color, opacity, flat, waveHeight, waveScale, waveSpeed, normalMap: '/textures/water-n.jpg', normalScale, normalRepeat,
-//                   normalSpeed: [x, z], fresnel: 0.6, segments, size, material?: (engine, { uniforms, waves, normalMap }) => Material }
+//                   normalSpeed: [x, z], fresnel: 0.6, segments, material?: (engine, { uniforms, waves, normalMap }) => Material }
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { placeholderTexture } from '../../render/effects.js';

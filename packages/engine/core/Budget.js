@@ -2,13 +2,15 @@
 //   createEngine({ budget: { drawCalls: 250, fps: 55 } })  or  engine.budget.enable({ drawCalls: 250 })
 //   engine.budget.report()   // { ok, over: [{ category, value, limit, top }] }; null when off
 // Off by default; when off, sample() returns immediately and costs nothing. The engine presets no limit numbers.
-// Categories: drawCalls, triangles, textures, cpuMs, fps, low1 (the last two are lower bounds) + module-registered metrics (chunkApplyMs, rigidBodies...).
+// Categories: drawCalls, triangles, textures, cpuMs, fps, low1 (the last two are lower bounds) + module-registered metrics (chunkApplyMs, rigidBodies...)
+// + the apply-cost stages (applyTransitMs, applyBuildMs, applyColliderMs, applyUploadMs, applyStreamMs: ms per frame, see ApplyCost).
 // "Who uses the most": draw calls are estimated by the userData.budgetTag of an object (or its parent); untagged counts as 'other'.
 /** @import { Handle } from '../types/common' */
 /** @import { BudgetLimits, BudgetReport, BudgetTagStat } from '../types/world' */
 import { coded } from './errorHints.js';
 import { fmt } from './validate.js';
 import { r1 } from './math.js';
+import { SHADOW_TYPES } from './shadowTypes.js';
 import * as THREE from 'three';
 
 const STRINGS = {
@@ -19,6 +21,62 @@ const STRINGS = {
 };
 const LOWER = new Set(['fps', 'low1']);   // these two are lower bounds ("not below")
 const WINDOW = 300;                       // how many recent frames the frame-rate stats use
+
+/** Cost stages of bringing a background result into the frame, in the order a chunk goes through them */
+const STAGES = ['transit', 'build', 'collider', 'upload', 'stream'];
+const EMA = 0.1;   // per-frame smoothing, the same factor chunkApplyMs always used
+
+/**
+ * engine.budget.cost: where the main thread pays for background results (terrain chunks, vegetation, colliders, stream builds), split in stages.
+ * Always on (a few performance.now() calls per applied result). Stages: transit = worker round trip minus the worker's own compute (queueing,
+ * structured clone, waiting for a busy main thread: an async wait, not main-thread blocking, so it is an approximation); build = creating the
+ * three.js objects (geometry, meshes, instanced meshes); collider = physics colliders; upload = GPU upload and shader compile, approximated as the
+ * extra render time of frames that first draw new objects over the average render time of other frames; stream = the synchronous part of a stream
+ * build() callback.
+ */
+export class ApplyCost {
+  /** @internal */
+  constructor() {
+    /** @internal */ this.t = {};
+    for (const k of STAGES) this.t[k] = { n: 0, totalMs: 0, maxMs: 0, frameMs: 0, bytes: 0, _cur: 0 };
+    /** @internal */ this._fresh = 0;
+    /** @internal */ this._base = -1;
+  }
+  /** @internal Add ms to a stage (bytes: payload size, transit only) */
+  add(stage, ms, bytes = 0) {
+    const s = this.t[stage];
+    s.n++; s.totalMs += ms; s._cur += ms; s.bytes += bytes;
+    if (ms > s.maxMs) s.maxMs = ms;
+  }
+  /** @internal Close a span started with performance.now(); build and stream spans create objects the next render uploads */
+  end(stage, t0) {
+    this.add(stage, performance.now() - t0);   // measure
+    if (stage === 'build' || stage === 'stream') this._fresh++;
+  }
+  /** @internal A worker result arrived: t0 is when its job was sent, r.ms what the worker spent computing it */
+  transit(t0, r) {
+    const t = r.terrain, bytes = t ? t.pos.byteLength + t.nor.byteLength + t.col.byteLength + t.uv.byteLength : 0;
+    this.add('transit', Math.max(0, performance.now() - t0 - (r.ms ?? 0)), bytes);   // measure
+  }
+  /** @internal One render finished (ms): a frame that drew new objects pays the upload, the others set the baseline. Also rolls the per-frame smoothing */
+  rendered(ms) {
+    if (this._fresh) { if (this._base >= 0) this.add('upload', Math.max(0, ms - this._base)); this._fresh = 0; }
+    else this._base = this._base < 0 ? ms : this._base + (ms - this._base) * EMA;
+    for (const k of STAGES) { const s = this.t[k]; s.frameMs += (s._cur - s.frameMs) * EMA; s._cur = 0; }
+  }
+  /**
+   * Per stage: n results, totalMs, maxMs of one result, frameMs (smoothed ms per frame), bytes (transit only)
+   * @returns {Record<string, { n: number, totalMs: number, maxMs: number, frameMs: number, bytes: number }>}
+   * @example engine.budget.cost.report().build   // { n: 12, totalMs: 9.4, maxMs: 1.8, frameMs: 0.2, bytes: 0 }
+   */
+  report() {
+    const out = /** @type {any} */ ({});
+    for (const k of STAGES) { const s = this.t[k]; out[k] = { n: s.n, totalMs: r1(s.totalMs), maxMs: r1(s.maxMs), frameMs: r1(s.frameMs), bytes: s.bytes }; }
+    return out;
+  }
+  /** Forget what was counted so far (to measure one scene on its own) */
+  reset() { for (const k of STAGES) Object.assign(this.t[k], { n: 0, totalMs: 0, maxMs: 0, frameMs: 0, bytes: 0, _cur: 0 }); }
+}
 
 /** engine.budget: performance budget (turned on by createEngine({ budget }) or enable(); off by default, costs nothing). */
 export class Budget {
@@ -35,6 +93,9 @@ export class Budget {
     /** @internal */ this._cpu = [];
     /** @internal */ this._t = 0;
     /** @internal @type {any} */ this._last = null;
+    /** Cost of applying background results, split in stages (see ApplyCost) */
+    this.cost = new ApplyCost();
+    for (const k of STAGES) this.metric('apply' + k[0].toUpperCase() + k.slice(1) + 'Ms', () => this.cost.t[k].frameMs);
     /** @internal */ this._warned = new Set();
     /** @internal */ this._frustum = new THREE.Frustum();
     /** @internal */ this._m = new THREE.Matrix4();
@@ -133,7 +194,7 @@ export class Budget {
    * @returns {BudgetTagStat[]}
   */
   byTag() {
-    const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled;
+    const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled, shadowCost = SHADOW_TYPES[e.shadowType]?.cost ?? 1;
     cam.updateMatrixWorld();
     this._frustum.setFromProjectionMatrix(this._m.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
     const walk = (o, tag) => {
@@ -141,7 +202,8 @@ export class Budget {
       tag = o.userData.budgetTag ?? tag;
       if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && (!o.frustumCulled || this._frustum.intersectsObject(o))) {
         const g = o.geometry, groups = Array.isArray(o.material) ? Math.max(1, g?.groups.length ?? 1) : 1;
-        const calls = groups * (shadows && o.castShadow ? 2 : 1);
+        // a caster adds a shadow draw, scaled by the filter's rough cost (estimate: vsm ~1.6x, basic ~0.8x of pcf)
+        const calls = groups * (shadows && o.castShadow ? 1 + shadowCost : 1);
         const n = g ? (g.index ? g.index.count : g.attributes.position?.count ?? 0) : 0;
         const s = out.get(tag) || out.set(tag, { tag, drawCalls: 0, triangles: 0 }).get(tag);
         s.drawCalls += calls; s.triangles += o.isMesh ? Math.round(n / 3) * (o.count ?? 1) : 0;

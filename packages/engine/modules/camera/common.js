@@ -44,22 +44,26 @@ export const YAW_RIG = {
 
 /**
  * Click-to-lock the mouse for a camera with a pointerLock flag (first person, over-the-shoulder follow); call from onEnter.
- * Locked, mouse motion turns the view without dragging (input.look); Esc releases. Touch screens keep dragging
+ * Locked, mouse motion turns the view without dragging (input.look); Esc releases. Touch screens keep dragging.
+ * The press that locks is swallowed (not Mouse0, not a click) unless the rig sets swallowLockClick: false
  */
 export function clickToLock(rig, switched) {
   const e = rig.engine, canvas = e.renderer.domElement;
+  const wouldLock = () => rig.pointerLock && !e.cameraOverride && e.input.enabled
+    && !matchMedia('(pointer: coarse)').matches && document.pointerLockElement !== canvas;
   const lock = () => {
-    if (!rig.pointerLock || e.cameraOverride || !e.input.enabled) return;
-    if (matchMedia('(pointer: coarse)').matches || document.pointerLockElement === canvas) return;
+    if (!wouldLock()) return;
     try { const r = canvas.requestPointerLock?.(); r?.catch?.(() => {}); } catch { /* browser refused the lock; fall back to dragging */ }
   };
   rig._off = new AbortController();
+  const swallow = () => rig.swallowLockClick !== false && wouldLock();
+  e.input.swallowLockClick = swallow; rig._swallow = swallow;
   canvas.addEventListener('click', lock, { signal: AbortSignal.any([e.signal, rig._off.signal]) });   // removed on switch-away or engine.dispose()
   if (switched) lock();   // a runtime switch (a key press counts as a gesture) locks at once
 }
 /** Release the mouse lock; stop listening for clicks too when switched away (call from onExit; from onOverride with keepListening) */
 export function releaseLock(rig, keepListening = false) {
-  if (!keepListening) rig._off?.abort();
+  if (!keepListening) { rig._off?.abort(); if (rig.engine.input.swallowLockClick === rig._swallow) rig.engine.input.swallowLockClick = null; }
   if (document.pointerLockElement === rig.engine.renderer.domElement) document.exitPointerLock?.();
 }
 

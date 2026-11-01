@@ -11,6 +11,7 @@ Real physics, Rapier (rigid() module, needs collision)
   - `floatLine?: number` Buoyancy "waterline": an object starts floating when its center is this many meters below the water surface, default 0.3
   - `floatDepth?: number` Buoyancy reaches its maximum this many meters further down, default 0.8
   - `treeColliderHeight?: number` Height (meters) of vegetation collision pillars (tree trunks), default 6
+  - `treeRadius?: number` Trunks get collision cylinders only in chunks within this many meters of the player or a moving rigid body (the rest are covered by engine.collision for characters), default 16
   - `playerCapsule?: { halfHeight: number; radius: number }` Player capsule size (meters), default computed from engine.movement radius / height
 
 ## Methods and properties

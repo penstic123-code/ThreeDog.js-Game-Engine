@@ -1,18 +1,10 @@
 // Type check: npm run types
-// Uses TypeScript to check whether game code (games/*, engine examples packages/engine/examples/, style packs packages/engine/styles/; scope is the
-//   include in the root tsconfig.json) misuses the engine API: misspelled property names, wrong option names, missing arguments, wrong argument
-//   types, calling methods that do not exist.
-// The engine API types are in packages/engine/index.d.ts and packages/engine/types/*.d.ts (hand-written), and packages/engine/types/generated/
-//   (generated from the JSDoc in JS source, see gentypes.mjs),
-// and are picked up automatically when game code does import 'threedog'.
-//
-// This script does two things:
-//   1. runs tsc and turns the raw errors into short summaries (file:line + reason) with a fix hint
-//   2. checks that packages/engine/index.d.ts declares every export of packages/engine/index.js (a missing one means the declarations are stale and
-//   must be added)
-//
-// Web (DOM) errors (such as el.style.opacity = 0.5 given a number, or window.game not existing on Window) are only shown as "hints", not failures —
-// they run fine in the browser and have nothing to do with the engine API. The --strict-dom flag turns them into errors too.
+// Runs TypeScript over game code (games/*, engine examples, style packs; scope = include in the root tsconfig.json) and reports misuse of the engine API:
+//   misspelled properties, wrong option names, missing or wrongly typed arguments, calls to methods that do not exist.
+// Engine types: packages/engine/index.d.ts + types/*.d.ts (hand-written) + types/generated/ (from JSDoc, see gentypes.mjs), picked up by import 'threedog'.
+// This script (1) runs tsc and turns raw errors into short file:line summaries with a fix hint, and
+//   (2) checks that index.d.ts declares every export of index.js (a missing one means the declarations are stale).
+// Web (DOM) errors (el.style.opacity = 0.5, window.game missing on Window) are only "hints": they run fine in the browser. --strict-dom makes them errors.
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -36,14 +28,12 @@ function defaultConfig() {
   const s = P.gameSources(), up = p => '../' + (P.rel(p) || '.');
   const include = s ? s.src.flatMap(p => existsSync(p) && statSync(p).isFile() ? [up(p)] : [up(p) + '/**/*.js', up(p) + '/**/*.d.ts']) : ['../**/*.js', '../**/*.d.ts'];
   writeFileSync(f, JSON.stringify({ compilerOptions: { target: 'ES2022', lib: ['ESNext', 'DOM', 'DOM.Iterable'], module: 'ESNext', moduleResolution: 'bundler',
-    allowJs: true, checkJs: true, noEmit: true, strict: false, skipLibCheck: true, resolveJsonModule: true, types: [] },
+    allowJs: true, checkJs: true, noEmit: true, strict: false, noImplicitAny: true, skipLibCheck: true, resolveJsonModule: true, types: [] },
     include, exclude: ['../**/node_modules', '../**/dist', '../.threedog', '../**/vite.config.js', '../**/tests', ...(s ? s.exclude.map(up) : [])] }, null, 2));
   return f;
 }
 
-// ---------------------------------------------------------------------
 // 1. Run tsc
-// ---------------------------------------------------------------------
 let tscBin;
 try { tscBin = createRequire(import.meta.url).resolve('typescript/bin/tsc'); } catch { console.error('✗ TypeScript not found, run npm install first'); process.exit(1); }
 const run = spawnSync(process.execPath, [tscBin, '-p', PROJECT, '--pretty', 'false', '--listFiles'], { cwd: ROOT, encoding: 'utf8' });
@@ -68,9 +58,11 @@ for (const line of out.split(/\r?\n/)) {   // tsc writes \r\n on Windows; a left
   else if (/^error TS\d+/.test(line)) diags.push({ file: 'tsconfig.json', line: 0, col: 0, code: 0, msg: line, more: [] });
 }
 
-// ---------------------------------------------------------------------
+// noImplicitAny stays on only to catch numeric indexing of non-arrays (`vector[0]` reads undefined, later NaN); other TS7xxx reports are dropped
+const numIndex = d => d.code === 7053 && /expression of type '-?\d/.test(d.msg);
+for (let i = diags.length; i--;) if (diags[i].code >= 7000 && diags[i].code < 8000 && !numIndex(diags[i])) diags.splice(i, 1);
+
 // Translation
-// ---------------------------------------------------------------------
 const srcCache = new Map();
 const srcLine = (file, n) => {
   if (!srcCache.has(file)) { try { srcCache.set(file, readFileSync(join(ROOT, file), 'utf8').split('\n')); } catch { srcCache.set(file, []); } }
@@ -140,6 +132,7 @@ function translate(d) {
     return `wrong argument type: expected ${typeText(m[2])} here, got ${typeText(m[1])}` + detail(d);
   if ((m = msg.match(/^Type '(.+?)' is not assignable to type '(.+)'\.$/)))
     return `wrong type: expected ${typeText(m[2])} here, got ${typeText(m[1])}` + detail(d);
+  if (d.code === 7053) return `numeric index on a non-array (${msg.match(/index type '(.+?)'/)?.[1]}): use .x / .y / .z or .toArray()[i]`;
   // name not defined
   if ((m = msg.match(/^Cannot find name '(.+?)'\.(?: Did you mean '(.+?)'\?)?/)))
     return `name not defined: ${m[1]}` + (m[2] ? `; did you mean \`${m[2]}\`?` : ' (forgot to import it, or misspelled?)');

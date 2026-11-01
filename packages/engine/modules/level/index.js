@@ -219,6 +219,7 @@ export function level(opts = {}) {
       e.saves.register('level', { first: true, save: () => current, load: d => { if (typeof d === 'string' && d !== current) return api.load(d); } });
       return api;
     },
+    critical: true,   // the level file is the game's world: a failed load stops start() with the reason
     async init(engine) {
       if (scene) return loaded();
       if (url) return api.load(url);

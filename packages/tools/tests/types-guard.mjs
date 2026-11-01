@@ -1,6 +1,6 @@
 // Types guard: `threedog types` must catch real three.js misuse and engine option typos.
 // Why: three used to be typed as any (a shim), and the tsc output parser silently dropped every Windows \r\n line, so the check passed no matter what.
-// Writes a probe with three known mistakes under .threedog/ (gitignored), checks it with types.mjs --project, expects exactly those errors.
+// Writes a probe with three known mistakes under .threedog/ (gitignored), checks it with types.mjs --project, expects exactly those errors (the three.js types are real @types/three, not any; noImplicitAny stays on only for numeric indexing).
 // Run: npm test -- "types guard"
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,6 +15,8 @@ const v = new THREE.Vector3();
 v.addd(1);
 v.set('1', 2, 3);
 createEngine({ canvas: document.createElement('canvas'), styel: {} });
+const home = new THREE.Vector3();
+console.log(home[0]);
 `;
 
 export async function run({ check }) {
@@ -31,6 +33,7 @@ export async function run({ check }) {
     check('three.js method typo: v.addd', errs.some(l => /probe\.js:4 .*addd/.test(l)), errs.join(' | '));
     check('three.js vector argument type: v.set(\'1\', …)', errs.some(l => /probe\.js:5 .*expected number/.test(l)), errs.join(' | '));
     check('engine option typo: styel', errs.some(l => /probe\.js:6 .*styel/.test(l)), errs.join(' | '));
-    check('no other errors (declarations themselves are clean)', errs.length === 3, errs.join(' | '));
+    check('numeric index on a Vector3: home[0] (any would silently turn into NaN)', errs.some(l => /probe\.js:8 .*numeric index/.test(l)), errs.join(' | '));
+    check('no other errors (declarations themselves are clean)', errs.length === 4, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

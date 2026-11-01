@@ -67,6 +67,46 @@ export const specs = [
     },
   },
   {
+    name: '[守] 风格边界：风格里写水位 / 海 / 地形形状 dev 下报错并写明改到哪；材质按引擎归属（两个引擎两套风格互不拿对方的）；palette 一处改色；postAdd / postRemove 按名称改后期',
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE, createEngine, lowpoly, lowpolyModels, styleFrom, postAdd, postRemove } = threedogTest, out = {};
+        const msg = style => { try { styleFrom(style); return ''; } catch (e) { return e.message; } };
+        out.world = { level: msg({ water: { level: 3 } }), sea: msg({ water: { sea: false } }), size: msg({ water: { size: 10 } }), terrain: msg({ terrain: { config: { seed: 1 } } }),
+          okShading: msg({ terrain: { config: { shading: 'flat' } }, water: { color: 1, segments: 50 } }), okPack: msg(lowpoly) };
+        // two engines, two styles: nothing falls back to the first engine's pack
+        const mk = (style, key) => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key, style });
+        const a = mk(lowpoly, 'bound-a'), b = mk([lowpoly, { materials: { character: { type: 'toon' }, pickup: { type: 'toon' }, default: { type: 'toon' } } }], 'bound-b');
+        const types = rig => { const t = new Set(); rig.root.traverse(o => { if (o.isMesh) t.add(o.material.type); }); return [...t]; };
+        out.iso = { a: types(a.style.character.create(a, a.style.character.colors)), b: types(b.style.character.create(b, b.style.character.colors)),
+          pickupA: a.style.pickup.model({}, { color: 1, size: 1 }, a).material.type, pickupB: b.style.pickup.model({}, { color: 1, size: 1 }, b).material.type,
+          methodA: a.makeMaterial('prop').type, methodB: b.makeMaterial('prop').type };
+        // palette: one value recolors the generated models; without it the old colors
+        const has = (geo, hex) => { const c = new THREE.Color(hex), at = geo.attributes.color; for (let i = 0; i < at.count; i++) if (Math.abs(at.getX(i) - c.r) + Math.abs(at.getY(i) - c.g) + Math.abs(at.getZ(i) - c.b) < 1e-4) return true; return false; };
+        const red = mk([lowpoly, { palette: { pine: 0xff0000 } }], 'bound-red');
+        const build = async e => { e.assets.manifest(threedogTest.lowpolyAssets); return e.assets.cached('pine', e.assets.builder('pine')); };
+        return Promise.all([build(red), build(a)]).then(([gr, ga]) => {
+          out.pal = { redHas: has(gr, 0xff0000), redKeepsBark: has(gr, 0x7a5536), redNoOldPine: !has(gr, 0x4c8a3b), defHas: has(ga, 0x4c8a3b), hand: has(lowpolyModels.pine(), 0x4c8a3b), styleKeep: red.style.palette.leaf === lowpoly.palette.leaf };
+          // post helpers
+          const g = { name: 'grain', create: () => ({}) }, bl = { name: 'bloom', create: () => ({}) };
+          const names = parts => styleFrom(parts).post.map(p => p.name).join();
+          out.post = { base: lowpoly.post.map(p => p.name).join(), add: names([lowpoly, postAdd(g)]), swap: names([lowpoly, postAdd(bl)]), rm: names([lowpoly, postRemove('ao', 'outline')]),
+            first: names([postAdd(g)]), replace: names([lowpoly, { post: [g] }]), untouched: lowpoly.post.length === 3 };
+          a.dispose(); b.dispose(); red.dispose();
+          return out;
+        });
+      });
+      const w = r.world;
+      check('风格里写 water.level / sea / size、terrain.config 非 shading 键：报错并点名改到 water({...}) / terrain({...})', /water\.level/.test(w.level) && /water\(\{/.test(w.level) && /water\.sea/.test(w.sea) && /water\.size/.test(w.size) && /terrain\.config\.seed/.test(w.terrain) && /terrain\(\{/.test(w.terrain), JSON.stringify(w));
+      check('风格里写 terrain.config.shading、水色、水网格细分不报错；lowpoly 自己通过', w.okShading === '' && w.okPack === '', JSON.stringify(w));
+      check('材质按引擎归属：第二个引擎（toon）的角色、拾取物、engine.makeMaterial 都是 toon，第一个引擎（lowpoly）的是 lambert，不串',
+        r.iso.a.join() === 'MeshLambertMaterial' && r.iso.b.join() === 'MeshToonMaterial' && r.iso.pickupA === 'MeshLambertMaterial' && r.iso.pickupB === 'MeshToonMaterial' && r.iso.methodA === 'MeshLambertMaterial' && r.iso.methodB === 'MeshToonMaterial', JSON.stringify(r.iso));
+      check('style.palette 一处改色：改 pine 后松树锥体是新色，树干等没改的键保持，旧色消失；不改时和原来一样；手工调 models.pine() 用默认色', r.pal.redHas && r.pal.redKeepsBark && r.pal.redNoOldPine && r.pal.defHas && r.pal.hand && r.pal.styleKeep, JSON.stringify(r.pal));
+      check('postAdd 追加、同名替换原位置；postRemove 按名删；整体替换规则不变；原包不被改', r.post.add === r.post.base + ',grain' && r.post.swap === r.post.base && r.post.rm === 'bloom' && r.post.first === 'grain' && r.post.replace === 'grain' && r.post.untouched, JSON.stringify(r.post));
+    },
+  },
+  {
     name: '[守] 内容包：多包一起 load，同一 id 两包都写报错并点名两包；按顺序后包可用前包；模型写路径警告、写函数抛错（开放世界）',
     url: '/?cutscene=skip',
     async run({ check, ev }) {

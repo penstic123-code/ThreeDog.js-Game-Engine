@@ -18,12 +18,12 @@ export class FirstPersonCamera {
   /**
    * height eye height above the feet; sensitivity mouse sensitivity; fov field of view (unchanged if omitted);
    * headBob walking bob amplitude (m, 0 = off); bobFrequency bobs per meter; hideTarget hide the character itself; hideLayer layer number used for hiding (0-31, must not clash with other uses);
-   * pointerLock lock the mouse on click; yaw/pitch initial facing; minPitch/maxPitch look-down/look-up limits (radians);
+   * pointerLock lock the mouse on click (the press that locks is swallowed: not Mouse0, not a click; swallowLockClick: false delivers it); yaw/pitch initial facing; minPitch/maxPitch look-down/look-up limits (radians);
    * yawLimits [min, max] limits left-right turning (e.g. seated in a car), unlimited by default; smoothing how smoothly the camera follows the body; invertY flip vertical look
    */
   constructor(engine, { height = 1.6, sensitivity = 1, fov = null, headBob = 0.04, bobFrequency = 0.9, hideTarget = true, hideLayer = 30,
-    pointerLock = true, yaw = 0, pitch = 0, minPitch = -1.45, maxPitch = 1.45, yawLimits = null, smoothing = 30, invertY = false } = {}) {
-    Object.assign(this, { engine, height, sensitivity, headBob, bobFrequency, hideTarget, hideLayer, pointerLock, yaw, pitch, minPitch, maxPitch, yawLimits, smoothing, invertY });
+    pointerLock = true, yaw = 0, pitch = 0, minPitch = -1.45, maxPitch = 1.45, yawLimits = null, smoothing = 30, invertY = false, swallowLockClick = true } = {}) {
+    Object.assign(this, { swallowLockClick, engine, height, sensitivity, headBob, bobFrequency, hideTarget, hideLayer, pointerLock, yaw, pitch, minPitch, maxPitch, yawLimits, smoothing, invertY });
     this.target = null;
     this.eye = new THREE.Vector3();
     this._bob = 0; this._bobAmp = 0; this._last = null; this._hidden = [];
@@ -128,6 +128,6 @@ Object.assign(FirstPersonCamera.prototype, YAW_RIG);   // forward / right / focu
 export function firstPersonCamera(opts = {}) { return rigModule('firstPerson', opts); }
 defineRig('firstPerson', (e, opts) => {
   checkOptions('firstPersonCamera()', opts, ['height', 'sensitivity', 'fov', 'headBob', 'bobFrequency', 'hideTarget', 'hideLayer', 'pointerLock', 'yaw', 'pitch',
-    'minPitch', 'maxPitch', 'yawLimits', 'smoothing', 'invertY']);
+    'minPitch', 'maxPitch', 'yawLimits', 'smoothing', 'invertY', 'swallowLockClick']);
   return new FirstPersonCamera(e, opts);
 });

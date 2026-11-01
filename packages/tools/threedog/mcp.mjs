@@ -10,8 +10,8 @@
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pickWorkspace } from '../paths.mjs';
-import { run } from './commands.mjs';
-import { bridgeDriver, errorText, scenario } from './connect.mjs';
+import { execute } from './dispatch.mjs';
+import { EXTRA_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA } from './mcp-extra.mjs';
 
 // stdout carries protocol messages only: anything else that prints goes to stderr
 console.log = console.info = console.warn = console.error;
@@ -106,10 +106,11 @@ const TOOLS = {
     args: a => [a.about, a.name, ...(a.about === 'op' ? pairs(a.args) : [])],
   },
   errors: {
-    description: 'Page errors added since the last call (known error classes come with the likely cause and the doc page to read). Check this after a ' +
-      'change or when something looks wrong.',
-    schema: obj(),
-    args: () => [],
+    description: 'Page errors with id, time, tick, source and count (known error classes come with the likely cause and the doc page to read). Default: new ' +
+      'since the last call. latest: the last N, readable again and again. since: errors after an id (the cursor a result prints), never moves the read position. ' +
+      'Check this after a change or when something looks wrong.',
+    schema: obj({ latest: num('Show the last N errors (e.g. 3); the same ones show again on the next call'), since: str('Error id such as "E5" or "5": list only what came after') }),
+    args: a => a.latest ? ['latest', String(a.latest)] : a.since ? ['--since', String(a.since)] : [],
   },
   loading: {
     description: 'Loading status: what the game is waiting for, which assets failed (file, HTTP status, fallback) and whether startup is blocked. Works ' +
@@ -150,6 +151,7 @@ const TOOLS = {
     args: () => [],
   },
 };
+Object.assign(TOOLS, EXTRA_TOOLS);
 if (allowJs) TOOLS.js = {
   description: 'DEV ONLY, DANGEROUS: run arbitrary JavaScript in the game page (engine is in scope, await works; statements need their own return). Last ' +
     'resort for reading something describe cannot show. Never change game state with it (use op): writes bypass the op log.',
@@ -157,33 +159,31 @@ if (allowJs) TOOLS.js = {
   args: a => [a.code, ...opt('--max', a.max)],
 };
 
-const list = () => Object.entries(TOOLS).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema }));
+const list = () => Object.entries(TOOLS).map(([name, t]) => ({ name, description: `${label(t.cmd || name)} ${t.description}`.trim(), inputSchema: t.schema, outputSchema: OUTPUT_SCHEMA }));
 
 /** Run one tool → MCP CallToolResult. Bridge failures (no dev server, page error, ✗ results) come back as isError with the CLI's text */
 async function callTool(name, input = {}) {
   const t = TOOLS[name];
   if (!t) return { content: [{ type: 'text',
-    text: `No tool "${name}". Available: ${Object.keys(TOOLS).join(', ')}${name === 'js' ? ' (js needs threedog mcp --allow-js)' : ''}` }], isError: true };
+    text: `No tool "${name}". Available: ${Object.keys(TOOLS).join(', ')}${name === 'js' ? ' (js needs threedog mcp --allow-js)' : ''}` }],
+    structuredContent: { ok: false, code: 'command-error', summary: `No tool "${name}"`, runtime: { ready: false, mode: null, tick: null, blockedBy: [] }, data: null }, isError: true };
   let png;
-  const base = bridgeDriver(dir, { page: pagePath });
-  const driver = { ...base, screenshot: async () => (png = await base.screenshot()) };
   try {
-    const args = t.args(input), cmd = t.cmd || name;
-    const { ok, text } = cmd === 'scenario' ? await scenario(driver, dir, args[0]) : await run(driver, cmd, args, { dir });
+    const { text, ...structured } = await execute(dir, t.cmd || name, t.args(input), { page: pagePath, onShot: b => { png = b; } });
     const content = [{ type: 'text', text }];
     if (png) content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' });
-    return { content, isError: !ok };
+    return { content, structuredContent: structured, isError: !structured.ok };
   } catch (e) {
-    return { content: [{ type: 'text', text: '✗ ' + errorText(e) }], isError: true };
+    return { content: [{ type: 'text', text: '✗ ' + e.message }], structuredContent: { ok: false, code: 'command-error', summary: e.message, runtime: { ready: false, mode: null, tick: null, blockedBy: [] }, data: null }, isError: true };
   }
 }
 
 // ── JSON-RPC over stdio ───────────────────────────────
 const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const send = msg => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
-const INSTRUCTIONS = 'Drives the threedog game running under `npm run dev` (the dev bridge). Start with describe; change state with op (ops lists what ' +
-  'is possible); step / press / hold advance game time and pause a real page (resume restores it); errors reads new page errors. If a tool says no dev ' +
-  'server is running, ask the user to run npm run dev.';
+const INSTRUCTIONS = RESULT_SHAPE + ' Drives the threedog game running under `npm run dev` (the dev bridge). No game running: call play. Then status or describe; change state with op (ops lists what ' +
+  'is possible); step / press / hold advance game time and pause a real page (resume restores it); errors reads new page errors. If a tool cannot reach the game it ' +
+  'names the cause and the next step (play starts the server).';
 
 let queue = Promise.resolve();   // tool calls run one at a time, in order: they drive one shared game
 async function handle(m) {

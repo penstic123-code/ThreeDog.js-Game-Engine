@@ -1,7 +1,9 @@
 # Ops: one entry point for what players and NPCs do (engine.ops)
 
-**What is an op**: one discrete thing an actor decides to do: buy, talk, attack, roll, fire, reload, craft, build, demolish. Write one with `engine.ops.define`; every caller (key press, UI button, dialogue choice, dev bridge, test, later replay and network peers) runs it with `engine.ops.run`.
-**What is not an op**: continuous input (stick, look, aim while moving) and simulation (hunger, crop growth, burning, bullets in flight). Those stay in a module's `fixed` or `world.simulate`. Low-level functions such as `inventory.transfer` and `world.set` are not wrapped either: an op's `run` calls them.
+**What is an op**: one discrete thing an actor decides to do: buy, talk, attack, roll, fire, reload, craft, build, demolish. Write one with
+`engine.ops.define`; every caller (key press, UI button, dialogue choice, dev bridge, test, later replay and network peers) runs it with `engine.ops.run`.
+**What is not an op**: continuous input (stick, look, aim while moving) and simulation (hunger, crop growth, burning, bullets in flight). Those stay
+in a module's `fixed` or `world.simulate`. Low-level functions such as `inventory.transfer` and `world.set` are not wrapped either: an op's `run` calls them.
 
 ## 1. Define and run
 ```js
@@ -29,9 +31,13 @@ const r = engine.ops.run('shop.buy', { shop: 'shop-bakery', item: 'bread' });
 const { ok } = engine.ops.can('shop.buy', { shop: 'shop-bakery', item: 'bread' });   // ask only: grey out a button
 ```
 Rules that keep ops replayable and network-ready:
-- **Use `ctx.actor`, never `engine.player`.** `ctx.actor` is the world record id of whoever acts (default `engine.actor`, which is `'player'` — also the player's container id — unless the game hands control to a vehicle or squad member). NPCs run the same op with `{ actor: 'npc_3' }`; where an actor stands is `engine.actorPosition(ctx.actor)`.
-- **Args are plain data and self-contained**: no three.js objects (pass `[x, y, z]`), and anything not in world data (aim direction, a clicked build position) goes in the args. Pass a fresh object each call; in dev the args are frozen because the history keeps them.
-- **All "may I" checks live in `can`**, so `run` never stops halfway. A failure always has a reason (camelCase English). Show it to the player through i18n (`e.t('op.shop.buy.' + r.reason)`); the engine shows nothing itself.
+- **Use `ctx.actor`, never `engine.player`.** `ctx.actor` is the world record id of whoever acts (default `engine.actor`, which is `'player'` — also
+  the player's container id — unless the game hands control to a vehicle or squad member). NPCs run the same op with `{ actor: 'npc_3' }`; where an
+  actor stands is `engine.actorPosition(ctx.actor)`.
+- **Args are plain data and self-contained**: no three.js objects (pass `[x, y, z]`), and anything not in world data (aim direction, a clicked build
+  position) goes in the args. Pass a fresh object each call; in dev the args are frozen because the history keeps them.
+- **All "may I" checks live in `can`**, so `run` never stops halfway. A failure always has a reason (camelCase English). Show it to the player through
+  i18n (`e.t('op.shop.buy.' + r.reason)`); the engine shows nothing itself.
 - An op may call another op inside `run` (logged with `depth`); `can` must not call `run` or change state.
 - Name ops `noun.verb`. A dot means "asking to do"; events (`noun:action`) mean "already happened". `run` keeps emitting your domain events as before.
 
@@ -44,7 +50,9 @@ Rules that keep ops replayable and network-ready:
 | Dev bridge | `npx threedog op shop.buy shop=shop-bakery item=bread` / `npx threedog ops` | `between` / `bridge` |
 | Enemy AI in `world.simulate` | `e.ops.run('combat.attack', { kind: 'light' }, { actor: rec.id })` | `fixed` / `game` |
 
-`run` is synchronous and returns at once. Between fixed steps it counts as "after step N", which replays the same. Ops still run while gameplay is frozen by a menu (`ctx.frozen` is true; return `'paused'` from `can` for things that must wait); after a gameplay error (`engine.error`) every op returns `'halted'`.
+`run` is synchronous and returns at once. Between fixed steps it counts as "after step N", which replays the same. Ops still run while gameplay is
+frozen by a menu (`ctx.frozen` is true; return `'paused'` from `can` for things that must wait); after a gameplay error (`engine.error`) every op
+returns `'halted'`.
 
 ## 3. Built-in ops (installed with their modules)
 | Op | Args | Reasons |
@@ -69,10 +77,14 @@ The ring keeps `engine.ops.historySize` entries (256). A save load writes a `(lo
 A thrown `run` freezes gameplay in dev / tests and `engine.error` names `ops.run('name')` plus the last 5 ops.
 
 ## 5. The guard (dev)
-Saved gameplay state (`world.add/set/move/remove`, containers and the inventory, `vars`, quest start / advance) may change only while loading, inside a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `npx threedog js`) prints once per place:
-`[engine] gameplay state changed outside a fixed step or an op: world.set, called at ...`. Fix: turn the write into an op and `engine.ops.run` it, or move simulation into `fixed`. `npm test` lists every place in `.threedog/ops-guard.log`.
+Saved gameplay state (`world.add/set/move/remove`, containers and the inventory, `vars`, quest start / advance) may change only while loading, inside
+a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `npx threedog js`) prints once
+per place:
+`[engine] gameplay state changed outside a fixed step or an op: world.set, called at ...`. Fix: turn the write into an op and `engine.ops.run` it, or
+move simulation into `fixed`. `npm test` lists every place in `.threedog/ops-guard.log`.
 
-A module that owns its own saved state joins the guard (experimental): call `engine.ops.guard('store.set')` (a no-op in production builds) at the top of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.
+A module that owns its own saved state joins the guard (experimental): call `engine.ops.guard('store.set')` (a no-op in production builds) at the top
+of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.
 
 ## 6. Testing
 A test runs the op directly instead of walking, pressing keys and waiting for typing:
@@ -116,4 +128,10 @@ Other keys come from modules: add `explain: { myKey(e, value, query) { return { 
 inspect [id | x,z]`, `npx threedog explain op shop.buy shop=bakery item=bread`, `npx threedog explain quest first-light`.
 
 ## 9. Randomness
-Gameplay randomness uses `engine.random` (`next / range / int / pick / chance`): it is saved with the game and `createEngine({ seed })` fixes it, so a scenario replays the same. `Math.random` breaks both.
+Gameplay randomness uses `engine.random` (`next / range / int / pick / chance`): it is saved with the game and `createEngine({ seed })` fixes it, so a
+scenario replays the same. `Math.random` breaks both.
+
+## 10. Property tests: random op sequences
+The engine repository's `Properties` specs (fast-check, a devDependency) runs random sequences of ops / saves / newGame inside the page in one `ev()` and checks the state rules (item totals kept, a refused op changes nothing, save then load is identical, newGame leaves nothing behind, a failed `engine.use` batch changes nothing).
+A failure prints the shrunk minimal sequence and the seed. Replay: `FC_SEED=<seed> npm test -- "Properties: random op"`; more cases: `FC_RUNS=300` (default 25). Without fast-check installed the specs skip and say why.
+To check a new rule, add a step kind to `stepArb` and a check in `pageRun`; turn every found sequence into a fixed regression spec.

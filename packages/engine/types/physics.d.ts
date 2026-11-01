@@ -98,6 +98,8 @@ export interface RigidOptions {
   floatDepth?: number;
   /** Height (meters) of vegetation collision pillars (tree trunks), default 6 */
   treeColliderHeight?: number;
+  /** Trunks get collision cylinders only in chunks within this many meters of the player or a moving rigid body (the rest are covered by engine.collision for characters), default 16 */
+  treeRadius?: number;
   /** Player capsule size (meters), default computed from engine.movement radius / height */
   playerCapsule?: { halfHeight: number; radius: number };
 }
@@ -158,7 +160,7 @@ export interface RigidBodies {
   buoyancy: boolean;
   buoyancyForce: number;
   waterDrag: number;
-  floatLine: number; floatDepth: number; treeColliderHeight: number;
+  floatLine: number; floatDepth: number; treeColliderHeight: number; treeRadius: number;
   /** Rapier library */
   R: any;
   /** Rapier world */
@@ -322,6 +324,11 @@ export declare class Animator {
   sync(state: string | null, t?: number): any;
   /** What is showing: state, clip, clip time, progress, driven, weights */
   describe(): AnimatorInfo;
+  /**
+   * Check the mapping against the action names the game plays: each problem as text with its fix ([] = all will play).
+   * @example anim.check(['idle', 'walk', 'attack', 'hurt'])
+   */
+  check(actions?: string[]): string[];
   /** Stop the per-frame update when no longer needed */
   dispose(): void;
 }
@@ -389,6 +396,8 @@ export interface FollowCameraOptions {
   shoulder?: number;
   /** Click locks the mouse; mouse motion turns the view without dragging (Esc releases), default false */
   pointerLock?: boolean;
+  /** The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too */
+  swallowLockClick?: boolean;
 }
 /** Third-person follow camera */
 export interface FollowCamera extends CameraRigBase, Required<Omit<FollowCameraOptions, 'lockPitch'>> {
@@ -420,6 +429,8 @@ export interface FirstPersonCameraOptions {
   hideLayer?: number;
   /** Click to lock the mouse, default true */
   pointerLock?: boolean;
+  /** The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too */
+  swallowLockClick?: boolean;
   /** Initial heading (radians) */
   yaw?: number;
   pitch?: number;

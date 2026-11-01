@@ -57,6 +57,35 @@ export const specs = [
     },
   },
   {
+    name: '阴影：类型可选（basic/pcf/vsm），autoUpdate 关时切换触发更新，写错报错',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.pause();
+        const sm = engine.renderer.shadowMap, T = engine.THREE;
+        const out = { def: sm.type === T.PCFShadowMap && engine.shadowType === 'pcf' };
+        engine.sky.setShadow({ type: 'vsm', radius: 3, blurSamples: 6 });
+        out.vsm = sm.type === T.VSMShadowMap && engine.sky.sun.shadow.radius === 3 && engine.sky.sun.shadow.blurSamples === 6 && engine.sky.shadow.type === 'vsm';
+        engine.sky.setShadow({ updateEvery: 4 });
+        sm.needsUpdate = false;
+        engine.sky.setShadow({ type: 'basic' });
+        out.basic = sm.type === T.BasicShadowMap && engine.shadowType === 'basic';
+        out.needs = sm.needsUpdate === true && sm.autoUpdate === false;
+        try { engine.sky.setShadow({ type: 'pcfsoft' }); out.err = ''; } catch (e) { out.err = e.message; }
+        out.kept = sm.type === T.BasicShadowMap;
+        engine.step(1 / 60);   // renders with the new type without throwing
+        engine.sky.setShadow({ type: 'pcf', updateEvery: 1, radius: 1, blurSamples: 8 });
+        engine.resume();
+        return out;
+      });
+      check('default is pcf', r.def);
+      check('type vsm + radius + blurSamples apply', r.vsm);
+      check('switching to basic sets the type', r.basic);
+      check('switching with updateEvery>1 requests a shadow update', r.needs);
+      check('wrong type throws listing the allowed values and keeps the old type', /basic.*pcf.*vsm/.test(r.err) && r.kept, r.err);
+    },
+  },
+  {
     name: 'HLOD：远处合并成代理（C 组测试页街区）',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {

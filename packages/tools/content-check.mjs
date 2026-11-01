@@ -12,6 +12,7 @@ import { checkWorldData } from './content-check/world.mjs';
 import { checkQuests } from './content-check/quests.mjs';
 import { checkKinds } from './content-check/kinds.mjs';
 import { checkAudio } from './content-check/audio.mjs';
+import { glbLevels } from './content-check/glb.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameSetup, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameSetup };
 
@@ -43,7 +44,9 @@ export async function checkGame(dir) {
   const { conditions: CONDITIONS, effects: EFFECTS } = mergeRules(c.rules);
   if (c.rules?.effects) err('rules', NO_GAME_EFFECTS);
   const markers = c.level?.markers || {};
-  const places = { ...(c.places || {}), ...markers };
+  const glb = await glbLevels(dir, c);   // markers read from the level .glb
+  errors.push(...glb.errors);
+  const places = { ...(c.places || {}), ...markers, ...glb.places };
   const flagsSet = new Set([...code.matchAll(/flags\.(\w+)\s*=|setFlag\('(\w+)'/g)].map(m => m[1] ?? m[2]));
   const countersBumped = new Set([...code.matchAll(/bump\('(\w+)'/g)].map(m => m[1]));
   const flagsUsed = [], countersUsed = [];
@@ -190,8 +193,8 @@ export async function checkGame(dir) {
     `marker ${name} needs numeric x and z`);
   for (const [tag, t] of Object.entries(c.triggers || {})) {
     const where = `trigger zone ${tag}`;
-    // When the level is a .glb file its markers cannot be read, and level.js need not have them (noted in GAMEMAP)
-    if (t?.fromLevel) { if (!setup.levelFile && !markers['trigger_' + tag]) err('triggers',
+    // trigger_ nodes of .glb levels come from glb.mjs; with no readable file, level.js need not have them
+    if (t?.fromLevel) { if (!(glb.levels.length ? glb.tags.has(tag) : setup.levelFile) && !markers['trigger_' + tag]) err('triggers',
       `${where} says it comes from the level, but level.js has no marker trigger_${tag} (existing markers: ${known(markers)})`); }
     else checkPos('triggers', `position of ${where}`, t?.position);
     checkRefs('triggers', `onEnter of ${where}`, t?.onEnter, EFFECTS, 'effect');

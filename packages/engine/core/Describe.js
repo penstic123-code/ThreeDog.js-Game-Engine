@@ -22,7 +22,7 @@ import { r1 } from './math.js';
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
 const RELATIVE = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];   // relative to the camera heading
-const STANDARD = new Set(['ready', 'error', 'disabledModules', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf']);
+const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf']);
 const ACTIONS_MAX = 8;   // what the player can do now, with why not: saves the AI a guess for a few dozen characters   // the core's own fields
 const sector = a => Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8;
 
@@ -58,6 +58,13 @@ export function describeApi(e) {
   return { describe: api, describeText: text, inspect: (at, opts) => inspect(e, at, opts), explain: q => explain(e, q) };
 }
 
+/** Only the modules that are not running normally (initializing / failed) appear in describe, so the common case adds nothing; engine.moduleStates has all of them */
+function pendingModules(e) {
+  const out = {};
+  for (const [name, st] of e._modState) if (st === 'initializing' || st === 'failed') out[name] = st;
+  return Object.keys(out).length ? { moduleStates: out } : {};
+}
+
 /** Build the state object. radius: how far counts as "nearby"; extras: those registered by describe.add */
 function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
   const p = e.player?.position, center = at || p || e.focus, cam = e.camera;
@@ -66,6 +73,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
     ready: e.ready,
     error: e.error,                                    // gameplay error in dev / tests (gameplay is frozen)
     disabledModules: [...e.disabledModules],           // presentation modules disabled after an error
+    ...pendingModules(e),                              // { moduleStates } while a module is initializing or failed
     loading: e.loading.view(),                         // what is pending / failed and whether it blocks the start (Loading.js)
     time: { elapsed: r1(e.elapsed), paused: e.paused, frozen: e.frozen, headless: e.headless },
     player: p ? {
@@ -85,7 +93,9 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
     cutscene: null,
     modules: [...e.modules.keys()],
     perf: {
-      fps: e.paused ? null : Math.round(e.fps), cpuMs: e.paused ? null : r1(e.cpuMs ?? 0),
+      fps: e.paused ? null : Math.round(e.fps), cpuMs: e.paused ? null : r1(e.cpuMs),
+      cpu: e.paused ? null : Object.fromEntries(Object.entries(e.cpuPhases).map(([k, v]) => [k, r1(v)])),
+      apply: e.budget.cost.report(),
       drawCalls: e.renderer.info.render.calls, triangles: e.renderer.info.render.triangles, pixelRatio: e.renderer.getPixelRatio(),
       budget: e.budget.report(), startup: e.startup, stream: e.stream.stats, batching: e.batching.stats, jobs: e.jobs.pending, commits: { pending: e.commits.pending, ...e.commits.stats },
     },

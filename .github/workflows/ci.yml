@@ -1,0 +1,35 @@
+# Basic CI: static checks, the core browser tests (fast group), and a production build of the engine and the games.
+# The full browser suite (npm test) is long; run it locally before a release. Add groups to the smoke step below as they prove stable.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Static checks (rules, types, docs, content)
+        run: npm run check
+      - name: Install the browser the tests drive
+        run: npx playwright install --with-deps chromium
+      # Core hardening + save/session/threads guards: each builds fresh headless engines, no game content, a few seconds each
+      # continue-on-error until this step has run green on GitHub's runners once (it has only run on a local machine); then remove the line
+      - name: Core browser tests (smoke)
+        continue-on-error: true
+        run: npm test -- "Core modules" "Core review" "S1 module order" "Loading"
+      - name: Build engine and games
+        run: npm run build

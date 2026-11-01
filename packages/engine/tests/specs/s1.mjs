@@ -21,15 +21,21 @@ export const specs = [
           L.track(engine.onFixed(() => {}));
           const m = new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial());
           engine.add(m); L.track({ remove: () => engine.remove(m) });
+          // renderer.info.memory.geometries only counts geometries that have been drawn. Whether a building falls inside the view depends on how far the
+          // player/camera has moved when the sample is taken (slower under load: the physics engine starts late), which made the count flip by 1
+          // without any leak. Turning culling off makes every visible mesh get drawn, so the count no longer depends on timing.
+          engine.scene.traverse(n => { n.frustumCulled = false; });
         });
         const round = async () => { await engine.level.load('s1-level2'); engine.step(0.1); await engine.level.load('city-block'); engine.step(0.1); };
         await round();
         const first = engine.counts();
         for (let i = 0; i < 9; i++) await round();
-        return { first, last: engine.counts() };
+        const tenth = engine.counts();
+        for (let i = 0; i < 10; i++) await round();   // 20 rounds: still no growth, so the 10-round plateau is not just a slower leak
+        return { first, last: tenth, twentieth: engine.counts() };
       });
       const keys = ['listeners', 'fixed', 'frame', 'timers', 'statics', 'geometries', 'textures', 'streamEntries'];
-      const grown = keys.filter(k => r.last[k] > r.first[k]);
+      const grown = keys.filter(k => r.last[k] > r.first[k] || r.twentieth[k] > r.first[k]);
       check('engine.counts() gives all counts', keys.every(k => typeof r.first[k] === 'number'), JSON.stringify(r.first));
       check('Counts are the same after the 1st and 10th level enter / exit (no accumulation)', grown.length === 0, grown.map(k => `${k}: ${r.first[k]} → ${r.last[k]}`).join(', '));
     },

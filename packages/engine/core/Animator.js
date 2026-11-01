@@ -8,13 +8,19 @@
 //   anim.set('speed', 3); anim.go('move'); anim.action('wave');
 //   anim.sync('attack', fighter.t); ... anim.sync(null);   // gameplay time drives the pose; null hands control back
 // States are the mapping: game names (idle / attack / hurt) on the left, whatever the asset calls the clip on the right.
+// The mapping belongs to the model file, so it can live as data in the asset manifest (models: { hero: { url, animation: { states } } }): Assets.animate
+// merges it under the code's config, and swapping the model then never touches game code. anim.check([...actions]) lists what the game would miss.
 // A clip name also matches the part after the last '|' ('Idle' finds 'CharacterArmature|Idle', as Blender exports name them).
 // Weights are managed here: each state has a fading weight, blend trees split it by parameter; all action weights sum to 1.
 // A one-shot action emits anim:end { root, state } when done, then moves to its `then`. Native objects: mixer, actions (clip name -> AnimationAction).
 // Rule: animation is presentation; gameplay timing must not read it. The mixer advances per frame (dropped frames, step's frameEvery or a disposed model all skew it),
 // so hit windows, stun and cooldowns count in fixed steps, and sync(state, t) is how that gameplay time reaches the pose: the clip never runs ahead or ends by itself.
 import * as THREE from 'three';
-import { warnOnce, warnMissing, missingText } from './validate.js';
+import { warnOnce, warnMissing, missingText, checkOptions } from './validate.js';
+
+// Config keys: a typo (loops: false, state: {...}) would silently play the wrong thing, so both levels are checked like any other options
+const CONFIG_KEYS = ['fade', 'states', 'transitions', 'params'];
+const STATE_KEYS = ['clip', 'blend', 'param', 'sync', 'loop', 'then', 'lock', 'timing'];
 
 /**
  * Find a clip by exact name, else by the part after the last '|' ('Idle' finds 'CharacterArmature|Idle').
@@ -27,8 +33,13 @@ const short = n => n.slice(n.lastIndexOf('|') + 1);
 const r3 = v => Math.round(v * 1000) / 1000;
 
 export class Animator {
-  constructor(engine, root, { fade = 0.25, states = {}, transitions = {}, params = {} } = {}) {
+  /** mappedIn (from Assets.animate): { label, states } when part of the mapping came from the manifest, so fix texts point at the data, not at code */
+  constructor(engine, root, config = {}, mappedIn = null) {
+    // config is the code's options merged over the manifest mapping, so name both places a typo can be in
+    checkOptions(mappedIn ? `assets.animate() / ${mappedIn.label}` : 'assets.animate()', config, CONFIG_KEYS);
+    const { fade = 0.25, states = {}, transitions = {}, params = {} } = config;
     this.engine = engine;
+    this._mappedIn = mappedIn;
     this.root = root;
     this.fade = fade;
     this.states = states;
@@ -51,15 +62,38 @@ export class Animator {
       this._hook = engine.onFrame(dt => this.update(dt));
     }
   }
-  /** Dev check of the mapping: every clip a state names must exist in the model, every `then` must be a state. */
+  /** Dev check at build time: the same problems check() returns, minus the game's action list (the Animator does not know it). */
   _check() {
-    const names = [...new Set(this.clips.map(c => short(c.name)))];
+    for (const [st, def] of Object.entries(this.states)) checkOptions(`assets.animate() ${this._where(st)}`, def, STATE_KEYS);
+    for (const p of this._problems()) warnOnce(p);
+  }
+  /** Where a state is written: the manifest entry when the mapping came from there (data), else the code's states. */
+  _where(st) {
+    const m = this._mappedIn;
+    return m && (m.states.includes(st) || !this.states[st]) ? `${m.label}.states.${st}` : `states.${st}`;
+  }
+  _problems() {
+    const names = [...new Set(this.clips.map(c => short(c.name)))], out = [];
     for (const [st, def] of Object.entries(this.states)) {
       for (const clip of def.blend ? def.blend.map(b => b.clip) : [def.clip]) {
-        if (!findClip(this.clips, clip)) warnOnce(`assets.animate(): state "${st}" maps to a missing clip. ${missingText('clip', clip, names)}. Fix the clip name in states.${st}, or remove the state`);
+        if (!findClip(this.clips, clip)) out.push(`assets.animate(): state "${st}" maps to a missing clip. ${missingText('clip', clip, names)}. Fix the clip name in ${this._where(st)}, or remove the state`);
       }
-      if (def.then && !this.states[def.then]) warnOnce(`assets.animate(): states.${st}.then. ${missingText('animState', def.then, Object.keys(this.states))}`);
+      if (def.then && !this.states[def.then]) out.push(`assets.animate(): ${this._where(st)}.then. ${missingText('animState', def.then, Object.keys(this.states))}`);
     }
+    return out;
+  }
+  /**
+   * Check the mapping against the action names the game plays: every problem as text with its fix, [] when all of them will play.
+   * Covers an action without a state, a state whose clip is not in the model, a `then` that is not a state, and a model without clips.
+   * Call it once after building (a test, the dev console): a bad name in go() / sync() only warns at the moment it is played.
+   * @example anim.check(['idle', 'walk', 'attack', 'hurt'])   // [] or ['action "hurt" has no state. Add it to ... states.hurt: { clip: ... } (clips in the model: Death, Idle, ...)']
+   * @param {string[]} [actions] @returns {string[]}
+   */
+  check(actions = []) {
+    if (!this.hasClips) return actions.length ? [`assets.animate(): the model has no animation clips, so ${actions.join(', ')} cannot play. Export the glTF with its animations (Blender: Animation > include all actions), or play them procedurally`] : [];
+    const names = [...new Set(this.clips.map(c => short(c.name)))];
+    const missing = actions.filter(n => !this.states[n]).map(n => `assets.animate(): action "${n}" has no state. Add it to ${this._where(n)}: { clip: '<name>' } (clips in the model: ${names.join(', ')})`);
+    return missing.concat(this._problems());
   }
   /** Get the action for a clip (null if there is no such clip). */
   _action(name) {

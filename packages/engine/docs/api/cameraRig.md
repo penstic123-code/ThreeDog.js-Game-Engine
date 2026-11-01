@@ -19,6 +19,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `lockPitch?: boolean` Lock the pitch angle (top-down games)
   - `shoulder?: number` Over-the-shoulder offset: meters to the right of the target the camera aims (negative = left shoulder), default 0
   - `pointerLock?: boolean` Click locks the mouse; mouse motion turns the view without dragging (Esc releases), default false
+  - `swallowLockClick?: boolean` The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too
 - firstPersonCamera options `FirstPersonCameraOptions`:
   - `height?: number` Eye height above the feet (meters), default 1.6
   - `sensitivity?: number` Mouse sensitivity, default 1
@@ -28,6 +29,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `hideTarget?: boolean` Hide the character itself (its shadow remains), default true
   - `hideLayer?: number` Layer number used for hiding 0–31
   - `pointerLock?: boolean` Click to lock the mouse, default true
+  - `swallowLockClick?: boolean` The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too
   - `yaw?: number` Initial heading (radians)
   - `pitch?: number`
   - `minPitch?: number` Look down / up limit (radians)

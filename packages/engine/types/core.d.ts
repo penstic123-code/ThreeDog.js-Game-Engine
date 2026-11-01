@@ -1,7 +1,9 @@
 // Engine core: the Engine class, events, input, i18n, saves, assets, audio, the ground interface, module definitions.
-import type { Object3D, Vector3, Vector2, Color, Texture, BufferGeometry, Handle, PositionLike, Vec3Like } from './common';
+import type { Object3D, Vector3, Vector2, Color, Texture, BufferGeometry, Handle, PositionLike, Vec3Like, ColorLike, Material } from './common';
 import type { Style, StyleInput } from './style';
-import type { Terrain, Vegetation, Sky, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport } from './world';
+import type {
+  Terrain, Vegetation, Sky, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport,
+} from './world';
 import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
 import type { Grids } from './generated/modules/grid/index';
@@ -241,6 +243,8 @@ export interface EngineUniforms {
   uFoliageTint: { value: Color };
   /** Season tint of the ground (sky calendar) */
   uGroundTint: { value: Color };
+  uFoliageMix: { value: number };
+  uGroundMix: { value: number };
 }
 
 export interface Pointer {
@@ -274,7 +278,8 @@ export type StringTables = Record<string, Record<string, string>>;
 // Saves
 // ======================================================================
 
-/** Save provider: save() returns JSON-able data, load(data) reads it back (may return a Promise, e.g. for changing level; later parts wait for it to finish before loading).
+/** Save provider: save() returns JSON-able data, load(data) reads it back (may return a Promise, e.g. for changing level;
+ *  later parts wait for it to finish before loading).
  *  first: true providers load first (parts such as the level, where the rest only makes sense after it is loaded) */
 export interface SaveProvider {
   save: () => any;
@@ -320,6 +325,11 @@ export type AssetEntry = string | ModelBuilder | {
   pixelated?: boolean;
   /** Texture: repeat count [horizontal, vertical] */
   repeat?: number[];
+  /**
+   * Model: game action names -> this file's clip names, as data (assets.animate and characters start from it), e.g.
+   * { states: { idle: { clip: 'Idle_Sword' }, attack: { clip: 'Sword_Slash', loop: false, timing: 0.6 } } }
+   */
+  animation?: AnimatorOptions;
 };
 /**
  * An asset manifest, also the shape of an asset pack (a folder or npm package exporting one): names -> files or generators; content and code use the
@@ -416,8 +426,13 @@ export interface Assets {
   shared: WeakSet<object>;
   /** Current GPU memory usage (number of geometries and textures) */
   readonly memory: { geometries: number; textures: number };
-  /** Create an animation state machine for a skinned model (without config it is simple play-by-name) */
+  /**
+   * Create an animation state machine for a skinned model (without config it is simple play-by-name).
+   * A copy of a manifest model whose entry has `animation` starts from that mapping; config wins per state
+   */
   animate(root: Object3D, config?: AnimatorOptions): Animator;
+  /** The manifest entry's animation mapping for a model copy, or null (not a manifest copy, or no mapping) */
+  mapping(root: Object3D): AnimatorOptions | null;
   /** three.js GLTFLoader (Meshopt installed; Draco and KTX2 are installed the first time they are needed) */
   gltf: any;
   /**
@@ -473,6 +488,13 @@ export interface Loading {
   list(filter?: { kind?: string; phase?: LoadingPhase }): LoadingTask[];
   /** Run the game's own loading step as a task (critical by default: a failure before start() finishes stops start()) */
   track<T>(name: string, fn: () => Promise<T>, opts?: { critical?: boolean }): Promise<T>;
+  /**
+   * Resolves when every module installed after start() has finished its init() (also when one failed: see engine.moduleStates).
+   * @example engine.use(shop()); await engine.loading.settled(); engine.moduleStates.shop   // 'running'
+   */
+  settled(): Promise<void>;
+  /** How long start() waits for modules whose isReady(e) stays false before it rejects naming them, in ms (default 120000) */
+  timeoutMs: number;
 }
 
 // ======================================================================
@@ -551,7 +573,10 @@ export interface AudioConfig {
   /** ambience() rule table */
   ambience?: AmbienceRule[];
   /** music() defaults: tracks, rules, fade seconds, duckDialogue (how low the music bus ducks during dialogue; default false = no duck) */
-  music?: { tracks?: Record<string, import('./gameplay').MusicTrack>; rules?: import('./gameplay').MusicRule[]; fade?: number; duckDialogue?: number | false; duckFade?: number; hold?: number; interval?: number };
+  music?: {
+    tracks?: Record<string, import('./gameplay').MusicTrack>; rules?: import('./gameplay').MusicRule[];
+    fade?: number; duckDialogue?: number | false; duckFade?: number; hold?: number; interval?: number;
+  };
   /** Ground type (terrain groundType or level material name) -> sound name; 'water' while swimming; default for unmapped types (else 'footstep') */
   footsteps?: Record<string, string>;
   /** Volume per bus 0-1, default { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 }; an extra key adds a bus */
@@ -708,9 +733,11 @@ export interface ModuleDef<Api = any> {
    * -> 'presentation' particles, settings, objective markers -> 'late' (default) -> 'audio' music. Within a stage use before / after, then install order
    */
   stage?: 'control' | 'world' | 'environment' | 'gameplay' | 'presentation' | 'late' | 'audio';
-  /** Hooks run before these modules (ignored if not installed; use() throws on a cycle) */
+  /** Hooks run before these modules, inside one stage (ignored if not installed;
+   *  use() throws on a cycle, or when the other module's stage already runs earlier) */
   before?: string[];
-  /** Hooks run after these modules (ignored if not installed; use() throws on a cycle) */
+  /** Hooks run after these modules, inside one stage (ignored if not installed;
+   *  use() throws on a cycle, or when the other module's stage already runs later) */
   after?: string[];
   /**
    * Presentation modules (particles, sound effects, HLOD; gameplay is unaffected without them): when a hook errors only this module is disabled and the
@@ -718,6 +745,13 @@ export interface ModuleDef<Api = any> {
    * Without it the module counts as gameplay: during development / testing an error freezes gameplay and is recorded in engine.error (error severity levels)
    */
   presentation?: boolean;
+  /**
+   * The game cannot run without this module (default false): when its init() fails, engine.start() rejects with the module name and reason instead of
+   * starting a broken game. Without it a failed init is reported by severity (presentation: disabled and the game carries on; gameplay: error tiers) and
+   * start() goes on. Only start() reads it; a critical module installed after start() is reported like any other
+   * @example engine.use({ name: 'saveSlots', critical: true, async init(e) { await loadSlots(); } })
+   */
+  critical?: boolean;
   /** Install: create and return the object the game uses (engine.name) */
   install?(e: Engine): Api;
   /** Called at startup (download things, wait for assets); may be async */
@@ -773,6 +807,8 @@ export interface EngineOptions {
   style?: StyleInput;
   /** Real-time shadows, default true */
   shadows?: boolean;
+  /** Shadow filter: 'basic' (hard edge) | 'pcf' | 'vsm' (softest, costliest), default 'pcf'. Change later with engine.sky.setShadow({ type }) */
+  shadowType?: 'basic' | 'pcf' | 'vsm';
   /** MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices */
   antialias?: boolean;
   /** Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices) */
@@ -1006,7 +1042,9 @@ export interface StreamHandle { def: StreamEntryOptions; object: Object3D | null
  * modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest
  * module is reported in the console when exceeded
  */
-export interface StartupReport { totalMs: number; startMs: number; preloadMs: number; streamMs: number | null; compileMs: number; modules: Record<string, { init?: number; ready?: number }> }
+export interface StartupReport {
+  totalMs: number; startMs: number; preloadMs: number; streamMs: number | null; compileMs: number; modules: Record<string, { init?: number; ready?: number }>;
+}
 
 // ======================================================================
 // Setting up a scenario engine.applyState
@@ -1073,6 +1111,8 @@ export declare class Engine {
   focus: Vector3;
   /** Whether shadows are on */
   shadows: boolean;
+  /** Shadow filter in use; change it with sky.setShadow({ type }) */
+  shadowType: 'basic' | 'pcf' | 'vsm';
   /** Current ground */
   ground: Ground;
   /**
@@ -1101,6 +1141,11 @@ export declare class Engine {
   readonly disposed: boolean;
   /** Execution order of module hooks (module names, first -> last), for debugging "who runs before whom" */
   readonly moduleOrder: string[];
+  /**
+   * Where each module is: 'registered' (init not started), 'initializing', 'running', 'failed' (init threw: its hooks never run) or 'disposed'.
+   * A module installed after start() runs no fixed / frame hook until it is 'running'; `await engine.loading.settled()` waits for that
+   */
+  readonly moduleStates: Record<string, 'registered' | 'initializing' | 'running' | 'failed' | 'disposed'>;
   /**
    * Gameplay error in development / testing (module hooks, onFixed / onFrame / clock callbacks, event listeners): { where (location of the error),
    * message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console
@@ -1145,8 +1190,13 @@ export declare class Engine {
   ui: UIParts;
   /** Automatic resolution state */
   adaptive: AdaptiveState;
-  /** CPU time of the previous frame (milliseconds) */
+  /**
+   * Main-thread CPU milliseconds of the last real-time frame: input, fixed steps, frame hooks, render submission and afterRender hooks
+   * (not GPU time, not the wait for the next frame). Only the real-time loop updates it; step() does not.
+   */
   cpuMs: number;
+  /** cpuMs split by phase (last frame): fixed = input + fixed steps, frame = frame hooks incl. stream / jobs, render = draw submission, afterRender = its hooks */
+  cpuPhases: { fixed: number; frame: number; render: number; afterRender: number };
   /** Camera takeover (for cutscenes), null when unused */
   cameraOverride: CameraOverride | null;
   /** Draco/KTX2 decoder directory */
@@ -1285,6 +1335,9 @@ export declare class Engine {
   /** Whether a module is installed */
   has(name: string): boolean;
 
+  /** Material by role from this engine's style pack: engine.makeMaterial('prop', { color: 0x8a5a36 }) */
+  makeMaterial(purpose?: string, params?: { color?: ColorLike, [prop: string]: any }): Material;
+
   // ---------- Ground ----------
   /** Set the ground (called by the terrain and level modules); missing parts fall back to flat ground */
   setGround(g: Partial<Ground>): void;
@@ -1392,8 +1445,10 @@ export declare class Engine {
   /** Is anyone freezing gameplay? */
   readonly frozen: boolean;
   /**
-   * Advance seconds of fixed-step time synchronously (60Hz; when timeScale is not 1, game seconds clock.now and sky time of day run faster or slower
-   * than it; frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()).
+   * Advance seconds of fixed-step time synchronously; seconds must be a finite number >= 0: 0 advances nothing (no step, no render),
+   * negative or non-finite throws (code step-seconds), any positive value runs at least one fixed step (60Hz; when timeScale is not 1,
+   * game seconds clock.now and sky time of day run faster or slower than it;
+   * frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()).
    * jobs ignore real time and finish every frame; results of stream's synchronous build are attached to the scene before returning. When render is true
    * (default) one frame is rendered at the end. Returns the describe() result after advancing
    */
@@ -1439,7 +1494,10 @@ export declare class Engine {
    * @example engine.inspect('chest-home').thing.definedAt   // 'content/props.js:14': edit that line to change the level for good
    * thing (when at is a record id): the record as a thing to change, with where it was authored (see HitThing).
    */
-  inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): { actor: string; at: { x: number; z: number }; near: any[]; ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[]; thing?: HitThing };
+  inspect(at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): {
+    actor: string; at: { x: number; z: number }; near: any[]; thing?: HitThing;
+    ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[];
+  };
   /**
    * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it
    * (reason first);
@@ -1450,7 +1508,9 @@ export declare class Engine {
    * An op whose args.id names a world record also says where that record was authored (text ends with "defined in content/props.js:14: edit it there…";
    * thing has the rest).
    */
-  explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): { ok: boolean; reason?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing };
+  explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): {
+    ok: boolean; reason?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing;
+  };
   /**
    * Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per
    * rendered frame } and resets, or null when not on
@@ -1542,13 +1602,21 @@ export interface GameState {
   error: EngineError | null;
   /** Presentation modules disabled after an error */
   disabledModules: string[];
+  /** Modules that are initializing or failed ({ name: state }); absent when every module with an init is running (engine.moduleStates has all) */
+  moduleStates?: Record<string, string>;
   /** What loading is waiting for, what failed, whether it blocks the start (engine.loading.view()) */
   loading: LoadingView;
   /** elapsed is the run seconds (= engine.elapsed); with the sky module there are also clock, day, season, isDay, timeOfDay */
-  time: { elapsed: number; paused: boolean; frozen: boolean; headless: boolean; clock?: string; day?: number; season?: string; isDay?: boolean; [key: string]: any };
+  time: {
+    elapsed: number; paused: boolean; frozen: boolean; headless: boolean; clock?: string; day?: number; season?: string; isDay?: boolean;
+    [key: string]: any;
+  };
   /** Player (null when there is no player), position in meters */
   /** ground is the ground type, groundName its display name (i18n key ground.<type>, null if none) */
-  player: { x: number; y: number; z: number; ground: string; groundName: string | null; inWater: boolean; state: string | null; running: boolean; jumping: boolean; [key: string]: any } | null;
+  player: {
+    x: number; y: number; z: number; ground: string; groundName: string | null; inWater: boolean; state: string | null;
+    running: boolean; jumping: boolean; [key: string]: any;
+  } | null;
   /** Camera: type 'follow' | 'first' | 'fixed' | 'rts', override is the takeover owner's name */
   camera: { type: string | null; x: number; y: number; z: number; focus: { x: number; z: number }; override: string | null; [key: string]: any };
   /** How far counts as nearby (meters) */
@@ -1557,13 +1625,22 @@ export interface GameState {
   nearby: NearbyThing[];
   /** UI: open windows, whether input is locked, the dialogue in progress */
   /** windows: open windows and full-screen UI parts (e.g. 'title'); parts: each UI part 'default' | 'custom' | 'off' */
-  ui: { windows: string[]; inputLocked: boolean; dialogue: { speaker: string; text: string; choices: string[]; [key: string]: any } | null; parts: Record<string, string>; [key: string]: any };
+  ui: {
+    windows: string[]; inputLocked: boolean; parts: Record<string, string>; [key: string]: any;
+    dialogue: { speaker: string; text: string; choices: string[]; [key: string]: any } | null;
+  };
   /** Cutscenes: count is how many are playing, skippable whether they can be skipped */
   cutscene: { count: number; skippable: boolean; [key: string]: any } | null;
   /** Installed module names */
   modules: string[];
   /** Performance (fps/cpuMs are null while paused) */
-  perf: { fps: number | null; cpuMs: number | null; drawCalls: number; triangles: number; pixelRatio: number; chunks?: { loaded: number; visible: number; queued: number }; budget?: BudgetReport | null; startup?: StartupReport | null;
+  perf: {
+    fps: number | null; cpuMs: number | null; drawCalls: number; triangles: number; pixelRatio: number;
+    chunks?: { loaded: number; visible: number; queued: number }; budget?: BudgetReport | null; startup?: StartupReport | null;
+    /** cpuMs by phase (null while paused), see Engine.cpuPhases */
+    cpu?: { fixed: number; frame: number; render: number; afterRender: number } | null;
+    /** Cost of applying background results by stage: transit, build, collider, upload, stream (see engine.budget.cost; upload and transit are approximations) */
+    apply?: Record<string, { n: number; totalMs: number; maxMs: number; frameMs: number; bytes: number }>;
     /** Stream registry: registered, built, queued */
     stream?: { entries: number; built: number; queued: number };
     /** Automatic batching: batches, instances, draw calls saved per pass */

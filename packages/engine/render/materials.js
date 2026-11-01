@@ -15,11 +15,15 @@
 import * as THREE from 'three';
 import { closest, warnMissing, warnOnce } from '../core/validate.js';
 import { patchMaterial, copyPatches } from './patches.js';
-import { EFFECTS, placeholderTexture } from './effects.js';
+import { declareUniforms } from './uniformDecl.js';
+import { EFFECTS } from './effects.js';
+import { detailPatch } from './detail.js';
+import { applySurface } from './surface.js';
+import { lightingPatch, rampTexture } from './lighting.js';
 /** @import { ColorLike, Material, BufferGeometry } from '../types/common' */
 
 // ---------- style pack per engine ----------
-// Live engines in creation order: makeMaterial without an engine argument uses the first one's style pack
+// Live engines in creation order: only makeMaterial called without an engine (a game's module-level code) uses the first one's style pack
 const ENGINES = [];
 /**
  * Register an engine's style pack and assets for makeMaterial; returns a handle whose remove() unregisters it (engine.dispose)
@@ -70,10 +74,11 @@ const isSpec = e => e && !e.isMaterial && typeof e !== 'function';
  * materials: {
  *   default: { type: 'toon', steps: 3 },                                // spec: type lambert | phong | standard | physical | toon | basic, plus properties
  *   water:   new THREE.MeshMatcapMaterial({ matcap: tex }),           // instance: cloned on every call
- *   prop:    (params, purpose) => new THREE.ShaderMaterial({ ... }),  // function: returns any three.js Material
+ *   prop:    (params, purpose, engine) => new THREE.ShaderMaterial({ ... }),  // function: returns any three.js Material
  * }
  * A pack Material instance is cloned with its shader patches (applyEffects) kept.
- * With more than one engine on the page, pass the engine whose style pack should decide (default: the first engine created).
+ * Whose style pack decides: engine.makeMaterial(purpose, params) (this engine's) or the third argument; without either the first live engine's
+ * (fine for a one-engine game; engine code and style packs always pass the engine, and two engines on the page warn in dev).
  * @param {string} [purpose]
  * @param {{ color?: ColorLike, [prop: string]: any }} [params]
  * @param {{ style: any }} [engine]
@@ -86,25 +91,29 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
     const known = [...new Set([...MATERIAL_PURPOSES, ...Object.keys(M)])];
     if (closest(purpose, known)) warnMissing('material', purpose, known);
   }
-  const entry = M[purpose] ?? M.default, key = purpose in M ? purpose : 'default';
+  const entry = M[purpose] ?? M.default, key = purpose in M ? purpose : 'default', eng = owner(engine);
   let m, props = params;
   if (entry?.isMaterial) m = copyPatches(entry, entry.clone());
   else if (typeof entry === 'function') {
-    m = entry(params, purpose);
+    m = entry(params, purpose, eng);
     if (!m?.isMaterial) throw new Error(`style.materials.${key} returned ${m}; the function must return a three.js Material`);
   } else {
     // A spec layers on top of materials.default when that is a spec too
-    const { type = 'lambert', steps = 3, ...rest } = { ...(isSpec(M.default) ? M.default : {}), ...entry, ...params };
+    const { type = 'lambert', steps = 3, ramp, soften, ...rest } = { ...(isSpec(M.default) ? M.default : {}), ...entry, ...params };
     const Ctor = TYPES[type];
     if (!Ctor) throw new Error(`style.materials.${key}: unknown type '${type}'; use ${Object.keys(TYPES).join(' | ')}, or give a Material instance or a function (params, purpose) => Material`);
     m = new Ctor();
-    if (type === 'toon') m.gradientMap = toonRamp(steps);
-    props = rest;
+    if (type === 'toon') m.gradientMap = ramp ? rampTexture(ramp, soften) : toonRamp(steps);
+    else if (ramp || soften !== undefined) throw new Error(`style.materials.${key}: ramp / soften belong to type 'toon' (this is '${type}')`);
+    props = applySurface(m, rest, `style.materials.${key}`, eng, eng?.style?.lighting);
   }
+  // the pack's style.lighting also shapes pack Materials and function results that are plain three.js lit materials (specs got it above)
+  if (props === params && eng?.style?.lighting && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial))
+    patchMaterial(m, [lightingPatch(eng.style.lighting, 'style.lighting')]);
   for (const k in props) {
     if (k === 'type' || !(k in m)) continue;
     const v = props[k];
-    if (m[k]?.isColor) m[k].set(v); else m[k] = v;
+    if (m[k]?.isColor) m[k].set(v); else if (m[k]?.isVector2 && Array.isArray(v)) m[k].set(...v); else m[k] = v;
   }
   m.userData.purpose = purpose;
   m.needsUpdate = true;
@@ -112,11 +121,17 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
 }
 
 // ---------- shader effects (named patches, see patches.js; the built-in ones are in effects.js) ----------
+// A style's own sway function (style.wind.glsl): must define threedogWind(); its uniforms are declared for it
+function windCustom({ glsl, uniforms }) {
+  if (!/void\s+threedogWind\s*\(/.test(glsl || '')) throw new Error('style.wind.glsl must define `void threedogWind(inout vec3 transformed, vec3 ip, vec3 position)`: move the vertex (object space) by the sway; ip = world position of this instance, uTime / uWind / uWindFreq / THREEDOG_WIND_AMP are in scope');
+  return { glsl, ...declareUniforms('style.wind.uniforms', uniforms) };
+}
 /**
  * Add effects to any material (built-in, from a style pack, or third-party); returns the same material. The one entry for shader effects:
  * wind (sway amplitude; the shadow sways too, nothing else to set up), clouds (drifting cloud shadows, default on; how dark is
  * style.clouds.shadow), season ('foliage' | 'ground' seasonal tint), and patches: your own named patches (see ShaderPatch in
- * render/patches.js). The 'world' patch (varying vThreedogWorld, world position) comes with clouds, and is added for any of your
+ * render/patches.js), detail (grain / paper / strokes / a texture over the surface, see MaterialDetail in types/style.d.ts; a texture given by
+ * asset name loads from `engine`, default the first live engine). The 'world' patch (varying vThreedogWorld, world position) comes with clouds, and is added for any of your
  * patches that lists it in needs.patches.
  * Built-in effects the material cannot take (MeshBasicMaterial has no lighting chunk for clouds) are skipped with a one-time warning;
  * your own patches throw when their anchor is missing. Calling again with the same effect replaces it.
@@ -125,22 +140,21 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
  * applyEffects(mat, { clouds: false, patches: [{ name: 'snap', cacheKey: 64, uniforms: { uGrid: { value: 64 } },
  *   glsl: { vertex: { pars: 'uniform float uGrid;', project_vertex: 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uGrid) / uGrid * gl_Position.w;' } } }] });
  * @param {Material} material
- * @param {{ wind?: number, clouds?: boolean, season?: 'foliage' | 'ground', patches?: import('./patches.js').ShaderPatch[] }} [opts]
+ * @param {{ wind?: number | { amplitude: number, glsl: string, uniforms?: Record<string, any> }, clouds?: boolean, season?: 'foliage' | 'ground', detail?: import('./detail.js').DetailOptions, engine?: { assets: any }, patches?: import('./patches.js').ShaderPatch[] }} [opts]
  * @returns {Material}
  */
-export function applyEffects(material, { wind, clouds = true, season, patches } = {}) {
+export function applyEffects(material, { wind, clouds = true, season, detail, engine, patches } = {}) {
   const list = [];
   if (clouds || patches?.some(p => p.needs?.patches?.includes('world'))) list.push(EFFECTS.world());
   if (clouds) list.push(EFFECTS.clouds());
   if (season) list.push(EFFECTS.season(season));
-  if (wind) list.push(EFFECTS.wind(wind));
+  if (wind) list.push(typeof wind === 'number' ? EFFECTS.wind(wind) : EFFECTS.wind(wind.amplitude, windCustom(wind)));
+  if (detail) list.push(EFFECTS.world(), detailPatch(detail, owner(engine), 'detail'));
   patchMaterial(material, list, { strict: false });
   if (patches) patchMaterial(material, patches);
   return material;
 }
 
-// Optional detail texture (a neutral placeholder until the image loads): style pack terrain.detail = { texture: '/textures/grain.png', scale: 0.25, strength: 0.35 }.
-// Projected top-down in world space, so no UVs needed; adds grain or grass texture to flat color areas.
 /**
  * Terrain material: base (default the style's 'terrain' role with vertex colors) + cloud shadows + season tint + optional detail texture
  * (style.terrain.detail). Pass the engine so its style pack and assets are used.
@@ -150,20 +164,10 @@ export function applyEffects(material, { wind, clouds = true, season, patches } 
  */
 export function terrainMaterial(base = null, engine = undefined) {
   const e = owner(engine);
-  const m = applyEffects(base || makeMaterial('terrain', { vertexColors: true }, e ?? undefined), { season: 'ground' });
-  const det = e?.style?.terrain?.detail;
-  if (det?.texture && e?.assets) {
-    const u = { uDetail: { value: placeholderTexture('detail') }, uDetailScale: { value: det.scale ?? 0.25 }, uDetailStrength: { value: det.strength ?? 0.35 } };
-    e.assets.texture(det.texture).then(t => {
-      const tex = t.clone();   // shares the image (no second upload); own wrapping
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true;
-      u.uDetail.value.dispose(); u.uDetail.value = tex;
-    }).catch(err => warnOnce(err.message));
-    patchMaterial(m, [EFFECTS.world(), { name: 'detail', needs: { patches: ['world'] }, uniforms: u,
-      glsl: { fragment: { pars: 'uniform sampler2D uDetail; uniform float uDetailScale; uniform float uDetailStrength;',
-        color_fragment: 'diffuseColor.rgb *= mix(vec3(1.0), texture2D(uDetail, vThreedogWorld.xz * uDetailScale).rgb * 2.0, uDetailStrength);' } } }], { strict: false });
-  }
-  return m;
+  // style.terrain.detail is the `detail` patch with its texture-only options (top-down world projection, multiply)
+  const det = e?.style?.terrain?.detail, tex = det?.texture && e?.assets;
+  return applyEffects(base || makeMaterial('terrain', { vertexColors: true }, e ?? undefined),
+    { season: 'ground', engine: e ?? undefined, ...(tex && { detail: { texture: det.texture, scale: det.scale ?? 0.25, strength: det.strength ?? 0.35 } }) });
 }
 
 /**

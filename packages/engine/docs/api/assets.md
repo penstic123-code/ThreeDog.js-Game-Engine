@@ -13,7 +13,8 @@
 - `assets.users(name: string) → number` — How many copies of this model are in use now (taken with model() and not yet removed with engine.remove)
 - `assets.forget(obj: Object3D)` — Called when an object is fully removed (engine.remove already calls it, normally you don't need to): decrements the use count of the model copies under it
 - `assets.cached(name: string, build: (params?: any) => T | Promise<T>, params?: any) → Promise<T>` — Code-generated model: generated only once per name + params, returns a copy (for geometry, the same one). Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or a file it imports changes) -> compute now. When the generator is newer than the baked file during development, it computes now and prints a one-time hint "run npm run bake once it is final"
-- `assets.animate(root: Object3D, config?: AnimatorOptions) → Animator` — Create an animation state machine for a skinned model (without config it is simple play-by-name)
+- `assets.animate(root: Object3D, config?: AnimatorOptions) → Animator` — Create an animation state machine for a skinned model (without config it is simple play-by-name). A copy of a manifest model whose entry has `animation` starts from that mapping; config wins per state
+- `assets.mapping(root: Object3D) → AnimatorOptions | null` — The manifest entry's animation mapping for a model copy, or null (not a manifest copy, or no mapping)
 - Properties:
   - `cacheMinMs: number` Generations faster than this many milliseconds are not written to the automatic cache (reading the file would be slower), default 20
   - `shared: WeakSet<object>` Geometry and materials shared by model copies (engine.remove does not release them, use release)
@@ -55,4 +56,5 @@
   - `action(name: string, fade?: number) → any` — One-shot clip: state name or clip name, returns to then or the previous state when done; go() cannot interrupt it while playing
   - `sync(state: string | null, t?: number) → any` — Gameplay drives the clock: show state at gameplay time t (fixed-step seconds) through its timing. The clip never advances or ends by itself and go() leaves it alone; sync(null) hands control back
   - `describe() → AnimatorInfo` — What is showing: state, clip, clip time, progress, driven, weights
+  - `check(actions?: string[]) → string[]` — Check the mapping against the action names the game plays: each problem as text with its fix ([] = all will play). Example: `anim.check(['idle', 'walk', 'attack', 'hurt'])`
   - `dispose()` — Stop the per-frame update when no longer needed

@@ -54,6 +54,9 @@
   "peerDependencies": {
     "three": "^0.187.0"
   },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
     "@recast-navigation/core": "^0.44.0",

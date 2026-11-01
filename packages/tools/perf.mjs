@@ -5,7 +5,9 @@
 //   3. shadow updateEvery 1 vs 3, snap 0.5 vs 'texel': shadow update count, shadow draw calls, milliseconds per frame
 //   4. time for the two examples to go from open to playable (engine.startup) and the first-screen chunk time
 //   5. automatic batching (engine.batching): 3000 repeated props over 4 models, batching off vs on
-// Run one section only: npm run perf -- --only=props (sections: native, world, startup, props)
+//   6. streaming into a new area: ms per stage of applying background results (transit, build, collider, upload, stream)
+// Run one section only: npm run perf -- --only=props (sections: native, world, startup, props, stream)
+// Terrain shading for the stream section: npm run perf -- --only=stream --shading=texture
 // With software rendering (swiftshader) GPU work counts as CPU time, so only look at relative differences. Frame count: npm run perf -- 120
 process.env.THREEDOG_TEST = '1';
 import { launchBrowser, buildAndPreview } from './browser.mjs';
@@ -13,6 +15,7 @@ import { ENGINE } from './paths.mjs';
 
 // It measures the engine package (test pages in tests/perf/ and the two examples), regardless of the directory it is run from
 const ONLY = process.argv.find(a => a.startsWith('--only='))?.slice(7), want = k => !ONLY || ONLY === k;
+const SHADING = process.argv.find(a => a.startsWith('--shading='))?.slice(10);   // world / stream pages: terrain shading 'smooth' | 'flat' | 'texture' (default: the style's)
 const FRAMES = +(process.argv.slice(2).find(a => /^\d+$/.test(a)) || 60);
 const server = await buildAndPreview(ENGINE), base = server.base;
 // A fresh browser for every page (leftover work in the software-rendering GPU process from the previous page would slow the next one)
@@ -89,6 +92,19 @@ if (want('props')) {
     row(batch === '0' ? 'batching off' : 'batching on', r.cpuMs, r.renderMs, r.drawCalls, r.shadowCalls, st.batches, st.instances);
     await page.close();
   }
+}
+if (want('stream')) {
+  console.log('\n## 6. streaming into a new area: cost of applying background results, per stage (openWorld, player moved 700 m, 12 s of the real-time loop)\n');
+  console.log('transit = worker round trip minus worker compute (async wait, approximate); build = three.js objects; collider = physics colliders;');
+  console.log('upload = extra render time of frames that first draw new objects (GPU upload + shader compile, approximate); stream = sync part of stream build()\n');
+  row('stage', 'results', 'total ms', 'worst one ms', 'KB');
+  row('---', '---', '---', '---', '---');
+  const page = await open('/tests/perf/index.html?mode=world' + (SHADING ? '&shading=' + SHADING : ''));
+  const r = await page.evaluate(d => window.bench.streamIn(d), 700);
+  for (const [k, v] of Object.entries(r.cost)) row(k, v.n, v.totalMs, v.maxMs, Math.round(v.bytes / 1024));
+  console.log(`\n${r.frames} frames in ${r.seconds} s, ${r.chunks} chunks loaded; frame CPU avg ${r.cpuAvg} ms, worst ${r.cpuMax} ms ` +
+    `(worst frame by phase: ${Object.entries(r.worstPhases).map(([k, v]) => k + ' ' + v).join(', ')})`);
+  await page.close();
 }
 
 await server.close();

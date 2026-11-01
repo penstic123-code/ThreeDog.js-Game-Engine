@@ -51,6 +51,8 @@ export class Input {
     this.look = { dx: 0, dy: 0, zoom: 0 };
     /** Mouse/touch pointer @type {Pointer} */
     this.pointer = { x: 0, y: 0, ndcX: 0, ndcY: 0, down: false, clicked: false, button: 0 };
+    /** Set by a camera that locks the mouse on click: true while the next mouse press would only lock it, so that press is not delivered as Mouse0 / a click @internal */
+    this.swallowLockClick = /** @type {null | (() => boolean)} */ (null);
     /** On-screen stick (touch) */
     this.stick = { x: 0, y: 0 };
     /** Auto movement (stress tests, test scripts) @type {Autopilot | null} */

@@ -12,11 +12,11 @@ export class FollowCamera {
   /** yaw/pitch initial angles (yaw: see the top of this file); distance (min/max zoom range); height how high on the character to look; smoothing follow smoothness;
    *  sensitivity drag sensitivity; minPitch/maxPitch pitch range; zoomStep zoom ratio per wheel notch; groundClearance lowest camera height above the ground;
    *  shoulder meters to the right of the target the camera aims (over-the-shoulder; negative = left shoulder, 0 = centered);
-   *  pointerLock click locks the mouse (no dragging) */
+   *  pointerLock click locks the mouse (no dragging; the press that locks is swallowed, swallowLockClick: false delivers it) */
   constructor(engine, { yaw = 0.8, pitch = 0.42, distance = 13, minDistance = 4, maxDistance = 45, height = 1.4, smoothing = 10,
-    sensitivity = 1, minPitch = 0.05, maxPitch = 1.35, zoomStep = 0.1, groundClearance = 1.2, invertY = false, shoulder = 0, pointerLock = false } = {}) {
+    sensitivity = 1, minPitch = 0.05, maxPitch = 1.35, zoomStep = 0.1, groundClearance = 1.2, invertY = false, shoulder = 0, pointerLock = false, swallowLockClick = true } = {}) {
     Object.assign(this, { engine, yaw, pitch, distance, minDistance, maxDistance, height, smoothing, sensitivity, minPitch, maxPitch, zoomStep, groundClearance });
-    Object.assign(this, { invertY, shoulder, pointerLock });
+    Object.assign(this, { invertY, shoulder, pointerLock, swallowLockClick });
     this.target = null;
     /** Lock-on framing set by frame(): { target, strength } or null */
     this.framing = null;
@@ -80,6 +80,6 @@ Object.assign(FollowCamera.prototype, YAW_RIG);
 export function followCamera(opts = {}) { return rigModule('follow', opts); }
 defineRig('follow', (e, opts) => {
   checkOptions('followCamera()', opts, ['yaw', 'pitch', 'distance', 'minDistance', 'maxDistance', 'height', 'smoothing', 'sensitivity', 'minPitch', 'maxPitch',
-    'zoomStep', 'groundClearance', 'invertY', 'lockPitch', 'shoulder', 'pointerLock']);
+    'zoomStep', 'groundClearance', 'invertY', 'lockPitch', 'shoulder', 'pointerLock', 'swallowLockClick']);
   const c = new FollowCamera(e, opts); if (opts.lockPitch) c.lockPitch = true; return c;
 });

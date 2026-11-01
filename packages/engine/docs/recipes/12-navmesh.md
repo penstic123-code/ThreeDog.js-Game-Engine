@@ -2,7 +2,8 @@
 
 There is a single pathfinding entry point: `engine.characters.findPath(from, to)`; NPC schedules use it too.
 - Without `nav()` (or before it is built): the collision module's grid A* (good enough for open terrain with a few obstacles).
-- With `nav()`: after a level loads, a Recast navmesh is built; paths are more accurate and go around walls more cleverly. **Only level ground (the level module) is supported for now**; procedural terrain keeps using A*.
+- With `nav()`: after a level loads, a Recast navmesh is built; paths are more accurate and go around walls more cleverly. **Only level ground (the
+  level module) is supported for now**; procedural terrain keeps using A*.
 
 ## 1. Install (main.js)
 ```js
@@ -10,7 +11,8 @@ import { level, collision, followCamera, characters, nav } from 'threedog';
 engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), characters(),
   nav({ agentRadius: 0.4, agentHeight: 1.8, maxClimb: 0.45, maxSlope: 45, debug: false }));   // debug: true draws the navmesh
 ```
-- Mesh source: the walkable meshes in the level (naming convention in `10-blender-level.md`). Walls = the level's `col_` boxes + every `addBox / addCircle` in the collision module;
+- Mesh source: the walkable meshes in the level (naming convention in `10-blender-level.md`). Walls = the level's `col_` boxes + every
+  `addBox / addCircle` in the collision module;
   they sync automatically as dynamic obstacles: add an obstacle in game and the affected tiles rebuild themselves, no manual refresh.
 - Recast (about 1 MB) is downloaded only in start(); until it is ready findPath falls back to A*.
 
@@ -26,9 +28,11 @@ Native Recast objects: `engine.nav.navMesh / query / tileCache / crowd` (crowd n
 
 ## 3. Verify
 - `describe().nav`: `{ ready: true, version, obstacles: number of obstacles }`; in `describeText()` it is the "nav: {...}" line.
-- In a test: after `engine.pause()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`, `engine.step(0.1)` and query again: the path should switch sides.
+- In a test: after `engine.pause()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`,
+  `engine.step(0.1)` and query again: the path should switch sides.
 - Did the NPC arrive: after `engine.step(30)`, check `engine.npcs.get('信使').position`.
-- To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `npm test -- 导航网格` (test page in the engine repository: `packages/engine/tests/nav/`).
+- To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `npm test -- 导航网格` (test page in the engine repository:
+  `packages/engine/tests/nav/`).
 
 ## 4. Many paths at once: findPathAsync
 `findPath` answers now, on the main thread. For crowds (dozens of NPCs repathing, AI squads) use `findPathAsync`: the same search (navmesh if ready, else A*)
@@ -48,4 +52,6 @@ engine.characters.pathsPerStep = 64;           // requests sent per fixed step (
 - A save taken while a request is in flight does not keep it: the NPC asks again after loading. Tests: `npm test -- "paths:"`.
 
 ## 5. One source for "can walk there"
-`createEngine({ movement: { radius, height, maxSlope, stepHeight } })` sets it once; read it as `engine.movement`. Collision, the Rapier capsule, the navmesh, A* and level steps all read it, so a module never writes its own 0.4 or 0.45. A character's position belongs to its mover: other systems request movement (`placeAt`, `move`, vehicle `enter`) and never set `player.position`.
+`createEngine({ movement: { radius, height, maxSlope, stepHeight } })` sets it once; read it as `engine.movement`. Collision, the Rapier capsule, the
+navmesh, A* and level steps all read it, so a module never writes its own 0.4 or 0.45. A character's position belongs to its mover: other systems
+request movement (`placeAt`, `move`, vehicle `enter`) and never set `player.position`.

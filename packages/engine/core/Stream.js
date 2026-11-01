@@ -187,7 +187,12 @@ export class Stream {
 
   /** @internal End of every frame (after loaders ran): until, readiness, whenReady. A source counts only after one full frame, so every loader has seen it. */
   _settle() {
-    for (const s of [...this._sources]) {
+    // snapshot because remove() / waiter callbacks change the set; the array is reused (this runs every frame), taken out while in use for re-entrancy
+    const snap = this._snap || [];
+    this._snap = null; snap.length = 0;
+    for (const s of this._sources) snap.push(s);
+    for (let i = 0; i < snap.length; i++) {
+      const s = snap[i];
       if (typeof s.until === 'function' && s.until()) { s.remove(); continue; }
       if (s.age++ < 1) continue;
       s.sync();
@@ -196,6 +201,7 @@ export class Stream {
       s._ready = ok;
       if (ok && s._waiters.length) s._settle(null);
     }
+    snap.length = 0; this._snap = snap;
   }
   /** @internal */
   _insert(h) {
@@ -247,7 +253,8 @@ export class Stream {
     const fail = err => { this.queued--; this.live.delete(h); h.want = false; reportError(this.engine, err, 'stream build', { soft: true }); };
     this.engine.jobs.add(() => {
       if (!h.want || !this.entries.has(h)) return this._built(h, null);
-      const r = h.def.build();
+      const t0 = performance.now(), r = h.def.build();   // measure: the 'stream' stage of engine.budget.cost
+      this.engine.budget.cost.end('stream', t0);
       if (r && typeof r.then === 'function') return r.then(obj => this._built(h, obj), fail);
       this._built(h, r);   // synchronous build: attach to the scene on the spot
     }, { priority: (h.def.priority ?? 0) - near }).catch(fail);

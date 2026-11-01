@@ -11,7 +11,7 @@ import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'press', 'reload', 'resume', 'scenario', 'snap', 'snap_describe', 'state', 'step'];
+const EXPECTED = ['describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'snap', 'snap_describe', 'state', 'status', 'step', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -57,7 +57,8 @@ async function steps(check, plain) {
   const dir = ENGINE;
   if (!existsSync(join(dir, '.threedog/dev.json'))) {
     const r = await plain.rpc('tools/call', { name: 'describe', arguments: {} });
-    check('without a dev server the tool result is an error that says npm run dev', r.isError && r.content[0].text.includes('npm run dev'), r.content[0].text);
+    check('without a dev server the tool result is an error that says npm run dev, with code no-server', r.isError && r.content[0].text.includes('npm run dev')
+      && r.structuredContent.code === 'no-server', r.content[0].text);
   }
 
   // 3. Against a running dev server: describe returns text, snap returns an image
@@ -67,6 +68,15 @@ async function steps(check, plain) {
     const d = await plain.rpc('tools/call', { name: 'describe', arguments: {} });
     check('describe: text content with the scene summary', !d.isError && d.content[0].type === 'text' && d.content[0].text.includes('Player'), JSON.stringify(d).slice(0, 300));
     const p = await plain.rpc('tools/call', { name: 'describe', arguments: { path: 'time.clock' } });
+    check('describe: structuredContent has ok, code, summary, runtime and data, and every tool declares an outputSchema',
+      d.structuredContent?.ok === true && d.structuredContent.code === 'ok' && typeof d.structuredContent.summary === 'string'
+        && d.structuredContent.runtime.ready === true && ['running', 'paused', 'frozen'].includes(d.structuredContent.runtime.mode)
+        && Array.isArray(d.structuredContent.runtime.blockedBy) && (await plain.rpc('tools/list')).tools.every(t => t.outputSchema?.type === 'object'),
+      JSON.stringify(d.structuredContent).slice(0, 300));
+    const bad = await plain.rpc('tools/call', { name: 'op', arguments: { name: 'no.such.op' } }), er = await plain.rpc('tools/call', { name: 'errors', arguments: {} });
+    check('a failed op is not a connection failure; errors carries data.cursor', bad.isError && bad.structuredContent.code !== 'ok'
+      && !['no-server', 'starting', 'page-error', 'no-bridge'].includes(bad.structuredContent.code) && typeof er.structuredContent.data?.cursor === 'number',
+      JSON.stringify([bad.structuredContent, er.structuredContent]).slice(0, 300));
     check('describe path: one field', /\d\d:\d\d/.test(p.content[0].text), p.content[0].text);
     const s = await plain.rpc('tools/call', { name: 'snap', arguments: { name: 'mcp-test' } });
     const img = s.content.find(c => c.type === 'image');

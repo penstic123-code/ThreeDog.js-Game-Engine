@@ -19,6 +19,7 @@
 //   enabled    false pauses detection (handle.enabled can be changed any time)
 //   tag        name carried in events, for shared handling
 //   who        what can trigger: default is engine.actorPosition() (the player, or what engine.actor names; engine.focus without a player); or a Vector3 / Object3D, or a function returning an array of positions () => [p1, p2]
+//              (a zone with a function / object `who` is checked every step; zones with the default `who` cost nothing while the actor is far away)
 //   cooldown   seconds after leaving during which enter will not fire again (stops edge jitter from re-triggering), default 0
 // Returned handle: { tag, inside, enabled, used, remove(), contains(p) }
 //
@@ -31,6 +32,11 @@
 //   In dev builds F4 (action triggersDebug, rebindable) toggles the display; release builds bind no key unless triggers({ keys }) names one.
 import * as THREE from 'three';
 import { checkOptions, DEV } from '../../core/validate.js';
+
+// Zones are indexed by the grid cells their bounding box covers, so a step looks at the zones near the actor instead of every zone. A zone with its own `who`
+// (any position, unknown until it runs) or one covering more than MAX_CELLS cells goes to the always-checked `_global` list.
+const CELL = 16, MAX_CELLS = 64, KEY = 1048576, PAD = 0.01;   // PAD: contains() is inclusive, so a point exactly on the edge must still find the zone's cell
+const bySeqDesc = (a, b) => b._seq - a._seq;   // the order zones have always run in: newest first
 
 const ADD_KEYS = ['shape', 'position', 'radius', 'size', 'height', 'rotation', 'onEnter', 'onExit', 'onStay', 'once', 'enabled', 'tag', 'who', 'cooldown', 'userData'];
 
@@ -47,7 +53,11 @@ export class Triggers {
     this.action = action;
     this._one = [null];           // by default "who" is a single position: reuse this array to avoid per-frame allocation
     this._custom = [null];
-    this._scan = [];               // snapshot iterated by update(): callbacks may add / remove zones
+    this._scan = [];               // zones update() visits this step (a snapshot: callbacks may add / remove zones)
+    this._cells = new Map();       // grid cell -> zones whose bounding box covers it
+    this._global = [];             // zones checked every step (custom `who`, or too large for the grid)
+    this._busy = new Set();        // zones that need a visit even when nobody is near: occupied, or cooling down
+    this._seq = 0; this._stamp = 0;
     this._debugGroup = null;
     engine.i18n.add(STRINGS);
     /** @internal the debug toggle has a key */ this._keyed = keys.length > 0;
@@ -69,7 +79,8 @@ export class Triggers {
       remove: () => this._remove(t),
       contains: p => this._contains(t, p),
     };
-    this._list.push(t);
+    t._seq = this._seq++; t._span = null;
+    this._list.push(t); this._register(t);
     if (this.debug) this._addDebugMesh(t);
     return t;
   }
@@ -77,9 +88,28 @@ export class Triggers {
   _remove(t) {   // remove only through the handle t.remove(); zones still occupied send exit first (so music areas and content onExit can clean up)
     const i = this._list.indexOf(t); if (i < 0) return;
     if (t.inside) this._exit(t, null);
-    this._list.splice(i, 1);
+    this._list.splice(i, 1); this._unregister(t); this._busy.delete(t);
     t._gone = true;
     if (t._mesh) { t._mesh.parent?.remove(t._mesh); t._mesh.geometry.dispose(); t._mesh = null; }
+  }
+  _register(t) {
+    if (t.who) { this._global.push(t); return; }
+    const ex = (t.shape === 'box' ? t.hx * Math.abs(t.c) + t.hz * Math.abs(t.s) : t.radius) + PAD;
+    const ez = (t.shape === 'box' ? t.hx * Math.abs(t.s) + t.hz * Math.abs(t.c) : t.radius) + PAD;
+    const x0 = Math.floor((t.x - ex) / CELL), x1 = Math.floor((t.x + ex) / CELL), z0 = Math.floor((t.z - ez) / CELL), z1 = Math.floor((t.z + ez) / CELL);
+    if ((x1 - x0 + 1) * (z1 - z0 + 1) > MAX_CELLS) { this._global.push(t); return; }
+    t._span = [x0, x1, z0, z1];
+    for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
+      const k = i * KEY + j; let c = this._cells.get(k); if (!c) this._cells.set(k, c = []); c.push(t);
+    }
+  }
+  _unregister(t) {
+    const sp = t._span;
+    if (!sp) { this._global.splice(this._global.indexOf(t), 1); return; }
+    for (let i = sp[0]; i <= sp[1]; i++) for (let j = sp[2]; j <= sp[3]; j++) {
+      const k = i * KEY + j, c = this._cells.get(k);
+      c.splice(c.indexOf(t), 1); if (!c.length) this._cells.delete(k);
+    }
   }
   /** All trigger zones (a new array) */
   list() { return [...this._list]; }
@@ -132,30 +162,44 @@ export class Triggers {
     return this._one;
   }
 
-  /** @internal Fixed step: enter / stay / exit for every zone */
+  /** @internal Fixed step: enter / stay / exit for the zones that can change: those near the actor, always-checked ones, occupied or cooling ones */
   update(dt) {
-    const e = this.engine;
     if (!this._list.length) return;
-    const def = this._defaultWho(), list = this._scan;
-    list.length = 0; list.push(...this._list);   // a callback removing an earlier zone must not make a later one run twice
-    for (let i = list.length - 1; i >= 0; i--) {
-      const t = list[i];
-      if (t._gone) continue;
-      if (t._cool > 0) t._cool -= dt;
-      if (!t.enabled || t.used) { if (t.inside) this._exit(t, null); continue; }
-      let ps = def;
-      if (t.who) { if (typeof t.who === 'function') ps = t.who(); else { this._custom[0] = t.who.isObject3D ? t.who.position : t.who; ps = this._custom; } }
-      let hit = null;
-      if (ps) for (let k = 0; k < ps.length; k++) { const p = ps[k]; if (p && this._contains(t, p)) { hit = p; break; } }
-      if (hit && !t.inside) {
-        if (t._cool > 0) continue;
-        t.inside = true;
-        t.onEnter?.(t, hit);
-        e.events.emit('trigger:enter', { tag: t.tag, trigger: t, who: hit });
-        if (t.once) { t.used = true; this._exit(t, null); continue; }
-      } else if (!hit && t.inside) this._exit(t, null);
-      else if (hit && t.inside) t.onStay?.(dt, t, hit);
+    const def = this._defaultWho(), scan = this._scan, st = ++this._stamp;
+    scan.length = 0;
+    for (const t of this._busy) { t._q = st; scan.push(t); }
+    const g = this._global;
+    for (let i = 0; i < g.length; i++) { const t = g[i]; if (t._q !== st) { t._q = st; scan.push(t); } }
+    for (let k = 0; k < def.length; k++) {
+      const p = def[k]; if (!p) continue;
+      const c = this._cells.get(Math.floor(p.x / CELL) * KEY + Math.floor(p.z / CELL));
+      if (c) for (let i = 0; i < c.length; i++) { const t = c[i]; if (t._q !== st) { t._q = st; scan.push(t); } }
     }
+    if (scan.length > 1) scan.sort(bySeqDesc);   // a callback removing an earlier zone must not make a later one run twice: scan is a snapshot, removed zones are skipped
+    for (let i = 0; i < scan.length; i++) {
+      const t = scan[i];
+      if (t._gone) continue;
+      this._visit(t, dt, def);
+      if (t._gone) continue;
+      if (t.inside || t._cool > 0) this._busy.add(t); else this._busy.delete(t);
+    }
+  }
+  _visit(t, dt, def) {
+    const e = this.engine;
+    if (t._cool > 0) t._cool -= dt;
+    if (!t.enabled || t.used) { if (t.inside) this._exit(t, null); return; }
+    let ps = def;
+    if (t.who) { if (typeof t.who === 'function') ps = t.who(); else { this._custom[0] = t.who.isObject3D ? t.who.position : t.who; ps = this._custom; } }
+    let hit = null;
+    if (ps) for (let k = 0; k < ps.length; k++) { const p = ps[k]; if (p && this._contains(t, p)) { hit = p; break; } }
+    if (hit && !t.inside) {
+      if (t._cool > 0) return;
+      t.inside = true;
+      t.onEnter?.(t, hit);
+      e.events.emit('trigger:enter', { tag: t.tag, trigger: t, who: hit });
+      if (t.once) { t.used = true; this._exit(t, null); }
+    } else if (!hit && t.inside) this._exit(t, null);
+    else if (hit && t.inside) t.onStay?.(dt, t, hit);
   }
   /** @internal session:end: occupied zones exit, cooldowns clear, once zones are armed again (recipes/14-custom-module.md "Per-playthrough state") */
   _reset() {

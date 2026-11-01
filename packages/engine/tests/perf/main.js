@@ -12,7 +12,12 @@ import { createEngine, presets, Character, createTerrain, openWorld, world, inte
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
-import lowpoly, { models as lowpolyModels, assets as lowpolyAssets } from '@threedog/style-lowpoly';
+import { NOISE_GLSL } from '../../render/effects.js';
+import { styleFrom, postAdd, postRemove } from '../../core/styleParts.js';
+import lowpoly, { models as lowpolyModels, assets as lowpolyAssets, outline } from '@threedog/style-lowpoly';
+import * as postEffects from '@threedog/post-effects';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { terrainPreset, riverAt } from '@threedog/terrain-noise';
 import vegetationDefs from '../../examples/world/content/vegetation.js';
 
@@ -122,7 +127,7 @@ if (mode === 'native') {
       const a = r * 0.37, x = Math.cos(a) * r, z = Math.sin(a) * r, h = T.surface(x, z);
       if (h > 4 && h < 10 && T.slope(x, z) < 0.2 && riverAt(x, z, T.noise) === 0) { home = { x, z }; break; }
     }
-    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
+    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: { ...terrainPreset(), ...(q.get('shading') && { shading: q.get('shading') }) }, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
       weather: presets.weather.temperate, debug: false, ambience: false });
     // The preset only builds the world; add back the gameplay modules it used to bundle so timings stay comparable with earlier runs (music stays off)
     engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }),
@@ -170,9 +175,37 @@ if (mode === 'native') {
       return { cpuMs: r2(ms), renderMs: r2(renderMs / frames), drawCalls: info.calls, triangles: info.triangles, shadowRenders: sc.renders,
         shadowCalls: Math.round(sc.calls / Math.max(1, sc.renders)), modules };
     },
+    /**
+     * Stream into a new area in the real-time loop (workers answer between frames, like in play): put the player dist meters away and watch for
+     * seconds. Returns the cost of each stage (engine.budget.cost), the frame CPU time (engine.cpuMs, per phase for the worst frame) and how many
+     * chunks were loaded, so one number per stage is reproducible.
+     */
+    async streamIn(dist = 700, seconds = 12) {
+      const T = engine.terrain, cost = engine.budget.cost, pl = engine.player.root.position;
+      engine.pause();
+      for (let i = 0; i < 20; i++) engine.step(1 / 30, { describe: false });
+      engine.player.placeAt({ x: pl.x + dist, z: pl.z });
+      cost.reset();
+      let frames = 0, sum = 0, worst = 0, worstPhases = null, last = -1;
+      engine.resume();
+      const t0 = performance.now();
+      await new Promise(res => {
+        const poll = () => {
+          if (engine.cpuMs !== last) {   // one new real-time frame
+            last = engine.cpuMs; frames++; sum += last;
+            if (last > worst) { worst = last; worstPhases = { ...engine.cpuPhases }; }
+          }
+          if (performance.now() - t0 < seconds * 1000) requestAnimationFrame(poll); else res();
+        };
+        requestAnimationFrame(poll);
+      });
+      engine.pause();
+      const ph = {}; for (const k in worstPhases) ph[k] = r2(worstPhases[k]);
+      return { seconds, frames, cpuAvg: r2(sum / Math.max(1, frames)), cpuMax: r2(worst), worstPhases: ph, chunks: T.chunks.size, cost: cost.report() };
+    },
   };
   engine.start();
 }
 window.bench = bench;
 window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, lowpoly, lowpolyAssets, sky };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

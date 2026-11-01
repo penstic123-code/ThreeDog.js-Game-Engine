@@ -4,7 +4,8 @@ Every piece of UI the engine draws is a named **part** with a plain default:
 `loading`, `toast`, `title` (off by default), `touch` (on-screen stick and buttons),
 `hud.marker`, `hud.counter`, `hud.bar`, `dialogue`, `prompt` ("E · Talk"), `questLog`, `inventory` (with the inventory module).
 The engine keeps the behavior (when to show, the UI focus stack and Esc, input lock, i18n); a part only draws the data it gets.
-Each name takes one value: `false` off · `true` default · `{ ...options }` default with options · `(engine, options) => ({ show, update, hide, dispose })` your own (any verb may be omitted).
+Each name takes one value: `false` off · `true` default · `{ ...options }` default with options ·
+`(engine, options) => ({ show, update, hide, dispose })` your own (any verb may be omitted).
 Only want different colors / layout? Use the style pack (`style.ui` colors, `style.ui.css`, `style.ui.templates.*`), not a new part.
 
 ## 1. Pick at start (copy it)
@@ -49,7 +50,8 @@ What each part receives:
 
 (1) Only when a stick (`createEngine({ joystick })`: `'auto'` on touch devices, `true` always) or a touch button is wanted.
 `view = { stick, buttons: [{ action, label }], move(x, y), press(action), release(action) }`.
-(2) The quest key (`quests({ keys })`, e.g. `...presets.keys.quests`) opens it, Esc and the key close it. `view = { title, key, quests: engine.quests.list(), close() }`.
+(2) The quest key (`quests({ keys })`, e.g. `...presets.keys.quests`) opens it, Esc and the key close it.
+`view = { title, key, quests: engine.quests.list(), close() }`.
 
 Every view hands back functions (`advance`, `choose`, `use`, `close`, `move`, `press`...) instead of making your part call engine internals:
 they run the same ops and input path as keys, so tests, the dev bridge and replays see one path.
@@ -125,6 +127,9 @@ A completely different menu: don't install `settings()`; open your own with `uiF
 Check what is in use: `engine.ui.describe()` → `{ loading: 'default', toast: 'off', 'hud.bar': 'custom', ... }`.
 
 ## 7. Keys, and UI that follows the world
-- Declare keys once with `input.define('action', keys, 'label', { pad })` (or content `actions`) and read them by action name: gameplay keys (attack, jump) in the fixed step, UI keys in the frame hook. Never `addEventListener('keydown')`, and never read `pointer.clicked` for gameplay; bind a `Mouse0` action instead.
-- A menu, vehicle or build mode that takes over keys pushes an input context: `const h = engine.input.push('menu')` (opaque) or `push('vehicle', { pass: true })`, then `h.remove()`. Tests and the dev bridge press keys with `engine.input.simulate(action, down)`.
+- Declare keys once with `input.define('action', keys, 'label', { pad })` (or content `actions`) and read them by action name: gameplay keys (attack,
+  jump) in the fixed step, UI keys in the frame hook. Never `addEventListener('keydown')`, and never read `pointer.clicked` for gameplay; bind a
+  `Mouse0` action instead.
+- A menu, vehicle or build mode that takes over keys pushes an input context: `const h = engine.input.push('menu')` (opaque) or
+  `push('vehicle', { pass: true })`, then `h.remove()`. Tests and the dev bridge press keys with `engine.input.simulate(action, down)`.
 - A label over a world position: `worldToScreen(engine, pos)` gives screen coordinates for an HTML element.

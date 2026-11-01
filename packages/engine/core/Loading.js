@@ -32,7 +32,22 @@ class Task {
 
 export class Loading {
   /** @param {any} engine */
-  constructor(engine) { this.engine = engine; this.tasks = new Map(); }
+  constructor(engine) {
+    this.engine = engine; this.tasks = new Map();
+    this._inits = new Set();   // init() of modules installed after start(), in flight
+    /** How long start() waits for modules whose isReady stays false before it rejects naming them (ms) @type {number} */
+    this.timeoutMs = 120000;
+  }
+
+  /** @internal keep a late module init in flight until it ends (settled() waits for these) */
+  _track(p) { this._inits.add(p); p.finally(() => this._inits.delete(p)); }
+  /**
+   * Resolves when every module installed after start() has finished its init() (also when one failed: its state is then 'failed' in engine.moduleStates and the error went through the error tiers).
+   * engine.use() returns the engine, so await this to know a late module is running.
+   * @returns {Promise<void>}
+   * @example engine.use(shop()); await engine.loading.settled(); engine.moduleStates.shop   // 'running'
+   */
+  async settled() { while (this._inits.size) await Promise.allSettled([...this._inits]); }
 
   /** Start (or restart) a task; engine-internal callers keep the returned task and move its phase */
   _begin(name, kind, opts) { const t = new Task(name, kind, opts); this.tasks.set(kind + ':' + name, t); return t; }   // keyed by kind too: a module and a model may share a name

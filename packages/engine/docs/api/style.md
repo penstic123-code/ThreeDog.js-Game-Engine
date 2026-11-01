@@ -8,14 +8,16 @@
   - `post?: import('./generated/render/PostFX').PostEffect[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/style-lowpoly'
   - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
   - `antialias?: boolean` Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier; createEngine({ antialias }) wins
-  - `seasons?: Record<string, { foliage?: ColorLike; ground?: ColorLike }>` Seasonal tint (multiplied onto the base color): { spring: { foliage, ground }, ... }
+  - `lighting?: MaterialLighting` Light shaping for every lit material of the pack (shadow tint, rim, wrap, glsl); a material's `lighting` wins, `lighting: false` opts out
+  - `seasons?: StyleSeasons` Seasonal tint: { spring: { foliage, ground }, ... }. mode 'multiply' (default) multiplies the color onto the surface (pick tints near white: orange times green is muddy); 'mix' moves the surface `strength` (0-1, default 0.5) of the way to the color. Season names are the other keys, so none can be called mode or strength
   - `clouds?: { shadow?: number; scale?: number; speed?: number[] }` Cloud shadow: shadow darkest level 0–1 (default 0 = no cloud shadows; lowpoly 0.55), scale cloud size (smaller means bigger clouds), speed [x, z]
-  - `wind?: { frequency?: number }` Wind: frequency sway frequency multiplier
+  - `palette?: Record<string, ColorLike>` Named colors the procedural model generators read (trees, rocks, grass: a generator written with `function` gets them as this.palette; lowpoly keys: bark, pine, leaf, rock, grassTip...). One place to retint all of them, e.g. style: [lowpoly, { palette: { leaf: 0xd98a3a } }]; keys left out keep the pack's values
+  - `wind?: StyleWind` Wind: frequency sway frequency multiplier
   - `terrain?: StyleTerrain` Terrain colors etc.
   - `sky?: StyleSky` Sky
   - `weather?: StyleWeather` Weather look
   - `water?: StyleWater` Water look
-  - `pickup?: { color?, size?, lift?, model? }` Default look of pickups on the ground: color (the item's own color wins), size (meters), lift height above ground (meters), model(item, { color, size }) builds the shape (a geometry gets materials.pickup; without model a plain box)
+  - `pickup?: { color?, size?, lift?, model? }` Default look of pickups on the ground: color (the item's own color wins), size (meters), lift height above ground (meters), model(item, { color, size }, engine) builds the shape (a geometry gets materials.pickup; make materials with engine.makeMaterial; without model a plain box)
   - `character?: { model?, colors?, create?, animation? }` Default character: colors palette; create(engine, colors) returns the procedural character (without it a gray capsule); model names a registered model asset every character uses unless it passes its own model (the procedural body shows until it loads); animation.fade skeletal animation transition seconds
   - `ui?: StyleUI` UI colors, fonts, templates
   - `particles?: Record<string, ParticleOptions>` Particle presets: name → parameters; default is the fallback for all effects
@@ -37,10 +39,11 @@
   - `starScale?: number` Larger means smaller and more numerous stars
   - `gradientCurve?: number` Gradient curve from zenith to horizon
   - `groundTint?: ColorLike` Ground bounce color of the ambient light
-  - `clouds?: { color?, shade?, coverage?, scale?, speed? }` Clouds in the sky (cloud cover follows the weather)
+  - `clouds?: StyleSkyClouds` Clouds in the sky (cloud cover follows the weather); see StyleSkyClouds
   - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path
   - `shadow?: StyleShadow` Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow
-- **StyleShadow** Sun shadow parameters (defaults are the current look)
+  - `environment?: StyleEnvironment` Environment lighting (scene.environment), off unless a source is given; see Sky.setEnvironment. A pack can give defaults, sky({ environment }) overrides
+- **StyleShadow**
   - `mapSize?: number` Shadow resolution (pixels), default 2048
   - `extent?: number` Coverage radius (meters), default 70
   - `distance?: number` Distance of the light from the shadow center (meters), default 160
@@ -49,6 +52,9 @@
   - `updateEvery?: number` Update shadows every N frames, default 1 (every frame); larger saves more, still updates promptly when the focus moves
   - `snap?: number | 'texel'` Shadow center snapping grid (meters), default 0.5; 'texel' snaps to shadow pixels (shadow edges do not shimmer while moving)
   - `ahead?: number` How far ahead of the view direction the shadow center is shifted (meters), default 0
+  - `type?: 'basic' | 'pcf' | 'vsm'` Shadow filter: 'basic' (hard edge, cheapest) / 'pcf' (default, soft edge) / 'vsm' (softest, costliest). Default: the engine's shadowType option
+  - `radius?: number` Edge softness for 'pcf' and 'vsm' (no effect on 'basic'), default 1
+  - `blurSamples?: number` Blur sample count, 'vsm' only, default 8
   - `low?: Omit<StyleShadow, 'low'>` Overrides used on low-tier devices (engine.tier 'low'), default { mapSize: 1024 }. updateEvery above 1 saves more but makes wind-swayed shadows step visibly. sky({ shadow }) options replace the whole shadow block, low included.
 - **StyleWeather**
   - `area?: number` Rain / snow coverage (meters, centered on the camera)
@@ -72,15 +78,13 @@
   - `normalSpeed?: number[]` Normal map flow speed [x, z]
   - `shininess?: number`
   - `specular?: ColorLike`
-  - `size?: number` Global water mesh size (meters) and segment count
-  - `segments?: number`
-  - `level?: number` Global water level (meters); if omitted, the terrain's water level is used
-  - `sea?: boolean` false: do not draw the global water
+  - `segments?: number` Mesh subdivision of the global water (quality, not the world; default 150)
 - **StyleTerrain**
   - `colors?: Record<string, ColorLike>` Palette: color name → color (e.g. sand, meadowA, rock)
   - `biomeColors?: Record<string, string[]>` Landform → palette color name (two names are blended by noise)
   - `steep?: SteepRule[]` Color rule for steep slopes
-  - `config?: Partial<TerrainConfig>` Default terrain parameters (overridden by terrain({...}))
+  - `variation?: { blend?, jitter?, patches? }` How ground colors vary (plain data, sent to the terrain workers). Every default is the original look; set only what you want to change. blend: the two-color noise (size = wavelength in meters, default 33; strength = contrast, default 1). Example: `variation: { blend: { size: 14 }, jitter: { range: 0.04 }, patches: { size: 60, strength: 0.25, levels: 4, tint: 0xb59a5a } }`
+  - `config?: { shading?, colorResolution?, normals?, normalFn? }` Looks of the ground mesh only. shading: 'flat' one color and normal per triangle (facets) / 'smooth' (engine default) / 'texture' (per-chunk color map, colors independent of the mesh); colorResolution: color map pixels per chunk edge; normals: 'smooth' / 'flat' lighting in texture mode; normalFn: custom grid-point normal.
   - `material?: Material | ((engine: Engine) => Material)` Whole ground material: a Material or (engine) => Material (uv = world xz / chunk size; terrain({ material }) wins)
   - `detail?: { texture: string; scale?: number; strength?: number }` Ground detail texture: texture asset name, scale repeats per meter, strength 0–1
 - **StyleUI**
@@ -105,4 +109,13 @@
 - **MaterialSpec** Material parameters for one role (other fields are set on the three.js material as is, e.g. roughness, shininess, specular)
   - `type?: MaterialType` Material type, default 'lambert'
   - `steps?: number` Number of light/dark steps for the toon type, default 3
+  - `ramp?: (number | ColorLike)[]` toon only: the light ramp, dark to light: grays 0-1 (light strength in the band) or colors (tint the band). Replaces steps
+  - `soften?: number` toon only, with ramp: 0 = hard bands, up to 1 = the bands melt into each other
   - `color?: ColorLike`
+  - `map?: string | import('three').Texture` Texture slots take an asset name: map, emissiveMap (sRGB), normalMap, roughnessMap, metalnessMap, aoMap, bumpMap, alphaMap, displacementMap... (linear). Loaded through engine.assets.texture, a neutral stand-in until the image arrives; the key must be a slot the type has (roughnessMap needs 'standard'). A THREE.Texture also works.
+  - `normalMap?: string | import('three').Texture`
+  - `roughnessMap?: string | import('three').Texture`
+  - `repeat?: number | [number, number]` How many times the textures of this material repeat (a number, or [x, y]); default 1
+  - `wrap?: 'repeat' | 'clamp' | 'mirror'` Texture wrapping: 'repeat' (default) / 'clamp' / 'mirror'
+  - `detail?: MaterialDetail` Grain, paper, strokes or a texture laid over the surface in world space (no UVs needed); off unless given
+  - `lighting?: MaterialLighting | false` Extra light shaping (shadow tint, rim, wrap, your own GLSL); merged over style.lighting, false opts out

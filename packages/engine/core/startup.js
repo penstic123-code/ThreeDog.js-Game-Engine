@@ -10,6 +10,7 @@ import { Loading, failureText } from './Loading.js';
 const DEV_STRINGS = {
   initFailed: 'init of module {name}',
   blocked: 'Startup blocked: {n} critical item(s) failed to load, the game cannot start:\n  {list}',
+  stalled: 'Startup stalled: still waiting after {s} s for: {list}. A module\'s isReady(e) keeps returning false (or the world never finished its nearby builds); fix that module, or raise engine.loading.timeoutMs if the load is just slow',
   disposed: 'engine.start() stopped: engine.dispose() was called while it was loading ({at}); a disposed engine cannot start, create a new one',
 };
 
@@ -41,11 +42,18 @@ export const startupMethods = {
     const ms = t => Math.round(performance.now() - t);        // measure
     const timing = {};                         // module name -> { init, ready } in ms (ready = time spent waiting for isReady)
     for (const m of this.modules.values()) if (m.init) {
-      const task = L._begin(m.name, 'module', { critical: true });
+      const task = L._begin(m.name, 'module', { critical: !!m.critical });
       task.phase('build');
       ls?.update({ progress: 0.1, text: this.t('common.preparing', { name: this.moduleName(m) }) });
       const t = performance.now();   // measure
-      try { await m.init(this); L._done(task); } catch (e) { L._fail(task, e); reportError(this, e, DEV_STRINGS.initFailed.replace('{name}', m.name), { module: m }); }
+      this._setModState(m, 'initializing');      // no hooks until init succeeded (modules.js)
+      try { await m.init(this); L._done(task); this._setModState(m, 'running'); }
+      catch (e) {
+        L._fail(task, e); this._setModState(m, 'failed');
+        // a critical module stops start() with the reason (below); any other failure is reported by severity and start() goes on
+        if (!m.critical) reportError(this, e, DEV_STRINGS.initFailed.replace('{name}', m.name), { module: m });
+      }
+      if (this._fatal().length) return this._blocked(this._fatal());
       timing[m.name] = { init: ms(t) };
       this._alive('init of ' + m.name);
     }
@@ -82,12 +90,12 @@ export const startupMethods = {
     return this;
   },
 
-  /** Critical assets / track() steps that failed (a module init error is already reported by reportError) */
-  _fatal() { return this.loading.list({ phase: 'failed' }).filter(t => t.critical && t.kind !== 'module'); },
+  /** Critical items that failed: assets, track() steps and modules declared critical: true (a non-critical module's init error goes through reportError instead) */
+  _fatal() { return this.loading.list({ phase: 'failed' }).filter(t => t.critical); },
 
   /** A critical item failed: keep the loading screen up with the failure, log it (errors.log in dev) and reject start() with every reason */
   _blocked(fatal) {
-    const err = codedError('asset-critical', DEV_STRINGS.blocked.replace('{n}', String(fatal.length)).replace('{list}', fatal.map(failureText).join('\n  ')));
+    const err = codedError(fatal.some(t => t.kind === 'module') ? 'module-critical' : 'asset-critical', DEV_STRINGS.blocked.replace('{n}', String(fatal.length)).replace('{list}', fatal.map(failureText).join('\n  ')));
     this.ui.get('loading')?.update({ progress: 1, text: this.t('loading.failed', { name: fatal.map(t => t.name).join(', ') }), failed: fatal });
     console.error(err.message);
     throw err;
@@ -98,6 +106,7 @@ export const startupMethods = {
     const ls = this.ui.get('loading');
     return new Promise((res, rej) => {
       let done = false;
+      const t0 = performance.now();   // measure: wall clock, so a module that never turns ready ends the wait instead of hanging
       const check = () => {
         if (done) return;
         if (this.disposed) { done = true; rej(codedError('engine-disposed', DEV_STRINGS.disposed.replace('{at}', 'waiting for the world'))); return; }
@@ -108,6 +117,12 @@ export const startupMethods = {
         if (this.stream.ready && getStream() == null) setStream(ms(tr));
         const fatal = this._fatal();   // a critical step tracked by a module can fail while we wait
         if (fatal.length || (!waiting.length && getStream() != null)) { done = true; this._afterTick = null; if (fatal.length) rej(fatal); else res(); return; }
+        if (performance.now() - t0 > this.loading.timeoutMs) {   // measure
+          done = true; this._afterTick = null;
+          const who = [...waiting.map(m => m.name), ...(this.stream.ready ? [] : ['the stream (required nearby builds)'])];
+          rej(codedError('module-not-ready', DEV_STRINGS.stalled.replace('{s}', String(Math.round(this.loading.timeoutMs / 1000))).replace('{list}', who.join(', '))));
+          return;
+        }
         ls?.update({ progress: 0.5 + 0.5 * (1 - waiting.length / this.modules.size), text: this.loading.text() ?? this.t('common.generating', { name: this.t('common.world') }) });
       };
       const poll = () => { check(); if (!done) setTimeout(poll, 20); };   // main-loop: poll for readiness while loading (a dispose rejects on the next check)

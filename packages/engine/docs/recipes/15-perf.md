@@ -1,14 +1,28 @@
 # Performance investigation (F3, budget, profile, describe().perf)
 
-Order: first use numbers to decide which category is over (frame rate? draw calls? CPU? startup?), then find who takes the most, and after changing, compare before/after with the same method.
-Note: cloud tests use software rendering (SwiftShader), so the numbers are for **relative comparison** only; for real-device results ask the user to press F3 in the browser. Measurement method and reference data are in `../PERF.md`.
+Order: first use numbers to decide which category is over (frame rate? draw calls? CPU? startup?), then find who takes the most, and after changing,
+compare before/after with the same method.
+Note: cloud tests use software rendering (SwiftShader), so the numbers are for **relative comparison** only; for real-device results ask the user to
+press F3 in the browser. Measurement method and reference data are in `../PERF.md`.
 
 ## 1. Where things stand
-- **F3 panel** (`debug()` module, included in openWorld, collapsed by default, press F3 to open): frame rate, CPU ms/frame, draw calls, triangles, chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
-  with a budget set it also shows over-limit items and startup time; the "20-second stress test" makes the player run forward fast automatically and reports the average frame rate and the worst frame at the end.
-- **Text**: `engine.describe().perf` = `{ fps, cpuMs, drawCalls, triangles, pixelRatio, budget, startup, stream, batching, jobs, commits, chunks?, vegetation? }`;
+- **F3 panel** (`debug()` module, included in openWorld, collapsed by default, press F3 to open): frame rate, CPU ms/frame, draw calls, triangles,
+  chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
+  with a budget set it also shows over-limit items and startup time; the "20-second stress test" makes the player run forward fast automatically and
+  reports the average frame rate and the worst frame at the end.
+- **Text**: `engine.describe().perf` =
+  `{ fps, cpuMs, cpu, apply, drawCalls, triangles, pixelRatio, budget, startup, stream, batching, jobs, commits, chunks?, vegetation? }`;
   the perf line of `npm run shot -- / --describe-only` (in headless mode fps/cpu are `-`; look at draw calls and triangles).
-- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, modules: { name: { init, ready } } }`; `npm test` also prints a startup line (with the slowest module) for each item.
+- **CPU time of a frame**: `engine.cpuMs` is the main-thread time from input to the end of the afterRender hooks; `engine.cpuPhases` splits it into
+  `fixed` (input + fixed steps), `frame` (frame hooks, stream, jobs), `render` (draw submission, upload of new objects, shader compiles) and `afterRender`.
+  GPU time is not in it. With `npm run perf -- --only=stream` the stream-in numbers below are measured for you.
+- **Applying background results** (`engine.budget.cost.report()`, also `describe().perf.apply` and the budget categories `applyBuildMs` ...): terrain
+  chunks, vegetation, colliders and stream builds come back from workers or jobs and are paid for on the main thread, in stages: `transit` (worker round
+  trip minus the worker's own compute: queueing and structured clone, an async wait, approximate), `build` (creating the three.js objects), `collider`
+  (physics colliders), `upload` (extra render time of the frames that first draw new objects: GPU upload and shader compile, approximate), `stream`
+  (the synchronous part of a `stream.add` build callback). Per stage: `n`, `totalMs`, `maxMs`, smoothed `frameMs`, and `bytes` (transit).
+- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, modules: { name: { init, ready } } }`; `npm test` also prints a
+  startup line (with the slowest module) for each item.
 
 ## 2. Set a budget (so going over reports itself)
 Off by default and costs nothing. The game gives the limits in `createEngine` (only the given categories are checked):
@@ -31,13 +45,14 @@ engine.profile(true);                       // start timing each module's fixed/
 engine.profile();                           // { terrain: 0.06, rigid: 0.23, ... } average milliseconds per rendered frame; cleared after reading
 engine.profile(false);
 ```
-`onFrame/onFixed` callbacks are not in the module timings; if you suspect them, temporarily turn them into a small module (see `14-custom-module.md`) and they get timed.
+`onFrame/onFixed` callbacks are not in the module timings; if you suspect them, temporarily turn them into a small module (see `14-custom-module.md`)
+and they get timed.
 
 ## 4. Common fixes
 | Symptom | Fix |
 |---|---|
 | Many draw calls | Use `vegetation` / InstancedMesh for repeated objects; install `hlod()` for a block of buildings; share geometry and materials between copies of a model (`assets.model` shares by default) |
-| Expensive shadows | Style pack `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
+| Expensive shadows | Style pack `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; filter `createEngine({ shadowType: 'basic' })` (hard edge, cheapest) / `'pcf'` (default) / `'vsm'` (softest, costliest), switch live with `engine.sky.setShadow({ type: 'vsm', radius: 3 })` (radius: pcf and vsm only; blurSamples: vsm only; a switch recompiles materials, so avoid doing it every frame); the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
 | Stutter while walking | Put generation work in `engine.jobs.add(function* () { ...; yield; })` or `engine.stream.add`; chunk upload budget `engine.terrain.applyBudgetMs` |
 | Slow start | Look at which is slowest in `engine.startup.modules`; `npm run bake` for large models; preload only the necessary assets |
 | Slow physics | Keep dynamic rigid bodies within a few hundred (the `rigidBodies` budget); `rigid({ terrainRing: 1 })` |
@@ -51,8 +66,11 @@ false = all on the main thread, same results.
   the worker file is `serve(makeHandler())` from `threedog/worker`. Results that change gameplay go through `engine.commits`.
 
 **Two worker rules** (full text and examples in `../CONVENTIONS.md`, "Worker limits"):
-- `engine.commits`: when the due tick comes and the worker has not replied, the main thread runs your `fallback()` and applies that (a later reply is ignored). The engine does not clear pending requests on save load or level change, so give every request a `valid()` that checks identity (generation counter, record still exists, same zone) or call `t.remove()`.
-- `engine.threads.pure(fn)` / `world.simulate(..., { worker: true })`: the function is recompiled from its source, so it cannot capture outside variables or imports; put constants inside it. A bad outside variable is reported by name on the first call.
+- `engine.commits`: when the due tick comes and the worker has not replied, the main thread runs your `fallback()` and applies that (a later reply is
+  ignored). The engine does not clear pending requests on save load or level change, so give every request a `valid()` that checks identity
+  (generation counter, record still exists, same zone) or call `t.remove()`.
+- `engine.threads.pure(fn)` / `world.simulate(..., { worker: true })`: the function is recompiled from its source, so it cannot capture outside
+  variables or imports; put constants inside it. A bad outside variable is reported by name on the first call.
 
 ## 5. Verify (once before and once after, under the same conditions)
 - `npm run perf` (native vs engine vs per-module cost of openWorld), compared with the tables in `../PERF.md`; differences under 10-30% are noise.

@@ -26,7 +26,7 @@ export function layerTiles(e, layer) {
   const look = (t && typeof t === 'object' && t.look) || styleLook(e, name) || (t ? () => FALLBACK : null);
   if (!look) return null;   // no style table and not asked for: a pure data layer
   const lift = (t && typeof t === 'object' && t.lift) ?? e.style.grid?.tileLift ?? 0.03;
-  const mat = makeMaterial('decal', { vertexColors: true });
+  const mat = makeMaterial('decal', { vertexColors: true }, e);
   // drawn over the ground it lies on: depth offset instead of a big lift keeps it glued to slopes
   mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
   const geo = new THREE.BufferGeometry(), mesh = new THREE.Mesh(geo, mat);

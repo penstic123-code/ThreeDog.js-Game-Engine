@@ -85,8 +85,8 @@ function model(inv, rec) {
     const color = def.color ?? st.color ?? 0xcccccc, size = st.size ?? 0.25;
     // shape is the style pack's; without one a neutral box
     if (!st.model) warnOnce(NO_PICKUP);
-    const m = st.model ? st.model(def, { color, size }) : new THREE.BoxGeometry(size, size, size);
-    obj = m.isObject3D ? m : new THREE.Mesh(m, makeMaterial('pickup', { color }));
+    const m = st.model ? st.model(def, { color, size }, e) : new THREE.BoxGeometry(size, size, size);
+    obj = m.isObject3D ? m : new THREE.Mesh(m, makeMaterial('pickup', { color }, e));
   }
   obj.castShadow = true;
   if (rec.auto) return obj;   // taken by walking into it: no key prompt

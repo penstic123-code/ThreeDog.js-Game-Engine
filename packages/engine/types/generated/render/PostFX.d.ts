@@ -80,7 +80,22 @@ export type PostContext = {
     params: Record<string, any>;
 };
 /**
- * create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass).
+ * A GLSL snippet that colors the pixel; neighboring effects with a fuse run as ONE fullscreen pass. glsl is statements that edit
+ * `vec4 color` (the input pixel so far) and may use vUv, tDiffuse, uTime (s), uResolution (device px) and fxHash(vec2). uniforms
+ * declares extra ones by GLSL type ({ uVigStrength: 'float' }; names must be unique across effects, prefix with the effect name);
+ * values(params) returns their current values. reads: true when the snippet samples tDiffuse at other uvs (blur, color fringe):
+ * it then starts a new group, so it sees the real input.
+ */
+export type PostFuse = {
+    uniforms?: Record<string, string>;
+    values?: (params: Record<string, any>) => Record<string, any>;
+    glsl: string;
+    reads?: boolean;
+};
+/**
+ * create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
+ * fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params
+ * update in place (no update() needed).
  * order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
  * needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  * scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
@@ -89,7 +104,8 @@ export type PostContext = {
  */
 export type PostEffect = {
     name: string;
-    create: (ctx: PostContext) => object;
+    create?: (ctx: PostContext) => object;
+    fuse?: PostFuse;
     slot?: PostSlot;
     order?: number;
     enabled?: boolean;

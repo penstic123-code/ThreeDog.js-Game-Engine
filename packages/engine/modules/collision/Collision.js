@@ -8,6 +8,14 @@ import { xzOf } from '../../core/math.js';
 import { checkOptions, checkOptionsArg } from '../../core/validate.js';
 import { CollisionGrid, gridBlocks } from './grid.js';
 
+/** One axis of the slab test: narrows S.t0 / S.t1 to where the ray is inside |o + d t| <= h; false when it misses */
+function slab(S, o, d, h) {
+  if (Math.abs(d) < 1e-6) return Math.abs(o) <= h;
+  let ta = (-h - o) / d, tb = (h - o) / d; if (ta > tb) { const t = ta; ta = tb; tb = t; }
+  S.t0 = Math.max(S.t0, ta); S.t1 = Math.min(S.t1, tb);
+  return S.t0 <= S.t1;
+}
+
 const BOX_KEYS = ['halfWidth', 'halfDepth', 'rotation', 'height', 'y'], CIRCLE_KEYS = ['radius', 'height'];
 
 export class Collision {
@@ -21,8 +29,11 @@ export class Collision {
     Object.assign(this, { maxClimb, canopyHeight, cameraPad, cameraMin, walkableWaterMargin, cameraOcclusion });
     this.circles = [];   // manually added circle colliders {x, z, r, h}
     this.boxes = [];     // rectangles {x, z, hw, hd, rot, h}
-    this._grid = new CollisionGrid();   // grid index: _each looks only nearby instead of scanning all (circles / boxes change only via addCircle / addBox)
+    this._grid = new CollisionGrid();   // grid index: resolve / camera look only nearby instead of scanning all (circles / boxes change only via addCircle / addBox)
     this.version = 0;   // +1 on every static collider add/remove; the physics module syncs on it
+    this._onGroundCircle = (cx, cz, r) => this._pushCircle(this._rPos, cx, cz, r, this._rRad);   // built once: ground.forEachCollider callback
+    this._camS = { from: null, to: null, ux: 0, uz: 0, len: 0, pad: 0, want: 0, best: 0, t0: 0, t1: 0 };   // cameraDistance scratch for its callbacks
+    this._onCamCircle = (a, b, c) => this._camCircle(a, b, c);
   }
   /** Iterate all manually added static colliders (for the physics module): fn('box' | 'circle', data) */
   forEachStatic(fn) { for (const b of this.boxes) fn('box', b); for (const c of this.circles) fn('circle', c); }
@@ -52,35 +63,42 @@ export class Collision {
     return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y });
   }
 
-  _each(x, z, range, fn) {
-    this.engine.ground.forEachCollider?.(x, z, range, (cx, cz, r) => fn('c', cx, cz, r));
-    for (const it of this._grid.query(x, z, range)) { if (it._b) fn('b', it); else fn('c', it.x, it.z, it.r); }
+  // The per-frame walkers below pass state through fields instead of building callbacks: resolve() and cameraDistance() run every step / frame.
+  // resolve saves and restores its fields, so a nested call (from a ground collider callback) stays safe.
+  _pushCircle(pos, a, b, c, radius) {
+    const dx = pos.x - a, dz = pos.z - b, d = Math.hypot(dx, dz), min = radius + c;
+    if (d < min && d > 1e-5) { pos.x = a + dx / d * min; pos.z = b + dz / d * min; this._rHit = true; }
+  }
+  _pushBox(pos, bx, radius) {
+    const lx0 = pos.x - bx.x, lz0 = pos.z - bx.z;
+    const lx = lx0 * bx.c - lz0 * bx.s, lz = lx0 * bx.s + lz0 * bx.c;   // to box-local coordinates
+    const qx = Math.max(-bx.hw, Math.min(bx.hw, lx)), qz = Math.max(-bx.hd, Math.min(bx.hd, lz));
+    const dx = lx - qx, dz = lz - qz, d = Math.hypot(dx, dz);
+    if (d >= radius) return;
+    let nx, nz;
+    if (d > 1e-5) { nx = dx / d; nz = dz / d; nx = lx + nx * (radius - d); nz = lz + nz * (radius - d); }
+    else { // centre is inside the box: push out along the nearest edge
+      const px = bx.hw - Math.abs(lx), pz = bx.hd - Math.abs(lz);
+      if (px < pz) { nx = Math.sign(lx) * (bx.hw + radius); nz = lz; } else { nx = lx; nz = Math.sign(lz) * (bx.hd + radius); }
+    }
+    pos.x = bx.x + nx * bx.c + nz * bx.s; pos.z = bx.z - nx * bx.s + nz * bx.c; this._rHit = true;
   }
 
   /** @internal Push a character of radius `radius` out of obstacles; edits pos.x / pos.z directly. Returns whether a collision happened */
   resolve(pos, radius = this.engine.movement.radius) {
-    let hit = false;
+    const sPos = this._rPos, sRad = this._rRad;
+    this._rPos = pos; this._rRad = radius; this._rHit = false;
+    const g = this.engine.ground;
     for (let iter = 0; iter < 2; iter++) {
-      this._each(pos.x, pos.z, radius + 2, (type, a, b, c) => {
-        if (type === 'c') {
-          const dx = pos.x - a, dz = pos.z - b, d = Math.hypot(dx, dz), min = radius + c;
-          if (d < min && d > 1e-5) { pos.x = a + dx / d * min; pos.z = b + dz / d * min; hit = true; }
-        } else {
-          const bx = a, lx0 = pos.x - bx.x, lz0 = pos.z - bx.z;
-          const lx = lx0 * bx.c - lz0 * bx.s, lz = lx0 * bx.s + lz0 * bx.c;   // to box-local coordinates
-          const qx = Math.max(-bx.hw, Math.min(bx.hw, lx)), qz = Math.max(-bx.hd, Math.min(bx.hd, lz));
-          let dx = lx - qx, dz = lz - qz, d = Math.hypot(dx, dz);
-          if (d >= radius) return;
-          let nx, nz;
-          if (d > 1e-5) { nx = dx / d; nz = dz / d; nx = lx + nx * (radius - d); nz = lz + nz * (radius - d); }
-          else { // centre is inside the box: push out along the nearest edge
-            const px = bx.hw - Math.abs(lx), pz = bx.hd - Math.abs(lz);
-            if (px < pz) { nx = Math.sign(lx) * (bx.hw + radius); nz = lz; } else { nx = lx; nz = Math.sign(lz) * (bx.hd + radius); }
-          }
-          pos.x = bx.x + nx * bx.c + nz * bx.s; pos.z = bx.z - nx * bx.s + nz * bx.c; hit = true;
-        }
-      });
+      g.forEachCollider?.(pos.x, pos.z, radius + 2, this._onGroundCircle);
+      const list = this._grid.query(pos.x, pos.z, radius + 2);
+      for (let i = 0; i < list.length; i++) {
+        const it = list[i];
+        if (it._b) this._pushBox(pos, it, radius); else this._pushCircle(pos, it.x, it.z, it.r, radius);
+      }
     }
+    const hit = this._rHit;
+    this._rPos = sPos; this._rRad = sRad;
     return hit;
   }
 
@@ -102,6 +120,29 @@ export class Collision {
     return blocked;
   }
 
+  /** A camera above the canopy is not blocked by trees: is the line of sight at distance tc above it over (x, z) */
+  _yAbove(x, z, tc) { const S = this._camS; return S.from.y + (S.to.y - S.from.y) * (tc / S.len) - this.engine.surface(x, z) > this.canopyHeight; }
+  _camCircle(a, b, c) {
+    const S = this._camS, from = S.from, tc = (a - from.x) * S.ux + (b - from.z) * S.uz;
+    if (tc <= 0.3 || tc >= S.len) return;
+    const px = from.x + S.ux * tc - a, pz = from.z + S.uz * tc - b, rr = c + S.pad;
+    if (px * px + pz * pz > rr * rr) return;
+    const t = tc - Math.sqrt(rr * rr - (px * px + pz * pz));   // distance at which the line of sight (character to camera) hits the obstacle
+    if (this._yAbove(a, b, tc)) return;
+    S.best = Math.min(S.best, S.want * t / S.len);
+  }
+  /** Rectangle: rotate the line of sight into box-local coordinates and compute where it enters the box (slab intersection) */
+  _camBox(bx) {
+    const S = this._camS, from = S.from, ox = from.x - bx.x, oz = from.z - bx.z, len = S.len;
+    const lx = ox * bx.c - oz * bx.s, lz = ox * bx.s + oz * bx.c, dx = S.ux * bx.c - S.uz * bx.s, dz = S.ux * bx.s + S.uz * bx.c;
+    S.t0 = 0; S.t1 = len;
+    if (!slab(S, lx, dx, bx.hw + S.pad) || !slab(S, lz, dz, bx.hd + S.pad)) return;
+    if (S.t0 <= 0.3) return;
+    const yAt = from.y + (S.to.y - from.y) * (S.t0 / len);
+    if (yAt > (bx.y ?? this.engine.surface(bx.x, bx.z)) + bx.h) return;   // camera above the wall top
+    S.best = Math.min(S.best, S.want * S.t0 / len);
+  }
+
   /** @internal Camera occlusion: if the line from the character's head to the camera passes through a trunk or house, pull the camera closer. Returns the max allowed distance */
   cameraDistance(from, to, want, pad = this.cameraPad) {
     const mode = this.cameraOcclusion;
@@ -114,33 +155,16 @@ export class Collision {
     }
     const sx = to.x - from.x, sz = to.z - from.z, len = Math.hypot(sx, sz);
     if (len < 1e-3) return mode === 'colliders' ? want : Math.max(this.cameraMin, best);
-    const ux = sx / len, uz = sz / len;
-    const yAbove = (x, z, tc) => from.y + (to.y - from.y) * (tc / len) - this.engine.surface(x, z) > this.canopyHeight;   // a camera above the canopy is not blocked
-    this._each(from.x + sx / 2, from.z + sz / 2, len / 2 + 1, (type, a, b, c) => {
-      let t;   // distance at which the line of sight (character to camera) hits the obstacle
-      if (type === 'c') {
-        const tc = (a - from.x) * ux + (b - from.z) * uz;
-        if (tc <= 0.3 || tc >= len) return;
-        const px = from.x + ux * tc - a, pz = from.z + uz * tc - b, rr = c + pad;
-        if (px * px + pz * pz > rr * rr) return;
-        t = tc - Math.sqrt(rr * rr - (px * px + pz * pz));
-        if (yAbove(a, b, tc)) return;
-      } else {   // rectangle: rotate the line of sight into box-local coordinates and compute where it enters the box (slab intersection)
-        const bx = a, ox = from.x - bx.x, oz = from.z - bx.z;
-        const lx = ox * bx.c - oz * bx.s, lz = ox * bx.s + oz * bx.c, dx = ux * bx.c - uz * bx.s, dz = ux * bx.s + uz * bx.c;
-        let t0 = 0, t1 = len;
-        for (const [o, d, h] of [[lx, dx, bx.hw + pad], [lz, dz, bx.hd + pad]]) {
-          if (Math.abs(d) < 1e-6) { if (Math.abs(o) > h) return; continue; }
-          let ta = (-h - o) / d, tb = (h - o) / d; if (ta > tb) [ta, tb] = [tb, ta];
-          t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return;
-        }
-        if (t0 <= 0.3) return;
-        const yAt = from.y + (to.y - from.y) * (t0 / len);
-        if (yAt > (bx.y ?? this.engine.surface(bx.x, bx.z)) + bx.h) return;   // camera above the wall top
-        t = t0;
-      }
-      best = Math.min(best, want * t / len);
-    });
+    const S = this._camS;
+    S.from = from; S.to = to; S.ux = sx / len; S.uz = sz / len; S.len = len; S.pad = pad; S.want = want; S.best = best;
+    this.engine.ground.forEachCollider?.(from.x + sx / 2, from.z + sz / 2, len / 2 + 1, this._onCamCircle);
+    const list = this._grid.query(from.x + sx / 2, from.z + sz / 2, len / 2 + 1);
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i];
+      if (it._b) this._camBox(it); else this._camCircle(it.x, it.z, it.r);
+    }
+    best = S.best;
+    S.from = S.to = null;   // do not keep the caller's vectors alive
     return Math.max(this.cameraMin, best);
   }
 }

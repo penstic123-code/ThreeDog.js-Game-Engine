@@ -1,0 +1,42 @@
+// Main-thread side of terrain({ shading: 'texture' }): turns the worker's color map into a DataTexture and a per-chunk material that samples it.
+// Each chunk gets its own material (a clone of the terrain material with the same patches plus 'terrainColorMap'), because a patch uniform
+// is uploaded when the material changes, not per object; clones share one compiled program (same cacheKey), so this costs no shader compile.
+// The map is sampled by world xz (the 'world' patch), not by uv, so the mesh uv stays free for the game's own textures.
+import * as THREE from 'three';
+import { applyEffects } from '../../render/materials.js';
+import { copyPatches } from '../../render/patches.js';
+
+/** Material for one chunk: `base` plus the color map `tex` ({ data, size }) of the chunk whose origin is (ox, oz) and edge length `chunk` */
+export function mountColorMap(m, c, t, ox, oz) {
+  const { data, size } = t, R = size - 2, chunk = m.T.CHUNK;
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.colorSpace = THREE.SRGBColorSpace;   // stored sRGB-encoded: the GPU decodes on sampling, 8 bits keep dark colors smooth
+  tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = true;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = Math.min(4, m.engine.renderer.capabilities.getMaxAnisotropy?.() ?? 1);   // ground is seen at grazing angles
+  tex.needsUpdate = true;
+  // world xz -> texture uv: pixel k is centered (k - 0.5) * chunk / R from the origin (see terrainColorMap.js); .zw = scale, offset
+  const rect = new THREE.Vector4(ox, oz, R / (chunk * size), 1 / size);
+  const mat = copyPatches(m.terrainMat, m.terrainMat.clone());
+  applyEffects(mat, { clouds: false, patches: [{
+    name: 'terrainColorMap', cacheKey: 1, needs: { patches: ['world'] },
+    uniforms: { uTColorMap: { value: tex }, uTColorRect: { value: rect } },
+    glsl: { fragment: {
+      pars: 'uniform sampler2D uTColorMap; uniform vec4 uTColorRect;',
+      color_fragment: 'diffuseColor.rgb *= texture2D(uTColorMap, (vThreedogWorld.xz - uTColorRect.xy) * uTColorRect.z + uTColorRect.w).rgb;',
+    } },
+  }] });
+  c.colorTex = tex; c.colorMat = mat;
+  return mat;
+}
+
+/** An edit rebuilt the chunk: upload the new pixels into the same texture */
+export function updateColorMap(c, t) {
+  c.colorTex.image.data.set(t.data);
+  c.colorTex.needsUpdate = true;
+}
+
+export function disposeColorMap(c) {
+  c.colorTex?.dispose();
+  c.colorMat?.dispose();
+}

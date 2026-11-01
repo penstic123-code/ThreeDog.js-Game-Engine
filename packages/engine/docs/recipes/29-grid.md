@@ -3,7 +3,8 @@
 Requires module `grids()` and `world()` (`openWorld()` includes world; grids is opt-in and costs nothing when not installed). The API list is in
 `../api/grids.md`.
 A grid turns world positions into cells. Things placed on it are ordinary `engine.world` records; per-cell state that is not a thing (tilled soil, wet
-soil, a painted floor) lives in **layers**. Farming soil always goes here; `terrain.edit({ paint })` is only for landscape ground types (roads, sand), see `28-terrain.md`.
+soil, a painted floor) lives in **layers**. Farming soil always goes here; `terrain.edit({ paint })` is only for landscape ground types (roads, sand),
+see `28-terrain.md`.
 Works on any ground: procedural terrain, a Blender level, an indoor floor. Heights come from `engine.surface`, ground types from `engine.groundType`.
 
 ## 1. Grids and items
@@ -56,11 +57,13 @@ engine.sky.at('06:00', () => engine.ops.run('farm.dry'));                       
 ```
 `get(cell)`, `set(cell, patch)` (merge; a field set to null is deleted), `clear(cell)`, `query(cell?, size?)` -> `[{ cell, data }]`, `updateAll(fn)`, `count`.
 Writes are saved gameplay state: do them inside an op or a fixed step (the guard reports anything else). Data must be plain values.
-Cells that exist from the start go in content: `content/grids.js` `farm: { cell: 1, origin: [0, 0], size: [16, 12], layers: { soil: [[3, 5, { tilled: true }]] } }` <!-- r18-ignore-line -->
+Cells that exist from the start go in content: `content/grids.js` <!-- r18-ignore-line -->
+`farm: { cell: 1, origin: [0, 0], size: [16, 12], layers: { soil: [[3, 5, { tilled: true }]] } }` <!-- r18-ignore-line -->
 (or `grids.add(name, { layers })`). They are the baseline: a save keeps only cells changed from it, so editing the content later still reaches old saves.
 
 **Tiles.** The game gives a layer its colors: `farm.layer('soil', { tiles: { look: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
-(what the data means is gameplay, so no style pack ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its height (slopes, ramps, level meshes).
+(what the data means is gameplay, so no style pack ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its
+height (slopes, ramps, level meshes).
 `farm.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
 (engine, layer) => ({ update(cells), dispose() }) }` is your own view. Options are read when the layer is first created.
 
@@ -73,7 +76,9 @@ engine.onFrame(() => {
 });
 pv.remove();                                                                // leave build mode
 ```
-The engine binds no key: `...presets.keys.gridRotate` (or `rotateKeys: ['KeyR']`) defines the action `rotate` on R, or bind that action yourself with `input.define`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.reason`
+The engine binds no key: `...presets.keys.gridRotate` (or `rotateKeys: ['KeyR']`) defines the action `rotate` on R, or bind that action yourself with
+`input.define`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns
+it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.reason`
 are readable every frame.
 Colors come from `style.grid.ok / bad / previewOpacity`. `look: false` hides the default box; `look: (engine) => ({ update(view), hide(), dispose()
 })` draws your own (`view = { cells, center, size, rotation, ok, reason }`).

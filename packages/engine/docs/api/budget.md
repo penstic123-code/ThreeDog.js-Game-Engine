@@ -11,6 +11,7 @@
 - Properties:
   - `enabled: boolean` Is it on?
   - `limits: BudgetLimits` Current limits
+  - `cost: ApplyCost` Cost of applying background results, split in stages (see ApplyCost)
 
 ## Data structures
 - **BudgetLimits** Budget limits: only the given categories are checked. fps/low1 are lower bounds (frame rate must not drop below), the rest are upper bounds
@@ -22,6 +23,11 @@
   - `textures?: number` Texture count
   - `chunkApplyMs?: number` Terrain chunk upload milliseconds per frame
   - `rigidBodies?: number` Rigid body count
+  - `applyTransitMs?: number` Per-frame cost of applying background results, by stage (engine.budget.cost): worker transit (approximate), creating three.js objects, colliders, GPU upload (approximate), stream build()
+  - `applyBuildMs?: number`
+  - `applyColliderMs?: number`
+  - `applyUploadMs?: number`
+  - `applyStreamMs?: number`
   - `startupMs?: number` Time from opening to playable (milliseconds); when exceeded, the slowest module is named
   - `moduleMs?: number` Single module startup (init + wait for ready, milliseconds); when exceeded, that module is named
 - **BudgetReport** Budget report: ok means everything is within budget

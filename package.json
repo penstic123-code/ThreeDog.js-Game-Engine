@@ -25,10 +25,13 @@
     "bake": "threedog bake",
     "assets": "threedog assets",
     "new-game": "threedog new-game",
+    "new-style": "threedog new-style",
     "doctor": "threedog doctor"
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.5.1",
-    "three": "^0.187.0"
+    "fast-check": "^4.10.2",
+    "three": "^0.187.0",
+    "tweakpane": "^4.0.5"
   }
 }

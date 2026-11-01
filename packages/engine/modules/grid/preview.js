@@ -15,7 +15,7 @@ const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview ca
 /** Default look: a flat translucent box over the footprint @internal */
 function boxLook(e) {
   const st = e.style.grid ?? {}, opacity = st.previewOpacity ?? 0.45;
-  const mat = makeMaterial('decal', { transparent: true, opacity, depthWrite: false });
+  const mat = makeMaterial('decal', { transparent: true, opacity, depthWrite: false }, e);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
   mesh.name = 'grid:preview'; mesh.visible = false; mesh.renderOrder = 2;
   e.add(mesh);

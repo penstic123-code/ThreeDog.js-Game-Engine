@@ -4,7 +4,7 @@ import { Container } from './Container.js';
 
 /** Container table: implementation of inventory.container() / transfer(); the player inventory is the one with id 'player'. @internal */
 export class Containers {
-  constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); this.renames = new Map(); }
+  constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); this.renames = new Map(); this.loaded = new WeakSet(); }
 
   /**
    * content/renames.js: a container saved under an old authored id moves to the new id (null = drop it). Remembered, so a save loaded later
@@ -81,8 +81,8 @@ export class Containers {
       const b = this.renames.has(id) ? this.renames.get(id) : id;
       return b == null || (b !== id && b in d) ? (b == null ? [] : [[id, v]]) : [[b, v]];
     }));
-    for (const c of this.map.values()) if (c !== this.bag && !(c.seeded && !(c.id in (d || {})))) c._entries = [];
-    for (const [id, list] of Object.entries(d || {})) { const c = this.get(id); c._load(list); c.seeded = true; }
+    for (const c of this.map.values()) if (c !== this.bag && !(c.seeded && !this.loaded.has(c) && !(c.id in (d || {})))) c._entries = [];   // kept: starting goods of content newer than this save; not a container that only came from an earlier load / save (newGame must empty it)
+    for (const [id, list] of Object.entries(d || {})) { const c = this.get(id); c._load(list); c.seeded = true; this.loaded.add(c); }
     // entry keys are numbered across all containers: never hand out a key a loaded container already holds
     for (const c of this.map.values()) for (const e of c._entries) { const n = Number(e.key.split('#')[1]) || 0; if (n > this.inv._seq) this.inv._seq = n; }
   }

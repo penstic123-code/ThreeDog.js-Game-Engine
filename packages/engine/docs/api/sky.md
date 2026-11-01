@@ -16,8 +16,9 @@ Sky, day/night, calendar (sky() module)
 - `sky.between(from: string | number, to: string | number, opts: SkyBetweenOptions) → Handle` — Time-range switch: on() while clock time is in [from, to), otherwise off() (from > to wraps midnight). Aligns once immediately on registration, new game, load, applying a scenario and time rewind; afterwards it calls on/off when crossing a boundary. Example: `engine.sky.between('18:00', '06:00', { on: () => lamp.on(), off: () => lamp.off() })`
 - `sky.daily(fn: (day: number) => void, opts?: SkyAtOptions) → Handle` — Call fn(day) at the start of each day (00:00)
 - `sky.onSeason(name: string, fn: (season: string) => void) → Handle` — Call fn(seasonName) on entering season name
-- `sky.setShadow(opts?: Pick<StyleShadow, "bias" | "normalB…)` — Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame); snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view
+- `sky.setShadow(opts?: Pick<StyleShadow, "bias" | "normalB…)` — Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame); snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view; type = 'basic' (hard edge) / 'pcf' / 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely); radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only)
 - `sky.setShadowMapSize(n: number)` — Change shadow resolution (raise temporarily for photo mode)
+- `sky.setEnvironment(opts?: { source?, intensity?, rotation?, interval? } | null)` — Environment lighting (scene.environment), separate from the background and off by default. source 'sky' builds it from the procedural sky (rebuilt at most every `interval` seconds, only when the sky changed); an asset name or path (.hdr, .jpg, .ktx2) is an equirectangular panorama. intensity scales the light (default 1), rotation turns it around Y (radians). Given fields change, the rest stay; null turns it off. Lambert surfaces get soft ambient light from it (no reflections); lower the hemisphere ambient when you turn it on (recipes/09). Example: `engine.sky.setEnvironment({ source: 'sky', intensity: 0.8 });  engine.sky.setEnvironment(null);`
 - Properties:
   - `timeOfDay: number` Sky time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Fixed-step seconds (unaffected by timeScale) are engine.elapsed
   - `dayLength: number` Game seconds per day (1 sky hour = dayLength / 24 game seconds; at timeScale 1 game seconds equal fixed-step seconds); Infinity = the time of day never moves
@@ -29,7 +30,7 @@ Sky, day/night, calendar (sky() module)
   - `sun: any` Sun directional light (engine.lights.sun driven by the sky; moonlight at night, shadows live on it)
   - `sunDir: THREE.Vector3` Sun direction (unit vector toward the sun)
   - `orbit: { tilt: number; sway: number; distance: number }` Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters)
-  - `shadow: { bias, normalBias, updateEvery, snap, ahead }` Current shadow params (change via setShadow)
+  - `shadow: { bias, normalBias, updateEvery, snap, ahead, type, … }` Current shadow params (change via setShadow)
   - `hoursPerDay: number` Hours per day
   - `modifiers: SkyModifiers` Composite of all modifier layers (read-only; use modify to adjust brightness)
   - `shadowMapSize: number` Shadow resolution (pixels)
@@ -42,6 +43,7 @@ Sky, day/night, calendar (sky() module)
   - `dayOfSeason: number` Day within the season (1-based); 0 without seasons
   - `seasonProgress: number` Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons
   - `totalDays: number` Total game time in days (fractional), for growth, cooldowns and the like
+  - `environment: SkyEnvironmentInfo | null` Environment lighting now: { source, intensity, rotation, interval, builds }, null when off
 
 ## Data structures
 - **SkyAtOptions** Parameters of sky.at() / daily()

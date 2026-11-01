@@ -6,14 +6,47 @@
 //   - anything else replaces whole: arrays (sky.keyframes, post, terrain.steep), functions, numbers, strings, three.js objects and class instances
 //   - a key set to undefined is ignored; a key set to null removes it (e.g. { post: null } = no post effects from earlier parts)
 //   - parts are never mutated; plain objects are copied, functions and three.js objects are shared by reference
+//   - post is the one list you often edit rather than replace: postAdd(effect) / postRemove(name) are parts that change the list built so far
 // Zero cost when unused: a single object (not a list) is used as it is, engine.style === that object.
+// Looks only: a style never holds world state (water level, sea, terrain shape); checkStyleLooks throws in dev.
+import { DEV } from './validate.js';
 
 const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
+
+// A post edit is a function carrying this mark: mergeInto calls it with the list built so far instead of replacing the list
+const EDIT = Symbol('threedog.postEdit');
+const edit = fn => ({ post: Object.assign(fn, { [EDIT]: true }) });
+
+/**
+ * A style part that adds post effects to the ones before it (a plain { post: [...] } would replace the whole list). An effect with the same name as
+ * an earlier one replaces it in place; names are the effects' own ('bloom', 'ao', 'outline', or your own).
+ * @example createEngine({ style: [lowpoly, postAdd(myGrain, bloom({ strength: 0.6 }))] })   // grain added, lowpoly's bloom swapped for yours
+ * @param {...import('../render/PostFX.js').PostEffect} effects
+ * @returns {{ post: any }}
+ */
+export function postAdd(...effects) {
+  return edit(list => {
+    const out = [...(list ?? [])];
+    for (const e of effects) { const i = out.findIndex(o => o.name === e.name); if (i >= 0) out[i] = e; else out.push(e); }
+    return out;
+  });
+}
+
+/**
+ * A style part that removes post effects by name from the ones before it.
+ * @example createEngine({ style: [lowpoly, postRemove('ao', 'outline')] })
+ * @param {...string} names
+ * @returns {{ post: any }}
+ */
+export function postRemove(...names) {
+  return edit(list => (list ?? []).filter(e => !names.includes(e.name)));
+}
 
 function mergeInto(out, part) {
   for (const [k, v] of Object.entries(part)) {
     if (v === undefined) continue;
-    if (v === null) delete out[k];
+    if (v?.[EDIT]) out[k] = v(out[k]);
+    else if (v === null) delete out[k];
     else if (plain(v)) out[k] = mergeInto(plain(out[k]) ? out[k] : {}, v);
     else out[k] = v;
   }
@@ -27,15 +60,34 @@ function mergeInto(out, part) {
  * @internal
  */
 export function styleFrom(style) {
-  if (!Array.isArray(style)) return style ?? {};
-  const out = {};
-  for (const part of style.flat(Infinity)) {
-    if (!part) continue;
-    if (!plain(part)) throw new Error(`createEngine({ style: [...] }): each part must be a plain object (a style pack or { key: value }), got ${typeof part}`);
-    // copy the part's plain objects too, so a later part never writes into an earlier pack
-    mergeInto(out, part);
+  let out = style ?? {};
+  if (Array.isArray(style)) {
+    out = {};
+    for (const part of style.flat(Infinity)) {
+      if (!part) continue;
+      if (!plain(part)) throw new Error(`createEngine({ style: [...] }): each part must be a plain object (a style pack or { key: value }), got ${typeof part}`);
+      // copy the part's plain objects too, so a later part never writes into an earlier pack
+      mergeInto(out, part);
+    }
   }
+  if (DEV) checkStyleLooks(out);
   return out;
+}
+
+// World state a style must not carry: [style path, is this key world state, where it goes instead]. Why: with the same map and rules, swapping
+// the style may only change how things look; a style that moved the sea or reshaped the hills would make "same game, new look" impossible
+const WORLD = [
+  ['water', k => ['level', 'sea', 'size'].includes(k), 'engine.use(water({ level, sea, size })) (WaterOptions); without level the terrain waterLevel is used'],
+  // looks of the ground: shading, colorResolution, normals, normalFn; diagonal moves engine.surface, so it is the game's
+  ['terrain.config', k => !['shading', 'colorResolution', 'normals', 'normalFn'].includes(k), "terrain({ ... }) (TerrainConfig: seed, chunkSize, resolution, diagonal, waterLevel, height...); only shading, colorResolution, normals, normalFn are looks"],
+];
+function checkStyleLooks(style) {
+  for (const [path, isWorld, where] of WORLD) {
+    const obj = path.split('.').reduce((o, k) => o?.[k], style);
+    if (!obj || typeof obj !== 'object') continue;
+    for (const k of Object.keys(obj))
+      if (isWorld(k)) throw new Error(`style.${path}.${k} is world state, not a look: swapping the style would change the map or the rules. Set it where the world is made: ${where}`);
+  }
 }
 
 // Dev warning when createEngine gets no style pack (shown once from Engine.js)

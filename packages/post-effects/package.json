@@ -1,0 +1,30 @@
+{
+  "name": "@threedog/post-effects",
+  "version": "0.1.0",
+  "description": "Optional post effects for threedog: LUT color grading, film grain, vignette, chromatic aberration and depth of field (light ldr effects are fused into one fullscreen pass)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git",
+    "directory": "packages/post-effects"
+  },
+  "homepage": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine#readme",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.js",
+    "*.d.ts"
+  ],
+  "peerDependencies": {
+    "threedog": "^0.1.0",
+    "three": "^0.187.0"
+  }
+}

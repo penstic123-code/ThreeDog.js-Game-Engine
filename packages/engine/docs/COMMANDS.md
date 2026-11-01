@@ -1,14 +1,20 @@
 # Commands and debugging details
 
-The scripts in `package.json` forward to the CLI `threedog` (from `@threedog/tools`; the root `build` runs each workspace's own `build`); `npm run xxx` and `npx threedog xxx` are equivalent. The tools find every path through their `paths.mjs`, in the engine repository and in a game installed from npm alike.
+The scripts in `package.json` forward to the CLI `threedog` (from `@threedog/tools`; the root `build` runs each workspace's own `build`);
+`npm run xxx` and `npx threedog xxx` are equivalent. The tools find every path through their `paths.mjs`, in the engine repository and in a game
+installed from npm alike.
 
 ## Running one game only
 After `-w` write the directory or the package name (inside a game directory a plain `npm run ...` does the same):
-- Dev: `npm run dev -w games/my-game`, or from the root `npm run dev -- my-game` (part of the name is enough); no name means the engine example. To change the port (default 5173; if taken it moves to the next one): `npm run dev -- my-game --port 5000` (the game name must come first, the remaining arguments go to vite untouched; don't add another `--`).
+- Dev: `npm run dev -w games/my-game`, or from the root `npm run dev -- my-game` (part of the name is enough); no name means the engine example. To
+  change the port (default 5173; if taken it moves to the next one): `npm run dev -- my-game --port 5000` (the game name must come first, the
+  remaining arguments go to vite untouched; don't add another `--`).
 - Test: `npm test -w games/my-game`, or `npm test -- -w my-game`; `npm test` at the root tests every workspace (engine + each game).
-- Build: `npm run build -w games/my-game`; `npm run build` at the root builds all (every *.html in a workspace root is bundled, no change to vite.config.js needed).
+- Build: `npm run build -w games/my-game`; `npm run build` at the root builds all (every *.html in a workspace root is bundled, no change to
+  vite.config.js needed).
 - Screenshot / bake / compress models: `npm run shot -- -w my-game / --describe-only`, `npm run bake -- -w my-game`, `npm run assets -- -w my-game`.
-- A game's tests: if `games/<game>/tests/specs.mjs` exists it runs; otherwise a smoke test runs automatically (page opens, engine ready, no console errors). Minimal example:
+- A game's tests: if `games/<game>/tests/specs.mjs` exists it runs; otherwise a smoke test runs automatically (page opens, engine ready, no console
+  errors). Minimal example:
 ```js
 // games/my-farm/tests/specs.mjs — export a specs array, one entry per page
 export const specs = [{
@@ -24,7 +30,8 @@ export const specs = [{
   },
 }];
 ```
-  Tests run against the built bundle (not the dev server): main.js must set `window.engine = engine;` before `await engine.start()`, otherwise the test waits for the engine until timeout (the error explains why).
+  Tests run against the built bundle (not the dev server): main.js must set `window.engine = engine;` before `await engine.start()`, otherwise the
+  test waits for the engine until timeout (the error explains why).
 - New game: `npm run new-game name`, see `recipes/01-new-game.md`.
 
 ## Command table
@@ -35,21 +42,37 @@ export const specs = [{
 | `npm run types` | Type check only (does game code misuse the engine API) |
 | `npm test` | Full browser tests (slow). Normally `npm test -- name` runs only the related ones (matched by test-name substring, e.g. `-- HLOD`), `-- -w game` tests one game. `-- --update-snapshots` makes tests that use `expectDescribe` write their describe baselines (`tests/snapshots/*.describe.json`) instead of comparing. `npm test -- pack` (the build test): after a real build of each game, open only dist from a static server and check that the engine is ready, no 4xx resources, no console errors |
 | `npx threedog snap-describe save|diff name [--only a,b]` | Describe snapshot instead of a screenshot: baseline of the gameplay part of `describe()` (see recipes/16-dev-bridge.md section 7); in tests one line `expectDescribe({ check, ev }, name, { only, tolerance })` from `@threedog/tools/describe-snapshot` |
+| `threedog play` / `play --stop` | Start the game for the AI: starts the dev server if none runs (detached, output in `.threedog/dev.log`), waits for the dev bridge and the engine, prints the page address and whether a headless or a live browser page is connected. `--stop` stops the server play started |
+| `threedog status` | One call: engine ready, loading done, page errors, running / paused / frozen. When the bridge cannot answer it names one of four causes with one next step: no server (`threedog play`), server still starting (wait, status again), page script error (`threedog errors latest`), no dev bridge installed (use `gameConfig`) |
+| `threedog verify scenario` | Run `tests/scenarios/<scenario>.json` on the running page and print PASS / FAIL, **Tested** (ops with outcomes, describe sections compared, time advanced), **Not tested** (ops never run, sections never compared, steps skipped after a failure, key path, picture), tests that mention an error code seen, and the `threedog test` command to re-run. A page error during the run fails it |
+| `threedog errors` / `errors latest [N]` / `errors --since E5` | Page errors with id (E1…), time, tick, source and count. Plain `errors` = new since the last read; `latest` = the last N (default 3), same answer every time; `--since` = after an id, never moves the read position. Every result prints a cursor |
+| Result of every bridge command | CLI text ends with one line on the game state and the way back (`Game paused, tick 180: threedog resume restores real-time running`; frozen by a menu says which). MCP adds `structuredContent` { ok, code, summary, runtime { ready, mode running|paused|frozen, tick, headless, blockedBy[] }, data } and an `outputSchema` on every tool. `code`: ok, blocked (ran, refused), not-ready, no-server / starting / page-error / no-bridge (cannot reach the game), command-error. **Advance game time**: step, press, hold, scenario, verify. **No game time**: op, state, eval, resume, reload. Everything else only observes. eval / js and describe with a path or --full / --all print no state line (parseable); runtime still has it |
 | `npm run map` | Regenerate CODEMAP, API.md + api/, each game's GAMEMAP and the event-name list (generated from `EventMap` in core.d.ts; add a new event to EventMap first) after changing code, JSDoc or content (run it before `check`) |
 | `npm run shot -- / --time 18:30 --weather rain --pos x,z` | Only when you need to see the picture; by default 1 image of 960x540 into the workspace's .threedog/shots/; **read the state as text first with `--describe-only`**. `/<page>.html` switches the page, `-w game` switches the game, `--wait seconds` advances time |
+| `npm run shot -- styletest --view room --time dusk --weather rain` | The fixed style-judging scene (`examples/styletest`, page `/styletest.html`; a bare name is a page of the workspace). `--view` = a named camera (overview, character, water, room, path, ui), `--time` also takes day / dusk / night, `--weather` clear / rain / snow; same arguments every round, so only the style differs. `--panel` is not a shot option: open `/styletest.html?panel=1` in a browser for the workbench (recipes/35) |
+| `npx threedog capture [page] [--top N] [--no-spector] [--full]` | Find out what a frame draws: renders one steady frame headless and prints draw calls, shadow-map draws, render passes (post effects) and the largest draws with world record id, budget tag and material purpose. Also records the WebGL command stream of that frame with Spector.js (fetched on first use into `.threedog/cache/`, not a dependency) to `.threedog/captures/`; `--no-spector` skips it |
 | `npm run bake` | Before release, or to take code-generated models into Blender: exports public/models/baked/*.glb (`-- -w game`) |
-| `npm run assets` | Compress glTF from art/models/ into public/models/ (names such as col_ and spawn are kept; `-- -w game`) |
+| `npm run assets` | Compress glTF from art/models/ into public/models/ (names such as col_ and spawn are kept; `-- -w game`). Skips files whose source content, options and tool versions are unchanged. Prints a report per file (sizes, meshes / materials / textures / animations, final texture format, texture transfer size vs GPU memory; also `.threedog/assets-report.json`). `-- --ktx2` makes KTX2 textures; without the ktx tool it falls back to WebP and says so, `-- --ktx2 --strict` fails instead |
+| `npm run assets -- check [glb or folder] [--json] [--strict]` | Inspect models without building (default art/models/): the level manifest (spawns, col_ colliders, trigger_ zones, npcs, markers, template / id nodes, missing templates, duplicate ids), material and color-space suspicions (data texture in a color slot, BLEND, texture without UV, oversized texture), statistics. `--json` for tools, exit 1 on errors (`--strict`: on warnings too). `npm run check` also reads the level glbs for content validation |
 | `npm run perf` | Performance comparison (plain three.js vs engine vs per-module cost in openWorld); compare with `PERF.md` |
 | `npx threedog content ids [-w game \| folder] [--write]` | Stateful content entries (pickups, template instances with state / container / interact / body) that rely on their index id: prints the id each has now as `-`/`+` lines (dry run); `--write` writes them into `content/*.js`. Rename later through `content/renames.js` (recipe 30) | <!-- r18-ignore-line -->
 | `npm run doctor` | Check the environment, one line per item: ✓ passed · ✗ problem -> fix · – info only; `-- --ci` does not fail the command on problems. Checks Node version, node_modules, workspace links, package-lock consistency, `.threedog` writable, port 5173, the dev server recorded in `.threedog/dev.json`, Playwright chromium, headless WebGL2, `EXT_disjoint_timer_query_webgl2` (software rendering normally lacks it; info only). Run it first when the environment acts strange |
+| `npm run new-style name` | New style pack from a clean template (gray neutral materials, sky, one palette, empty post, one palette-colored example model): `packages/styles/<name>`, package `@threedog/style-<name>`, workspace link and lock updated, then `style check`, `map` and `check` run. Lowercase letters, digits and hyphens only |
+| `threedog style check [pack\|folder\|file] [--json] [--assets file]` | Check the final merged style: unknown fields (did-you-mean), world-state fields, palette keys read but not defined, color formats, post-effect conflicts, misspelled material roles / types, asset names the pack does not register; plus R34 for that pack. Exit 1 on errors. Static: it cannot prove a pack has no gameplay logic. See `recipes/35-style-from-reference.md` |
+| `threedog style palette <image> [--n 8]` | Dominant colors of a reference picture (JSON: share, hue, saturation, brightness, role hints base / highlight / accent / shadow) and a one-line summary; reads pixels in headless Chromium, no new dependency. A measurement, not a design decision |
 | `npm run build` | Bundle each workspace into its own dist/ |
 
 ## Reproducing a scenario and debugging
 - Add `?time=18:30&weather=rain&pos=40,-20&save=slot1&cutscene=skip&state=name` to the URL (effective in development).
-- In the console / tests: `engine.describeText()` reads the state as English text; `engine.step(seconds)` fast-forwards synchronously (no rendering); `engine.pause()` stops the real-time loop.
-- To wait for the page: `page.waitForFunction(() => window.engine?.stateApplied)` (start has finished and all URL parameters are applied); never read `_`-prefixed private fields. When the dev bridge / `npm test` / `npm run shot` cannot reach the engine (no `window.engine` after 40 seconds, or it exists but never becomes ready), the error states the page status, the latest page errors and the fix.
-- Advancing dialogue headlessly: `engine.step(1)` lets the typing finish, then press a number key or run `engine.ops.run('dialogue.choose', { index: i })` (while typing it completes the sentence first).
-- Debug objects on window: `window.engine = engine` is already declared; for a game's own, write `/** @type {any} */ (window).game = {...}` (`npm run types` reports properties on window as web hints, not errors).
+- In the console / tests: `engine.describeText()` reads the state as English text; `engine.step(seconds)` fast-forwards synchronously (no rendering);
+  `engine.pause()` stops the real-time loop.
+- To wait for the page: `page.waitForFunction(() => window.engine?.stateApplied)` (start has finished and all URL parameters are applied); never read
+  `_`-prefixed private fields. When the dev bridge / `npm test` / `npm run shot` cannot reach the engine (no `window.engine` after 40 seconds, or it
+  exists but never becomes ready), the error states the page status, the latest page errors and the fix.
+- Advancing dialogue headlessly: `engine.step(1)` lets the typing finish, then press a number key or run
+  `engine.ops.run('dialogue.choose', { index: i })` (while typing it completes the sentence first).
+- Debug objects on window: `window.engine = engine` is already declared; for a game's own, write `/** @type {any} */ (window).game = {...}`
+  (`npm run types` reports properties on window as web hints, not errors).
 - To operate a running game use the dev bridge, see `recipes/16-dev-bridge.md`.
 
 ## Folder guide (inside packages/engine)
@@ -57,8 +80,13 @@ export const specs = [{
 - `modules/` modules, one folder each, installed with `engine.use`; list in `CODEMAP.md`.
 - `render/ ui/` material factory, post-processing; UI basics (windows, UI focus stack, toast, fadeScreen, worldToScreen).
 - `index.js index.d.ts types/` entry and API declarations (`types/generated/` is generated from source JSDoc, never edited by hand).
-- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly package: `index.js` holds the style pack (all look parameters) and exports the asset pack `assets`, `models.js` the procedural models in it, `shapes.js` the default humanoid and pickup shapes, `post.js` the bloom / outline / ao effects. The terrain preset `terrainPreset()` is a separate package, `packages/terrain-noise/` (`@threedog/terrain-noise`).
-- `examples/world/` is the engine example (open world `/`, content-only placement). The small city (level, no terrain, no style pack, top-down) and the co-op page are test pages in the engine repository (`tests/city/`, `tests/coop/`), opened at `/tests/city/index.html` and `/tests/coop/index.html`.
+- `packages/styles/lowpoly/` (`@threedog/style-lowpoly`, optional; the engine ships no art) the lowpoly package: `index.js` holds the style pack (all
+  look parameters) and exports the asset pack `assets`, `models.js` the procedural models in it, `shapes.js` the default humanoid and pickup shapes,
+  `post.js` the bloom / outline / ao effects. The terrain preset `terrainPreset()` is a separate package, `packages/terrain-noise/` (`@threedog/terrain-noise`).
+- `examples/world/` is the engine example (open world `/`, content-only placement). The small city (level, no terrain, no style pack, top-down) and
+  the co-op page are test pages in the engine repository (`tests/city/`, `tests/coop/`), opened at `/tests/city/index.html` and `/tests/coop/index.html`.
 - `tests/` specs.mjs + specs/ test list, `<name>/index.html` test pages, fixtures/ test assets. `public/` art for the examples.
-- Each game `games/<game>/`: package.json, vite.config.js (one line, gameConfig), index.html, main.js, `content/` (items npcs dialogues quests pickups containers props templates triggers actions places level vegetation audio grids renames rules, plus the game's own kinds registered in `content/rules.js`; only these file names are read), `public/` (art; Blender source files go in `art/models/`), DESIGN.md, GAMEMAP.md (generated), CLAUDE.md.
+- Each game `games/<game>/`: package.json, vite.config.js (one line, gameConfig), index.html, main.js, `content/` (items npcs dialogues quests pickups
+  containers props templates triggers actions places level vegetation audio grids renames rules, plus the game's own kinds registered in
+  `content/rules.js`; only these file names are read), `public/` (art; Blender source files go in `art/models/`), DESIGN.md, GAMEMAP.md (generated), CLAUDE.md.
 - Each workspace has its own `.threedog/` (browser error log errors.log, screenshots shots/, generated cache) and `dist/`; neither is committed.

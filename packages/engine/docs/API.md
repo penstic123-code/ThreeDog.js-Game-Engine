@@ -1,6 +1,6 @@
 # Engine API index (generated, do not edit by hand; produced by npm run map)
 
-> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style-pack · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game
+> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style-pack · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-style-from-reference · 36-sky-ground-plant-looks · 37-terrain-look-hooks · 43-shader-patches-surface-looks
 > The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types are in `types/*.d.ts`.
 > With no matching recipe: read this page first: the core everyday API + one line per core object / module (listing method names). For the one you need, **read only that page** `api/<name>.md` (methods, parameters, properties and data structures are all in it).
 > Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from 'threedog'` (the engine package's own examples use relative paths); a module that is not installed is undefined, so use `engine.xxx?.method()`.
@@ -35,7 +35,7 @@
 - [`engine.clock`](api/clock.md) game seconds and "after how long / every how long": after every
 - [`engine.vars`](api/vars.md) story flags and counters (autosaved): flag setFlag counter bump
 - [`engine.saves`](api/saves.md) engine.saves handles saving: register queue flush collect check apply save load list remove export import exportFile importFile …
-- [`engine.assets`](api/assets.md) Assets: manifest builder preload font model modelNow geometry texture release trim users forget cached animate
+- [`engine.assets`](api/assets.md) Assets: manifest builder preload font model modelNow geometry texture release trim users forget cached animate …
 - [`engine.audio`](api/audio.md) buses: addBus setVolume duck register condition measure value matches volumeOf sfx noiseBurst tone load play
 - [`engine.i18n`](api/i18n.md) string tables: add setLocale has t
 - [`engine.rays`](api/rays.md) engine.rays is the ray registry…: addStatic forget addProvider cast pick
@@ -48,7 +48,7 @@
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
 - [`engine.terrain`](api/terrain.md) terrain() Procedural terrain: setViewChunks setDensity rebuild edit isReadyAround
 - [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: rebuild setShadowRing add get list isRemoved removeInstance restoreInstance instanceAt
-- [`engine.sky`](api/sky.md) sky() Sky, day/night, calendar: modify at between daily onSeason setShadow setShadowMapSize
+- [`engine.sky`](api/sky.md) sky() Sky, day/night, calendar: modify at between daily onSeason setShadow setShadowMapSize setEnvironment
 - [`engine.weather`](api/weather.md) weather() Weather: setAuto set label
 - [`engine.water`](api/water.md) water() Water surface
 - [`engine.world`](api/world.md)  World data: add origin idOf get set move remove query forEachNear present view refresh …
@@ -81,4 +81,4 @@
 
 ## Other
 - [Style pack Style](api/style.md): all look options (sky, weather, water, terrain, UI, materials, particles, sound, models)
-- [Utility functions](api/tools.md): presets world net fakeNetwork webSocket grids screenToGround EASINGS ease checkOptions createTerrain terrainMaterial mergeColored applyEffects MATERIAL_PURPOSES makeMaterial materialPatches toast makeWindow worldToScreen fadeScreen uiFocus toggleOnKey parseClock …
+- [Utility functions](api/tools.md): postAdd postRemove presets world net fakeNetwork webSocket grids screenToGround EASINGS ease checkOptions createTerrain terrainMaterial mergeColored applyEffects MATERIAL_PURPOSES makeMaterial materialPatches toast makeWindow worldToScreen fadeScreen uiFocus …

@@ -10,8 +10,15 @@ export function applySeason(sky, uniforms) {
   const S = sky.seasonStyle; if (!S || !sky.seasons.length) return;
   const cur = S[sky.season] || {}, next = S[sky.seasons[(sky.seasonIndex + 1) % sky.seasons.length]] || {};
   const k = Math.max(0, (sky.seasonProgress - 0.8) / 0.2);
-  const blend = (key, out) => { c1.set(cur[key] ?? 0xffffff); c2.set(next[key] ?? 0xffffff); out.copy(c1).lerp(c2, k); };
-  blend('foliage', uniforms.uFoliageTint.value); blend('ground', uniforms.uGroundTint.value);
+  // mode 'multiply' (default): the color multiplies the surface. mode 'mix': the surface moves `strength` of the way to the color (orange on green
+  // leaves stays orange instead of turning muddy); a season without a color for the part leaves it alone
+  const mix = S.mode === 'mix', strength = S.strength ?? 0.5;
+  const blend = (key, out, amount) => {
+    const a = cur[key], b = next[key];
+    c1.set(a ?? (mix ? b : null) ?? 0xffffff); c2.set(b ?? (mix ? a : null) ?? 0xffffff); out.copy(c1).lerp(c2, k);
+    amount.value = mix ? strength * ((a != null ? 1 - k : 0) + (b != null ? k : 0)) : 0;
+  };
+  blend('foliage', uniforms.uFoliageTint.value, uniforms.uFoliageMix); blend('ground', uniforms.uGroundTint.value, uniforms.uGroundMix);
 }
 
 const STRINGS = {

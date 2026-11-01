@@ -8,12 +8,14 @@
 //   npm run shot -- / --time 18:30 --weather rain --pos 40,-20 --wait 3
 //   npm run shot -- /tests/city/index.html --time 12:00        the town test page
 //   npm run shot -- / --describe-only              print text only, no screenshot
+//   npm run shot -- styletest --view room --time dusk --weather rain   the style test page: the lit room at dusk in rain
 //
 // Options:
-//   page            URL path, default /
+//   page            URL path, default /; a bare name is a page of the workspace: `shot styletest` = /styletest.html
 //   --time HH:MM   set the time of day (needs the sky module)
 //   --weather name  clear / cloudy / overcast / rain / storm / snow / fog (needs the weather module)
 //   --pos x,z      put the player here (on the ground)
+//   --view name    a named camera position, for pages that read ?view= (the style test: overview, character, water, room, path, ui)
 //   --wait seconds  game seconds to advance after setup (default 1)
 //   --size WxH      screenshot resolution, default 960x540
 //   --keep-cutscene  do not skip a cutscene that is playing
@@ -36,7 +38,8 @@ for (let i = 0; i < args.length; i++) {
   const k = a.slice(2), v = args[i + 1];
   if (v === undefined || v.startsWith('--')) opt[k] = true; else { opt[k] = v; i++; }
 }
-const [W, H] = String(opt.size || '960x540').split('x').map(Number);
+if (/^[\w-]+$/.test(url)) url = `/${url}.html`;   // a bare name is a page: shot styletest
+const [W, H] =String(opt.size || '960x540').split('x').map(Number);
 const wait = opt.wait !== undefined ? +opt.wait : 1;
 
 if (!opt['no-build']) console.log(`Building… (${rel(dir)})`);
@@ -48,7 +51,7 @@ const page = await newGamePage(browser, { errors, viewport: { width: W, height: 
 try {
   // Time, weather, position, skipping cutscenes and advancing are all left to the engine's URL parameters (engine.applyState, see packages/engine/core/UrlState.js)
   const q = new URLSearchParams({ 'threedog-headless': '' });
-  for (const k of ['time', 'weather', 'pos']) if (opt[k]) q.set(k, opt[k]);
+  for (const k of ['time', 'weather', 'pos', 'view']) if (opt[k]) q.set(k, opt[k]);
   q.set('wait', String(wait));
   q.set('cutscene', opt['keep-cutscene'] ? 'keep' : 'skip');
   await page.goto(base + url + (url.includes('?') ? '&' : '?') + q.toString().replace('threedog-headless=', 'threedog-headless'));
@@ -58,7 +61,7 @@ try {
   const text = await ev(() => { engine.step(1 / 30, { render: true }); return engine.describeText(); });
   if (!opt['describe-only']) {
     mkdirSync(join(dir, '.threedog', 'shots'), { recursive: true });
-    const name = [url.replace(/^\//, '').replace(/\.html.*$/, '') || 'main', opt.time && 't' + opt.time.replace(':', ''), opt.weather, opt.pos && 'pos' + opt.pos, 'w' + wait]
+    const name = [url.replace(/^\//, '').replace(/\.html.*$/, '') || 'main', opt.time && 't' + opt.time.replace(':', ''), opt.weather, opt.pos && 'pos' + opt.pos, opt.view && 'view-' + opt.view, 'w' + wait]
       .filter(Boolean).join('_').replace(/[^\w,.-]+/g, '-');
     const file = join(dir, '.threedog', 'shots', `${name}.png`);
     await page.screenshot({ path: file });

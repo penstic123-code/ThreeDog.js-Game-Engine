@@ -9,10 +9,11 @@
  * materials: {
  *   default: { type: 'toon', steps: 3 },                                // spec: type lambert | phong | standard | physical | toon | basic, plus properties
  *   water:   new THREE.MeshMatcapMaterial({ matcap: tex }),           // instance: cloned on every call
- *   prop:    (params, purpose) => new THREE.ShaderMaterial({ ... }),  // function: returns any three.js Material
+ *   prop:    (params, purpose, engine) => new THREE.ShaderMaterial({ ... }),  // function: returns any three.js Material
  * }
  * A pack Material instance is cloned with its shader patches (applyEffects) kept.
- * With more than one engine on the page, pass the engine whose style pack should decide (default: the first engine created).
+ * Whose style pack decides: engine.makeMaterial(purpose, params) (this engine's) or the third argument; without either the first live engine's
+ * (fine for a one-engine game; engine code and style packs always pass the engine, and two engines on the page warn in dev).
  * @param {string} [purpose]
  * @param {{ color?: ColorLike, [prop: string]: any }} [params]
  * @param {{ style: any }} [engine]
@@ -28,7 +29,8 @@ export function makeMaterial(purpose?: string, params?: {
  * Add effects to any material (built-in, from a style pack, or third-party); returns the same material. The one entry for shader effects:
  * wind (sway amplitude; the shadow sways too, nothing else to set up), clouds (drifting cloud shadows, default on; how dark is
  * style.clouds.shadow), season ('foliage' | 'ground' seasonal tint), and patches: your own named patches (see ShaderPatch in
- * render/patches.js). The 'world' patch (varying vThreedogWorld, world position) comes with clouds, and is added for any of your
+ * render/patches.js), detail (grain / paper / strokes / a texture over the surface, see MaterialDetail in types/style.d.ts; a texture given by
+ * asset name loads from `engine`, default the first live engine). The 'world' patch (varying vThreedogWorld, world position) comes with clouds, and is added for any of your
  * patches that lists it in needs.patches.
  * Built-in effects the material cannot take (MeshBasicMaterial has no lighting chunk for clouds) are skipped with a one-time warning;
  * your own patches throw when their anchor is missing. Calling again with the same effect replaces it.
@@ -37,13 +39,21 @@ export function makeMaterial(purpose?: string, params?: {
  * applyEffects(mat, { clouds: false, patches: [{ name: 'snap', cacheKey: 64, uniforms: { uGrid: { value: 64 } },
  *   glsl: { vertex: { pars: 'uniform float uGrid;', project_vertex: 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uGrid) / uGrid * gl_Position.w;' } } }] });
  * @param {Material} material
- * @param {{ wind?: number, clouds?: boolean, season?: 'foliage' | 'ground', patches?: import('./patches.js').ShaderPatch[] }} [opts]
+ * @param {{ wind?: number | { amplitude: number, glsl: string, uniforms?: Record<string, any> }, clouds?: boolean, season?: 'foliage' | 'ground', detail?: import('../../../render/detail').DetailOptions, engine?: { assets: any }, patches?: import('./patches.js').ShaderPatch[] }} [opts]
  * @returns {Material}
  */
-export function applyEffects(material: THREE.Material, { wind, clouds, season, patches }?: {
-    wind?: number;
+export function applyEffects(material: THREE.Material, { wind, clouds, season, detail, engine, patches }?: {
+    wind?: number | {
+        amplitude: number;
+        glsl: string;
+        uniforms?: Record<string, any>;
+    };
     clouds?: boolean;
     season?: "foliage" | "ground";
+    detail?: import("../../../render/detail").DetailOptions;
+    engine?: {
+        assets: any;
+    };
     patches?: import("./patches.js").ShaderPatch[];
 }): THREE.Material;
 /**

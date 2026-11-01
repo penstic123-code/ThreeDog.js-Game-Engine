@@ -14,6 +14,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { warnMissing } from '../core/validate.js';
+import { FusedPass, groupFuse } from './fuse.js';
 /** @import { Engine } from '../types/core' */
 
 /**
@@ -22,9 +23,17 @@ import { warnMissing } from '../core/validate.js';
  *   outline); ldr: sRGB color after tone mapping (LUT, palette, grain, vignette); final: last of all (FXAA / SMAA).
  * @typedef {{ engine: Engine, scene: import('three').Scene, camera: import('three').Camera, width: number, height: number, params: Record<string, any> }} PostContext
  *   width / height are in device pixels.
- * @typedef {{ name: string, create: (ctx: PostContext) => object, slot?: PostSlot, order?: number, enabled?: boolean, costly?: boolean,
+ * @typedef {{ uniforms?: Record<string, string>, values?: (params: Record<string, any>) => Record<string, any>, glsl: string, reads?: boolean }} PostFuse
+ *   A GLSL snippet that colors the pixel; neighboring effects with a fuse run as ONE fullscreen pass. glsl is statements that edit
+ *   `vec4 color` (the input pixel so far) and may use vUv, tDiffuse, uTime (s), uResolution (device px) and fxHash(vec2). uniforms
+ *   declares extra ones by GLSL type ({ uVigStrength: 'float' }; names must be unique across effects, prefix with the effect name);
+ *   values(params) returns their current values. reads: true when the snippet samples tDiffuse at other uvs (blur, color fringe):
+ *   it then starts a new group, so it sees the real input.
+ * @typedef {{ name: string, create?: (ctx: PostContext) => object, fuse?: PostFuse, slot?: PostSlot, order?: number, enabled?: boolean, costly?: boolean,
  *   needsDepth?: boolean, params?: Record<string, any>, update?: (impl: any, params: Record<string, any>) => void }} PostEffect
- *   create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass).
+ *   create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
+ *   fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params
+ *   update in place (no update() needed).
  *   order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
  *   needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  *   scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
@@ -62,6 +71,7 @@ export class PostFX {
     if (!Array.isArray(effects)) throw new Error('style.post must be an array of post effects, e.g. post: [bloom({ strength: 0.35 })] (see recipe 09)');
     for (const name in enabled) if (!effects.some(e => e?.name === name))
       throw new Error(`createEngine({ post }): no post effect named '${name}'; the style pack registers: ${effects.map(e => e.name).join(', ') || 'none'}`);
+    /** @internal */ this._fused = /** @type {Map<string, FusedPass>} */ (new Map());
     /** @internal */ this._scenePass = /** @type {any} */ (null);
     /** @internal */ this._output = /** @type {any} */ (null);
     /** @internal */ this._building = true;     // add() skips chain rebuilds until every style effect is in
@@ -95,11 +105,12 @@ export class PostFX {
    * @experimental
    */
   add(effect, { slot, order, enabled } = {}) {
-    if (!effect || typeof effect.name !== 'string' || typeof effect.create !== 'function')
-      throw new Error("post.add(effect): effect needs { name: 'myEffect', create: (ctx) => pass }");
+    if (!effect || typeof effect.name !== 'string' || (typeof effect.create !== 'function' && !effect.fuse))
+      throw new Error("post.add(effect): effect needs { name: 'myEffect', create: (ctx) => pass } (or a fuse snippet, see PostEffect)");
     if (this.get(effect.name)) throw new Error(`post effect '${effect.name}' is already added; change it with post.get('${effect.name}').set(params), or remove() it first`);
     const s = slot ?? effect.slot ?? 'hdr';
     if (!SLOTS.includes(s)) throw new Error(`post effect '${effect.name}': unknown slot '${s}', use ${SLOTS.join(' | ')}`);
+    if (effect.fuse && s === 'scene') throw new Error(`post effect '${effect.name}': a fuse snippet colors an existing image, it cannot replace the scene render; use slot 'hdr' | 'ldr' | 'final'`);
     const other = s === 'scene' && this._list.find(e => e.slot === 'scene');
     if (other) throw new Error(`post slot 'scene' already holds '${other.name}'; remove it first (only one effect can replace the scene render)`);
     const post = this;
@@ -109,6 +120,7 @@ export class PostFX {
       enable(on) { const was = h.enabled; post._change(() => { h.enabled = !!on; }, () => { h.enabled = was; }); },
       set(p) {
         Object.assign(h.params, p);
+        if (effect.fuse) { for (const p of post._fused.values()) p.refresh(); return; }
         if (!h._impl) return;
         if (effect.update) effect.update(h._impl, h.params); else { h._impl.dispose?.(); h._impl = null; post._sync(); }
       },
@@ -166,6 +178,15 @@ export class PostFX {
     apply();
     try { this._sync(); } catch (err) { undo(); this._sync(); throw err; }
   }
+  // One FusedPass per group of neighboring fuse effects, kept while the same effects stay grouped (a changed group recompiles once)
+  /** @internal */
+  _fuseEntry(group, used) {
+    const key = group.map(e => e.name).join('+'), old = this._fused.get(key);
+    let pass = old && old.items.every((e, i) => e === group[i]) ? old : null;
+    if (!pass) { old?.dispose(); pass = new FusedPass(group); this._fused.set(key, pass); }
+    used.add(key);
+    return { name: `fused(${key})`, _impl: pass };
+  }
   // Rebuild the pass chain from the list: scene (or the default RenderPass) -> hdr -> tone-mapped output -> ldr -> final.
   // Only enabled effects are in the chain; an implementation is built the first time its effect is on and kept after.
   /** @internal */
@@ -182,13 +203,15 @@ export class PostFX {
       this._output = new OutputPass();
     }
     const c = this.composer, on = this._sorted().filter(e => e.enabled);
-    for (const e of on) if (!e._impl) {
+    for (const e of on) if (!e._impl && !e._def.fuse) {
       e._impl = e._def.create({ engine: this.engine, scene, camera, width: size.x, height: size.y, params: e.params });
       if (!e._impl || typeof e._impl.render !== 'function') { e._impl = null; throw new Error(`post effect '${e.name}': create() must return a pass with render() (a three.js postprocessing Pass)`); }
     }
-    const slot = s => on.filter(e => e.slot === s);
+    const used = new Set();
+    const slot = s => groupFuse(on.filter(e => e.slot === s)).map(g => Array.isArray(g) ? this._fuseEntry(g, used) : g);
     const named = [slot('scene')[0] ?? { name: 'scene render', _impl: this._scenePass }, ...slot('hdr'),
       { name: 'output (tone mapping)', _impl: this._output }, ...slot('ldr'), ...slot('final')];
+    for (const [k, p] of this._fused) if (!used.has(k)) { p.dispose(); this._fused.delete(k); }
     checkDepthOrder(named);
     // Effects reading depth (outline) need a depth texture on both ping-pong targets; added once, kept
     if (on.some(e => e._def.needsDepth)) for (const rt of [c.renderTarget1, c.renderTarget2]) if (!rt.depthTexture) { rt.depthTexture = new THREE.DepthTexture(size.x, size.y); rt.dispose(); }
@@ -202,6 +225,8 @@ export class PostFX {
    */
   dispose() {
     for (const e of this._list) { e._impl?.dispose?.(); e._impl = null; }
+    for (const p of this._fused.values()) p.dispose();
+    this._fused.clear();
     if (!this.composer) return;
     this._scenePass.dispose(); this._output.dispose();
     this.composer.dispose(); this.composer = null;

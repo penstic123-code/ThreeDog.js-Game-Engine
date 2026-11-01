@@ -14,5 +14,7 @@ export const assets: AssetManifest & { name: 'lowpoly' };
 export function bloom(o?: { strength?: number; radius?: number; threshold?: number; enabled?: boolean; order?: number }): PostEffect;
 /** Ambient occlusion effect for style.post (hdr slot, off unless enabled) */
 export function ao(o?: { enabled?: boolean; order?: number }): PostEffect;
-/** Depth-edge outline effect for style.post (hdr slot, before bloom, off unless enabled) */
-export function outline(o?: { color?: ColorLike; thickness?: number; strength?: number; enabled?: boolean; order?: number }): PostEffect;
+/** Outline effect for style.post (hdr slot, before bloom, off unless enabled). mode 'depth' (default) = silhouettes, 'normal' = creases (extra scene render, costly), 'both'; wobble = line jitter in pixels; offLayer = objects with that three.js layer enabled get no lines (use OUTLINE_OFF_LAYER) */
+export function outline(o?: { color?: ColorLike; thickness?: number; strength?: number; mode?: 'depth' | 'normal' | 'both'; fadeWithDistance?: boolean; wobble?: number; offLayer?: number | null; enabled?: boolean; order?: number }): PostEffect;
+/** Layer number (29) for outline({ offLayer }): mesh.layers.enable(OUTLINE_OFF_LAYER) exempts that object from the lines */
+export const OUTLINE_OFF_LAYER: number;

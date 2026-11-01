@@ -11,7 +11,7 @@ export function cachedModel(e, m) {
   const [name, ...args] = list(m), fn = e.assets.builder(name);
   if (!fn) return null;
   // pass the generator function to cached as is (dev cache hashes its source); wrap only when there are several params
-  return args.length > 1 ? e.assets.cached(name, p => fn(...p), args) : e.assets.cached(name, fn, args[0]);
+  return args.length > 1 ? e.assets.cached(name, function (p) { return fn.apply(this, p); }, args) : e.assets.cached(name, fn, args[0]);
 }
 
 // One prototype per model name: a generator entry -> assets.cached (baked file / dev cache); a file entry -> assets.model. Content names models only (no paths).
@@ -22,7 +22,7 @@ function protoOf(e, api, model) {
   if (!cache.has(key)) {
     const gen = cachedModel(e, model);
     cache.set(key, (gen ? gen.then(r => {
-      const p = r.isObject3D ? r : new THREE.Mesh(r, makeMaterial('prop', { vertexColors: !!r.attributes.color }));
+      const p = r.isObject3D ? r : new THREE.Mesh(r, makeMaterial('prop', { vertexColors: !!r.attributes.color }, e));
       p.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
       return p;
     }) : e.assets.model(list(model)[0])).then(obj => {

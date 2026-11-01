@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { warnOnce } from '../../core/validate.js';
 import { NOISE_GLSL } from '../../render/effects.js';
+import { resolveClouds, cloudUniforms, CLOUD_UNIFORM_DECL } from './clouds.js';
 
 // Keyframes: [time 0-1, zenith color, horizon color (= fog color), light color, light intensity, ambient intensity]
 // Neutral fallback when no style pack: pure gray (no hue), only brightness changes with time
@@ -26,7 +27,9 @@ export function checkKeyframes(kf) {
 
 /** Dome uniforms from the style (st = style.sky + sky() options); time and cloud cover are the engine's (engine.uniforms) */
 export function makeSkyUniforms(st, engineUniforms) {
+  const cl = resolveClouds(st.clouds);   // throws on a bad kind / glsl / custom uniform before anything is built
   return {
+    ...cloudUniforms(st.clouds, cl.kind), ...cl.uniforms,
     uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color() }, uNight: { value: 0 },
     uSunSize: { value: st.sunSize ?? 900 }, uSunGlow: { value: st.sunGlow ?? 0.18 }, uSunPower: { value: st.sunBrightness ?? 6 }, uMoonPower: { value: st.moonBrightness ?? 3 },
@@ -39,9 +42,9 @@ export function makeSkyUniforms(st, engineUniforms) {
 }
 
 /** The sky dome: a back-faced sphere that follows the camera and is scaled to 0.9 of its far plane (drawn first, no depth) */
-export function makeDome(uniforms) {
+export function makeDome(uniforms, st) {
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
-    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: fragment(resolveClouds(st.clouds)), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
   dome.frustumCulled = false; dome.renderOrder = -1000; dome.userData.budgetTag = 'sky';
   dome.onBeforeRender = (r, sc, cam) => {
     dome.position.copy(cam.position); dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); dome.updateMatrixWorld();
@@ -59,12 +62,15 @@ export function loadSkybox(sky, name) {
 
 const vert = `varying vec3 vDir;
 void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
-const frag = `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
+const fragment = cl => `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
 uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
 uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
+${CLOUD_UNIFORM_DECL}
+${cl.decl}
 varying vec3 vDir;
 float h3(vec3 p){ p = fract(p*0.3183099+.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 ${NOISE_GLSL}
+${cl.glsl}
 void main(){
   vec3 d = normalize(vDir);
   float y = max(d.y, 0.0);
@@ -74,14 +80,11 @@ void main(){
   float md = max(dot(d, -uSunDir), 0.0);
   col += uMoonColor * pow(md, uMoonSize) * uMoonPower * uNight;
   vec3 g = floor(d * uStarScale);
-  // Clouds: project the view ray onto a plane in the sky and layer two noises; coverage follows weather
+  // Clouds: threedogClouds() is the style's (or a built-in kind's) cloud function, see clouds.js; coverage follows weather
   float cov = uCloud * uCloudCover;
   if (d.y > 0.0 && cov > 0.01) {
-    vec2 cp = d.xz / (d.y + 0.08) * uCloudScale + uCloudSpeed * uTime;
-    float cn = threedogNoise(cp) * 0.6 + threedogNoise(cp * 2.7 + 7.0) * 0.3 + threedogNoise(cp * 6.1) * 0.1;
-    float cloud = smoothstep(1.0 - cov, 1.0 - cov + 0.3, cn) * smoothstep(0.0, 0.18, d.y);
-    vec3 cc = mix(uCloudShade, uCloudColor, smoothstep(0.3, 0.8, cn)) * (0.35 + 0.65 * (1.0 - uNight));
-    col = mix(col, cc, cloud * 0.9);
+    vec4 cl = threedogClouds(d, uTime, uSunDir, uNight, uCloudColor, uCloudShade, cov);
+    col = mix(col, cl.rgb, cl.a);
   }
   col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, 0.25, d.y));
   gl_FragColor = vec4(col, 1.0);

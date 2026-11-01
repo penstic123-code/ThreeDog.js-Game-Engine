@@ -37,8 +37,9 @@ import type {
   Content, Flow, FlowOptions, Hud, HudOptions, ScreenPoint, UIFocus, FocusHandle,
 } from './types/gameplay';
 import type { Style, StyleUI } from './types/style';
+import type { PostEffect } from './types/generated/render/PostFX';
 // Local bindings for the generated module factories (export { x } from re-exports below do not create them), used by OpenWorldOptions
-import type { sky } from './types/generated/modules/sky/Sky';
+import type { sky } from './types/generated/modules/sky/skyModule';
 import type { weather } from './types/generated/modules/weather/Weather';
 import type { water } from './types/generated/modules/water/Water';
 import type { world } from './types/generated/modules/world/index';
@@ -63,6 +64,13 @@ export * as THREE from 'three';
 
 /** Create an engine (core only). canvas is required; style is the style pack */
 export function createEngine(opts: EngineOptions): Engine;
+/**
+ * A style part that adds post effects to the ones before it (a plain { post: [...] } would replace the whole list); an effect with the same name
+ * replaces that one in place. Style parts with it: createEngine({ style: [lowpoly, postAdd(myGrain, bloom({ strength: 0.6 }))] })
+ */
+export function postAdd(...effects: PostEffect[]): Style;
+/** A style part that removes post effects by name from the ones before it: createEngine({ style: [lowpoly, postRemove('ao', 'outline')] }) */
+export function postRemove(...names: string[]): Style;
 
 /** One openWorld part: false leaves the module out, true / omitted uses defaults, an object is that module's own options */
 type Part<F extends (...a: any) => any> = boolean | NonNullable<Parameters<F>[0]>;
@@ -116,8 +124,8 @@ export function openWorld(opts: OpenWorldOptions): ModuleDef[];
 export function terrain(opts?: TerrainOptions): ModuleDef<Terrain>;
 /** Vegetation -> engine.vegetation: on terrain chunks when terrain() is installed first (no options), else on its own chunks over any ground (a level, setGround) */
 export function vegetation(opts?: VegetationModuleOptions): ModuleDef<Vegetation>;
-// Migrated: sky() is generated from the JSDoc in modules/sky/Sky.js
-export { sky } from './types/generated/modules/sky/Sky';
+// Migrated: sky() is generated from the JSDoc in modules/sky/skyModule.js
+export { sky } from './types/generated/modules/sky/skyModule';
 // Migrated: weather() is generated from the JSDoc in modules/weather/Weather.js
 export { weather } from './types/generated/modules/weather/Weather';
 /**

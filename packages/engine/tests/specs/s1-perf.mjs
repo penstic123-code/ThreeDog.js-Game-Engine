@@ -25,7 +25,7 @@ export const specs = [
           let bad = 0, hits = 0;
           for (const [x, z, range] of qs) {
             const want = linear(x, z, range);
-            const got2 = []; C._each(x, z, range, (type, a, b, c) => got2.push(type === 'b' ? a : `${a},${b},${c}`));
+            const got2 = C._grid.query(x, z, range).map(it => it._b ? it : `${it.x},${it.z},${it.r}`);
             const want2 = want.map(o => o.hw !== undefined ? o : `${o.x},${o.z},${o.r}`);
             hits += want.length;
             if (want2.length !== got2.length || want2.some((w, i) => w !== got2[i])) bad++;
@@ -37,7 +37,7 @@ export const specs = [
         const afterRemove = compare();
         const time = f => { const t0 = performance.now(); for (let k = 0; k < 5; k++) for (const [x, z, range] of qs) f(x, z, range); return performance.now() - t0; };
         const msLinear = time((x, z, range) => { for (const o of linear(x, z, range)); });
-        const msGrid = time((x, z, range) => C._each(x, z, range, () => {}));
+        const msGrid = time((x, z, range) => { for (const o of C._grid.query(x, z, range)); });
         // real usage: resolve pushes the character out; equal results follow from equal callback sequences, so only check that it does not throw
         const p = { x: 3, z: 0 }; C.resolve(p, 0.4);
         g.forEachCollider = saved;

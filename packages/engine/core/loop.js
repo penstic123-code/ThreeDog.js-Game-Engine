@@ -1,16 +1,20 @@
-// Main loop (part of Engine, mixed into Engine.prototype): fixed step + per-frame hooks + render, deterministic step(), hook timing profile(), adaptive resolution.
+// Main loop (part of Engine, mixed into Engine.prototype): fixed step + per-frame hooks + render, deterministic step(), hook timing profile(),
+// adaptive resolution.
 //
 // Hook errors: onFixed / onFrame callbacks and module fixed / frame / afterRender hooks each run in try/catch and are handled by error tier (errors.js):
-// presentation modules are disabled, gameplay errors freeze gameplay in dev / tests and are recorded in engine.error, core steps such as render report only once; input.endFrame() sits in finally so "just pressed" always clears.
+// presentation modules are disabled, gameplay errors freeze gameplay in dev / tests and are recorded in engine.error, core steps such as render
+// report only once; input.endFrame() sits in finally so "just pressed" always clears.
 //
 // What freezing (engine.freeze) stops: the whole fixed step is skipped (onFixed, module fixed, the game clock and engine.elapsed all stop);
-// frame hooks, stream / jobs and render keep going (the picture and UI stay usable). So gameplay logic (movement, timers, quest checks, cutscene waits) belongs in fixed,
+// frame hooks, stream / jobs and render keep going (the picture and UI stay usable). So gameplay logic (movement, timers, quest checks, cutscene
+// waits) belongs in fixed,
 // or must check engine.frozen first inside frame.
 //
 // Determinism: in engine.step() and headless loading frames, jobs ignore the real-time budget and drain the queue (see Jobs.js),
 // and stream's synchronous builds are attached to the scene before step returns: same input and same seed (engine.random) give the same result.
 import { reportError } from './errors.js';
 import { DEV } from './validate.js';
+import { codedError } from './errorHints.js';
 import { watchLights } from './lightWatch.js';
 
 const STEP = 1 / 60;   // fixed step length: 60 per second
@@ -19,11 +23,13 @@ const STEP = 1 / 60;   // fixed step length: 60 per second
 const MAX_CATCHUP = 0.1;
 // Dev message (console): which hook failed
 const STRINGS = {
-  onFixed: 'onFixed callback', commits: 'background result apply (commits)', onFrame: 'onFrame callback', clock: 'clock timer', render: 'render', hook: '{kind} hook of module {name}',
+  onFixed: 'onFixed callback', commits: 'background result apply (commits)', onFrame: 'onFrame callback', clock: 'clock timer', render: 'render',
+  hook: '{kind} hook of module {name}',
 };
 
 const SOFT = { soft: true };   // core steps (render, stream): report once only
-/** Call a hook fn.call(self, a, b); errors go to reportError for tiering. opts: { module } the failing module / SOFT / null (game callback, counts as gameplay).
+/** Call a hook fn.call(self, a, b); errors go to reportError for tiering.
+ *  opts: { module } the failing module / SOFT / null (game callback, counts as gameplay).
  *  Takes no ...args and needs no caller closure: the main loop calls this many times a frame, so it must not allocate each time. */
 function safe(engine, key, fn, opts, self, a, b) {
   try { fn.call(self, a, b); } catch (err) { reportError(engine, err, key, opts ?? undefined); }
@@ -31,7 +37,8 @@ function safe(engine, key, fn, opts, self, a, b) {
 
 export const loopMethods = {
   _fixedStep() {
-    this.input.beginFixed();                   // input snapshot for this step: keys read in fixed depend only on the step count, not on how many steps a frame ran
+    // input snapshot for this step: keys read in fixed depend only on the step count, not on how many steps a frame ran
+    this.input.beginFixed();
     try {
       if (this._freezers.size) return;         // gameplay frozen: fixed seconds and game seconds stop (frame hooks and render continue)
       this.tick++;
@@ -46,6 +53,9 @@ export const loopMethods = {
   },
   /** Per frame: onFrame callbacks, module frame, stream, jobs. With deterministic true (step, headless loading) jobs ignore real time. */
   _frameHooks(dt, deterministic = false) {
+    // one profile frame = one frame-hook cycle (the real loop: one per rendered frame; step(): one per frameEvery fixed steps). Counting rendered frames
+    // instead made step(render: false) divide by zero frames and report the whole run's milliseconds as one frame's
+    if (this._prof) this._prof.frames++;
     for (const f of this._frame) safe(this, STRINGS.onFrame, f, null, undefined, dt);
     this._runHooks('frame', dt);
     safe(this, 'stream.update', this.stream._update, SOFT, this.stream);
@@ -56,9 +66,11 @@ export const loopMethods = {
   },
   _render(dt) {
     this.renderer.info.reset();
+    const t0 = performance.now();   // measure
     this.post.render(dt);
+    // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost)
+    this.budget.cost.rendered(performance.now() - t0);   // measure
     if (DEV && this.ready) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
-    if (this._prof) this._prof.frames++;
   },
   _runHooks(kind, dt) {
     const p = this._prof;
@@ -82,6 +94,21 @@ export const loopMethods = {
     return r;
   },
 
+  // ---------- pause and freeze (the other half of the loop: step() below is the deterministic way to advance) ----------
+  /** Pause the real-time loop (the picture stops and the game stops advancing) */
+  pause() { this.paused = true; return this; },
+  /** Resume the real-time loop (in headless mode this starts live running) */
+  resume() { if (!this.disposed) { this.paused = false; this._loop(); } return this; },
+  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, game clock and engine.elapsed all stop) while frame hooks
+  // and rendering go on, so the picture and UI stay alive.
+  // Gameplay logic (quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame (see the top of this file).
+  // Unlike pause(), which stops rendering too and is for tests and step(). owner is the freezer's name; play resumes only when all
+  // have unfrozen. step() obeys freezes as well.
+  freeze(owner = 'game') { this._freezers.add(owner); return this; },
+  unfreeze(owner = 'game') { this._freezers.delete(owner); return this; },
+  /** True while someone has frozen gameplay */
+  get frozen() { return this._freezers.size > 0; },
+
   _loop() {
     if (this._looping) return;
     this._looping = true;
@@ -91,35 +118,55 @@ export const loopMethods = {
       this._raf = requestAnimationFrame(tick);
       const dt = Math.min(0.25, (now - last) / 1000); last = now;
       if (this.paused) { acc = 0; return; }        // paused: no advance, no render
+      // CPU time of one frame = main-thread work from here to the end of the afterRender hooks, in four phases (engine.cpuPhases):
+      // fixed (input poll + fixed steps), frame (onFrame + module frame hooks + stream / jobs / batching), render (submitting the draw
+      // calls: three.js CPU work, upload of new objects, shader compiles; not GPU time), afterRender (module hooks). Adaptive resolution
+      // and the startup readiness check run after and are not counted. Budget is sampled last so it sees this frame, not the previous one.
       const c0 = performance.now();   // measure
+      let c1, c2, c3;
       try {
         this.input.poll(dt);
         // page away / WebGL lost: gameplay waits; coming back drops the time spent away, so play resumes without a burst of steps (page.js)
         if (this.page.held || this.page.consumeResync()) acc = 0;
         else { acc = Math.min(acc + dt, MAX_CATCHUP); while (acc >= STEP) { this._fixedStep(); acc -= STEP; } }
+        c1 = performance.now();   // measure
         this._frameHooks(dt);
+        c2 = performance.now();   // measure
         safe(this, STRINGS.render, this._render, SOFT, this, dt);
-        this.budget.sample(dt);
+        c3 = performance.now();   // measure
       } finally { this.input.endFrame(); }
-      this.cpuMs = performance.now() - c0;   // measure
+      this._runHooks('afterRender', dt);
+      const c4 = performance.now(), P = this.cpuPhases;   // measure
+      P.fixed = c1 - c0; P.frame = c2 - c1; P.render = c3 - c2; P.afterRender = c4 - c3;
+      this.cpuMs = c4 - c0;
+      this.budget.sample(dt);
       this.fps += (1 / Math.max(dt, 1e-3) - this.fps) * 0.05;
       this._adapt(dt);
-      this._runHooks('afterRender', dt);
       this._afterTick?.();
     };
     this._raf = requestAnimationFrame(tick);
   },
 
   /**
-   * Advance synchronously by seconds of fixed-step time (game seconds clock.now advance by seconds x clock.timeScale): fixed hooks run at 60 Hz; frame hooks run once per frameEvery fixed steps (default 2, i.e. 30 Hz, dt = 1/30),
-   * so fast-forwarding 600 seconds runs only 18000 frame-hook calls with no rendering and finishes in seconds. Renders one frame at the end when render is true.
+   * Advance synchronously by seconds of fixed-step time (game seconds clock.now advance by seconds x clock.timeScale): fixed hooks run at 60 Hz;
+   * frame hooks run once per frameEvery fixed steps (default 2, i.e. 30 Hz, dt = 1/30),
+   * so fast-forwarding 600 seconds runs only 18000 frame-hook calls with no rendering and finishes in seconds. Renders one frame at the end when
+   * render is true.
    * Input is read as usual: set engine.input.autopilot = { x, y, speed } to make the player walk by itself.
-   * Jobs ignore real time inside step and drain the queue each frame; stream's synchronous builds are attached before it returns (stream.ready and handle built are correct immediately).
-   * Note: step is synchronous, so Promise continuations (the next timeline segment, await, async build) resume only after step returns; split a long cutscene across several step calls.
+   * Jobs ignore real time inside step and drain the queue each frame; stream's synchronous builds are attached before it returns (stream.ready and
+   * handle built are correct immediately).
+   * Note: step is synchronous, so Promise continuations (the next timeline segment, await, async build) resume only after step returns; split a long
+   * cutscene across several step calls.
+   * seconds must be a finite number >= 0: step(0) advances nothing (no fixed step, no render), a negative or non-finite value throws; any positive
+   * value runs at least one fixed step.
    * Returns the result of describe() (null with { describe: false }, which callers that ignore it pass to skip the work).
    */
   step(seconds, { render = true, frameEvery = 2, describe = true } = {}) {
     if (this.disposed) return null;            // nothing advances after dispose
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0)
+      throw codedError('step-seconds',
+        `engine.step(${String(seconds)}): seconds must be a finite number >= 0, e.g. engine.step(0.5) (game seconds; 1 / 60 is one fixed step)`);
+    if (seconds === 0) return describe ? this.describe() : null;   // 0 advances nothing (a tiny positive value still runs one fixed step)
     const n = Math.max(1, Math.round(seconds / STEP));
     let since = 0;
     for (let i = 0; i < n; i++) {

@@ -5,6 +5,7 @@
 // Loaded chunks around an edit are rebuilt on the spot (mesh, vegetation, collision token); a worker result built before the edit is dropped.
 import { checkOptions, DEV } from '../../core/validate.js';
 import { xzOf } from '../../core/math.js';
+import { updateColorMap } from './terrainTexture.js';
 
 const EDIT_KEYS = ['radius', 'shape', 'raise', 'lower', 'flatten', 'paint'];
 const STRINGS = {
@@ -100,6 +101,7 @@ export class TerrainEdits {
   _rebuild(c) {
     const m = this.mgr, T = m.T, t = T.buildChunk(c.cx, c.cz), g = c.terrain.geometry;
     for (const [n, a] of [['position', t.pos], ['normal', t.nor], ['color', t.col], ['uv', t.uv]]) { g.attributes[n].array.set(a); g.attributes[n].needsUpdate = true; }
+    if (t.tex) updateColorMap(c, t.tex);
     g.computeBoundingSphere(); g.boundingBox = null;
     c.sphere.center.set(t.sphere[0], t.sphere[1], t.sphere[2]); c.sphere.radius = t.sphere[3];
     const veg = this.e.vegetation;
@@ -109,7 +111,7 @@ export class TerrainEdits {
       if (!r.n && old) { c.group.remove(old); old.dispose(); delete c.veg[sp.name]; }
       m._applyVeg(c, sp.name, r);
     }
-    c.colToken = {}; c.level = -1;   // new token: the physics module rebuilds this chunk's collision
+    c.colToken = {}; c.level = -1; c.detailDone.clear();   // edits can change what grows here: re-ask for the near-only species   // new token: the physics module rebuilds this chunk's collision
   }
 
   save() {

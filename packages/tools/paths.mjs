@@ -44,7 +44,7 @@ export const TYPES_GEN_REL = `${TYPES_REL}/generated`;
 export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/ui/UI.js`, `${ENGINE_REL}/ui/Focus.js`, `${ENGINE_REL}/ui/LoadingScreen.js`,
   `${ENGINE_REL}/render/materials.js`, `${ENGINE_REL}/render/patches.js`, `${ENGINE_REL}/render/PostFX.js`,
-  `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
+  `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
   `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
@@ -78,7 +78,7 @@ export const styleDir = name => join(abs(STYLES_REL), MODE === 'monorepo' ? name
 // Gameplay-side add-ons such as the terrain generator (world shape is not a look, so it may not live in a style pack): npm name
 // `@threedog/<name>`, monorepo folder packages/<name>/ (one workspace each). Listed by name so rules scan them like the style packs.
 /** Add-on package names (without the @threedog/ scope) */
-export const ADDON_PKGS = ['terrain-noise'];
+export const ADDON_PKGS = ['terrain-noise', 'post-effects'];
 /** Absolute folder of an add-on package (monorepo: packages/<name>; game mode: node_modules/@threedog/<name>) */
 export const addonDir = name => MODE === 'monorepo' ? abs(`packages/${name}`) : join(abs('node_modules/@threedog'), name);
 /** Add-on folders scanned as project source (monorepo only: in game mode they sit inside STYLES_REL's node_modules/@threedog already) */

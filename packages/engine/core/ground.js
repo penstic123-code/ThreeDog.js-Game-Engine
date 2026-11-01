@@ -14,7 +14,7 @@ function joinColliders(e) {
   const own = e._groundOwn ?? null, extra = e._groundExtra ?? [];
   const all = own ? [own, ...extra] : extra.slice();
   const g = { ...e.ground };
-  if (all.length) g.forEachCollider = (x, z, range, fn) => { for (const f of all) f(x, z, range, fn); };
+  if (all.length) g.forEachCollider = (x, z, range, fn) => { for (let i = 0; i < all.length; i++) all[i](x, z, range, fn); };
   else delete g.forEachCollider;
   e.ground = g;
 }
@@ -47,7 +47,9 @@ export const groundMethods = {
   waterAt(x, z) {
     if (typeof x === 'object') [x, z] = xzOf(x);
     let lv = this.ground.waterLevel;
-    for (const b of this.waterBodies) {
+    const bodies = this.waterBodies;
+    for (let i = 0; i < bodies.length; i++) {   // indexed: runs per sample, no iterator
+      const b = bodies[i];
       const inside = b.radius != null ? (x - b.x) ** 2 + (z - b.z) ** 2 < b.radius * b.radius
         : Math.abs(x - b.x) < b.hw && Math.abs(z - b.z) < b.hd;
       if (inside && b.level > lv) lv = b.level;

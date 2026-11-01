@@ -7,11 +7,12 @@
 //
 // run(driver, command, args array, { dir }) → { ok, text }. text is English, at most 3 lines, read directly by the AI.
 // Functions executed in the page must be self-contained (sent via toString()); the 3rd argument brief is injected by page().
-import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ev, evAttached, KEY } from './pageFns.mjs';
 import { saveSnapshot, compareSnapshot } from '../describe-snapshot.mjs';
 import { hintFor } from 'threedog/error-hints';
+import { errorsCommand } from './errorlog.mjs';
 const num = (s, name) => {
   const n = parseFloat(s);
   if (!(n > 0)) throw new Error(`${name} must be a positive number, e.g. threedog ${name === 'seconds' ? 'step 2' : '…'}`);
@@ -19,16 +20,6 @@ const num = (s, name) => {
 };
 const lines = (s, n = 3) => String(s).split('\n').slice(0, n).join('\n');
 const MAX = 500;   // default output cap (characters); add --max N for more
-
-/** Read what errors.log gained since the last read, and remember the position */
-function newErrors(dir) {
-  const log = join(dir, '.threedog/errors.log'), cur = join(dir, '.threedog/errors.cursor');
-  if (!existsSync(log)) return [];
-  const size = statSync(log).size, from = existsSync(cur) ? +readFileSync(cur, 'utf8') : 0;
-  writeFileSync(cur, String(size));
-  const text = readFileSync(log).subarray(from > size ? 0 : from).toString('utf8');   // read from the start if the log was truncated / cleared on restart
-  return text.split(/\n(?=\[browser)/).map(s => s.trim()).filter(s => s.startsWith('[browser'));
-}
 
 /** key=value arguments of op / explain op → [[key, value]]; a word without = is an error, not a silent { "": value } */
 function opPairs(args) {
@@ -48,6 +39,7 @@ function options(args) {
     else if (args[i] === '--ignore') opt.ignore = args[++i].split(',').filter(Boolean);
     else if (args[i] === '--tolerance') opt.tolerance = +args[++i];
     else if (args[i] === '--file') opt.file = args[++i];
+    else if (args[i] === '--since') opt.since = args[++i];
     else if (args[i] === '--for') opt.for = args[++i]; else rest.push(args[i]);
   }
   return { rest, opt };
@@ -64,7 +56,7 @@ export const COMMANDS = {
   js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.sky.timeOfDay" / js --file path',
   'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
   snap: 'save a screenshot to .threedog/shots/name.png (snap name)',
-  errors: 'read page errors added since the last read (known classes come with the cause and the doc page)',
+  errors: 'page errors with id, time, tick, source and count: errors = new since the last read; errors latest [N] = the last N, repeatable; errors --since E5 = after id 5 (known classes come with the cause and the doc page)',
   reload: 'reload the page',
   resume: 'resume real-time running (the page is paused after step / press)',
   ops: 'what the player can do now (each op offer checked with can): ✓ shop.buy shop=bakery item=bread · ✗ … (reason)',
@@ -145,22 +137,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const r = compareSnapshot(snapDir, name, d, o);
       return { ok: r.ok, text: r.ok ? `✓ describe "${name}" matches the baseline` : '✗ ' + r.text };
     }
-    case 'errors': {
-      const list = newErrors(dir);
-      if (!list.length) return { ok: true, text: '✓ No new errors' };
-      // Each error: head + message on one line, then (for known classes) a line with the likely cause and the doc page to read
-      // Log entry (vite-error-relay.js): head line, then the page's own text with a "page| " prefix (page path, message, at, stack), then the engine hint
-      const one = s => {
-        const [head, ...rest] = s.split('\n'), page = rest.filter(l => l.startsWith('page| ')).map(l => l.slice(6));
-        const end = page.findIndex((l, i) => i > 0 && /^\s*at /.test(l)), msg = page.slice(1, end < 0 ? undefined : end).join('\n');
-        const h = hintFor(msg.replace(/\n\s*(Possible cause|Read):.*/g, ''));
-        const code = msg.match(/\[([a-z][\w-]*)\]/)?.[1];   // coded engine errors end their message with [code]
-        return ((code ? `[${code}] ` : '') + `${head.trim()} ${page[0] ?? ''} ${msg.split('\n')[0]}`).slice(0, 160)
-          + (h ? `\n  -> Possible cause: ${h.cause} Read: ${h.docs.join(', ')}` : '');
-      };
-      const more = list.length > 2 ? `\n…${list.length - 2} more, see .threedog/errors.log` : '';
-      return { ok: false, text: `✗ ${list.length} new error${list.length === 1 ? '' : 's'}\n` + list.slice(0, 2).map(one).join('\n') + more };
-    }
+    case 'errors': return errorsCommand(dir, rest, opt);
     case 'reload':
       if (driver.reload) await driver.reload(); else await driver.evaluate('() => { setTimeout(() => location.reload(), 0); return 1; }');
       return { ok: true, text: '✓ Page reloaded' };

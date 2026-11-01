@@ -10,7 +10,7 @@ const BOUND = new WeakMap();   // renderer -> its engine's uniforms
  * @param {any} value
  * @returns {{ value: any }}
  */
-export function engineUniform(name, value) { return { value, [ENGINE_UNIFORM]: name }; }
+export function engineUniform(name, value) { return /** @type {any} */ ({ value, [ENGINE_UNIFORM]: name }); }
 /**
  * Programs this renderer compiles from now on read these engine uniforms (called once per engine)
  * @internal

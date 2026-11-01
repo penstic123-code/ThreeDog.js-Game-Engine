@@ -53,4 +53,56 @@ export const specs = [
       check('映射到不存在的资源报错，指出 states.slash 和相近名字', r.errs.some(m => m.includes('states.slash') && m.includes('Sword_Slash')), JSON.stringify(r.errs));
     },
   },
+  {
+    // 代码现场生成最小骨骼 glb（tests/anim/rig.js，不下载素材），走真实导入；映射写在资源清单里（数据），游戏代码只说动作名。
+    // 守卫（不许绕开）：sync 驱动时姿态只由玩法 t 决定——大步长推进帧时间，片段时间不动、不发 anim:end；
+    // 有人改成"sync 只设起点、之后让 mixer 自己走"，或让 go() 抢回控制，这条会红。
+    name: '骨骼动画最小链路：生成的 glb、清单里的动作映射、check 报缺、sync 跟玩法时钟',
+    url: '/tests/anim/index.html',
+    async run({ page, check, ev }) {
+      await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
+      const r = await ev(async () => {
+        engine.pause();
+        const url = URL.createObjectURL(new Blob([await window.skinnedGlb()], { type: 'model/gltf-binary' }));
+        const states = { idle: { clip: 'Idle_Armed' }, walk: { clip: 'Walk' }, attack: { clip: 'Slash', loop: false, timing: 0.5 }, hurt: { clip: 'Hit', loop: false } };
+        engine.assets.manifest({ name: 'generated', models: {
+          dummy: { url, animation: { fade: 0.2, states } },
+          dummyBad: { url, animation: { states: { idle: { clip: 'Idle' }, attack: { clip: 'Slsh', loops: false } } } },
+        } });
+        const m = await engine.assets.model('dummy'); engine.add(m);
+        const loaded = { clips: engine.loading.get('dummy')?.source.animations, bones: m.getObjectByProperty('isSkinnedMesh', true)?.skeleton.bones.length };
+        const a = engine.assets.animate(m), hand = m.getObjectByName('Hand'), v = new THREE.Vector3();
+        const handY = () => { m.updateMatrixWorld(true); return hand.getWorldPosition(v).y; };
+        const mapped = { attack: a.states.attack?.clip, fade: a.fade, ok: a.check(['idle', 'walk', 'attack', 'hurt']) };
+        // 过渡：idle → walk 中途两边都有权重，过完只剩 walk
+        a.go('idle'); engine.step(0.3); a.go('walk'); engine.step(0.1);
+        const mid = a.describe().weights; engine.step(0.3); const after = a.describe();
+        // sync：timing 0.5 = 1 秒的 Slash 摊到玩法 0.5 秒；t=0.15 → 片段 0.3 秒（手举到最高）
+        const ends = []; const off = engine.events.on('anim:end', e => ends.push(e.state));
+        a.sync('attack', 0.15); engine.step(0.25); const top = handY();
+        engine.step(2); a.go('idle'); engine.step(0.016);
+        const held = a.describe(), topAgain = handY();
+        a.sync('attack', 0.3); engine.step(0.016); const down = handY();
+        off.remove(); a.sync(null); a.go('idle'); engine.step(0.4);
+        const back = { state: a.describe().state };
+        // 映射缺动作 / 资源名写错 / 键名写错：都指向清单里那一条
+        const missing = a.check(['idle', 'attack', 'die']);
+        const bad = await __t.warns(async () => { const mb = await engine.assets.model('dummyBad'); engine.assets.animate(mb).dispose(); });
+        // 角色按名字用这个模型：默认的 Idle 不能盖掉清单映射的 Idle_Armed
+        const c = new window.Character(engine, { model: 'dummy' }); await c.whenReady;
+        const ch = { idle: c.anim?.states.idle.clip, fade: c.anim?.fade };
+        c.dispose(); engine.remove(m);
+        return { loaded, mapped, mid, after, top, topAgain, down, held, ends, back, missing, bad: bad.warns, ch };
+      });
+      check('生成的 glb 走真实导入：片段名保持 Blender 式 "Armature|Slash"，骨骼 3 根', r.loaded.clips?.includes('Armature|Slash') && r.loaded.bones === 3, JSON.stringify(r.loaded));
+      check('清单里的映射生效（attack → Slash，fade 0.2），check 全部动作通过', r.mapped.attack === 'Slash' && r.mapped.fade === 0.2 && r.mapped.ok.length === 0, JSON.stringify(r.mapped));
+      check('go 切换按 fade 交叉淡入，过完只剩 walk', r.mid.idle > 0 && r.mid.walk > 0 && r.after.state === 'walk' && r.after.weights.walk === 1 && !r.after.weights.idle, JSON.stringify({ mid: r.mid, after: r.after }));
+      check('守卫：sync 驱动时帧时间推进 2 秒、go() 也抢不走，片段停在 t 映射的 0.3 秒，不发 anim:end', r.held.state === 'attack' && r.held.driven && Math.abs(r.held.time - 0.3) < 0.01 && r.held.t === 0.15 && Math.abs(r.top - r.topAgain) < 1e-4 && r.ends.length === 0, JSON.stringify({ held: r.held, ends: r.ends }));
+      check('姿态跟着 t：t=0.15 手在最高（约 2.2），t=0.3 已砍下', r.top > 2.15 && r.down < r.top - 0.6, `top ${r.top.toFixed(3)} down ${r.down.toFixed(3)}`);
+      check('sync(null) 交还控制后 go 照常（切回 idle）', r.back.state === 'idle', JSON.stringify(r.back));
+      check('check 报缺：die 没有映射，改法指向清单 models.dummy.animation.states.die 并列出片段', r.missing.length === 1 && r.missing[0].includes('manifest "generated" models.dummy.animation.states.die') && r.missing[0].includes('Slash'), JSON.stringify(r.missing));
+      check('清单写错：资源名 Slsh 提示 Slash 并指向清单条目，键名 loops 提示 loop', r.bad.some(w => w.includes('models.dummyBad.animation.states.attack') && w.includes('Slash')) && r.bad.some(w => w.includes('loops') && w.includes('`loop`')), JSON.stringify(r.bad));
+      check('角色用这个模型：清单映射的 Idle_Armed 不被默认 Idle 盖掉，fade 用清单的', r.ch.idle === 'Idle_Armed' && r.ch.fade === 0.2, JSON.stringify(r.ch));
+    },
+  },
 ];

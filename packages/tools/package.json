@@ -35,6 +35,7 @@
     "lib",
     "gamemap",
     "rules",
+    "style",
     "templates",
     "threedog",
     "vite"

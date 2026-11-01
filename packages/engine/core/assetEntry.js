@@ -52,7 +52,7 @@ function failedEntry(a, e, t, err) {
   if (!degrade) throw codedError('asset-load', msg);
   warnOnce(coded('asset-load', msg + fmt(STRINGS.fellBack, { fallback: e.opts.fallback ? `"${fb}"` : fb })));
   if (e.opts.fallback) return (e.promise = fetchEntry(a, a._resolve(e.opts.fallback, e.type)));   // e.value stays null: the fallback entry owns the memory
-  e.value = e.type === 'model' ? shareModel(a, placeholder('model')) : placeholder(e.type);
+  e.value = e.type === 'model' ? shareModel(a, placeholder('model', a.engine)) : placeholder(e.type);
   return (e.promise = Promise.resolve(e.value));
 }
 

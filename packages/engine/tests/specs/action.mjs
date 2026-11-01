@@ -31,12 +31,13 @@ export const specs = [
 
       // Real pointer lock: the first click locks the mouse (followCamera overShoulder has pointerLock), later clicks are Mouse0 while locked
       const box = await page.locator('#view').boundingBox(), cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      const swings0 = await ev(swings);
       await page.mouse.click(cx, cy);
       const locked = await ev(() => __t.until(() => document.pointerLockElement === engine.renderer.domElement, 5000).then(() => true, () => false));
       check('a real click locks the pointer on the canvas', locked, 'headless Chromium did not grant pointer lock');
-      // the locking click is a Mouse0 press too (it swings once); let that swing land and its cooldown run out before the measured one
+      // the click that locked the pointer is swallowed: it must not swing
       await frames(4);
-      await ev(() => __t.until(() => engine.describe().action.cooldown === 0, 5000).catch(() => false));
+      check('the click that locks the pointer is not a Mouse0 press (no swing)', await ev(swings) === swings0, `swings ${swings0} -> ${await ev(swings)}`);
       const before = await ev(swings), hp0 = (await ev(state)).slime.hp;
       await page.mouse.down(); await frames(4); await page.mouse.up(); await frames(2);
       s = await ev(state);
@@ -96,7 +97,7 @@ export const specs = [
       await open(page, '?style=none');
       await frames(3);
       check('no style pack: the room and the slime still build (gray placeholders)', await ev(() => !engine.style?.action && ['floor', 'slime-1'].every(id => !!engine.world.view(id))));
-      check('no style pack: attacking still works', await ev(() => { engine.player.placeAt([0, 1.6]); return __t.until(() => engine.ops.can('player.attack').ok).then(() => engine.ops.run('player.attack').ok); }));
+      check('no style pack: attacking still works', await ev(() => { engine.player.placeAt({ x: 0, z: 1.6 }); return __t.until(() => engine.ops.can('player.attack').ok).then(() => engine.ops.run('player.attack').ok); }));
     },
   },
 ];

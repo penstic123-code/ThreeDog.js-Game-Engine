@@ -198,6 +198,7 @@ export class Assets {
 
   /**
    * Code-generated model (build returns an Object3D or BufferGeometry): built once per name + params, returns a copy (geometry returns the same instance).
+   * A generator written with `function` (not an arrow) can read this.palette = style.palette (the key includes it, so a new palette rebuilds).
    * Cache key = name + generator source + params: outer variables build uses (colors, sizes, seeds in the closure...) must go in params,
    * otherwise changing a variable still reads the stale cache. In dev, one name paired with different source warns once.
    * Lookup order: files baked by npm run bake (public/models/baked/) -> the dev auto-cache (.threedog/cache, invalidated when code changes) -> build now.
@@ -207,7 +208,7 @@ export class Assets {
     const src = String(build), seen = (this._cachedSrc ||= new Map()).get(name);
     if (seen != null && seen !== src) warnOnce(coded('asset-name-clash', fmt(STRINGS.sameName, { name })));
     else this._cachedSrc.set(name, src);
-    const key = 'cached:' + name + ':' + JSON.stringify(params ?? null) + ':' + srcHash(src);
+    const key = 'cached:' + name + ':' + JSON.stringify(params ?? null) + ':' + JSON.stringify(this.engine.style.palette ?? null) + ':' + srcHash(src);
     const e = this.entries.get(key) || this.entries.set(key, { type: 'model', url: name, opts: { build, params }, promise: null }).get(key);
     const g = await this._fetch(e);
     e.pinned = true;   // neither copies nor geometry are counted: trim does not free it
@@ -216,11 +217,24 @@ export class Assets {
   /** Current usage: number of geometries and textures in GPU memory */
   get memory() { return { ...this.engine.renderer.info.memory }; }
 
-  /** Skeletal animation: returns the animation state machine, see Animator.js; it runs per frame, so gameplay timing must not read it */
-  animate(root, config) {
-    const a = new Animator(this.engine, root, config);
+  /**
+   * Skeletal animation: returns the state machine (Animator.js); it runs per frame, so gameplay timing must not read it.
+   * A manifest model entry's `animation` (clip names mapped to game action names, plain data) is the base; config wins per state.
+   * @example engine.assets.manifest({ models: { hero: { url: '/models/hero.glb', animation: { states: { attack: { clip: 'Slash', loop: false } } } } } });
+   * engine.assets.animate(await engine.assets.model('hero')).go('attack');
+   */
+  animate(root, config = {}) {
+    const m = this.mapping(root), src = this._instances.get(root);
+    const cfg = m ? { ...m, ...config, states: { ...m.states, ...config.states }, transitions: { ...m.transitions, ...config.transitions } } : config;
+    const a = new Animator(this.engine, root, cfg, m && { label: `manifest "${src.manifest}" models.${src.name}.animation`, states: Object.keys(m.states || {}).filter(k => !config.states?.[k]) });
     this._animators.get(root)?.dispose();   // one animator per model: a new one replaces the old
     this._animators.set(root, a);
     return a;
   }
+  /**
+   * A model copy's manifest animation mapping ({ states, transitions, fade }), or null. Characters read it so default clip names never shadow it.
+   * @example engine.assets.mapping(model)?.states.attack   // { clip: 'Slash', loop: false }
+   * @param {import('three').Object3D} root @returns {{ states?: object, transitions?: object, fade?: number } | null}
+   */
+  mapping(root) { return this._instances.get(root)?.opts.animation ?? null; }
 }

@@ -93,6 +93,7 @@ export const specs = [
         const p0 = P.position.clone();
         P.placeAt({ x: p0.x + 6, y: 999, z: p0.z - 4 });
         const placedRec = xz(rec().position) === xz(P.position);
+        const bad = [[10, 20], { x: 5, y: 3 }, [NaN, 0, 1]].map(v => { try { P.placeAt(v); return 'no error'; } catch (e) { return /finite x and z/.test(e.message); } });
         engine.step(0.5);
         const stayed = Math.hypot(P.position.x - p0.x - 6, P.position.z - p0.z + 4) < 0.05;
         const anchor = xz(W._s.at) === xz(P.position);
@@ -109,10 +110,11 @@ export const specs = [
         engine.step(1 / 60);
         const anchorNotCam = xz(W._s.at) === xz(P.position);
         engine.focus.copy(camAway);
-        return { kind, synced, placedRec, stayed, anchor, saved, back, anchorNotCam, oldKey: 'player' in data.parts };
+        return { bad, kind, synced, placedRec, stayed, anchor, saved, back, anchorNotCam, oldKey: 'player' in data.parts };
       });
       check('a record of kind "player" exists and its position matches the player', r.kind === 'player' && r.synced, JSON.stringify(r));
       check('placeAt: record updates at once and the new position holds after a few steps (not pulled back)', r.placedRec && r.stayed, JSON.stringify(r));
+      check('placeAt with a 2-element array / missing z / NaN throws with the fix instead of silently landing at z = 0', r.bad.every(b => b === true), JSON.stringify(r.bad));
       check('near/far center defaults to the player record (unchanged when the camera focus moves away)', r.anchor && r.anchorNotCam, JSON.stringify(r));
       check('save has no separate player key (the player lives only in the world record)', r.oldKey === false, JSON.stringify(r));
       check('load: player position and facing are restored from the record', r.back.pos === r.saved.pos && Math.abs(r.back.facing - r.saved.facing) < 1e-9 && r.back.rec === r.saved.pos, JSON.stringify(r));

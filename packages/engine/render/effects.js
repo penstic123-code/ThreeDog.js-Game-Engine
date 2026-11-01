@@ -16,6 +16,7 @@ const UNIFORM_DEFAULTS = {
   uWindFreq: 1,                              // sway frequency multiplier
   uFoliageTint: () => new THREE.Color(1, 1, 1),         // season: foliage tint (driven by the sky module's calendar)
   uGroundTint: () => new THREE.Color(1, 1, 1),          // season: ground tint
+  uFoliageMix: 0, uGroundMix: 0,             // season mode 'mix': how far the surface moves to the tint (0 = multiply, the default)
 };
 /**
  * A fresh set of engine uniforms with the style pack's cloud and wind values (each engine owns one: engine.uniforms)
@@ -83,13 +84,19 @@ const CHUNKS = {
       ipo = instanceMatrix * ipo;
     #endif
     vec3 ip = (modelMatrix * ipo).xyz;
+    #ifdef THREEDOG_WIND_CUSTOM
+      threedogWind(transformed, ip, position);
+    #else
     float wt = uTime * uWindFreq;
     float sw = sin(wt * (1.2 + 0.6 * uWind) + ip.x * 0.31 + ip.z * 0.23) * 0.6 + sin(wt * 2.9 + ip.x * 0.77 - ip.z * 0.4) * 0.4;
     float k = max(position.y, 0.0) * THREEDOG_WIND_AMP * uWind;
     transformed.x += sw * k + k * 0.4 * (uWind - 1.0); transformed.z += sw * k * 0.6;
+    #endif
   }`,
 };
 Object.assign(THREE.ShaderChunk, CHUNKS);
+/** Short text hash for cacheKeys @internal */
+export const hashText = t => { let h = 7; for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 const pick = (...keys) => Object.fromEntries(keys.map(k => [k, TEMPLATE[k]]));
 
 // The engine's built-in effects as named patches (also readable as GLSL examples for your own patches)
@@ -102,11 +109,20 @@ export const EFFECTS = {
   clouds: () => ({ name: 'clouds', needs: { patches: ['world'] }, uniforms: pick('uTime', 'uCloud', 'uCloudShadow', 'uCloudScale', 'uCloudSpeed'), glsl: {
     fragment: { pars: '#include <threedog_clouds_pars_fragment>', lights_fragment_end:
       'reflectedLight.directDiffuse *= threedogCloudLight(vThreedogWorld.xz);\n  reflectedLight.directSpecular *= threedogCloudLight(vThreedogWorld.xz);' } } }),
-  wind: amplitude => ({ name: 'wind', cacheKey: amplitude, shadow: true, uniforms: pick('uTime', 'uWind', 'uWindFreq'), glsl: {
-    vertex: { pars: `#define THREEDOG_WIND_AMP ${(+amplitude).toFixed(4)}\n#include <threedog_wind_pars_vertex>`, begin_vertex: '#include <threedog_wind_vertex>' } } }),
+  // wind(amplitude) or wind(amplitude, { glsl, uniforms, decl }): a style's own sway function replaces the default one (see StyleWind in types/style.d.ts)
+  wind: (amplitude, custom) => ({ name: 'wind', cacheKey: custom ? `${amplitude}|${hashText(custom.glsl)}` : amplitude, shadow: true,
+    uniforms: { ...pick('uTime', 'uWind', 'uWindFreq'), ...custom?.uniforms }, glsl: {
+    vertex: { pars: `#define THREEDOG_WIND_AMP ${(+amplitude).toFixed(4)}
+#include <threedog_wind_pars_vertex>` + (custom
+      ? `
+#define THREEDOG_WIND_CUSTOM
+${custom.decl}
+${custom.glsl}` : ''), begin_vertex: '#include <threedog_wind_vertex>' } } }),
   season: kind => {
-    const u = kind === 'ground' ? 'uGroundTint' : 'uFoliageTint';
-    return { name: 'season', cacheKey: kind, uniforms: pick(u), glsl: { fragment: { pars: `uniform vec3 ${u};`, color_fragment: `diffuseColor.rgb *= ${u};` } } };
+    const u = kind === 'ground' ? 'uGroundTint' : 'uFoliageTint', k = kind === 'ground' ? 'uGroundMix' : 'uFoliageMix';
+    // mix is 0 in the default 'multiply' mode (exactly the old `*=`); style.seasons.mode 'mix' sets it so the tint is blended in instead
+    return { name: 'season', cacheKey: kind, uniforms: pick(u, k), glsl: { fragment: { pars: `uniform vec3 ${u}; uniform float ${k};`,
+      color_fragment: `diffuseColor.rgb = ${k} > 0.0 ? mix(diffuseColor.rgb, ${u}, ${k}) : diffuseColor.rgb * ${u};` } } };
   },
 };
 

@@ -20,7 +20,7 @@ const ENDPOINT = '/__threedog/error', MAX_BODY = 64 * 1024, MAX_ITEMS = 200;
 const quote = s => String(s).split('\n').map(l => 'page| ' + l).join('\n');
 /** A well-formed item from the client script below (anything else is dropped) */
 const valid = it => it && typeof it === 'object' && typeof it.type === 'string' && Object.hasOwn(LABEL, it.type) && typeof it.msg === 'string'
-  && ['stack', 'src', 'page'].every(k => it[k] === undefined || typeof it[k] === 'string') && (it.count === undefined || Number.isFinite(it.count));
+  && ['stack', 'src', 'page'].every(k => it[k] === undefined || typeof it[k] === 'string') && (it.count === undefined || Number.isFinite(it.count)) && (it.tick === undefined || Number.isFinite(it.tick));
 
 // Browser side: a plain <script> (not a module), running before all page code; sends a merged batch every 300 ms
 const CLIENT = `(() => {
@@ -29,7 +29,7 @@ const CLIENT = `(() => {
   const push = (type, msg, stack, src) => {
     const k = type + msg + (src || '');
     const it = q.get(k); if (it) { it.count++; return; }
-    q.set(k, { type, msg: String(msg).slice(0, 2000), stack: stack ? String(stack).slice(0, 4000) : '', src: src || '', page: location.pathname + location.search, t: Date.now(), count: 1 });
+    q.set(k, { type, msg: String(msg).slice(0, 2000), stack: stack ? String(stack).slice(0, 4000) : '', src: src || '', page: location.pathname + location.search, t: Date.now(), count: 1, tick: window.engine && Number.isFinite(window.engine.tick) ? window.engine.tick : undefined });
   };
   const flush = () => {
     if (!q.size) return;
@@ -111,7 +111,7 @@ export default function errorRelay({ warn = true, logFile = '.threedog/errors.lo
           if (s) { s.total += it.count; s.pending += it.count; continue; }
           seen.set(key, { it, src, total: it.count, pending: it.count - 1 });
           const page = it.page.slice(0, 200).replace(/\s+/g, ' ');
-          const head = `[browser ${LABEL[it.type]}] ${clock(Number(it.t) || Date.now())}`;
+          const head = `[browser ${LABEL[it.type]}] ${clock(Number(it.t) || Date.now())}${it.tick === undefined ? '' : ' tick ' + Math.floor(it.tick)}`;
           // "Possible cause / Read" for known error classes comes from the engine's table, so it is the only text written unquoted
           const hint = /\n\s*Possible cause:/.test(it.msg) ? '' : hintText(it.msg);
           const stack = it.stack.split('\n').filter(l => /^\s*at /.test(l) && !SKIP.test(l)).slice(0, 4).map(l => shortUrl(l.trim())).join('\n');

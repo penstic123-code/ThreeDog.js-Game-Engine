@@ -32,6 +32,7 @@ export const lifecycleMethods = {
     this.disposed = true; this.ready = false; this.paused = true;
     cancelAnimationFrame(this._raf);
     for (const m of [...this.modules.values()].reverse()) {
+      this._modState.set(m.name, 'disposed');
       if (!m.dispose) continue;
       try { m.dispose(this); } catch (err) { console.error(coded('module-dispose', STRINGS.failed.replace('{name}', m.name)), err); }
     }

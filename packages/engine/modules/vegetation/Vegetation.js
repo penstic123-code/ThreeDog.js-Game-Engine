@@ -78,7 +78,8 @@ export class Vegetation {
   add(name, o) {
     checkOptions(`vegetation.add('${name}')`, o, ADD_KEYS);
     checkOptions(`vegetation.add('${name}').rule`, o.rule, RULE_KEYS);
-    const fx = m => o.effects === false ? m : applyEffects(m, { wind: o.wind, season: 'foliage' });
+    const sw = this.engine.style.wind, wind = o.wind && sw?.glsl ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // style.wind.glsl replaces the sway shape
+    const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage' });
     const mdl = o.model && fromModel(o.model, `vegetation.add('${name}')`);
     let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, `vegetation.add('${name}').lodGeometry`).geometry : o.lodGeometry || null;
     if (mdl && lod && !lod.groups.length) { lod = lod.clone(); lod.addGroup(0, Infinity, 0); }   // a material array draws nothing without groups
@@ -183,7 +184,7 @@ export class Vegetation {
     if (r.k && r.k.length) c.colliders[name] = r.k; else delete c.colliders[name];
     (c.collidersAll ||= {})[name] = c.colliders[name];   // original collision circles (before felled trees are filtered), for single-tree removal
     if (r.n === 0) return;
-    const sp = this.species.get(name);
+    const t0 = performance.now(), sp = this.species.get(name);   // measure: the 'build' stage of engine.budget.cost
     const im = new THREE.InstancedMesh(sp.geometry, sp.material, r.n);
     im.instanceMatrix.array.set(r.m); im.instanceMatrix.needsUpdate = true;
     im.instanceColor = new THREE.InstancedBufferAttribute(r.c, 3);
@@ -194,6 +195,7 @@ export class Vegetation {
     c.group.add(im); im.updateMatrixWorld(true);
     if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); }
     c.veg[name] = im;
+    this.engine.budget.cost.end('build', t0);
     this.applyEdits(c, name);   // felled trees stay gone after reload
   }
   /** @internal chunk plumbing: drop a near-only species from a chunk that moved out of its ring */

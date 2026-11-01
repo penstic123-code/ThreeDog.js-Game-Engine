@@ -13,10 +13,10 @@ const KEEP_KEYS = ['flatShading', 'emissive', 'emissiveIntensity', 'transparent'
 const TEX_KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap', 'bumpMap', 'lightMap', 'specularMap', 'envMap', 'gradientMap', 'displacementMap'];
 
 /** Object (or geometry) -> GLB. Marks are written on a copy; the original is untouched. */
-export async function toGLB(value) {
+export async function toGLB(value, engine) {
   const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
   const geo = value.isBufferGeometry;
-  const root = geo ? new THREE.Mesh(value, makeMaterial('default', { vertexColors: !!value.attributes.color })) : value.clone();
+  const root = geo ? new THREE.Mesh(value, makeMaterial('default', { vertexColors: !!value.attributes.color }, engine)) : value.clone();
   if (geo) root.userData.threedogGeometry = true;
   const mats = new Map();
   // Export with glTF's standard material (color, textures, vertex colors); the original type and params go in userData.threedogMat and are rebuilt as-is on read-back
@@ -39,7 +39,7 @@ export async function toGLB(value) {
 }
 
 /** The part of a GLTFLoader result that toGLB exported: restores shadow flags, visibility and materials in place (other glTF files are unaffected). Returns the gltf. */
-export function restoreBaked(gltf) {
+export function restoreBaked(gltf, engine) {
   const mats = new Map();
   const rebuild = m => {
     const spec = m.userData.threedogMat; if (!spec) return m;
@@ -47,7 +47,7 @@ export function restoreBaked(gltf) {
       const { purpose } = m.userData;
       const keep = {};
       for (const k of KEEP_KEYS) if (spec[k] !== undefined) keep[k] = spec[k];
-      const out = purpose ? makeMaterial(purpose, { color: m.color, vertexColors: m.vertexColors, ...keep }) : new THREE.MaterialLoader().parse(spec);
+      const out = purpose ? makeMaterial(purpose, { color: m.color, vertexColors: m.vertexColors, ...keep }, engine) : new THREE.MaterialLoader().parse(spec);
       for (const k of TEX_KEYS) if (m[k] && k in out) out[k] = m[k];
       out.name = m.name;
       mats.set(m, out);

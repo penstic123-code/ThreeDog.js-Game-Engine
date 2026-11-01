@@ -40,3 +40,9 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [30-templates](docs/recipes/30-templates.md): Templates: reusable objects, definition vs instance state
 - [31-audio](docs/recipes/31-audio.md): Sound: buses, sounds by name, ambience rules, music, footsteps, ducking
 - [32-action-game](docs/recipes/32-action-game.md): Action game wiring: hp, attacks, enemy AI, drops and death without engine combat rules
+- [33-stream-sources](docs/recipes/33-stream-sources.md): Stream sources: what is loaded where (teleport, far camera)
+- [34-environment-lighting](docs/recipes/34-environment-lighting.md): Environment lighting
+- [35-style-from-reference](docs/recipes/35-style-from-reference.md): Making a new look from a reference picture
+- [36-sky-ground-plant-looks](docs/recipes/36-sky-ground-plant-looks.md): Sky, ground and plant looks: what a style can change
+- [37-terrain-look-hooks](docs/recipes/37-terrain-look-hooks.md): Terrain look open points: shading, color map, triangle cut, normals
+- [43-shader-patches-surface-looks](docs/recipes/43-shader-patches-surface-looks.md): Writing shader patches and surface looks

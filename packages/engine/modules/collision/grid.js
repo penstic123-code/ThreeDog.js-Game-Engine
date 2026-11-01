@@ -6,6 +6,14 @@ const byOrder = (a, b) => a._b - b._b || a._o - b._o;
 /** Cell span [x0, x1, z0, z1] that an item (x, z, r) covers */
 const cellRange = it => [Math.floor((it.x - it.r) / CELL), Math.floor((it.x + it.r) / CELL), Math.floor((it.z - it.r) / CELL), Math.floor((it.z + it.r) / CELL)];
 
+/** Add it to out once per query (stamp st) when its circle overlaps the query circle; module-level so query() builds no closure */
+function take(out, it, x, z, range, st) {
+  if (it._q === st) return;
+  it._q = st;
+  const dx = it.x - x, dz = it.z - z, rr = range + it.r;
+  if (dx * dx + dz * dz < rr * rr) out.push(it);
+}
+
 export class CollisionGrid {
   constructor() { this.cells = new Map(); this.big = []; this.seq = 0; this.stamp = 0; this.out = []; }
   /** Register; item needs x, z, r. isBox puts it after circles in the callback order */
@@ -29,10 +37,13 @@ export class CollisionGrid {
   query(x, z, range) {
     const out = this.out; out.length = 0;
     const st = ++this.stamp;
-    const take = it => { if (it._q === st) return; it._q = st; const dx = it.x - x, dz = it.z - z, rr = range + it.r; if (dx * dx + dz * dz < rr * rr) out.push(it); };
-    for (const it of this.big) take(it);
+    const big = this.big;
+    for (let i = 0; i < big.length; i++) take(out, big[i], x, z, range, st);
     const x0 = Math.floor((x - range) / CELL), x1 = Math.floor((x + range) / CELL), z0 = Math.floor((z - range) / CELL), z1 = Math.floor((z + range) / CELL);
-    for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) { const c = this.cells.get(i * KEY + j); if (c) for (const it of c) take(it); }
+    for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
+      const c = this.cells.get(i * KEY + j);
+      if (c) for (let k = 0; k < c.length; k++) take(out, c[k], x, z, range, st);
+    }
     if (out.length > 1) out.sort(byOrder);
     return out;
   }

@@ -14,6 +14,7 @@ import { xzOf } from '../../core/math.js';
 import { chunkRing } from '../../core/streamSources.js';
 import { chunkQueries } from './chunkQueries.js';
 import { mountTerrain } from './mountTerrain.js';
+import { disposeColorMap } from './terrainTexture.js';
 
 const COLLIDER_LAG = 30;   // base delay before chunk collision takes effect (fixed steps, 30 = 0.5 s), multiplied by (1 + ring)
 const NO_VEG = { baseNames: () => [], nearNames: () => [], list: () => [], get: () => null };
@@ -83,7 +84,8 @@ export class ChunkManager {
   // dispatch the next task as soon as a result returns: a worker need not wait for the next frame to get work (a frame can be very long while loading)
   _send(job) {
     this.inFlight++;
-    this.lane.run(job).then(r => { this.inFlight--; this.ready.push(r); this._pump(); });
+    const t0 = performance.now();   // measure
+    this.lane.run(job).then(r => { this.inFlight--; this.engine.budget.cost.transit(t0, r); this.ready.push(r); this._pump(); });
   }
 
   /**
@@ -118,7 +120,7 @@ export class ChunkManager {
    * generation is rarely needed
    */
   _queue(cx, cz, key) {
-    const c = { cx, cz, key, state: 'queued', group: null, veg: {}, colliders: {}, pendingDetail: false, level: -1, sphere: null, solid: false, gen: this.gen };
+    const c = { cx, cz, key, state: 'queued', group: null, veg: {}, colliders: {}, pendingDetail: false, detailDone: new Set(), level: -1, sphere: null, solid: false, gen: this.gen };
     this.chunks.set(key, c);
     const ring = this._ring(c);
     c.ticket = this.engine.commits.request({
@@ -191,7 +193,7 @@ export class ChunkManager {
       if (r.terrain) { if (c.state === 'ready') continue; this._applyTerrain(c, r.terrain); c.ticket?.resolve(true); }
       else if (c.state !== 'ready') continue;
       for (const name in r.veg) this._applyVeg(c, name, r.veg[name]);
-      if (!r.terrain) c.pendingDetail = false;
+      if (!r.terrain) { c.pendingDetail = false; for (const name in r.veg) c.detailDone.add(name); }
       c.level = -1; built++;
     }
     this.ready = later;
@@ -255,10 +257,11 @@ export class ChunkManager {
     for (const sp of veg.list()) {
       const im = c.veg[sp.name];
       if (sp.nearOnly) {
-        if (ring <= sp.maxRing && !im && !c.pendingDetail) {
+        // detailDone: this species was already placed here and came back empty; without it the empty result would reset the level and re-ask forever
+        if (ring <= sp.maxRing && !im && !c.pendingDetail && !c.detailDone.has(sp.name)) {
           c.pendingDetail = true;
           this._send(this._job(c, false, veg.nearNames()));
-        } else if (ring > sp.maxRing + 1 && im) veg.unmount(c, sp.name);
+        } else if (ring > sp.maxRing + 1 && im) { veg.unmount(c, sp.name); c.detailDone.delete(sp.name); }
         continue;
       }
       if (im) veg.levelOf(im, sp, ring);
@@ -284,6 +287,7 @@ export class ChunkManager {
     if (c.state !== 'ready') return;
     this.engine.scene.remove(c.group);
     c.terrain.geometry.dispose();
+    disposeColorMap(c);
     for (const n in c.veg) c.veg[n].dispose();
   }
 }

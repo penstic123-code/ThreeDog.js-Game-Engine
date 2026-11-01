@@ -1,5 +1,6 @@
 // Sky shadow part (mixed into Sky.prototype): shadow params, placing the shadow center at the focus (snapped to a grid or shadow pixels), updating shadows every N frames.
 import * as THREE from 'three';
+import { shadowTypeOf } from '../../core/shadowTypes.js';
 
 /**
  * The shadow settings to start with: low-tier devices default to a 1024 shadow map (a quarter of the fill cost; the update rate stays,
@@ -14,14 +15,22 @@ export function shadowFor(tier, styleShadow = {}, optionShadow = undefined) {
 export const shadowMethods = {
   /**
    * Change shadow params (only the given fields): bias / normalBias prevent banding; updateEvery updates shadows every N frames (1 = every frame);
-   * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view
+   * snap snap = shadow center snap grid (meters, or 'texel' to snap to shadow pixels); ahead = meters to shift the shadow center in front of the view;
+   * type = 'basic' (hard edge) | 'pcf' | 'vsm' (soft, costlier; switching rebuilds the shadow map and recompiles materials, so do it rarely);
+   * radius = edge softness (pcf, vsm; no effect on basic); blurSamples = blur quality (vsm only)
    */
   setShadow(o = {}) {
     const s = this.shadow;
+    if (o.type !== undefined) shadowTypeOf(o.type, 'sky.setShadow({ type })');
     for (const k of Object.keys(s)) if (o[k] !== undefined) s[k] = o[k];
-    this.sun.shadow.bias = s.bias; this.sun.shadow.normalBias = s.normalBias;
-    this.engine.renderer.shadowMap.autoUpdate = s.updateEvery <= 1;
-    this.engine.renderer.shadowMap.needsUpdate = true;
+    const sm = this.engine.renderer.shadowMap, sun = this.sun.shadow;
+    // validate before applying so a typo leaves the previous type in place
+    if (o.type !== undefined) { sm.type = shadowTypeOf(o.type, 'sky.setShadow({ type })'); this.engine.shadowType = o.type; }
+    else s.type = this.engine.shadowType;
+    sun.bias = s.bias; sun.normalBias = s.normalBias; sun.radius = s.radius; sun.blurSamples = s.blurSamples;
+    sm.autoUpdate = s.updateEvery <= 1;
+    // needed after a type switch when autoUpdate is off: otherwise the rebuilt map stays empty until the next scheduled update
+    sm.needsUpdate = true;
     return this;
   },
   /** Call after rendering: when updateEvery > 1, request a shadow update every N frames */

@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { Engine } from './core/Engine.js';
 import { terrain } from './modules/terrain/index.js';
 import { vegetation } from './modules/vegetation/index.js';
-import { sky } from './modules/sky/Sky.js';
+import { sky } from './modules/sky/skyModule.js';
 import { weather } from './modules/weather/Weather.js';
 import { water } from './modules/water/Water.js';
 import { collision } from './modules/collision/Collision.js';
@@ -70,6 +70,7 @@ export { pickTarget, switchTarget } from './core/targeting.js';
 
 /** Create an engine (core only). For the options see core/Engine.js */
 export function createEngine(opts) { return new Engine(opts); }
+export { postAdd, postRemove } from './core/styleParts.js';
 
 /**
  * Open-world preset: covers only "world and environment" plus the basics every game needs:
