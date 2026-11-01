@@ -69,11 +69,14 @@ export default {
     // 3. duplicated sentences
     const docs = new Set(docFiles().filter(f => !/\/(COMMANDS|THREE|PERF)\.md$/.test(f)));
     for (const f of ['CLAUDE.md', ...walk('.claude/rules', ['.md']), ...P.gameDirs().map(d => rel(join(d, 'CLAUDE.md'))), `${P.TOOLS_REL}/templates/game/CLAUDE.md`]) if (existsSync(abs(f))) docs.add(f);
+    // a game's docs start as copies of the template and quote the engine docs: compare a game's file only with files of the same game
+    const gameRoots = [...P.gameDirs().map(d => rel(d)).filter(Boolean).map(r => r + '/'), `${P.TOOLS_REL}/templates/game/`];
+    const gameOf = f => gameRoots.find(r => f.startsWith(r)) ?? null;
     const seen = new Map();
     for (const f of docs) for (const s of sentences(read(f))) {
       const first = seen.get(s.key);
       if (!first) seen.set(s.key, { f, line: s.line });
-      else if (first.f !== f) out.push({ level: 'warn', file: f, line: s.line, msg: `same sentence as ${first.f}:${first.line} ("${s.key.split(' ').slice(0, 8).join(' ')} …")`, fix: 'keep it in the doc that owns the topic and link to it from the other' });
+      else if (first.f !== f && gameOf(f) === gameOf(first.f)) out.push({ level: 'warn', file: f, line: s.line, msg: `same sentence as ${first.f}:${first.line} ("${s.key.split(' ').slice(0, 8).join(' ')} …")`, fix: 'keep it in the doc that owns the topic and link to it from the other' });
     }
     out.note = `${docs.size} docs compared for repeated sentences`;
     return out;
