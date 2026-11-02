@@ -16,14 +16,20 @@ import { reportError } from './errors.js';
 import { DEV, warnOnce } from './validate.js';
 import { codedError } from './errorHints.js';
 import { watchLights } from './lightWatch.js';
-
-const STEP = 1 / 60;   // fixed step length: 60 per second
+import { followFocus, syncRoomEnvironment } from '../render/lights.js';
+import { STEP } from './time.js';   // fixed step length: 60 per second
+import { adapt } from './adaptive.js';
+import { advanceUiClock } from './uiClock.js';
 // Most real time one frame may turn into fixed steps (6 steps). A longer hitch slows the game for that frame
 // instead of replaying it in a burst (no spiral of death, no jump after a stall).
 const MAX_CATCHUP = 0.1;
+// Most milliseconds one frame spends on catch-up steps (two steps' worth of real time, one 30 fps frame). Why a time budget on top of the
+// step cap: after a hitch in a heavy scene, 6 steps of 13 ms made a 77 ms fixed phase, so the next frame was long too and caught up again
+// (a hitch cascade). Judged by the step just measured, so cheap steps still catch up all 6; the time left over is dropped (a brief slow-down)
+const CATCHUP_MS = STEP * 2000;
 // Dev message (console): which hook failed
 const STRINGS = {
-  onFixed: 'onFixed callback', commits: 'background result apply (commits)', onFrame: 'onFrame callback', clock: 'clock timer', render: 'render',
+  onFixed: 'onFixed callback', commits: 'background result apply (commits)', onFrame: 'onFrame callback', onRender: 'onRender callback', clock: 'clock timer', render: 'render',
   hook: '{kind} hook of module {name}',
 };
 
@@ -35,20 +41,26 @@ function safe(engine, key, fn, opts, self, a, b) {
   try { fn.call(self, a, b); } catch (err) { reportError(engine, err, key, opts ?? undefined); }
 }
 
+/** A freeze holder asked to stop ambient animation too (freeze(owner, { ambient: true })); only read while frozen */
+function ambientHeld(e) { for (const h of e.stacks.get('freeze').entries()) if (h.value?.ambient) return true; return false; }
+
 export const loopMethods = {
   _fixedStep() {
     // input snapshot for this step: keys read in fixed depend only on the step count, not on how many steps a frame ran
     this.input.beginFixed();
     try {
-      if (this._freezers.size) return;         // gameplay frozen: fixed seconds and game seconds stop (frame hooks and render continue)
+      // gameplay frozen: no clock moves, no channel, no mod({ for }) timer (frame hooks and render continue). uTime is the ambient clock (wind, water,
+      // clouds): it keeps moving behind a pause menu, the common expectation, unless a freezer asked freeze(owner, { ambient: true })
+      if (this.frozen) { if (!ambientHeld(this)) this.uniforms.uTime.value = this._ambient += STEP; return; }
       this.tick++;
       this._inFixed = true;                    // ops log phase 'fixed' and the dev guard lets gameplay writes through
       // due background results apply first so this step's gameplay sees them; not advanced while loading (start() rebases when it finishes)
       if (this.ready) safe(this, STRINGS.commits, this.commits.tick, null, this.commits, this.tick);
       for (const f of this._fixed) safe(this, STRINGS.onFixed, f, null, undefined, STEP);
       this._runHooks('fixed', STEP);
-      safe(this, STRINGS.clock, this.clock.tick, null, this.clock, STEP);
-      this._elapsed += STEP; this.uniforms.uTime.value = this._elapsed;
+      for (const f of this._fixedLate) safe(this, STRINGS.onFixed, f, null, undefined, STEP);   // onFixed({ phase: 'late' }): reads this step's result
+      safe(this, STRINGS.clock, this.time._advance, null, this.time, STEP);   // real, channel and calendar seconds; timed mods end; timers fire
+      this._elapsed += STEP; this.uniforms.uTime.value = this._ambient += STEP;   // fixed steps either way: screenshots and step() stay deterministic
     } finally { this._inFixed = false; this.input.endFixed(); }
   },
   /** Per frame: onFrame callbacks, module frame, stream, jobs. With deterministic true (step, headless loading) jobs ignore real time. */
@@ -56,6 +68,7 @@ export const loopMethods = {
     // one profile frame = one frame-hook cycle (the real loop: one per rendered frame; step(): one per frameEvery fixed steps). Counting rendered frames
     // instead made step(render: false) divide by zero frames and report the whole run's milliseconds as one frame's
     if (this._prof) this._prof.frames++;
+    advanceUiClock(this, dt);   // headless pages: UI display timers run on the stepped time (core/uiClock.js)
     for (const f of this._frame) safe(this, STRINGS.onFrame, f, null, undefined, dt);
     this._runHooks('frame', dt);
     safe(this, 'stream.update', this.stream._update, SOFT, this.stream);
@@ -65,11 +78,21 @@ export const loopMethods = {
     safe(this, 'audio.tick', this.audio._tick, SOFT, this.audio);   // positional sounds follow their objects (returns at once when there are none)
   },
   _render(dt) {
-    this.renderer.info.reset();
+    const r = this.renderer;
+    r.info.reset();
+    followFocus(this);   // baseline sun (no sky module): its shadow box follows engine.focus (render/lights.js)
+    syncRoomEnvironment(this);   // the baseline room map once a material reads scene.environment (one number compare on a quiet frame)
     const t0 = performance.now();   // measure
+    const gpu = this.adaptive.on ? this._gpu : null;   // GPU time feeds adaptive resolution only; no queries while it is off
+    gpu?.begin();
+    // engine.onRender: camera and batching are final here. 'before' may render into its own targets (counted in renderer.info and the render phase)
+    const ctx = this._onRender.before.length || this._onRender.after.length ? { renderer: r, scene: this.scene, camera: this.camera, dt } : null;
+    for (const f of this._onRender.before) { safe(this, STRINGS.onRender, f, null, undefined, ctx); r.setRenderTarget(null); }
     this.post.render(dt);
-    // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost)
-    this.budget.cost.rendered(performance.now() - t0);   // measure
+    for (const f of this._onRender.after) safe(this, STRINGS.onRender, f, null, undefined, ctx);
+    gpu?.end();
+    // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost); a frame that compiled shaders is not judged by adaptive resolution
+    this._compiled = this.budget.cost.rendered(performance.now() - t0, r.info.programs?.length ?? -1, t0 / 1000);   // measure
     if (DEV && this.ready) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
   },
   _runHooks(kind, dt) {
@@ -110,30 +133,57 @@ export const loopMethods = {
     });
   },
 
+  /**
+   * Real loop only (step() never comes here, so it stays deterministic): turn this frame's real time dt into fixed steps. At least one step
+   * runs when one is due; another runs only while this frame's fixed work, plus the cost of the step just run, stays within CATCHUP_MS.
+   * Returns how many ran (tests read it).
+   */
+  _catchUp(dt) {
+    let acc = Math.min((this._acc || 0) + dt, MAX_CATCHUP), n = 0;
+    const f0 = performance.now();   // measure
+    let s0 = f0;
+    while (acc >= STEP) {
+      this._fixedStep(); acc -= STEP; n++;
+      const t = performance.now();   // measure
+      if (acc >= STEP && t - f0 + (t - s0) > CATCHUP_MS) { acc %= STEP; break; }   // the next one would go over: drop the rest
+      s0 = t;
+    }
+    this._acc = acc;
+    return n;
+  },
+
   _loop() {
     if (this._looping) return;
     this._looping = true;
-    let acc = 0, last = performance.now();   // main-loop
+    this._acc = 0;   // real time not yet turned into fixed steps
+    let last = performance.now();   // main-loop
     const tick = now => {
       if (this.disposed) return;
       this._raf = requestAnimationFrame(tick);
       const dt = Math.min(0.25, (now - last) / 1000); last = now;
-      if (this.paused) { acc = 0; return; }        // paused: no advance, no render
+      if (this.paused) { this._acc = 0; return; }        // paused: no advance, no render
+      // Adaptive resolution judges the frames up to the last one (cpuMs, GPU time and _compiled still describe it) and changes the
+      // render scale here, before this frame draws. Why not after the render: a canvas resize clears its drawing buffer, so a change made
+      // after the draw handed the compositor a blank frame (R2: a screenshot caught the 1 -> 0.9 frame black). Not counted in cpuMs
+      this._adapt(dt);
+      this._compiled = false;
       // CPU time of one frame = main-thread work from here to the end of the afterRender hooks, in four phases (engine.cpuPhases):
       // fixed (input poll + fixed steps), frame (onFrame + module frame hooks + stream / jobs / batching), render (submitting the draw
       // calls: three.js CPU work, upload of new objects, shader compiles; not GPU time), afterRender (module hooks). Adaptive resolution
-      // and the startup readiness check run after and are not counted. Budget is sampled last so it sees this frame, not the previous one.
+      // (before, above) and the startup readiness check (after) are not counted. Budget is sampled last so it sees this frame, not the previous one.
       const c0 = performance.now();   // measure
       let c1, c2, c3;
       try {
         this.input.poll(dt);
         // page away / WebGL lost: gameplay waits; coming back drops the time spent away, so play resumes without a burst of steps (page.js)
-        if (this.page.held || this.page.consumeResync()) acc = 0;
-        else { acc = Math.min(acc + dt, MAX_CATCHUP); while (acc >= STEP) { this._fixedStep(); acc -= STEP; } }
+        if (this.page.held || this.page.consumeResync()) this._acc = 0;
+        else this._catchUp(dt);
         c1 = performance.now();   // measure
         this._frameHooks(dt);
         c2 = performance.now();   // measure
-        safe(this, STRINGS.render, this._render, SOFT, this, dt);
+        // Before ready only the loading screen (DOM) is on screen: a scene frame there is never seen, but it compiled shaders and uploaded
+        // geometry in the middle of loading (cold start measured 2.9 s -> 1.6 s without it). start() draws one hidden warm-up frame itself
+        if (this.ready) safe(this, STRINGS.render, this._render, SOFT, this, dt);
         c3 = performance.now();   // measure
       } finally { this.input.endFrame(); }
       this._runHooks('afterRender', dt);
@@ -142,14 +192,13 @@ export const loopMethods = {
       this.cpuMs = c4 - c0;
       this.budget.sample(dt);
       this.fps += (1 / Math.max(dt, 1e-3) - this.fps) * 0.05;
-      this._adapt(dt);
       this._afterTick?.();
     };
     this._raf = requestAnimationFrame(tick);
   },
 
   /**
-   * Advance synchronously by seconds of fixed-step time (game seconds clock.now advance by seconds x clock.timeScale): fixed hooks run at 60 Hz;
+   * Advance synchronously by seconds of real (fixed-step) time; channels and the calendar advance by their own scales (core/time.js): fixed hooks run at 60 Hz;
    * frame hooks run once per frameEvery fixed steps (default 2, i.e. 30 Hz, dt = 1/30),
    * so fast-forwarding 600 seconds runs only 18000 frame-hook calls with no rendering and finishes in seconds. Renders one frame at the end when
    * render is true.
@@ -184,22 +233,6 @@ export const loopMethods = {
     return describe ? this.describe() : null;   // describe: false for internal loops that ignore the result (describe() walks every module)
   },
 
-  // Adaptive resolution: lower render quality when frame rate stays under target for 1 s; raise it slowly after 4 s of headroom
-  _adapt(dt) {
-    const a = this.adaptive;
-    if (!a.on || !this.ready || a.paused) return;
-    a.t += dt; a.n++; a.cooldown -= dt;
-    if (a.t < 1) return;
-    const fps = a.n / a.t; a.t = 0; a.n = 0;
-    const pr = this.renderer.getPixelRatio();
-    if (fps < a.target - 5 && pr > a.min + 0.01) {
-      const to = Math.max(a.min, +(pr - 0.1).toFixed(2));
-      // never silent: the picture gets softer, and the game or an AI should know why (dev warning once; describe().render.scale keeps the facts)
-      if (!a.lowered) { a.lowered = true; a.from = pr; if (DEV) warnOnce(`render scale ${pr} -> ${to} because fps ${fps.toFixed(0)} is under ${a.target}; adaptive resolution lowers it down to ${a.min}. Turn off with createEngine({ adaptiveResolution: false }) or engine.adaptive.on = false; see describe().render.scale`); }
-      this.setPixelRatio(to); a.good = 0; a.cooldown = 5;
-    }
-    else if (fps >= a.target + 3 && pr < a.max - 0.01 && a.cooldown <= 0) {
-      if (++a.good >= 4) { this.setPixelRatio(Math.min(a.max, +(pr + 0.05).toFixed(2))); a.good = 0; }
-    } else a.good = 0;
-  },
+  // Adaptive resolution (core/adaptive.js): judged on frame cost; tests drive it with explicit cost / compiled values
+  _adapt(dt, cost = Math.max(this.cpuMs, this._gpu?.ms ?? 0), compiled = !!this._compiled, gpuKnown = this._gpu?.ms != null) { adapt(this, dt, cost, compiled, gpuKnown); },
 };

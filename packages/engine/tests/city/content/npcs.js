@@ -8,6 +8,6 @@ export default {
       { at: '11:02', x: 11, z: 11 },   // go out for a stroll (world coordinates)
       { at: '12:00', place: 'npc_shopkeeper' },
     ],
-    talk: 'shopkeeper',
+    interact: { op: 'npc.talk' },
   },
 };

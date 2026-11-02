@@ -177,26 +177,91 @@ export const specs = [
     },
   },
   {
-    name: '[守] 每个引擎自己的 uniforms 和风格包：两个引擎时间不串、makeMaterial 默认用第一个引擎的风格包；引擎兜底是中性的（无 ACES、曝光 1、无云影）',
+    name: '[守] 补丁语义插槽：每个插槽落到 slots.js 写的注入点并真编译；未知插槽报错列出插槽名和锚点出口；锚点写法照常且和插槽写法源码相同；shadowPosition 只进影子材质；编译错误指名补丁和插槽',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE, applyEffects, SLOTS } = threedogTest, R = engine.renderer, out = { wrong: [], errors: [] };
+        const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
+        const strip = s => s.replace(/\/\/ threedog:(begin|end)[^\n]*\n/g, '');
+        const src = (m, lib = 'standard') => { const s = { uniforms: {}, vertexShader: THREE.ShaderLib[lib].vertexShader, fragmentShader: THREE.ShaderLib[lib].fragmentShader }; m.onBeforeCompile(s, R); return s; };
+        // 每个插槽一段读写"在作用域里"变量的代码：位置对、而且真能编译，才算映射对
+        const CODE = { position: 'transformed.y += 0.0;', clipPosition: 'gl_Position.x += 0.0;', map: 'diffuseColor.rgb *= 1.0;', color: 'diffuseColor.rgb *= 1.0;',
+          normal: 'normal = normalize(normal);', roughness: 'roughnessFactor *= 1.0;', emissive: 'totalEmissiveRadiance += vec3(0.0);',
+          lightsPars: 'vec3 probeLightsPars(){ return vec3(0.0); }', lightingModel: THREE.ShaderChunk.lights_fragment_begin,
+          lighting: 'reflectedLight.directDiffuse *= 1.0;', output: 'outgoingLight *= 1.0;',
+          // 雾的两个插槽（天空的自定义雾经它们接入）：读 three 的雾 uniform，所以包在 USE_FOG 里；场景下面挂了 Fog，USE_FOG 有定义，代码真的参与编译
+          fogPars: '#ifdef USE_FOG\nvec3 probeFogPars(){ return fogColor * (fogFar - fogNear); }\n#endif',
+          fog: '#ifdef USE_FOG\ngl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(fogNear, fogFar, vFogDepth));\n#endif' };
+        const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(50, 1, 0.1, 50), g = new THREE.BoxGeometry();
+        scene.fog = new THREE.Fog(0x8899aa, 1, 40);   // 雾插槽的探针代码只在 USE_FOG 下编译，没有雾就测不到它们
+        cam.position.set(0, 0, 5); scene.add(new THREE.DirectionalLight(0xffffff, 1));
+        for (const [name, s] of Object.entries(SLOTS)) {
+          if (s.shadowOnly) continue;
+          if (!CODE[name]) { out.wrong.push(name + ': no probe code in this test'); continue; }
+          const m = applyEffects(new THREE.MeshStandardMaterial(), { clouds: false, patches: [{ name: 'p_' + name, slot: name, glsl: CODE[name] }] });
+          const text = src(m)[s.stage + 'Shader'], inc = `#include <${s.anchor}>`, code = `// threedog:begin patch=p_${name} slot=${name}\n${CODE[name]}\n// threedog:end`;
+          const ok = s.at === 'after' ? text.includes(inc + '\n' + code) : s.at === 'before' ? text.includes(code + '\n' + inc) : !text.includes(inc) && text.includes(code);
+          if (!ok) out.wrong.push(name);
+          const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; scene.add(mesh);
+        }
+        const prev = R.debug.onShaderError;
+        R.debug.onShaderError = (gl, program, vs, fs) => out.errors.push((gl.getProgramInfoLog(program) || '') + (gl.getShaderInfoLog(vs) || '') + (gl.getShaderInfoLog(fs) || ''));
+        const rt = new THREE.WebGLRenderTarget(16, 16);
+        R.setRenderTarget(rt); R.render(scene, cam); R.setRenderTarget(null);
+        R.debug.onShaderError = prev;
+        out.unknown = err(() => applyEffects(new THREE.MeshStandardMaterial(), { clouds: false, patches: [{ name: 'x', slot: 'colour', glsl: '' }] }));
+        out.noSlot = err(() => applyEffects(new THREE.MeshStandardMaterial(), { clouds: false, patches: [{ name: 'x', glsl: 'diffuseColor.rgb *= 0.5;' }] }));
+        // 锚点出口：和插槽写法生成同样的着色器（去掉标记注释后）；不在插槽表里的锚点照常可用
+        const bySlot = src(applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'half', cacheKey: 's', slot: 'color', pars: 'uniform float uHalf;', glsl: 'diffuseColor.rgb *= uHalf;' }] }), 'lambert');
+        const byAnchor = src(applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'half', cacheKey: 'a', glsl: { fragment: { pars: 'uniform float uHalf;', color_fragment: 'diffuseColor.rgb *= uHalf;' } } }] }), 'lambert');
+        out.same = strip(bySlot.fragmentShader) === strip(byAnchor.fragmentShader) && strip(bySlot.vertexShader) === strip(byAnchor.vertexShader);
+        out.marked = /threedog:begin patch=half slot=color_fragment/.test(byAnchor.fragmentShader);
+        out.rawOther = src(applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'wp', glsl: { vertex: { worldpos_vertex: '// raw-exit' } } }] }), 'lambert').vertexShader.includes('#include <worldpos_vertex>\n// threedog:begin patch=wp slot=worldpos_vertex\n// raw-exit');
+        // shadowPosition：颜色通道跑 position 的代码，影子通道换成 shadowPosition 的
+        const sm = applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'sp', glsl: { position: 'transformed.x += 0.0; // col', shadowPosition: 'transformed.x += 1.0; // shd' } }] });
+        const color = src(sm, 'lambert').vertexShader, depth = src(new THREE.Mesh(g, sm).customDepthMaterial, 'depth').vertexShader;
+        out.shadow = { color: color.includes('// col') && !color.includes('// shd'), depth: depth.includes('// shd') && !depth.includes('// col') };
+        // 编译错误：引擎装的 onShaderError 指名补丁和插槽
+        const scene2 = new THREE.Scene(), bad = new THREE.Mesh(g, applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'oops', slot: 'color', glsl: 'diffuseColor.rgb *= threedogNope2;' }] }));
+        bad.frustumCulled = false; scene2.add(bad);
+        const err0 = console.error; let logged = ''; console.error = (...a) => { logged += a.join(' ') + '\n'; };
+        R.setRenderTarget(rt); R.render(scene2, cam); R.setRenderTarget(null);
+        console.error = err0; rt.dispose();
+        out.named = logged.slice(0, 400);
+        return out;
+      });
+      check('每个插槽的代码落在 slots.js 写的锚点前 / 后 / 替换处', r.wrong.length === 0, r.wrong.join());
+      check('每个插槽的探针补丁都真编译链接成功', r.errors.length === 0, JSON.stringify(r.errors).slice(0, 400));
+      check('未知插槽：报错列出插槽名和锚点出口', /unknown slot 'colour'.*position \|.*color.*raw-anchor exit/.test(r.unknown), r.unknown);
+      check('有 glsl 字符串但没写 slot：报错给写法', /no slot; add slot:/.test(r.noSlot), r.noSlot);
+      check('锚点写法和插槽写法生成同样的着色器（去掉标记）', r.same && r.marked, JSON.stringify({ same: r.same, marked: r.marked }));
+      check('不在插槽表里的锚点照常可用（专家出口）', r.rawOther);
+      check('shadowPosition 只进影子材质，颜色通道仍是 position', r.shadow.color && r.shadow.depth, JSON.stringify(r.shadow));
+      check("编译错误首行指名 patch 'oops' (slot color)", /shader error in patch 'oops' \(slot color\)/.test(r.named), r.named);
+    },
+  },
+  {
+    name: '[守] 每个引擎自己的 uniforms 和风格包：两个引擎时间不串、makeMaterial 默认用第一个引擎的风格包；引擎兜底是技术基线（AgX、曝光 1、无云影）',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const { THREE, createEngine, makeMaterial, lowpoly } = threedogTest, out = {};
-        out.neutral = { tone: engine.renderer.toneMapping === THREE.NoToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
+        out.neutral = { tone: engine.renderer.toneMapping === THREE.AgXToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
         const warn = console.warn; let w = ''; console.warn = m => { w += m; };
         const second = createEngine({ canvas: document.createElement('canvas'), style: { ...lowpoly, materials: { default: { type: 'phong' } } }, headless: true, ui: { loading: false }, saveKey: 'render-test-2' });
-        const t1 = engine.elapsed, t2 = second.elapsed;
+        const t1 = engine.elapsed, t2 = second.elapsed, u1 = engine.uniforms.uTime.value;
         engine.step(0.5, { render: false });
-        out.time = { first: +(engine.elapsed - t1).toFixed(2), second: +(second.elapsed - t2).toFixed(2), uTime: engine.uniforms.uTime.value === engine.elapsed, separate: engine.uniforms.uTime !== second.uniforms.uTime };
+        out.time = { first: +(engine.elapsed - t1).toFixed(2), second: +(second.elapsed - t2).toFixed(2), uTime: Math.abs(engine.uniforms.uTime.value - u1 - (engine.elapsed - t1)) < 1e-9, separate: engine.uniforms.uTime !== second.uniforms.uTime };
         out.styleDefault = makeMaterial('anything').type;   // 第一个引擎（空风格包）→ lambert
         out.styleSecond = makeMaterial('anything', {}, second).type;
-        out.warned = /different style packs/.test(w);
+        out.warned = /different styles/.test(w);
         out.lowpoly = { cloud: second.uniforms.uCloudShadow.value, tone: second.renderer.toneMapping === THREE.ACESFilmicToneMapping, exposure: second.renderer.toneMappingExposure };
         second.dispose(); console.warn = warn;
         out.afterDispose = makeMaterial('anything').type;
         return out;
       });
-      check('引擎兜底：不做色调映射、曝光 1、没有云影', r.neutral.tone && r.neutral.exposure === 1 && r.neutral.cloudShadow === 0, JSON.stringify(r.neutral));
+      check('引擎兜底：技术基线 AgX（风格包没写曲线也一样）、曝光 1、没有云影', r.neutral.tone && r.neutral.exposure === 1 && r.neutral.cloudShadow === 0, JSON.stringify(r.neutral));
       check('第二个引擎不让第一个的 elapsed 变快，uTime 跟 elapsed 一致，两套 uniforms', r.time.first === 0.5 && r.time.second === 0 && r.time.uTime && r.time.separate, JSON.stringify(r.time));
       check('makeMaterial 不传引擎：用第一个引擎的风格包并提示传引擎', r.styleDefault === 'MeshLambertMaterial' && r.warned, JSON.stringify(r));
       check('makeMaterial(role, params, engine) 用那个引擎的风格包', r.styleSecond === 'MeshPhongMaterial');

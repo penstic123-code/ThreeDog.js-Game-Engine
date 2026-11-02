@@ -50,7 +50,7 @@ export const specs = [
         engine.step(0.2);
         // changes made here: open the chest and empty it, drop an item, break a rock and build a wall
         W.set('ld-chest', { opened: true, items: [] });
-        I.spawnPickup('berry', [home.x + 2, 0, home.z + 2], { id: 'ld-drop' });
+        engine.pickups.spawn([home.x + 2, 0, home.z + 2], { give: 'berry', id: 'ld-drop' });
         W.remove('ld-rock');
         W.add({ id: 'ld-wall', kind: 'ld-rock', position: [home.x, 0, home.z - 4] });
         engine.step(0.2);

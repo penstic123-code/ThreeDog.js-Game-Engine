@@ -3,7 +3,7 @@
 //
 // Run order (fixed / frame / afterRender / skip hooks): by stage first, then before / after within a stage, then install order.
 //   Stages (first to last): control timeline, camera -> world terrain, level -> environment weather, sky, water
-//     -> gameplay interactions, dialogue, trigger zones, entities -> presentation particles, settings, objective markers
+//     -> gameplay interactions, dialogue, trigger zones -> presentation particles, settings, objective markers
 //     -> late (the default) characters, physics, navigation... -> audio music
 //   before / after: lists of module names (not-installed names are ignored); they order modules only inside one stage.
 //     One that contradicts the stage order (a 'control' module with after: ['sky']) makes use() throw naming both modules and stages;

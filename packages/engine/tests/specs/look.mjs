@@ -20,11 +20,11 @@ export const specs = [
         out.under = engine.describe().look.tone.exposure.under;
         b.remove(); out.afterB = T.value('exposure');                       // the next owner shows again
         const d = engine.debug.override('probe', 'look.tone', { exposure: 3 });
-        out.debug = engine.describe().look.tone.exposure.by;
+        out.debug = engine.describe().look.tone.exposure.writer;
         out.overrides = engine.describe().scene.overrides.some(o => o.target === 'look.tone' && o.owner === 'probe');
         out.cleared = engine.debug.clear('probe'); out.afterDebug = T.value('exposure');
         a.remove(); d.remove();
-        out.at = (T.set({ exposure: 0.9 }, { owner: 'at' }), engine.describe().look.tone.exposure.at); T.clear('at');
+        out.at = (T.set({ exposure: 0.9 }, { owner: 'at' }), engine.describe().look.tone.exposure.at); T._clear('at');
         const cat = engine.catalog('look.lights'), list = engine.catalog();
         out.why = cat.params['sun.intensity'].why; out.off = cat.params['sun.intensity'].off; out.verbs = engine.catalog('look.env').verbs;
         out.row = list.some(x => x.id === 'look.tone' && x.kind === 'look');
@@ -36,7 +36,7 @@ export const specs = [
       check('two game owners: the last one written wins, the covered layers are listed, removing one shows the next', r.last === 0.8 && r.under?.[0] === 'game:a' && r.afterB === 0.7, JSON.stringify([r.last, r.under, r.afterB]));
       check('debug.override(owner, look.tone) beats every game owner, is listed in scene.overrides, clear(owner) removes it', r.debug === 'debug:probe' && r.overrides && r.cleared === 1 && r.afterDebug === 0.7, JSON.stringify(r));
       check('the change record names the caller file:line (dev)', /look\.mjs:\d+|\.js:\d+/.test(r.at ?? ''), String(r.at));
-      check('catalog: look parts listed, params carry why / off, verbs per part', r.row && r.why && r.off && JSON.stringify(r.verbs) === '["set","replace"]', JSON.stringify([r.row, r.why, r.verbs]));
+      check('catalog: look parts listed, params carry why / off, verbs per part', r.row && r.why && r.off && JSON.stringify(r.verbs) === '["set","replace","manual"]', JSON.stringify([r.row, r.why, r.verbs]));
     },
   },
   {
@@ -48,39 +48,41 @@ export const specs = [
         engine.pause();
         const L = engine.look, info = () => engine.describe().look, out = {};
         // tone
-        const s0 = L.tone.value('exposure'), by0 = info().tone.exposure.by;
+        const s0 = L.tone.value('exposure'), by0 = info().tone.exposure.writer;
         const ht = L.tone.set({ exposure: 0.55 }, { owner: 'cave' }); engine.step(0.05);
-        out.tone = [info().tone.exposure.by, engine.renderer.toneMappingExposure, engine.describe().render.exposure.by];
+        out.tone = [info().tone.exposure.writer, engine.renderer.toneMappingExposure, engine.describe().render.exposure.look];
         ht.remove(); engine.step(0.05);
-        out.toneBack = [L.tone.value('exposure') === s0, info().tone.exposure.by === by0];
-        try { engine.setExposure(0.6); } catch (e) { out.alias = e.code; } L.tone.clear('game');
-        const m0 = engine.renderer.toneMapping; engine.renderer.toneMapping = m0 === 0 ? 4 : 0;   // straight to three.js
-        out.three = info().tone.mapping.by; engine.renderer.toneMapping = m0;
+        out.toneBack = [L.tone.value('exposure') === s0, info().tone.exposure.writer === by0];
+        L.tone._clear('game');
+        const x0 = engine.renderer.toneMappingExposure; engine.renderer.toneMappingExposure = x0 + 0.37;   // straight to three.js
+        out.three = info().tone.exposure.writer; engine.renderer.toneMappingExposure = x0;
         // lights (sky drives them from the keyframes)
-        out.lightBy0 = [info().lights['sun.intensity'].by, info().lights['sun.intensity'].driver];
+        out.lightBy0 = [info().lights['sun.intensity'].writer, info().lights['sun.intensity'].driver];
         const hl = L.lights.set({ sun: { intensity: 5 } }, { owner: 'cave' }); engine.step(0.1);
-        out.lights = [info().lights['sun.intensity'].by, engine.lights.sun.intensity, engine.describe().render.lights.find(l => l.name === 'sun').by];
+        out.lights = [info().lights['sun.intensity'].writer, engine.lights.sun.intensity, engine.describe().render.lights.find(l => l.name === 'sun').look];
         hl.remove(); engine.step(0.1);
-        out.lightsBack = [info().lights['sun.intensity'].by, engine.lights.sun.intensity !== 5];
+        out.lightsBack = [info().lights['sun.intensity'].writer, engine.lights.sun.intensity !== 5];
         // env
         const e0 = L.env.value('@replace') ?? null;
         const he = L.env.replace('sky', { owner: 'cave' }), hi = L.env.set({ intensity: 0.4 }, { owner: 'cave' }); engine.step(0.1);
-        out.env = [info().env['@replace'].by, info().env.intensity.by, !!engine.scene.environment, engine.scene.environmentIntensity];
+        out.env = [info().env['@replace'].writer, info().env.intensity.writer, !!engine.scene.environment, engine.scene.environmentIntensity];
         he.remove(); hi.remove(); engine.step(0.1);
-        out.envBack = [(L.env.value('@replace') ?? null) === e0, !!engine.scene.environment === !!e0, info().env.intensity.by];
-        engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); out.envAlias = info().env['@replace'].by; engine.look.env.replace(false); L.env.clear('game');
+        // 去掉游戏的 env 层后回到风格值；风格没给 env 时场景回到渲染基线的中性房间环境（look.lights env.intensity，每个风格包下都在，
+        // 不想要的包写 env.intensity 0），而不是"没有环境"——否则关掉天空的环境图会让 PBR 金属突然变黑
+        const roomOn = L.lights.value('env.intensity') > 0;
+        out.envBack = [(L.env.value('@replace') ?? null) === e0, e0 ? !!engine.scene.environment : engine.scene.environment === (roomOn ? engine._roomEnv?.texture : null), info().env.intensity.writer];
+        engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); out.envAlias = info().env['@replace'].writer; engine.look.env.replace(false); L.env._clear('game');
         // clouds
-        const c0 = L.cloudShadow.value('shadow'); let ce = ''; try { void L.clouds; } catch (e) { ce = e.code; } out.cAlias = [ce, Object.keys(L).includes('clouds')];
+        const c0 = L.cloudShadow.value('shadow');
         const hc = L.cloudShadow.set({ shadow: 0.5 }, { owner: 'cave' });
-        out.clouds = [info().cloudShadow.shadow.by, engine.uniforms.uCloudShadow.value];
-        hc.remove(); out.cloudsBack = [engine.uniforms.uCloudShadow.value === c0, info().cloudShadow.shadow.by];
+        out.clouds = [info().cloudShadow.shadow.writer, engine.uniforms.uCloudShadow.value];
+        hc.remove(); out.cloudsBack = [engine.uniforms.uCloudShadow.value === c0, info().cloudShadow.shadow.writer];
         return out;
       });
       check('tone: set -> game:cave on describe().look and describe().render, renderer follows', r.tone[0] === 'game:cave' && r.tone[1] === 0.55 && r.tone[2] === 'look.tone.exposure', JSON.stringify(r.tone));
-      check('tone: removing the layer restores the style value; the old setExposure throws renamed-api; a direct three.js change is tagged three', r.toneBack.every(Boolean) && r.alias === 'renamed-api' && r.three === 'three', JSON.stringify([r.toneBack, r.alias, r.three]));
+      check('tone: removing the layer restores the style value; a direct three.js change is tagged three', r.toneBack.every(Boolean) && r.three === 'three', JSON.stringify([r.toneBack, r.three]));
       check('lights: driven by sky = style; set wins over the keyframes each frame (game:cave); remove hands back to the sky', r.lightBy0[0] === 'style' && r.lightBy0[1] === 'sky' && r.lights[0] === 'game:cave' && r.lights[1] === 5 && r.lights[2] === 'look.lights.sun.intensity' && r.lightsBack[0] === 'style' && r.lightsBack[1], JSON.stringify([r.lightBy0, r.lights, r.lightsBack]));
-      check('env: replace / set -> game:cave and the scene environment follows; remove restores the style; set through look.env is owner game', r.env[0] === 'game:cave' && r.env[1] === 'game:cave' && r.env[2] && r.env[3] === 0.4 && r.envBack[0] && r.envBack[1] && r.envAlias === 'game', JSON.stringify([r.env, r.envBack, r.envAlias]));
-      check('look.clouds throws renamed-api (the part is look.cloudShadow); it is not listed', r.cAlias[0] === 'renamed-api' && !r.cAlias[1], JSON.stringify(r.cAlias));
+      check('env: replace / set -> game:cave and the scene environment follows; remove restores the style (no style env -> the baseline room env from look.lights env.intensity); set through look.env is owner game', r.env[0] === 'game:cave' && r.env[1] === 'game:cave' && r.env[2] && r.env[3] === 0.4 && r.envBack[0] && r.envBack[1] && r.envAlias === 'game', JSON.stringify([r.env, r.envBack, r.envAlias]));
       check('cloudShadow (set through look.cloudShadow): set -> game:cave on the uniform; remove restores the style value', r.clouds[0] === 'game:cave' && r.clouds[1] === 0.5 && r.cloudsBack[0] && ['style', 'engine'].includes(r.cloudsBack[1]), JSON.stringify([r.clouds, r.cloudsBack]));
     },
   },
@@ -99,13 +101,14 @@ export const specs = [
           apply(v) { if (v.n === 13) throw new Error('apply refused 13'); seen.push(v.n); } });
         p.set({ n: 2 }, { owner: 'a' });
         out.throwMsg = err(() => p.set({ n: 13 }, { owner: 'b' }));
-        out.after = [p.value('n'), seen.at(-1), Object.keys(engine.describe().look.probeLook.n.under ?? {}).length, engine.describe().look.probeLook.n.by];
+        out.after = [p.value('n'), seen.at(-1), Object.keys(engine.describe().look.probeLook.n.under ?? {}).length, engine.describe().look.probeLook.n.writer];
         out.validate = err(() => p.replace(5));
         out.noReplaceRecord = engine.describe().look.probeLook['@replace'];
         out.debugTypo = err(() => engine.debug.override('t', 'look.tone', { exposre: 2 }));
-        out.debugFlat = (engine.debug.override('t', 'look.lights', { sun: { intensity: 2 } }), engine.describe().look.lights['sun.intensity'].by); engine.debug.clear('t');
+        out.debugFlat = (engine.debug.override('t', 'look.lights', { sun: { intensity: 2 } }), engine.describe().look.lights['sun.intensity'].writer); engine.debug.clear('t');
         out.matTypo = err(() => engine.look.materials.set({ wool: { roughnes: 0.3 } }));
-        out.matOk = err(() => engine.look.materials.set({ wool: { roughness: 0.3 } }, { owner: 'm' })); engine.look.materials.clear('m');
+        out.matOk = err(() => engine.look.materials.set({ wool: { roughness: 0.3 } }, { owner: 'm' }).remove());
+        out.noClear = !('clear' in engine.look.tone);   // the end verb is the handle's remove(), nothing else
         out.sig = engine.catalog('look.materials').signatures?.replace ?? '';
         out.sigErr = err(() => engine.look.materials.replace(3));
         out.applies = engine.catalog('look.materials').appliesTo;
@@ -118,6 +121,7 @@ export const specs = [
       check('spec.validate stops a bad replace value before anything is written', r.validate.includes('must be a name') && r.noReplaceRecord === undefined, JSON.stringify([r.validate, r.noReplaceRecord]));
       check('debug.override goes through set()\'s checks: a typo throws with the fix, nested keys flatten', r.debugTypo.includes('did you mean exposure') && r.debugFlat === 'debug:t', JSON.stringify([r.debugTypo, r.debugFlat]));
       check('materials.set: an unknown spec key throws, a three.js property is accepted', r.matTypo.includes('not a material spec key') && r.matOk === '', JSON.stringify([r.matTypo, r.matOk]));
+      check('[guard] a look part has no clear(owner): the handle remove() is the one end', r.noClear);
       check('materials: catalog lists the replace signature and appliesTo; a wrong call quotes the signature', r.sig.startsWith('replace(role') && r.sigErr.includes('replace(role') && /after/.test(r.applies ?? ''), JSON.stringify([r.sig, r.sigErr, r.applies]));
       check('a module whose install throws leaves no look part behind', r.install.includes('boom') && r.gone, JSON.stringify([r.install, r.gone]));
     },
@@ -138,12 +142,37 @@ export const specs = [
           for (let i = 0; i < 100; i++) T.set({ exposure: 0.9 + (i % 10) / 100 }, { owner: `o${i % 4}` });
           runs.push([t1 - t0, performance.now() - t1]);
         }
-        for (let i = 0; i < 4; i++) { M.clear(`o${i}`); T.clear(`o${i}`); }
+        for (let i = 0; i < 4; i++) { M._clear(`o${i}`); T._clear(`o${i}`); }
         const best = k => Math.min(...runs.map(x => x[k]));
         return { materials: +best(0).toFixed(2), tone: +best(1).toFixed(2), keys: Object.keys(engine.describe().look.materials).length };
       });
       log?.(`100 sets: materials ${r.materials} ms (${r.keys} keys), tone ${r.tone} ms`);
       check(`100 sets per frame cost under 8 ms (materials ${r.materials} ms with ${r.keys} keys, tone ${r.tone} ms)`, r.materials < 8 && r.tone < 8, JSON.stringify(r));
+    },
+  },
+  {
+    name: '[守] look: a write handle remove() undoes only what that call wrote',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        await engine.loading.settled();
+        engine.pause();
+        const T = engine.look.tone, out = {};
+        const base = T.value('exposure');
+        const a = T.set({ exposure: 0.7 }, { owner: 'g1' }), L = engine.look.lights;
+        const k = Object.keys(L._params).find(x => typeof L._params[x].default === 'number'), L0 = L.value(k);
+        const b = L.set({ [k]: L._params[k].default + 1 }, { owner: 'g1' }), c = L.set({ [k]: L._params[k].default + 2 }, { owner: 'g1' });
+        const sameOwner = [a.remove(), T.value('exposure') === base];     // the other part keeps its own owner record
+        const d = L.set({ [k]: L._params[k].default + 3 }, { owner: 'g1' });   // a later write to the same key
+        b.remove(); const kept = L.value(k);                                // earlier handle: the later value stays
+        c.remove(); d.remove(); const gone = L.value(k);
+        const twice = [d.remove(), c.remove()];
+        // two sets under one owner, remove one: the other stays
+        const e1 = T.set({ exposure: 0.6 }, { owner: 'g2' }), e2 = T.set({ exposure: 0.5 }, { owner: 'g2' });
+        e1.remove(); out.stays = T.value('exposure'); e2.remove();
+        return { sameOwner, kept: kept === L._params[k].default + 3, gone: gone === L0, twice, stays: out.stays, back: T.value('exposure') === base };
+      });
+      check('handle remove(): later write wins, twice is a no-op, a sibling set under the same owner stays', r.kept && r.gone && r.twice.every(x => x === false) && r.stays === 0.5 && r.back, JSON.stringify(r));
     },
   },
 ];

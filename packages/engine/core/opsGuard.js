@@ -2,6 +2,7 @@
 // Ops.guard(where) is the public entry; the work is here.
 import { coded } from './errorHints.js';
 import { devError, fmt } from './opsCheck.js';
+import { warnOnce } from './validate.js';
 
 const STRINGS = {
   canWrote: "{name}'s can changed state ({where}). can is read-only; change state in run",
@@ -20,7 +21,5 @@ export function guardWrite(ops, where) {
   const lines = (new Error().stack || '').split('\n'), file = l => l.match(/\(?([^()\s]+?):\d+:\d+\)?$/)?.[1], own = file(lines[1] || '');
   const at = lines.slice(4)   // 0 Error, 1 guardWrite, 2 Ops.guard, 3 the module method that called guard, then its callers.find(l => !/\/(core|modules)\//.test(l) && file(l) !== own)?.trim() ?? '';
   const key = where + '|' + at;
-  if (ops._warned.has(key)) return;
-  ops._warned.add(key);
-  console.warn(coded('ops-guard', fmt(ops._client ? STRINGS.clientGuard : STRINGS.guard, { where, at: at ? ', called ' + at : '' })));
+  warnOnce(coded('ops-guard', fmt(ops._client ? STRINGS.clientGuard : STRINGS.guard, { where, at: at ? ', called ' + at : '' })), 'ops-guard\0' + key);   // once per call site
 }

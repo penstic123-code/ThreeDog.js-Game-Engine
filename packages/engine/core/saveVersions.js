@@ -15,6 +15,7 @@ const DEV = {
     'To read it, run the newer build, or raise this part\'s version (with migrate steps) to match.',
   format: 'the save envelope is format {f}, this build reads up to format {max}',
   corrupt: "[saves] not loaded: slot '{slot}' is not a readable save ({why}). Nothing was changed and the stored save is kept as it was.",
+  badMoved: "saves.register('{k}'): movedFrom is { oldPartName: data => newData }, e.g. movedFrom: { sky: d => ({ time: d.time, day: d.day }) }",
   noStep: "save part '{k}' is version {from} but this build is version {to}, and migrate has no step {from}: add migrate: { {from}: data => newData } to saves.register('{k}')",
 };
 
@@ -23,11 +24,14 @@ const DEV = {
  * @param {string} key
  * @param {number} version
  * @param {Record<string, Function>} migrate
+ * @param {Record<string, Function> | null} [movedFrom]
  * @returns {void}
  * @internal
  */
-export function checkPartVersion(key, version, migrate) {
+export function checkPartVersion(key, version, migrate, movedFrom = null) {
   if (!Number.isInteger(version) || version < 1) throw codedError('save-version', fmt(DEV.badVersion, { k: key, v: version }));
+  if (movedFrom != null && (typeof movedFrom !== 'object' || Object.values(movedFrom).some(f => typeof f !== 'function')))
+    throw codedError('save-version', fmt(DEV.badMoved, { k: key }));
   for (const [m, fn] of Object.entries(migrate)) {
     if (!(Number(m) >= 1 && Number(m) < version) || typeof fn !== 'function') throw codedError('save-version', fmt(DEV.badMigrate, { k: key, m, v: version }));
   }
@@ -73,7 +77,7 @@ export function upgradePart(key, p, data, from, save = { parts: {}, versions: {}
  * every migrate step present. Returns the parsed save (prototype-safe), the upgraded registered parts (in load order) and the parts no registered module owns
  * (kept, so a save does not lose them), or the reason the load is refused.
  * @param {string | object | undefined} json  the stored save text, or a save object
- * @param {Map<string, { version: number, first: boolean, migrate: Record<string, Function> }>} providers
+ * @param {Map<string, { version: number, first: boolean, migrate: Record<string, Function>, movedFrom?: Record<string, Function> | null }>} providers
  * @param {string} slot  for the message only
  * @returns {{ data: any, list: [string, any, any][], foreign: { parts: Record<string, any>, versions: Record<string, number>, whole: any } } | { reason: 'missing' | 'corrupt' | 'tooNew' | 'migrate', dev: string }}
  * @internal
@@ -86,7 +90,20 @@ export function readSave(json, providers, slot) {
   const format = data.format ?? 1;
   if (!Number.isInteger(format) || format < 1) return { reason: 'corrupt', dev: fmt(DEV.corrupt, { slot, why: `format ${JSON.stringify(data.format)}` }) };
   if (format > FORMAT) return { reason: 'tooNew', dev: fmt(DEV.tooNew, { list: fmt(DEV.format, { f: format, max: FORMAT }) }) };
-  const versions = data.versions || {};
+  // a null part is damage, not "empty": world.fromJSON(null) used to load as an empty world and wipe the playthrough. The writer never writes one
+  // (collectParts leaves out a part whose save() returns null / undefined), so only a hand edit or a broken file has it
+  const nul = Object.keys(data.parts).filter(k => data.parts[k] === null);
+  if (nul.length) return { reason: 'corrupt', dev: fmt(DEV.corrupt, { slot, why: `part${nul.length > 1 ? 's' : ''} ${nul.map(k => `'${k}'`).join(', ')} is null` }) };
+  const versions = data.versions ||= {};
+  // a part whose data used to live under another name (movedFrom): convert it into this part now, before versions and migrate are looked at;
+  // the result is this build's shape, so it counts as the current version. The old part goes unless a registered part still owns the name
+  for (const [k, p] of providers) {
+    if (k in data.parts || !p.movedFrom) continue;
+    const old = Object.keys(p.movedFrom).find(o => o in data.parts && !providers.has(o));
+    if (!old) continue;
+    try { data.parts[k] = p.movedFrom[old](structuredClone(data.parts[old])); } catch (e) { return { reason: 'migrate', dev: `save part '${k}' movedFrom.${old}: ${e.message}` }; }
+    versions[k] = p.version; delete data.parts[old]; delete versions[old];
+  }
   const list = [...providers].filter(([k]) => k in data.parts).sort((a, b) => (b[1].first ? 1 : 0) - (a[1].first ? 1 : 0));
   const newer = list.filter(([k, p]) => (versions[k] ?? 1) > p.version).map(([k, p]) => `part '${k}' is version ${versions[k]}, this build reads up to ${p.version}`);
   if (newer.length) return { reason: 'tooNew', dev: fmt(DEV.tooNew, { list: newer.join('; ') }) };

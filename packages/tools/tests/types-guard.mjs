@@ -22,6 +22,10 @@ const okStyle = { terrain: { config: { shading: 'texture' } }, seasons: { mode: 
 const badStyle = { exposur: 1 };
 createEngine({ canvas: document.createElement('canvas'), style: okStyle });
 createEngine({ canvas: document.createElement('canvas'), style: badStyle });
+// The game's own untyped helpers (art code): TypeScript infers their parameter types, and the report must name that cause and the fix
+function box({ w, rough }) { return w + rough; }
+box({ w: 1 });
+function tree(opts = {}) { return opts.rough ?? 0.8; }
 `;
 
 export async function run({ check }) {
@@ -41,6 +45,9 @@ export async function run({ check }) {
     check('numeric index on a Vector3: home[0] (any would silently turn into NaN)', errs.some(l => /probe\.js:8 .*numeric index/.test(l)), errs.join(' | '));
     check('unannotated style literal with literal-union fields passes (line 12)', !errs.some(l => /probe\.js:12 /.test(l)), errs.join(' | '));
     check('misspelled style field still fails (line 13)', errs.some(l => /probe\.js:13 /.test(l)), errs.join(' | '));
-    check('no other errors (declarations themselves are clean)', errs.length === 5, errs.join(' | '));
+    check('a destructured parameter without JSDoc: names the missing name, the cause and both fixes (not "expected an object/function, got an object/function")',
+      errs.some(l => /probe\.js:16 .*lacks `rough`.*no JSDoc.*default in the pattern.*@param/.test(l)), errs.join(' | '));
+    check('opts = {} without JSDoc: says the type came from the default {} and how to type it', errs.some(l => /probe\.js:17 .*opts\.rough.*inferred from a default `\{\}`.*@param/.test(l)), errs.join(' | '));
+    check('no other errors (declarations themselves are clean)', errs.length === 7, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

@@ -3,9 +3,9 @@
 // ground; a game passes this preset (or its own height / groundType functions) explicitly:
 //   import { terrainPreset } from '@threedog/terrain-noise';
 //   engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset({ shape: 'island' }) }));
-// Why its own package and not part of a style pack: the shape of the world (where hills, rivers and forests are) is gameplay, and a style
+// Why its own package and not part of a style: the shape of the world (where hills, rivers and forests are) is gameplay, and a style
 // pack holds looks only (packages/engine/docs/recipes/09-style-pack.md). Swapping the look must never move a river. The colors of these ground types belong
-// to whichever style pack the game uses (lowpoly: style.terrain.biomeColors, keyed by the names below).
+// to whichever style the game uses (lowpoly: style.terrain.biomeColors, keyed by the names below).
 // height and groundType run in terrain workers, so they are pure: they read only their parameters (n.params is the options below) and Math.
 // The ground type names are plain strings that vegetation rules, style colors and a game's footstep map match by name.
 

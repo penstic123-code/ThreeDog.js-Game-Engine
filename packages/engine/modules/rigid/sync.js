@@ -156,3 +156,98 @@ export function syncLevel(r) {
   const desc = t => r.R.ColliderDesc.trimesh(t.positions, t.indices).setFriction(0.9);
   r._levelColliders = G.staticTrimeshes().map(t => r.world.createCollider(desc(t)));
 }
+
+// ---------- Game-set body / collider state across RigidBodies._fresh ----------
+// What the game wrote on a Rapier body / collider, carried onto the rebuilt one when _fresh starts the physics world over (newGame, load).
+// Why: the rebuild exists so physics after newGame matches a fresh page exactly, but the game owns body.* / collider.* (direct Rapier writes are plain
+// API use, as three.js writes are): gravityScale, ccd, dominance, sensor, collision groups, enabled... must survive it. A setter only runs when the
+// value differs from the rebuilt default, so an untouched body is built exactly as on a fresh page (no extra mass-property or wake-up work).
+
+const LOCKS = ['lockTranslations', 'setEnabledTranslations', 'lockRotations', 'setEnabledRotations'];
+
+/**
+ * Remember axis locks on a body: Rapier has setters but no getters for them, so the calls are recorded and replayed on a rebuilt body.
+ * @internal
+ */
+export function recordLocks(entry, body) {
+  const locks = entry._locks ??= new Map();
+  for (const k of LOCKS) {
+    const f = body[k];
+    // the later of lockRotations / setEnabledRotations wins in Rapier, so one slot per group keeps only the last call
+    body[k] = (...a) => { const g = k.includes('Rot') ? 'rot' : 'trans'; locks.delete(g); locks.set(g, [k, a]); return f.apply(body, a); };
+  }
+}
+
+/** @internal Copy game-set body state from the old body onto the rebuilt one (before old.free()) */
+export function carryBody(entry, o, n) {
+  if (o.bodyType() !== n.bodyType()) n.setBodyType(o.bodyType(), false);
+  if (o.gravityScale() !== n.gravityScale()) n.setGravityScale(o.gravityScale(), false);
+  if (o.isCcdEnabled() !== n.isCcdEnabled()) n.enableCcd(o.isCcdEnabled());
+  if (o.softCcdPrediction() !== n.softCcdPrediction()) n.setSoftCcdPrediction(o.softCcdPrediction());
+  if (o.dominanceGroup() !== n.dominanceGroup()) n.setDominanceGroup(o.dominanceGroup());
+  if (o.additionalSolverIterations() !== n.additionalSolverIterations()) n.setAdditionalSolverIterations(o.additionalSolverIterations());
+  // damping is not copied: the engine writes it itself (buoyancy swaps in water drag) and rebuilds from the entry's damping / angularDamping
+  if (o.userData !== undefined) n.userData = o.userData;
+  // wakeUp (the last argument) is false: a rebuilt body starts like a fresh one
+  for (const [k, a] of entry._locks?.values() ?? []) n[k](...a.slice(0, k.startsWith('lock') ? 1 : 3), false);
+  recordLocks(entry, n);
+  if (!o.isEnabled()) n.setEnabled(false);
+}
+
+/** @internal Copy game-set collider state from the old collider onto the one rebuilt from the entry's desc */
+export function carryCollider(o, n) {
+  const pairs = [['isSensor', 'setSensor'], ['collisionGroups', 'setCollisionGroups'], ['solverGroups', 'setSolverGroups'], ['friction', 'setFriction'],
+    ['restitution', 'setRestitution'], ['frictionCombineRule', 'setFrictionCombineRule'], ['restitutionCombineRule', 'setRestitutionCombineRule'],
+    ['activeEvents', 'setActiveEvents'], ['activeHooks', 'setActiveHooks'], ['activeCollisionTypes', 'setActiveCollisionTypes'],
+    ['contactForceEventThreshold', 'setContactForceEventThreshold'], ['contactSkin', 'setContactSkin'], ['mass', 'setMass']];
+  for (const [get, set] of pairs) { const v = o[get](); if (v !== n[get]()) n[set](v); }
+  if (!o.isEnabled()) n.setEnabled(false);
+}
+
+// ---------- Joints the game made, across RigidBodies._fresh ----------
+// The engine has no joint API: a hinge, rope or chain is plain Rapier (world.createImpulseJoint(JointData, entry.body, other.body, true)), as a three.js
+// object is plain three.js. But _fresh frees the old world and its joints with it: a door hinge or a rope was silently gone after newGame / a load
+// while both bodies came back. Rapier joints have no getters for their whole description (rope length, motor settings), so the creation and the
+// setters are recorded, like the axis locks above, and replayed between the rebuilt bodies. The game's joint object stays valid: it is pointed at
+// the new joint (rawSet / bodySet / handle), so code holding it keeps working.
+
+// setters replayed on the rebuilt joint, with the arity of their one-axis form (a spherical joint's motor setters take the axis first: one more)
+const JOINT_SETTERS = { setLimits: 2, configureMotorModel: 1, setMotorMaxForce: 1, configureMotorVelocity: 2, configureMotorPosition: 3, configureMotor: 4,
+  setContactsEnabled: 1, setAnchor1: 1, setAnchor2: 1, setFrameX1: 1, setFrameX2: 1, setLocalFrame1: 2, setLocalFrame2: 2 };
+
+/** @internal Record impulse joints made on r.world (called for every new world): r._joints = joint handle -> { params, h1, h2, joint, calls } */
+export function recordJoints(r) {
+  const w = r.world, make = w.createImpulseJoint, drop = w.removeImpulseJoint;
+  r._joints = new Map();
+  w.createImpulseJoint = (params, b1, b2, wakeUp) => { const j = make.call(w, params, b1, b2, wakeUp); trackJoint(r, j, params, b1.handle, b2.handle, new Map()); return j; };
+  w.removeImpulseJoint = (j, wakeUp) => { r._joints.delete(j.handle); return drop.call(w, j, wakeUp); };
+}
+function trackJoint(r, j, params, h1, h2, calls) {
+  for (const k in JOINT_SETTERS) {
+    const f = Object.getPrototypeOf(j)[k];
+    if (typeof f !== 'function') continue;
+    // the last call per setter (per axis on a spherical joint) wins, so a motor driven every step does not grow the list
+    j[k] = (...a) => { const key = a.length > JOINT_SETTERS[k] ? k + ':' + a[0] : k; calls.delete(key); calls.set(key, [f, a]); return f.apply(j, a); };
+  }
+  r._joints.set(j.handle, { params, h1, h2, joint: j, calls });
+}
+/** @internal Rapier removes a body's joints with it (removeRigidBody): forget their records */
+export function forgetJoints(r, body) {
+  for (const [h, j] of r._joints) if (j.h1 === body.handle || j.h2 === body.handle) r._joints.delete(h);
+}
+/**
+ * @internal Re-create the old world's recorded joints between the rebuilt bodies (moved: old body handle -> new body). A joint to a body the engine
+ * does not rebuild (one the game made with world.createRigidBody) cannot be carried: counted, and _fresh warns. Returns that count.
+ */
+export function carryJoints(r, old, records, moved) {
+  let lost = 0;
+  old.impulseJoints.forEach(j => {
+    const rec = records.get(j.handle), n1 = rec && moved.get(rec.h1), n2 = rec && moved.get(rec.h2);
+    if (!n1 || !n2) { lost++; return; }
+    const w = r.world, nj = w.impulseJoints.createJoint(w.bodies, rec.params, n1.handle, n2.handle, false);
+    const g = rec.joint; g.rawSet = nj.rawSet; g.bodySet = nj.bodySet; g.handle = nj.handle;
+    for (const [f, a] of rec.calls.values()) f.apply(g, a);
+    r._joints.set(nj.handle, { ...rec, h1: n1.handle, h2: n2.handle });
+  });
+  return lost;
+}

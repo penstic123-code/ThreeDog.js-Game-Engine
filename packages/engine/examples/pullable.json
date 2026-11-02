@@ -1,0 +1,103 @@
+{
+  "about": "Examples `threedog examples list|pull` can copy into a game. The single list: a folder under examples/ is pullable only when it is named here. Summary = the first line of its README.md. files = the game-facing files (the demo page and its main.js stay here). use = the line to print after a pull, paths relative to the pulled folder.",
+  "examples": {
+    "contact-shadows": {
+      "dir": "techniques/contact-shadows",
+      "files": [
+        "README.md",
+        "contactShadows.js"
+      ],
+      "use": "import { applyContactShadows, groundStatic } from './contactShadows.js';  applyContactShadows(engine);"
+    },
+    "day-night-grade": {
+      "dir": "techniques/day-night-grade",
+      "files": [
+        "README.md",
+        "dayNightGrade.js"
+      ],
+      "use": "import { dayNightStyle, followDayNight } from './dayNightGrade.js';  createEngine({ style: [yourStyle, dayNightStyle()] });  followDayNight(engine, { lamps });"
+    },
+    "interior-light": {
+      "dir": "techniques/interior-light",
+      "files": [
+        "README.md",
+        "interiorLight.js"
+      ],
+      "use": "import { exposureZones, windowLight } from './interiorLight.js';  exposureZones(engine, { isInside, exposure, ambient });  windowLight(engine, { position, lookAt, width, height });"
+    },
+    "modular-building": {
+      "dir": "techniques/modular-building",
+      "files": [
+        "README.md",
+        "kit.js"
+      ],
+      "use": "import { createModularKit } from './kit.js';  const kit = createModularKit({ slots: { wall: yourWallMaterial } });  engine.assets.manifest(kit.pack);"
+    },
+    "night-lights": {
+      "dir": "techniques/night-lights",
+      "files": [
+        "README.md",
+        "nightLights.js"
+      ],
+      "use": "import { createNightLights } from './nightLights.js';  createNightLights(engine, { /* lamps, glow names */ });"
+    },
+    "outlines-and-rim": {
+      "dir": "techniques/outlines-and-rim",
+      "files": [
+        "README.md",
+        "outlines.js"
+      ],
+      "use": "import { trackResolution, addHull, rimPatch } from './outlines.js';  // see README for which route fits your DESIGN.md"
+    },
+    "procedural-animation": {
+      "dir": "techniques/procedural-animation",
+      "files": [
+        "README.md",
+        "proceduralAnim.js",
+        "creature.js"
+      ],
+      "use": "import { createProceduralAnimator, KNOBS } from './proceduralAnim.js';  const anim = createProceduralAnimator({ body, legs, tail }); // update it in onFrame (README)"
+    },
+    "procedural-surface": {
+      "dir": "techniques/procedural-surface",
+      "files": [
+        "README.md",
+        "surface.js"
+      ],
+      "use": "import { scaleForCamera, worldVariation, brushTexture, cavity } from './surface.js';  // see README for which route fits your DESIGN.md"
+    },
+    "rc2d": {
+      "dir": "rc2d",
+      "files": [
+        "README.md",
+        "rc2d.js",
+        "shaders.js"
+      ],
+      "use": "import { createRadianceCascades2D } from './rc2d.js';  createRadianceCascades2D(engine, { layer: 5, ambient: 0.15 });"
+    },
+    "stylized-shading": {
+      "dir": "techniques/stylized-shading",
+      "files": [
+        "README.md",
+        "shading.js"
+      ],
+      "use": "import { rampTexture, toonMaterial, toonPatch, painterlyMaterial } from './shading.js';  // see README for which route fits your DESIGN.md"
+    },
+    "sun-and-key-light": {
+      "dir": "techniques/sun-and-key-light",
+      "files": [
+        "README.md",
+        "keyLight.js"
+      ],
+      "use": "import { applyKeyFill, aimSun, fitSunShadow } from './keyLight.js';  applyKeyFill(engine, route);  aimSun(engine, { elevation, azimuth, camera });  fitSunShadow(engine, { extent });"
+    },
+    "wet-road": {
+      "dir": "techniques/wet-road",
+      "files": [
+        "README.md",
+        "wetRoad.js"
+      ],
+      "use": "import { createWetRoad } from './wetRoad.js';  createWetRoad(engine, { materials: [roadMaterial] });"
+    }
+  }
+}

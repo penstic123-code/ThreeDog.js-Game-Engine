@@ -16,7 +16,7 @@ engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset({ shape
 const preview = createTerrain({ seed: 7, ...terrainPreset() });                    // same heights before the engine starts
 const dry = (x, z) => riverAt(x, z, preview.noise) === 0;
 ```
-Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; a style pack colors them (`terrain.colors`)
+Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; a style colors them (`terrain.colors`)
 (`style.terrain.biomeColors`), and `terrainStrings` names them for `describe()`. Other options:
 `heightScale mountains rivers riverWidth biomes noise island canyon` (types in the package's `index.d.ts`).
 

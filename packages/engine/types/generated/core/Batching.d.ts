@@ -14,7 +14,11 @@ export class Batching {
     get cell(): number;
     /** Every batch: { mesh: InstancedMesh, cell, count, items } (items[i] is the placed object drawn by instance i) @returns {BatchInfo[]} */
     get batches(): BatchInfo[];
-    /** batches: InstancedMesh count, instances: meshes drawn through them, saved: draw calls saved per pass (instances - batches) @returns {BatchingStats} */
+    /**
+     * batches: InstancedMesh count, instances: meshes drawn through them, saved: draw calls saved per pass (instances - batches); note while anything
+     * is batched; hint (dev) while many identical game meshes draw unbatched
+     * @returns {BatchingStats}
+     */
     get stats(): BatchingStats;
     /**
      * Where an object is drawn: [{ mesh, index }] for each of its meshes that is batched ([] when drawn on its own).
@@ -39,7 +43,7 @@ export class Batching {
      * @example engine.batching.tint(engine.world.view('crate_3'), 0xff8080)
      */
     tint(obj: THREE.Object3D, c: THREE.ColorRepresentation | null): void;
-    /** Re-check one object now (after you changed its parts by hand); normally automatic @param {THREE.Object3D} obj */
+    /** Re-check one object now (after you changed its parts by hand, or set userData.batch on a root already in the scene); normally automatic @param {THREE.Object3D} obj */
     refresh(obj: THREE.Object3D): void;
 }
 import * as THREE from 'three';

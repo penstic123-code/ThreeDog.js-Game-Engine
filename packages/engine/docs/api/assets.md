@@ -1,19 +1,20 @@
 # engine.assets (Assets)
 
-- `assets.manifest(m: AssetManifest)` — Register an asset manifest or asset pack (can be called several times; a later entry with the same name replaces the earlier one). Its name labels it in engine.loading, base resolves its relative paths
+- `assets.manifest(m: AssetManifest | AssetManifest[])` — Register an asset manifest or asset pack (can be called several times; a later entry with the same name replaces the earlier one). Its name labels it in engine.loading, base resolves its relative paths
 - `assets.builder(name: string) → ((...args: any[]) => any) | null` — The generator function registered under a model name, null for a file model or an unknown name (content builds [name, ...params] models with it)
+- `assets.paramsOf(name: string) → { schema, values, tuned } | null` — The params of a generator registered with a params schema: { schema, values (built with now), tuned (from setParams) }, or null
+- `assets.setParams(name: string, values: Record<string, any>) → Promise<{ why: string; names: str…` — Dev tuning: build a generator with these params (replacing its defaults) and swap every live copy in place; the dev panel's models folder calls it
 - `assets.preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }) → Promise<{ loaded: number; failed:…` — Preload (onProgress(0–1, current name)). Code-generated models and fonts are only loaded up front if marked preload. failed includes entries now showing their fallback
 - `assets.font(name: string) → Promise<FontFace | null>` — A font from an asset pack by name: downloaded once, added to document.fonts; null when the file failed and it is not critical. style.ui.fonts calls it at start()
 - `assets.model(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Promise<Object3D>` — Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray acceleration)
-- `assets.modelNow(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Object3D | null` — A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs. Example: `const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');`
+- `assets.modelNow(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Object3D | null` — A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs. Code-built models (a build function in the manifest) count too: they are null until one await model(name) or an entry with preload: true ran (dev warns [asset-not-loaded]). Example: `const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');`
 - `assets.geometry(nameOrUrl: string) → Promise<BufferGeometry>` — Get the geometry of the first mesh in a model
 - `assets.gridFromImage(nameOrUrl: string, opts?: { channel?, range?, bits? }) → Promise<{ data: Float32Array; wid…` — An image as grid data for sampleGrid: PNG at 8 or 16 bits (jpg / webp 8). channel 'r' (default) 'g' 'b' 'a' or 0-3; range maps pixels to [min, max] (default [0, 1])
 - `assets.texture(nameOrUrl: string, opts?: { color?, pixelated?, repeat? }) → Promise<Texture>` — Get a texture (.ktx2 compressed textures also work)
 - `assets.release(name: string)` — Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is removed with engine.remove
-- `assets.trim() → string[]` — Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() / cached() are not released automatically. Returns the released names
+- `assets.trim() → string[]` — Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() and code-generated models are not released automatically. Returns the released names
 - `assets.users(name: string) → number` — How many copies of this model are in use now (taken with model() and not yet removed with engine.remove)
 - `assets.forget(obj: Object3D)` — Called when an object is fully removed (engine.remove already calls it, normally you don't need to): decrements the use count of the model copies under it
-- `assets.cached(name: string, build: (params?: any) => T | Promise<T>, params?: any) → Promise<T>` — Code-generated model: generated only once per name + params, returns a copy (for geometry, the same one). Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or a file it imports changes) -> compute now. When the generator is newer than the baked file during development, it computes now and prints a one-time hint "run npm run bake once it is final"
 - `assets.animate(root: Object3D, config?: AnimatorOptions) → Animator` — Create an animation state machine for a skinned model (without config it is simple play-by-name). A copy of a manifest model whose entry has `animation` starts from that mapping; config wins per state
 - `assets.mapping(root: Object3D) → AnimatorOptions | null` — The manifest entry's animation mapping for a model copy, or null (not a manifest copy, or no mapping)
 - `assets.report(nameOrRoot: string | Object3D) → AssetReport` — Import report of a loaded model (by name, or a copy from model()): materials, textures with colorSpace, clips, colliders, templates, and issues for what the file has but the scene lost
@@ -31,11 +32,11 @@
   - `name?: string` Label shown as the source manifest in engine.loading (default 'manifest#1', '#2'...)
   - `base?: string | URL` Folder that this manifest's relative paths resolve against: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url) in an npm pack. '/x' and full URLs stay as written
   - `models?: Record<string, AssetEntry>` Models (.glb / .gltf, Draco/Meshopt compression also works): name -> path or generator function
-  - `textures?: Record<string, AssetEntry>` Textures: name -> path
-  - `sounds?: Record<string, AssetEntry>` Sounds: name -> path
+  - `textures?: Record<string, AssetEntry | Texture | (() => Texture | Prom…` Textures: name -> path, or a texture made in code: a function returning a THREE.Texture (run once, on first use) or the Texture itself. Code textures come back as made (their colorSpace / wrap / repeat are yours) and are never disposed by the engine if passed as a Texture. Example: textures: { brick: () => makeBrickTexture(), sign: mySignTexture }
+  - `sounds?: Record<string, AssetEntry | SynthFn | { build: SynthFn; par…` Sounds: name -> file path, or a sound made in code: a synth function (SynthFn) or { build: synthFn, params } (params: its defaults). Used by name like a file: audio.sfx(name), audio.sounds rules (src / variants), music and ambience. Example: sounds: { step: '/sfx/step.ogg', ding: dingSynth }
   - `fonts?: Record<string, string | FontAssetEntry>` Fonts: name -> file, or { url, family, weight, style, ... } (family defaults to the name). style.ui.fonts lists the names the UI uses
 - **AnimatorOptions** Animation state machine parameters
-  - `fade?: number` Default transition seconds, default 0.25 (style pack style.character.animation.fade)
+  - `fade?: number` Default transition seconds, default 0.25 (style.character.animation.fade)
   - `states?: Record<string, AnimatorState>` States: name → state
   - `transitions?: Record<string, number>` Transition seconds for specific pairs: { 'jump>fall': 0.1, '*>idle': 0.3 }
   - `params?: Record<string, number>` Initial parameter values

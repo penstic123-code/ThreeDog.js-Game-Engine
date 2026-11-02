@@ -17,23 +17,21 @@
 process.env.THREEDOG_TEST = '1';
 import { launchBrowser, newGamePage, buildAndPreview } from './browser.mjs';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pickWorkspace, rel } from './paths.mjs';
+import { cliOptions } from './lib/cli-args.mjs';
+import { viewSize } from './lib/shot-name.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { summarize, hookScript, fetchSpector, spectorDraws } from './lib/capture-lib.mjs';
 
 // Per-draw state snapshots and stack traces make a frame 10+ MB; the default file keeps the command list (names, arguments, text) only
 const slim = cap => ({ ...cap, commands: cap.commands.map(({ id, name, commandArguments, status, text }) => ({ id, name, commandArguments, status, text })) });
-const { dir, args } = pickWorkspace(process.argv.slice(2)), opt = {};
-let url = '/';
-for (let i = 0; i < args.length; i++) {
-  const a = args[i];
-  if (!a.startsWith('--')) { url = a; continue; }
-  const k = a.slice(2), v = args[i + 1];
-  if (v === undefined || v.startsWith('--')) opt[k] = true; else { opt[k] = v; i++; }
-}
-const [W, H] = String(opt.size || '960x540').split('x').map(Number), TOP = +(opt.top || 8);
-const outDir = opt.out ? join(process.cwd(), String(opt.out)) : join(dir, '.threedog', 'captures');
+const { dir, args } = pickWorkspace(process.argv.slice(2));
+const { page: url, opt } = cliOptions(args, { flags: ['no-spector', 'full', 'no-build', 'gpu', 'software'], values: ['top', 'out', 'time', 'weather', 'pos', 'size', 'spector-url'] });
+let W, H; try { [W, H] = viewSize(opt.size); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
+const TOP = +(opt.top || 8);
+// resolve, not join: join(cwd, 'D:/caps') glued an absolute --out under the current folder ("<cwd>/D:/caps")
+const outDir = opt.out ? resolve(String(opt.out)) : join(dir, '.threedog', 'captures');
 
 if (!opt['no-build']) console.log(`Building… (${rel(dir)})`);
 const server = await buildAndPreview(dir, { build: !opt['no-build'] }), base = server.base;
@@ -43,7 +41,8 @@ const page = await newGamePage(browser, { errors, viewport: { width: W, height: 
 let spectorNote = '', file = null;
 
 try {
-  const q = new URLSearchParams({ 'threedog-headless': '', wait: '1', cutscene: 'skip' });
+  // desktop tier like shot (core/tier.js): the captured frame is the one the game's look is made of, costly post included
+  const q = new URLSearchParams({ 'threedog-headless': '', 'threedog-tier': 'high', wait: '1', cutscene: 'skip' });
   for (const k of ['time', 'weather', 'pos']) if (opt[k]) q.set(k, opt[k]);
   await page.goto(base + url + (url.includes('?') ? '&' : '?') + q.toString().replace('threedog-headless=', 'threedog-headless'));
   await waitEngine(page, { timeout: 60000, errors });

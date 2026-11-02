@@ -1,4 +1,4 @@
-// Who acts for the local user (part of Engine, mixed into Engine.prototype). engine.actor is a world record id, default 'player'.
+// Who acts for the local user. (Part of Engine, mixed into Engine.prototype). engine.actor is a world record id, default 'player'.
 // Modules that ask "who is interacting / standing in a trigger zone / being guided by a marker" read engine.actorPosition() instead of engine.player,
 // so a game hands control to a vehicle, another squad member or a selected unit by setting engine.actor, and ops default ctx.actor to it.
 

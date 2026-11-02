@@ -11,7 +11,7 @@ import { REPLACE, HOOK, callerAt, commit } from './layers.js';
 export function example(p) { const k = Object.keys(p._params)[0]; return k ? `{ ${k}: ${JSON.stringify(p._params[k].default)} }` : '{...}'; }
 
 /** { sun: { intensity } } -> { 'sun.intensity' } for keys the part declares dotted */
-export function flat(p, params) {
+function flat(p, params) {
   const out = {}, keys = Object.keys(p._params);
   for (const [k, v] of Object.entries(params)) {
     if (!(k in p._params) && isPlainObject(v) && keys.some(q => q.startsWith(k + '.'))) for (const [s, sv] of Object.entries(v)) out[`${k}.${s}`] = sv;
@@ -21,11 +21,11 @@ export function flat(p, params) {
 }
 
 /** Unknown keys and wrong values throw with the fix (same schema and wording as module params, params.js) */
-export function check(p, values) {
+function check(p, values) {
   const keys = Object.keys(p._params);
   for (const [k, v] of Object.entries(values)) {
     if (!(k in p._params)) { const c = closest(k, keys); throw codedError('look-param', `${p.id}.set(): unknown key ${k}${c ? ` (did you mean ${c}?)` : ''}; keys: ${keys.join(', ')}`); }
-    if (v === null) continue;
+    if (v === null || (typeof v === 'function' && p._meta[k].fn)) continue;   // fn keys: a function of the frame context (state.js)
     const why = whyBad(p._params[k], v) ?? p._meta[k].check?.(v);
     if (why) throw codedError('look-param', `${p.id}.set(): ${k} ${why}`);
   }
@@ -45,7 +45,7 @@ export function setOn(p, layer, owner, params) {
 export function setStyle(p, values) {
   const given = Object.fromEntries(Object.entries(flat(p, values ?? {})).filter(([, v]) => v != null));
   const params = Object.fromEntries(Object.entries(given).filter(([k]) => k !== REPLACE && !k.startsWith(HOOK)));   // a style may also fill the replace slot / hooks
-  check(p, params);   // a style pack value of the wrong type throws at start, with the key
+  check(p, params);   // a style value of the wrong type throws at start, with the key
   const old = p._style;
   p._style = new Map(Object.entries(given));
   commit(p, () => { p._style = old; });
@@ -67,7 +67,22 @@ export function writeLayer(p, layer, owner, values) {
   for (const [k, v] of Object.entries(values)) v === null ? rec.values.delete(k) : rec.values.set(k, v);
   map.delete(owner); if (rec.values.size) map.set(owner, rec);
   commit(p, () => { map.delete(owner); if (old) map.set(owner, old); });
-  return { remove: () => dropLayer(p, layer, owner) };
+  // the handle undoes this call's own writes (docs: "every handle ends with remove()"), not the owner's whole layer: two set() under one owner
+  // ('game' by default) must not take each other down. A key goes only while it still holds the value this call wrote; a later write wins.
+  const wrote = Object.entries(values).filter(([, v]) => v !== null);
+  return { remove: () => removeWrites(p, layer, owner, wrote) };
+}
+
+/** Handle remove(): delete the keys one write put in, where they still hold that value; an emptied owner record is dropped. Twice is a no-op */
+function removeWrites(p, layer, owner, wrote) {
+  const map = p._owners[layer], old = map.get(owner);
+  const mine = old && wrote.filter(([k, v]) => old.values.get(k) === v);
+  if (!mine?.length) return false;
+  const values = new Map(old.values);
+  for (const [k] of mine) values.delete(k);
+  map.delete(owner); if (values.size) map.set(owner, { ...old, values });
+  commit(p, () => { map.delete(owner); map.set(owner, old); });
+  return true;
 }
 
 export function dropLayer(p, layer, owner) {

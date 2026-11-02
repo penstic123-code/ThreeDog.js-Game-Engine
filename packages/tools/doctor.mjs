@@ -1,5 +1,7 @@
-// One-shot health check: npm run doctor [--ci]
-// One line per item: ✓ passed / ✗ problem (followed by the fix) / – info only. The browser WebGL check runs last; everything else finishes in a few milliseconds.
+// One-shot health check: npm run doctor [--ci] [--json]
+// One line per item: ✓ passed / ✗ problem (followed by the fix) / – info only. The browser check runs last: it renders one real engine frame on
+// software rendering (what tests use) and on the hardware GPU path (what shot / gallery / perf / stress prefer), a few seconds; the rest takes milliseconds.
+// --json prints one verdict object instead of lines: { healthy, items: [{ status, msg, fix? }], render }. Exit code 0 only when healthy.
 // --ci only prints and never fails the command (no GPU and the like are normal on CI machines).
 import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -9,11 +11,13 @@ import { ROOT, ENGINE, workspaces, rel } from './paths.mjs';
 import { TOOLS } from './project.mjs';
 import { devServerInfo } from './devinfo.mjs';
 
-const ci = process.argv.includes('--ci');
+const ci = process.argv.includes('--ci'), json = process.argv.includes('--json');
 let bad = 0;
-const ok = msg => console.log(`✓ ${msg}`);
-const info = msg => console.log(`– ${msg}`);
-const no = (msg, fix) => { bad++; console.log(`✗ ${msg}  →${fix}`); };
+const items = [], verdict = { healthy: false, items, render: {} };
+const line = (status, msg, fix) => { items.push(fix ? { status, msg, fix } : { status, msg }); if (!json) console.log(`${{ ok: '✓', problem: '✗', info: '–' }[status]} ${msg}${fix ? `  →${fix}` : ''}`); };
+const ok = msg => line('ok', msg);
+const info = msg => line('info', msg);
+const no = (msg, fix) => { bad++; line('problem', msg, fix); };
 
 // ── Node version: vite 8 needs ≥ 20.19 or ≥ 22.12 ──
 const [maj, min] = process.versions.node.split('.').map(Number);
@@ -25,8 +29,9 @@ const nm = join(ROOT, 'node_modules');
 if (!existsSync(join(nm, 'three'))) no('node_modules is not installed or incomplete', 'run npm install in the repo root');
 else {
   ok('node_modules installed');
-  const names = workspaces().map(d => d.split(/[\\/]/).pop());
-  const unlinked = names.filter(n => !existsSync(join(nm, '@threedog', n)));
+  // linked under the package.json name, as npm does it (a game "my-game" → node_modules/my-game; engine packages → node_modules/@threedog/...)
+  const names = workspaces().map(d => { try { return JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')).name; } catch { return null; } }).filter(Boolean);
+  const unlinked = names.filter(n => !existsSync(join(nm, n)));
   if (unlinked.length) no(`workspaces not linked: ${unlinked.join(', ')}`, 'run npm install in the repo root (once after creating a new game)');
   else ok(`all workspaces linked (${names.length})`);
 }
@@ -35,7 +40,8 @@ if (!existsSync(lockFile)) no('no package-lock.json', 'run npm install in the re
 else {
   const lock = readFileSync(lockFile, 'utf8');
   const missing = workspaces().map(rel).filter(r => !lock.includes(`"${r}"`));
-  if (missing.length) no(`missing from the lock: ${missing.join(', ')}`, 'run npm install --package-lock-only to update the lock');
+  // new-game leaves the lock alone (the game runs through the link): only npm ci needs the entry, and the next npm install writes it
+  if (missing.length) info(`not in package-lock.json yet: ${missing.join(', ')} (fine for dev / check / test; run npm install in the repo root before npm ci)`);
   else ok('package-lock.json matches the workspaces');
 }
 
@@ -97,28 +103,67 @@ for (const ws of workspaces()) {
   else no(`the dev server recorded in ${where} is gone (${url})`, `a record left by an unclean shutdown: delete it (PowerShell: Remove-Item "${where}") or run npm run dev again`);
 }
 
-// ── Browser (slowest, last): Playwright chromium, headless WebGL2, renderer, GPU timer extension ──
+// ── Browser (slowest, last): one real engine frame per render path ──
+// Why a real frame, not just getContext('webgl2'): a context can exist while the engine still cannot draw (shader compile, a blocklisted driver
+// path, an ANGLE backend that silently falls back), and the shot / test failure that follows looks like a game bug.
 const { chromium } = await import('playwright');
-const { launchBrowser } = await import('./browser.mjs');
-if (!existsSync(chromium.executablePath())) no('Playwright chromium is not installed', 'run npx playwright install chromium');
-else {
-  ok('Playwright chromium installed');
-  const browser = await launchBrowser();   // same arguments as npm test
+const { CHROMIUM_ARGS, SOFTWARE_RENDERER, forcedRender } = await import('./browser.mjs');
+{   // one real engine frame per render path
+  const page = join(ROOT, '.threedog', 'doctor-page');
+  mkdirSync(page, { recursive: true });
+  writeFileSync(join(page, 'index.html'), '<!doctype html><meta charset="utf-8"><canvas id="view" width="64" height="64"></canvas><script type="module" src="/main.js"></script>');
+  writeFileSync(join(page, 'main.js'), `import * as THREE from 'three';
+import { createEngine } from 'threedog';
+try {
+  const canvas = document.getElementById('view');
+  const engine = createEngine({ canvas, headless: true, ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, saveKey: 'doctor' });
+  await engine.start();
+  engine.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshBasicMaterial({ color: 0xff0000 })));
+  engine.camera.position.set(0, 0, 5); engine.camera.lookAt(0, 0, 0);
+  const gl = engine.renderer.getContext(), dbg = gl.getExtension('WEBGL_debug_renderer_info'), px = new Uint8Array(4), t0 = performance.now();
+  engine.step(1 / 60, { render: true, describe: false });
+  gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  window.doctor = { renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown', timer: !!gl.getExtension('EXT_disjoint_timer_query_webgl2'),
+    drawn: px[0] > 120 && px[0] > 1.6 * px[1] && px[0] > 1.6 * px[2], pixel: [...px], frameMs: Math.round((performance.now() - t0) * 10) / 10 };
+} catch (e) { window.doctor = { error: String(e?.message ?? e) }; }
+`);
+  const { createServer } = await import('vite');
+  const server = await createServer({ root: page, configFile: false, logLevel: 'silent', cacheDir: join(page, '.vite'), server: { port: 0, host: '127.0.0.1', strictPort: false } });
+  await server.listen();
+  const url = server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.httpServer.address().port}/`;
+  // Each path launched with its own CHROMIUM_ARGS entry directly (no fallback), so the report says what each path really gets
+  const frame = async kind => {
+    let b;
+    try {
+      b = await chromium.launch({ args: CHROMIUM_ARGS[kind] });
+      const p = await b.newPage();
+      await p.goto(url, { timeout: 60000 });
+      await p.waitForFunction(() => window.doctor, null, { timeout: 60000 });
+      return await p.evaluate(() => window.doctor);
+    } catch (e) { return { error: String(e?.message ?? e).split('\n')[0] }; }
+    finally { await b?.close().catch(() => {}); }
+  };
   try {
-    const gl = await (await browser.newPage()).evaluate(() => {
-      const g = document.createElement('canvas').getContext('webgl2');
-      if (!g) return null;
-      const dbg = g.getExtension('WEBGL_debug_renderer_info');
-      return { renderer: dbg ? g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown', timer: !!g.getExtension('EXT_disjoint_timer_query_webgl2') };
-    });
-    if (!gl) no('cannot create WebGL2 in the headless browser', 'update the graphics driver; if that fails, reinstall the browser: npx playwright install chromium --force');
-    else {
-      ok(`headless WebGL2 available, renderer: ${gl.renderer}`);
-      if (gl.timer) ok('EXT_disjoint_timer_query_webgl2 supported (GPU time can be measured)');
-      else info('EXT_disjoint_timer_query_webgl2 not supported (common with software rendering): GPU time cannot be measured, frame time only shows the CPU side; running games and tests is unaffected');
-    }
-  } finally { await browser.close(); }
+    // the launch itself is the install check: executablePath() names the full chromium, while headless launches use the headless shell
+    const sw = verdict.render.software = await frame('software');
+    if (/Executable doesn't exist|npx playwright install/.test(sw.error ?? '')) no('Playwright chromium is not installed', 'run npx playwright install chromium');
+    else if (sw.error) no(`the engine cannot render a frame with software rendering (tests use it): ${sw.error}`, 'update the graphics driver; if that fails, reinstall the browser: npx playwright install chromium --force');
+    else if (!sw.drawn) no(`software rendering ran but the frame came out wrong (center pixel ${sw.pixel}, renderer ${sw.renderer})`, 'reinstall the browser: npx playwright install chromium --force');
+    else ok(`engine frame rendered with software rendering (${sw.renderer}, ${sw.frameMs} ms): tests run on this, the same pixels on every machine`);
+    const gpu = verdict.render.gpu = await frame('gpu');
+    const hw = verdict.render.hardwareGpu = !gpu.error && gpu.drawn && !SOFTWARE_RENDERER.test(gpu.renderer);
+    if (hw) ok(`a hardware GPU is available to headless (${gpu.renderer}, ${gpu.frameMs} ms): shot, gallery --shots, perf and stress use it; tests stay on software`);
+    else info(`no hardware GPU reachable headless (${gpu.error ?? (gpu.drawn ? gpu.renderer : `frame came out wrong on ${gpu.renderer}`)}): shot / gallery / perf / stress fall back to software rendering (slower, GPU ms not real). ` +
+      'Normal on CI and remote machines; on a desktop update the graphics driver' + (process.platform === 'linux' ? ' and install the Mesa Vulkan driver (mesa-vulkan-drivers)' : ''));
+    const best = hw ? gpu : sw;
+    if (best.timer) ok(`GPU timer (EXT_disjoint_timer_query_webgl2) on the ${hw ? 'GPU' : 'software'} path: stress and perf report GPU ms`);
+    else info(`GPU timer (EXT_disjoint_timer_query_webgl2) not available on the ${hw ? 'GPU' : 'software'} path: stress reports frame time only; games and tests are unaffected`);
+    const forced = forcedRender();
+    if (forced) info(`THREEDOG_RENDER / a flag forces ${forced} rendering for every browser the tools launch${forced === 'gpu' ? ' (tests included: pixel comparisons may then differ)' : ''}`);
+  } finally { await server.close(); rmSync(page, { recursive: true, force: true }); }
 }
 
-console.log(bad ? `\n${bad} problems, follow the fixes after "→"` : '\nAll passed');
+verdict.healthy = bad === 0;
+if (json) console.log(JSON.stringify(verdict, null, 1));
+else console.log(bad ? `\n${bad} problems, follow the fixes after "→"` : '\nAll passed');
 process.exit(bad && !ci ? 1 : 0);

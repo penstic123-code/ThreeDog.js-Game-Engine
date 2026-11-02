@@ -5,7 +5,6 @@ import { esc } from '../../ui/UI.js';
 
 // Note: the debug panel is a dev tool; its UI text is plain English, not in the string table; do not install this module in a release.
 // The panel sits next to the core diagnostics as engine.debug.panel (composition): engine.debug (override / clear / view) is core and works without it.
-// It used to subclass DebugOverrides and replace engine.debug, which needed shared state on the engine and a module-name exception; nothing of that is left.
 /** engine.debug.panel (F3 panel) */
 export class DebugPanel {
   /** @internal */
@@ -64,7 +63,8 @@ export class DebugPanel {
     const e = engine, w = e.terrain;
     // controls for modules that are not installed are hidden
     const hideRow = k => { const i = q(`[data-i="${k}"]`); if (i) i.closest('.r').hidden = true; };
-    if (!e.sky) { hideRow('ts'); hideRow('tod'); }
+    // time rows follow the calendar, not the sky: an indoor game without a sky still scrubs its clock
+    if (!e.calendar) { hideRow('ts'); hideRow('tod'); }
     if (!e.weather) q('[data-s="weather"]').closest('.r').hidden = true;
     const bind = (k, get, set, fmt) => {
       const i = q(`[data-i="${k}"]`), o = q(`[data-o="${k}"]`);
@@ -73,9 +73,9 @@ export class DebugPanel {
       if (k === 'dens') i.addEventListener('change', () => set(+i.value));
       return i;
     };
-    if (e.sky) {
-      bind('ts', () => e.clock.timeScale, v => e.clock.timeScale = v, v => v + '×');
-      /** @internal */ this.tod = bind('tod', () => e.sky.timeOfDay, v => e.sky.timeOfDay = v, () => e.sky.clock);
+    if (e.calendar) {
+      bind('ts', () => e.clock.rate, v => e.mod('clock.rate', { owner: 'debug', set: v, priority: 'debug' }), v => v + '×');   // the panel's own entry: the game's rate comes back when it is ended
+      /** @internal */ this.tod = bind('tod', () => e.calendar.timeOfDay, v => e.calendar.timeOfDay = v, () => e.calendar.clock);
     }
     const ws = q('[data-s="weather"]');
     if (e.weather) {   // options come from the game's weather table (its own types show up here automatically)
@@ -142,8 +142,8 @@ export class DebugPanel {
     o.inst.textContent = fmt(s.instances);
     o.apply.textContent = s.apply.toFixed(1);
     o.queue.textContent = s.queued;
-    o.clock.textContent = this.engine.sky?.clock ?? '--';
-    if (this.tod && document.activeElement !== this.tod) this.tod.value = this.engine.sky.timeOfDay;
+    o.clock.textContent = this.engine.calendar?.clock ?? '--';
+    if (this.tod && document.activeElement !== this.tod) this.tod.value = this.engine.calendar.timeOfDay;
   }
 }
 
@@ -158,10 +158,12 @@ export function debug(opts = {}) {
   readParams('debugPanel', DEBUG_PANEL_PARAMS, opts);
   let d = null; const prof = { n: 0, t: 0, cpu: 0 };
   return {
-    name: 'debugPanel', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['sky', 'weather', 'terrain'], presentation: true,
+    name: 'debugPanel', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['calendar', 'weather', 'terrain'], presentation: true,
     install(e) { d = new DebugPanel(e, opts); e.debug.panel = d; return d; },
     dispose(e) { if (e.debug.panel === d) e.debug.panel = null; d?.el.remove(); },
     frame(dt, e) { if (e.input.pressedRaw('debugPanel')) d.el.hidden = !d.el.hidden; },
+    // open matters to a screenshot (the panel covers a corner); benchmarking matters to perf numbers (autopilot drives the player, adaptive resolution paused)
+    describe() { return { open: !d.el.hidden, benchmarking: d.benchmarking }; },
     afterRender(dt, e) {
       d.frame(dt, e.terrain?.stats.builtThisFrame || 0);
       prof.n++; prof.t += dt; prof.cpu += e.cpuMs || 0;

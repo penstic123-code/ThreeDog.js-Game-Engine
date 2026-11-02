@@ -1,4 +1,5 @@
-// Trigger zone module: invisible regions in the world that notify you when the player (or something else) enters, leaves or stays inside.
+// Trigger zones: who enters, stays, leaves.
+// Invisible regions in the world that notify you when the player, another actor or any position enters, leaves or stays inside.
 // Use for: auto-opening a door, showing a place name on entering a village, traps, starting dialogue at a story spot, stopping music when leaving an area...
 //
 // const door = engine.triggers.add({
@@ -14,29 +15,33 @@
 //   position   center { x, y, z } / Vector3 / Object3D / [x, y, z]. For box and cylinder, y is the bottom height; if y is omitted, the ground height there is used
 //   radius     sphere/cylinder radius (default 1.5); size [width, height, depth] (box, default [2,2,2]); height cylinder height (default 3)
 //   rotation   box rotation around the Y axis in radians (default 0)
-//   onEnter(t, who) / onExit(t, who) / onStay(dt, t, who)   callbacks; who is the position that entered
+//   onEnter(t, who, id) / onExit(t, who, id) / onStay(dt, t, who, id)   callbacks; who is the position that entered, id the world record id of who it is
+//              (engine.actor for the default who, the id for an id in a custom who, object.userData.id for an Object3D, null for a bare position)
 //   once       fire on the first enter only (default false; exit follows at once); t.used is true afterwards, and a new playthrough (engine.session) re-arms it
 //   enabled    false pauses detection (handle.enabled can be changed any time)
 //   tag        name carried in events, for shared handling
-//   who        what can trigger: default is engine.actorPosition() (the player, or what engine.actor names; engine.focus without a player); or a Vector3 / Object3D, or a function returning an array of positions () => [p1, p2]
+//   who        what can trigger: default is engine.actor (engine.actorPosition(): the player, or what engine.actor names; engine.focus without a player); or an
+//              actor id, a Vector3 / Object3D, or a function returning an array of those () => [e.actor, ...peerIds] (several actors)
 //              (a zone with a function / object `who` is checked every step; zones with the default `who` cost nothing while the actor is far away)
 //   cooldown   seconds after leaving during which enter will not fire again (stops edge jitter from re-triggering), default 0
 // Returned handle: { tag, inside, enabled, used, remove(), contains(p) }
 //
-// Events: trigger:enter / trigger:exit with { tag, trigger, who }. On removal (remove / clear) and at the end of a playthrough, zones still occupied send exit first (who is null)
+// Events: trigger:enter / trigger:exit with { tag, trigger, who, id }. On removal (remove / clear) and at the end of a playthrough, zones still occupied send exit first (who is null)
 // A playthrough ending (engine.session newGame / load / quit) resets every zone: occupied ones exit, cooldowns clear, once zones are re-armed;
 // so the zone around the spawn point fires enter again in the new playthrough. Zones added during play belong to the game: wrap them in engine.session.track(h).
 //
-// Debug display: triggers({ debug: true }) or engine.triggers.setDebug(true) draws all trigger zones as wireframes.
-//   Look comes from style.triggers = { debugColor, debugOpacity } of the style pack; neutral gray if absent (a dev overlay: its line material is not a makeMaterial role).
-//   In dev builds F4 (action triggersDebug, rebindable) toggles the display; release builds bind no key unless triggers({ keys }) names one.
+// Debug display: engine.debug.view('triggers') draws all trigger zones as wireframes, engine.debug.view('off') clears them. It is a debug view mode
+//   (core/debugView.js) and not a triggers option, so it works like every other "show me the hidden thing": one call, owner-scoped, said in describe().render.
+//   Look comes from style.triggers = { debugColor, debugOpacity } of the style; neutral gray if absent (a dev overlay: its line material is not a makeMaterial role).
+//   In dev builds F4 (action triggersDebug, rebindable) toggles that view; release builds bind no key unless triggers({ keys }) names one.
 import * as THREE from 'three';
-import { checkOptions, DEV } from '../../core/validate.js';
-import { readParams } from '../../core/params.js';
+import { DEV } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+import { Cells } from '../../core/cells.js';
 
-// Zones are indexed by the grid cells their bounding box covers, so a step looks at the zones near the actor instead of every zone. A zone with its own `who`
-// (any position, unknown until it runs) or one covering more than MAX_CELLS cells goes to the always-checked `_global` list.
-const CELL = 16, MAX_CELLS = 64, KEY = 1048576, PAD = 0.01;   // PAD: contains() is inclusive, so a point exactly on the edge must still find the zone's cell
+// Zones are indexed (core/cells.js, the shared xz index) by the cells their bounding box covers, so a step looks at the zones near the actor instead of every
+// zone. A zone with its own `who` (any position, unknown until it runs) or one covering more than MAX_CELLS cells goes to the always-checked `_global` list.
+const CELL = 16, MAX_CELLS = 64, PAD = 0.01;   // PAD: contains() is inclusive, so a point exactly on the edge must still find the zone's cell
 const bySeqDesc = (a, b) => b._seq - a._seq;   // the order zones have always run in: newest first
 
 const ADD_KEYS = ['shape', 'position', 'radius', 'size', 'height', 'rotation', 'onEnter', 'onExit', 'onStay', 'once', 'enabled', 'tag', 'who', 'cooldown', 'userData'];
@@ -47,27 +52,28 @@ const STRINGS = {
 };
 
 export class Triggers {
-  constructor(engine, { debug = false, action = 'triggersDebug', keys = DEV ? ['F4'] : [] } = {}) {
+  constructor(engine, { action = 'triggersDebug', keys = DEV ? ['F4'] : [] } = {}) {
     this.engine = engine;
     this._list = [];
-    this.debug = false;
     this.action = action;
     this._one = [null];           // by default "who" is a single position: reuse this array to avoid per-frame allocation
     this._custom = [null];
+    this._cps = []; this._cids = [];   // positions / ids of a custom who, resolved each visit
+    this._ids = [null];            // id of each entry of the who list being checked (parallel to it; reused like _one)
     this._scan = [];               // zones update() visits this step (a snapshot: callbacks may add / remove zones)
-    this._cells = new Map();       // grid cell -> zones whose bounding box covers it
+    this._cells = new Cells(CELL); // zones by the cells their bounding box covers
     this._global = [];             // zones checked every step (custom `who`, or too large for the grid)
     this._busy = new Set();        // zones that need a visit even when nobody is near: occupied, or cooling down
     this._seq = 0; this._stamp = 0;
-    this._debugGroup = null;
+    /** @internal the wireframe group while the debug view 'triggers' is on (null otherwise) */ this._view = null;
     engine.i18n.add(STRINGS);
     /** @internal the debug toggle has a key */ this._keyed = keys.length > 0;
     if (this._keyed) engine.input.define(action, keys, 'triggers.debug');
-    if (debug) this.setDebug(true);
+    /** @internal */ this._viewDef = engine.debug.defineView('triggers', { what: 'every trigger zone drawn as a wireframe over the real look (style.triggers.debugColor)', apply: scene => this._drawView(scene) });
   }
 
   add(opts = {}) {
-    checkOptions('triggers.add()', opts, ADD_KEYS);
+    readParams('triggers.add()', keysSchema(ADD_KEYS), opts);
     const { shape = 'cylinder', position: at = {}, radius = 1.5, size = [2, 2, 2], height = 3, rotation = 0, onEnter = null, onExit = null, onStay = null,
       once = false, enabled = true, tag = '', who = null, cooldown = 0, userData = {} } = opts;
     const position = at.isObject3D ? at.position : Array.isArray(at) ? { x: at[0], y: at[1], z: at[2] } : at;
@@ -82,7 +88,7 @@ export class Triggers {
     };
     t._seq = this._seq++; t._span = null;
     this._list.push(t); this._register(t);
-    if (this.debug) this._addDebugMesh(t);
+    if (this._view) this._addDebugMesh(t);   // a zone added while the view is on shows at once
     return t;
   }
 
@@ -97,20 +103,11 @@ export class Triggers {
     if (t.who) { this._global.push(t); return; }
     const ex = (t.shape === 'box' ? t.hx * Math.abs(t.c) + t.hz * Math.abs(t.s) : t.radius) + PAD;
     const ez = (t.shape === 'box' ? t.hx * Math.abs(t.s) + t.hz * Math.abs(t.c) : t.radius) + PAD;
-    const x0 = Math.floor((t.x - ex) / CELL), x1 = Math.floor((t.x + ex) / CELL), z0 = Math.floor((t.z - ez) / CELL), z1 = Math.floor((t.z + ez) / CELL);
-    if ((x1 - x0 + 1) * (z1 - z0 + 1) > MAX_CELLS) { this._global.push(t); return; }
-    t._span = [x0, x1, z0, z1];
-    for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
-      const k = i * KEY + j; let c = this._cells.get(k); if (!c) this._cells.set(k, c = []); c.push(t);
-    }
+    t._span = this._cells.cover(t, t.x - ex, t.z - ez, t.x + ex, t.z + ez, MAX_CELLS);
+    if (!t._span) this._global.push(t);
   }
   _unregister(t) {
-    const sp = t._span;
-    if (!sp) { this._global.splice(this._global.indexOf(t), 1); return; }
-    for (let i = sp[0]; i <= sp[1]; i++) for (let j = sp[2]; j <= sp[3]; j++) {
-      const k = i * KEY + j, c = this._cells.get(k);
-      c.splice(c.indexOf(t), 1); if (!c.length) this._cells.delete(k);
-    }
+    if (t._span) this._cells.uncover(t); else this._global.splice(this._global.indexOf(t), 1);
   }
   /** All trigger zones (a new array) */
   list() { return [...this._list]; }
@@ -160,6 +157,7 @@ export class Triggers {
   _defaultWho() {
     const e = this.engine;
     this._one[0] = e.actorPosition();   // engine.actor: the player by default, or the vehicle / squad member the game handed control to
+    this._ids.length = 1; this._ids[0] = e.actor;
     return this._one;
   }
 
@@ -173,8 +171,8 @@ export class Triggers {
     for (let i = 0; i < g.length; i++) { const t = g[i]; if (t._q !== st) { t._q = st; scan.push(t); } }
     for (let k = 0; k < def.length; k++) {
       const p = def[k]; if (!p) continue;
-      const c = this._cells.get(Math.floor(p.x / CELL) * KEY + Math.floor(p.z / CELL));
-      if (c) for (let i = 0; i < c.length; i++) { const t = c[i]; if (t._q !== st) { t._q = st; scan.push(t); } }
+      const c = this._cells.at(p.x, p.z);
+      if (c) for (const t of c) if (t._q !== st) { t._q = st; scan.push(t); }
     }
     if (scan.length > 1) scan.sort(bySeqDesc);   // a callback removing an earlier zone must not make a later one run twice: scan is a snapshot, removed zones are skipped
     for (let i = 0; i < scan.length; i++) {
@@ -189,42 +187,57 @@ export class Triggers {
     const e = this.engine;
     if (t._cool > 0) t._cool -= dt;
     if (!t.enabled || t.used) { if (t.inside) this._exit(t, null); return; }
-    let ps = def;
-    if (t.who) { if (typeof t.who === 'function') ps = t.who(); else { this._custom[0] = t.who.isObject3D ? t.who.position : t.who; ps = this._custom; } }
-    let hit = null;
-    if (ps) for (let k = 0; k < ps.length; k++) { const p = ps[k]; if (p && this._contains(t, p)) { hit = p; break; } }
+    let ps = def, ids = this._ids;
+    if (t.who) {
+      // a custom who names positions, objects or actor ids: resolve each to (position, id), so callbacks always say who it was, not only where
+      const list = typeof t.who === 'function' ? t.who() : (this._custom[0] = t.who, this._custom);
+      ps = this._cps; ids = this._cids; ps.length = 0; ids.length = 0;   // reused: no allocation per zone per step
+      if (list) for (const x of list) {
+        if (typeof x === 'string') { ps.push(e.actorPosition(x)); ids.push(x); }
+        else if (x?.isObject3D) { ps.push(x.position); ids.push(x.userData?.id ?? null); }
+        else { ps.push(x); ids.push(null); }
+      }
+    }
+    let hit = null, id = null;
+    if (ps) for (let k = 0; k < ps.length; k++) { const p = ps[k]; if (p && this._contains(t, p)) { hit = p; id = ids[k] ?? null; break; } }
     if (hit && !t.inside) {
       if (t._cool > 0) return;
-      t.inside = true;
-      t.onEnter?.(t, hit);
-      e.events.emit('trigger:enter', { tag: t.tag, trigger: t, who: hit });
+      t.inside = true; t._id = id;
+      t.onEnter?.(t, hit, id);
+      e.events.emit('trigger:enter', { tag: t.tag, trigger: t, who: hit, id });
       if (t.once) { t.used = true; this._exit(t, null); }
     } else if (!hit && t.inside) this._exit(t, null);
-    else if (hit && t.inside) t.onStay?.(dt, t, hit);
+    else if (hit && t.inside) t.onStay?.(dt, t, hit, id);
   }
   /** @internal session:end: occupied zones exit, cooldowns clear, once zones are armed again (recipes/14-custom-module.md "Per-playthrough state") */
   _reset() {
     for (const t of [...this._list]) { if (t.inside) this._exit(t, null); t._cool = 0; t.used = false; }
   }
   _exit(t, who) {
-    t.inside = false; t._cool = t.cooldown;
-    t.onExit?.(t, who);
-    this.engine.events.emit('trigger:exit', { tag: t.tag, trigger: t, who });
+    // id: who was inside (remembered at enter), so an exit says who left even though the position that left is gone
+    const id = t._id ?? null;
+    t.inside = false; t._cool = t.cooldown; t._id = null;
+    t.onExit?.(t, who, id);
+    this.engine.events.emit('trigger:exit', { tag: t.tag, trigger: t, who, id });
   }
 
-  // ---------- debug display ----------
-  setDebug(on) {
-    this.debug = on;
-    if (on) {
-      if (!this._debugGroup) { this._debugGroup = new THREE.Group(); this._debugGroup.name = 'triggers-debug'; }
-      const st = this.engine.style.triggers || {};
-      this._mat ??= new THREE.LineBasicMaterial({ color: st.debugColor ?? 0x9a9a9a, transparent: true, opacity: st.debugOpacity ?? 0.8, depthTest: false });
-      this.engine.add(this._debugGroup, { owner: 'engine:triggers' });
-      for (const t of this._list) if (!t._mesh) this._addDebugMesh(t);
-    } else if (this._debugGroup) {
-      for (const t of this._list) if (t._mesh) { t._mesh.geometry.dispose(); t._mesh = null; }
-      this._debugGroup.clear(); this.engine.detach(this._debugGroup);   // keep group and material for the next enable
-    }
+  // ---------- debug view 'triggers' ----------
+  /**
+   * @internal apply() of the debug view: build the wireframes from scratch and return the undo that removes and disposes all of them.
+   * Added to the scene directly, not engine.add: a debug overlay is not a game thing (describe().scene and saves must not count it).
+   */
+  _drawView(scene) {
+    const st = this.engine.style.triggers || {}, g = this._view = new THREE.Group();
+    g.name = 'triggers-debug';
+    this._mat = new THREE.LineBasicMaterial({ color: st.debugColor ?? 0x9a9a9a, transparent: true, opacity: st.debugOpacity ?? 0.8, depthTest: false });   // debug overlay only
+    for (const t of this._list) this._addDebugMesh(t);
+    scene.add(g);
+    return () => {
+      for (const t of this._list) t._mesh = null;
+      g.traverse(o => o.geometry?.dispose());
+      g.removeFromParent(); this._mat.dispose();
+      if (this._view === g) this._view = null;
+    };
   }
   _addDebugMesh(t) {
     let geo;
@@ -234,14 +247,13 @@ export class Triggers {
     const lines = new THREE.LineSegments(new THREE.WireframeGeometry(geo), this._mat);
     geo.dispose();
     lines.position.set(t.x, t.y, t.z); lines.rotation.y = t.rotation; lines.renderOrder = 999;
-    this._debugGroup.add(lines);
+    this._view.add(lines);
     t._mesh = lines;
   }
 }
 
 const TRIGGER_PARAMS = {
-  debug: { type: 'bool', default: false, desc: 'draw all zones as wireframes from the start' },
-  action: { type: 'string', default: 'triggersDebug', desc: 'input action that toggles the debug display' },
+  action: { type: 'string', default: 'triggersDebug', desc: "input action that toggles the debug view 'triggers' (engine.debug.view)" },
   keys: { type: 'array', optional: true, desc: "keys for that toggle (default ['F4'] in dev builds, none in release)" },
 };
 
@@ -259,7 +271,9 @@ export function triggers(opts = {}) {
       return tr;
     },
     fixed(dt) { tr.update(dt); },
-    frame(dt, e) { if (tr._keyed && e.input.pressed(tr.action)) tr.setDebug(!tr.debug); },
+    // the key toggles the same debug view an AI calls: no second display path to keep in step
+    frame(dt, e) { if (tr._keyed && e.input.pressed(tr.action)) e.debug.view(e.debug.viewState().mode === 'triggers' ? 'off' : 'triggers'); },
+    dispose() { tr._viewDef.remove(); },   // turns the view off when it is the triggers one, and drops the mode
     describe(e, ctx) {
       for (const t of tr._list) if (t.enabled && !t.used) ctx.near(t, { name: t.tag || t.shape, kind: 'trigger', inside: t.inside });
       return { inside: tr._list.filter(t => t.inside).map(t => t.tag || t.shape), used: tr._list.filter(t => t.used).map(t => t.tag || t.shape) };

@@ -13,8 +13,8 @@ function fnAt(v, at = '') {
   return null;
 }
 
-/** ctx: { c, err, warn, isObj, known, code } (code = the game's own .js source, where code-defined sounds may live) */
-export function checkAudio({ c, err, warn, isObj, known, code }) {
+/** ctx: { c, err, warn, isObj, known, code, sounds } (code = the game's own .js source, where code-defined rules may live; sounds = asset pack sound names from assets.js) */
+export function checkAudio({ c, err, warn, isObj, known, code, sounds: assetSounds = new Set() }) {
   const a = c.audio;
   if (a === undefined) return;
   if (!isObj(a)) return err('audio', 'audio must be an object { sounds, ambience, music, footsteps }');
@@ -22,10 +22,13 @@ export function checkAudio({ c, err, warn, isObj, known, code }) {
   const f = fnAt(a);
   if (f) err('audio', `audio.${f} is a function; content is data: compare a measure ({ daylight: { gt: 0.15 } }), write volume as { base, add: { rain: 0.22 }, min, max }, or register a value with engine.audio.measure(name, fn) in code`);
   const sounds = a.sounds || {}, music = a.music || {}, tracks = music.tracks || {};
-  const named = n => n in sounds || new RegExp(`['"]?${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*:`).test(code);
-  const srcs = v => typeof v === 'string' ? (v === 'synth' ? [] : [v]) : Array.isArray(v) ? v : isObj(v) ? [v.src].flat().filter(Boolean) : [];
+  const named = n => n in sounds || assetSounds.has(n) || new RegExp(`['"]?${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*:`).test(code);
+  const srcs = v => typeof v === 'string' ? [v] : Array.isArray(v) ? v : isObj(v) ? [v.src].flat().filter(Boolean) : [];
   for (const [n, v] of Object.entries(sounds)) for (const s of srcs(v)) if (typeof s === 'string' && PATH.test(s)) err('audio',
     `audio.sounds.${n} names the file "${s}"; content names sounds only: register it in an asset pack (engine.assets.manifest({ sounds: { ${n}: '${s}' } })) and write '${n}'`);
+  // the runtime throws audio-synth-gone for these (core/audioVoice.js soundDef); said here too so `npm run check` catches it before a run
+  for (const [n, v] of Object.entries(sounds)) if (v === 'synth' || isObj(v) && 'synth' in v) err('audio',
+    `audio.sounds.${n} uses the old synth form; a synth is a sound asset (engine.assets.manifest({ sounds: { name: fn } }), engine modules' built-ins are already named): write ${n}: {} or { src: 'name', params }`);
   for (const [n, t] of Object.entries(tracks)) for (const s of [typeof t === 'string' ? t : t?.url, ...(t?.stems || []).map(x => x?.url)]) if (typeof s === 'string' && PATH.test(s)) err('audio',
     `audio.music.tracks.${n} names the file "${s}"; register it in an asset pack's sounds and write its name`);
 

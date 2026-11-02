@@ -5,12 +5,14 @@ Content loading (content() module)
 
 ## Methods and properties
 - `content.load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions)` — Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules): one pack, or a list of packs loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead). Example: `engine.content.load([baseContent, forestDlc], { places: { home } })`
-- `content.condition(name: string, def: ContentConditionDef)` — Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.sky.timeOfDay >= t })
-- `content.test(cond: any) → boolean` — Whether a condition holds (object, array or function)
-- `content.run(effect: any) → any` — Run an effect (object, array or function)
+- `content.condition(name: string, def: ContentConditionDef)` — Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.calendar.timeOfDay >= t })
+- `content.test(cond: any, opts?: { actor?: string }) → boolean` — Whether a condition holds (object, array or function (e, { actor })); actor = whose bag has / lacks look in (default the running op's actor, else engine.actor)
+- `content.run(effect: any, opts?: { actor?: string }) → any` — Run an effect (object, array or function (e, { actor })); actor = whose bag give / take change (default the running op's actor, else engine.actor)
 - `content.place(name: string) → XZ | null` — Place name -> position (load's places first, then level markers), null if none
 - `content.where(p: { place?, x?, z? }) → XZ` — Position form in content { place?, x?, z? } -> world coordinates
 - `content.template(name: string) → Readonly<ContentTemplate>` — The shared, frozen definition of a content template (content/templates.js); instance state lives on the world record. e.g. template('chest').container.capacity
+- `content.fields(name: string) → Record<string, ContentField>` — The fields one content entry may have (core/params.js spec format): what an editor panel lists and what content-check validates against. name: a template name (placement fields plus its state fields, default = the value in state), an engine entry shape ('props', 'props.template', 'props.grid', 'pickups', 'views'), a game kind that declares fields (content/rules.js kinds), or a world record id. Unknown names throw. Example: `engine.content.fields('crop').stage   // { type: 'int', optional: true, default: 0, min: 0, max: 4 }`
+- `content.spawn(name: string, at: any, fields?: { id?, rot?, scale?, y?, items?, … }) → WorldRecord` — Place a new runtime instance of a content template (inside an op or a fixed step), saved whole; returns the world record (kind = template name, id `<template>#<n>` unless fields.id is given). fields: id, rot, scale, y (height above ground), items (container start goods), state fields (stage too, for a template with stages). Example: `engine.ops.define('chest.build', { run: (e, { x, z }) => e.content.spawn('chest', { x, z }, { items: { stick: 3 } }).id })`
 - Properties:
   - `ready: boolean` All vegetation models are fetched and the models of world data such as nearby props are built (world.ready)
   - `markers: Map<string, HudMarker | undefined>` Markers added by the marker effect: id -> marker
@@ -19,7 +21,7 @@ Content loading (content() module)
 - **ContentConditionDef** Custom condition: test(e, value) says whether it holds; ref/desc/describe are for the validator and the game map
   - `ref?: ContentRef` How the value is written, e.g. 'clock'
   - `desc?: string` One-line description
-  - `test(e: Engine, value: any, raw?: any) → boolean` — Whether it holds: value is the value converted by ref, raw is the form written in the content
+  - `test(e: Engine, value: any, raw?: any, ctx?: { actor: string }) → boolean` — Whether it holds: value is the value converted by ref, raw is the form written in the content, ctx.actor = who is asking (content.test's actor)
   - `describe(value: any) → string` — Write the value as human-readable text (for the game map)
 
 ## Condition words / effect words in content files (generated from modules/content/rules.js)

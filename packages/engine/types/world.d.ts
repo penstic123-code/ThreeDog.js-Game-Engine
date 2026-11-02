@@ -146,6 +146,8 @@ export interface TerrainOptions extends Partial<TerrainConfig> {
   viewFog?: boolean;
   /** Ground material (default style.terrain.material, else the 'terrain' role with vertex colors); chunks have uv = world xz / chunk size. Cloud shadows and season tint are added */
   material?: Material | ((engine: Engine) => Material);
+  /** With material: false = draw it exactly as given, no cloud shadow / season / detail patch (same as look.ground.replace(m, { effects: false })) */
+  effects?: boolean;
 }
 
 /** Pure-computation terrain returned by createTerrain() (draws nothing, only computes heights; usable before the engine exists, e.g. for previews) */
@@ -223,7 +225,7 @@ export interface Terrain {
 // Vegetation vegetation()
 // ======================================================================
 
-/** Vegetation placement rule (must be JSON-able, no functions) */
+/** Vegetation placement rule (must be JSON-able, no functions: it is sent to the terrain workers) */
 export interface VegetationRule {
   /** Placement attempts per chunk, default 100 */
   perChunk?: number;
@@ -258,16 +260,34 @@ export interface VegetationRule {
   /** Random seed offset (default computed from the name) */
   salt?: number;
 }
-/** Parameters of engine.vegetation.add(name, {...}) */
+/** Parameters of engine.vegetation.define(name, {...}) */
 export interface VegetationOptions {
   /** High-detail model (this or model is required) */
   geometry?: BufferGeometry;
-  /** Multi-material model (one material per mesh, e.g. bark trunk + leaf cards); still one InstancedMesh per species. Its materials are cloned */
-  model?: Object3D;
-  /** Low-detail model, switched to beyond lodRing rings; with model an Object3D with the same mesh order, or a geometry drawn with the first material */
-  lodGeometry?: BufferGeometry | Object3D;
-  /** Placement rule */
+  /**
+   * A model name from an asset pack ('pine', or ['flower', color] for a generator with params), resolved as content resolves it (file or generator,
+   * cache, bake; add then returns a Promise of the species), or a multi-material Object3D (one material per mesh, e.g. bark trunk + leaf cards);
+   * still one InstancedMesh per species. Its materials are cloned
+   */
+  model?: Object3D | string | [string, ...any[]];
+  /** Low-detail model, switched to beyond lodRing rings: a model name, or with model an Object3D with the same mesh order, or a geometry drawn with the first material */
+  lodGeometry?: BufferGeometry | Object3D | string | [string, ...any[]];
+  /** Placement rule (random scatter per chunk) */
   rule?: VegetationRule;
+  /**
+   * The game's own spots instead of the random scatter: [x, z], [x, z, scale] or [x, z, scale, yaw] in world metres / size multiplier / radians. Each is
+   * planted at the ground height; rule.scale / stretch / sink / tints / tintJitter / collider still apply (scale and yaw only where the entry leaves them
+   * out), the scatter filters (perChunk, chance, cluster, min/maxHeight, maxSlope, biomes, avoidFlat) are refused, and the density setting does not
+   * thin them. The stable id (instanceAt, removeInstance, saves) is the index in this list. Plain data, so it also works from content files
+   */
+  positions?: number[][];
+  /**
+   * How much of this species survives at each spot, 0 (none) .. 1 (all that the rule or positions placed): a function (x, z) => 0..1 (may read game
+   * state; call vegetation.rebuild() after what it reads changes), or a gray image laid over the world with the keys of terrain({ heightmap }) — url,
+   * or data (0..1, row 0 at the -z edge) + width + height; size [width m, length m]; center [x, z] (default [0, 0]); outside (value beyond the image,
+   * default 0). An image url is waited for by start(). Survivors keep their stable ids, so raising the density only adds plants
+   */
+  densityMap?: ((x: number, z: number) => number) | { url?: string; data?: ArrayLike<number>; width?: number; height?: number; size: number[]; center?: number[]; outside?: number };
   /** Wind sway amplitude, 0 = still */
   wind?: number;
   /** Only generated near the player (grass, flowers) */
@@ -288,7 +308,7 @@ export interface VegetationOptions {
   shadowRing?: number;
   /** Receive shadows, default true */
   receiveShadow?: boolean;
-  /** Custom material, any three.js material (default: the style pack's 'vegetation' role); wind, cloud shadows and season tint are added to it */
+  /** Custom material, any three.js material (default: the style's 'vegetation' role); wind, cloud shadows and season tint are added to it */
   material?: Material;
   /** false: leave a custom material untouched (no wind / clouds / season added) */
   effects?: boolean;
@@ -327,12 +347,12 @@ export interface Vegetation {
   rebuild(): void;
   /**
    * Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default,
-   * larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones
+   * larger = further and dearer). Takes effect at once; the define() option shadowRing is only the starting value. An unknown name warns with the known ones
    * @example engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk
    */
   setShadowRing(name: string, ring: number): void;
-  /** Register a kind of vegetation */
-  add(name: string, opts: VegetationOptions): Species;
+  /** Define a kind of vegetation (a model name in model / lodGeometry: resolves first, so the result is a Promise of the species) */
+  define(name: string, opts: VegetationOptions): Species | Promise<Species>;
   get(name: string): Species | undefined;
   list(): Species[];
   isRemoved(species: string, cx: number, cz: number, id: number): boolean;
@@ -356,54 +376,63 @@ export interface SkyEnvironmentInfo { source: string, intensity: number, rotatio
 
 export interface SkyOptions extends Omit<StyleSky, 'fog'> {
   /**
-   * Who owns scene.fog: true (default; the sky creates it and writes color and distance every frame) | 'manual' (created once, then never written:
-   * the game sets its color / near / far or its own object) | false (scene.fog = null, never touched). An object is style.sky.fog settings (kind,
-   * color, density...) and means true. A sky() option, not a style key. Custom kinds / glsl share the page's shader chunks: a second engine needs
-   * the same setting or it throws. See recipes/38
-   * @example sky({ fog: 'manual' })   // the game manages scene.fog itself
+   * Whether the sky makes scene.fog: true (default; the sky creates it and writes color and distance every frame) | false (scene.fog = null, never
+   * touched). An object is style.sky.fog settings (kind, color, density...) and means true. To keep the fog and write it yourself:
+   * engine.look.fog.manual() (or look.fog.replace(fog)), not an option here. See recipes/38
+   * @example sky({ fog: false })   // no fog at all
    */
-  fog?: boolean | 'manual' | StyleFog;
-  /** Time of day at start: fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.sky.timeOfDay) */
-  time?: number;
-  /** Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one sky hour = dayLength / hoursPerDay game seconds; with timeScale 1 game seconds are fixed-step seconds); Infinity = the time of day never moves */
+  fog?: boolean | StyleFog;
+  /**
+   * The fixed time of day drawn while no calendar() is installed: 'HH:MM' or 0–1 (0.5 noon), default 0.33 (a sunset arena: sky({ time: '18:30' })).
+   * With calendar() the sky draws engine.calendar.timeOfDay and this option throws (start the day with calendar({ time }))
+   */
+  time?: string | number;
+  /**
+   * Whether the sky drives engine.lights.sun: true (default; color, intensity, direction and shadow box from the keyframes) | false (hidden,
+   * never touched: light the world with your own three.js lights). How the game lights its world, so a sky() option, not a style key. To keep the
+   * sun and set its color / intensity yourself: engine.look.lights.manual(['sun.intensity', 'sun.color']). See recipes/38
+   * @example sky({ sun: false, hemisphere: false })   // a dungeon lit by the game's own lights
+   */
+  sun?: boolean;
+  /** Same for engine.lights.hemi (ambient): true (default) | false (hidden); to write it yourself: engine.look.lights.manual('hemi') */
+  hemisphere?: boolean;
+}
+// ======================================================================
+// Calendar calendar()
+// ======================================================================
+
+export interface CalendarOptions {
+  /** Time of day at start: 'HH:MM' or fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.calendar.timeOfDay) */
+  time?: string | number;
+  /** Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one hour = dayLength / hoursPerDay game seconds; with clock.rate 1 calendar seconds are real seconds) */
   dayLength?: number;
-  /** Hours per day of the displayed clock and of clock notation ('18:30'), default 24. Gameplay timing, so a sky() option and not a style key */
+  /** Hours per day of the displayed clock and of clock notation ('18:30'), default 24 */
   hoursPerDay?: number;
   /** Which day to start from, default 1 */
   day?: number;
   /** Days of each season given by name only, default 7 */
   daysPerSeason?: number;
   /**
-   * The calendar's seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring',
-   * 'summer', 'autumn', 'winter']
+   * Seasons, default none ([]): names (each daysPerSeason days) or { name, days } for seasons of their own length, e.g. ['spring',
+   * 'summer', 'autumn', 'winter'], [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }], or ['q1', 'q2', 'q3', 'q4'] for a business year
    */
   seasons?: (string | { name: string, days: number })[];
-  /**
-   * Whether the sky drives engine.lights.sun: true (default; color, intensity, direction and shadow box from the keyframes) | 'manual' (still aimed
-   * along the time of day with the shadow box; color and intensity are the game's) | false (hidden, never touched: light the world with your own
-   * three.js lights). How the game lights its world, so a sky() option, not a style key. See recipes/38
-   * @example sky({ sun: false, hemisphere: false })   // a dungeon lit by the game's own lights
-   */
-  sun?: boolean | 'manual';
-  /** Same for engine.lights.hemi (ambient): true (default) | 'manual' (colors and intensity are the game's) | false (hidden) */
-  hemisphere?: boolean | 'manual';
 }
-/** Parameters of sky.at() / daily() */
-export interface SkyAtOptions {
+/** Parameters of calendar.at() / daily() */
+export interface CalendarAtOptions {
   /** Only fire on these days: a list of days, or (day) => whether to fire */
   days?: number[] | ((day: number) => boolean);
   /** When one advance crosses several trigger points: 'all' fire them all | 'once' fire once (default) | 'skip' do not make up */
   catchUp?: 'all' | 'once' | 'skip';
 }
-/** Callback of sky.between: on is called when entering the period, off when leaving it */
-export interface SkyBetweenOptions {
+/** Callback of calendar.between: on is called when entering the period, off when leaving it */
+export interface CalendarBetweenOptions {
   /** Entering the period (or found inside it when aligned) */
   on?: () => void;
   /** Leaving the period (or found outside it when aligned) */
   off?: () => void;
 }
-/** Sky modifiers: weather and other modules write them every frame, the sky layers them on its own result */
-/** Sky modifiers (sky.modifiers is the combined result of all layers, read-only) */
+/** Sky modifiers (sky.modifiers is the combined result of the engine.mod('sky.sunLight' | 'sky.ambient' | 'sky.fog' | 'sky.flash' | 'sky.tint' | 'sky.cover') entries, read-only) */
 export interface SkyModifiers {
   /** Sunlight multiplier (layers multiply) */
   readonly sun: number;
@@ -421,33 +450,12 @@ export interface SkyModifiers {
   readonly flash: number;
 }
 
-/** One layer of sky.modify: write only what to change, omitted items have no effect */
-export interface SkyLayer {
-  /** Sunlight multiplier, default 1 */
-  sun?: number;
-  /** Ambient light multiplier, default 1 */
-  ambient?: number;
-  /** Fog distance multiplier, default 1 (smaller = denser fog) */
-  fog?: number;
-  /** Sky tint (color number or Color) */
-  tint?: Color | number;
-  /** Zenith tint amount 0–1, default 0 */
-  tintAmount?: number;
-  /** Horizon tint amount 0–1, default 0 */
-  horizonTintAmount?: number;
-  /** Lightning brightness, default 0 */
-  flash?: number;
-  /** Cover color laid over the foliage season tint (snow, ash, frost); null removes it. Rides the season patch, see recipes/47 */
-  foliageCover?: Color | number | null;
-  /** Cover color laid over the ground season tint */
-  groundCover?: Color | number | null;
-  /** How far toward the cover colors, 0–1, default 0 (style.weather.snow.cover drives the weather layer's from the snow amount) */
-  coverAmount?: number;
-}
-
 // Sky (engine.sky) is generated from the JSDoc in modules/sky/Sky.js (npm run map); only the types are re-exported here
 import type { Sky } from './generated/modules/sky/Sky';
 export type { Sky };
+// Calendar (engine.calendar) is generated from the JSDoc in modules/calendar/Calendar.js
+import type { Calendar } from './generated/modules/calendar/Calendar';
+export type { Calendar };
 
 // ======================================================================
 // Weather weather()
@@ -552,7 +560,6 @@ export interface WaterOptions {
   material?: import('./style').StyleWater['material'];
   depthColor?: import('./style').StyleWater['depthColor'];
   foam?: import('./style').StyleWater['foam'];
-  glsl?: import('./style').StyleWater['glsl'];
   uniforms?: import('./style').StyleWater['uniforms'];
 }
 
@@ -649,7 +656,7 @@ export interface LightSourceOptions {
   type?: 'point' | 'spot';
   /** Light color, default white */
   color?: ColorLike;
-  /** three.js intensity at full strength, default 1; 0 = off (it gives its light away) */
+  /** three.js intensity, default 1; 0 = off (gives its light away). With decay 2 a surface d m away gets intensity / d^2: pick it for the distance to what it lights (one that pools on a street 4 m below blows a wall 1 m away to white). Example values are no targets: threedog shot / snap name a light that glares. */
   intensity?: number;
   /** three.js light distance (range, meters), default 10; also the scale of the distance score */
   distance?: number;
@@ -672,6 +679,11 @@ export interface LightSourceOptions {
    * from its value at add() down to 0 as the real light fades in. Give each source its own material
    */
   glow?: Material | Object3D | null;
+  /**
+   * Follow the time of day with look.materials.glow's daylight curve (shared): true = glow's default dusk, a number = the daylight (0..1) below which
+   * the source fades in. Off by day (its light goes to lit sources, its stand-in dims too). Default false: lit at any hour. Needs calendar() or sky()
+   */
+  dusk?: boolean | number;
 }
 /** What lightPool.add().set(patch) can change (type and castShadow are fixed when added) */
 export interface LightSourcePatch {
@@ -688,6 +700,7 @@ export interface LightSourcePatch {
   target?: PositionLike | null;
   flicker?: ((time: number, index: number) => number) | null;
   glow?: Material | Object3D | null;
+  dusk?: boolean | number;
 }
 /** Handle returned by lightPool.add() */
 export interface LightSource {

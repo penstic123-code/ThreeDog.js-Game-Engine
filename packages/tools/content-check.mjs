@@ -13,10 +13,12 @@ import { checkQuests } from './content-check/quests.mjs';
 import { checkKinds } from './content-check/kinds.mjs';
 import { checkAudio } from './content-check/audio.mjs';
 import { checkViews } from './content-check/views.mjs';
+import { checkFields } from './content-check/fields.mjs';
 import { glbLevels } from './content-check/glb.mjs';
+import { writeIndex } from './content-check/index-ids.mjs';
 import { onlyGames } from './paths.mjs';
-import { ROOT, rel, findGames, loadGame, dupKeys, gameSetup, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
-export { ROOT, findGames, loadGame, gameSetup };
+import { ROOT, rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
+export { ROOT, findGames, loadGame, gameAssets, levelIsFile };
 
 const KEY_RE = new RegExp('^(Key[A-Z]|Digit\\d|Numpad\\d|F([1-9]|1[0-2])|Arrow(Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|' +
   'Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash|' +
@@ -25,7 +27,7 @@ const KEY_RE = new RegExp('^(Key[A-Z]|Digit\\d|Numpad\\d|F([1-9]|1[0-2])|Arrow(U
 
 /** Validate one game folder, returning { errors: [], warnings: [] } (English) */
 export async function checkGame(dir) {
-  const { data: c, files, errors } = await loadGame(dir);
+  const { data: c, files, parts, errors } = await loadGame(dir);
   const warnings = [];
   const at = kind => rel(files[kind] || join(dir, 'content', kind + '.js'));
   const known = (o, n = 8) => { const ks = Object.keys(o || {}); return ks.length ? ks.slice(0, n).join(', ') + (ks.length > n ? '…' : '') : '(none yet)'; };
@@ -34,11 +36,13 @@ export async function checkGame(dir) {
   const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 
   // 1. Duplicate ids / keys
-  for (const [kind, path] of Object.entries(files)) {
-    if (kind === 'startItems') continue;
-    for (const d of dupKeys(readFileSync(path, 'utf8'))) err(kind,
-      `"${d.key}" on line ${d.line} is a duplicate (line ${d.first} already has one); the later one silently overwrites the earlier`);
+  for (const [kind, list] of Object.entries(parts)) for (const { path } of list) {   // every file of a kind (a folder kind has several)
+    for (const d of dupKeys(readFileSync(path, 'utf8'))) errors.push(`${rel(path)}: `
+      + `"${d.key}" on line ${d.line} is a duplicate (line ${d.first} already has one); the later one silently overwrites the earlier`);
   }
+  // The id index (.threedog/content-index.json) that content write-back uses to open only the one file it edits; cross-file duplicate ids land here
+  const index = writeIndex(dir, c, parts);
+  errors.push(...index.errors); warnings.push(...index.warnings);
 
   // Game code (main.js etc.) source: used to find "flags and counters set in code"
   const code = readdirSync(dir).filter(f => f.endsWith('.js')).map(f => readFileSync(join(dir, f), 'utf8')).join('\n');
@@ -52,17 +56,18 @@ export async function checkGame(dir) {
   const flagsSet = new Set([...code.matchAll(/flags\.(\w+)\s*=|setFlag\('(\w+)'/g)].map(m => m[1] ?? m[2]));
   const countersBumped = new Set([...code.matchAll(/bump\('(\w+)'/g)].map(m => m[1]));
   const flagsUsed = [], countersUsed = [];
-  const setup = gameSetup(dir, code);
-  // Model names: style pack + asset manifest; when no style pack was inferred, names not in the manifest are skipped (noted once)
-  let skipNoted = false;
+  // Model / sound names: the asset packs the game exports from assets.js and registers at run time (one source, no scanning of source text)
+  const assets = await gameAssets(dir), levelFile = levelIsFile(code);
+  if (assets.error) errors.push(assets.error);
+  let noAssetsNoted = false;
   // Content is data that names assets: a file path or a function in a model field is an error (the file / generator belongs in an asset pack)
   const checkModel = (kind, what, m) => {
     if (typeof m === 'function') return err(kind, `${what} gives a function as its model; content is data: register the generator in an asset pack (engine.assets.manifest({ models: { name: fn } })) and write its name`);
     if (typeof m === 'string' && /[/\\]|\.(glb|gltf|fbx|obj|png|jpe?g|webp|ktx2)$/i.test(m)) return err(kind, `${what} names the model "${m}" as a file path; content names assets only: register the file in an asset pack or assets.manifest({ models: { name: '${m}' } }) and write the name`);
-    if (setup.manifest.has(m) || setup.styleModels?.has(m)) return;
-    if (!setup.styleModels) { if (!skipNoted) warn(kind,
-      `no style pack found in the game code (import of a style pack), skipping the model name check`); skipNoted = true; return; }
-    err(kind, `the model "${m}" of ${what} is in neither the ${setup.style} asset pack nor assets.manifest (the pack has: ${[...setup.styleModels].join(', ') || '(none)'})`);
+    if (assets.models.has(m) || assets.error) return;   // a broken assets.js is reported once above, not once per model
+    if (!assets.file) { if (!noAssetsNoted) err(kind, `${what} names the model "${m}", but the game has no assets.js: export the asset packs main.js registers `
+      + `(export default [pack, ...]; main.js: engine.assets.manifest(packs)) so this check reads the same names the game does`); noAssetsNoted = true; return; }
+    err(kind, `the model "${m}" of ${what} is in no asset pack of assets.js (models: ${[...assets.models].join(', ') || '(none)'})`);
   };
 
   // Collect the flags/counters set by effects (scan once first, to later judge "only checked, never set")
@@ -158,12 +163,15 @@ export async function checkGame(dir) {
   for (const [id, n] of Object.entries(npcs)) {
     const where = `NPC ${id}`;
     if (!n?.name) err('npcs', `${where} has no name (the displayed name)`);
-    if (n?.talk !== undefined) { talked.add(n.talk); if (!dialogues[n.talk]) err('npcs',
-      `the dialogue talk: ${n.talk} of ${where} does not exist (existing dialogues: ${known(dialogues)})`); }
+    // dialogue is the interact op npc.talk; its script defaults to the NPC id
+    const talk = n?.interact?.op === 'npc.talk' ? n.interact.args?.script ?? id : undefined;
+    if (talk !== undefined) { talked.add(talk); if (!dialogues[talk]) err('npcs',
+      `the dialogue ${talk} that ${where} talks with (interact: { op: 'npc.talk' }) does not exist (existing dialogues: ${known(dialogues)})`); }
     if (n?.start) checkPos('npcs', `start of ${where}`, n.start);
     if ((n?.behavior ?? 'schedule') !== 'schedule') { if (!n.start) err('npcs', `${where} does not follow a schedule, so it needs start`); continue; }
-    if (!Array.isArray(n?.schedule) || !n.schedule.length) { err('npcs',
-      `${where} has no schedule (at least one entry), or write behavior + start`); continue; }
+    // no schedule + start = an NPC standing at start (a shopkeeper, quest giver): the schedule behavior with no stops has no goal (recipe 02)
+    if (n?.schedule !== undefined && !Array.isArray(n.schedule)) { err('npcs', `the schedule of ${where} must be a list of stops [{ at: 'HH:MM', place }]`); continue; }
+    if (!n?.schedule?.length) { if (!n?.start) err('npcs', `${where} has no position: give start (it stands there) or a schedule (at least one stop)`); continue; }
     let prev = '';
     n.schedule.forEach((s, i) => {
       const w = `schedule entry #${i + 1} of ${where}`;
@@ -196,7 +204,7 @@ export async function checkGame(dir) {
   for (const [tag, t] of Object.entries(c.triggers || {})) {
     const where = `trigger zone ${tag}`;
     // trigger_ nodes of .glb levels come from glb.mjs; with no readable file, level.js need not have them
-    if (t?.fromLevel) { if (!(glb.levels.length ? glb.tags.has(tag) : setup.levelFile) && !markers['trigger_' + tag]) err('triggers',
+    if (t?.fromLevel) { if (!(glb.levels.length ? glb.tags.has(tag) : levelFile) && !markers['trigger_' + tag]) err('triggers',
       `${where} says it comes from the level, but level.js has no marker trigger_${tag} (existing markers: ${known(markers)})`); }
     else checkPos('triggers', `position of ${where}`, t?.position);
     checkRefs('triggers', `onEnter of ${where}`, t?.onEnter, EFFECTS, 'effect');
@@ -207,8 +215,10 @@ export async function checkGame(dir) {
   checkWorldData({ c, items, err, checkModel, checkPos, isObj, known });
 
   // 10. Audio (sounds by asset name, rules as data)
-  checkAudio({ c, err, warn, isObj, known, code });
+  checkAudio({ c, err, warn, isObj, known, code, sounds: assets.sounds });
   checkViews({ c, err, isObj });
+  // every entry against its field table (keys, types, ranges, values): the tables engine.content.fields() returns
+  checkFields({ c, err });
 
   // 11. The game's vocabulary and its own content kinds
   checkKinds({ c, err, warn, known });

@@ -1,4 +1,5 @@
-// R34 style packs hold looks only (packages/engine/docs/recipes/09-style-pack.md): in packages/styles/** (game mode: node_modules/@threedog/style-*),
+// R34 style packs hold looks only (packages/engine/docs/recipes/09-style-pack.md): in packages/styles/** (game mode: node_modules/@threedog/style-*)
+//   and in every game's own style/ folder (examples/*/style, games/*/style; in a game repo, its style/),
 //   · error: a world-shape generator, i.e. a function named height / groundType / terrainPreset / riverAt or an export named BIOMES /
 //     terrainStrings. Where the hills, rivers and biomes are is gameplay: it goes in an add-on package (@threedog/terrain-noise) or the game;
 //   · error: world state in a style: water { level / sea / size } or terrain.config keys other than shading / colorResolution / normals / normalFn (they go to water({...}) / terrain({...}));
@@ -23,14 +24,19 @@ export default {
   id: 'R34', title: 'Style packs hold looks only (no world shape, no font files, no imports of other packs)', game: true,
   run() {
     const out = [];
-    for (const f of walk(P.STYLES_REL, ['.js', '.mjs']).filter(f => P.MODE === 'monorepo' || /\/style-[^/]+\//.test(f))) {
+    const packs = walk(P.STYLES_REL, ['.js', '.mjs']).filter(f => P.MODE === 'monorepo' || /\/style-[^/]+\//.test(f));
+    // A game's own style/ folder (the place a look lives; packs are no longer packages): same rules, except that a relative import is the
+    // game's own helper (../art/x.js), not another pack, so only an import of '@threedog/style-x' counts there.
+    const own = (P.MODE === 'monorepo' ? P.GAME_CODE_DIRS_REL : ['.']).flatMap(d => walk(d, ['.js', '.mjs'])).filter(f => /(^|\/)style\//.test(f));
+    for (const f of [...new Set([...packs, ...own])]) {
+      const inGame = !packs.includes(f);
       lines(f).forEach((l, i) => {
         if (/^\s*(\/\/|\*)/.test(l)) return;
         if (SHAPE.test(l)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack carries world-shape logic: ${l.trim().slice(0, 80)}`,
           fix: "move the generator to its own package (like @threedog/terrain-noise) or the game; the style keeps only the colors of its ground types (terrain.colors / biomeColors)" });
         if (WORLD_WATER.test(l) || WORLD_TERRAIN.test(l)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack carries world state: ${l.trim().slice(0, 80)}`,
           fix: 'water level / sea / size go to engine.use(water({ level, sea, size })); terrain shape and size go to terrain({...}); style.terrain.config keeps only shading, colorResolution, normals, normalFn' });
-        const imp = l.match(PACK_IMPORT), other = imp && (imp[1] ?? imp[2]);
+        const imp = l.match(PACK_IMPORT), other = imp && (imp[1] ?? (inGame ? null : imp[2]));
         if (other && other !== packOf(f)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack imports another style pack ('${other}'): ${l.trim().slice(0, 80)}`,
           fix: "import shared effects from '@threedog/post-effects'; to build on another look, mix parts in the game: style: [other, mine]" });
         if (FONT_FILE.test(l)) out.push({ level: 'error', file: f, line: i + 1, msg: `a style pack writes a font file: ${l.trim().slice(0, 80)}`,

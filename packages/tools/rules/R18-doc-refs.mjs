@@ -7,7 +7,9 @@
 //   2. `npm test -- name` (error): each name must be a substring of a real test name (engine and game specs, tool tests, scenarios, pack items).
 //   3. `threedog cmd` / `npm run script` (error): a command of bin/threedog.mjs, or a script of the root / engine / template / game package.json.
 //   4. events `noun:action` (warn): in EventMap, a game's GameEvents, or emitted by game code.
-//   5. `engine.x.y` (warn): a property of the Engine type, then of its type (TypeScript checker on the d.ts program shared with R6 / R7 / R22).
+//   5. `engine.x.y` and `look.x` (error in the engine's docs/ and recipes, warn elsewhere): a property of the Engine type, then of its type
+//      (TypeScript checker on the d.ts program shared with R6 / R7 / R22). Why an error there: an AI copies a name from those docs as a fact, and a
+//      renamed API must take its docs along in the same change. `look.x` is read as `engine.look.x` (the docs write the look parts without `engine.`).
 //   6. free functions `name(` at the start of a span (warn): exported by the engine, named in any d.ts, declared in the doc set or game code,
 //      or a JS / DOM global. ```js blocks are type-checked by R13, so classes 4–6 skip them.
 // Known limits: names built at runtime and paths without an extension are not checked; class 6 accepts any name a d.ts mentions.
@@ -23,12 +25,13 @@ const ALLOW = [
   ['*', 'door:open', 'the naming convention example for a game event'],
   ['*', 'noun:action', 'the naming convention itself'],
   ['*', 'noun:verb', 'the naming convention itself'],
+  ['*', 'manual:game', "a describe().owned writer tag ('manual:<who>', core/owned.js), not an event"],
   [`${P.RECIPES_REL}/14-custom-module.md`, 'stamina:empty', 'the event the example module in this recipe defines'],
   [`${P.RECIPES_REL}/23-ops.md`, 'npc:state', 'an example of an event name a game may declare'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'toBeCloseTo', 'a matcher of `threedog js --file` scripts'],
   ['COMMANDS.md', 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
-  [`${P.RECIPES_REL}/49-game-module-contract.md`, 'engine.crops', 'the example module of this recipe'],
+  [`${P.RECIPES_REL}/49-game-module-contract.md`, 'engine.machines', 'the copyable module of this recipe (named so it does not clash with engine.jobs)'],
   [`${P.RECIPES_REL}/51-capability-catalog.md`, 'engine.shop', 'the example module of this recipe'],
   [`${P.RECIPES_REL}/15-perf.md`, 'serve', 'the worker-side helper of core/threadServe.js, imported inside the worker file'],
 ];
@@ -48,7 +51,7 @@ export function docFiles() {
   return [...['AI', 'COMMANDS', 'CONVENTIONS', 'THREE', 'PERF'].map(n => `${D}/${n}.md`).filter(f => existsSync(abs(f))),
     ...walk(P.RECIPES_REL, ['.md']), ...['README.md', 'README.zh-CN.md', `${P.ENGINE_REL}/README.md`,
       `${P.TOOLS_REL}/README.md`].filter(f => existsSync(abs(f))),
-    ...walk(`${P.TOOLS_REL}/templates`, ['.md']), ...P.gameDirs().flatMap(game)];
+    ...walk(`${P.TOOLS_REL}/templates`, ['.md']), ...walk(`${P.ENGINE_REL}/examples/techniques`, ['.md']), ...P.gameDirs().flatMap(game)];
 }
 
 /** Code spans and fenced block lines of a markdown text: [{ line, text, span: bool, lang }] */
@@ -108,6 +111,8 @@ export async function context() {
   for (const f of dtsFiles()) for (const m of read(f).matchAll(/\b([A-Za-z_$][\w$]*)\??\s*[(:<]/g)) fns.add(m[1]);
   for (const f of [...[P.STYLES_REL, ...P.ADDONS_REL].flatMap(d => walk(d, ['.d.ts', '.js'])),
     ...walk(P.TOOLS_REL, ['.mjs']).filter(f => !f.includes('/tests/'))]) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
+  // technique examples document the functions of their own folder's .js (pulled into a game together with the README)
+  for (const f of walk(`${P.ENGINE_REL}/examples/techniques`, ['.js'])) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
   for (const t of gameCode.values()) for (const m of t.matchAll(/function\s+(\w+)|(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|\w+\s*=>|function)/g)) fns.add(m[1] || m[2]);
   // files that can be referenced
   const known = walk(P.ENGINE_REL, ['.md', '.js', '.mjs', '.json', '.d.ts', '.html']).map(f => fwd(relative(P.ENGINE, abs(f))));
@@ -128,7 +133,8 @@ function checkPath(doc, tok, ctx) {
   const g = p.match(/^games\/([\w-]+)\//);
   if (g && !ctx.games.some(d => basename(d) === g[1])) return null;   // an example game name (games/farm/…)
   const cands = [];
-  if (/^(node_modules\/)?threedog\//.test(p)) cands.push(join(P.ENGINE, p.replace(/^(node_modules\/)?threedog\//, '')));
+  if (/^three\/addons\//.test(p)) cands.push(join(P.ROOT, 'node_modules', 'three', 'examples', 'jsm', p.slice('three/addons/'.length)));   // three's import map
+  else if (/^(node_modules\/)?threedog\//.test(p)) cands.push(join(P.ENGINE, p.replace(/^(node_modules\/)?threedog\//, '')));
   else if (p.startsWith('node_modules/@threedog/tools/')) cands.push(join(P.TOOLS, p.slice('node_modules/@threedog/tools/'.length)));
   else cands.push(resolve(dirname(abs(doc)), p), ...ctx.bases.map(b => join(b, p)));
   if (cands.some(existsSync)) return null;
@@ -155,7 +161,7 @@ function checkTests(tok, ctx) {
 function checkCli(tok, ctx) {
   const out = [];
   for (const m of tok.matchAll(/(?:^|\bnpx\s+|[;&|]\s*)threedog\s+([a-z][\w-]*)/g)) if (!ctx.cli.has(m[1]) && !PLACEHOLDER.test(m[1]))
-    out.push({ level: 'error', msg: `\`threedog ${m[1]}\` is not a command${closest(m[1], [...ctx.cli]) ? `; did you mean \`threedog ${closest(m[1], [...ctx.cli])}\`?` : ''}`, fix: 'the commands are listed by npx threedog' });
+    out.push({ level: 'error', msg: `\`threedog ${m[1]}\` is not a command${closest(m[1], [...ctx.cli]) ? `; did you mean \`threedog ${closest(m[1], [...ctx.cli])}\`?` : ''}`, fix: 'the commands are listed by threedog' });
   for (const m of tok.matchAll(/\bnpm run ([\w:-]+)/g)) if (!ctx.scripts.has(m[1]) && !PLACEHOLDER.test(m[1]))
     out.push({ level: 'error', msg: `\`npm run ${m[1]}\` is not a script${closest(m[1], [...ctx.scripts]) ? `; did you mean \`npm run ${closest(m[1], [...ctx.scripts])}\`?` : ''}`, fix: 'use a script from package.json' });
   return out;
@@ -176,20 +182,24 @@ function checkEvents(doc, item, ctx) {
 function checkMembers(doc, item, ctx) {
   const out = [], { checker, engine, typeOf } = ctx.api;
   if (!engine) return out;
-  for (const m of item.text.matchAll(/(?<![\w.$])engine\.([A-Za-z_$][\w$]*)(?:\??\.([A-Za-z_$][\w$]*))?/g)) {
+  const level = P.under(doc, P.DOCS_REL) ? 'error' : 'warn';
+  const text = item.text.replace(/(?<![\w.$])look\.(?=[a-z])/g, 'engine.look.');
+  for (const m of text.matchAll(/(?<![\w.$])engine\.([A-Za-z_$][\w$]*)(?:\??\.([A-Za-z_$][\w$]*))?/g)) {
     const [, a, b] = m;
     if (PLACEHOLDER.test(a) || (b && PLACEHOLDER.test(b)) || allowed(doc, `engine.${a}`)) continue;   // ALLOW: 'engine.crops' = an example module's member
     const sa = checker.getPropertyOfType(engine, a);
-    if (!sa) { const near = closest(a, checker.getPropertiesOfType(engine).map(s => s.name)); out.push({ level: 'warn',
+    if (!sa) { const near = closest(a, checker.getPropertiesOfType(engine).map(s => s.name)); out.push({ level,
       msg: `\`engine.${a}\` is not on Engine${near ? `; did you mean \`engine.${near}\`?` : ''}`,
       fix: 'fix the name (api/engine.md lists the members)' }); continue; }
     if (!b) continue;
     const t = typeOf(sa);
-    if (!t || t.flags & 1 /* any */ || checker.getIndexInfosOfType(t).length) continue;
+    if (!t || t.flags & 1 /* any */) continue;
     const props = checker.getPropertiesOfType(t);
     if (!props.length || checker.getPropertyOfType(t, b)) continue;
     const near = closest(b, props.map(s => s.name));
-    out.push({ level: 'warn', msg: `\`engine.${a}.${b}\` does not exist${near ? `; did you mean \`engine.${a}.${near}\`?` : ''}`,
+    // an open type (engine.look: modules add their own parts) accepts any name; only a near miss of a known one is a typo
+    if (checker.getIndexInfosOfType(t).length && !near) continue;
+    out.push({ level, msg: `\`engine.${a}.${b}\` does not exist${near ? `; did you mean \`engine.${a}.${near}\`?` : ''}`,
       fix: `fix the name (the members are in api/${a}.md)` });
   }
   return out;

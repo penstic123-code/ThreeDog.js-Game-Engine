@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { hintFor } from 'threedog/error-hints';
+import { oneLine } from '../lib/oneline.mjs';
 
 const HEAD = /^\[browser ([^\]×]+?)(?: ×(\d+), (\d+) total)?\] (\d\d:\d\d:\d\d)(?: tick (\d+))?/;
 
@@ -19,7 +20,7 @@ export function parseErrors(text) {
     const [, kind, repeat, , time, tick] = m;
     if (repeat) {   // the relay's summary of repeats: "… same as above: <message> (<source>)"
       const msg = head.split('same as above: ')[1] ?? '';
-      const prev = [...out].reverse().find(r => r.kind === kind && msg.startsWith(r.message.split('\n')[0].slice(0, 100)));
+      const prev = [...out].reverse().find(r => r.kind === kind && msg.startsWith(oneLine(r.message).slice(0, 100)));
       if (prev) prev.count += Number(repeat);
       continue;
     }
@@ -56,7 +57,7 @@ export function newErrors(dir) {
 }
 
 const one = r => (`E${r.id} ${r.time}${r.tick === null ? '' : ' tick ' + r.tick}${r.count > 1 ? ` ×${r.count}` : ''} `
-  + `${r.kind === 'warning' ? 'warning' : 'error'}${r.code ? ` [${r.code}]` : ''} ${r.page} ${r.message.split('\n')[0]}${r.source ? ' (' + r.source + ')' : ''}`).slice(0, 220)
+  + `${r.kind === 'warning' ? 'warning' : 'error'}${r.code ? ` [${r.code}]` : ''} ${r.page} ${oneLine(r.message)}${r.source ? ' (' + r.source + ')' : ''}`)
   + (r.hint ? `\n  -> ${r.hint}` : '');
 
 /** The errors command: { ok, text, data } for the dispatcher */
@@ -72,7 +73,7 @@ export function errorsCommand(dir, rest, opt) {
     if (!(n >= 1)) throw new Error('errors latest takes a count, e.g. threedog errors latest 5');
     list = all.slice(-n); label = `latest ${list.length} of ${all.length}`;
   } else { list = newErrors(dir); label = 'new'; }
-  const cursor = all.length, data = { errors: list.slice(-10).map(({ message, ...r }) => ({ ...r, message: message.split(/\n/)[0].slice(0, 200) })), cursor, total: all.length };
+  const cursor = all.length, data = { errors: list.slice(-10).map(({ message, ...r }) => ({ ...r, message: oneLine(message) })), cursor, total: all.length };
   if (!list.length) return { ok: true, data, text: opt.since !== undefined || latest ? `✓ No errors ${opt.since !== undefined ? label : 'recorded'}` : '✓ No new errors' };
   const more = list.length > 2 && !latest ? `\n…${list.length - 2} more, see .threedog/errors.log or threedog errors --since ${Math.max(0, list[0].id - 1)}` : '';
   const shown = latest ? list : list.slice(0, 2);

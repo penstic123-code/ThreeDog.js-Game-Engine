@@ -125,13 +125,14 @@ export const specs = [
         applyEffects(new THREE.MeshLambertMaterial(), { patches: [{ name: 'grid', cacheKey: 1, glsl: { fragment: { color_fragment: '// 8' } } }] });
         out.cacheKey = err(() => applyEffects(new THREE.MeshLambertMaterial(), { patches: [{ name: 'grid', cacheKey: 1, glsl: { fragment: { color_fragment: '// 16' } } }] }));
         out.after = materialPatches(m).join();
-        // 需要的数据：编译时没有实例化就报一次
-        const errLog = console.error; let logged = ''; console.error = x => { logged += x; };
+        // 需要的数据：编译时没有实例化就报一次。走 warnOnce（console.warn，W4 起引擎不直接 console.error），按材质 + 补丁去重
+        const errLog = console.error, warnLog = console.warn; let logged = '', errs = '';
+        console.warn = x => { logged += x; }; console.error = x => { errs += x; };
         const inst = applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'perTree', needs: { data: ['instancing'] }, glsl: { vertex: { begin_vertex: '// it' } } }] });
         compile(inst, L.lambert, { instancing: true }); const okLog = logged;
         compile(inst, L.lambert); compile(inst, L.lambert);
-        console.error = errLog;
-        out.data = { ok: okLog === '', once: (logged.match(/needs 'instancing'/g) || []).length };
+        console.error = errLog; console.warn = warnLog;
+        out.data = { ok: okLog === '', once: (logged.match(/needs 'instancing'/g) || []).length, errs };
         return out;
       });
       check('补丁按顺序叠上且都注入（云影自带 world 补丁）', r.names === 'world,clouds,season,wind' && r.all, JSON.stringify(r));
@@ -142,7 +143,7 @@ export const specs = [
       check('uniform 撞名报错', /uniform named 'uTime'/.test(r.uniform), r.uniform);
       check('同名同缓存键代码不同报错', /same cacheKey '1'/.test(r.cacheKey), r.cacheKey);
       check('报错的补丁没加进去', r.after === 'world,clouds,season,wind', r.after);
-      check('needs.data：实例化时不报，没有时只报一次', r.data.ok && r.data.once === 1, JSON.stringify(r.data));
+      check('needs.data：实例化时不报，没有时只报一次', r.data.ok && r.data.once === 1 && r.data.errs === '', JSON.stringify(r.data));
     },
   },
   {
@@ -179,6 +180,46 @@ export const specs = [
         m3.customDepthMaterial = mine;
         out.depth = !!d?.isMeshDepthMaterial && materialPatches(d).join() === 'wind' && new THREE.Mesh(g, tree).customDepthMaterial === d
           && new THREE.Mesh(g, applyEffects(new THREE.MeshLambertMaterial())).customDepthMaterial === undefined && m3.customDepthMaterial === mine;
+        // 决定 5：打过补丁后游戏再赋值 onBeforeCompile / customProgramCacheKey，两者都生效（游戏的先跑），缓存键跟着变
+        const late = applyEffects(new THREE.MeshLambertMaterial(), { wind: 0.03 }), k0 = late.customProgramCacheKey(), v0 = late.version;
+        late.onBeforeCompile = s => { s.fragmentShader = s.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment> // late-game'); };
+        const sl = compile(late, L.lambert);
+        late.customProgramCacheKey = () => 'mine';
+        out.late = { both: sl.fragmentShader.includes('// late-game') && sl.vertexShader.includes('threedog_wind_vertex'), names: materialPatches(late).join(),
+          keyChanged: k0 !== late.customProgramCacheKey() && late.customProgramCacheKey().startsWith('mine|threedog:'), recompiles: late.version > v0,
+          shadow: materialPatches(new THREE.Mesh(g, late).customDepthMaterial).join() };
+        // 可调用的引擎效果：游戏自己的 ShaderMaterial 用 #include <threedog_*> 调 threedogWind / threedogCloudShadow / threedogSeason，真编译一遍
+        const fx = new THREE.ShaderMaterial({ uniforms: { ...engine.uniforms },
+          vertexShader: `#include <threedog_uniforms>
+#include <threedog_wind>
+varying vec3 vW;
+void main(){ vec3 p = position + threedogWind(position, (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz, 0.05); vec4 w = modelMatrix * vec4(p, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+          fragmentShader: `#include <threedog_uniforms>
+#include <threedog_cloudShadow>
+#include <threedog_season>
+varying vec3 vW;
+void main(){ gl_FragColor = vec4(threedogSeason(vec3(0.4, 0.7, 0.3), 0) * threedogCloudShadow(vW), 1.0); }` });
+        const fxMesh = new THREE.Mesh(g, fx); engine.renderer.compile(fxMesh, engine.camera);
+        const prog = engine.renderer.properties.get(fx).currentProgram;
+        out.callable = !!prog && (!prog.diagnostics || prog.diagnostics.runnable) && materialPatches(fx).length === 0;
+        // detail / lighting 也能调用：游戏着色器 #include <threedog_detail / threedog_lighting> 真编译；内置补丁调的就是同一组函数（不许各写一份）
+        const fx2 = new THREE.ShaderMaterial({ uniforms: { uSun: { value: new THREE.Vector3(0.3, 0.9, 0.2).normalize() } },
+          vertexShader: 'varying vec3 vW; varying vec3 vN; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }',
+          fragmentShader: `#include <threedog_detail>
+#include <threedog_lighting>
+uniform vec3 uSun; varying vec3 vW; varying vec3 vN;
+void main(){ vec4 d = threedogDetailNoise(vW.xz * 0.25, 1, 2.0); float nl = dot(vN, uSun); vec3 a = vec3(0.5, 0.6, 0.4) * d.rgb * 2.0;
+  vec3 c = a * max(nl, 0.0) + threedogWrapDiffuse(nl, 0.4, vec3(1.0), 1.0, a) + threedogShadowTint(a * 0.3, vec3(0.3, 0.3, 0.6), 0.6, 0.3, nl, 1.0)
+    + threedogRim(vN, normalize(cameraPosition - vW), vec3(1.0), 0.4, 3.0, 0.0, nl);
+  gl_FragColor = vec4(threedogDetailBump(vW, vN, d.a, 0.0, 1.0) * 0.0 + c, 1.0); }` });
+        const fx2Mesh = new THREE.Mesh(g, fx2); engine.renderer.compile(fx2Mesh, engine.camera);
+        const prog2 = engine.renderer.properties.get(fx2).currentProgram;
+        const lit = compile(applyEffects(new THREE.MeshLambertMaterial(), { patches: [] , detail: { noise: 'paper' } }), L.lambert);
+        const shaped = threedogTest.makeMaterial('stone', { lighting: { wrap: 0.4, shadowTint: { color: 0x4455aa }, rim: { color: 0xffffff } } }, engine);
+        const sh = compile(shaped, L.lambert);
+        out.callable2 = { compiles: !!prog2 && (!prog2.diagnostics || prog2.diagnostics.runnable),
+          detailSame: lit.fragmentShader.includes('#include <threedog_detail>') && lit.fragmentShader.includes('threedogDetailNoise(p, 1, uDetailOctaves)'),
+          lightSame: ['threedogWrapDiffuse(', 'threedogShadowTint(', 'threedogRim('].every(f => sh.fragmentShader.includes(f)) };
         const cust = applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'snap', glsl: { vertex: { project_vertex: '// snap' } } }] });
         out.custom = materialPatches(cust).join();
         return out;
@@ -192,6 +233,11 @@ export const specs = [
       check('GLSL 片段登记到 ShaderChunk，手写着色器能 #include', r.chunk);
       check('风吹自带影子：用这种材质的网格自动拿到摆动的深度材质；没风时不设；手动指定的优先', r.depth, JSON.stringify(r));
       check('applyEffects 的 patches 收自定义补丁', r.custom === 'snap', r.custom);
+      check('游戏 ShaderMaterial 里 #include <threedog_uniforms / wind / cloudShadow / season> 调引擎效果函数，能编译，引擎不给它打补丁', r.callable, JSON.stringify(r.callable));
+      check('#include <threedog_detail / threedog_lighting>：游戏着色器调 threedogDetailNoise / WrapDiffuse / ShadowTint / Rim / DetailBump 能编译；内置 detail / lighting 补丁调的是同一组函数',
+        r.callable2.compiles && r.callable2.detailSame && r.callable2.lightSame, JSON.stringify(r.callable2));
+      check('打补丁后游戏再设 onBeforeCompile / customProgramCacheKey：游戏代码和风吹都在，缓存键带上游戏的键并触发重编译，影子照样摆',
+        r.late.both && r.late.names === 'world,clouds,wind' && r.late.keyChanged && r.late.recompiles && r.late.shadow === 'wind', JSON.stringify(r.late));
     },
   },
   {
@@ -202,8 +248,8 @@ export const specs = [
         const { THREE, materialPatches } = threedogTest, ims = [];
         engine.scene.traverse(o => { if (o.isInstancedMesh && materialPatches(o.material).includes('wind')) ims.push(o); });
         const custom = new THREE.MeshToonMaterial(), raw = new THREE.MeshToonMaterial(), g = new THREE.BoxGeometry();
-        engine.vegetation.add('artTestA', { geometry: g, material: custom, wind: 0.02, rule: { perChunk: 0 } });
-        engine.vegetation.add('artTestB', { geometry: g, material: raw, effects: false, rule: { perChunk: 0 } });
+        engine.vegetation.define('artTestA', { geometry: g, material: custom, wind: 0.02, rule: { perChunk: 0 } });
+        engine.vegetation.define('artTestB', { geometry: g, material: raw, effects: false, rule: { perChunk: 0 } });
         return { n: ims.length, depth: ims.length > 0 && ims.every(o => o.customDepthMaterial?.isMeshDepthMaterial), custom: materialPatches(custom).join(), raw: materialPatches(raw).length };
       });
       check('摆动的植被实例都有 customDepthMaterial', r.depth, JSON.stringify(r));

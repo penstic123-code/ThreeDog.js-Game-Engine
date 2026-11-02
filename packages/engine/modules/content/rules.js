@@ -22,6 +22,8 @@
 //   desc  one line (map, file list) · load(e, data, content) hands the data to the game when engine.content.load runs (required)
 //   check(data, ctx)  optional validation in npm run check: ctx.err(msg) / ctx.warn(msg); ctx.data is all content (items, npcs…), ctx.known(obj) lists ids
 //   map(data)  optional GAMEMAP lines (default: the number of entries and their ids)
+//   fields  optional { key: 'int?' | { type, min, max, values, desc } } (core/params.js format, no default): the keys of each entry; content-check
+//           reports unknown keys (did you mean), wrong types, out of range, and missing required keys; engine.content.fields(name) returns it
 //   export default { kinds: { recipes: { desc: 'crafting recipes (id -> { needs: { item: n }, makes })', load: (e, data) => e.crafting.add(data),
 //     check: (data, ctx) => { for (const [id, r] of Object.entries(data)) if (!ctx.data.items?.[r.makes]) ctx.err(`recipe ${id} makes unknown item ${r.makes}`); } } } };
 
@@ -71,6 +73,60 @@ const RULE_STRINGS = {
     renames: "renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id",
     rules: 'condition words added by the game ({ conditions }); actions are ops, not effect words',
   },
+  // Placement fields: the keys one entry of a content file may have, in the core/params.js spec format. Declared once here, read by the loader
+  // (unknown keys), content-check (unknown keys with did-you-mean, wrong type, out of range, not in values) and engine.content.fields() (an editor
+  // panel's rows), so the three cannot drift apart. props has three entry shapes: a plain model ('props'), a template instance ('props.template',
+  // plus the template's state fields) and a grid item ('props.grid'). Required-ness of x / z / model is checked by the content rules themselves
+  // (x, z are optional when place is given), so they are marked optional here.
+  fields: (() => {
+    const at = {
+      place: { type: 'string', optional: true, desc: 'place name (places.js / level marker); x and z are then offsets from it' },
+      x: { type: 'number', optional: true, desc: 'meters along x (offset from place when place is given)' },
+      z: { type: 'number', optional: true, desc: 'meters along z (offset from place when place is given)' },
+      floor: { type: 'number', optional: true, desc: 'reference height of the storey it stands on (multi-layer ground)' },
+      y: { type: 'number', optional: true, desc: 'meters above the ground it stands on' },
+    };
+    const look = {
+      rot: { type: 'number', optional: true, desc: 'facing around the vertical axis, radians' },
+      scale: { type: 'number', optional: true, min: 0, desc: 'uniform scale (1 = model size)' },
+    };
+    return {
+      props: {
+        id: { type: 'string', optional: true, desc: 'stable id (needed when entries are later inserted in the middle)' },
+        model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...look,
+        collide: { type: 'any', optional: true, values: [false, 'box', 'circle'], desc: 'collision shape, false = none' },
+        static: { type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
+        batch: { type: 'bool', optional: true, desc: 'false = never batch this copy' },
+      },
+      'props.template': {
+        template: { type: 'string', desc: 'template name (content/templates.js)' },
+        id: { type: 'string', optional: true, desc: 'stable id; instances with state should have one' }, ...at, ...look,
+        items: { type: 'object', optional: true, desc: "starting goods of the instance's container { itemId: count }" },
+      },
+      'props.grid': {
+        id: { type: 'string', desc: 'stable id (the player can move or pick it up)' },
+        grid: { type: 'string', desc: 'grid name (content/grids.js)' },
+        item: { type: 'string', desc: 'grid item name' },
+        cell: { type: 'position', desc: 'grid cell [col, row]' },
+        rotation: { type: 'int', optional: true, values: [0, 1, 2, 3], desc: 'quarter turns' },
+        fields: { type: 'object', optional: true, desc: 'record fields of this copy' },
+      },
+      pickups: {
+        id: { type: 'string', optional: true, desc: 'stable id' },
+        item: { type: 'string', desc: 'item id (items.js)' }, ...at,
+        count: { type: 'int', optional: true, min: 1, desc: 'how many one pickup gives' },
+        data: { type: 'any', optional: true, desc: 'extra data handed to the game' },
+        radius: { type: 'number', optional: true, min: 0, desc: 'pickup reach in meters' },
+        auto: { type: 'bool', optional: true, desc: 'taken by walking into it, no key' },
+        respawn: { type: 'number', optional: true, min: 0, desc: 'seconds until it comes back (0 = never)' },
+      },
+      views: {
+        position: { type: 'position', optional: true, desc: 'camera position [x, y, z]' },
+        target: { type: 'position', optional: true, desc: 'point looked at [x, y, z]' },
+        fov: { type: 'number', optional: true, min: 1, max: 179, desc: 'vertical field of view, degrees' },
+      },
+    };
+  })(),
   // ref of conditions / effects -> how to write the value (used to generate API docs)
   refs: {
     flag: "value is a flag name, e.g. 'metFisher'", counter: "value is a counter name, e.g. 'sunsetPhotos'", itemCounts: 'value is { itemId: count }, e.g. { berry: 3 }',
@@ -89,6 +145,8 @@ export const EFFECTS = RULE_STRINGS.effects;
 export const REFS = RULE_STRINGS.refs;
 /** content file name -> description */
 export const CONTENT_FILES = RULE_STRINGS.files;
+/** content entry shape -> { key: field spec } (core/params.js format): 'props', 'props.template', 'props.grid', 'pickups', 'views'. Read via fields.js */
+export const PLACEMENT_FIELDS = RULE_STRINGS.fields;
 /** Clock time notation 'HH:MM' (24-hour) */
 export const CLOCK_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 

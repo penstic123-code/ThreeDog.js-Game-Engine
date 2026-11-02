@@ -33,18 +33,25 @@ export const specs = [
     },
   },
   {
-    name: 'Friction: pickup in a full bag, interaction.use passes { ok: false, reason: full } as value',
+    name: 'Friction: pickup in a full bag fails interaction.use with code full (one failure shape; reason throws)',
     url: '/?cutscene=skip',
     async run({ check, ev, frames }) {
       await ev(() => {
         const I = engine.inventory; I.define('gem', { name: 'gem', stack: 1 }).define('ring', { name: 'ring', stack: 1 });
         engine.ops.allow(() => I.add('gem', 1, { silent: true })); I.bag.capacity = 1;
         const p = engine.actorPosition();
-        I.spawnPickup('ring', [p.x + 0.3, p.y ?? 0, p.z], { id: 'p-full' });
+        engine.pickups.spawn([p.x + 0.3, p.y ?? 0, p.z], { give: 'ring', id: 'p-full' });
       });
       await frames(10);
-      const r = await ev(() => ({ res: engine.ops.run('interaction.use', { id: 'p-full' }), still: !!engine.world.get('p-full') }));
-      check('full bag: value carries { ok:false, reason:"full" } and the pickup stays on the ground', r.res.ok && r.res.value?.ok === false && r.res.value.reason === 'full' && r.still, JSON.stringify(r));
+      const r = await ev(() => {
+        // 旧名 reason 不是数据字段（不在 JSON 里），读它报 renamed-field（core/opsFail.js 那一处统一做）
+        const renamed = o => { try { void o.reason; return false; } catch (x) { return x.code === 'renamed-field' && !Object.keys(o).includes('reason'); } };
+        const res = engine.ops.run('interaction.use', { id: 'p-full' }); const trap = !renamed(res);
+        const t = engine.ops.allow(() => engine.inventory.bag.trade('ring', 'gem')); const trap2 = !renamed(t);
+        return { res, trap, trade: { ok: t.ok, code: t.code }, trap2, still: !!engine.world.get('p-full') };
+      });
+      check('full bag: interaction.use fails with code full (no reason field), and the pickup stays on the ground', !r.res.ok && r.res.code === 'full' && r.trap === false && r.still, JSON.stringify(r));
+      check('direct container.trade refusal is failure(): code notEnough (no reason field)', r.trade.ok === false && r.trade.code === 'notEnough' && r.trap2 === false, JSON.stringify(r));
     },
   },
   {

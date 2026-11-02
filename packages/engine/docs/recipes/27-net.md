@@ -1,6 +1,7 @@
 # Co-op multiplayer: net() (host authority + state sync)
 
-**What it is**: an optional module for slow, cooperative games (a shared base or farm, a co-op puzzle, a turn-based board, trading). One player's browser is the **host** and
+**What it is**: co-op, host-authoritative, not for competitive play. An optional module for slow, cooperative games (a shared base, a co-op
+puzzle, a turn-based board, trading). One player's browser is the **host** and
 owns the game state; friends are **clients** that mirror it and ask for changes through ops. Not installed = no cost.
 **What it is not (yet)**: action netcode. There is no client prediction or rollback, so a client's attack / roll / shot waits one round trip.
 Souls-like and shooter games need that later step; the rules below (ops with self-contained args, state only changed in fixed steps and ops,
@@ -17,7 +18,7 @@ engine.use(net(hosting
   ? { role: 'host', transport: webSocket(room, { host: true }) }
   : { role: 'client', transport: webSocket(room) }));
 ```
-Run the relay on any machine both can reach: `npx threedog relay 8787` (no dependencies). The relay only forwards; it assigns peer ids
+Run the relay on any machine both can reach: `threedog relay 8787` (no dependencies). The relay only forwards; it assigns peer ids
 and a reconnect key.
 For tests and offline demos use the in-process network instead (latency, jitter and loss adjustable; `manual: true` delivers only on `advance(ms)`):
 ```js
@@ -57,7 +58,9 @@ engine.ops.define('cheat.gold', { args: { n: 'int' }, run: (e, { n }, ctx) => e.
 ## 3. Who is who: actors
 - On the host, a friend is an **actor** id taken from the connection (`'guest-1'`, change with `net({ actorFor: peerId => ... })`), never from the
   message. Ops see it as `ctx.actor`; that is why ops must use `ctx.actor`, not `engine.player`.
-- By default the host gives each friend a world record `{ id: actor, kind: 'player' }` (not saved) and a container with the actor id (their bag).
+- By default the host gives each friend a world record `{ id: actor, kind: 'player' }` (not saved) and a container with the actor id (their bag,
+  `inventory.of(actor)`). Pickups land in the bag of whoever takes them: a client's E press runs `pickup.take` (net: `'peer'`) on the host as that
+  friend, and the host walks every friend into auto pickups (`pickups.takers`); `item:add` names the container and the actor on every machine.
   `onJoin(e, peer)` / `onLeave(e, peer)` add your own setup (starting gold, spawn point). `avatar: false` turns the defaults off.
 - **Every machine calls itself `'player'`.** A client's own record and bag are `'player'` locally (so characters, inventory windows and interactions
   work unchanged), and the host's own avatar and bag show up as `'host'`. String args equal to `'player'` / `'host'` are translated on the way to the
@@ -66,8 +69,9 @@ engine.ops.define('cheat.gold', { args: { n: 'int' }, run: (e, { n }, ctx) => e.
 
 ## 4. What is synced
 The host sends a full snapshot when a client joins (or after a lost message), then diffs every `syncEvery` fixed steps (default 3, 20 per second):
-world records, containers, `vars`, and every other save part (quests, clock, sky, weather...) except `random` and `level`. Choose explicitly with
-`sync: ['world', 'containers', 'vars', 'quests']`.
+world records, containers, `vars`, and every other save part (quests, clock, sky, weather...) except `random`, `level` and `rigid`. Choose explicitly with
+`sync: ['world', 'containers', 'vars', 'quests']`. Physics runs on each machine and is not synced, and machines need not agree on it
+(why: [11-vehicles.md, Determinism](11-vehicles.md#3-rigid-bodies-saves-joints-determinism)).
 On a client the mirror is applied at the next fixed step; `world.simulate` does not run there (the host simulates). Other players glide between
 updates (kinds in `interpolate`, default `['player']`). The client moves its own avatar and reports its position; the host clamps it to `maxSpeed`
 (m/s, default 15).

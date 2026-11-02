@@ -22,8 +22,14 @@
   "exports": {
     "./vite": "./vite/gameConfig.js",
     "./paths": "./paths.mjs",
+    "./browser": "./browser.mjs",
     "./describe-snapshot": "./describe-snapshot.mjs",
-    "./scenario": "./scenario.mjs"
+    "./look": "./style/look.mjs",
+    "./scenario": "./scenario.mjs",
+    "./contract": "./contract.mjs",
+    "./panel": "./panel/index.js",
+    "./gallery": "./gallery/index.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "*.mjs",
@@ -34,6 +40,8 @@
     "bin",
     "content-check",
     "lib",
+    "panel",
+    "gallery",
     "gamemap",
     "rules",
     "style",
@@ -43,10 +51,14 @@
   ],
   "peerDependencies": {
     "threedog": "^0.2.0",
-    "@gltf-transform/cli": "^4.5.1"
+    "@gltf-transform/cli": "^4.5.1",
+    "tweakpane": "^4.0.5"
   },
   "peerDependenciesMeta": {
     "@gltf-transform/cli": {
+      "optional": true
+    },
+    "tweakpane": {
       "optional": true
     }
   },

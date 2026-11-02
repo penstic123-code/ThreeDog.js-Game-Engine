@@ -135,7 +135,7 @@ export const specs = [
         let disposed = 0; tex.addEventListener('dispose', () => disposed++);
         engine.terrain.reinit(cfgOf('smooth'), species);
         out.disposed = disposed === 1;
-        engine.resume(); rt.dispose();
+        engine._resume(); rt.dispose();
         return out;
       });
       check('texture 与 smooth 都在 resolution 16 下加载出区块', r.smoothReady && r.textureReady);

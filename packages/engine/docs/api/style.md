@@ -1,9 +1,9 @@
-# Style pack Style — createEngine({ style }), all the look (any style pack: a folder with index.js; recipes/09-style-pack.md)
+# Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style-pack.md)
 
 - **Style** fields (all optional):
-  - `name?: string` Style pack name
-  - `exposure?: number | number[][] | ((sky: any) => number)` Exposure, default 1: a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or (sky) => number, evaluated by the sky module every frame. engine.look.tone.set changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
-  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping. Engine default 'none' (no style pack, no tone mapping); the style pack picks the look
+  - `name?: string` Style name
+  - `exposure?: number | number[][] | ((ctx: LookContext) => number)` Exposure, default 1: a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or ({ time, state, sky }) => number, evaluated by the sky module every frame. engine.look.tone.set changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
+  - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping curve, written once when the engine creates its renderer (default 'agx', the render baseline). Later changes are plain three.js: engine.renderer.toneMapping = THREE.ACESFilmicToneMapping; the engine never writes it again
   - `background?: ColorLike` Background color (when there is no sky module)
   - `post?: (Omit<import('./generate… & { slot? })[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/post-effects'
   - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
@@ -17,8 +17,8 @@
   - `sky?: StyleSky` Sky
   - `weather?: StyleWeather` Weather look
   - `water?: StyleWater` Water look
-  - `pickup?: { color?, size?, lift?, model? }` Default look of pickups on the ground: color (the item's own color wins), size (meters), lift height above ground (meters), model(item, { color, size }, engine) builds the shape (a geometry gets materials.pickup; make materials with engine.makeMaterial; without model a plain box)
-  - `character?: { animation?: { fade?: number } }` How character motion looks: animation.fade skeletal animation transition seconds. Bodies are assets, not style ({ model: 'yourBody' } from an asset pack); a style tints body parts through materials roles (cloth, skin, trousers, hair). create / model / colors here throw renamed-api
+  - `pickup?: { color?: ColorLike; size?: number; lift?: number }` Default look of pickups on the ground: color (the item's own color wins), size (meters, of the gray placeholder box), lift height above ground (meters). The shape is not style: it is a model name from an asset pack (item model, else 'pickup:<item>', else 'pickup'); a generator that returns bare geometry is shaded by materials.pickup in the item's color
+  - `character?: { animation?: { fade?: number } }` How character motion looks: animation.fade skeletal animation transition seconds. Bodies are assets, not style ({ model: 'yourBody' } from an asset pack); a style tints body parts through materials roles (cloth, skin, trousers, hair).
   - `ui?: StyleUI` UI colors, fonts, templates
   - `particles?: Record<string, ParticleOptions>` Particle presets: name → parameters; default is the fallback for all effects
   - `triggers?: { debugColor?: ColorLike; debugOpacity?: number }` Trigger zone debug wireframe
@@ -26,9 +26,9 @@
 
 ## Sub-structures
 - **StyleSky**
-  - `keyframes?: SkyKeyframe[]` Colors and light intensities at each time of day
-  - `backdrop?: ColorLike | ((sky: Sky) => ColorLike)` A flat background color in place of the dome (no gradient, horizon line, sun / moon disk, stars or clouds), or (sky) => color per frame. Drawn as written (no tone mapping); the keyframes still light the world; fog in its default horizon color follows it (a fog.color of your own still wins). Leave out for the dome. Not with skybox. recipes/47. Example: `backdrop: sky => sky.isDay ? 0xefebe4 : 0x2c3346`
-  - `sunSize?: number` Larger means a smaller sun, default 900
+  - `keyframes?: SkyKeyframe[]` Rows [time, zenith, horizon, lightColor, lightIntensity, ambient]. time: share of the day (0 = 00:00, 0.5 = noon), sorted, first row 0, last 1 (midnight again: same values as 0). horizon is also the fog color. light*: engine.lights.sun (the moon at night). ambient: the hemisphere fill, also dims the room environment (recipe 08). Example: `[[0, 0x0b1030, 0x1c2440, 0x8090c0, 0.3, 0.25], [0.5, 0x5a8fd0, 0xbcd4ea, 0xfff4e0, 3, 1.1], [1, 0x0b1030, 0x1c2440, 0x8090c0, 0.3, 0.25]]`
+  - `backdrop?: ColorLike | ((ctx: LookContext) => ColorLike)` A flat background color in place of the dome (no gradient, horizon line, sun / moon disk, stars or clouds), or ({ time, weather, season, state, sky }) => color per frame. Drawn as written (no tone mapping); the keyframes still light the world; fog in its default horizon color follows it (a fog.color of your own still wins). Leave out for the dome. Example: `backdrop: ({ sky }) => sky.isDay ? 0xefebe4 : 0x2c3346`
+  - `sunSize?: number` Sharpness exponent of the sun disk, default 900 (about 2 deg); larger = smaller. Not a size in degrees: 10 is ~20 deg, under ~3 the "disk" washes most of the sky toward the sun color
   - `sunGlow?: number` Sun glow, default 0.18
   - `sunBrightness?: number` Sun brightness, default 6
   - `moonSize?: number` Larger means a smaller moon
@@ -36,9 +36,9 @@
   - `moonBrightness?: number`
   - `orbitTilt?: number` North-south tilt of the sun path
   - `orbitSway?: number` East-west swing of the sun path
-  - `starDensity?: number` Star density
-  - `starScale?: number` Larger means smaller and more numerous stars
-  - `gradientCurve?: number` Gradient curve from zenith to horizon
+  - `starDensity?: number` Share of the sky grid cells (0-1) that hold a star at night, default 0.0025 (0 = no stars). A probability, not a brightness: near 1 every cell is lit and the upper sky turns into a white sheet. The cell size is starScale
+  - `starScale?: number` Star grid resolution (cells per unit of view direction), default 260: larger means smaller and more numerous stars
+  - `gradientCurve?: number` Gradient curve from horizon to zenith, default 0.55 (color = mix(horizon, zenith, elevation^curve), mixed in linear light, then tone mapped and exposed like the scene).
   - `groundTint?: ColorLike` Ground bounce color of the ambient light
   - `clouds?: StyleSkyClouds` Clouds in the sky (cloud cover follows the weather); see StyleSkyClouds
   - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path
@@ -46,11 +46,11 @@
   - `environment?: StyleEnvironment` Environment lighting (scene.environment), off unless a source is given; see engine.look.env. A pack can give defaults, sky({ environment }) overrides
   - `fog?: StyleFog` Fog model and color (default: linear fog in the horizon color); see StyleFog
   - `layers?: StyleSkyLayer[]` Extra dome layers drawn after the clouds and stars (rainbow, aurora), default none; see StyleSkyLayer
-- **StyleShadow**
+- **StyleShadow** Sun shadow parameters (defaults are the current look)
   - `mapSize?: number` Shadow resolution (pixels), default 2048
   - `extent?: number` Coverage radius (meters), default 70
   - `distance?: number` Distance of the light from the shadow center (meters), default 160
-  - `bias?: number` Anti shadow-acne bias, default -0.0006
+  - `bias?: number` Anti shadow-acne depth bias (0-1 shadow depth over the 419 m light range: -0.00005 = 2 cm), default -0.00005
   - `normalBias?: number` Normal-offset anti-acne, default 0.04
   - `updateEvery?: number` Update shadows every N frames, default 1 (every frame); larger saves more, still updates promptly when the focus moves
   - `snap?: number | 'texel'` Shadow center snapping grid (meters), default 0.5; 'texel' snaps to shadow pixels (shadow edges do not shimmer while moving)
@@ -73,11 +73,10 @@
   - `snow?: StyleWeatherSnow` Snow particles (default round sprites: color 0xffffff, opacity 0.9, size 20, maxSize 5 px, speed 1.6 m/s, sway 1.5 m)
   - `types?: Record<string, Partial<WeatherPreset>>` Retune the look of weather types the game has (e.g. a darker storm); never adds a type: the list is the game's weather({ types })
 - **StyleWater**
-  - `material?: (engine, ctx) => Material` Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch, the surface patch (depthColor / foam / glsl.surface; null without them; put it after waves) and the scrolling normal map (null without one). Example: `material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })`
+  - `material?: (engine, ctx) => Material` Replace the whole water surface material (the built-in role 'water', waves and fresnel are skipped). Receives the shared uniforms (uTime, uWave, uWaveScale, uWaveSpeed), the built-in wave patch, the surface patch (depthColor / foam / the 'surface' hook; null without them; put it after waves) and the scrolling normal map (null without one). Example: `material: (engine, { waves }) => applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] })`
   - `depthColor?: StyleWaterDepth` Water color from the view angle (by 'view', default: shallow looking down, deep at grazing angles) or the wave height (by 'wave': shallow on crests); replaces color. curve shapes the blend (default 1)
-  - `foam?: StyleWaterFoam | true` Crest foam from the wave height (start / end: fraction of glsl.waveMax where foam begins / is full, default 0.55 / 0.85); true = defaults. Shore foam needs depth: recipes/44
-  - `glsl?: { wave?: string; surface?: string; waveMax?: number }` Your own GLSL. wave: `float threedogWaterWave(vec3 p, float t)` (p = world position * waveScale, t = time * waveSpeed) returns the height before waveHeight; waveMax = its peak (default 0.29), which foam and depthColor 'wave' divide by.
-  - `uniforms?: Record<string, any>` Uniforms for your glsl, in both stages: numbers, colors, [x, y(, z, w)] arrays or textures; live in engine.water.material.uniforms
+  - `foam?: StyleWaterFoam | true` Crest foam from the wave height (start / end: fraction of waveMax (the 'wave' hook's, default 0.29) where foam begins / is full, default 0.55 / 0.85); true = defaults. Shore foam needs depth: recipes/44
+  - `uniforms?: Record<string, any>` Uniforms for your look.water hooks' GLSL, in both stages: numbers, colors, [x, y(, z, w)] arrays or textures; live in engine.water.material.uniforms
   - `color?: ColorLike`
   - `opacity?: number` Opacity 0–1
   - `flat?: boolean` Flat shading (low poly)
@@ -125,10 +124,12 @@
   - `ramp?: (number | ColorLike)[]` toon only: the light ramp, dark to light: grays 0-1 (light strength in the band) or colors (tint the band). Replaces steps
   - `soften?: number` toon only, with ramp: 0 = hard bands, up to 1 = the bands melt into each other
   - `color?: ColorLike`
-  - `map?: string | import('three').Texture` Texture slots take an asset name: map, emissiveMap (sRGB), normalMap, roughnessMap, metalnessMap, aoMap, bumpMap, alphaMap, displacementMap... (linear). Loaded through engine.assets.texture, a neutral stand-in until the image arrives; the key must be a slot the type has (roughnessMap needs 'standard'). A THREE.Texture also works.
-  - `normalMap?: string | import('three').Texture`
-  - `roughnessMap?: string | import('three').Texture`
+  - `map?: TextureSlot` Texture slots take an asset name: map, emissiveMap (sRGB), normalMap, roughnessMap, metalnessMap, aoMap, bumpMap, alphaMap, displacementMap... (linear). Loaded through engine.assets.texture, a neutral stand-in until the image arrives; the key must be a slot the type has (roughnessMap needs 'standard').
+  - `normalMap?: TextureSlot`
+  - `roughnessMap?: TextureSlot`
+  - `aoMap?: TextureSlot`
+  - `lightMap?: TextureSlot`
   - `repeat?: number | [number, number]` How many times the textures of this material repeat (a number, or [x, y]); default 1
-  - `wrap?: Loose<'repeat' | 'clamp' | 'mirror'>` Texture wrapping: 'repeat' (default) / 'clamp' / 'mirror'
+  - `wrap?: Loose<'repeat' | 'clamp' | 'mirror'>` Texture wrapping: 'repeat' (default for files loaded by name; your own textures keep theirs) / 'clamp' / 'mirror'
   - `detail?: MaterialDetail` Grain, paper, strokes or a texture laid over the surface in world space (no UVs needed); off unless given
   - `lighting?: MaterialLighting | false` Extra light shaping (shadow tint, rim, wrap, your own GLSL); merged over style.lighting, false opts out

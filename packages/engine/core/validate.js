@@ -1,14 +1,14 @@
 // Runtime checks: when an option or name is misspelled, print the fix to the console ("did you mean `xxx`?").
 // Type checking (npm run types) catches mistakes while you write code; this catches the same kind at runtime, which also works for code without type checking.
 //
-//   checkOptions('npcs.add()', opts, ['name', 'schedule', ...])   // warns once on a key in opts that is not recognized
+//   readParams('npcs.add()', NPC_PARAMS, opts)                    // options: an unknown key throws in dev (core/params.js)
+//   checkOptions('inventory.define()', def, KEYS, { loose: true })  // extensible data: warns once on a near-miss key
 //   warnMissing('action', 'jupm', ['jump', 'run'])                // 'action "jupm" does not exist, did you mean `jump`? (available: jump, run)'
-// ownedProps('sky.sun.intensity', () => sun.intensity, "use engine.sky.modify('layerName', { sun })") // warns when the game edits a property that is
-// overwritten every frame
+// Properties the engine writes every frame (sky lights, camera ...) are core/owned.js defineOwned: the engine yields to a direct write and warns once
 //
 // On by default; createEngine({ validate: false }) turns it all off (for release builds). Each message warns only once.
 
-import { hintText } from './errorHints.js';
+import { hintText, coded, codedError } from './errorHints.js';
 
 const STRINGS = {
   unknownKey: '{where}: unknown option "{key}", {hint}',
@@ -20,8 +20,6 @@ const STRINGS = {
   more: ', ... {n} total',
   eventTypo: 'event "{name}" was never emitted or listened to; did you mean `{hint}`? (shown only because the names are similar; ignore it if this really is a new event)',
   requires: 'module {module} requires module "{name}", which is not installed; did you mean `{hint}`? (installed: {list})',
-  notOptions: '{where}: the second argument must be an options object {{ … }}, got {got}. API convention: a position is one argument, and size and the like go in the options object (see the API conventions)',
-  owned: '{where} is recomputed every frame, so setting it directly gets overwritten{hint}',
   // Display names for each kind of name (the kind passed to warnMissing)
   kinds: {
     action: 'action', bus: 'audio bus', synth: 'synth', event: 'event', particle: 'particle effect', asset: 'asset', text: 'text key', module: 'module', weather: 'weather',
@@ -34,7 +32,7 @@ const STRINGS = {
  * Fill {name} placeholders from p (an unknown or null one stays as written). The one copy core shares (threadPure.js keeps its own: it must stay import-free).
  */
 export const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
-// Page-wide by design: the validate switch, the warn-once set and allowOwned exemptions are shared by every engine on the page
+// Page-wide by design: the validate switch, the warn-once set and owned.js allowOwned exemptions are shared by every engine on the page
 // (one validate setting per page; tests that run several engines all use the same setting).
 let enabled = true;
 /** Dev mode: npm run dev, or the test bundle built by npm test / npm run shot (vite.config defines import.meta.env.THREEDOG_TEST when THREEDOG_TEST is set). */
@@ -45,13 +43,33 @@ const ENV = import.meta.env;
 export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
 const warned = new Set();
 
+/**
+ * Renamed fields of a plain data object the engine hands back (an op / trade / grid result, runState, describe()): in dev, reading an old name
+ * throws [renamed-field] with the new one. Why one helper instead of per-field code: a renamed field reads `undefined` silently, so 0.2 code took
+ * the wrong branch without a word; every such object goes through this one place. Non-enumerable, so JSON, spreads and Object.keys never see it.
+ * @template {object} T @param {T} obj @param {Record<string, string>} renamed old name -> the new way to read it @param {string} where @returns {T}
+ */
+export function renamedFields(obj, renamed, where) {
+  if (!DEV) return obj;
+  for (const [old, now] of Object.entries(renamed)) {
+    Object.defineProperty(obj, old, { enumerable: false, configurable: true, get() { throw codedError('renamed-field', `${where}.${old} was renamed: read ${now}`); } });
+  }
+  return obj;
+}
+
 /** Global switch (the validate option of createEngine) */
 export function setValidate(on) { enabled = on !== false; }
+/** Are dev checks on (createEngine({ validate }) / setValidate) */
+export const validateOn = () => enabled;
 
-/** Warn only once (no warning when checks are off) */
-export function warnOnce(msg) {
-  if (!enabled || warned.has(msg)) return;
-  warned.add(msg);
+/**
+ * Warn only once (no warning when checks are off). The one dedupe for engine warnings: modules do not keep private "already warned" sets.
+ * @param {string} msg  the text, usually coded(code, text) so it carries its fix
+ * @param {string} [key]  what counts as "the same warning" when the text has changing parts (a measured value each second, a stack line); default the text
+ */
+export function warnOnce(msg, key = msg) {
+  if (!enabled || warned.has(key)) return;
+  warned.add(key);
   console.warn(DEV ? msg + hintText(msg) : msg);   // the fix + doc page only in dev: release builds drop the hint table
 }
 
@@ -67,13 +85,19 @@ function distance(a, b) {
   return d[a.length][b.length];
 }
 
-/** The entry of list closest to name; null if too far. Without maxDist the limit scales with length (longer names tolerate more errors). */
+/**
+ * The entry of list closest to name; null if too far. Without maxDist the limit scales with length (longer names tolerate more errors).
+ * Too far by spelling, a name of 4+ letters that is part of exactly one entry still matches ('forward' -> 'moveForward'): AIs often drop a prefix.
+ */
 export function closest(name, list, maxDist) {
   name = String(name);
   const limit = maxDist ?? (name.length <= 4 ? 1 : name.length <= 8 ? 2 : 3);
   let best = null, bd = Infinity;
   for (const c of list) { if (c === name) continue; const d = distance(name, String(c)); if (d < bd) { bd = d; best = c; } }
-  return bd <= limit ? best : null;
+  if (bd <= limit) return best;
+  if (maxDist != null || name.length < 4) return null;
+  const low = name.toLowerCase(), part = [...list].filter(c => String(c).toLowerCase().includes(low));
+  return part.length === 1 ? part[0] : null;
 }
 
 const listText = list => { const a = [...list]; return a.length ? a.slice(0, 15).join(', ') + (a.length > 15 ? fmt(STRINGS.more, { n: a.length }) : '') : STRINGS.none; };
@@ -85,16 +109,15 @@ export function missingText(kind, name, list) {
 }
 /** A name does not exist: warn once */
 export function warnMissing(kind, name, list) {
-  const id = kind + '\0' + name;   // may be called every frame: count each name once
-  if (!enabled || warned.has(id)) return;
-  warned.add(id);
-  warnOnce(missingText(kind, name, list));
+  // may be called every frame: keyed by the name, so the list text is built only the first time
+  if (!enabled || warned.has(kind + '\0' + name)) return;
+  warnOnce(coded('unknown-name', missingText(kind, name, list)), kind + '\0' + name);
 }
 
 /**
- * The one unknown-option rule, shared by readParams (strict) and checkOptions (loose): text for a key not in known, or null when it is fine.
+ * The one unknown-option rule, shared by readParams (options: strict) and checkOptions (extensible data): text for a key not in known, or null when it is fine.
  * Why one function: the "did you mean" search and the wording must not drift between the two readers.
- * soft: a key with no close match is not reported (data like items and entities, where games add their own fields).
+ * soft: a key with no close match is not reported (data like items and template state, where games add their own fields).
  */
 export function unknownOptionText(where, key, known, { soft = false } = {}) {
   if (known.includes(key)) return null;
@@ -103,30 +126,21 @@ export function unknownOptionText(where, key, known, { soft = false } = {}) {
   return fmt(STRINGS.unknownKey, { where, key, hint: c ? fmt(STRINGS.didYouMean, { name: c }) : fmt(STRINGS.available, { list: known.join(', ') }) });
 }
 /** Is options an object a game passed (not a Three.js object, array or missing)? */
-export const isOptionsObject = o => !!o && typeof o === 'object' && !Array.isArray(o) && !o.isObject3D && !o.isVector3;
+const isOptionsObject = o => !!o && typeof o === 'object' && !Array.isArray(o) && !o.isObject3D && !o.isVector3;
 
 /**
- * Check an options object for unknown keys (the loose mode of readParams: same detection, same hint, but nothing is read or filled in).
- * where is the origin (such as 'npcs.add()'), known are the keys the code actually reads.
- * It only warns (once), in every build: the callers are hand-written checks of data and style objects that games and tests deliberately feed
- * misspellings, and their known lists can lag behind the code. The module factories that went through readParams (the strict mode: dev throws,
- * release warns once, decision 2026-11-01) get the throw there. loose: report only near-misses (items and entities, where games add their own fields).
+ * Unknown keys in extensible data (item definitions, template instance state, material specs: objects where games add their own fields): warn once.
+ * Options bags of public calls do not come here: they go through readParams (core/params.js), where an unknown key throws in dev with the
+ * did-you-mean and warns once in a release build. 为什么分两条：选项拼错一定是 bug，该当场停下；可扩展数据里多出的字段可能是游戏自己的，只提示近似拼写（loose）。
+ * where is the origin (such as 'inventory.define()'), known are the keys the code reads. loose: report only near-misses.
  */
 export function checkOptions(where, opts, known, { loose = false } = {}) {
   if (!enabled || !isOptionsObject(opts)) return;
   for (const k of Object.keys(opts)) {
     const msg = unknownOptionText(where, k, known, { soft: loose });
     if (!msg) continue;
-    warnOnce(msg);
+    warnOnce(coded('unknown-option', msg));
   }
-}
-
-/**
- * Options argument under the new API convention: warn if a number or string was passed (most likely the old positional form), otherwise same as checkOptions.
- */
-export function checkOptionsArg(where, opts, known) {
-  if (opts != null && typeof opts !== 'object') { warnOnce(fmt(STRINGS.notOptions, { where, got: JSON.stringify(opts) }).replace('{{ … }}', '{ … }')); return; }
-  checkOptions(where, opts, known);
 }
 
 /**
@@ -135,35 +149,13 @@ export function checkOptionsArg(where, opts, known) {
  */
 export function checkEventName(name, known) {
   const c = closest(name, known, name.length >= 12 ? 2 : 1), digits = s => s.replace(/\d+/g, '#');
-  if (c && digits(c) !== digits(name)) warnOnce(fmt(STRINGS.eventTypo, { name, hint: c }));
+  if (c && digits(c) !== digits(name)) warnOnce(coded('event-typo', fmt(STRINGS.eventTypo, { name, hint: c })));
 }
 
 /** An engine.use dependency is not installed: text with the fix when the name is close to an installed module, otherwise null. */
 export function requiresText(module, name, installed) {
   const c = closest(name, installed);
   return c ? fmt(STRINGS.requires, { module, name, hint: c, list: listText(installed) }) : null;
-}
-
-// ---------- properties overwritten every frame ----------
-// Properties a module recomputes every frame (sky lights, camera position...) are silently overwritten if the game edits them directly. A module calls check()
-// before writing and mark() after:
-// if check() finds a value different from the last mark(), someone changed it in between, and it warns once. Active only in dev with checks on.
-
-const exempt = new Set();
-/** Legitimately take over these properties temporarily (such as a timeline tweening a light): allowOwned('timeline') ... allowOwned('timeline', false) */
-export function allowOwned(owner, on = true) { if (on) exempt.add(owner); else exempt.delete(owner); }
-/** where is the property name (for the message), read() returns a number or array of numbers (objects work too, compared by reference), hint is the fix. */
-export function ownedProps(where, read, hint = '') {
-  let snap = null;
-  const on = () => enabled && DEV;
-  return {
-    check() {
-      if (!on() || !snap || exempt.size) return;
-      const v = [].concat(read());
-      if (v.length !== snap.length || v.some((x, i) => x !== snap[i])) warnOnce(fmt(STRINGS.owned, { where, hint: hint ? '. ' + hint : '' }));
-    },
-    mark() { if (on()) snap = [].concat(read()); },
-  };
 }
 
 /**

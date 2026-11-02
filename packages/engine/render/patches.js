@@ -1,6 +1,8 @@
 // Named shader patches: one way to add shader code to any three.js material (WebGLRenderer only).
-// A patch says where its code goes (after or before a `#include <chunk>` anchor), which uniforms it needs and what makes its
-// program unique (cacheKey). Patches stack: the material's own onBeforeCompile runs first, then every patch in the order added,
+// A patch says where its code goes (a semantic slot from render/slots.js: 'position', 'color', 'lighting'...; or, as the expert exit,
+// a raw `#include <chunk>` anchor with before / after / replace), which uniforms it needs and what makes its
+// program unique (cacheKey). Patches stack: the material's own onBeforeCompile runs first (also one the game assigns after the engine
+// patched it: the instance accessor keeps both, see patchMaterial), then every patch in the order added,
 // and the program cache key joins all of them, so two patches never overwrite each other and differently-parameterised
 // materials never share a program. A missing anchor is reported when the patch is added, not discovered as a silent no-op.
 // GLSL lives under `glsl`; a WebGPU node version would be a separate field once a WebGPU path exists (WebGPURenderer does not
@@ -23,17 +25,24 @@
 //                  the material's own key + '|threedog:' + name=cacheKey of every patch in order; one name + cacheKey producing
 //                  two different GLSL texts throws, since those materials would silently share one program.
 import * as THREE from 'three';
-import { closest } from '../core/validate.js';
+import { closest, DEV, warnOnce } from '../core/validate.js';
+import { EFFECTS, PROVIDED_BY } from './effects.js';
+import { noteCopy, VERSION } from '../core/copies.js';
 import { sameUniform, resolveUniform } from './engineUniforms.js';
+import { SLOTS, SLOT_NAMES, toAnchors } from './slots.js';
+import { codedError, coded } from '../core/errorHints.js';
 /** @import { Material } from '../types/common' */
 
 /**
  * @typedef {{ before?: string, after?: string, replace?: string } | string} PatchCode  code for one anchor (a plain string goes after the include;
  *   replace swaps the include itself for new code, one patch per anchor)
+ * @typedef {'position' | 'shadowPosition' | 'clipPosition' | 'map' | 'color' | 'normal' | 'roughness' | 'emissive' | 'lightsPars' | 'lightingModel' | 'lighting' | 'output' | 'fogPars' | 'fog'} PatchSlot
  * @typedef {{ name: string, cacheKey?: string | number, uniforms?: Record<string, { value: any }>, shadow?: boolean,
- *   needs?: { data?: string[], patches?: string[] }, conflicts?: string[],
- *   glsl?: { vertex?: Record<string, PatchCode>, fragment?: Record<string, PatchCode> } }} ShaderPatch
- *   glsl.vertex / glsl.fragment: anchor chunk name -> code; the key `pars` is declarations placed at the top of the shader.
+ *   needs?: { data?: string[], patches?: string[] }, conflicts?: string[], slot?: PatchSlot, pars?: string | { vertex?: string, fragment?: string },
+ *   glsl?: string | { [slot in PatchSlot]?: string } | { vertex?: Record<string, PatchCode>, fragment?: Record<string, PatchCode> } }} ShaderPatch
+ *   slot + glsl string: that slot's code (render/slots.js lists the slots, where each goes and what is in scope); glsl { slot: code }:
+ *   several slots; pars: declarations at the top of every stage the patch touches (or { vertex, fragment }).
+ *   Raw-anchor exit: glsl.vertex / glsl.fragment: three.js chunk name -> code; the key `pars` is declarations placed at the top of the shader.
  *   shadow: the patch moves vertices, so the depth and point-light distance passes run its vertex code too.
  *   needs.data: program inputs read, e.g. ['instancing']; needs.patches: patches it builds on, e.g. ['world'] (the vThreedogWorld varying).
  *   conflicts: patch names it cannot be combined with. cacheKey: changes whenever the GLSL text changes (see the header).
@@ -54,7 +63,10 @@ function missing(m, p) {
   for (const stage of ['vertex', 'fragment']) {
     const src = sourceOf(m, stage);
     if (src == null) return null;
-    for (const k in p.glsl?.[stage] || {}) if (k !== 'pars' && !src.includes(`#include <${k}>`)) out.push(`${stage} <${k}>`);
+    for (const k in p.glsl?.[stage] || {}) if (k !== 'pars' && !src.includes(`#include <${k}>`)) {
+      const slot = SLOT_NAMES.find(n => SLOTS[n].stage === stage && SLOTS[n].anchor === k);
+      out.push(`${stage} <${k}>` + (slot ? ` (slot '${slot}')` : ''));
+    }
   }
   return out;
 }
@@ -73,13 +85,14 @@ function clash(list, p) {
   for (const q of others) if (p.conflicts?.includes(q.name) || q.conflicts?.includes(p.name))
     return `patches '${q.name}' and '${p.name}' cannot be combined on one material; keep one of them, or use two materials`;
   for (const n of p.needs?.patches || []) if (!others.some(q => q.name === n))
-    return `patch '${p.name}' needs patch '${n}' on the material first; put '${n}' before it in the patches list (applyEffects adds the built-in 'world' itself when a patch needs it), or fix why '${n}' was skipped`;
+    return `patch '${p.name}' needs patch '${n}' on the material first; put '${n}' before it in the patches list (the built-in 'world' is added by the engine), or fix why '${n}' was skipped`;
   for (const q of others) for (const u in p.uniforms || {}) if (q.uniforms?.[u] && !sameUniform(q.uniforms[u], p.uniforms[u]))
     return `patches '${q.name}' and '${p.name}' both bring a uniform named '${u}'; rename one (prefix it with the patch name), or share engine.uniforms.${u}`;
   const mine = replaced(p);
   for (const q of others) if (replaced(q).some(k => mine.includes(k)))
     return `patches '${q.name}' and '${p.name}' both replace one chunk; keep one, or add code before / after it`;
-  const key = p.name + '=' + (p.cacheKey ?? ''), code = JSON.stringify(p.glsl ?? {});
+  // 去掉 slots.js 的标记注释再比：同一段代码用插槽写和用锚点写只差标记里的 slot=，生成的程序一样，不算"同 cacheKey 不同代码"
+  const key = p.name + '=' + (p.cacheKey ?? ''), code = JSON.stringify(p.glsl ?? {}).replace(/\/\/ threedog:(begin|end)[^\\"]*/g, '');
   if (CODE.has(key) && CODE.get(key) !== code)
     return `patch '${p.name}' produced different GLSL under the same cacheKey '${p.cacheKey ?? ''}'; put every value that changes the code into cacheKey`;
   CODE.set(key, code);
@@ -88,12 +101,11 @@ function clash(list, p) {
 
 const LISTS = new WeakMap();   // material -> its patches (not userData: that gets JSON-cloned and exported to glTF)
 const PROTO_COMPILE = THREE.Material.prototype.onBeforeCompile;
-const warned = new Set();
 
 function apply(shader, list, m, renderer) {
   for (const p of list) for (const d of p.needs?.data || []) if (!shader[d]) {
-    const tag = `${m.uuid}:${p.name}:${d}`;
-    if (!warned.has(tag)) { warned.add(tag); console.error(`[threedog] patch '${p.name}' needs '${d}', which this mesh does not provide (e.g. 'instancing' needs an InstancedMesh, 'vertexColors' needs material.vertexColors and a color attribute)`); }
+    // keyed per material + patch: the same text for another mesh is another place to fix
+    warnOnce(coded('shader-patch', `[threedog] patch '${p.name}' needs '${d}', which this mesh does not provide (e.g. 'instancing' needs an InstancedMesh, 'vertexColors' needs material.vertexColors and a color attribute)`), `patch-data\0${m.uuid}:${p.name}:${d}`);
   }
   for (const stage of ['vertex', 'fragment']) {
     const key = stage + 'Shader', pars = [], at = new Map();
@@ -110,8 +122,7 @@ function apply(shader, list, m, renderer) {
     for (const [k, { before, after, replace }] of at) {
       const inc = `#include <${k}>`;
       if (!src.includes(inc)) {
-        const tag = `${m.type}:${k}`;
-        if (!warned.has(tag)) { warned.add(tag); console.error(`[threedog] shader patch anchor ${inc} not found in ${m.type}; add it to your shader or #include the threedog_* chunks by hand (see render/patches.js)`); }
+        warnOnce(coded('shader-patch', `[threedog] shader patch anchor ${inc} not found in ${m.type}; add it to your shader or #include the threedog_* chunks by hand (see render/patches.js)`));
         continue;
       }
       src = src.replace(inc, () => [...before, replace ?? inc, ...after].join('\n'));
@@ -128,9 +139,9 @@ function apply(shader, list, m, renderer) {
  * @example
  * // reads the world position varying of 'clouds', and must not share a material with the engine's 'wind'
  * patchMaterial(mat, [{ name: 'ripple', needs: { patches: ['clouds'] }, conflicts: ['wind'], shadow: true, ... }]);
- * patchMaterial(mat, [{ name: 'snap', cacheKey: 64, uniforms: { uGrid: { value: 64 } }, glsl: {
- *   vertex: { pars: 'uniform float uGrid;', project_vertex: 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uGrid) / uGrid * gl_Position.w;' } } }]);
- * @internal games and style packs go through applyEffects(material, { patches })
+ * patchMaterial(mat, [{ name: 'snap', slot: 'clipPosition', cacheKey: 64, uniforms: { uGrid: { value: 64 } }, pars: 'uniform float uGrid;',
+ *   glsl: 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uGrid) / uGrid * gl_Position.w;' }]);
+ * @internal games and styles go through applyEffects(material, { patches })
  * @param {Material} material
  * @param {ShaderPatch[]} patches
  * @param {{ strict?: boolean }} [opts]
@@ -141,24 +152,30 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
   let list = LISTS.get(m);
   if (!list) {
     LISTS.set(m, list = []);
-    const prev = m.onBeforeCompile;
-    const prevKey = Object.hasOwn(m, 'customProgramCacheKey') ? m.customProgramCacheKey.bind(m) : prev !== PROTO_COMPILE ? () => prev.toString() : () => '';
-    m.onBeforeCompile = function (shader, renderer) { if (prev !== PROTO_COMPILE) prev.call(this, shader, renderer); apply(shader, list, m, renderer); };
+    // 游戏自己的 onBeforeCompile / customProgramCacheKey：打补丁前就有的，和打补丁后才赋值的，都存在这里、先跑（用户决定 5，2026-11-02）。
+    // 为什么用实例访问器而不是警告：以前游戏后赋值 `m.onBeforeCompile = fn` 会静默盖掉包装函数，风吹/云影/季节全丢；
+    // 警告了 AI 也只能照抄成链式写法，多一步没必要。现在赋值只换"游戏那一段"，引擎补丁照旧接在后面，两者都生效。
+    let game = m.onBeforeCompile, gameKey = Object.hasOwn(m, 'customProgramCacheKey') ? m.customProgramCacheKey : null;
+    const own = game !== PROTO_COMPILE;
+    const wrapper = function (shader, renderer) { if (game && game !== PROTO_COMPILE) game.call(this, shader, renderer); apply(shader, list, m, renderer); };
+    const key = () => (gameKey ? gameKey.call(m) : game && game !== PROTO_COMPILE ? game.toString() : '') + '|threedog:' + list.map(p => p.name + '=' + (p.cacheKey ?? '')).join(',');
+    Object.defineProperty(m, 'onBeforeCompile', { configurable: true, enumerable: own, get: () => wrapper, set(fn) { game = fn; m.needsUpdate = true; } });
+    Object.defineProperty(m, 'customProgramCacheKey', { configurable: true, enumerable: false, get: () => key, set(fn) { gameKey = fn; m.needsUpdate = true; } });
     m.addEventListener('dispose', () => dropShadow(m));
-    m.customProgramCacheKey = () => prevKey() + '|threedog:' + list.map(p => p.name + '=' + (p.cacheKey ?? '')).join(',');
   }
-  for (const p of patches) {
+  // 槽位写法在入口处换成锚点写法（一份内部表示），后面的冲突 / 影子 / cacheKey 检查对两种写法一样；派生（copyPatches / 影子材质）的已换过
+  for (const p of deriving ? patches : withProviders(patches, list).map(toAnchors)) {
     const bad = deriving ? '' : clash(list, p);
     if (bad) {
-      if (strict) throw new Error(`[threedog] ${bad}`);
-      console.error(`[threedog] ${bad}; patch '${p.name}' skipped`);
+      if (strict) throw codedError('shader-patch', `[threedog] ${bad}`);
+      warnOnce(coded('shader-patch', `[threedog] ${bad}; patch '${p.name}' skipped`));
       continue;
     }
     const gaps = missing(m, p);
     if (gaps?.length) {
       const msg = `patch '${p.name}' needs ${gaps.join(', ')}, which ${m.type} does not have`;
-      if (strict) throw new Error(msg + '; use a material that has these chunks, or #include the threedog_* chunks in your own shader');
-      if (!warned.has(msg)) { warned.add(msg); console.warn('[threedog] ' + msg + '; skipped'); }
+      if (strict) throw codedError('shader-patch', msg + '; use a material that has these chunks, or #include the threedog_* chunks in your own shader');
+      warnOnce(coded('shader-patch', '[threedog] ' + msg + '; skipped'));
       continue;
     }
     const i = list.findIndex(q => q.name === p.name);
@@ -169,12 +186,74 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
   return m;
 }
 
+// 补丁读了引擎补丁带来的 varying（vThreedogWorld 来自 'world'）却没写 needs，以前直接编译失败、报 undeclared identifier，
+// 看不出要写 needs: { patches: ['world'] }。提供者只有一个、加上它不改别的画面，所以自动补在它前面（没写 needs 的开发期提示一次），
+// 写了 needs 的也一样补：applyEffects / look.materials.patch / 风格包各路入口都经过这里，不用各自记得加 'world'。
+const reads = (p, name) => new RegExp(`\\b${name}\\b`).test(JSON.stringify([p.glsl ?? '', p.pars ?? '']));
+/** patches with every engine patch they read from (by needs.patches or by the varyings their code uses) inserted before them, once */
+function withProviders(patches, list) {
+  const out = [], have = n => list.some(q => q.name === n) || out.some(q => q.name === n);
+  for (const p of patches) {
+    for (const [varying, prov] of Object.entries(PROVIDED_BY)) {
+      if (p.name === prov || have(prov)) continue;
+      const declared = !!p.needs?.patches?.includes(prov);
+      if (!declared && !reads(p, varying)) continue;
+      out.push(EFFECTS[prov]());
+      if (DEV && !declared) warnOnce(`[threedog] patch '${p.name}' reads ${varying}: the engine added the '${prov}' patch that provides it. Say so in the patch with needs: { patches: ['${prov}'] } (recipes/43)`);
+    }
+    out.push(p);
+  }
+  return out;
+}
+
 /**
  * Names of the patches on a material (in order), e.g. ['clouds', 'tint', 'wind']
  * @param {Material} material
  * @returns {string[]}
  */
 export function materialPatches(material) { return (LISTS.get(material) || []).map(p => p.name); }
+
+/**
+ * The patches on a material with the slots (or raw anchors) their code goes into, read from the threedog:begin markers (engine.inspect.materials)
+ * @internal
+ * @param {Material} material
+ * @returns {{ name: string, slots: string[] }[]}
+ */
+export function materialPatchSlots(material) {
+  return (LISTS.get(material) || []).map(p => ({ name: p.name, slots: [...new Set([...JSON.stringify(p.glsl ?? {}).matchAll(/threedog:begin patch=\S+ slot=([\w.-]+)/g)].map(m => m[1]))] }));
+}
+
+let hotRev = 0;
+/**
+ * Shader hot reload (render/hotGlsl.js): swap the GLSL text `old` for `neu` inside the patches of these materials. A changed patch gets a new cacheKey
+ * (else three.js would reuse the program compiled from the old text), and every material carrying it recompiles. Returns the materials changed.
+ * @internal
+ * @param {Material[]} materials @param {string} old @param {string} neu
+ * @returns {Material[]}
+ */
+export function replacePatchCode(materials, old, neu) {
+  const changed = new Set(), seen = new Set();
+  // 只走补丁代码已知的形状：glsl / pars / shadowVertex 是字符串，或纯对象（槽位、vertex / fragment、chunk 名 -> 字符串或 { before, after, replace }），
+  // 最多三层。为什么不递归每个对象字段：今天 toAnchors 已把 glsl 换成只含字符串的新对象，但内部表示一变（比如把 uniforms 带进来），
+  // Object3D / 相机（parent <-> children 成环）就会让热重载栈溢出，还会触发 getter。非纯对象（three 的类实例）和 uniforms 键一律不进
+  const swap = (o, k, depth = 0) => {
+    const v = o[k];
+    if (typeof v === 'string') { if (!v.includes(old)) return false; o[k] = v.replaceAll(old, neu); return true; }
+    if (depth >= 3 || !v || typeof v !== 'object' || Object.getPrototypeOf(v) !== Object.prototype) return false;
+    let hit = false;
+    for (const kk of Object.keys(v)) if (kk !== 'uniforms' && swap(v, kk, depth + 1)) hit = true;
+    return hit;
+  };
+  for (const m of materials) for (const p of LISTS.get(m) || []) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    const hit = ['glsl', 'pars', 'shadowVertex'].map(k => swap(p, k)).some(Boolean);
+    if (hit) { p.cacheKey = `${String(p.cacheKey ?? '').replace(/~hot\d+$/, '')}~hot${++hotRev}`; changed.add(p); }
+  }
+  const out = materials.filter(m => (LISTS.get(m) || []).some(p => changed.has(p)));
+  for (const m of out) { dropShadow(m); m.needsUpdate = true; }
+  return out;
+}
 
 /**
  * Take the patch named `name` off a material (no-op when absent); returns the material.
@@ -204,6 +283,23 @@ export function copyPatches(from, to) {
   try { return patchMaterial(to, list, { strict: false }); } finally { deriving = false; }
 }
 
+// ---------- which materials the engine made ----------
+// 为什么要记：自动效果（季节、云影、风吹、级联阴影的列表）只该落在引擎自己造的材质上（用户决定 3，2026-11-02）；游戏 `new` 的材质要效果就自己
+// applyEffects 选择加入。用 WeakSet 不用 userData：userData 会被 clone 带走、导出 glTF 时写进文件，一个游戏材质 clone 了引擎材质就会被误认。
+const MADE = new WeakSet();
+/**
+ * Record a material as engine-made (makeMaterial, terrain, vegetation clones, water); returns it.
+ * @internal
+ * @template {Material} M @param {M} m @returns {M}
+ */
+export function markEngineMade(m) { MADE.add(m); return m; }
+/**
+ * Whether the engine made this material (see markEngineMade); a game's `new THREE.*Material` is false.
+ * @internal
+ * @param {Material} m @returns {boolean}
+ */
+export function isEngineMade(m) { return MADE.has(m); }
+
 // ---------- shadows follow vertex-moving patches ----------
 // Depth / distance materials carrying the material's vertex-moving patches; undefined when nothing moves. Cached per material
 // and kind; patchMaterial and material.dispose() drop (and dispose) the cached ones, so patches added later are picked up.
@@ -226,7 +322,9 @@ function shadowMaterial(material, kind) {
   let byKind = shadowMats.get(material);
   if (!byKind) shadowMats.set(material, byKind = {});
   if (kind in byKind) return byKind[kind];
-  const moving = LISTS.get(material).filter(p => p.shadow).map(p => ({ ...p, needs: { data: p.needs?.data }, conflicts: undefined, glsl: { vertex: p.glsl?.vertex } }));
+  // shadowPosition 槽的代码只进影子材质，替掉同一补丁的 position 代码（影子要和颜色不同步时用）
+  const moving = LISTS.get(material).filter(p => p.shadow).map(p => ({ ...p, needs: { data: p.needs?.data }, conflicts: undefined,
+    glsl: { vertex: p.shadowVertex ? { ...p.glsl?.vertex, ...p.shadowVertex } : p.glsl?.vertex } }));
   // three copies side, alphaTest, map and clipping from the drawn material onto the depth material on every draw
   const base = kind === 'depth' ? new THREE.MeshDepthMaterial() : new THREE.MeshDistanceMaterial();
   deriving = true;   // vertex-only copies of patches already checked on the source material
@@ -237,6 +335,9 @@ function shadowMaterial(material, kind) {
 // however the mesh was built (game code, level load, instancing, a swapped material); an explicit assignment still wins. It must be
 // on Mesh.prototype before any mesh exists (Object3D's constructor assigns both, which would otherwise make own properties).
 // Explicit values live under a global symbol, so a second copy of this file (hot reload) redefining the accessor loses none.
+// A second copy of the ENGINE (another path) still breaks the first copy's moving shadows (its shadowMaterial is no longer the one
+// asked), so noteCopy says so once, with both paths and how to dedupe (core/copies.js).
+{ const w = noteCopy({ version: VERSION, url: import.meta.url }); if (w) warnOnce(w); }
 for (const [prop, kind] of [['customDepthMaterial', 'depth'], ['customDistanceMaterial', 'distance']]) {
   const own = Symbol.for('threedog.' + prop);
   Object.defineProperty(THREE.Mesh.prototype, prop, {

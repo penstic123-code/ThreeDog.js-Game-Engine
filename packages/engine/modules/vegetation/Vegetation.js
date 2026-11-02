@@ -1,16 +1,34 @@
 // Vegetation module: defines what to plant, where, how far before switching to low-poly, and how far before not drawing. Models (the look) come from the game
-// or style pack.
+// or style.
 import * as THREE from 'three';
 import { fromModel } from './modelGeometry.js';
+import { isModelName, vegetationModel } from '../../core/namedModel.js';
 import { makeMaterial, applyEffects } from '../../render/materials.js';
-import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.js';
+import { warnMissing } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+import { reportError } from '../../core/errors.js';
 import { xzOf } from '../../core/math.js';
 import { GroundChunks } from './groundChunks.js';
 import { swayOf } from './lookWind.js';
 import { fadeBand, nearFadePatch } from './nearFade.js';
-// parameters read by vegetation.add(); keys inside rule (sent to the worker thread)
-const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided', 'fade'];
+import { makeDensity, thin } from './densityMap.js';
+import { codedError } from '../../core/errorHints.js';
+// parameters read by vegetation.define(); keys inside rule (sent to the worker thread)
+const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'positions', 'densityMap', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided', 'fade'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
+// rule keys that only filter random attempts: with positions the game already chose every spot, so naming one is a mistake, not a no-op
+const SCATTER_ONLY = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'biomes', 'avoidFlat'];
+
+// positions: [[x, z], [x, z, scale], [x, z, scale, yaw], ...] in world metres / size multiplier / radians. Checked here on the main thread
+// because the list travels to the terrain worker as plain data, where a bad entry would only show up as a missing plant
+function checkPositions(label, list, rule) {
+  if (!Array.isArray(list)) throw codedError('vegetation-option', `${label}: positions is an array of [x, z] or [x, z, scale, yaw] entries`);
+  list.forEach((p, i) => {
+    if (!Array.isArray(p) || p.length < 2 || p.length > 4 || !p.every(Number.isFinite)) throw codedError('vegetation-option', `${label}: positions[${i}] = ${JSON.stringify(p)}; each entry is [x, z], [x, z, scale] or [x, z, scale, yaw] (finite numbers)`);
+  });
+  const clash = SCATTER_ONLY.filter(k => rule && k in rule);
+  if (clash.length) throw codedError('vegetation-option', `${label}: rule.${clash.join(' / rule.')} only filters random placement and does not apply to positions (every listed spot is planted). Drop it, or add a second species for the scattered ones`);
+}
 
 // Single-instance removal/restore (chop a tree, mine a rock): records are owned by vegetation and saved with the save (save key 'vegetation', entry
 // 'veg:<name>:<cx>,<cz>:<id>'), and reapplied when a chunk reloads.
@@ -35,11 +53,16 @@ export class Vegetation {
     this.engine = engine; this.species = new Map();
     // where it grows: on terrain chunks when the terrain module is installed (placed in its workers), else on vegetation's own chunks over
     // whatever provides the ground (a level, a code-built ground, flat). Both hosts keep chunks of one shape, so everything below is shared
-    if (engine.terrain && Object.keys(opts).length) throw new Error(`vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
+    if (engine.terrain && Object.keys(opts).length) throw codedError('vegetation-option', `vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
     /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
     this.host = engine.terrain ?? new GroundChunks(engine, this, opts);
     this._removed = new Map();   // 'name:cx,cz' -> Map(id -> regrow time (clock game seconds), null = permanent)
     this._acc = 0;
+    this._pending = [];   // density images still loading (densityMap.url); the module's init waits for them
+    this._initDone = false;   // set when init took _pending: an image of a species added later is not awaited, so its error is caught where it is added
+    // dev asset hot swap (core/assetHot.js): a species made from a swapped model is added again with the new geometry / materials. Why here and
+    // not in the generic scene walk: a species' materials are patched copies (wind, season) and its geometry may be merged from a model
+    engine.assets.onSwap?.(s => this._swapped(s));
     engine.saves.register('vegetation', {
       save: () => {
         const removed = {};
@@ -64,11 +87,16 @@ export class Vegetation {
    * @param {string} name
    * @param {object} o
    *   geometry      high-detail model (this or model is required)
-   *   model         Object3D with one material per mesh (e.g. assets.model('oak')): trunk and leaves keep their own materials, still one draw per part
+   *   model         a model name from an asset pack ('pine' or ['flower', color], as in content: then add returns a Promise of the species), or an
+   *                 Object3D with one material per mesh (e.g. assets.model('oak')): trunk and leaves keep their own materials, still one draw per part
    * lodGeometry low-detail model (optional), used beyond the lodRing ring; with model it is a geometry (drawn with the first material) or an Object3D with the
    * same mesh order
    *   rule          placement rule: perChunk attempts per chunk, minHeight/maxHeight, maxSlope, cluster('forest'|'meadow'|'none'),
    *                 scale[min,max], stretch[min,max], sink, tintJitter, tints[{color:[r,g,b],chance}]
+   *   positions     the game's own spots instead of random attempts: [[x, z], [x, z, scale, yaw], ...] world metres; each is planted at the ground
+   *                 height (rule's scale / stretch / sink / tints / collider still apply; the scatter filters are refused). Stable id = list index
+   *   densityMap    how much survives per spot, 0..1: (x, z) => 0..1, or a gray image { url | data + width + height, size: [w, l], center?, outside? }
+   *                 (the keys of terrain({ heightmap })). Thins the rule's or the positions' placement; call rebuild() after a function's inputs change
    *   wind          wind sway amplitude (0 disables)
    *   nearOnly      generate only near the player (grass, flowers)
    *   maxRing       not drawn beyond this ring count
@@ -76,36 +104,94 @@ export class Vegetation {
    *                 nearOnly, end = maxRing x chunk size; false = hard edge; { start, end } sets the band)
    *   lodRing       switch to low-poly beyond this ring count
    *   castShadow / shadowRing  whether to cast shadows, and within how many rings
-   *   material      custom material, any three.js material (optional, default is the style pack's 'vegetation' role); wind, cloud
+   *   material      custom material, any three.js material (optional, default is the style's 'vegetation' role); wind, cloud
    *                 shadows and season tint are added to it (and its shadow sways) unless effects: false
    */
-  add(name, o) {
-    checkOptions(`vegetation.add('${name}')`, o, ADD_KEYS);
-    checkOptions(`vegetation.add('${name}').rule`, o.rule, RULE_KEYS);
-    const sw = swayOf(this.engine), wind = o.wind && sw ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // look.wind 'sway' (style.wind.glsl or a game's patch) replaces the sway shape
+  define(name, o) {
+    readParams(`vegetation.define('${name}')`, keysSchema(ADD_KEYS), o);
+    // a model name ('pine' / ['flower', color]) means what it means in content: resolved through the same vegetationModel (cache, bake, file or
+    // generator), then added as if the geometry / Object3D had been passed. Returns a Promise of the species then; start waits for it like a density image
+    if (isModelName(o.model) || isModelName(o.lodGeometry)) {
+      const p = Promise.all([isModelName(o.model) ? vegetationModel(this.engine, o.model) : { model: o.model }, isModelName(o.lodGeometry) ? vegetationModel(this.engine, o.lodGeometry) : null])
+        .then(([main, low]) => {
+          if (this.engine.disposed) return null;
+          const { model: _m, ...rest } = o;
+          return this.define(name, { ...rest, ...(main.model ? { model: main.model } : { geometry: main.geometry ?? o.geometry }), ...(low && { lodGeometry: low.model ?? low.geometry }) });
+        });
+      if (!this._initDone) this._pending.push(p);
+      else p.catch(err => reportError(this.engine, err, `vegetation.define('${name}') model`, { soft: true }));
+      return p;
+    }
+    readParams(`vegetation.define('${name}').rule`, keysSchema(RULE_KEYS), o.rule);
+    if (o.positions != null) checkPositions(`vegetation.define('${name}')`, o.positions, o.rule);
+    const density = o.densityMap != null ? makeDensity(o.densityMap, `vegetation.define('${name}')`) : null;
+    const sw = swayOf(this.engine), wind = o.wind && sw ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // look.wind 'sway' (a game's engine.look.wind.patch('sway', ...)) replaces the sway shape
     // distance fade of near-only species (nearFade.js): on by default for them, fade: false keeps the hard ring edge, { start, end } sets the band in metres
-    if (o.fade && typeof o.fade === 'object') checkOptions(`vegetation.add('${name}').fade`, o.fade, ['start', 'end']);
+    if (o.fade && typeof o.fade === 'object') readParams(`vegetation.define('${name}').fade`, keysSchema(['start', 'end']), o.fade);
     const maxRing = o.maxRing ?? (o.nearOnly ? 1 : 99);
     const band = o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.CHUNK), nf = band && nearFadePatch(band);
     const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage', patches: nf ? [nf.patch] : undefined });
-    const mdl = o.model && fromModel(o.model, `vegetation.add('${name}')`);
-    let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, `vegetation.add('${name}').lodGeometry`).geometry : o.lodGeometry || null;
+    const mdl = o.model && fromModel(o.model, `vegetation.define('${name}')`);
+    let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, `vegetation.define('${name}').lodGeometry`).geometry : o.lodGeometry || null;
     if (mdl && lod && !lod.groups.length) { lod = lod.clone(); lod.addGroup(0, Infinity, 0); }   // a material array draws nothing without groups
     const sp = {
       name, geometry: mdl ? mdl.geometry : o.geometry, lodGeometry: lod,
-      rule: { salt: hashName(name), ...(o.rule || {}) },   // random seed from the name: placement is unaffected by registration order
+      // random seed from the name: placement is unaffected by registration order. positions rides inside the rule because the rule is what
+      // reaches the placer (terrain worker or ground chunks), and a list of numbers travels as plain data
+      rule: { salt: hashName(name), ...(o.rule || {}), ...(o.positions != null ? { positions: o.positions } : {}) },
+      density,   // densityMap sampler (main thread only: a function may read game state), applied in mount()
       nearOnly: !!o.nearOnly, maxRing, fade: band, fadeUniforms: nf?.uniforms ?? null, lodRing: o.lodRing ?? 1,
       castShadow: o.castShadow ?? !o.nearOnly, shadowRing: o.shadowRing ?? 1, receiveShadow: o.receiveShadow ?? true,
       material: mdl ? mdl.materials.map(fx)
         : fx(o.material ?? makeMaterial('vegetation', { vertexColors: true, side: o.doubleSided ? THREE.DoubleSide : THREE.FrontSide }, this.engine)),
     };
+    sp.source = o;   // what it was made from: a hot swap adds it again with the new model (_swapped)
     this.species.set(name, sp);
     this.host.registerSpecies(name, sp.rule);
+    // a density image still loading: this species places nothing until it is in, then every chunk is placed again. The module's init waits
+    // for those added before start, so a game never opens on a bare map; one added later fills in when its image arrives
+    if (density?.pending) {
+      // the image may arrive after engine.dispose(): then chunks and meshes are gone, so no rebuild
+      const p = density.pending.then(() => { if (!this.engine.disposed && this.species.get(name) === sp) this.host.rebuild(); });
+      // only species added before init took _pending are awaited by init (a failure fails start); later ones nobody awaits, so report once
+      // (soft: the species just stays empty, gameplay is not frozen for a missing image)
+      if (!this._initDone) this._pending.push(p);
+      else p.catch(err => reportError(this.engine, err, `vegetation.define('${name}') densityMap`, { soft: true }));
+    }
     return sp;
   }
+  /** @internal hot swap: species whose geometry or model meshes were swapped are added again (the chunks rebuild); returns { name: 1 } */
+  _swapped({ geometry, material }) {
+    const out = {};
+    const remap = v => {
+      if (v?.isBufferGeometry) return geometry.get(v)?.to ?? v;
+      if (!v?.isObject3D) return v;
+      const c = v.clone();
+      c.traverse(m => {
+        if (!m.isMesh) return;
+        m.geometry = geometry.get(m.geometry)?.to ?? m.geometry;
+        m.material = Array.isArray(m.material) ? m.material.map(x => material.get(x)?.to ?? x) : material.get(m.material)?.to ?? m.material;
+      });
+      return c;
+    };
+    const hit = v => {
+      if (v?.isBufferGeometry) return geometry.has(v);
+      let h = false; v?.traverse?.(m => { if (m.isMesh && (geometry.has(m.geometry) || [].concat(m.material).some(x => material.has(x)))) h = true; });
+      return h;
+    };
+    for (const sp of [...this.species.values()]) {
+      const o = sp.source;
+      if (!o || !(hit(o.geometry) || hit(o.model) || hit(o.lodGeometry))) continue;
+      this.define(sp.name, { ...o, ...(o.geometry && { geometry: remap(o.geometry) }), ...(o.model && { model: remap(o.model) }), ...(o.lodGeometry && { lodGeometry: remap(o.lodGeometry) }) });
+      out[sp.name] = 1;
+    }
+    return out;
+  }
+  /** @internal module init: density images of species added before start */
+  async whenLoaded() { const p = this._pending; this._pending = []; this._initDone = true; await Promise.all(p); }
   /**
-   * Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed
-   * automatically
+   * Place every chunk again: after changing the ground behind the same provider (a ground function reading game state), or what a densityMap
+   * function reads. A new setGround or level is followed automatically
    */
   rebuild() { this.host.rebuild(); }
   get(name) { return this.species.get(name); }
@@ -114,7 +200,7 @@ export class Vegetation {
    * Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default,
    * larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones
    * @example engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk
-   * @param {string} name species name given to vegetation.add
+   * @param {string} name species name given to vegetation.define
    * @param {number} ring chunk rings, 0 or more
    * @returns {void}
    */
@@ -171,7 +257,7 @@ export class Vegetation {
    * null
    */
   instanceAt(position, opts = {}) {
-    checkOptionsArg('vegetation.instanceAt()', opts, ['radius', 'species']);
+    readParams('vegetation.instanceAt()', keysSchema(['radius', 'species']), opts);
     const [x, z] = xzOf(position), { radius = 2, species = null } = typeof opts === 'object' && opts ? opts : {};
     const T = this.host, CH = T.CHUNK;
     let best = null, bestD = radius * radius;
@@ -194,10 +280,14 @@ export class Vegetation {
 
   /** @internal chunk plumbing (terrain chunks and ground chunks): upload one species' placement result r into chunk c as an InstancedMesh */
   mount(c, name, r) {
+    const sp = this.species.get(name);
+    // densityMap thins here, before the colliders are taken, so a dropped plant blocks nothing; survivors keep their stable ids
+    if (sp?.density) r = thin(r, c.cx * this.host.CHUNK, c.cz * this.host.CHUNK, sp.density.at, sp.rule.salt);
     if (r.k && r.k.length) c.colliders[name] = r.k; else delete c.colliders[name];
     (c.collidersAll ||= {})[name] = c.colliders[name];   // original collision circles (before felled trees are filtered), for single-tree removal
-    if (r.n === 0) return;
-    const t0 = performance.now(), sp = this.species.get(name);   // measure: the 'build' stage of engine.budget.cost
+    // 一株不剩（地形挖过、densityMap 疏掉全部）：旧网格也要拆掉，否则碰撞已删、植物却悬在原处。在 mount 里处理，调用方（地形编辑、换地面）不用各自记得
+    if (r.n === 0) { if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); delete c.veg[name]; } return; }
+    const t0 = performance.now();   // measure: the 'build' stage of engine.budget.cost
     const im = new THREE.InstancedMesh(sp.geometry, sp.material, r.n);
     im.instanceMatrix.array.set(r.m); im.instanceMatrix.needsUpdate = true;
     im.instanceColor = new THREE.InstancedBufferAttribute(r.c, 3);

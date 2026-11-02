@@ -1,4 +1,5 @@
-// HLOD: merge far-away buildings into a few proxy meshes, show originals when near; fewer draw calls.
+// HLOD: far buildings as a few proxy meshes.
+// Merges far-away buildings into proxy meshes and shows the originals when near: fewer draw calls.
 //   engine.use(level({ url }), hlod());              // default: handles the level automatically (on level:loaded)
 //   engine.hlod.add(group, { cell: 64, near: 160 }); // or register manually
 // How: split into cells of `cell` meters (default = engine.stream cell size); per cell, meshes sharing a material are baked to world space and merged into one proxy mesh;
@@ -13,7 +14,7 @@
 // After install, engine.hlod: add() returns a handle { cells, ready (boolean: all proxies merged), whenReady (Promise), remove() }; each cell is { key, proxy, originals, center, far }.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { checkOptions } from '../../core/validate.js';
+
 import { readParams, keysSchema } from '../../core/params.js';
 import { movesVertices } from '../../render/patches.js';
 /** @import { ModuleDef } from '../../types/core' */
@@ -75,7 +76,7 @@ export function hlod(opts = {}) {
     cells: [],
     /** Register objects (root or array) and merge them per cell into proxies; returns handle { cells, ready, whenReady, remove() } */
     add(target, o = {}) {
-      checkOptions('hlod.add()', o, ADD_KEYS);
+      readParams('hlod.add()', keysSchema(ADD_KEYS), o);
       const { cell = e.stream.cellSize, near = 160, castShadow = false, include = null } = { ...defaults, ...o };
       const roots = [].concat(target);
       for (const r of roots) r.updateMatrixWorld(true);

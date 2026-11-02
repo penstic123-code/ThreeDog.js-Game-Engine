@@ -1,7 +1,7 @@
 // Action example (examples/action, page /action.html): the combat rules are the example's ops, driven here by real input and by ops.
 // Guard: walking with W reaches the slime, Mouse0 swings (through a real pointer lock: setPointerCapture once threw InvalidStateError while locked),
 // the slime loses hp, dies, leaves a drop that E picks up into the bag; save / load restores hp, bag and the slime; every death mode works;
-// the page runs with no style pack (gray placeholders).
+// the page runs with no style (gray placeholders).
 const READY = { timeout: 60000 };
 const open = async (page, q = '') => { await page.goto(new URL('/action.html' + q, page.url()).href); await page.waitForFunction(() => window.engine?.stateApplied && engine.world.ready, null, READY); };
 const state = () => {
@@ -71,13 +71,13 @@ export const specs = [
 
       // Death by the slime's own AI (fixed steps only): stand still mid-fight until hp runs out; default mode respawns at the spawn point
       await ev(() => engine.saves.load('fight'));
-      s = await ev(() => { engine.pause(); engine.step(12, { render: false }); const r = { ...engine.describe().action, p: engine.player.position.clone() }; engine.resume(); return r; });
+      s = await ev(() => { engine.pause(); engine.step(12, { render: false }); const r = { ...engine.describe().action, p: engine.player.position.clone() }; engine._resume(); return r; });
       check('the slime attacks on its own and the player dies, then respawns at full hp', s.deaths >= 1 && !s.over && s.hp > 0, JSON.stringify(s));
       check('enemy.attack ran with the slime as actor', await ev(() => engine.ops.recent('enemy.attack').some(r => r.ok && r.actor === 'slime-1')));
     },
   },
   {
-    name: 'Action example: death modes gameover (R retries) and restart (room reset), and no style pack',
+    name: 'Action example: death modes gameover (R retries) and restart (room reset), and no style',
     url: '/action.html?death=gameover',
     async run({ page, check, ev, frames }) {
       await page.waitForFunction(() => engine.world.ready, null, READY);
@@ -96,8 +96,8 @@ export const specs = [
 
       await open(page, '?style=none');
       await frames(3);
-      check('no style pack: the room and the slime still build (gray placeholders)', await ev(() => !engine.style?.action && ['floor', 'slime-1'].every(id => !!engine.world.view(id))));
-      check('no style pack: attacking still works', await ev(() => { engine.player.placeAt({ x: 0, z: 1.6 }); return __t.until(() => engine.ops.can('player.attack').ok).then(() => engine.ops.run('player.attack').ok); }));
+      check('no style: the room and the slime still build (gray placeholders)', await ev(() => !engine.style?.action && ['floor', 'slime-1'].every(id => !!engine.world.view(id))));
+      check('no style: attacking still works', await ev(() => { engine.player.placeAt({ x: 0, z: 1.6 }); return __t.until(() => engine.ops.can('player.attack').ok).then(() => engine.ops.run('player.attack').ok); }));
     },
   },
 ];

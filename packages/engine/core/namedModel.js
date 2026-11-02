@@ -1,0 +1,70 @@
+// A model, used by name: the one path for "a model made in code (or a file), reused by name". Content (props, templates, vegetation), pickups and
+// vegetation.define all resolve a model name here, so caching (baked file -> dev cache -> build), the per-name prototype and the shadow rule exist once.
+// It lives in core because several modules need it and none of them owns it (content, inventory, vegetation): no module depends on another for it.
+import * as THREE from 'three';
+import { makeMaterial } from '../render/materials.js';
+import { shadowDefaults } from './assetEntry.js';
+import { paramValues } from './assetManifest.js';
+
+/** One value or a list, as a list @internal */
+export const list = v => (Array.isArray(v) ? v : [v]);
+
+/**
+ * A model name (name or [name, params...]) whose asset entry is a generator (an asset pack's procedural model) goes through assets.cached:
+ * name = model name, params count into the cache key. Returns a Promise (geometry or Object3D); null for a file model or an unknown name (assets.model takes those)
+ */
+export function cachedModel(e, m) {
+  const [name, ...args0] = list(m), fn = e.assets.builder(name);
+  if (!fn) return null;
+  // every model asked for by name is remembered, so a dev hot swap (core/assetHot.js) can build the same name + params list again
+  const made = (e.assets._made ||= new Map());
+  (made.get(name) ?? made.set(name, new Map()).get(name)).set(JSON.stringify(m), m);
+  // a generator with a params schema gets one object: defaults < dev panel values < the call's own object (assetManifest.js paramValues)
+  const entry = e.assets.entries.get(name), args = entry?.schema ? [paramValues(entry, args0[0])] : args0;
+  // pass the generator function to cached as is (dev cache hashes its source); wrap only when there are several params
+  return args.length > 1 ? e.assets.cached(name, function (p) { return fn.apply(this, p); }, args) : e.assets.cached(name, fn, args[0]);
+}
+
+/** A model name in model / lod position: 'pine' or ['flower', 0xff0000] (content data and vegetation.define take the same form) @internal */
+export const isModelName = m => typeof m === 'string' || Array.isArray(m) && typeof m[0] === 'string';
+/**
+ * A vegetation model by name: { geometry } for a generator that returns geometry or for a file model (its first mesh), { model } for a generator
+ * that returns an Object3D (one material per mesh kept). content's vegetation table and vegetation.define(name, { model: 'pine' }) both resolve here,
+ * so a name means the same thing in data and in code. @internal
+ */
+export async function vegetationModel(e, m) {
+  const r = await (cachedModel(e, m) ?? e.assets.geometry(list(m)[0]));
+  return r?.isObject3D ? { model: r } : { geometry: r };
+}
+
+// One prototype per model name: a generator entry -> assets.cached (baked file / dev cache); a file entry -> assets.model. Content names models only (no paths).
+// 这是"代码做的模型按名字复用"的唯一入口：content 的 props / 模板 / 植被和地上的拾取物都从这里拿，所以缓存、bake、影子规则只有一套。
+const protos = new WeakMap();   // owner (engine.content, or the inventory for pickups) → Map(model key → Promise<{ obj, size, center, fromGeometry }>)
+const owners = new WeakMap();   // engine → Set(owner): a hot swap walks every owner's prototypes of a changed name
+/** Every prototype cache of this engine: [{ api, cache }] (cache: model key → Promise of the prototype). For core/assetHot.js @internal */
+export const protoCaches = e => [...(owners.get(e) ?? [])].map(api => ({ api, cache: protos.get(api) }));
+/**
+ * The shared prototype of a model name (or [name, ...params]): { obj, size, center, fromGeometry }. fromGeometry: the generator returned a bare
+ * geometry, wrapped here in a mesh of the 'prop' role; a caller with its own role (pickups: 'pickup' in the item's color) swaps that material. @internal
+ */
+export function protoOf(e, api, model) {
+  if (!protos.has(api)) protos.set(api, new Map());
+  (owners.get(e) ?? owners.set(e, new Set()).get(e)).add(api);
+  const cache = protos.get(api), key = JSON.stringify(model);
+  if (!cache.has(key)) {
+    const gen = cachedModel(e, model);
+    cache.set(key, (gen ? gen.then(r => {
+      const p = r.isObject3D ? r : new THREE.Mesh(r, makeMaterial('prop', { vertexColors: !!r.attributes.color }, e));
+      if (!r.isObject3D) p.userData.fromGeometry = true;
+      // the generator's own castShadow / receiveShadow are kept (a decal or flat rug that must not cast); the manifest entry can set them;
+      // a generator that set none gets cast + receive. Same rule as assets.model (core/assetEntry.js shadowDefaults)
+      return shadowDefaults(p, e.assets.entries.get(list(model)[0])?.opts);
+    }) : e.assets.model(list(model)[0])).then(obj => {
+      const box = new THREE.Box3().setFromObject(obj);   // collision and the "build within what distance" check both use the prototype's bounding box, computed once
+      obj.userData.modelKey = key;   // copies carry it (clone copies userData): a hot swap whose new model has other parts finds them by it
+      return { obj, size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), fromGeometry: !!obj.userData.fromGeometry };
+    }));
+  }
+  return cache.get(key);
+}
+

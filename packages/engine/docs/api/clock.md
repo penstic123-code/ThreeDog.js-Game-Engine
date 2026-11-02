@@ -1,7 +1,8 @@
-# engine.clock (Clock) — engine.clock: game seconds and "after how long / every how long"
+# engine.clock (Clock) — engine.clock: calendar seconds and "after how long / every how long"
 
-- `clock.after(seconds: number, fnOrEvent: (() => void) | string, data?: any) → Handle` — Call fn after seconds game seconds; if an event name is passed, the event is emitted when due (with data, can be saved)
-- `clock.every(seconds: number, fn: () => void) → Handle` — Call once every seconds game seconds
+- `clock.after(seconds: number, fnOrEvent: (() => void) | string, data?: any, opts?: { channel?: string }) → Handle` — Call fn after seconds calendar seconds; if an event name is passed, the event is emitted when due (with data, can be saved). { channel } counts that time channel's seconds instead (a poison tick that slows down in bullet time)
+- `clock.every(seconds: number, fn: () => void) → Handle` — Call once every seconds calendar seconds
 - Properties:
-  - `now: number` Game seconds = fixed-step seconds x clock.timeScale (the time scale is 1 without sky), does not advance while paused / frozen, saved with the game; one sky day = sky.dayLength game seconds
-  - `timeScale: number` Game-time speed: game seconds per fixed-step second (default 1; the sky's time of day follows it). `engine.clock.timeScale = 60` makes a minute pass per second
+  - `now: number` Calendar seconds = world-channel seconds x clock.rate, does not advance while paused / frozen, saved with the game; one calendar day = calendar.dayLength calendar seconds
+  - `rate: number` Calendar seconds per world-channel second (default 1; 0 stops the calendar, sky included). Read-only: change it with `engine.mod('clock.rate', { owner: 'game', set: 60 })` (a minute per second); the handle's remove() undoes it
+  - `speed: number` Calendar seconds per real second right now (rate x the world channel's speed)

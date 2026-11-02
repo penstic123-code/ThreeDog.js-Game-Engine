@@ -8,9 +8,11 @@
 //   6. streaming into a new area: ms per stage of applying background results (transit, build, collider, upload, stream)
 // Run one section only: npm run perf -- --only=props (sections: native, world, startup, props, stream)
 // Terrain shading for the stream section: npm run perf -- --only=stream --shading=texture
-// With software rendering (swiftshader) GPU work counts as CPU time, so only look at relative differences. Frame count: npm run perf -- 120
+// Renderer: the hardware GPU when headless can reach it, else SwiftShader (--gpu / --software force one); the first line says which. Under SwiftShader
+// GPU work counts as CPU time, so only look at relative differences. Frame count: npm run perf -- 120. Load ramps per axis: threedog stress
 process.env.THREEDOG_TEST = '1';
-import { launchBrowser, buildAndPreview } from './browser.mjs';
+import { launchBrowser, buildAndPreview, newGamePage } from './browser.mjs';
+import { waitEngine } from './wait-engine.mjs';
 import { ENGINE } from './paths.mjs';
 
 // It measures the engine package (test pages in tests/perf/ and the two examples), regardless of the directory it is run from
@@ -19,13 +21,15 @@ const SHADING = process.argv.find(a => a.startsWith('--shading='))?.slice(10);  
 const FRAMES = +(process.argv.slice(2).find(a => /^\d+$/.test(a)) || 60);
 const server = await buildAndPreview(ENGINE), base = server.base;
 // A fresh browser for every page (leftover work in the software-rendering GPU process from the previous page would slow the next one)
+let said = false;
 async function open(url) {
-  const browser = await launchBrowser();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const browser = await launchBrowser({ prefer: 'gpu' });
+  if (!said) { said = true; console.log(`Renderer: ${browser.render.kind}${browser.render.renderer ? ` (${browser.render.renderer})` : ''}`); }
+  const page = await newGamePage(browser);
   page.close = () => browser.close();
   page.on('pageerror', e => console.log('  page error', String(e)));
   await page.goto(base + url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await page.waitForFunction(() => window.engine?.ready, null, { timeout: 120000 });
+  await waitEngine(page, { field: 'ready', timeout: 120000 });   // the shared wait: a page that threw fails at once with the engine's fix
   return page;
 }
 // Run each item 3 times and take the median (the first run often includes one-time costs such as shader compilation)

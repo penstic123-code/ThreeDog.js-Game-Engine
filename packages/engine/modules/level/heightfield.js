@@ -11,6 +11,8 @@
 // height(x, z, refY) with a reference height picks the highest layer not above refY + stepUp.
 import * as THREE from 'three';
 import { MOVEMENT_DEFAULTS } from '../../core/movement.js';
+import { warnOnce } from '../../core/validate.js';
+import { coded } from '../../core/errorHints.js';
 
 // Step-height default comes from the shared movement params (core/movement.js); level passes engine.movement.stepHeight, don't hardcode it elsewhere
 const STEP_UP = MOVEMENT_DEFAULTS.stepHeight, LAYER_GAP = MOVEMENT_DEFAULTS.height;   // step height, min gap between layers (character height)
@@ -37,7 +39,7 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
     if (nx * nz <= maxCells) break;
     cell *= 1.5;
   }
-  if (cell !== cellSize) console.warn(`Level too large; heightfield cell enlarged from ${cellSize}m to ${cell.toFixed(2)}m`);
+  if (cell !== cellSize) warnOnce(coded('level-size', `Level too large; heightfield cell enlarged from ${cellSize}m to ${cell.toFixed(2)}m`));
   const minX = bounds.min.x, minZ = bounds.min.z;
   const H = new Float32Array(nx * nz).fill(-Infinity);
   const T = new Uint16Array(nx * nz);          // ground type index into the types array

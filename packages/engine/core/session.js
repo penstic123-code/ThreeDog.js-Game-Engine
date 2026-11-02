@@ -1,5 +1,5 @@
 // engine.session: one playthrough, from "new game" or "load" until the next one. Starting a playthrough leaves nothing of the previous one behind.
-//   engine.session.newGame()             // the state right after start() (world, containers, vars, quests, clock, sky, weather, random...), as if the page had just opened
+//   engine.session.newGame()             // the state right after start() (world, containers, vars, quests, clock, calendar, weather, random...), as if the page had just opened
 //   await engine.session.load('slot1')    // continue, or retry from a checkpoint: the new-game state with the save on top (a part the save lacks gets its new-game state)
 //   engine.session.quit()                // back to the title screen with a clean slate (the title's Start calls newGame)
 //   engine.session.track(handle)          // a listener / timer / hook the game adds during play: removed when the playthrough ends
@@ -10,6 +10,7 @@
 // a running engine.skip (cancelled), background results not yet applied (commits: worker / job results requested in the old playthrough never land), and every
 // save part (the state captured when start() finished is applied). Modules end their own part on 'session:end' (a cutscene is skipped, the music stops),
 // and the camera starts over on 'session:start'. Listeners and hooks the game registered at boot stay: they belong to the game, not the playthrough.
+// engine.elapsed / engine.time.real start again from 0, and physics (rigid) rebuilds its world (velocities, sleep, solver caches), as on a fresh page.
 // Events: 'session:end' (before the reset; flow returns to its start state), 'session:start' { kind: 'new' | 'load', slot? } (after; flow goes to 'playing').
 import { codedError } from './errorHints.js';
 import { DEV as IS_DEV, warnOnce } from './validate.js';
@@ -81,7 +82,7 @@ export class Session {
     if (!this._base) return;
     const base = JSON.parse(this._base), p = this.engine.saves.providers.get(key);
     if (key in base.parts) return;
-    try { base.parts[key] = p.save(); base.versions[key] = p.version; } catch { return; }   // its save() cannot run yet: newGame leaves this part as it is
+    try { const d = p.save(); if (d == null) return; base.parts[key] = d; base.versions[key] = p.version; } catch { return; }   // its save() cannot run yet (or has nothing to save, like collectParts): newGame leaves this part as it is
     this._base = JSON.stringify(base);
   }
 
@@ -160,7 +161,15 @@ export class Session {
       this._tracked.clear();
       await new Promise(r => setTimeout(r, 0));   // main-loop: one macrotask, so what session:end listeners started (a skipped cutscene's last steps) settles first
       e.commits.invalidate();   // apply invalidates too, but a refused apply must not let old results land either
-      const ok = await apply();
+      // engine.elapsed (and the 'real' clock behind time.real / mod({ for })) start from 0 like a fresh page: a swimmer's bob, a pickup's spin and
+      // a 'real'-clock mod read it, so a new game after 10 minutes of play diverged from the same new game on a fresh page (durability audit).
+      // Before apply: the stacks part re-times its 'real' mods from the clock as it is now. Nothing in the engine keeps an elapsed stamp across this
+      // (camera failure stamps only feed describe)
+      const was = [e._elapsed, e.time._real, e._ambient, e.uniforms.uTime.value];
+      e._elapsed = 0; e.time._real = 0; e._ambient = 0; e.uniforms.uTime.value = 0;
+      let ok = false;
+      // a refused or rolled-back load leaves the game as it was, so its clocks go back too (else 'real' mods and shader time restart mid-play)
+      try { ok = await apply(); } finally { if (!ok) [e._elapsed, e.time._real, e._ambient, e.uniforms.uTime.value] = was; }
       e.clock.restoreFnTimers(this._timers);   // event timers came back with the save; function timers are exactly the boot-time ones, each with its original delay
       return ok;
     } finally { this._busy = false; }

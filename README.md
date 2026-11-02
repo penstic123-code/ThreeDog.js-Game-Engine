@@ -1,112 +1,146 @@
-# threedog.js
+<p align="center">
+  <img src="docs/brand/threedog-square.png" alt="ThreeDog.js logo: three cartoon dogs" width="240">
+</p>
 
-A web 3D game engine on three.js 0.187, in three layers (core, modules, style pack) that [packages/engine/README.md](packages/engine/README.md) lays out.
-The engine provides mechanisms and ships no art: without a style pack everything is a neutral gray placeholder. Two examples come with the repository (they use an example-only look in `packages/styles/lowpoly`, not published and not a recommendation): an open-world photography game (`/`) whose level lives entirely in content files, and a one-room action game (`/action.html`: player, enemy, drop; the combat rules are the example's own ops).
+<h1 align="center">ThreeDog.js</h1>
 
-中文说明见 [README.zh-CN.md](README.zh-CN.md).
+<p align="center">
+  A 3D game engine for the web, built on three.js and made to be used by AI coding agents.
+</p>
 
-The repository is npm workspaces: `packages/engine` (the engine package `threedog`), `packages/tools` (tools `@threedog/tools`, CLI `threedog`), `packages/styles/lowpoly` (an example-only style pack used by the examples and tests, private, not published), `packages/terrain-noise` (the optional terrain generator `@threedog/terrain-noise`), `games/*` (one folder per game).
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
-## Features
+<p align="center">
+  English · <a href="README.zh-CN.md">中文</a>
+</p>
 
-### Built for AI
-| Feature | What it does |
+<p align="center">
+  <img src="docs/brand/screens/street-rain-night.png" alt="A town street at night in the rain, lamps and windows lit" width="720">
+</p>
+
+## Why it exists
+
+An AI coding agent asked for a three.js game starts from an empty scene. Before it reaches the gameplay it has to write saving and loading, a day and night cycle, lights that follow the time of day, collision and weather, and it writes them again in the next game, a little differently each time. In a small game that only costs time. In a bigger one the pieces start to fight: the weather darkens the sky, the day cycle brightens it back, and a save made at dusk loads at noon.
+
+ThreeDog takes over those systems so they are written once and work together. The agent spends its effort on what makes the game its own, which is the rules and the look.
+
+## Design ideas
+
+**three.js stays directly writable.** Engine objects are ordinary three.js objects, so everything an agent already knows about three.js still applies. When a game sets a value itself, for example a light's intensity, the engine stops writing that value and records that the game now owns it. The game never has to fight the engine for control, and anyone asking "why is this light so bright?" gets an answer naming who set it.
+
+**The engine does three things and no more.** It coordinates systems that would otherwise disagree (time, weather, lights, saves). It takes on engineering that is hard and gets repeated in every game (streaming a large world, physics, pathfinding, saving without losing data). And it lets the agent see and check what it made. Anything three.js already does well, the engine leaves to three.js.
+
+**The engine never decides how a game looks.** Without a game's own style, everything is drawn as neutral gray placeholders. Colors, materials, sky and post effects belong to the game, so a pixel-art farm and a moody city street can sit on the same engine without either one looking like a default.
+
+## Made for AI agents
+
+Each feature below starts from a problem agents actually run into.
+
+| Problem | What the engine does |
 |---|---|
-| Layered docs | An index (`AI.md`), task recipes, and API pages generated from code comments; an AI reads only what the task needs |
-| `llms.txt` | Standard entry file that AI tools look for, with the reading order |
-| Game state as text | One call turns the whole game state into a short text summary; expand any part on demand |
-| One action API (`engine.ops`) | Player, NPC and AI actions go through the same named operations: check first, run, log, undo, replay |
-| Explains "why not" | When an action can't run, the engine says why and how to fix it (e.g. "the door is locked, needs a key") |
-| Errors with codes and fixes | Every engine error carries a stable code, a suggested fix and a docs link |
-| Drive a running game | CLI and MCP tools let an AI press keys, step time, run actions, inspect and take screenshots (Claude Code, Cursor) |
-| Text-based tests | Scenario tests and state snapshots instead of fragile screenshot comparisons |
-| Generated maps | Engine and game maps list files, content, templates, grids and events, plus what to read for this game |
-| Docs that can't go stale | Checks fail when docs mention names or paths that no longer exist, or grow too large |
+| Reading all the docs fills the agent's context before work begins | A one-page index ([AI.md](packages/engine/docs/AI.md)) has one line per task, and `threedog how "rain at night"` returns the one paragraph to read |
+| An agent guesses an API from memory and gets it slightly wrong | Errors name the correct form. A removed option such as `sky({ dayLength })` throws an error that points to the module that now owns it |
+| Two ways to do one thing, and the agent mixes them | Each task has one recommended entry, listed in a table in [CONVENTIONS.md](packages/engine/docs/CONVENTIONS.md) |
+| The agent cannot tell what the running game is doing | `threedog describe` prints the game's state as short text, and `threedog explain` says why an action cannot run (for example, the door is locked and needs a key) |
+| Checking a change means asking a person to play | The agent drives the game itself: it presses keys, steps time, runs actions and takes screenshots, from the command line or over MCP (Model Context Protocol, which tools such as Claude Code and Cursor use) |
+| An agent cannot judge its own screenshot reliably | Every screenshot comes with a look check that reports facts: which areas are blown out or too dark, which light is likely the cause and its current value. It never suggests target values, because the look belongs to the game |
 
-### Performance
-| Feature | What it does |
-|---|---|
-| Streaming world | Only the area around the player and camera is loaded; leaving an area unloads visuals but keeps its data |
-| Far-away simplification | Distant objects merge into simple proxies and switch back to detail up close |
-| Automatic batching | Repeated static models are drawn as one batch per cell (3000 props: 43x fewer draw calls in our test) |
-| Worker threads | Terrain generation, pathfinding and far simulation can run off the main thread |
-| World keeps running | Crops grow and NPCs follow schedules out of sight, at a lower cost |
-| Asset compression | One command compresses models and textures (Meshopt, WebP / KTX2) |
-| Pay only for what you use | Systems are installed on demand; unused modules cost nothing |
-| Pauses when hidden | The game pauses when the tab loses focus and does not fast-forward on return |
+## Architecture
 
-### Visuals
-| Feature | What it does |
-|---|---|
-| Style packs | Colors, shapes, lighting and post effects live in a swappable style pack; the engine itself has no default look |
-| Any art direction | The look is a style pack you write or install (`style: yourPack`, parts mix: `style: [basePack, { sky }]`); any genre, any look; `threedog new-style` starts an empty one, `style palette` / `style compare` match a reference image |
-| Optional noise terrain | `@threedog/terrain-noise`: `terrainPreset()` hills / island / canyon / plain, rivers and a biome table (world shape only, colored by whichever style pack you use) |
-| Optional post effects | `@threedog/post-effects`: `lut`, `grain`, `vignette`, `chromatic`, `dof` (off by default; adjacent ldr effects fuse into one pass), added with `postAdd(...)` |
-| Day, night and sky | Sun movement, sky colors over time, moving cloud shadows |
-| Weather and seasons | Rain and snow; plant colors change with the season |
-| Wind | Grass and trees sway |
-| Water | Waves and reflections, or plug in your own water material |
-| Post effects | Bloom, outlines, ambient occlusion and your own effects, in ordered slots |
-| Skeletal animation | Use animated glTF models exported from Blender and similar tools |
-| Art is replaceable | Characters, plants, ground and water can all use your own models and materials |
+The engine has four layers. A game installs only the modules it uses, and at every layer it can still write three.js directly.
 
-### Ready-made systems (the game decides the rules)
-| System | What it gives you |
-|---|---|
-| Saves | Save, load, new game, continue; a failed save never overwrites the old one |
-| Time | Game clock, timed events, skip time (e.g. sleep until morning) |
-| Grid placement | Farming plots, furniture, buildings, with rotation and "can it go here" checks |
-| Editable terrain | Dig, raise, flatten and repaint ground; edits are saved |
-| Object templates | Define a thing once and place it anywhere |
-| Inventory and items | Stackable items or items with their own data |
-| Dialogue and quests | Branching dialogue and quest steps, with explanations when a quest is stuck |
-| NPCs | Schedules and near / far switching |
-| Characters and physics | Movement, collision, rigid bodies, vehicles |
-| Pathfinding | Grid pathfinding and navmesh, optionally in a worker |
-| Input contexts | Menus block movement keys automatically, layer by layer |
-| Multiplayer (experimental) | Basic networked sync |
-
-### Freedom
-| Feature | What it does |
-|---|---|
-| No hard-coded controls | Keys, movement and camera can all be replaced |
-| No hard-coded UI | HUD, dialogue box, menus, inventory and loading screen are defaults you can replace or turn off |
-| Not tied to one genre | Usable for farming, action, exploration and building games |
-| It is three.js | Engine objects are native three.js objects; three.js knowledge and add-ons still apply |
-
-## Run it
-1. Install [Node.js](https://nodejs.org) (LTS).
-2. In this folder open a terminal: `npm install`, then `npm run dev`.
-3. Open the address shown in the terminal (usually http://localhost:5173).
-4. To open one game: `npm run dev -w games/<game>` (or `npm run dev -- <part of the name>`).
-
-Keys (open-world example): WASD move · Shift run · drag to turn the view · E interact · I inventory · J quests · P photo mode · Esc settings · F3 performance panel.
-
-## Minimal usage
-```js
-import { createEngine, presets, openWorld } from 'threedog';
-import { terrainPreset } from '@threedog/terrain-noise';         // optional: without it the ground is flat
-
-const engine = createEngine({ canvas: document.getElementById('view') });   // gray placeholders (box, capsule), no art
-engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));          // terrain seed and generator (without one the ground is flat); the preset installs only world and environment, add gameplay modules (dialogue, inventory, quests, photo...) yourself; or install just what you need: engine.use(world(), sky(), collision(), followCamera(), characters())
-engine.characters.createPlayer({ ...presets.player.thirdPerson });
-engine.start();
+```mermaid
+flowchart TB
+  A["AI tools: docs index, threedog how, dev bridge, MCP, screenshots with look check"]
+  B["Optional modules: open world, calendar, weather, characters, dialogue, quests, grid placement, physics, multiplayer, ..."]
+  C["Core: saves, game time, player actions, a record of who changed which value"]
+  D["three.js and Rapier physics"]
+  A --> B --> C --> D
 ```
-For a look, pass a style pack (your own or a published one): `createEngine({ canvas, style: yourPack })`.
 
-Using the published packages in your own project (outside this repository): see [packages/engine/README.md](packages/engine/README.md) (install, entry points).
+Player actions go through one named-operation API (`engine.ops`) whether a player, an NPC or the agent triggers them, so each one can be checked before it runs, logged, undone and replayed.
 
-**Global changes to three.js**: importing the engine replaces `THREE.Mesh.prototype.raycast` (three-mesh-bvh's accelerated raycast) and turns `THREE.Mesh.prototype.customDepthMaterial` into an accessor whose default is a depth material that follows the engine's wind sway. Details in [packages/engine/README.md](packages/engine/README.md#global-changes-to-threejs).
+## Gallery
+
+These screenshots come from games an AI agent built with the engine in 15-minute look tests. Nothing has been retouched. The two sets use different styles, and the style is written by the game, not shipped by the engine.
+
+| | |
+|---|---|
+| ![A town street at dusk, soft shading](docs/brand/screens/street-dusk.png) | ![The same street at night in the rain](docs/brand/screens/street-rain-night.png) |
+| A town street at dusk, with soft shading and no outlines | The same street at night in the rain, lamps and windows lit |
+| ![Desert ruins and palms at dusk, outlined cartoon style](docs/brand/screens/desert-dusk.png) | ![The same desert at night](docs/brand/screens/desert-night.png) |
+| A desert oasis at dusk, drawn with outlines and flat cartoon shading | The same place at night, with a campfire by the tent |
+| ![A desert camp and ruins at noon](docs/brand/screens/oasis-noon.png) | ![The camp at night with the fire lit](docs/brand/screens/oasis-campfire-night.png) |
+| Another desert test at noon | The same camp at night with the fire lit |
+
+## Quick start
+
+You need [Node.js](https://nodejs.org) (LTS).
+
+**A new game:**
+
+```sh
+git clone https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git
+cd ThreeDog.js-Game-Engine
+npm install
+npm run new-game -- my-game --open-world   # creates games/my-game: ground, sky, follow camera, a player
+npm run dev -- my-game                     # open the address it prints
+```
+
+The engine is not on npm yet; for now you use it from this repository.
+
+Without `--open-world`, the new game starts as a blank scene with a camera and an empty `style/` folder. It also writes a `CLAUDE.md` and a `.mcp.json`, so Claude Code opened in that folder finds the engine's docs and its MCP server by itself. Existing files are never overwritten.
+
+**Commands an agent uses while the game runs:**
+
+```sh
+npx threedog how "day and night cycle"   # which API or recipe answers a task
+npx threedog describe --full             # the game's current state as text
+npx threedog press interact              # press an action or a key in the running game
+npx threedog step 2                      # advance the game by 2 seconds
+npx threedog shot                        # a screenshot plus the look check
+```
+
+`npx threedog --help` lists every command, and [COMMANDS.md](packages/engine/docs/COMMANDS.md) explains them.
+
+**Working on the engine itself (this repository):**
+
+```sh
+npm install
+npm run new-game -- my-game --open-world   # creates games/my-game
+npm run dev -- my-game
+npm run check                              # docs, types and content checks
+npm test
+```
+
+A minimal game in code, and the two changes the engine makes to three.js globals on import, are in [packages/engine/README.md](packages/engine/README.md).
+
+## Packages
+
+| Package | What it is |
+|---|---|
+| [`threedog`](packages/engine) | The engine |
+| [`@threedog/tools`](packages/tools) | The `threedog` command line, the MCP server and the tools that drive a running game |
+| [`@threedog/post-effects`](packages/post-effects) | Optional post effects: color grading, film grain, vignette, depth of field and more |
+| [`@threedog/terrain-noise`](packages/terrain-noise) | Optional noise-based terrain: hills, islands, canyons, rivers |
+
+## Status
+
+Version 0.3 is an early release on the WebGL renderer. APIs may still change, and a WebGPU renderer is the next phase. What changed since 0.2 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.3.md](packages/engine/docs/MIGRATING-0.3.md).
 
 ## Documentation
+
 | File | Content |
 |---|---|
-| `packages/engine/docs/AI.md` | How to use the engine (written for AI assistants): reading order, entry points, conventions |
-| `CLAUDE.md`, `.claude/rules/` | Rules for developing the engine itself (Claude Code reads them first) |
-| `packages/engine/docs/API.md` + `packages/engine/docs/api/` | API index + one page per module (generated) |
-| `packages/engine/docs/recipes/` | Task-based guides: new game, NPC, items, quests, weather, importing Blender models, vehicles, animation, performance... |
-| `packages/engine/docs/CODEMAP.md` | Engine files, events, per-frame order (generated) |
-| `packages/engine/docs/THREE.md` | How to use three.js directly for what the engine lacks |
-| `packages/engine/docs/PERF.md` | How to measure performance and reference numbers |
+| [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | Where an agent starts: one line per task, pointing to the detail |
+| [packages/engine/llms.txt](packages/engine/llms.txt) | The standard entry file AI tools look for |
+| [packages/engine/docs/recipes/](packages/engine/docs/recipes) | Guides by task: a new game, NPCs, items, quests, weather, Blender models, vehicles, performance |
+| [packages/engine/docs/API.md](packages/engine/docs/API.md) | API index, generated from code comments |
+| [packages/engine/docs/THREE.md](packages/engine/docs/THREE.md) | Using three.js directly next to the engine |
+| [packages/engine/docs/PERF.md](packages/engine/docs/PERF.md) | Measuring performance |
 
-Common commands: `npm run dev` develop · `npm run check` check · `npm test` test · `npm run map` regenerate docs · `npm run perf` performance comparison · `npm run build` bundle (each workspace into its own `dist/`). For one game only add `-w games/<game>` (e.g. `npm test -w games/my-game`).
+## License
+
+[MIT](LICENSE). The logo is AI-generated; the screenshots are rendered by the engine. Asset details are in [ASSETS.md](ASSETS.md).

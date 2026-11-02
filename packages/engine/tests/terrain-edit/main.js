@@ -2,5 +2,5 @@
 import { createEngine, terrain, vegetation, collision, characters, level, rigid, settings, createTerrain, world, grids, THREE } from '../../index.js';
 
 window.threedogTerrain = { createEngine, terrain, vegetation, collision, characters, level, rigid, settings, createTerrain, world, grids, THREE };
-window.engine = createEngine({ canvas: document.getElementById('view'), headless: true, loading: false, urlState: false, saveKey: 'terrain-edit-test' });
+window.engine = createEngine({ canvas: document.getElementById('view'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'terrain-edit-test' });
 window.engine.start();

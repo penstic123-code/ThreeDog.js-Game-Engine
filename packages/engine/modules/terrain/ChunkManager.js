@@ -10,7 +10,7 @@ import { createTerrain } from './terrainGen.js';
 import { chunkHandler } from './chunkJob.js';
 import { TerrainEdits } from './terrainEdit.js';
 import { terrainMaterial } from '../../render/materials.js';
-import { chunkRing } from '../../core/streamSources.js';
+import { chunkRing, dropChunks } from '../../core/streamSources.js';
 import { chunkQueries } from './chunkQueries.js';
 import { chunkLevels, NO_VEG } from './chunkLevels.js';
 import { mountTerrain } from './mountTerrain.js';
@@ -19,7 +19,7 @@ import { disposeColorMap } from './terrainTexture.js';
 const COLLIDER_LAG = 30;   // base delay before chunk collision takes effect (fixed steps, 30 = 0.5 s), multiplied by (1 + ring)
 
 export class ChunkManager {
-  constructor(engine, terrainCfg, material = null) {
+  constructor(engine, terrainCfg, material = null, { effects = true } = {}) {
     this.engine = engine;
     this.T = createTerrain(terrainCfg);          // main-thread copy: height queries for the character and camera
     this.chunks = new Map();
@@ -35,7 +35,8 @@ export class ChunkManager {
     this._wantFor = [-1, -1];                     // view distance and _ver the pending list was last built for
     this.gen = 0;
     this.stats = { builtThisFrame: 0, applyMs: 0, queued: 0 };
-    this.terrainMat = terrainMaterial(typeof material === 'function' ? material(engine) : material, engine);
+    // effects false (terrain({ material, effects: false })): the game's material is used untouched, as look.ground.replace(m, { effects: false }) does
+    this.terrainMat = terrainMaterial(typeof material === 'function' ? material(engine) : material, engine, { effects });
     this.centers = [];                            // stream sources in chunk units: { cx, cz, R, simple } (set by update)
     this.sideMat = null;                          // shape.side.material: island sides and bottoms
     this.lowest = 0;                              // lowest island point loaded (default voidY)
@@ -103,16 +104,14 @@ export class ChunkManager {
     this.viewChunks = n;
     const d = (n - 0.3) * this.T.CHUNK, e = this.engine;
     if (this.viewFog) e.setFogFar(d);
-    else if (e.camera.far < d + 150) { e.camera.far = d + 150; e.camera.updateProjectionMatrix(); }   // chunks in view must not be clipped
+    else e.viewFar(d + 150);   // chunks in view must not be clipped (unless the game owns camera.far)
   }
   /** Vegetation density multiplier (rebuilds all chunks) */
   setDensity(d) { this.density = d; this.rebuild(); }
 
   rebuild() {
-    for (const c of this.chunks.values()) this._dispose(c);
-    this.chunks.clear();
+    dropChunks(this);
     this.ready = [];
-    this._want = [];
     this.gen++; this._ver++;
   }
 

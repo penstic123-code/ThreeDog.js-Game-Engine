@@ -1,22 +1,23 @@
 // Type check: npm run types
-// Runs TypeScript over game code (games/*, engine examples, style packs; scope = include in the root tsconfig.json) and reports misuse of the engine API:
-//   misspelled properties, wrong option names, missing or wrongly typed arguments, calls to methods that do not exist.
-// Engine types: packages/engine/index.d.ts + types/*.d.ts (hand-written) + types/generated/ (from JSDoc, see gentypes.mjs), picked up by import 'threedog'.
-// This script (1) runs tsc and turns raw errors into short file:line summaries with a fix hint, and
-//   (2) checks that index.d.ts declares every export of index.js (a missing one means the declarations are stale).
-// Web (DOM) errors (el.style.opacity = 0.5, window.game missing on Window) are only "hints": they run fine in the browser. --strict-dom makes them errors.
+// Runs tsc over game code (include in the root tsconfig.json) and reports engine API misuse (misspelled properties and options, missing or
+//   wrongly typed arguments, methods that do not exist) as short file:line summaries with a fix hint.
+// Engine types: index.d.ts + types/*.d.ts (hand-written) + types/generated/ (gentypes.mjs), via import 'threedog'.
+// Also checks that index.d.ts declares every export of index.js (a missing one means the declarations are stale).
+// Web (DOM) errors (el.style.opacity = 0.5, window.game missing) are only hints (they run fine); --strict-dom makes them errors.
+// -w game (or inside a game folder): only its errors count, the rest is a count (lib/scope.mjs)
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative, dirname, sep, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 import * as P from './paths.mjs';
+import { checkScope } from './lib/scope.mjs';
 
 const { ROOT } = P;
 const STRICT_DOM = process.argv.includes('--strict-dom');
-// --project <tsconfig>: check another config instead of the root one (the types guard test points it at a probe file with known mistakes)
+const SCOPE = checkScope(process.argv.slice(2)), ENG = SCOPE?.notEngine;
+// --project <tsconfig>: another config instead of the root one (the types guard test uses a probe file)
 // A game in its own repo without a tsconfig.json gets a default one in .threedog/ (all game .js and .d.ts, engine types through 'threedog')
 const PROJECT = process.argv.includes('--project') ? process.argv[process.argv.indexOf('--project') + 1] : existsSync(join(ROOT, 'tsconfig.json')) ? join(ROOT, 'tsconfig.json') : defaultConfig();
 const rel = p => relative(ROOT, p).split(sep).join('/');
@@ -40,10 +41,11 @@ const run = spawnSync(process.execPath, [tscBin, '-p', PROJECT, '--pretty', 'fal
 if (run.error) { console.error('✗ failed to run tsc:', run.error.message); process.exit(1); }
 const out = (run.stdout || '') + (run.stderr || '');
 
-// Declarations generated from JSDoc (packages/engine/types/generated/) must be up to date, otherwise the types games see do not match the source (monorepo only)
+// Generated declarations (types/generated/) must match the source, or games see the wrong types (monorepo only)
 if (P.MODE === 'monorepo') {
   const g = spawnSync(process.execPath, [join(P.TOOLS, 'gentypes.mjs'), '--check'], { encoding: 'utf8' });
-  if (g.status) { process.stdout.write(g.stdout + g.stderr); process.exit(1); }
+  if (g.status && ENG) SCOPE.engine(1);
+  else if (g.status) { process.stdout.write(g.stdout + g.stderr); process.exit(1); }
 }
 
 // Game files checked (the project .js files listed by --listFiles)
@@ -87,7 +89,8 @@ function typeText(t) {
   if (map[t]) return map[t];
   if (/^"[^"]*"$/.test(t)) return `string ${t}`;
   if (/^\d+(\.\d+)?$/.test(t)) return `number ${t}`;
-  if (t.startsWith('{') || t.startsWith('(')) return t.length > 60 ? 'an object/function' : t;
+  // a long object / function type is cut, not replaced: "expected an object/function, got an object/function" told nothing
+  if (t.startsWith('{') || t.startsWith('(')) return t.length > 60 ? t.slice(0, 57).replace(/;?\s*\S*$/, '') + ' … }' : t;
   return t.length > 70 ? t.slice(0, 67) + '…' : t;
 }
 
@@ -104,6 +107,9 @@ function translate(d) {
   // property does not exist
   if ((m = msg.match(/^Property '(.+?)' does not exist on type '(.+?)'\.(?: Did you mean '(.+?)'\?)?$/))) {
     const who = receiver(d);
+    // `function f(opts = {})` with no JSDoc: TypeScript takes the default as the type, so every opts.x "does not exist" although the code runs
+    if (m[2] === '{}') return `${who ?? 'this value'}.${m[1]}: ${who ? `\`${who}\`` : 'it'} has no JSDoc type, so its type was inferred from a default \`{}\` (an object with no properties). ` +
+      `Fix: /** @param {{ ${m[1]}?: number }} [${who ?? 'opts'}] */ above the function (any type you like, or {any}), or destructure with defaults: ({ ${m[1]} = … } = {})`;
     if (/Window|globalThis/.test(m[2])) return `window has no ${m[1]} (to attach a debug object write /** @type {any} */ (window).${m[1]} = …)`;
     const full = who ? `${who}.${m[1]}` : `${typeText(m[2])}.${m[1]}`;
     return `property does not exist: ${full}` + (m[3] ? `; did you mean \`${m[3]}\`?` : ` (${typeText(m[2])} has no ${m[1]})${where(m[2])}`);
@@ -127,6 +133,14 @@ function translate(d) {
     return `wrong number of arguments: expected ${m[2] ? `${m[1]}–${m[2]}` : m[1]}, got ${m[3]}`;
   if ((m = msg.match(/^Expected at least (\d+) arguments?, but got (\d+)\.$/)))
     return `wrong number of arguments: expected at least ${m[1]}, got ${m[2]}`;
+  // a call to the game's own function that destructures its parameter with no JSDoc: the inferred type makes every destructured name required
+  // ({ w: any; rough: any }), so leaving one out is reported as a type error although the code runs (the name is just undefined)
+  if ((m = msg.match(/^Argument of type '(.+?)' is not assignable to parameter of type '(\{ (?:[\w$]+(?:: any|\?: [^;{}]+); )+\})'\.$/))) {
+    const missing = d.more.map(l => l.match(/^Property '(.+?)' is missing in type/)?.[1] ?? l.match(/^Type '.+?' is missing the following properties from type '.+?': (.+)$/)?.[1]).find(Boolean);
+    const names = [...m[2].matchAll(/([\w$]+)\??: /g)].map(x => x[1]);
+    return `the argument lacks ${missing ? '`' + missing + '`' : 'some names'}: the called function destructures { ${names.join(', ')} } with no JSDoc type, so TypeScript requires every name. ` +
+      `Fix: give the name a default in the pattern ({ ${(missing ?? names[0]).split(',')[0].trim()} = … }), or document the parameter: /** @param {{ ${names.map(n => n + '?: any').join(', ')} }} opts */ (real types where you know them)`;
+  }
   // wrong type
   if ((m = msg.match(/^Argument of type '(.+?)' is not assignable to parameter of type '(.+)'\.$/)))
     return `wrong argument type: expected ${typeText(m[2])} here, got ${typeText(m[1])}` + detail(d);
@@ -150,6 +164,7 @@ function detail(d) {
     let m;
     if ((m = line.match(/^Types of property '(.+?)' are incompatible\.?$/)) || (m = line.match(/^The types of '(.+?)' are incompatible/))) return ` (the problem is in ${m[1]})`;
     if ((m = line.match(/^Object literal may only specify known properties, (?:but|and) '(.+?)' does not exist/))) return ` (unknown option ${m[1]})`;
+    if ((m = line.match(/^Property '(.+?)' is missing in type '.+?' but required in type/))) return ` (missing ${m[1]})`;
   }
   return '';
 }
@@ -168,7 +183,9 @@ for (const d of diags) {
   if (d.line && P.notGameSource(resolve(P.ROOT, d.file), P.ROOT, false)) continue;   // an error inside a dependency is not the game's
   const at = d.line ? `${d.file}:${d.line}` : d.file;
   const text = d.code ? translate(d) : d.msg;
-  if (!STRICT_DOM && d.code && isDom(d)) hints.push(`${at}  ${text}`);
+  const hint = !STRICT_DOM && d.code && isDom(d);
+  if (SCOPE?.mine(d.file) === false) SCOPE.other(d.line && d.file, hint ? 'warn' : 'error');
+  else if (hint) hints.push(`${at}  ${text}`);
   else errors.push(`${at}  ${text}`);
 }
 
@@ -217,12 +234,15 @@ else {
 // ---------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------
-// Grouped by source: examples, style packs styles, each game games/<name>
+// Grouped by source: examples, styles styles, each game games/<name>
 const group = f => P.under(f, P.EXAMPLES_REL) ? 'examples' : P.under(f, P.STYLES_REL) ? 'styles' : P.MODE === 'game' ? (f.startsWith('games/') ? f.split('/').slice(0, 2).join('/') : 'game') : f.split('/').slice(0, 2).join('/');
-console.log(`Type check: ${checked.length} game files (${[...new Set(checked.map(group))].join(', ') || 'none'})`);
+if (ENG) { SCOPE.engine(coverage.length); coverage.length = 0; }   // the engine's
+const shown = SCOPE ? checked.filter(SCOPE.mine) : checked;
+console.log(`Type check: ${shown.length} game files (${[...new Set(shown.map(group))].join(', ') || 'none'})`);
 for (const e of errors) console.log('  ✗ ' + e);
 for (const c of coverage) console.log('  ✗ ' + c);
 for (const h of hints) console.log('  ! ' + h + '  ← web (DOM) type hint, not a misuse of the engine API, does not affect running');
+SCOPE?.report();
 const n = errors.length + coverage.length;
 if (n) {
   console.log(`\n${n} errors. ✗ means the engine API is misused (or the declarations are stale); fix the code, then run npm run types again.`);

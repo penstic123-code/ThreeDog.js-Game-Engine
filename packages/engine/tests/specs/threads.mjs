@@ -5,7 +5,7 @@
 const twin = async ({ steps }) => {
   const { createEngine, world } = threedogThreads;
   const make = async threads => {
-    const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads, urlState: false, saveKey: 'thr' + threads });
+    const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, threads, urlState: false, saveKey: 'thr' + threads });
     E.use(world({ farEvery: 0.05 }));
     await E.start();
     const W = E.world;
@@ -50,7 +50,7 @@ export const specs = [
         const bad = T.lane({ create: () => new Worker('/no-such-worker.js', { type: 'module' }), local: () => m => m.x * 2 });
         const fell = await Promise.race([bad.run({ x: 21 }), new Promise(r => setTimeout(() => r('timeout'), 8000))]);
         const { createEngine } = threedogThreads;
-        const off = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads: false, urlState: false });
+        const off = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, threads: false, urlState: false });
         const offLane = off.threads.lane({ create: () => { throw new Error('must not be called'); }, local: () => m => m + 1 });
         const offVal = await offLane.run(1);
         const offSize = [off.threads.size, offLane.size]; off.dispose();
@@ -66,6 +66,28 @@ export const specs = [
       check('threads: false: size 0, the lane never calls create, the local handler answers', r.offVal === 2 && r.offSize[0] === 0 && r.offSize[1] === 0, JSON.stringify(r));
       check('closure variable in a pure function: registering it already names the variable and where it came from', /reads 'k'/.test(r.msg) && /simulate\('x'\)/.test(r.msg) && /inside the function/.test(r.msg), r.msg);
       check('async pure function is refused with a fix', /async/.test(r.asyncMsg) && /lbl/.test(r.asyncMsg), r.asyncMsg);
+    },
+  },
+  {
+    name: 'threads: a worker that never answers -- after the lane timeout its open tasks finish on the main thread, one warning (threads test page)',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const warns = [], orig = console.warn;
+        console.warn = (...a) => { warns.push(String(a[0])); orig(...a); };
+        try {
+          // the worker swallows every message: without the watchdog both runs would stay pending forever
+          const src = URL.createObjectURL(new Blob(['onmessage = () => {};'], { type: 'text/javascript' }));
+          const L = engine.threads.lane({ create: () => new Worker(src), local: () => m => m.x + 1, timeout: 300 });
+          const t0 = performance.now();
+          const got = await Promise.race([Promise.all([L.run({ x: 1 }), L.run({ x: 2 })]), new Promise(r => setTimeout(() => r('hung'), 5000))]);
+          const ms = performance.now() - t0, after = await L.run({ x: 9 });
+          L.dispose();
+          return { got, ms, after, size: L.size, warned: warns.filter(w => /no reply for 300 ms/.test(w)).length };
+        } finally { console.warn = orig; }
+      });
+      check('both tasks answered by the main-thread handler after the timeout (not before)', Array.isArray(r.got) && r.got[0] === 2 && r.got[1] === 3 && r.ms >= 290, JSON.stringify(r));
+      check('the lane stays on the main thread afterwards, exactly one warning', r.after === 10 && r.size === 0 && r.warned === 1, JSON.stringify(r));
     },
   },
   {

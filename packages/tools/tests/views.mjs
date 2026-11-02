@@ -7,13 +7,14 @@ import { ENGINE } from '../paths.mjs';
 
 const { Views } = await import(pathToFileURL(join(ENGINE, 'core/Views.js')).href);
 const { holdMethods } = await import(pathToFileURL(join(ENGINE, 'core/holds.js')).href);
-const { claims } = await import(pathToFileURL(join(ENGINE, 'core/claims.js')).href);
+const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/stacks.js')).href);
 
 export const name = 'named camera views: define / show / release';
 
 export async function run({ check }) {
   // a minimal engine with the real camera takeover (holds.js), so views cannot bypass it
-  const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60), _cameraClaims: claims({ what: 'test' }) }, Object.getOwnPropertyDescriptors(holdMethods));
+  const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60) }, Object.getOwnPropertyDescriptors(holdMethods));
+  engine.stacks = new Stacks(engine); engine.stacks.define('camera', { kind: 'top', save: false });
   const v = new Views(engine);
   const def = v.define('gate', { position: [0, 2, 10], target: [0, 2, 0], fov: 35 });
   check('defined view is listed', v.has('gate') && v.list().join() === 'gate');
@@ -31,9 +32,6 @@ export async function run({ check }) {
   check('release hands the camera back to the cutscene that held it', engine.cameraOverride?.owner === 'timeline');
   cut.remove();
   check('no holder left: the rig gets the camera', engine.cameraOverride === null);
-  const throwsRenamed = f => { try { f(); return false; } catch (e) { return e.code === 'renamed-api'; } };
-  check('assigning cameraOverride throws renamed-api', throwsRenamed(() => { engine.cameraOverride = { owner: 'legacy' }; }));
-  check('views.define({ pos }) throws renamed-api', throwsRenamed(() => v.define('old', { pos: [1, 2, 3] })) && !v.has('old'));
   def.remove();
   check('the handle define returns undeclares the view', !v.has('gate'));
   let code = null; try { v.define('x', { position: [1, 2] }); } catch (err) { code = err.code; }
@@ -42,7 +40,7 @@ export async function run({ check }) {
   // the content validator knows the kind: good views pass, each mistake is one error naming the view
   const { checkViews } = await import(pathToFileURL(join(ENGINE, '../tools/content-check/views.mjs')).href);
   const run = views => { const errs = []; checkViews({ c: { views }, err: (_, m) => errs.push(m), isObj: x => x && typeof x === 'object' && !Array.isArray(x) }); return errs; };
-  check('valid views produce no errors', run({ a: { pos: [1, 2, 3] }, b: { pos: [0, 1, 0], target: [0, 0, 0], fov: 50 } }).length === 0);
-  const e = run({ a: { pos: [1, 2] }, b: { pos: [0, 0, 0], tgt: [1, 1, 1] }, c: { pos: [0, 0, 0], fov: 400 } });
-  check('bad pos, unknown key and bad fov are each reported: ' + e.join(' | '), e.length === 3 && /"a".*pos/.test(e[0]) && /"b".*tgt/.test(e[1]) && /"c".*fov/.test(e[2]));
+  check('valid views produce no errors', run({ a: { position: [1, 2, 3] }, b: { position: [0, 1, 0], target: [0, 0, 0], fov: 50 } }).length === 0);
+  const e = run({ a: { position: [1, 2] }, b: { position: [0, 0, 0], tgt: [1, 1, 1] }, c: { position: [0, 0, 0], fov: 400 } });
+  check('bad position, unknown key and bad fov are each reported: ' + e.join(' | '), e.length === 3 && /"a".*position/.test(e[0]) && /"b".*tgt/.test(e[1]) && /"c".*fov/.test(e[2]));
 }

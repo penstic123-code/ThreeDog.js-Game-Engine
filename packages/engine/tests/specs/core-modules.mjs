@@ -5,16 +5,17 @@ const PAGE = '/tests/threads/';
 
 export const specs = [
   {
-    name: 'Core modules: engine.spawn without content() throws a message naming the module to install',
+    name: 'Core modules: template instances are placed only through engine.content.spawn (no engine.spawn on the root, no engine.entities) [guard]',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(() => {
         const E = threedogThreads.createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cm-spawn' });
-        let msg = null; try { E.spawn('chest', { x: 0, z: 0 }); } catch (e) { msg = e.message; }
+        const out = { spawn: typeof E.spawn, entities: typeof E.entities, content: typeof E.content };
         E.dispose();
-        return msg;
+        return out;
       });
-      check('the error says content() is missing and how to add it', /engine\.spawn needs the content module.*content\(\)/.test(r ?? ''), String(r));
+      // why: a second placement path (engine.spawn / engine.entities) is how a second, unsaved or unchecked kind of placeable creeps back in
+      check('a bare engine has no engine.spawn and no engine.entities; content.spawn exists only with content()', r.spawn === 'undefined' && r.entities === 'undefined' && r.content === 'undefined', JSON.stringify(r));
     },
   },
   {

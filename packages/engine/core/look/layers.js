@@ -1,16 +1,18 @@
 // The layer arithmetic behind a LookPart (part.js): where a key's value comes from, and the recompute that hands changed keys to apply.
 // Why a file of its own: part.js holds the verbs a game and a part author call; this file is the bookkeeping they share, kept apart so
 // both stay under the file-size cap and the verbs read without the loops in between.
+import { markOwned } from '../owned.js';
 import { parseSpec } from '../params.js';
 import { DEV } from '../validate.js';
-import { codedError, renamed } from '../errorHints.js';
+import { codedError } from '../errorHints.js';
+import { stackFrames, frameText } from '../stackFrames.js';
 
 /** Look-only fields of a param spec; stripped before the shared params schema (params.js) parses the rest */
-const LOOK_FIELDS = ['why', 'off', 'cost', 'neutral', 'check'];
+// fn: the key also takes ({ time, weather, season, day, state, sky }) => value, evaluated every frame by the time-of-day module (state.js)
+const LOOK_FIELDS = ['why', 'off', 'cost', 'neutral', 'check', 'fn'];
 export const REPLACE = '@replace';
 export const HOOK = 'hook:';
 
-const FRAME = /\(?((?:[a-z]+:\/\/[^/\s]+)?[^\s()]+?\.[cm]?[jt]sx?)(?:\?[^:\s)]*)?:(\d+):\d+\)?\s*$/i;
 const ENGINE_FRAME = /(?:engine|threedog)\/(?:core|modules|render|ui)\//;   // engine code (engine.look.tone.set and the like, called from inside the engine) is skipped: `at` names the game's line
 
 /** 'main.js:50' of the first caller outside the engine (dev only: release builds keep no stacks) */
@@ -18,11 +20,8 @@ export function callerAt() {
   if (!DEV) return null;
   const lim = Error.stackTraceLimit; Error.stackTraceLimit = 14;
   const stack = String(new Error().stack ?? ''); Error.stackTraceLimit = lim;
-  for (const l of stack.split('\n').slice(1)) {
-    const f = FRAME.exec(l);
-    if (f && !ENGINE_FRAME.test(f[1].replace(/\\/g, '/'))) return `${f[1].replace(/^[a-z]+:\/\/[^/]+\//i, '').replace(/^\/+/, '')}:${f[2]}`;
-  }
-  return null;
+  const f = stackFrames(stack).find(x => !ENGINE_FRAME.test(x.file));
+  return f ? frameText(f) : null;
 }
 
 /** Parse param specs into part._params / part._meta (constructor and extend share it, so a key added later is checked the same way) */
@@ -79,11 +78,15 @@ export function refresh(part, force = false) {
     v === undefined ? part._resolved.delete(k) : part._resolved.set(k, v);
   }
   for (const k of [...part._resolved.keys()]) if (!keys.has(k)) { part._resolved.delete(k); changed.push(k); }
+  if (changed.length) part._rev++;
   if (!part._started) return;
   const s = part._spec, params = changed.filter(k => k in part._params);
   if (changed.includes(REPLACE)) s.applyReplace?.(part._resolved.get(REPLACE) ?? null);
   for (const k of changed) if (k.startsWith(HOOK)) s.applyHook?.(k.slice(HOOK.length), part._resolved.get(k) ?? null);
   if (params.length) s.apply?.(part.values(), new Set(params));
+  // an explicit look.<part>.set / replace is the engine writing on the game's request: re-read the owned properties of this part so the next
+  // frame does not take that write for an outside one and yield (owned.js)
+  if (changed.length) markOwned(part._e, s.id);
 }
 
 /**
@@ -109,14 +112,6 @@ export function retractKeys(part, prefix) {
     if (!r.values.size) part._owners[l].delete(o);
   }
   quietRefresh(part);
-}
-
-/** Old part names: reading one throws renamed-api and names the new part (recipes/52-look.md "Renamed in 0.2"); hidden, so describe / catalog never list it */
-const ALIASES = { clouds: 'cloudShadow' };
-/** engine.look with the old names as hidden throwing getters */
-export function aliased(look) {
-  for (const [old] of Object.entries(ALIASES)) if (!(old in look)) Object.defineProperty(look, old, { get: () => renamed('lookClouds'), enumerable: false, configurable: true });
-  return look;
 }
 
 /** A module went away (dispose, or engine.use rolled it back): drop the parts it registered and release the keys it drives (review M9) */

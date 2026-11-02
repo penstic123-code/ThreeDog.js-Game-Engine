@@ -38,14 +38,14 @@ export const specs = [
     },
   },
   {
-    name: 'review guard: sky() keeps a fixed time of day, presets.calendar.cycle moves it; music() does not duck for dialogue unless asked; time condition warns on unknown forms',
+    name: 'review guard: calendar() keeps a fixed time of day, presets.calendar.cycle moves it; music() does not duck for dialogue unless asked; time condition warns on unknown forms',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { mk } = threedogThreads, T = threedogThreads.all, { createEngine, presets } = T, out = {};
         const E = mk(createEngine, 'rg-sky');
-        E.use(T.sky({ time: 0.3 }), T.music()); await E.start();
-        const t0 = E.sky.timeOfDay; E.step(30, { render: false }); out.fixed = E.sky.timeOfDay === t0; out.len = E.sky.dayLength;
+        E.use(T.calendar({ time: 0.3 }), T.sky(), T.music()); await E.start();
+        const t0 = E.calendar.timeOfDay; E.step(30, { render: false }); out.fixed = E.calendar.timeOfDay === t0; out.len = E.calendar.dayLength;
         E.audio._init();
         E.events.emit('dialogue:start', {}); E.step(0.5, { render: false });
         out.duck = E.audio.info.ducks.music ?? 1;
@@ -53,15 +53,15 @@ export const specs = [
         out.evening = E.audio.matches({ time: 'evening' }, {}); console.warn = w0;
         out.warned = warns.some(m => /never matches/.test(m) && /'day', 'night'/.test(m));
         const F = mk(createEngine, 'rg-sky2');
-        F.use(T.sky({ ...presets.calendar.cycle, time: 0.3 }), T.music({ duckDialogue: 0.35 })); await F.start();
-        F.step(30, { render: false }); out.moves = F.sky.timeOfDay > 0.3;
+        F.use(T.calendar({ ...presets.calendar.cycle, time: 0.3 }), T.sky(), T.music({ duckDialogue: 0.35 })); await F.start();
+        F.step(30, { render: false }); out.moves = F.calendar.timeOfDay > 0.3;
         F.audio._init(); F.events.emit('dialogue:start', {}); F.step(1, { render: false });
         out.duckOn = F.audio._ducks.size;
         out.seasonsCycle = presets.calendar.fourSeasons.dayLength;
         E.dispose(); F.dispose();
         return out;
       });
-      check('[guard] sky() alone: dayLength Infinity, the time of day does not move', r.fixed && r.len === Infinity, JSON.stringify(r));
+      check('[guard] calendar() alone: dayLength Infinity, the time of day does not move', r.fixed && r.len === Infinity, JSON.stringify(r));
       check('presets.calendar.cycle (and fourSeasons) bring the 360 s day', r.moves && r.seasonsCycle === 360, JSON.stringify(r));
       check('[guard] music() alone does not duck for dialogue; duckDialogue opts in', r.duck === 1 && r.duckOn === 1, JSON.stringify(r));
       check('time: \'evening\' warns with the accepted forms and does not match', r.evening === false && r.warned, JSON.stringify(r));
@@ -165,17 +165,21 @@ export const specs = [
     },
   },
   {
-    name: 'review guard: autopilot speed reaches moveInput()',
+    name: 'review guard: autopilot speed reaches the player (one move.speed entry, not a second speed road)',
     url: '/tests/a/',
     async run({ check, ev }) {
+      // since acb3fd2a autopilot { speed } is a move.speed entry (owner 'autopilot', id 'player'); moveInput() returns only the direction.
+      // The guard is that the speed still reaches the player and is released again, so a recording or benchmark walks at the asked speed
       const r = await ev(() => {
-        engine.input.autopilot = { x: 0, y: 1, speed: 3.5 };
-        const a = engine.characters.moveInput().speed;
-        engine.input.autopilot = null;
-        const b = engine.characters.moveInput().speed;
-        return { a, b };
+        engine.pause();
+        const s = engine.stacks.get('move.speed');
+        engine.input.autopilot = { x: 0, y: 1, speed: 3.5 }; engine.step(0.05);
+        const a = [s.value('player'), s.names('player').includes('autopilot'), engine.characters.moveInput().speed];
+        engine.input.autopilot = null; engine.step(0.05);
+        const b = s.names('player').includes('autopilot');
+        return { a, b, player: !!engine.player };
       });
-      check('[guard] input.autopilot.speed is returned by moveInput (it was commented out)', r.a === 3.5 && r.b === undefined, JSON.stringify(r));
+      check('[guard] input.autopilot.speed sets the player move.speed (owner autopilot) and is released when autopilot ends', r.player && r.a[0] === 3.5 && r.a[1] && r.a[2] === undefined && r.b === false, JSON.stringify(r));
     },
   },
 ];

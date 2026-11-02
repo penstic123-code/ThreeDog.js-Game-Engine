@@ -1,7 +1,7 @@
 {
   "name": "threedog",
   "version": "0.2.1",
-  "description": "Web 3D game engine on three.js for large low-poly worlds: core + modules + style packs, built to be driven by an AI",
+  "description": "Web 3D game engine on three.js: core + optional modules, no built-in art (the look comes from your own style), built to be driven by an AI",
   "license": "MIT",
   "repository": {
     "type": "git",

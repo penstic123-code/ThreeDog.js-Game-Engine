@@ -8,12 +8,12 @@
 //   packages/engine/types/common.d.ts    shared small types (position, color, easing names)
 //   packages/engine/types/core.d.ts      Engine class, event map EventMap, input, i18n, saves, assets, audio, module definition
 //   packages/engine/types/style.d.ts     style pack Style
-//   packages/engine/types/world.d.ts     terrain, vegetation, sky, weather, water
+//   packages/engine/types/world.d.ts     terrain, vegetation, calendar, sky, weather, water
 //   packages/engine/types/physics.d.ts   collision, Rapier physics, the four cameras
-//   packages/engine/types/gameplay.d.ts  timeline, level, trigger zones, entities, particles, settings, music, character/NPC, interactions, dialogue, inventory, quests, photo mode,
+//   packages/engine/types/gameplay.d.ts  timeline, level, trigger zones, particles, settings, music, character/NPC, interactions, dialogue, inventory, quests, photo mode,
 //                               clock, story variables, content, flow, objective markers...
 //   packages/engine/types/nav.d.ts       navmesh
-//   packages/engine/types/generated/    generated from the JSDoc in the JS sources (npm run map, do not edit by hand): ui/UI.js Focus.js Parts.js, render/materials.js PostFX.js, modules/ water sky weather particles ambience music timeline debug hlod hud flow; re-exported below with export { ... } from
+//   packages/engine/types/generated/    generated from the JSDoc in the JS sources (npm run map, do not edit by hand): ui/UI.js Focus.js Parts.js, render/materials.js PostFX.js, modules/ water calendar sky weather particles ambience music timeline debug hlod hud flow; re-exported below with export { ... } from
 // three.js types come from @types/three (a dependency of this package, version-locked to three), so THREE.* is fully checked.
 //
 // When the engine's public API changes (new export, changed parameter), update this file too; `npm run types` checks that every export of index.js is declared.
@@ -21,7 +21,7 @@
 import type { Engine, EngineOptions, ModuleDef, ModuleInput } from './types/core';
 import type { Ease, EaseName, BufferGeometry, ColorLike, Material, Vector3, PositionLike } from './types/common';
 import type {
-  TerrainOptions, TerrainConfig, TerrainGen, Terrain, Vegetation, VegetationModuleOptions, Sky, SkyOptions, Weather, WeatherOptions, WeatherPreset,
+  TerrainOptions, TerrainConfig, TerrainGen, Terrain, Vegetation, VegetationModuleOptions, Sky, SkyOptions, Calendar, CalendarOptions, Weather, WeatherOptions, WeatherPreset,
   WeatherName, Water, WaterOptions, FlattenZone, Hlod, HlodOptions,
 } from './types/world';
 import type { Nav, NavOptions } from './types/nav';
@@ -30,9 +30,9 @@ import type {
   FixedCameraOptions, RtsCameraOptions,
 } from './types/physics';
 import type {
-  CharactersApi, CharactersOptions, Interactions, InteractionsOptions, Dialogue, DialogueOptions, Inventory, InventoryOptions,
+  CharactersApi, CharactersOptions, Interactions, InteractionsOptions, Dialogue, DialogueOptions, Inventory, InventoryOptions, Pickups, PickupsOptions,
   Quests, QuestsOptions, Photo, PhotoOptions, Ambience, AmbienceOptions, DebugPanel, Level, LevelOptions, Triggers, TriggersOptions,
-  Entities, Particles, Settings, SettingsOptions, SettingsTools, Music, MusicOptions,
+  Particles, Settings, SettingsOptions, SettingsTools, Music, MusicOptions,
   Timeline, TimelineOptions, Character, NPC, UIWindow, WindowOptions,
   Content, Flow, FlowOptions, Hud, HudOptions, ScreenPoint, UIFocus, FocusHandle,
 } from './types/gameplay';
@@ -40,6 +40,7 @@ import type { Style, StyleUI } from './types/style';
 import type { PostEffect } from './types/generated/render/PostFX';
 // Local bindings for the generated module factories (export { x } from re-exports below do not create them), used by OpenWorldOptions
 import type { sky } from './types/generated/modules/sky/skyModule';
+import type { calendar } from './types/generated/modules/calendar/index';
 import type { weather } from './types/generated/modules/weather/Weather';
 import type { water } from './types/generated/modules/water/Water';
 import type { world } from './types/generated/modules/world/index';
@@ -75,7 +76,7 @@ export function postRemove(...names: string[]): Style;
 /** One openWorld part: false leaves the module out, true / omitted uses defaults, an object is that module's own options */
 type Part<F extends (...a: any) => any> = boolean | NonNullable<Parameters<F>[0]>;
 /**
- * openWorld() options: shorthands (seed... go to terrain, time / dayLength to sky, weather / autoWeather to weather) and one entry per part.
+ * openWorld() options: shorthands (seed... go to terrain, time / dayLength to calendar, weather / autoWeather to weather) and one entry per part.
  * Gameplay modules (dialogue, inventory, quests, photo mode...) are not in the preset; engine.use them yourself
  */
 export interface OpenWorldOptions {
@@ -100,6 +101,7 @@ export interface OpenWorldOptions {
   world?: Part<typeof world>;
   terrain?: Part<typeof terrain>;
   vegetation?: Part<typeof vegetation>;
+  calendar?: Part<typeof calendar>;
   sky?: Part<typeof sky>;
   water?: Part<typeof water>;
   collision?: Part<typeof collision>;
@@ -111,7 +113,7 @@ export interface OpenWorldOptions {
   debug?: Part<typeof debug>;
 }
 /**
- * Open-world preset: world, terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only).
+ * Open-world preset: world, terrain, vegetation, calendar, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only).
  * camera is required (the bundle picks no camera feel). Every part takes false or its own options: openWorld({ seed: 7, camera: 'follow', rigid: false }). Add gameplay modules yourself
  */
 export function openWorld(opts: OpenWorldOptions): ModuleDef[];
@@ -126,6 +128,8 @@ export function terrain(opts?: TerrainOptions): ModuleDef<Terrain>;
 export function vegetation(opts?: VegetationModuleOptions): ModuleDef<Vegetation>;
 // Migrated: sky() is generated from the JSDoc in modules/sky/skyModule.js
 export { sky } from './types/generated/modules/sky/skyModule';
+// calendar() is generated from the JSDoc in modules/calendar/index.js
+export { calendar } from './types/generated/modules/calendar/index';
 // Migrated: weather() is generated from the JSDoc in modules/weather/Weather.js
 export { weather } from './types/generated/modules/weather/Weather';
 /**
@@ -134,16 +138,18 @@ export { weather } from './types/generated/modules/weather/Weather';
  */
 export const presets: {
   readonly weather: { readonly temperate: WeatherOptions & Required<Pick<WeatherOptions, 'types' | 'autoPool'>> };
-  readonly calendar: { readonly fourSeasons: SkyOptions; readonly cycle: SkyOptions; readonly fixedTime: SkyOptions };
+  readonly calendar: { readonly fourSeasons: CalendarOptions; readonly cycle: CalendarOptions; readonly fixedTime: CalendarOptions };
   readonly player: { readonly [K in 'none' | 'thirdPerson' | 'lockOn' | 'aim' | 'sideScroller']: Pick<import('./types/gameplay').PlayerOptions, 'control' | 'faceMode' | 'runKeys' | 'jumpKeys' | 'cameraFollow'> };
   readonly interactions: { readonly [K in 'nearest' | 'facing' | 'aim']: import('./types/gameplay').InteractionsOptions };
   readonly keys: {
     readonly inventory: Pick<import('./types/gameplay').InventoryOptions, 'keys' | 'pad'>;
     readonly quests: Pick<import('./types/gameplay').QuestsOptions, 'keys' | 'pad'>;
     readonly photo: Pick<import('./types/gameplay').PhotoOptions, 'keys' | 'pad'>;
+    /** grids.preview(): R turns the placement preview (spread into the preview options) */
+    readonly gridRotate: { rotateKeys: string[] };
     readonly brake: Pick<import('./types/gameplay').CharactersOptions, 'brakeKeys' | 'brakePad'>;
   };
-  readonly camera: { readonly follow: import('./types/physics').FollowCameraOptions; readonly overShoulder: import('./types/physics').FollowCameraOptions };
+  readonly camera: { readonly follow: import('./types/physics').FollowCameraOptions; readonly overShoulder: import('./types/physics').FollowCameraOptions; readonly thirdPersonAction: import('./types/physics').FollowCameraOptions };
 };
 // Migrated: water() is generated from the JSDoc in modules/water/Water.js
 export { water } from './types/generated/modules/water/Water';
@@ -178,6 +184,8 @@ export function interactions(opts: InteractionsOptions): ModuleDef<Interactions>
 export function dialogue(opts?: DialogueOptions): ModuleDef<Dialogue>;
 /** Inventory -> engine.inventory */
 export function inventory(opts?: InventoryOptions): ModuleDef<Inventory>;
+/** Things on the ground that give whoever takes them an item (into that actor's bag) or an instant effect; needs world() */
+export function pickups(opts?: PickupsOptions): ModuleDef<Pickups>;
 /** Quests -> engine.quests */
 export function quests(opts?: QuestsOptions): ModuleDef<Quests>;
 /** Photo mode -> engine.photo */
@@ -190,8 +198,6 @@ export { debug } from './types/generated/modules/debug/DebugPanel';
 export function level(opts?: LevelOptions): ModuleDef<Level>;
 /** Trigger zones -> engine.triggers */
 export function triggers(opts?: TriggersOptions): ModuleDef<Triggers>;
-/** Entities -> engine.entities */
-export function entities(): ModuleDef<Entities>;
 // Migrated: particles() is generated from the JSDoc in modules/particles/Particles.js
 export { particles } from './types/generated/modules/particles/Particles';
 /** Settings menu -> engine.settings */
@@ -228,11 +234,17 @@ export function sampleGrid(data: ArrayLike<number>, opts: { width: number; heigh
 /** Name or function -> easing function */
 export function ease(e: Ease): (t: number) => number;
 /**
- * Warn (once, in development) about unknown keys in an options object, with a "did you mean" hint. For your own modules.
- * where names the call ('stamina()'); known lists the keys your code reads; loose only warns on near-misses (data with game-specific fields).
- * @example checkOptions('stamina()', opts, ['max', 'drain', 'regen']);
+ * Warn once about unknown keys in extensible data (your item / record definitions where players or mods add their own fields), with a
+ * "did you mean" hint. Options bags go through readParams instead (an unknown key throws in dev). loose only warns on near-misses.
+ * @example checkOptions('crops.define()', def, ['grow', 'yield', 'season'], { loose: true });
  */
 export function checkOptions(where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean }): void;
+/**
+ * One content kind split over several files (content/props/forest.js, town.js…): joined in file-name order (arrays concatenated, objects merged,
+ * a key in two files an error), the same order content check and write-back use, with each entry's dev source line kept.
+ * @example const props = contentParts(import.meta.glob('./props/*.js', { eager: true }));
+ */
+export function contentParts(modules: Record<string, { default: any } | any>): any;
 /** One field of a params / op args schema: 'int?' or the full form (default implies optional) */
 export type ParamSpec = string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean };
 /**
@@ -247,7 +259,9 @@ export interface LookPart {
   readonly object: any;
   set(params: Record<string, any>, o?: { owner?: string }): { remove(): void };
   patch(name: string, glsl: any, o?: { owner?: string }): { remove(): void };
-  replace(impl: any, o?: { owner?: string }): { remove(): void };
+  replace(impl: any, o?: { owner?: string, effects?: boolean }): { remove(): void };
+  /** Take values the engine writes on its own (keys by dotted prefix; none = all of the part), or hand them back with on = false (recipes/52 "Who writes it") */
+  manual(keys?: string | string[] | boolean, on?: boolean): { remove(): void };
   clear(owner: string): void;
   value(key: string): any;
   top(key: string): any;
@@ -268,6 +282,7 @@ export function createTerrain(cfg?: Partial<TerrainConfig>): TerrainGen;
 // ---------- Materials ----------
 // Migrated: declarations are generated from the JSDoc in packages/engine/render/materials.js (npm run map), not written by hand here
 export { terrainMaterial, mergeColored, applyEffects, MATERIAL_PURPOSES, makeMaterial } from './types/generated/render/materials';
+export { bakeVertexAO } from './types/generated/render/modeling';
 export { materialPatches } from './types/generated/render/patches';
 
 // ---------- UI ----------
@@ -282,7 +297,7 @@ export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleIte
 export function parseClock(clock: string | number, hoursPerDay?: number): number;
 /** Fraction of the day -> 'HH:MM': formatClock(0.75) = '18:00' */
 export function formatClock(t: number, hoursPerDay?: number): string;
-/** Is time t (0-1, e.g. sky.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by sky.between and the audio rule condition { time: [from, to] } */
+/** Is time t (0-1, e.g. calendar.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by calendar.between and the audio rule condition { time: [from, to] } */
 export function inRange(t: number, from: string | number, to: string | number, hoursPerDay?: number): boolean;
 
 // ---------- Target selection (core/targeting.js, pure functions) ----------

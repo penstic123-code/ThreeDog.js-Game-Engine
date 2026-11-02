@@ -10,6 +10,12 @@ export class Ops {
     /** History entries kept (ring, default 256); setting it clears the history */
     get historySize(): number;
     /**
+     * Who is acting right now: the actor of the innermost running op (a net peer, an NPC, the local user), else engine.actor.
+     * Code that changes state outside an op's own ctx (an item event, a content effect) names its actor with this, so it is never assumed to be the local player.
+     * @type {string}
+     */
+    get actor(): string;
+    /**
      * Register an op. Name it noun.verb. run changes state; can (optional) is read-only and returns true or a reason string; offers (optional) lists the arg sets possible now (for list / describe / the dev bridge `ops` command).
      * args shape types: string number int bool position id any, suffix ? for optional. net: 'peer' lets remote players request it (default: host only);
      * or { type, default, min, max, values, desc } (default is filled in, engine.catalog shows it).

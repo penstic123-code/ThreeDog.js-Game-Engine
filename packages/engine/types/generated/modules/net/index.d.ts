@@ -10,7 +10,7 @@
  * @param {{ role: 'host' | 'client', transport: any, sync?: 'auto' | string[], syncEvery?: number, keepAlive?: number, rate?: number, burst?: number, maxSpeed?: number, posEvery?: number,
  *   actorFor?: (peerId: number) => string, actorFields?: string[], avatarFields?: string[], interpolate?: string[], avatar?: boolean,
  *   onJoin?: (e: any, peer: { id: number, actor: string }) => void, onLeave?: (e: any, peer: { id: number, actor: string }) => void }} opts
- *   sync: save parts to sync ('auto' = world, containers, vars and every other save part except random / level); syncEvery: steps between diffs (3 = 20/s);
+ *   sync: save parts to sync ('auto' = world, containers, vars and every other save part except random / level / rigid); syncEvery: steps between diffs (3 = 20/s);
  *   rate / burst: op requests per second per peer and the burst allowance; actorFields: record fields holding actor ids (swapped like ids, default ['owner']);
  *   avatarFields: own-avatar fields the client sends with its position; interpolate: record kinds that glide on clients (default ['player']).
  * @returns {import('../../../core').ModuleDef<Net>}
@@ -19,9 +19,9 @@
  * engine.ops.define('chest.take', { net: 'peer', args: { chest: 'id', item: 'string' },
  *   can: (e, a, ctx) => e.inventory.container(a.chest).has(a.item) || 'empty',
  *   run: (e, a, ctx) => e.inventory.transfer(a.chest, ctx.actor, a.item, 1) });
- * engine.use(net({ role: 'host', transport: webSocket('ws://localhost:8787/farm', { host: true }) }));
+ * engine.use(net({ role: 'host', transport: webSocket('ws://localhost:8787/camp', { host: true }) }));
  * // client (same game code, same op definitions)
- * engine.use(net({ role: 'client', transport: webSocket('ws://192.168.1.5:8787/farm') }));
+ * engine.use(net({ role: 'client', transport: webSocket('ws://192.168.1.5:8787/camp') }));
  * engine.ops.run('chest.take', { chest: 'chest-1', item: 'apple' });   // -> { ok: true, pending: true, seq: 1 }
  * @experimental
  */

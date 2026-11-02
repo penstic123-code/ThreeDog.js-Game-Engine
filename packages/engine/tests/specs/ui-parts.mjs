@@ -21,7 +21,7 @@ export const specs = [
       check('settled 返回时加载界面已淡出移除；会等件的淡出 promise', !fade.loading && !fade.early && fade.done, JSON.stringify(fade));
       const r = await ev(() => ({
         parts: engine.ui.describe(), title: engine.ui.isOpen('title'), dom: !!document.querySelector('.threedog-title'),
-        frozen: engine._freezers.has('ui-title'), locked: !engine.input.enabled,
+        frozen: engine.stacks.get('freeze').has('ui-title'), locked: !engine.input.enabled,
         items: [...document.querySelectorAll('.threedog-title button')].map(b => b.textContent),
       }));
       check('describe 列出全部界面件且标题为默认开', r.parts.title === 'default' && r.parts['hud.marker'] === 'default' && r.parts.loading === 'default', JSON.stringify(r.parts));
@@ -31,7 +31,7 @@ export const specs = [
       check('标题画面上按 Esc 不打开设置菜单', await ev(() => engine.ui.isOpen('title') && !engine.settings.isOpen));
       await page.click('.threedog-title button[data-i="0"]'); await frames(2);
       // input contexts apply at the next fixed step: wait for it instead of a fixed number of frames
-      const after = await ev(() => __t.until(() => engine.input.enabled, 5000).catch(() => {}).then(() => ({ open: engine.ui.isOpen('title'), dom: !!document.querySelector('.threedog-title'), frozen: engine._freezers.has('ui-title'), input: engine.input.enabled })));
+      const after = await ev(() => __t.until(() => engine.input.enabled, 5000).catch(() => {}).then(() => ({ open: engine.ui.isOpen('title'), dom: !!document.querySelector('.threedog-title'), frozen: engine.stacks.get('freeze').has('ui-title'), input: engine.input.enabled })));
       check('点"开始"关闭标题、解冻、解锁输入', !after.open && !after.dom && !after.frozen && after.input, JSON.stringify(after));
 
       const t = await ev(async () => {

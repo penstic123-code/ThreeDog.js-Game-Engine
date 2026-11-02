@@ -1,4 +1,4 @@
-// Dev bridge: lets the AI drive the running game page from the terminal (look at state, advance time, press keys, change state, take screenshots). The command line npx threedog describe|step|press… is in packages/tools/threedog/.
+// Dev bridge: lets the AI drive the running game page from the terminal (look at state, advance time, press keys, change state, take screenshots). The command line threedog describe|step|press… is in packages/tools/threedog/.
 //
 //   Installed automatically by gameConfig: plugins: [threedogBridge()]. Dev server only (apply: 'serve'); build / preview contain no bridge code.
 //
@@ -110,7 +110,7 @@ export default function threedogBridge() {
         try {
           const page = await openHeadless(path || '/');
           await waitEngine(page, { dir: server.config.root });
-          if (idlePaused) { idlePaused = false; await page.evaluate(() => window.engine?.resume('bridge-idle')); }   // hand the page back as it was before the idle pause
+          if (idlePaused) { idlePaused = false; await page.evaluate(() => window.engine?._resume('bridge-idle')); }   // hand the page back as it was before the idle pause
           if (op === 'eval') return await page.evaluate(([s, a]) => (0, eval)('(' + s + ')')(a), [src, arg]);
           if (op === 'shot') return (await page.screenshot()).toString('base64');   // the headless page is captured together with the HTML UI
           await page.reload(); return null;
@@ -132,6 +132,8 @@ export default function threedogBridge() {
             if (cmd.op !== 'ping') lastCmd = Date.now();
             // ping: "is this the bridge, and is a page attached" without touching the page (never opens the headless browser, skips the queue)
             if (cmd.op === 'ping') return reply(200, { ok: true, value: { live: !!liveClient(cmd.page), headless: !!headless } });
+            // close-headless (play --stop on a server it did not start): close the browser this bridge opened, whoever asked for it; true if one was open
+            if (cmd.op === 'close-headless') { const had = !!headless; await closeHeadless(); return reply(200, { ok: true, value: had }); }
             reply(200, { ok: true, value: await inOrder(() => exec(cmd)) ?? null });
           }
           catch (e) { reply(200, { ok: false, error: String(e.message || e) }); }

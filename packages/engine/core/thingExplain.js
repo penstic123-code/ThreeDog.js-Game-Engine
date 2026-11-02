@@ -2,9 +2,9 @@
 // Why one object: an AI asked "why is this crate here, blocking me, and how do I change it?" otherwise joins thing(), world.origin, material info, the
 // template, collision settings and the op list by hand. Each part reads an existing source; nothing here is stored or changes any state.
 import { materialInfo } from './MaterialInfo.js';
+import { orNull } from './util.js';
 
 const MAT_MAX = 8;
-const safe = f => { try { return f(); } catch { return null; } };
 
 /** Unique materials under obj with role / name / where the spec came from */
 function materialsOf(obj) {
@@ -63,6 +63,6 @@ export function explainThing(e, t) {
   };
   // Explain contributions (arch #6): a module that owns records or templates adds to the object with e._things.explainers.push((e, t, out) => { ... }),
   // so core never reads their shapes. A throwing explainer is skipped: explain is a diagnostic and must not fail because of one part.
-  for (const f of T.explainers) safe(() => f(e, t, out));
+  for (const f of T.explainers) orNull(() => f(e, t, out));
   return out;
 }

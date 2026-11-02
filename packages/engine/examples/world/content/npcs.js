@@ -9,6 +9,6 @@ export default {
       { at: '12:00', place: 'home', x: -4, z: 4 },  // go home
       { at: '19:12', place: 'home', x: 1, z: 4.5 }, // sit at the doorway
     ],
-    talk: 'fisher',
+    interact: { op: 'npc.talk' },                 // talk: the dialogue named like the NPC id (fisher)
   },
 };

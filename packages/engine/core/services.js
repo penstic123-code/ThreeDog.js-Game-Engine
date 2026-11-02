@@ -1,6 +1,7 @@
 // Engine services: the objects every engine owns besides rendering (events, i18n, saves, input, audio, assets, clock, ops, jobs, streaming...).
 // Split out of the Engine constructor so it stays readable; the order below matters (later services read earlier ones), do not reorder.
 import { Events } from './Events.js';
+import { Wraps } from './wrap.js';
 import { I18n } from './I18n.js';
 import { Saves } from './Saves.js';
 import { Session } from './session.js';
@@ -20,7 +21,9 @@ import { Ops } from './Ops.js';
 import { Views } from './Views.js';
 import { Stream } from './Stream.js';
 import { Batching } from './Batching.js';
-import { claims } from './claims.js';
+import { defineHoldStacks } from './holds.js';
+import { Stacks } from './stacks.js';
+import { Time } from './time.js';
 import { DebugOverrides } from './DebugOverrides.js';
 import { describeApi } from './Describe.js';
 import { reportListenerError } from './errors.js';
@@ -44,7 +47,15 @@ export function createServices(engine, { canvas, validate, locale, strings, save
   engine.audio = new Audio(engine, audio);
   engine.decoders = decoders;
   engine.assets = new Assets(engine);
-  engine.clock = new Clock(engine);              // game clock (game seconds, timers)
+  // shared quantities (stacks.js): engine.mod(name, { owner, mul | add | set | clamp, for }) is the one way several systems change one
+  engine.stacks = new Stacks(engine);
+  engine.mod = (name, o) => engine.stacks.mod(name, o);
+  engine.stacks.define('input.gate', { kind: 'any', per: true });   // input.gate(action, owner): one entry per owner and action (Input.js)
+  // module methods (wrap.js): engine.wrap(engine.inventory, 'add', (next, ...a) => ...) is the one way to change what a public method does
+  engine._wraps = new Wraps(engine);
+  engine.wrap = (target, method, fn, o) => engine._wraps.wrap(target, method, fn, o);
+  engine.clock = new Clock(engine);              // calendar clock (calendar seconds, timers); its rate is the stack 'clock.rate'
+  engine.time = new Time(engine);                // time channels: world, player, the game's own (time.js)
   engine.vars = new Vars(engine);                // story flags and counters
   engine.budget = new Budget(engine);            // performance budget (default off)
   if (budget) engine.budget.enable(budget);
@@ -53,11 +64,8 @@ export function createServices(engine, { canvas, validate, locale, strings, save
   engine.random = new Random(seed ?? (headless ? 1 : Date.now()));   // wall-clock: differs per run when no seed is given
   engine.saves.register('random', { atomic: true, save: () => engine.random.toJSON(), load: d => engine.random.fromJSON(d) });
   engine._urlState = new UrlState(engine, { fromUrl: urlState });
-  // who holds the engine still, one claims() each (claims.js: same owner rules for all, owners() in describe); pause / freeze / takeCamera in holds.js
-  const now = () => engine.elapsed ?? 0;
-  engine._freezers = claims({ what: 'engine.freeze', now });        // who froze gameplay
-  engine._pausers = claims({ what: 'engine.pause', now });          // who paused the loop; it resumes only when empty
-  engine._cameraClaims = claims({ what: 'engine.takeCamera', now });  // who holds the camera; the latest is in charge (cameraOverride)
+  // who holds the engine still: three named stacks (stacks.js: same owner rules as every shared quantity, holders in describe); pause / freeze / takeCamera in holds.js
+  defineHoldStacks(engine);
   engine.tick = 0;                             // fixed-step count (the gameplay timeline: commits, event history and input records use it; stops while frozen)
   engine.commits = new Commits(engine);          // background results that affect gameplay take effect on a fixed tick (see Commits.js)
   engine.ops = new Ops(engine);                  // one entry point for actions (define / run / can / list / recent), see Ops.js

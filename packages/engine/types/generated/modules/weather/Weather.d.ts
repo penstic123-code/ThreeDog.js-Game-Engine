@@ -26,15 +26,8 @@ export class Weather {
     autoTransition: number;
     /** Default particle count per system (halved on low-tier devices) @type {number} */
     particles: number;
-    /** Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus define()) @type {Map<string, any>} */
+    /** Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus fields look.weather.replace adds) @type {Map<string, any>} */
     systems: Map<string, any>;
-    /**
-     * Renamed in 0.2: throws and names the new call, engine.look.weather.replace({ [field]: spec }) (recipes/44-water-weather-look-hooks.md)
-     * @param {string} _field
-     * @param {import('../../../style').StyleWeatherParticles} [_spec]
-     * @returns {never}
-     */
-    define(_field: string, _spec?: import("../../../style").StyleWeatherParticles): never;
     /**
      * Automatic weather on/off
      * @param {boolean} on

@@ -3,7 +3,7 @@
 // Import is offline: attachments must be data: URLs and are decoded in place, never fetched.
 import { toast } from '../ui/UI.js';
 import { coded } from './errorHints.js';
-import { fmt } from './validate.js';
+import { fmt, warnOnce } from './validate.js';
 import { readSave, parseSave } from './saveVersions.js';
 
 /** Version of the export file wrapper (the save inside carries its own format) */
@@ -12,12 +12,14 @@ const FILE_FORMAT = 1;
 export const SAVE_STRINGS = {
   'zh-CN': { 'saves.failed': '存档失败：{why}（之前的存档还在）', 'saves.badFile': '这不是有效的存档文件', 'saves.imported': '存档已导入到「{slot}」', 'saves.noSlot': '没有可导出的存档',
     'saves.tooNew': '这个存档来自更新版本的游戏，无法读取（存档没有改动）', 'saves.corrupt': '这个存档已损坏，无法读取（存档没有改动）',
-    'saves.migrate': '这个存档的版本无法升级，无法读取（存档没有改动）' },
+    'saves.migrate': '这个存档的版本无法升级，无法读取（存档没有改动）',
+    'saves.otherTab': '没有存档：另一个标签页刚存过「{slot}」，为了不覆盖那边更新的进度，这里没有写入。读取它继续，或存到别的位置' },
   en: { 'saves.failed': 'Save failed: {why} (the previous save is kept)', 'saves.badFile': 'This is not a valid save file',
     'saves.imported': 'Save imported into "{slot}"', 'saves.noSlot': 'Nothing to export',
     'saves.tooNew': 'This save is from a newer version of the game and cannot be loaded (the save is unchanged)',
     'saves.corrupt': 'This save is damaged and cannot be loaded (the save is unchanged)',
-    'saves.migrate': 'This save\'s version cannot be upgraded, so it cannot be loaded (the save is unchanged)' },
+    'saves.migrate': 'This save\'s version cannot be upgraded, so it cannot be loaded (the save is unchanged)',
+    'saves.otherTab': 'Not saved: another tab just saved "{slot}", so this one did not overwrite that newer progress. Load it to continue, or save to another slot' },
 };
 const MAX_BYTES = 512 * 1024 * 1024;   // a bigger "save" is not one of ours; reading it would stall the tab
 const STRINGS = {
@@ -72,7 +74,7 @@ export async function exportSaveFile(s, slot, { files = true } = {}) {
 export async function importSaveFile(s, file, slot = 'imported') {
   file ??= await pick();
   if (!file) return null;
-  const refuse = why => { console.warn(coded('save-import', why)); toast(s.engine, s.engine.t('saves.badFile'), { kind: 'save' }); return null; };   // handled: the player is told, nothing changed
+  const refuse = why => { warnOnce(coded('save-import', why)); toast(s.engine, s.engine.t('saves.badFile'), { kind: 'save' }); return null; };   // handled: the player is told, nothing changed
   if (file.size > MAX_BYTES) return refuse(STRINGS.bad.replace('{why}', `${Math.round(file.size / 1e6)} MB`));
   let obj;
   try { obj = JSON.parse(await file.text()); } catch (e) { return refuse(STRINGS.bad.replace('{why}', e.message)); }
@@ -106,10 +108,10 @@ export async function importSaveFile(s, file, slot = 'imported') {
  */
 export async function importText(s, text, slot) {
   let obj;
-  try { obj = JSON.parse(decodeURIComponent(escape(atob(String(text).trim())))); } catch (e) { console.warn(coded('save-import', fmt(STRINGS.badText, { why: e.message }))); return false; }
+  try { obj = JSON.parse(decodeURIComponent(escape(atob(String(text).trim())))); } catch (e) { warnOnce(coded('save-import', fmt(STRINGS.badText, { why: e.message }))); return false; }
   const r = await importData(s, obj, slot);
   if (r === true) { s.engine.events.emit('save:imported', slot); return true; }
-  if (r !== 'write') console.warn(coded('save-import', fmt(STRINGS.badText, { why: r })));   // a failed write already showed its toast
+  if (r !== 'write') warnOnce(coded('save-import', fmt(STRINGS.badText, { why: r })));   // a failed write already showed its toast
   return false;
 }
 /**

@@ -1,10 +1,11 @@
-// net() module: optional co-op multiplayer, host authority + state sync. Not installed = no cost (core only keeps two internal hooks in Ops.js).
+// net() module: optional co-op multiplayer, host-authoritative state sync; not for competitive play (no prediction, no anti-cheat). Not installed = no cost (core only keeps two internal hooks in Ops.js).
 //   engine.use(net({ role: 'host', transport }))     // the player whose browser owns the game
 //   engine.use(net({ role: 'client', transport }))   // friends: mirror the host, send op requests
 // Only ops defined with net: 'peer' can be requested by clients (default deny); the actor comes from the connection, not the message.
 // Transports: fakeNetwork() (in-process, tests) and webSocket(url) (with packages/tools/net-relay.mjs); see transports.js for the shape.
 import { readParams, keysSchema } from '../../core/params.js';
 import { Net } from './Net.js';
+import { codedError } from '../../core/errorHints.js';
 
 export { fakeNetwork, webSocket } from './transports.js';
 
@@ -27,7 +28,7 @@ const NET_PARAMS = keysSchema(OPTS);
  * @param {{ role: 'host' | 'client', transport: any, sync?: 'auto' | string[], syncEvery?: number, keepAlive?: number, rate?: number, burst?: number, maxSpeed?: number, posEvery?: number,
  *   actorFor?: (peerId: number) => string, actorFields?: string[], avatarFields?: string[], interpolate?: string[], avatar?: boolean,
  *   onJoin?: (e: any, peer: { id: number, actor: string }) => void, onLeave?: (e: any, peer: { id: number, actor: string }) => void }} opts
- *   sync: save parts to sync ('auto' = world, containers, vars and every other save part except random / level); syncEvery: steps between diffs (3 = 20/s);
+ *   sync: save parts to sync ('auto' = world, containers, vars and every other save part except random / level / rigid); syncEvery: steps between diffs (3 = 20/s);
  *   rate / burst: op requests per second per peer and the burst allowance; actorFields: record fields holding actor ids (swapped like ids, default ['owner']);
  *   avatarFields: own-avatar fields the client sends with its position; interpolate: record kinds that glide on clients (default ['player']).
  * @returns {import('../../types/core').ModuleDef<Net>}
@@ -36,16 +37,16 @@ const NET_PARAMS = keysSchema(OPTS);
  * engine.ops.define('chest.take', { net: 'peer', args: { chest: 'id', item: 'string' },
  *   can: (e, a, ctx) => e.inventory.container(a.chest).has(a.item) || 'empty',
  *   run: (e, a, ctx) => e.inventory.transfer(a.chest, ctx.actor, a.item, 1) });
- * engine.use(net({ role: 'host', transport: webSocket('ws://localhost:8787/farm', { host: true }) }));
+ * engine.use(net({ role: 'host', transport: webSocket('ws://localhost:8787/camp', { host: true }) }));
  * // client (same game code, same op definitions)
- * engine.use(net({ role: 'client', transport: webSocket('ws://192.168.1.5:8787/farm') }));
+ * engine.use(net({ role: 'client', transport: webSocket('ws://192.168.1.5:8787/camp') }));
  * engine.ops.run('chest.take', { chest: 'chest-1', item: 'apple' });   // -> { ok: true, pending: true, seq: 1 }
  * @experimental
  */
 export function net(opts = {}) {
   readParams('net', NET_PARAMS, opts);
-  if (opts.role !== 'host' && opts.role !== 'client') throw new Error(STRINGS.role.replace('{got}', JSON.stringify(opts.role)));
-  if (!opts.transport) throw new Error(STRINGS.transport);
+  if (opts.role !== 'host' && opts.role !== 'client') throw codedError('net-option', STRINGS.role.replace('{got}', JSON.stringify(opts.role)));
+  if (!opts.transport) throw codedError('net-option', STRINGS.transport);
   const left = new Map();   // actor -> last position, so a peer that reconnects comes back where it left
   const o = {
     sync: 'auto', syncEvery: 3, keepAlive: 60, rate: 20, burst: 20, maxSpeed: 15, posEvery: 3,

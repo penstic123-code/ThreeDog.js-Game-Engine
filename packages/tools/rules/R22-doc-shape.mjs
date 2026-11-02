@@ -3,17 +3,53 @@
 //   1. AI.md entry table (error, engine repository): every public engine namespace (an Engine property whose type has methods, read from the d.ts
 //      with the program shared with R18) appears as `engine.<name>` in the "One thing, one entry point" table, and every row's last column names
 //      a recipe file that exists. Adding a public API means adding its row and recipe section in the same commit.
-//   2. Sizes: AI.md over 20 KB is an error (it is an index). A game's DESIGN.md over 8 KB and STATUS.md over 4 KB are warnings.
+//   2. Sizes: AI.md over 11 KB and the game template's CLAUDE.md over 6.5 KB are errors (both are read every session, so they stay indexes and
+//      correctness rules; detail moves to the recipe it belongs to). A game's DESIGN.md over 8 KB and STATUS.md over 4 KB are warnings.
 //   3. Duplicates (warn): one sentence of 12 or more words in two hand-written docs (AI.md, recipes, READMEs, CLAUDE.md files, .claude/rules,
 //      game docs). Both places are printed; keep it in the one that owns the topic and link from the other.
+//   4. Copied passages (error): a run of 30 or more words that appears in two docs (all of 3's docs plus COMMANDS, THREE and PERF). Why an
+//      error: a copied paragraph is a second source of the same fact; one copy gets fixed, the other goes stale, and the AI reads both.
+//   5. Recipe summaries (error): a recipe over 15 KB starts with an "**In this recipe**:" line of at most 5 lines, so `threedog how` and a
+//      reader see what is inside before opening it.
 // Known limits: the duplicate check compares normalised sentences (case, markdown marks and spacing ignored), so a reworded copy passes.
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { walk, read, abs, rel, P, engineApi } from './_lib.mjs';
 import { docFiles } from './R18-doc-refs.mjs';
 
-const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 20 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
+const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 11 * 1024, TPL_CLAUDE_MAX = 6.5 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
 const kb = n => (n / 1024).toFixed(1) + ' KB';
+const PASSAGE = 30, SUMMARY_OVER = 15 * 1024;
+
+/** Word stream of a markdown text without code blocks: [{ w, line }] (inline code kept as one word, so a copied call counts) */
+export function words(text) {
+  const out = []; let fence = false;
+  text.split('\n').forEach((raw, i) => {
+    if (/^\s*```/.test(raw)) { fence = !fence; return; }
+    if (fence || /^\s*\|?[\s|:-]+\|?\s*$/.test(raw)) return;
+    const flat = raw.replace(/`[^`]*`/g, m => m.replace(/\s+/g, '_')).replace(/[*_#>|]/g, ' ');
+    for (const w of flat.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || []) out.push({ w, line: i + 1 });
+  });
+  return out;
+}
+
+/** Runs of PASSAGE+ words shared by two texts: [{ fa, la, fb, lb, text }] (one per run, not one per overlapping window) */
+export function passages(files) {
+  const first = new Map(), out = [];
+  for (const [f, text] of files) {
+    const ws = words(text);
+    let lastHit = -2;
+    for (let i = 0; i + PASSAGE <= ws.length; i++) {
+      const key = ws.slice(i, i + PASSAGE).map(x => x.w).join(' ');
+      const seen = first.get(key);
+      if (!seen) { first.set(key, { f, line: ws[i].line }); continue; }
+      if (seen.f === f) continue;
+      if (i !== lastHit + 1) out.push({ fa: seen.f, la: seen.line, fb: f, lb: ws[i].line, text: key.split(' ').slice(0, 10).join(' ') });
+      lastHit = i;
+    }
+  }
+  return out;
+}
 
 /** Problems with AI.md's entry table and size (exported for the rule tests) */
 export function entryTable(text, namespaces, recipeExists) {
@@ -27,7 +63,8 @@ export function entryTable(text, namespaces, recipeExists) {
     out.push({ level: 'error', line: start + 1, msg: `public namespace \`engine.${ns}\` has no row in AI.md's entry table`, fix: `add a one-line row "| task | \`engine.${ns}\` | \`recipes/NN-x.md\` |" and a section in that recipe` });
   for (const [row, n] of rows) {
     const cells = row.split(/(?<!\\)\|/).slice(1, -1), last = cells[cells.length - 1] || '';
-    const rec = last.match(/recipes\/[\w.-]+\.md/)?.[0];
+    // the column names recipes by file, with or without the folder ("06-clock-events.md" or `recipes/06-clock-events.md`)
+    const m = last.match(/(?:recipes\/)?(\d\d-[\w.-]+\.md)/), rec = m && `recipes/${m[1]}`;
     if (!rec) out.push({ level: 'error', line: n, msg: 'entry row without a recipe in its last column', fix: 'point the row at the recipe that teaches the task (`recipes/NN-x.md`)' });
     else if (!recipeExists(rec)) out.push({ level: 'error', line: n, msg: `entry row points at \`${rec}\`, which does not exist`, fix: 'fix the recipe name' });
   }
@@ -57,6 +94,8 @@ export default {
     if (P.MODE === 'monorepo' && existsSync(abs(AI_REL))) {
       const text = read(AI_REL), size = Buffer.byteLength(text);
       if (size > AI_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `AI.md is ${kb(size)} > ${kb(AI_MAX)}`, fix: 'AI.md is an index: keep one line per row and convention, move the detail into the recipe (or CONVENTIONS.md)' });
+      const tpl = `${P.TOOLS_REL}/templates/game/CLAUDE.md`, ts = existsSync(abs(tpl)) ? statSync(abs(tpl)).size : 0;
+      if (ts > TPL_CLAUDE_MAX) out.push({ level: 'error', file: tpl, line: 0, msg: `the game template's CLAUDE.md is ${kb(ts)} > ${kb(TPL_CLAUDE_MAX)}`, fix: 'every game reads it every session: keep correctness rules and one-line pointers, move steps into the recipe that owns them' });
       const ns = engineApi().namespaces.map(n => n.name);
       for (const r of entryTable(text, ns, rec => existsSync(join(abs(P.DOCS_REL), rec)))) out.push({ ...r, file: AI_REL });
     }
@@ -78,7 +117,21 @@ export default {
       if (!first) seen.set(s.key, { f, line: s.line });
       else if (first.f !== f && gameOf(f) === gameOf(first.f)) out.push({ level: 'warn', file: f, line: s.line, msg: `same sentence as ${first.f}:${first.line} ("${s.key.split(' ').slice(0, 8).join(' ')} …")`, fix: 'keep it in the doc that owns the topic and link to it from the other' });
     }
-    out.note = `${docs.size} docs compared for repeated sentences`;
+    // 4. copied passages (the same game scoping as 3: a game's files are compared only with files of the same game)
+    const all = [...docs, ...[`${P.DOCS_REL}/COMMANDS.md`, `${P.DOCS_REL}/THREE.md`, `${P.DOCS_REL}/PERF.md`].filter(f => existsSync(abs(f)))];
+    const groups = new Map();
+    for (const f of new Set(all)) { const g = gameOf(f) ?? ''; if (!groups.has(g)) groups.set(g, []); groups.get(g).push([f, read(f)]); }
+    for (const list of groups.values()) for (const p of passages(list))
+      out.push({ level: 'error', file: p.fb, line: p.lb, msg: `a passage of ${PASSAGE}+ words is also in ${p.fa}:${p.la} ("${p.text} …")`, fix: 'one source per fact: keep the passage in the doc that owns the topic, replace this copy with one line and a link' });
+    // 5. long recipes carry a summary of what is inside
+    if (P.MODE === 'monorepo') for (const f of walk(P.RECIPES_REL, ['.md'])) {
+      const text = read(f);
+      if (Buffer.byteLength(text) <= SUMMARY_OVER) continue;
+      const L = text.split('\n'), at = L.findIndex(l => /^\*\*In this recipe\*\*:/.test(l));
+      let n = 0; if (at >= 0) while (at + n < L.length && L[at + n].trim()) n++;
+      if (at < 0 || at > 3 || n > 5) out.push({ level: 'error', file: f, line: 1, msg: at < 0 || at > 3 ? `recipe is ${kb(Buffer.byteLength(text))} with no "**In this recipe**:" summary under its title` : `the "In this recipe" summary is ${n} lines (at most 5)`, fix: 'add one to five lines under the title naming what the sections cover' });
+    }
+    out.note = `${docs.size} docs compared for repeated sentences, ${all.length} for copied passages`;
     return out;
   },
 };

@@ -11,6 +11,7 @@
 // Looks only: a style never holds world state (water level, sea, terrain shape); checkStyleLooks throws in dev.
 import { DEV } from './validate.js';
 import { isPlainObject as plain, getPath } from './util.js';
+import { codedError } from './errorHints.js';
 
 
 // A post edit is a function carrying this mark: mergeInto calls it with the list built so far instead of replacing the list
@@ -65,7 +66,7 @@ export function styleFrom(style) {
     out = {};
     for (const part of style.flat(Infinity)) {
       if (!part) continue;
-      if (!plain(part)) throw new Error(`createEngine({ style: [...] }): each part must be a plain object (a style pack or { key: value }), got ${typeof part}`);
+      if (!plain(part)) throw codedError('style-value', `createEngine({ style: [...] }): each part must be a plain object (a style or { key: value }), got ${typeof part}`);
       // copy the part's plain objects too, so a later part never writes into an earlier pack
       mergeInto(out, part);
     }
@@ -86,13 +87,13 @@ function checkStyleLooks(style) {
     const obj = getPath(style, path);
     if (!obj || typeof obj !== 'object') continue;
     for (const k of Object.keys(obj))
-      if (isWorld(k)) throw new Error(`style.${path}.${k} is world state, not a look: swapping the style would change the map or the rules. Set it where the world is made: ${where}`);
+      if (isWorld(k)) throw codedError('style-value', `style.${path}.${k} is world state, not a look: swapping the style would change the map or the rules. Set it where the world is made: ${where}`);
   }
 }
 
-// Dev warning when createEngine gets no style pack (shown once from Engine.js)
-export const NO_STYLE = 'createEngine(): the style pack is missing or empty, so everything is a neutral gray placeholder: plain lights (one white hemisphere + one neutral '
-  + 'directional light, no shadows, no tone mapping), gray background, ground, capsule characters and box props. This is not a look and not an error. '
-  + 'Fill your own pack (style/index.js in a new game; recipes/09-style-pack.md, recipes/52-look.md) or pass a published one';
+// Dev warning when createEngine gets no style (shown once from Engine.js)
+export const NO_STYLE = 'createEngine(): the style is missing or empty, so everything is a neutral gray placeholder on a technical render baseline (AgX tone mapping, '
+  + 'soft sun shadows, a generated neutral room environment, white hemisphere + sun; see describe().look.tone / .lights), gray background, ground, capsule characters and box props. Not an error, but the game has no look yet: '
+  + 'making the art is part of building the game. Fill your own style (style/index.js in a new game; recipes/09-style-pack.md, recipes/52-look.md)';
 /** true when createEngine got no style, or only empty parts ({} / [{}, {}]): the game has no look yet */
-export const styleIsEmpty = st => !st || (Array.isArray(st) ? st.every(styleIsEmpty) : typeof st === 'object' && Object.keys(st).every(k => k === 'name'));   // a name alone (the new-game empty pack) is still empty
+export const styleIsEmpty = st => !st || (Array.isArray(st) ? st.every(styleIsEmpty) : typeof st === 'object' && Object.keys(st).every(k => k === 'name'));   // a name alone (the new-game empty style) is still empty

@@ -1,26 +1,31 @@
-// grids() module: placement grids for anything placed on cells (furniture, building, crops, crates, tactics tiles). Installed as engine.grids; costs nothing when not installed.
+// grids() module: placement grids. Anything placed on cells (furniture, building, towers, crops, tactics tiles); installed as engine.grids, free when not installed.
 //   engine.use(world(), grids());
 //   const room = engine.grids.add('room', { cell: 1, origin: [0, 0], size: [16, 12] });
-//   engine.grids.define('table', { size: [2, 1], layer: { floor: 'wood' } });
-//   engine.ops.run('grid.place', { grid: 'room', item: 'table', cell: [3, 5] });
+//   engine.grids.define('rug', { occupy: 'floor' }); engine.grids.define('table', { size: [2, 1] });   // a table may stand on a rug
+//   engine.ops.run('grid.place', { grid: 'room', item: 'table', cell: [3, 5], level: 1 });           // upstairs
 // Where state lives (nothing is stored twice):
 //   placed things  -> world records with a `grid` field (saved by world); occupancy is an index rebuilt from them (world:add / change / remove / load)
 //   per-cell layers -> Layer maps, saved here under the save key 'grids' (version 2) as a per-cell diff against the authored cells (Layer.js)
 // The index is the "don't go around it" check: in dev a record's grid field is frozen (editing it in place throws), writes outside ops
 // trigger the ops guard, and a record whose footprint overlaps another one is reported with the fix.
-import { Grid } from './Grid.js';
+import { Grid, MAIN, occKey } from './Grid.js';
 import { layerTiles } from './tiles.js';
 import { makePreview } from './preview.js';
 import { defineGridOps, placed } from './ops.js';
 
 /** Grids save part: version 1 stored every cell of a layer whole ([[i, j, data]]); version 2 stores a diff against the authored cells (Layer.js) */
 const GRIDS_MIGRATE = { 1: d => Object.fromEntries(Object.entries(d || {}).map(([g, ls]) => [g, Object.fromEntries(Object.entries(ls || {}).map(([n, rows]) => [n, { set: rows, whole: true }]))])) };
-import { checkOptions, closest, DEV } from '../../core/validate.js';
+import { closest, DEV, warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+import { failure } from '../../core/opsFail.js';
+import { STRINGS as TEXT } from './strings.js';
+import { codedError, coded } from '../../core/errorHints.js';
 
 const STRINGS = {
   dup: "grids.add('{name}'): a grid with this name exists",
   noGrid: "grid '{name}': no such grid{hint}. Grids: {list}",
   noItem: "grid item '{name}' is not defined{hint}: engine.grids.define('{name}', { size: [1, 1] }). Defined: {list}",
+  orphan: "[engine] grid '{grid}': {id} is a '{item}', which this content no longer defines; it is kept in the save but takes no cells. Define '{item}' again (engine.grids.define) to bring it back, or remove it with engine.ops.run('grid.remove', { id })",
   overlap: "[engine] grid '{grid}': {id} overlaps {other} at cell {cell}; the cell stays with {other}. Place things with engine.ops.run('grid.place', ...) / 'grid.move', which check can() first",
 };
 const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
@@ -30,9 +35,9 @@ const freeze = p => { Object.freeze(p.cell); Object.freeze(p.size); return Objec
 /**
  * engine.grids: every placement grid, the item rules, previews and the occupancy index
  * @example
- * const farm = engine.grids.add('farm', { cell: 1, origin: [0, 0], size: [16, 12] });
- * engine.grids.define('bed', { size: [2, 1], kind: 'furniture', fields: { model: 'bed' } });
- * engine.ops.run('grid.place', { grid: 'farm', item: 'bed', cell: [4, 4], rotation: 1 });
+ * const shop = engine.grids.add('shop', { cell: 1, origin: [0, 0], size: [16, 12] });
+ * engine.grids.define('shelf', { size: [2, 1], kind: 'furniture', fields: { model: 'shelf' } });
+ * engine.ops.run('grid.place', { grid: 'shop', item: 'shelf', cell: [4, 4], rotation: 1 });
  * @experimental
  */
 export class Grids {
@@ -49,15 +54,22 @@ export class Grids {
   /**
    * Create a grid. cell: edge length (m, default 1); origin: world [x, z] of the min corner of cell [0, 0]; size: [cells wide, cells deep] (omit = unbounded);
    * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5);
-   * layers: authored cells { soil: [[i, j, { tilled: true }], ...] } (content/grids.js): the baseline a save diffs against, so a save keeps only changed cells
+   * y: height of level 0 (m; default the ground under each cell), levelHeight: meters per level (default 3; level n is at y + n * levelHeight);
+   * mapping: { toCell(x, z) => [i, j], center([i, j]) => [x, z] } replaces the square cell <-> world math (one place: toCell, toWorld, tiles, flatness);
+   * layers: authored cells { zone: [[i, j, { buildable: true }], ...] } (content/grids.js): the baseline a save diffs against, so a save keeps only changed cells
    * @example const room = engine.grids.add('room', { cell: 0.5, origin: [-3, -3], size: [12, 12], zone: 'house' })
+   * @example const tower = engine.grids.add('tower', { cell: 1, origin: [0, 0], size: [8, 8], y: 0.1, levelHeight: 3.2 })   // three floors of one building
    * @param {string} name
-   * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number, layers?: Record<string, [number, number, Record<string, any>][]> }} [opts]
+   * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number, y?: number, levelHeight?: number,
+   *   mapping?: { toCell(x: number, z: number): [number, number], center(cell: [number, number]): [number, number] },
+   *   layers?: Record<string, [number, number, Record<string, any>][]> }} [opts]
    * @returns {Grid}
    */
   add(name, opts = {}) {
-    checkOptions(`grids.add('${name}')`, opts, ['cell', 'origin', 'size', 'zone', 'flat', 'layers']);
-    if (this._grids.has(name)) throw new Error(fmt(STRINGS.dup, { name }));
+    readParams(`grids.add('${name}')`, keysSchema(['cell', 'origin', 'size', 'zone', 'flat', 'y', 'levelHeight', 'mapping', 'layers']), opts);
+    const m = opts.mapping;
+    if (m && !(typeof m.toCell === 'function' && typeof m.center === 'function')) throw codedError('grids-misuse', `grids.add('${name}'): mapping needs both toCell(x, z) => [i, j] and center([i, j]) => [x, z]`, TypeError);
+    if (this._grids.has(name)) throw codedError('grids-misuse', fmt(STRINGS.dup, { name }));
     const g = new Grid(this.engine, this, name, opts);
     this._grids.set(name, g);
     for (const [ln, rows] of Object.entries(opts.layers ?? {})) { const l = g.layer(ln); l._byContent = true; l._setBase(rows); }
@@ -73,38 +85,46 @@ export class Grids {
   /** @internal A grid by name; throws with the names that exist */
   _must(name) {
     const g = this._grids.get(name);
-    if (!g) throw new Error(fmt(STRINGS.noGrid, { name, hint: hint(name, [...this._grids.keys()]), list: [...this._grids.keys()].join(', ') || 'none' }));
+    if (!g) throw codedError('grids-misuse', fmt(STRINGS.noGrid, { name, hint: hint(name, [...this._grids.keys()]), list: [...this._grids.keys()].join(', ') || 'none' }));
     return g;
   }
   /**
    * @internal The record a placement makes (kind + fields), the same math as the grid.place op; content uses it for pre-placed grid items (props entries with grid)
-   * @param {string} grid @param {string} item @param {[number, number]} cell @param {number} rotation
+   * @param {string} grid @param {string} item @param {[number, number]} cell @param {number} rotation @param {number} [level]
    */
-  placement(grid, item, cell, rotation) {
+  placement(grid, item, cell, rotation, level = 0) {
     const g = this._must(grid), rule = this._rule(item);
-    return { kind: rule.kind ?? item, fields: { ...structuredClone(rule.fields ?? {}), ...placed(g, rule, item, cell, rotation) } };
+    return { kind: rule.kind ?? item, fields: { ...structuredClone(rule.fields ?? {}), ...placed(g, rule, item, cell, rotation, level) } };
   }
   /** All grids (a new array) @returns {Grid[]} */
   list() { return [...this._grids.values()]; }
   /**
    * Register what can be placed and its rules. size [w, d] in cells (default [1, 1]); kind of the world record (default the item name);
-   * ground: allowed engine.groundType values; layer: { layerName: field } that must be truthy on every cell (reason 'not' + Field, e.g. notTilled);
-   * flat: max height difference (overrides the grid's); fields: copied into the record; can(e, { grid, cell, rotation, cells }): your own rule
-   * @example engine.grids.define('crop', { size: [1, 1], layer: { soil: 'tilled' }, fields: { plantedAt: 0 } })
+   * occupy: the occupancy layer it takes (default 'main'): things in different layers share a cell ('floor' tile, 'main' table, 'wall' lamp), two in one
+   * layer do not; ground: allowed engine.groundType values; layer: { layerName: field } that must be truthy on every cell (reason 'not' + Field, e.g.
+   * notBuildable); flat: max height difference (overrides the grid's); fields: copied into the record; can(e, { grid, cell, rotation, cells, level }): your own rule
+   * @example engine.grids.define('tower', { size: [2, 2], layer: { zone: 'buildable' }, fields: { range: 6 } })   // tower defense
+   * @example engine.grids.define('tile', { occupy: 'floor' }); engine.grids.define('sofa', { size: [2, 1] })        // a sofa stands on a tile
    * @example engine.grids.define('shed', { size: [3, 2], ground: ['grass', 'dirt'], flat: 0.2 })
    * @param {string} name
    * @param {import('./Grid.js').GridRule} rule
    * @returns {void}
    */
   define(name, rule) {
-    checkOptions(`grids.define('${name}')`, rule, ['size', 'kind', 'ground', 'layer', 'flat', 'fields', 'can']);
+    readParams(`grids.define('${name}')`, keysSchema(['size', 'kind', 'occupy', 'ground', 'layer', 'flat', 'fields', 'can']), rule);
     this._defs.set(name, { size: [1, 1], ...rule });
+    // 占用层从规则推出（_ruleOf），所以改了已摆放物品的规则，索引要跟着重建，不然 at() 和 can() 又各说各的
+    if (this._byId.size) this._rebuild();
+  }
+  /** @internal a placed record's rule: its item's current rule when that item is defined, else the record's own size / occupy (inline rules, items this content no longer has) */
+  _ruleOf(p) {
+    return (p.item && this._defs.get(p.item)) || { size: p.size, occupy: p.occupy };
   }
   /** @internal item name / size / inline rule -> rule */
   _rule(what) {
     if (typeof what === 'string') {
       const r = this._defs.get(what);
-      if (!r) throw new Error(fmt(STRINGS.noItem, { name: what, hint: hint(what, [...this._defs.keys()]), list: [...this._defs.keys()].join(', ') || 'none' }));
+      if (!r) throw codedError('grids-misuse', fmt(STRINGS.noItem, { name: what, hint: hint(what, [...this._defs.keys()]), list: [...this._defs.keys()].join(', ') || 'none' }));
       return r;
     }
     return Array.isArray(what) ? { size: what } : { size: [1, 1], ...what };
@@ -114,13 +134,13 @@ export class Grids {
    * function, turned by the input action rotate (default name 'rotate'; the game binds it, or pass rotateKeys / ...presets.keys.gridRotate, the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
    * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
    * @example engine.input.define('place', ['Mouse0']);   // the game's own binding
-   *   const pv = engine.grids.preview({ grid: 'farm', item: 'crop', ...presets.keys.gridRotate });
-   *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); } });
+   *   const pv = engine.grids.preview({ grid: 'field', item: 'tower', ...presets.keys.gridRotate });
+   *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.code)); } });
    * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotateKeys?: string[], rotation?: number, look?: false | ((e: any) => any) }} opts
-   * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, reason: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, reason?: string }, remove(): void }}
+   * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, code: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, code?: string }, remove(): void }}
    */
   preview(opts) {
-    checkOptions('grids.preview()', opts, ['grid', 'item', 'from', 'rotate', 'rotateKeys', 'rotation', 'look']);
+    readParams('grids.preview()', keysSchema(['grid', 'item', 'from', 'rotate', 'rotateKeys', 'rotation', 'look']), opts);
     return makePreview(this.engine, this, opts);
   }
 
@@ -138,10 +158,13 @@ export class Grids {
     const p = rec.grid, g = this._grids.get(p.id);
     if (DEV && !Object.isFrozen(p)) freeze(p);
     if (!g) return;
-    const keys = [];
-    for (const [i, j] of g.footprint(p.cell, p.size, p.rotation)) {
-      const k = i + ',' + j, other = g._occ.get(k);
-      if (other && other !== rec.id) { if (DEV) console.warn(fmt(STRINGS.overlap, { grid: g.name, id: rec.id, other, cell: k })); continue; }
+    // 尺寸和占用层读规则而不是记录：grid.move 的 can() 也读规则，两边同源，内容后来改了物品的 size / 加了 occupy 时旧存档不会按旧格子占位
+    const keys = [], rule = this._ruleOf(p), occupy = rule.occupy ?? MAIN, level = p.level ?? 0;
+    // an item this content no longer defines has no size to occupy (a named record stores none): the record stays in the save, takes no cells
+    if (!rule.size) { if (DEV) warnOnce(coded('grid-orphan', fmt(STRINGS.orphan, { grid: g.name, id: rec.id, item: p.item }))); this._byId.set(rec.id, { g, keys }); return; }
+    for (const [i, j] of g.footprint(p.cell, rule.size, p.rotation)) {
+      const k = occKey(occupy, level, i, j), other = g._occ.get(k);
+      if (other && other !== rec.id) { if (DEV) warnOnce(coded('grid-overlap', fmt(STRINGS.overlap, { grid: g.name, id: rec.id, other, cell: k }))); continue; }
       g._occ.set(k, rec.id); keys.push(k);
     }
     this._byId.set(rec.id, { g, keys });
@@ -192,11 +215,11 @@ export class Grids {
   _explain(q) {
     const g = this.get(q?.grid);
     if (!g) return { ok: false, text: `no grid '${q?.grid}' (grids: ${[...this._grids.keys()].join(', ') || 'none'})` };
-    const r = g.check(q.item, q.cell, { rotation: q.rotation ?? 0 });
+    const r = g.check(q.item, q.cell, { rotation: q.rotation ?? 0, level: q.level ?? 0 });
     const head = `${q.item} at ${g.name} [${q.cell}] rotation ${q.rotation ?? 0}`;
-    if (!r.reason) return { ok: true, text: `${head} can be placed` };
+    if (!r.code) return { ok: true, text: `${head} can be placed` };
     const by = r.by ? ` by ${r.by} (${this.engine.world.get(r.by)?.grid?.item ?? this.engine.world.get(r.by)?.kind})` : '';
-    return { ok: false, reason: r.reason, text: `${head} cannot be placed: ${r.reason}${r.cell ? ` at cell [${r.cell}]` : ''}${by}${r.text ? ` (${r.text})` : ''}` };
+    return Object.assign(failure({ code: r.code, facts: { cell: r.cell ?? null, by: r.by ?? null } }), { text: `${head} cannot be placed: ${r.code}${r.cell ? ` at cell [${r.cell}]` : ''}${by}${r.text ? ` (${r.text})` : ''}` });
   }
 }
 
@@ -213,6 +236,7 @@ export function grids() {
     name: 'grids', label: 'Grid placement', stage: 'gameplay', requires: ['world'],
     install(e) {
       G = new Grids(e);
+      e.i18n.add(TEXT);   // grid.<code> player text for every built-in failure code, and the rotate action's label
       e.saves.register('grids', { atomic: true, version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
       offOps = defineGridOps(e, G);
       subs.push(

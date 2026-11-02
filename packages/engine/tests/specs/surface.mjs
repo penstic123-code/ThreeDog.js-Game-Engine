@@ -39,13 +39,19 @@ export const specs = [
         const px = 16, d = new Uint8Array(px * px * 4);
         for (let i = 0; i < px * px; i++) { const n = 60 + (i * 37 % 140); d.set([n, n, n, 255], i * 4); }
         const tex = new THREE.DataTexture(d, px, px); tex.needsUpdate = true;
-        const e = { style: { materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6 } } }, assets: { texture: async () => tex } };
+        // 旧实现没有 fade：fade: false 时画面必须和旧实现逐字节相同（迁移没改画面）
+        const e = { style: { materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6, fade: false } } }, assets: { texture: async () => tex } };
         const m = terrainMaterial(null, e); out.detailBefore = shot(m).h;
         await new Promise(r => setTimeout(r, 50)); out.detail = shot(m).h;
+        // 默认 fade 开着（b8a68961，2026-11-01 有意改的：比一个像素还细的花纹淡掉，远处不闪），默认画面另记一份 golden，取自 b8a68961 之后
+        const ef = { style: { materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6 } } }, assets: { texture: async () => tex } };
+        const mf = terrainMaterial(null, ef); out.fadeBefore = shot(mf).h;
+        await new Promise(r => setTimeout(r, 50)); out.fade = shot(mf).h;
         return out; })()`);
       check('lambert / toon / standard 材质的画面与改动前逐字节相同', r.lambert === 813980680 && r.toon === 141705411 && r.standard === -2046925158, JSON.stringify(r));
       check('季节地面色（乘）与改动前相同', r.season === -449878753, String(r.season));
-      check('style.terrain.detail 迁到 detail 补丁后：加载前后的画面都与旧实现逐字节相同', r.detailBefore === 1844044487 && r.detail === 1857022951, `${r.detailBefore} ${r.detail}`);
+      check('style.terrain.detail 迁到 detail 补丁后（fade: false）：加载前后的画面都与旧实现逐字节相同', r.detailBefore === 1844044487 && r.detail === 1857022951, `${r.detailBefore} ${r.detail}`);
+      check('detail 默认 fade 开：加载前后的画面与 b8a68961 之后的 golden 相同', r.fadeBefore === -1051862270 && r.fade === 2004762949, `${r.fadeBefore} ${r.fade}`);
     },
   },
   {
@@ -149,8 +155,13 @@ export const specs = [
         console.warn = w0; out.warns = warns.join(' | ');
         out.noEngine = bad(() => makeMaterial('rock', { map: 'a.png' }, { style: E.style, assets: null }));
         out.badWrap = bad(() => makeMaterial('rock', { wrap: 'tile' }, E));
-        // a texture object still works as before
-        const m2 = makeMaterial('rock', { map: img }, E); out.obj = m2.map === img;
+        // a texture object: the rock spec writes repeat / wrap, so the slot gets a copy that shares the image (ad39a799: a texture you made keeps
+        // its own repeat / wrap; only the copy follows the spec), and the game's texture is left as it was
+        const m2 = makeMaterial('rock', { map: img }, E);
+        out.obj = m2.map !== img && m2.map.image === img.image && m2.map.repeat.x === 3 && m2.map.repeat.y === 2 && m2.map.wrapS === THREE.MirroredRepeatWrapping
+          && img.repeat.x === 1 && img.wrapS === THREE.ClampToEdgeWrapping;
+        // a spec that says nothing about repeat / wrap: the very same texture object goes into the slot
+        const m3 = makeMaterial('rock', { map: img }, { style: { materials: { rock: { type: 'standard' } } }, assets }); out.objSame = m3.map === img;
         return out; } catch (e) { return { crash: e.stack.slice(0, 600) }; } })()`);
       if (r.crash) { check('crash ' + r.crash.replace(/\s+/g, ' '), false); return; }
       check('占位到位：加载前槽里就有占位贴图，加载后画面变化，无着色器报错', r.stand && r.changed && r.errs === '', r.errs);
@@ -158,7 +169,8 @@ export const specs = [
       check('repeat / wrap 作用到贴图', r.rep[0] === 3 && r.rep[1] === 2 && r.rep[2], JSON.stringify(r.rep));
       check('键写错（normalmap / roughnesMap）报错带相近名', /did you mean 'normalMap'/.test(r.typo) && /did you mean 'roughnessMap'/.test(r.typo2), r.typo + ' | ' + r.typo2);
       check('加载失败与材质类型不支持该槽：警告里带改法', /did not load.*Register it/.test(r.warns) && /use type 'standard'/.test(r.warns), r.warns);
-      check('没有引擎时写贴图名：报错说明怎么传；wrap 写错给可选值；传 Texture 对象照旧', /pass the engine/.test(r.noEngine) && /repeat \| clamp \| mirror/.test(r.badWrap) && r.obj, r.noEngine + ' | ' + r.badWrap);
+      check('没有引擎时写贴图名：报错说明怎么传；wrap 写错给可选值', /pass the engine/.test(r.noEngine) && /repeat \| clamp \| mirror/.test(r.badWrap), r.noEngine + ' | ' + r.badWrap);
+      check('传 Texture 对象：规格写了 repeat / wrap 就用共享图像的副本、游戏的贴图不被改；没写就是同一个对象', r.obj && r.objSame, JSON.stringify([r.obj, r.objSame]));
     },
   },
   {

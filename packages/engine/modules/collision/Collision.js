@@ -5,9 +5,10 @@
 // Positions are always a single argument (Vector3 / Object3D / [x, y, z] / { x, z }); sizes go in the options object:
 //   const h = engine.collision.addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 });   h.remove();
 import { xzOf } from '../../core/math.js';
-import { checkOptionsArg } from '../../core/validate.js';
+
 import { readParams, keysSchema } from '../../core/params.js';
 import { CollisionGrid, gridBlocks } from './grid.js';
+import { codedError } from '../../core/errorHints.js';
 
 /** One axis of the slab test: narrows S.t0 / S.t1 to where the ray is inside |o + d t| <= h; false when it misses */
 function slab(S, o, d, h) {
@@ -44,7 +45,7 @@ export class Collision {
 
   /** Add a circle collider (pillar, statue, campfire): position is the centre, radius (default 0.5), height (default 6). Returns a handle { remove() } */
   addCircle(position, opts = {}) {
-    checkOptionsArg('collision.addCircle()', opts, CIRCLE_KEYS); if (typeof opts !== 'object') opts = {};
+    readParams('collision.addCircle()', keysSchema(CIRCLE_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [x, z] = xzOf(position), c = { x, z, r: opts.radius ?? 0.5, h: opts.height ?? 6 };
     this.circles.push(c); this._grid.add(c, false); this.version++;
     return { remove: () => { if (!this.circles.includes(c)) return; this.circles = this.circles.filter(o => o !== c); this._grid.remove(c); this.version++; } };
@@ -54,7 +55,7 @@ export class Collision {
    * height (default 6), y is the box bottom height (omit to sit on the ground; set it for walls on platforms in levels). Returns a handle { remove() }
    */
   addBox(position, opts = {}) {
-    checkOptionsArg('collision.addBox()', opts, BOX_KEYS); if (typeof opts !== 'object') opts = {};
+    readParams('collision.addBox()', keysSchema(BOX_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [x, z] = xzOf(position), hw = opts.halfWidth ?? 1, hd = opts.halfDepth ?? 1, rot = opts.rotation ?? 0;
     const b = { x, z, hw, hd, rot, h: opts.height ?? 6, y: opts.y, c: Math.cos(rot), s: Math.sin(rot), r: Math.hypot(hw, hd) };
     this.boxes.push(b); this._grid.add(b, true); this.version++;
@@ -65,7 +66,7 @@ export class Collision {
    * It is a rotated box in the same grid, so a gap between two segments is a gate. Returns a handle { remove() }
    */
   addSegment(a, b, opts = {}) {
-    checkOptionsArg('collision.addSegment()', opts, SEG_KEYS); if (typeof opts !== 'object') opts = {};
+    readParams('collision.addSegment()', keysSchema(SEG_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [ax, az] = xzOf(a), [bx, bz] = xzOf(b);
     // box-local +x is (cos r, -sin r) in world, so r = -atan2(dz, dx)
     return this.addBox([(ax + bx) / 2, 0, (az + bz) / 2], { halfWidth: Math.hypot(bx - ax, bz - az) / 2, halfDepth: (opts.thickness ?? 0.3) / 2, rotation: -Math.atan2(bz - az, bx - ax), height: opts.height, y: opts.y });
@@ -76,8 +77,8 @@ export class Collision {
    * or keep the water field exact and let fn test `!onBridge(x, z)`. findPathAsync samples fn into its ground raster (1 m cells), so give bounds to keep that cheap. Returns a handle { remove() }
    */
   addBlocked(fn, opts = {}) {
-    checkOptionsArg('collision.addBlocked()', opts, BLOCK_KEYS); if (typeof opts !== 'object') opts = {};
-    if (typeof fn !== 'function') throw new Error('collision.addBlocked(fn): fn(x, z) => boolean is required');
+    readParams('collision.addBlocked()', keysSchema(BLOCK_KEYS), opts); if (typeof opts !== 'object') opts = {};
+    if (typeof fn !== 'function') throw codedError('collision-misuse', 'collision.addBlocked(fn): fn(x, z) => boolean is required');
     const f = { fn, bounds: opts.bounds ?? null }; this._blocked.push(f); this.version++; this.blockedVersion++;
     return { remove: () => { if (!this._blocked.includes(f)) return; this._blocked = this._blocked.filter(o => o !== f); this.version++; this.blockedVersion++; } };
   }
@@ -156,7 +157,7 @@ export class Collision {
   }
   /** @internal */
   _lineClear(a, b, opts) {
-    checkOptionsArg('collision.lineClear()', opts, ['radius', 'who']); if (typeof opts !== 'object') opts = {};
+    readParams('collision.lineClear()', keysSchema(['radius', 'who']), opts); if (typeof opts !== 'object') opts = {};
     const rad = opts.radius ?? 0;
     const A = this._vec(a), B = this._vec(b), dx = B.x - A.x, dz = B.z - A.z, dy = B.y - A.y;
     const S = this._lineS;
@@ -270,5 +271,12 @@ const COLLISION_PARAMS = keysSchema(['maxClimb', 'canopyHeight', 'cameraPad', 'c
 /** Collision module: lightweight character walking collision, covers the whole map. Once installed: engine.collision */
 export function collision(opts = {}) {
   readParams('collision', COLLISION_PARAMS, opts);
-  return { name: 'collision', params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { return new Collision(e, opts); } };
+  let c = null;
+  return { name: 'collision', params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { return (c = new Collision(e, opts)); },
+    // counts of what blocks walking, and whether the player's own spot is walkable: answers "why can the player not go there" without stepping
+    describe(e) {
+      const p = e.player?.position;
+      return { circles: c.circles.length, boxes: c.boxes.length, fields: c._blocked.length, cameraOcclusion: c.cameraOcclusion,
+        ...(p ? { atPlayer: { walkable: c.groundWalkable(p.x, p.z), blocked: c.blockedAt(p.x, p.z) } } : {}) };
+    } };
 }

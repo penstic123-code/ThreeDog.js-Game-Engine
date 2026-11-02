@@ -1,4 +1,5 @@
-// Photo mode: while taking the shot, temporarily raise resolution and shadow precision (with the sky module) and enable bloom, then restore at once, so normal frame rate is unaffected.
+// Photo mode: a sharper shot, then restore. Resolution and shadow precision (with the sky module) rise for the one frame, so normal frame rate is unaffected.
+// Bloom follows the game's post by default (bloom: null): a photo looks like the game; bloom: true / false forces it for the shot only.
 //
 // Taking a photo is the op photo.take (recipes/23-ops.md): the photo key, a game's shutter button, the dev bridge and tests all run it, and
 // photo.canTake (true or a reason) is its can. engine.photo.take() is the low-level capture the op calls (no checks).
@@ -8,14 +9,16 @@
 // vegetation ('vegetation'; after hitting an instanced mesh, vegetation.instanceAt looks up the kind); null when it hits the sky or an unnamed ground.
 // The photo key (action 'photo') is the game's: photo({ keys: ['KeyC'], pad: ['PadX'] }), photo({ ...presets.keys.photo }) (P / gamepad RB) or keys: [] for no key
 // Shutter sound: the game's createEngine({ audio: { sounds: { shutter } } }) supplies a file, otherwise a synthesized fallback
-import { checkOptions, moduleKeys } from '../../core/validate.js';
+import { moduleKeys, warnOnce } from '../../core/validate.js';
+import { builtInSounds } from '../../core/assetManifest.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { toast } from '../../ui/UI.js';
+import { coded } from '../../core/errorHints.js';
 const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
 
 export class Photo {
-  constructor(engine, { scale = 1.6, shadowMapSize = 4096, bloom = true, quality = 0.92, format = 'image/jpeg', maxAlbum = 50 } = {}) {
+  constructor(engine, { scale = 1.6, shadowMapSize = 4096, bloom = null, quality = 0.92, format = 'image/jpeg', maxAlbum = 50 } = {}) {
     Object.assign(this, { engine, scale, shadowMapSize, bloom, quality, format, maxAlbum });
     this.album = [];
     this._n = 0;                        // shots taken this run (photo id = shot time + sequence number)
@@ -24,22 +27,23 @@ export class Photo {
 
   /** Capture a photo now, without checks (the op photo.take checks canTake and calls this). Returns { url, time, position, subject } */
   take(opts = {}) {
-    checkOptions('photo.take()', opts, TAKE_KEYS);
+    readParams('photo.take()', keysSchema(TAKE_KEYS), opts);
     const o = { scale: this.scale, shadowMapSize: this.shadowMapSize, bloom: this.bloom, quality: this.quality, format: this.format, ...opts };
     const e = this.engine, r = e.renderer, sky = e.sky;
     const prevPR = r.getPixelRatio(), prevMap = sky?.shadowMapSize, prevBloom = e.post.get('bloom')?.enabled;
     const pr = Math.min(3, prevPR * o.scale);
     r.setPixelRatio(pr); e.post.setPixelRatio(pr);
     if (e.shadows && sky) sky.setShadowMapSize(o.shadowMapSize);
-    e.look.post.set({ 'bloom.enabled': o.bloom });
+    const forceBloom = typeof o.bloom === 'boolean' && prevBloom !== undefined;
+    if (forceBloom) e.look.post.set({ 'bloom.enabled': o.bloom });
     r.shadowMap.needsUpdate = true;     // shadows may update only every few frames (sky's shadow.updateEvery); force an update on the photo frame
     e.post.render(0);
     const url = r.domElement.toDataURL(o.format, o.quality);
     r.setPixelRatio(prevPR); e.post.setPixelRatio(prevPR);
     if (e.shadows && sky) sky.setShadowMapSize(prevMap);
-    if (prevBloom !== undefined) e.look.post.set({ 'bloom.enabled': prevBloom });
-    const p = e.actorPosition() ?? e.cameraRig?.target?.position;   // where whoever the user controls stands (engine.actor)
-    const shot = { url, time: sky?.clock ?? '', position: p ? { x: Math.round(p.x), z: Math.round(p.z) } : null, subject: this.subject() };
+    if (forceBloom) e.look.post.set({ 'bloom.enabled': prevBloom });
+    const p = e.actorPosition() ?? e.cameraRig?.focusPoint();   // where whoever the user controls stands (engine.actor)
+    const shot = { url, time: e.calendar?.clock ?? '', position: p ? { x: Math.round(p.x), z: Math.round(p.z) } : null, subject: this.subject() };
     this.album.unshift(shot); if (this.album.length > this.maxAlbum) this._drop(this.album.pop());
     this._persist(shot);
     e.events.emit('photo:taken', shot);
@@ -78,7 +82,7 @@ export class Photo {
     while (this.album.length > this.maxAlbum) this._drop(this.album.pop());
   }
   _fail(err) {
-    console.error('[photo] failed to save photo', err);
+    warnOnce(coded('save-write', `[photo] failed to save photo: ${err?.message ?? err}`));
     toast(this.engine, this.engine.t('saves.failed', { why: err?.message || String(err) }), { kind: 'error', ms: 5000 });
   }
 
@@ -92,12 +96,11 @@ export class Photo {
       const v = e.vegetation?.instanceAt(hit.point, { radius: 3 });
       return v ? { name: v.species, kind: 'vegetation', distance } : null;
     }
-    for (let o = hit.object; o; o = o.parent) {
-      const npc = e.npcs?.list().find(n => n.root === o);
-      if (npc) return { name: npc.name, kind: 'npc', distance };
-      if (o.userData.entity != null) return { name: e.entities?.get(o.userData.entity)?.type ?? String(o.userData.entity), kind: 'entity', distance };
-      if (o.userData.name || o.name) return { name: o.userData.name ?? o.name, kind: 'object', distance };
-    }
+    // an NPC anywhere up the chain wins over a named part on the way: character bodies name their parts ('torso', 'head'), and a photo of
+    // someone is a photo of that someone, not of their torso. Only without an NPC does the nearest named object count
+    const npcs = e.npcs?.list() ?? [];
+    for (let o = hit.object; o; o = o.parent) { const npc = npcs.find(n => n.root === o); if (npc) return { name: npc.name, kind: 'npc', distance }; }
+    for (let o = hit.object; o; o = o.parent) if (o.userData.name || o.name) return { name: o.userData.name ?? o.name, kind: 'object', distance };
     return null;
   }
 }
@@ -115,16 +118,16 @@ export function photo(all = {}) {
   let bound = false;   // the photo action has a key or pad button (set at install)
   let ph = null;
   return {
-    name: 'photo', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'vegetation', 'entities'],
+    name: 'photo', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation'],
     install(e) {
       e.i18n.add(STRINGS);
       const keys = moduleKeys('photo()', 'photo', keys0, 'photo', e.input);   // the game's key or a presets.keys bundle, never a built-in one
       bound = keys.length > 0 || !!pad;
       if (bound) { e.input.define('photo', keys, 'photo.action', { pad }); e.input.touchButton('photo', 'photo.action'); }
-      e.audio.register('shutter', (audio, p, out) => {
+      builtInSounds(e.assets, { shutter: (audio, p, out) => {   // sound asset 'shutter', silent until audio.sounds names it
         audio.noiseBurst({ dur: 0.03, type: 'highpass', freq: p.freq ?? 3000, vol: p.volume ?? 0.4, out });
         audio.noiseBurst({ dur: 0.05, type: 'bandpass', freq: 1800, vol: (p.volume ?? 0.4) * 0.75, delay: 0.07, out }); return 0.15;
-      }, { builtIn: true });
+      } });
       ph = new Photo(e, opts);
       ph.restore();                                  // read photos taken last time back from storage
       e.ops.define('photo.take', {
@@ -141,6 +144,12 @@ export function photo(all = {}) {
       if (!bound || !e.input.pressed('photo')) return;
       const r = e.ops.run('photo.take', {}, { source: 'player' });
       if (!r.ok && r.code !== 'halted') e.events.emit('photo:denied', { reason: r.code });
+    },
+    // "did the shot land and what was in it": album size and the newest shot's subject; whether it can be taken now is describe().actions (photo.take)
+    describe() {
+      const s = ph.album[0];
+      return { album: ph.album.length, maxAlbum: ph.maxAlbum, keyBound: bound,
+        last: s ? { time: s.time, position: s.position, subject: s.subject?.name ?? null } : null };
     },
   };
 }

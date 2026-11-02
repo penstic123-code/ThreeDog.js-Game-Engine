@@ -2,7 +2,7 @@
   "name": "@threedog/style-lowpoly",
   "version": "0.2.0",
   "private": true,
-  "description": "Example-only low-poly look (not published; used by examples, tests and existing games): a style pack (colors, sky, materials, post effects (from @threedog/post-effects), terrain colors) and an asset pack of procedural models",
+  "description": "Private, never published: re-exports the world example's look (packages/engine/examples/world/style) for the tests and older games in this repository",
   "license": "MIT",
   "repository": {
     "type": "git",

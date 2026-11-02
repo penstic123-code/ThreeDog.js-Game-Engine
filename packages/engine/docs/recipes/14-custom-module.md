@@ -9,12 +9,12 @@ hard-coded art or text, no importing another module's internal files).
 ## 1. Template (example: stamina, in the game folder as `games/<game>/stamina.js`)
 ```js
 // Stamina: running drains it, standing recovers it; at 0 you can't run. engine.stamina.value is 0..max
-import { checkOptions } from 'threedog';    // inside an engine module write '../../core/validate.js'
+import { readParams } from 'threedog';    // inside an engine module write '../../core/params.js'
 
 export function stamina(opts = {}) {
-  checkOptions('stamina()', opts, ['max', 'drain', 'regen']);   // a misspelled option name gets a console hint with the fix
-  const { max = 100, drain = 20, regen = 10 } = opts;
-  let e = null, baseRun = null, shown = -1;
+  const PARAMS = { max: { type: 'number', default: 100 }, drain: { type: 'number', default: 20 }, regen: { type: 'number', default: 10 } };
+  const { max, drain, regen } = readParams('stamina', PARAMS, opts);   // a misspelled option throws in dev with the fix; put PARAMS on the module as params to show it in engine.catalog()
+  let e = null, tired = null, shown = -1;
   const api = {
     value: max, max,
     /** Eating restores stamina */
@@ -30,9 +30,10 @@ export function stamina(opts = {}) {
     },
     fixed(dt) {                                                  // timing and value changes go in fixed (60 Hz, doesn't run while paused)
       const p = e.player; if (!p) return;
-      baseRun ??= p.runSpeed;
       api.value = p.state === 'run' ? Math.max(0, api.value - drain * dt) : Math.min(max, api.value + regen * dt);
-      p.runSpeed = api.value > 0 ? baseRun : p.speed;            // no stamina: walk only
+      // no stamina: run speed = walk speed. A modifier, not a write to p.runSpeed: the base stays the game's, and haste / mud entries still combine
+      if (api.value <= 0 && !tired) tired = e.mod('move.runSpeed', { owner: 'stamina', id: 'player', set: p.speed });
+      else if (api.value > 0 && tired) { tired.remove(); tired = null; }
     },
     frame() {                                                    // UI goes in frame; update only when the value changed (hud.bar redraws on every call)
       const v = Math.round(api.value);
@@ -53,7 +54,7 @@ Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }
 - `describe(e, ctx)`: see recipe 49 contract 4; `ctx.near(object or {x,z}, { name, kind })` reports things nearby. `skip(dt, e, done)`: recipe 49 contract 3.
 - `applyState(e, p)`: called by `engine.applyState` / URL parameters; it only receives the keys `time`, `weather` and `cutscene`.
 - `stage`: when the hooks run (first -> last): `control` timeline, camera -> `world` terrain, level -> `environment` weather, sky, water -> `gameplay`
-  interactions, dialogue, entities -> `presentation` particles, objective markers -> `late` (the default) characters, physics -> `audio` music. Within
+  interactions, dialogue -> `presentation` particles, objective markers -> `late` (the default) characters, physics -> `audio` music. Within
   a stage, to read another module's result for this frame, write `after: ['its-name']` (or `before`); across stages the stage always wins, so a
   `before` / `after` that contradicts it (a `control` module `after` an `audio` one) makes `engine.use` throw `module-order` naming both modules: give
   them the same stage or drop the line. `engine.use(a, b)` is all-or-nothing: if `b` fails, nothing of `a` stays installed.
@@ -82,7 +83,7 @@ Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }
 
 ## 3. Extra steps when it goes into the engine
 - Write the declarations and JSDoc in `index.d.ts` (or `types/*.d.ts`) of the engine package; `npm run types` checks that the exports of index.js are declared.
-- Add look parameters to the style pack (see `09-style-pack.md`), put text in i18n, then `npm run map` to generate API.md + `api/` / CODEMAP.md.
+- Add look parameters to the style (see `09-style-pack.md`), put text in i18n, then `npm run map` to generate API.md + `api/` / CODEMAP.md.
 
 ## 4. Verify
 - `npm run check` (hard rules + types + generated docs up to date).

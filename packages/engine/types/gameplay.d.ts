@@ -1,9 +1,9 @@
-// Gameplay modules: timeline, level, triggers, entities, world changes, particles, settings, music, characters/NPCs, interactions, dialogue, inventory,
+// Gameplay modules: timeline, level, triggers, world changes, particles, settings, music, characters/NPCs, interactions, dialogue, inventory,
 // quests, photo mode, ambience, debug.
 import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike } from './common';
 import type { Engine } from './core';
 import type { Input } from './generated/core/Input';
-import type { Animator, AnimatorOptions, Vehicle } from './physics';
+import type { Animator, AnimatorOptions, Rideable } from './physics';
 import type { WorldRecord } from './generated/modules/world/World';
 
 // ======================================================================
@@ -162,20 +162,26 @@ export interface TriggerOptions {
   height?: number;
   /** Box rotation around the Y axis (radians) */
   rotation?: number;
-  /** Called on entering; who is the position that entered */
-  onEnter?: ((t: Trigger, who: Vector3) => void) | null;
-  /** Called on leaving */
-  onExit?: ((t: Trigger, who: Vector3 | null) => void) | null;
+  /**
+   * Called on entering; who is the position that entered, id the world record id of who it is (engine.actor for the default who, an id given in who,
+   * object.userData.id, null for a bare position)
+   */
+  onEnter?: ((t: Trigger, who: Vector3, id: string | null) => void) | null;
+  /** Called on leaving; id = who was inside */
+  onExit?: ((t: Trigger, who: Vector3 | null, id: string | null) => void) | null;
   /** Called every fixed step while inside (dt in seconds) */
-  onStay?: ((dt: number, t: Trigger, who: Vector3) => void) | null;
+  onStay?: ((dt: number, t: Trigger, who: Vector3, id: string | null) => void) | null;
   /** Fire on the first enter only (exit follows at once); the zone stays with used = true, and a new playthrough (engine.session) re-arms it */
   once?: boolean;
   /** false pauses detection */
   enabled?: boolean;
   /** Name (carried in events) */
   tag?: string;
-  /** Who can trigger it: the player by default; or a position, an object (its position is used), or a function returning an array of positions */
-  who?: Vector3 | Object3D | { x: number; y: number; z: number } | (() => Array<{ x: number; y: number; z: number }>) | null;
+  /**
+   * Who can trigger it: engine.actor by default; or an actor id, a position, an object (its position is used), or a function returning an array of those
+   * (several actors: () => [e.actor, ...e.net.peers.map(p => p.actor)])
+   */
+  who?: string | Vector3 | Object3D | { x: number; y: number; z: number } | (() => Array<string | Object3D | { x: number; y: number; z: number }>) | null;
   /** Seconds after leaving during which entering does not fire again, default 0 */
   cooldown?: number;
   /** Custom data */
@@ -205,13 +211,12 @@ export interface Trigger {
   /** Whether a point is inside */
   contains(p: { x: number; y: number; z: number }): boolean;
 }
-export interface TriggerEvent { tag: string; trigger: Trigger; who: Vector3 | null }
+/** id = world record id of who entered / left (null for a bare position) */
+export interface TriggerEvent { tag: string; trigger: Trigger; who: Vector3 | null; id: string | null }
 export interface TriggersOptions {
-  /** Show the wireframes from the start */
-  debug?: boolean;
-  /** Action name that toggles the wireframes, default 'triggersDebug' */
+  /** Action name that toggles the debug view 'triggers' (engine.debug.view), default 'triggersDebug' */
   action?: string;
-  /** Key that toggles the wireframes: default ['F4'] in dev builds, none in release builds */
+  /** Key that toggles that view: default ['F4'] in dev builds, none in release builds */
   keys?: string[];
 }
 
@@ -219,8 +224,6 @@ export interface TriggersOptions {
 export interface Triggers {
   /** All trigger zones (a new array) */
   list(): Trigger[];
-  /** Whether wireframes are shown */
-  debug: boolean;
   action: string;
   /** Add a trigger zone */
   add(opts?: TriggerOptions): Trigger;
@@ -230,129 +233,13 @@ export interface Triggers {
   byTag(tag: string): Trigger[];
   /** Every trigger_xxx marker in the level becomes a trigger zone with tag xxx; opts is shared by all of them */
   fromMarkers(opts?: TriggerOptions): Trigger[];
-  /** Show / hide the wireframes */
-  setDebug(on: boolean): void;
-}
-
-// ======================================================================
-// Entities entities()
-// ======================================================================
-
-/** Growth stage */
-export interface EntityStage {
-  /** Stage name, e.g. 'seed' */
-  name: string;
-  /** How many game seconds to stay in this stage (leave out on the last one = stay here forever) */
-  duration?: number;
-  /** Model size multiplier */
-  scale?: number;
-  /** Swap the model */
-  model?: (engine: Engine, ent: Entity) => Object3D;
-}
-/** Entity interaction settings (needs the interactions module) */
-export interface EntityInteract {
-  /** Prompt text: an i18n key, plain text, or a function ent => text */
-  label?: string | ((ent: Entity, engine: Engine) => string);
-  /** Interaction action name, default 'interact' */
-  action?: string;
-  /** How close you must be to interact (meters), default 2.5 */
-  radius?: number;
-  /** How high the prompt floats (meters) */
-  height?: number;
-  /** Whether it can be interacted with */
-  enabled?: (ent: Entity, engine: Engine) => boolean;
-  /** When the interact key is pressed */
-  onUse?: (ent: Entity, engine: Engine) => void;
-}
-/** Entity type definition: engine.entities.define('sapling', {...}) */
-export interface EntityDef<S = Record<string, any>> {
-  /** Create the model (required), returns a THREE.Object3D */
-  create: (engine: Engine, ent: Entity<S>) => Object3D;
-  /** Default state (merged with the state given at spawn) */
-  state?: S;
-  /** Growth stages */
-  stages?: EntityStage[];
-  /** Growth stops when this returns false */
-  canGrow?: (ent: Entity<S>, engine: Engine) => boolean;
-  /** Called every fixed step (dt in seconds); runs only near the player, far away only growth is caught up */
-  update?: (dt: number, ent: Entity<S>, engine: Engine) => void;
-  /** Interaction */
-  interact?: EntityInteract;
-  /** Circular collision radius (meters, needs the collision module; follows the model, exists only near the player) */
-  collider?: number;
-  /** Collision height (meters), default 3 */
-  colliderHeight?: number;
-  /** Cleanup when the model is torn down (called both when walking away and on deletion; don't clear data while the data still exists) */
-  dispose?: (ent: Entity<S>, engine: Engine) => void;
-  /** false = not saved (temporary things, cleared on load), default true */
-  save?: boolean;
-}
-/** Parameters of spawn() */
-export interface EntitySpawnData {
-  /** Specify the id (generated automatically if omitted) */
-  id?: string;
-  /** Position: Vector3 / object / [x, y, z] / { x, z } ({ x, z } without y snaps to the ground), default origin */
-  position?: PositionLike;
-  /** Heading (radians) */
-  rotation?: number;
-  /** Initial state (merged onto the default state) */
-  state?: Record<string, any>;
-  /** Extra data (ent.data, saved) */
-  extra?: Record<string, any>;
-}
-/** An entity: x / y / z / rotation / state / data read engine.world data directly (kind is 'entity:<type>'); object / visual exist only near the player */
-export interface Entity<S = Record<string, any>> {
-  id: string;
-  type: string;
-  def: EntityDef<S>;
-  /** Position (meters) */
-  readonly x: number; readonly z: number; readonly y: number;
-  readonly rotation: number;
-  /** State (stage is the current stage index, stageAt the time it was entered); change values with ent.set() so that events fire */
-  state: S & { stage?: number; stageAt?: number };
-  /** Root node (heading and interactions hang on it); null when there is no model far away, built the frame after spawn */
-  readonly object: Object3D | null;
-  /** Model (a child of the root node) */
-  readonly visual: Object3D | null;
-  /** Extra data */
-  readonly data: Record<string, any>;
-  /** Change one state value (emits the entity:state event) */
-  set(key: string, value: any): void;
-  /** Delete this entity */
-  remove(): boolean;
-  /** Current stage name */
-  readonly stageName: string | null;
-}
-export interface EntityStateEvent { ent: Entity; key: string; value: any; prev: any }
-export interface EntityStageEvent { ent: Entity; stage: number; name: string }
-
-/** engine.entities */
-export interface Entities {
-  /** Type definitions */
-  types: Map<string, EntityDef>;
-  /** Game seconds (= engine.clock.now) */
-  readonly now: number;
-  /** Define an entity type */
-  define<S = Record<string, any>>(type: string, def: EntityDef<S>): this;
-  /** Spawn an entity (returns null if the type is not defined) */
-  spawn(type: string, data?: EntitySpawnData): Entity | null;
-  get(id: string): Entity | null;
-  byType(type: string): Entity[];
-  list(): Entity[];
-  /** The entity nearest to position within radius meters (default 3) (type restricts to one type) */
-  nearest(position: PositionLike, opts?: { radius?: number; type?: string | null }): Entity | null;
-  remove(id: string): boolean;
-  /** Delete all entities */
-  clear(): void;
-  /** Jump straight to a growth stage */
-  setStage(ent: Entity, i: number): void;
 }
 
 // ======================================================================
 // Particles particles()
 // ======================================================================
 
-/** Particle effect parameters (style.particles[name] of the style pack uses the same format too). All optional */
+/** Particle effect parameters (style.particles[name] of the style uses the same format too). All optional */
 export interface ParticleOptions {
   /** Maximum alive at once, default 120 (halved on low-end devices) */
   max?: number;
@@ -557,6 +444,10 @@ export interface CharacterRig {
   joints?: Record<string, Object3D>;
   limbs?: { joint: Object3D; offset: number; amp: number; kind: 'arm' | 'leg'; side?: number }[];
 }
+export type CharacterWater = 'swim' | 'block' | 'wade' | ((character: Character, at: { depth: number; x: number; z: number }) => 'swim' | 'block' | 'wade');
+/** What the states hook sees: base is the state the mover chose (idle / walk / run / jump / fall / swim); water the water mode it is in (null on land) */
+export interface CharacterFacts { base: string; speed: number; grounded: boolean; swimming: boolean; vy: number; water: 'swim' | 'block' | 'wade' | null }
+export type CharacterStates = (character: Character, facts: CharacterFacts) => string | null | undefined;
 /** Character parameters (shared by the player and NPCs) */
 export interface CharacterOptions {
   /** Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair); the style tints by material role */
@@ -567,9 +458,18 @@ export interface CharacterOptions {
   runSpeed?: number;
   /** Collision radius (meters), default 0.4 */
   radius?: number;
-  /** Whether it can swim, default true */
-  canSwim?: boolean;
-  /** Water depth (meters) at which swimming starts, default 1 */
+  /**
+   * What water deeper than swimDepth does: 'swim' (default: floats, state 'swim') | 'block' (never enters it) | 'wade' (walks the bottom) | a function
+   * deciding per spot (a swim skill, a boat, depth). character:water fires on each change
+   */
+  water?: CharacterWater;
+  /**
+   * The game's own states on top of the built-in ones (crouch, climb, glide, dash, roll): run after the mover's state each step, return a state name
+   * or null to keep facts.base. The state picks the clip like any other (clips: { crouch: 'Crouch' }); speed changes stay engine.mod('move.speed')
+   * @example createPlayer({ ..., clips: { crouch: 'Crouch' }, states: (c, f) => f.grounded && engine.input.down('crouch') ? 'crouch' : null })
+   */
+  states?: CharacterStates | null;
+  /** Water depth (meters) at which water counts as deep, default 1 */
   swimDepth?: number;
   /** Swimming speed multiplier, default 0.45 */
   swimSpeed?: number;
@@ -587,8 +487,18 @@ export interface CharacterOptions {
   airControl?: number;
   /** How long after walking off an edge a jump is still allowed (seconds) */
   coyoteTime?: number;
-  /** Whether it can jump, default true */
+  /** Whether it can jump, default true (stuns and cutscenes use engine.mod('move.canJump', { owner, id, set: 0 }) instead of writing it) */
   canJump?: boolean;
+  /** Jumps before landing again, default 1; 2 = double jump (jump() again in the air) */
+  maxJumps?: number;
+  /** Takeoff speed of an air jump (m/s), default jumpSpeed */
+  airJumpSpeed?: number;
+  /** How long a jump() pressed early waits for the ground (seconds), default 0.12 */
+  jumpBuffer?: number;
+  /** Falling out of the level: below belowY (or when belowY(character) is true) character:fall fires and, unless a listener calls preventDefault(), it returns to safeGround. false (default) = off */
+  fall?: false | { belowY: number | ((character: Character) => boolean) };
+  /** Time channel its movement and animation follow when the engine drives it (player default 'player', others 'world') */
+  channel?: string;
   /**
    * The body, one path for every kind: the name of a registered model asset, or what engine.assets.model() returned. A procedural builder name
    * (from an asset pack) is built at once; a file model name shows a gray capsule and swaps in a copy when it loads (Character.ready / whenReady,
@@ -599,12 +509,14 @@ export interface CharacterOptions {
   model?: Object3D | string | null;
   /** A ready procedural body (CharacterRig), used instead of model (a hand-built guard / pet) */
   rig?: CharacterRig | null;
+  /** Id for engine.mod / time.local entries of a character without a world record (read it back as character.id); the player is 'player', an NPC its record id */
+  id?: string;
   /** Action name mapping { idle, walk, run, swim, jump, fall } (shorthand for animation) */
   clips?: { idle?: string; walk?: string; run?: string; swim?: string; jump?: string; fall?: string; drive?: string } | null;
   /** Skeletal animation state machine config (states, blend trees, one-shot actions), see AnimatorOptions */
   animation?: AnimatorOptions | null;
-  /** Movement method: 'simple' built into the engine (default) | 'rapier' Rapier character controller (needs the rigid module) */
-  mover?: 'simple' | 'rapier';
+  /** Movement method: 'simple' built into the engine (default) | 'rapier' Rapier character controller (needs the rigid module) | 'manual' the game writes the position, move() only updates grounded / support / safeGround / fall */
+  mover?: 'simple' | 'rapier' | 'manual';
   /**
    * Which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward()) | 'target' (toward faceTarget) | 'manual'
    * (only face() turns it)
@@ -615,8 +527,8 @@ export interface CharacterOptions {
 }
 /** Character facing mode, see CharacterOptions.faceMode */
 export type FaceMode = 'move' | 'camera' | 'target' | 'manual';
-/** What a player control function returns: world direction (length 0–1), run, speed override (m/s); null = stand still */
-export type MoveRequest = { x: number; z: number; run?: boolean; speed?: number } | null | undefined;
+/** What a player control function returns: world direction (length 0–1 scales the speed), run; null = stand still. Speed changes: engine.mod('move.speed', { owner, id: 'player', ... }) */
+export type MoveRequest = { x: number; z: number; run?: boolean } | null | undefined;
 /**
  * Who moves the player each fixed step: 'camera' movement keys relative to the camera | 'none' the game calls player.move() itself | function returns
  * the move request
@@ -638,8 +550,8 @@ export interface PlayerOptions extends CharacterOptions {
   /** true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev */
   cameraFollow?: boolean;
 }
-/** Character state */
-export type CharacterState = 'idle' | 'walk' | 'run' | 'swim' | 'jump' | 'fall' | 'drive';
+/** Character state: the engine's own, or any name the game's `states` hook returns (crouch, climb, sit...) */
+export type CharacterState = 'idle' | 'walk' | 'run' | 'swim' | 'jump' | 'fall' | 'drive' | (string & {});
 
 /** Character (player and NPCs) */
 export declare class Character {
@@ -651,14 +563,14 @@ export declare class Character {
   readonly object: Object3D;
   /** Position (= root.position) */
   readonly position: Vector3;
-  /** Horizontal velocity (x, y map to world x, z) */
+  /** Horizontal velocity (x, y map to world x, z). Writable: a write is an impulse the mover steers back toward the input (lasting knockback: push(); full control: mover 'manual') */
   velocity: Vector2;
   /**
    * Heading (radians): 0 faces +Z, forward = (sin facing, cos facing); increasing turns toward +X (rotation about the Y axis, consistent with
    * root.rotation.y)
    */
   facing: number;
-  /** Vertical velocity (m/s) */
+  /** Vertical velocity (m/s). Writable: setting it is an impulse (launch() does the same and also leaves the ground cleanly) */
   vy: number;
   /** Whether standing on the ground */
   grounded: boolean;
@@ -678,14 +590,43 @@ export declare class Character {
   cameraFollow?: boolean;
   /** Move at a fixed velocity (m/s) for seconds, ignoring move()'s direction and without turning (knockback, dodge roll); gravity and collision still apply */
   push(vx: number, vz: number, seconds: number): void;
-  speed: number; runSpeed: number; radius: number; canSwim: boolean; swimDepth: number; swimSpeedFactor: number;
+  speed: number; runSpeed: number; radius: number; water: CharacterWater; states: CharacterStates | null; swimDepth: number; swimSpeedFactor: number;
   turnSpeed: number; acceleration: number; gravity: number; jumpSpeed: number; stepHeight: number; airControl: number; coyoteTime: number; canJump: boolean;
+  /** Base jump values (the game's; modifiers go through engine.mod('move.jumpSpeed')) */
+  maxJumps: number; airJumpSpeed: number | null; jumpBuffer: number;
+  /** Fall check (see CharacterOptions.fall); a plain property */
+  fall: false | { belowY: number | ((character: Character) => boolean) };
+  /** Time channel the engine drives it on (see CharacterOptions.channel) */
+  channel: string;
+  /** The character's id, the one form engine.mod / time.local take: its world record id ('player', an NPC's record id), else the id option, else a generated one */
+  readonly id: string;
+  /**
+   * A movement stat as the mover uses it now: the base field with every engine.mod('move.<name>') entry applied (canJump reads 1 / 0)
+   * @example engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 }); player.stat('speed')   // 1.2 x player.speed
+   */
+  stat(name: 'speed' | 'runSpeed' | 'gravity' | 'jumpSpeed' | 'canJump'): number;
+  /** Give back n jumps for this airtime (pickup, wall touch) */
+  addJumps(n?: number): this;
+  /** All jumps back, as if it had landed */
+  resetJumps(): this;
+  /**
+   * Throw it upward at speed m/s (jump pad, spring): leaves the ground, ends coyote time, the ground jump counts as used (air jumps stay); emits character:launch
+   * @example player.launch(19, { owner: 'pad' })
+   */
+  launch(speed: number, opts?: { owner?: string }): this;
+  /** Jump state now, read-only */
+  jumpState(): { grounded: boolean; coyoteLeft: number; bufferLeft: number; jumpsUsed: number; jumpsLeft: number; vy: number };
+  /** What it stands on, read-only (reused object); 'platform' = a registered support (characters.support), which carries it */
+  readonly support: { kind: 'ground' | 'platform' | 'collider' | 'water' | null; object: any; id: string | null; safe: boolean; velocity: { x: number; y: number; z: number } };
+  /** Last spot it stood still on safe ground (where a fall returns it); null until it first stands. Saved with the motion */
+  safeGround: Vector3 | null;
   /** Called when a foot lands (the argument is the ground type underfoot) */
   onStep: ((groundType: string) => void) | null;
   /** Called on landing (the argument is the landing speed) */
   onLand: ((impact: number) => void) | null;
-  /** Movement method; name is 'simple' | 'rapier', controller is the native Rapier character controller (when rapier) */
-  mover: { name: 'simple' | 'rapier'; controller?: any; body?: any; collider?: any; move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number): void; dispose?(): void };
+  /** How it walks now; name is 'simple' | 'rapier' | 'manual', controller is the native Rapier character controller (when rapier). Assign a name to switch: c.mover = 'manual' */
+  get mover(): { name: 'simple' | 'rapier' | 'manual'; controller?: any; body?: any; collider?: any; move(dirX: number, dirZ: number, run: boolean, dt: number): void; dispose?(): void };
+  set mover(name: 'simple' | 'rapier' | 'manual');
   /** Skeletal animation state machine (when there is a glTF model; null while a model named by asset is still loading) */
   anim: Animator | null;
   /** false while a model named by asset is loading (the placeholder body shows); true otherwise, also after a failed load (placeholder kept) */
@@ -696,10 +637,12 @@ export declare class Character {
    * npc.playAction('Wave');
    */
   readonly whenReady: Promise<void>;
-  /** The vehicle being driven (null when not driving) */
-  vehicle: Vehicle | null;
-  /** Board a vehicle (the vehicle returned by rigid.addVehicle) */
-  enter(vehicle: Vehicle): void;
+  /** The vehicle it sits in (null on foot) */
+  vehicle: Rideable | null;
+  /** Its seat in the vehicle: 0 drives, others ride; null on foot */
+  seat: number | null;
+  /** Board a vehicle (rigid.addWheeled's, or any object with the vehicle contract): the driver seat when free, else a free passenger seat; no-op when full */
+  enter(vehicle: Rideable): void;
   /** Exit the vehicle */
   exit(): void;
   /** Play a one-shot action (e.g. 'wave'); skipped if the model has no such clip */
@@ -714,8 +657,11 @@ export declare class Character {
    * (used by npcs.remove / removePlayer)
    */
   dispose(): void;
-  /** Request a jump */
-  jump(): void;
+  /**
+   * Request a jump (buffered for jumpBuffer s): the ground jump on the ground or in coyote time, else an air jump while maxJumps allows; air: false = ground only
+   * @example createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 })   // double jump
+   */
+  jump(opts?: { air?: boolean }): this;
   /** Add to the scene */
   addTo(scene?: any): this;
   /** Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z }) */
@@ -730,8 +676,11 @@ export declare class Character {
    * one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip
    */
   walkTo(target: Vector3 | { x: number; z: number } | [number, number, number], opts?: { speed?: number; arrive?: number; turnRate?: number; stuckSeconds?: number; maxRepaths?: number; run?: boolean }): Promise<{ status: 'arrived' | 'noPath' | 'stuck' | 'cancelled' }> & { remove(): void };
-  /** Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1), run to run, dt in seconds */
-  move(dirX: number, dirZ: number, run: boolean, dt: number, speedOverride?: number): void;
+  /**
+   * Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1 scales the speed), run to run, dt in seconds (used as
+   * given). Speed comes from the stats: engine.mod('move.speed', { owner, id: character.id, ... }) (the player: id 'player'), the one way to change speed
+   */
+  move(dirX: number, dirZ: number, run: boolean, dt: number): void;
   /** Ground type underfoot ('water' while swimming) */
   groundType(): string;
   /** Turn at once to a position, or to an angle in radians (0 = +Z) */
@@ -744,9 +693,14 @@ export declare class Character {
   /** Restore the motion state from the plain object of saveMotion */
   loadMotion(m: CharacterMotion | null | undefined): this;
 }
-/** Result of Character.saveMotion (plain values, can be saved) */
-/** facing is the same as Character.facing: 0 = +Z, forward (sin f, cos f) */
-export interface CharacterMotion { vx?: number; vz?: number; vy?: number; facing?: number; amount?: number; grounded?: boolean; swimming?: boolean; coyote?: number }
+/** Result of Character.saveMotion (plain values, can be saved); facing is the same as Character.facing: 0 = +Z, forward (sin f, cos f) */
+export interface CharacterMotion { vx?: number; vz?: number; vy?: number; facing?: number; amount?: number; grounded?: boolean; swimming?: boolean;
+  /** Jump state (world part version 4; older saves are migrated from the flat coyote field) */
+  jump?: { coyote: number; used: number };
+  /** safeGround as [x, y, z] */
+  safe?: [number, number, number] | null;
+  /** id of the support it rides (characters.support), found again on load */
+  support?: string | null }
 
 /** One schedule stop (the npcs.add form): at is when to set off, position the destination */
 export interface ScheduleStop {
@@ -757,6 +711,8 @@ export interface ScheduleStop {
 }
 /** One schedule stop (as stored in npc.schedule after install): at has been converted to 0–1, x/z is the destination (meters) */
 export interface ScheduleEntry { at: number; x: number; z: number }
+/** An NPC's interact option: the op the interact key runs near it ({ npc: id, ...args }), its prompt label and reach */
+export interface NpcInteract { op: string; args?: Record<string, any>; label?: string | (() => string); radius?: number }
 /** Parameters of engine.npcs.add({...}) */
 export interface NPCOptions extends CharacterOptions {
   /**
@@ -785,12 +741,14 @@ export interface NPCOptions extends CharacterOptions {
    * the position when wandering started) }
    */
   mind?: Record<string, any>;
-  /** Dialogue script name (needs the dialogue and interactions modules), triggered by pressing the interact key when close */
-  talk?: string | null;
-  /** Prompt text (text is stored in the data; a function stays in memory only) */
-  talkLabel?: string | (() => string);
-  /** Dialogue distance (meters), default 3.2 */
-  talkRadius?: number;
+  /**
+   * What the interact key does near it (needs interactions()): runs the op with { npc: id, ...args }. Dialogue is one such op: { op: 'npc.talk' }
+   * (script defaults to the NPC id; args: { script } names another, { channel: 'bubble' } plays it as lines over the NPC while play goes on). label: prompt text (a string is saved, a function stays in memory only);
+   * radius meters, default 3.2
+   * @example interact: { op: 'npc.talk' }
+   * @example interact: { label: 'Trade', op: 'shop.open', args: { shelf: 'tools' } }
+   */
+  interact?: NpcInteract | null;
   /** Pathfinding grid size (meters), default 2 */
   pathStep?: number;
   /** Seconds before re-pathfinding after getting stuck, default 2 */
@@ -817,8 +775,8 @@ export declare class NPC {
   readonly schedule: ScheduleEntry[];
   /** Current behavior name */
   readonly behavior: string;
-  /** Dialogue id */
-  readonly talk: string | null;
+  /** What the interact key does near it ({ label, op, args, radius } as saved), null when nothing */
+  readonly interact: { label: string | null; op: string; args: Record<string, any>; radius: number } | null;
   /** Animation state ('idle' / 'walk'...) */
   readonly state: string;
   /** In dialogue (stopped, not walking) */
@@ -901,7 +859,14 @@ export interface CharactersApi {
    * The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it
    * inside your own control function to wrap it
    */
-  moveInput(): { x: number; z: number; run: boolean; speed?: number };
+  moveInput(): { x: number; z: number; run: boolean };
+  /**
+   * Something characters stand on and ride (moving platform, lift, raft). Move the object any way (onFixed before or after the player, a timeline,
+   * physics): riders follow how its matrix changed, so the order does not matter. safe: false = never a respawn spot; carry 'position+yaw' turns riders
+   * with it; inherit: false = jumping off keeps none of its speed. With mover 'rapier' give it a collider too.
+   * @example const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.real); });
+   */
+  support(object: any, opts?: { id?: string; safe?: boolean; carry?: 'position' | 'position+yaw'; inherit?: boolean }): { id: string; remove(): void };
   /**
    * Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the
    * position and the vehicle; loading an on-foot save exits the vehicle first
@@ -944,8 +909,10 @@ export interface CharactersOptions {
   /** Gamepad button for braking, none by default; presets.keys.brake has ['PadLT'] */
   brakePad?: string[];
 }
-/** Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters) */
-/** radius defaults to engine.movement.radius; for detailed see findPath */
+/**
+ * Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters,
+ * default engine.movement.radius); for detailed see findPath
+ */
 export interface FindPathOptions { step?: number; maxNodes?: number; radius?: number; detailed?: boolean }
 
 // ======================================================================
@@ -955,21 +922,31 @@ export interface FindPathOptions { step?: number; maxNodes?: number; radius?: nu
 export interface InteractionOptions {
   /** Stable id for the op interaction.use { id } (default: the world record id it was built for, else a running number) */
   id?: string;
-  /** Prompt text, or a function returning text */
-  label?: string | (() => string);
+  /** Prompt text, or a function (object, { actor }) returning text; actor = world record id of who looks at it */
+  label?: string | ((object: Object3D, ctx: { actor: string }) => string);
   /** How close the actor must be (meters), default interactions({ radius }) = 2.5 */
   radius?: number;
   /** Key action name, default 'interact' (E key). Give one object a second verb by adding another interaction with another action */
   action?: string;
-  /** Called when pressed */
-  onUse?: (object: Object3D) => void;
+  /**
+   * Called when used, with who uses it (ctx.actor of interaction.use: the local user, a net peer, an NPC). Its return value is the op's value; { ok: false,
+   * code } fails the op with that code
+   */
+  onUse?: (object: Object3D, ctx: { actor: string }) => any;
   /**
    * When this returns false the whole prompt disappears (to show a state such as "growing", don't use enabled: have the label function return different
    * text by state and decide in onUse whether it can be used)
    */
-  enabled?: () => boolean;
+  enabled?: (object: Object3D, ctx: { actor: string }) => boolean;
   /** How high the prompt floats above the object (meters) */
   height?: number;
+  /**
+   * Seconds the key must stay down before onUse runs (0 = a press). The engine counts it and interrupts it on release, leaving reach, enabled() false or
+   * locked input (interaction:hold / interaction:interrupt); the prompt gets progress 0-1. The op interaction.use itself is the completed use
+   */
+  hold?: number;
+  /** Walk the player there first (walkTo, stops 1.2 m away), then use it; with radius: Infinity it can be used from anywhere (point-and-click) */
+  approach?: boolean;
 }
 /** engine.interactions */
 export interface Interactions {
@@ -986,6 +963,8 @@ export interface Interactions {
   current: any;
   /** One best interaction per key action this frame, for a prompt that lists several keys */
   options: { action: string; id: string; label: string }[];
+  /** The hold in progress (progress 0-1), null when none */
+  holding: { id: string; action: string; seconds: number; progress: number } | null;
   /**
    * Add an interaction: passing an object makes it follow the object, passing a position (Vector3 / [x, y, z] / { x, y, z }) makes a fixed point.
    * Returns a handle { remove() }
@@ -1014,8 +993,10 @@ export interface PromptView {
   onScreen: boolean;
   /** Use it (the op interaction.use) */
   use(): void;
-  /** One best interaction per action this frame, for a prompt that lists several keys ("E · 浇水  F · 收获") */
+  /** One best interaction per action this frame, for a prompt that lists several keys ("E · Open  F · Lock") */
   options: { action: string; id: string; label: string }[];
+  /** A hold interaction: how far the hold is (0-1, 0 before it starts); null for a plain press */
+  progress: number | null;
 }
 /** A candidate handed to a pick function: an enabled interaction within its radius of the actor */
 export interface InteractionCandidate { id: string; object: Object3D; action: string; label: string | (() => string); distance: number }
@@ -1081,8 +1062,18 @@ export interface DialogueNode {
 }
 /** Dialogue script: node name -> node, starting from 'start' */
 export type DialogueScript = Record<string, DialogueNode>;
-/** Promise returned by say() (id is a temporary dialogue name) */
-export interface SayPromise extends Promise<void> { id: string }
+/** Promise returned by say(): id is the temporary script name of a main-channel line (null for a plain bubble line); stop() ends the line now (it resolves) */
+export interface SayPromise extends Promise<void> { id: string | null; stop(): void }
+/** Which dialogue channel: 'main' the conversation the player reads (locks input, choices) · 'bubble' lines over their speakers while play goes on */
+export type DialogueChannel = 'main' | 'bubble';
+/**
+ * Where a bubble line sits: an Object3D (it follows it), a position, an actor / world record id (engine.actorPosition), or null = a screen line (radio, intercom)
+ */
+export type BubbleAt = Object3D | PositionLike | string | null;
+/** Bubble-channel options: seconds on screen (default holdSeconds + about 15 characters a second); queue false = replace this speaker's current line */
+export interface BubbleOptions { at?: BubbleAt; seconds?: number; queue?: boolean }
+/** What the 'dialogue.bubble' UI part (one per speaker) receives in update(view) every frame while its line shows */
+export interface BubbleView { speaker: string; text: string; x: number; y: number; onScreen: boolean; screen: boolean }
 
 /** engine.dialogue */
 export interface Dialogue {
@@ -1090,9 +1081,13 @@ export interface Dialogue {
   readonly state: DialogueState;
   /** All scripts */
   scripts: Map<string, DialogueScript>;
-  /** The dialogue in progress (null when none) */
-  active: { speaker: string; nodes: DialogueScript; node?: DialogueNode; onEnd: (() => void) | null; lock: boolean } | null;
-  /** The script currently speaking */
+  /**
+   * The dialogue in progress (null when none). speaker: the script name; node: the current node OBJECT (its fields: text, choices, data...);
+   * id: that node's id string ('start', 'ask'); both are set once the first line shows. Read-only: drive it with start / end / the dialogue ops.
+   * @example const atAsk = engine.dialogue.active?.id === 'ask';   // the node id; active.node.data holds the node's own fields
+   */
+  readonly active: { speaker: string; nodes: DialogueScript; node?: DialogueNode; id?: string; onEnd: (() => void) | null } | null;
+  /** The script the main dialogue is playing */
   readonly speaking: string | null;
   /** Typing speed (characters/second) */
   cps: number;
@@ -1100,21 +1095,22 @@ export interface Dialogue {
   define(speaker: string, nodes: DialogueScript): void;
   /**
    * Start a dialogue: from node nodeId (default 'start'), onEnd is called when it ends.
-   * lock (default true) locks game input and takes Esc; lock: false lets the player keep playing (lines move on by themselves) and never cuts into a
-   * locking dialogue.
-   * onCancel: what the back key (Esc) does while this locking dialogue is on top of the UI focus stack (default: nothing).
-   * Ending the playthrough (engine.session newGame / load / quit) closes the dialogue without calling onEnd.
-   * @example engine.dialogue.start('guard', 'start', null, { lock: false })
+   * Main channel (default): locks game input and takes Esc; its choices take the UI choice cursor. onCancel: what the back key (Esc) does while it is on
+   * top of the UI focus stack (default: nothing). channel: 'bubble' plays the script as bubble lines over at (no lock, no choices; a running
+   * conversation is untouched). Ending the playthrough (engine.session newGame / load / quit) closes it without calling onEnd.
+   * @example engine.dialogue.start('guard', 'start', null, { channel: 'bubble', at: guard.root })
    */
-  start(speaker: string, nodeId?: string, onEnd?: (() => void) | null, opts?: { lock?: boolean; onCancel?: (() => void) | null }): void;
+  start(speaker: string, nodeId?: string, onEnd?: (() => void) | null, opts?: { channel?: DialogueChannel; at?: BubbleAt; onCancel?: (() => void) | null }): void;
   /**
-   * Say a one-off line (no need to define first); the Promise resolves when it is done. lock: false = said while the player keeps playing (barks, radio
-   * chatter).
+   * Say a one-off line (no need to define first); the Promise resolves when it is done. channel: 'bubble' = over at while the player keeps playing
+   * (barks, shop chatter, radio); several speakers at once, queued per speaker.
    * When the playthrough ends (engine.session) the line is dropped and the Promise never resolves, so code awaiting it does not run in the next playthrough.
-   * @example await engine.dialogue.say('Reloading!', { speaker: 'Mira', lock: false })
+   * @example await engine.dialogue.say('Reloading!', { speaker: 'Mira', channel: 'bubble', at: mira.root })
    */
-  say(text: string | DialogueScript, opts?: { speaker?: string; node?: string; lock?: boolean; onCancel?: (() => void) | null }): SayPromise;
-  /** End the current dialogue */
+  say(text: string | DialogueScript, opts?: { speaker?: string; node?: string; channel?: DialogueChannel; onCancel?: (() => void) | null } & BubbleOptions): SayPromise;
+  /** Lines on the bubble channel now */
+  bubbles(): { speaker: string; text: string; queued: number }[];
+  /** End the main dialogue */
   end(): void;
   // Advancing and choosing are ops: engine.ops.run('dialogue.advance') / engine.ops.run('dialogue.choose', { index })
   // (0-based; while typing it completes the line first)
@@ -1124,9 +1120,9 @@ export interface DialogueOptions {
   charsPerSecond?: number;
   /** Actions that advance the dialogue, default ['confirm', 'interact'] (interact only when the game bound it) */
   advanceActions?: string[];
-  /** Number keys 1-9 pick choices (read only while a locking dialogue runs; rebind them as actions choice1...choice9), false = click / op only. Default true */
+  /** Number keys 1-9 pick choices (read only while the main dialogue runs; rebind them as actions choice1...choice9), false = cursor / click / op only. Default true */
   choiceKeys?: boolean;
-  /** A non-locking line (lock: false) moves on this many seconds after it is fully typed, default 2 */
+  /** A bubble line stays this many seconds plus its reading time (about 15 characters a second) unless say() gives seconds, default 2 */
   holdSeconds?: number;
 }
 /**
@@ -1164,8 +1160,8 @@ export interface DialogueView {
   hint: string;
   /** The node's data (the game's own fields), {} when none */
   data: Record<string, any>;
-  /** false for a line said while the player keeps playing */
-  lock: boolean;
+  /** The choice under the UI choice cursor (menu keys / d-pad / stick; confirm picks it), -1 when no choices show */
+  selected: number;
   /** Run the op dialogue.advance (finish typing / next line) */
   advance(): any;
   /** Run the op dialogue.choose { index } (0-based among choices) */
@@ -1198,24 +1194,37 @@ export interface ItemDef {
   consume?: boolean;
   /** Color of the pickup on the ground */
   color?: ColorLike;
+  /** Shape on the ground: a model name from an asset pack (file or generator; default: a model named 'pickup:<item id>', else 'pickup', else a gray box) */
+  model?: string;
   [key: string]: any;
 }
-/** id = item id, key = entry key ('arrow', or 'sword#3' for a piece with data), count = change, total = how many of the item now */
-export interface ItemEvent { id: string; key: string; count: number; total: number }
+/**
+ * Every container emits item:add / item:remove. container = which container changed (an actor's bag has the actor's id; the local one is engine.actor),
+ * actor = who did it (the running op's actor, else engine.actor), id = item id, key = entry key ('arrow', or 'sword#3' for a piece with data),
+ * count = change, total = how many of the item that container holds now
+ */
+export interface ItemEvent { container: string; actor: string; id: string; key: string; count: number; total: number }
 /** inventory.use: who used which entry (data = that piece's data) */
 export interface ItemUseEvent { actor: string; item: string; key: string; data?: Record<string, any> }
 /** One entry of a container: plain items share one entry per kind (key = item id); items with data have their own key ('sword#3') */
 export interface ItemEntry { key: string; id: string; count: number; data?: Readonly<Record<string, any>>; def: ItemDef }
-/** Change in a non-player container (the player inventory emits item:add / item:remove): container is the container id */
-export interface ContainerEvent extends ItemEvent { container: string }
-export interface PickupEvent { id: string; x: number; z: number }
+export interface PickupEvent { pickup: string; item: string | null; count: number; actor: string; x: number; z: number }
+/** What a give function gets: who takes it (world record id) and the pickup record */
+export interface PickupGiveContext { actor: string; pickup: WorldRecord }
 /**
- * Handle returned by spawnPickup(): id is the item, worldId is the id of this record in engine.world, object is the current model (null when far away);
+ * Handle returned by pickups.spawn(): id is the world record id, object is the current model (null when far away);
  * remove() deletes the pickup (data and model; a model passed in through opts.mesh is only taken off)
  */
-export interface PickupHandle extends Handle { id: string; worldId: string; readonly object: Object3D | null }
-/** Parameters of spawnPickup() */
+export interface PickupHandle extends Handle {
+  /** The pickup's world record id (engine.world.get(id)), not the item id (0.2 meaning; the item is `give` when it is a string) */
+  id: string; give: string | ((e: Engine, ctx: PickupGiveContext) => any); readonly object: Object3D | null }
+/** Parameters of pickups.spawn() */
 export interface PickupOptions {
+  /**
+   * What taking it does: an item id goes into the picker's container (inventory.of(actor); needs inventory()); a function (e, { actor, pickup }) => result is an
+   * instant effect (no inventory needed; not saved data, so spawn it again on load). Returning { ok: false, code } leaves it on the ground
+   */
+  give: string | ((e: Engine, ctx: PickupGiveContext) => any);
   /**
    * Stable id of this record in world (saves recognize it by this); numbered automatically pickup#1... if omitted, and an existing record with the same
    * id is reused
@@ -1225,11 +1234,17 @@ export interface PickupOptions {
   count?: number;
   /** The piece's own data (a dropped sword keeps its durability) */
   data?: Record<string, any>;
-  /** Reach in meters, default inventory pickupRadius (2) */
+  /** Name in the prompt ("Pick up {name}"), default the item's name */
+  name?: string;
+  /** Shape on the ground: a model name from an asset pack (default the item's model, else 'pickup:<item>', else 'pickup', else a gray box) */
+  model?: string;
+  /** Color of the gray placeholder / a geometry-only model (default the item's color, else style.pickup.color) */
+  color?: ColorLike;
+  /** Reach in meters, default pickups({ radius }) (2) */
   radius?: number;
-  /** Taken by walking into it (no key press, no prompt) */
+  /** Taken by walking into it (no key press, no prompt), by every actor in pickups.takers */
   auto?: boolean;
-  /** Custom model (the style pack's style.pickup is used if omitted) */
+  /** The game's own three.js object for this one pickup (only detached when it goes; otherwise the model name decides the shape) */
   mesh?: Object3D | null;
   /** Game seconds until it reappears, 0 = never reappears */
   respawnSeconds?: number;
@@ -1243,9 +1258,32 @@ export interface PickupOptions {
   /** Which zone it belongs to (a level name, see world.zone): the data stays across level changes (a picked-up one stays picked up) */
   zone?: string | null;
 }
+/** engine.pickups: things on the ground that give whoever takes them an item or an instant effect (op pickup.take, net: 'peer') */
+export interface Pickups {
+  /** Reach of pickups that do not set their own (meters) */
+  radius: number;
+  /** Who walks into auto pickups: default engine.actor plus net peers on a host, none on a client */
+  takers: (e: Engine) => string[];
+  /**
+   * Place a pickup on the ground at position; its y, if any, is the reference height on multi-layer ground (needs the interactions module unless auto):
+   * spawn(v, { give: 'berry', count: 2 }). Returns a handle, remove() deletes it
+   */
+  spawn(position: PositionLike, opts: PickupOptions): PickupHandle;
+  /** The data of the nearest pickup still on the ground to from (default engine.actorPosition()), of one item id or any; null if none */
+  nearest(item?: string | null, from?: PositionLike): WorldRecord | null;
+}
+export interface PickupsOptions {
+  /** Reach of pickups that do not set their own radius (meters), default 2 */
+  radius?: number;
+  /** Pickups have a model, float and spin only within this distance (meters) of the stream sources, default 60 */
+  showDistance?: number;
+  /** Who walks into auto pickups (actor ids); default engine.actor, plus net peers on a host */
+  takers?: (e: Engine) => string[];
+}
 
 /**
- * Container (inventory, chest, corpse, shelf): inventory.container(id, opts) gets or creates one; the player inventory is the one with id 'player'.
+ * Container (inventory, chest, corpse, shelf, an actor's bag): inventory.container(id, opts) gets or creates one; an actor's bag has the actor's id
+ * (inventory.of(actor)), the player inventory is the bag of engine.actor.
  * Every x is an item id or an entry key
  */
 export interface Container {
@@ -1268,17 +1306,17 @@ export interface Container {
   list(): ItemEntry[];
   /** How many more fit (Infinity = no limit), for an item without data, with this data, or like an existing entry key */
   room(x: string, data?: Record<string, any>): number;
-  /** Add n (default 1), optionally with data; returns the entry key, false if none fit; silent suppresses the toast (only the player inventory shows one) */
+  /** Add n (default 1), optionally with data; returns the entry key, false if none fit; silent suppresses the toast (only the bag of engine.actor shows one) */
   add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
   /**
-   * Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo
+   * Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; failure code 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo
    * reverses it
    */
   trade(
     take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }
-  ): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
+  ): { ok: boolean; code?: string; facts?: any; nextActions?: any[]; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
   /** Replace an entry's data (null = none) for n pieces (default all); returns the key now holding them */
   setData(key: string, data: Record<string, any> | null, n?: number): string;
   /** Listen for changes of this container, returns a handle */
@@ -1293,11 +1331,11 @@ export interface Inventory {
   defs: Map<string, ItemDef>;
   /** Slot limit of the player inventory */
   capacity: number;
-  /** Player inventory (= container('player')) */
+  /** Player inventory: the bag of engine.actor (= of()) */
   readonly bag: Container;
+  /** The bag of an actor (default engine.actor): the container with the actor's id, created empty on first use; inside an op pass ctx.actor */
+  of(actor?: string): Container;
   defaultStack: number;
-  /** Reach of pickups that do not set their own (meters) */
-  pickupRadius: number;
   action: string;
   /** Define an item (chainable) */
   define(id: string, def: ItemDef): this;
@@ -1318,12 +1356,12 @@ export interface Inventory {
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
   /**
-   * Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; reason 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo
+   * Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; failure code 'notEnough' | 'full'. Ops: inventory.trade, engine.ops.undo
    * reverses it
    */
   trade(
     take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean }
-  ): { ok: boolean; reason?: string; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
+  ): { ok: boolean; code?: string; facts?: any; nextActions?: any[]; took?: { id: string; count: number; data?: any }[]; gave?: string; giveId?: string; giveN?: number };
   /** Replace a player inventory entry's data for n pieces (default all); returns the key now holding them */
   setData(key: string, data: Record<string, any> | null, n?: number): string;
   /**
@@ -1338,13 +1376,6 @@ export interface Inventory {
   transfer(from: Container | string, to: Container | string, item: string, n?: number): number;
   /** Delete a container together with its contents ('player' cannot be deleted), returns whether one was deleted */
   removeContainer(id: string): boolean;
-  /**
-   * Place a pickup on the ground at position; its y, if any, is the reference height on multi-layer ground (needs the interactions module unless auto):
-   * spawnPickup('berry', v, { count: 2 }). Returns a handle, remove() deletes it
-   */
-  spawnPickup(id: string, position: PositionLike, opts?: PickupOptions): PickupHandle;
-  /** The data of the nearest pickup of an item still on the ground to from (default the player) (a world record of kind 'pickup'), null if none */
-  nearestPickup(id: string, from?: PositionLike): WorldRecord | null;
 }
 export interface InventoryOptions {
   /** Action name that opens the inventory, default 'inventory' */
@@ -1355,14 +1386,10 @@ export interface InventoryOptions {
   pad?: string[];
   /** true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame */
   pauseGame?: boolean;
-  /** Pickups float and spin only within this distance (meters) of the focus, default 60 */
-  bobDistance?: number;
   /** Slot limit of the player inventory, default Infinity (no limit) */
   capacity?: number;
   /** Weight limit of the player inventory, default Infinity */
   maxWeight?: number;
-  /** Reach of pickups that do not set their own radius (meters), default 2 */
-  pickupRadius?: number;
   /** Default stack limit, default 99 */
   defaultStack?: number;
 }
@@ -1408,14 +1435,16 @@ export interface QuestDef {
 /** engine.quests */
 export interface Quests {
   defs: Map<string, QuestDef>;
-  /** Quests in progress / completed / failed: id -> { step (current step), done, failed?, parts? } */
-  state: Record<string, { step: number; done: boolean; failed?: boolean; parts?: boolean[] }>;
   /** The quest log (UI part 'questLog'): open, toggle(on?), refresh() */
   win: { readonly open: boolean; toggle(on?: boolean): void; refresh(): void };
   /** Define a quest (chainable) */
   define(id: string, def: QuestDef): this;
   /** Start a quest */
   start(id: string): void;
+  /** One quest's progress (a copy): step index, step count, done, failed, active; null before it starts */
+  state(id: string): { step: number; steps: number; done: boolean; failed: boolean; active: boolean } | null;
+  /** Finish the current step from code (its done() is not asked) and go on; the last step completes the quest. false when not active */
+  advance(id: string): boolean;
   isDone(id: string): boolean;
   /** Started, not done and not failed */
   isActive(id: string): boolean;
@@ -1484,8 +1513,8 @@ export interface PhotoTakeOptions {
   scale?: number;
   /** Shadow resolution (pixels), default 4096 */
   shadowMapSize?: number;
-  /** Turn bloom on when taking a photo */
-  bloom?: boolean;
+  /** Bloom for the shot: null (default) keeps what the game's post has; true / false forces it for that shot only */
+  bloom?: boolean | null;
   /** Image quality 0–1 */
   quality?: number;
   /** Image format, e.g. 'image/jpeg' */
@@ -1541,7 +1570,7 @@ export interface UIWindow {
 }
 /** Parameters of makeWindow() */
 export interface WindowOptions {
-  /** Window name (also the style pack's template name) */
+  /** Window name (also the style's template name) */
   id: string;
   /** Title */
   title: () => string;
@@ -1561,7 +1590,19 @@ export interface FocusHandle extends Handle {
   cancel: (() => void) | null;
   /** Just pushed this frame (the key press that opened it must not count as its own action) */
   readonly fresh: boolean;
+  /** The selected control / choice (null until the cursor first runs) */
+  index: number | null;
+  /** The choice cursor used confirm on this entry this frame (the owner's own confirm handling skips this frame) */
+  readonly consumed: boolean;
+  /** Change the cursor's controls while pushed (the index starts over); null = no cursor */
+  setNav(nav: FocusNav | null): void;
 }
+/**
+ * The UI choice cursor's controls for a focus entry: moved by the menu keys (uiUp / uiDown / uiLeft / uiRight, d-pad, left stick), pressed by confirm.
+ * A function returning an element = the controls inside it (button, input, select, [data-nav]) in screen layout, the selected one gets .is-cursor;
+ * an object = a list the owner draws itself (any direction steps by one).
+ */
+export type FocusNav = (() => Element | null) | { count(): number; confirm(index: number): void; moved?(index: number): void };
 /**
  * UI focus stack: windows, dialogue, cutscenes and the settings menu are pushed in the order they open, and the back key (action cancel) goes only to
  * the top; when the stack is empty it goes to the one registered by setRoot (the settings menu)
@@ -1571,8 +1612,10 @@ export interface UIFocus {
   readonly top: string | null;
   /** Names from bottom to top */
   list(): string[];
-  /** Push; without cancel = swallow the back key */
-  push(id: string, opts?: { cancel?: (() => void) | null }): FocusHandle;
+  /** The top entry's choice cursor ({ id, index }) when it has a nav, else null */
+  readonly cursor: { id: string; index: number } | null;
+  /** Push; without cancel = swallow the back key; nav = the choice cursor's controls (see FocusNav) */
+  push(id: string, opts?: { cancel?: (() => void) | null; nav?: FocusNav | null }): FocusHandle;
   /** What to do on the back key when the stack is empty (only one, a later registration replaces it) */
   setRoot(fn: () => void): Handle;
 }
@@ -1583,24 +1626,86 @@ export interface UIFocus {
 // ======================================================================
 
 /**
- * engine.clock: game seconds and "after how long / every how long". Clock-time / season timers are on engine.sky (at / between / daily / onSeason). All
+ * engine.clock: calendar seconds and "after how long / every how long". Clock-time / season timers are on engine.sky (at / between / daily / onSeason). All
  * timers return a handle { remove() }
  */
 export interface Clock {
   /**
-   * Game seconds = fixed-step seconds x clock.timeScale (the time scale is 1 without sky), does not advance while paused / frozen, saved with the game;
-   * one sky day = sky.dayLength game seconds
+   * Calendar seconds = world-channel seconds x clock.rate, does not advance while paused / frozen, saved with the game;
+   * one calendar day = calendar.dayLength calendar seconds
    */
   now: number;
   /**
-   * Game-time speed: game seconds per fixed-step second (default 1; the sky's time of day follows it). `engine.clock.timeScale = 60` makes a minute pass
-   * per second
+   * Calendar seconds per world-channel second (default 1; 0 stops the calendar, sky included). Read-only: change it with
+   * `engine.mod('clock.rate', { owner: 'game', set: 60 })` (a minute per second); the handle's remove() undoes it
    */
-  timeScale: number;
-  /** Call fn after seconds game seconds; if an event name is passed, the event is emitted when due (with data, can be saved) */
-  after(seconds: number, fnOrEvent: (() => void) | string, data?: any): Handle;
-  /** Call once every seconds game seconds */
+  readonly rate: number;
+  /** Calendar seconds per real second right now (rate x the world channel's speed) */
+  readonly speed: number;
+  /**
+   * Call fn after seconds calendar seconds; if an event name is passed, the event is emitted when due (with data, can be saved).
+   * { channel } counts that time channel's seconds instead (a poison tick that slows down in bullet time)
+   */
+  after(seconds: number, fnOrEvent: (() => void) | string, data?: any, opts?: { channel?: string }): Handle;
+  /** Call once every seconds calendar seconds */
   every(seconds: number, fn: () => void): Handle;
+}
+
+/** The handle engine.mod / input.gate return: remove() ends only this owner's entry (a stale handle ends nothing) */
+export interface ModHandle { owner: string; remove(): void; }
+/** engine.mod options: exactly one of set / add / mul / clamp on a number quantity; none on a hold ('freeze'); value on a 'top' quantity */
+export interface ModOptions {
+  owner: string;
+  set?: number; add?: number; mul?: number; clamp?: { min?: number; max?: number };
+  /** 'top' quantities (the camera): the holder's value; 'any' ones: optional data kept beside the hold */
+  value?: any;
+  /** Seconds until it ends by itself, on clock ('real' by default: fixed seconds, stop while frozen; or a time channel name) */
+  for?: number; clock?: string;
+  /** The record, for per-record quantities ('time.local', your own per: true ones) */
+  id?: string;
+  /** Layer: 'base' 0 < 'game' 100 (default) < 'effect' 200 < 'system' 300 < 'debug' 400, or a number. system / debug entries are not saved */
+  priority?: number | 'base' | 'game' | 'effect' | 'system' | 'debug';
+}
+/** One holder as describe and holders() show it; at = game clock time (engine.clock.now) when it was taken */
+export interface ModHolder { owner: string; at: number; op?: 'set' | 'add' | 'mul' | 'clamp'; value?: any; priority?: number; left?: number; clock?: string; }
+/** One shared quantity (engine.stacks.get(name)) */
+export interface Stack {
+  readonly name: string; readonly kind: 'number' | 'any' | 'top';
+  /** The current value, always recomputed from base + the entries now present */
+  value(id?: string): any;
+  holders(id?: string): ModHolder[];
+  names(id?: string): string[];
+  has(owner: string, id?: string): boolean;
+  size(id?: string): number;
+  /** End owner's entry; false when it held none */
+  release(owner: string, opts?: { id?: string }): boolean;
+}
+/** engine.stacks: every shared quantity by name ('time.<channel>', 'time.local', 'clock.rate', 'freeze', 'pause', 'camera', 'debug.view', your own) */
+export interface Stacks {
+  /** Define your own quantity: kind 'number' (default, base 1), 'any' (true while held), 'top' (latest holder wins); per: true = one value per record id */
+  define(name: string, opts?: { kind?: 'number' | 'any' | 'top'; base?: any; min?: number; max?: number; per?: boolean; save?: boolean }): Stack;
+  get(name: string): Stack;
+  has(name: string): boolean;
+  list(): string[];
+  mod(name: string, opts: ModOptions): ModHandle;
+  /** Every quantity that has entries: { name: holders } */
+  describe(): Record<string, any>;
+}
+/** engine.time: time channels (world, player, your own). Speeds change only through engine.mod('time.<channel>', ...) */
+export interface Time {
+  /** Define a channel; parent (default 'world') multiplies its speed */
+  channel(name: string, opts?: { parent?: string | null }): Time;
+  channels(): string[];
+  /** Effective speed: parent x the channel's stack (x the record's 'time.local' stack when id is given) */
+  scale(name: string, id?: string): number;
+  /** Real seconds: fixed seconds, no scale, stop while frozen */
+  readonly real: number;
+  /** Seconds lived by a channel */
+  now(name: string): number;
+  /** This fixed step's dt on a channel (1/60 x scale) */
+  dt(name: string, id?: string): number;
+  /** Manual level: fn(id?) gives the speed and the stack is ignored until handle.remove() hands it back. Timers on a channel: engine.clock.after(s, fn, data, { channel }) */
+  manual(name: string, fn: (id?: string) => number, opts?: { owner?: string }): { owner?: string; remove(): void };
 }
 /** engine.vars: story flags and counters (autosaved) */
 export interface Vars {
@@ -1630,8 +1735,8 @@ export interface ContentConditionDef {
   ref?: ContentRef;
   /** One-line description */
   desc?: string;
-  /** Whether it holds: value is the value converted by ref, raw is the form written in the content */
-  test(e: Engine, value: any, raw?: any): boolean;
+  /** Whether it holds: value is the value converted by ref, raw is the form written in the content, ctx.actor = who is asking (content.test's actor) */
+  test(e: Engine, value: any, raw?: any, ctx?: { actor: string }): boolean;
   /** Write the value as human-readable text (for the game map) */
   describe?(value: any): string;
 }
@@ -1675,12 +1780,12 @@ export interface Content {
    * @example engine.content.load([baseContent, forestDlc], { places: { home } })
    */
   load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions): this;
-  /** Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.sky.timeOfDay >= t }) */
+  /** Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.calendar.timeOfDay >= t }) */
   condition(name: string, def: ContentConditionDef): this;
-  /** Whether a condition holds (object, array or function) */
-  test(cond: any): boolean;
-  /** Run an effect (object, array or function) */
-  run(effect: any): any;
+  /** Whether a condition holds (object, array or function (e, { actor })); actor = whose bag has / lacks look in (default the running op's actor, else engine.actor) */
+  test(cond: any, opts?: { actor?: string }): boolean;
+  /** Run an effect (object, array or function (e, { actor })); actor = whose bag give / take change (default the running op's actor, else engine.actor) */
+  run(effect: any, opts?: { actor?: string }): any;
   /** Place name -> position (load's places first, then level markers), null if none */
   place(name: string): XZ | null;
   /** Position form in content { place?, x?, z? } -> world coordinates */
@@ -1690,10 +1795,47 @@ export interface Content {
    * template('chest').container.capacity
    */
   template(name: string): Readonly<ContentTemplate>;
+  /**
+   * The fields one content entry may have (core/params.js spec format): what an editor panel lists and what content-check validates against.
+   * name: a template name (placement fields plus its state fields, default = the value in state), an engine entry shape ('props', 'props.template',
+   * 'props.grid', 'pickups', 'views'), a game kind that declares fields (content/rules.js kinds), or a world record id. Unknown names throw.
+   * @example engine.content.fields('crop').stage   // { type: 'int', optional: true, default: 0, min: 0, max: 4 }
+   */
+  fields(name: string): Record<string, ContentField>;
+  /**
+   * Place a new runtime instance of a content template (inside an op or a fixed step), saved whole; returns the world record (kind = template name,
+   * id `<template>#<n>` unless fields.id is given). fields: id, rot, scale, y (height above ground), items (container start goods), state fields
+   * (stage too, for a template with stages).
+   * @example engine.ops.define('chest.build', { run: (e, { x, z }) => e.content.spawn('chest', { x, z }, { items: { stick: 3 } }).id })
+   */
+  spawn(name: string, at: any, fields?: { id?: string; rot?: number; scale?: number; y?: number; items?: Record<string, number>; [stateField: string]: any }): WorldRecord;
+}
+/** One stage of a template with stages: a named step it stays in for duration game seconds (clock.now), e.g. seed -> sprout -> ripe, cold -> armed */
+export interface ContentTemplateStage {
+  name: string;
+  /** Game seconds spent in this stage; only the last stage may leave it out (it stays there) */
+  duration?: number;
+  /** Multiplies the instance's scale while in this stage */
+  scale?: number;
+  /** Model name shown from this stage on (until a later stage names another); default the template's model */
+  model?: string | any[];
+}
+/** template:stage event: a template instance entered a new stage by growing (several stages crossed at once give one event) */
+export interface TemplateStageEvent { id: string; template: string; stage: number; name: string }
+/** One field of a content entry (engine.content.fields): the core/params.js spec as plain data */
+export interface ContentField {
+  type: 'string' | 'number' | 'int' | 'bool' | 'position' | 'id' | 'any' | 'object' | 'array' | 'function';
+  optional?: boolean;
+  /** Only for template state fields: the value written in state (never written inside fields) */
+  default?: any;
+  min?: number;
+  max?: number;
+  values?: any[];
+  desc?: string;
 }
 /** A content template: shared definition of a reusable object (recipes/30-templates.md) */
 export interface ContentTemplate {
-  /** Model name (style pack generator or assets name); every instance clones one shared prototype */
+  /** Model name (style generator or assets name); every instance clones one shared prototype */
   model: string | any[];
   /** Collision box or circle from the model's bounds; omitted = does not block */
   collide?: 'box' | 'circle';
@@ -1709,6 +1851,20 @@ export interface ContentTemplate {
   animate?: (rec: WorldRecord, obj: Object3D, dt: number) => void;
   /** Instance state fields and their defaults, copied onto each record (saved) */
   state?: Record<string, any>;
+  /**
+   * Range / allowed values / description of state fields, checked on every placement and engine.content.spawn (dev) and by content-check. No default here:
+   * the default is the value in state. The type is inferred from that value when left out. e.g. { stage: { type: 'int', min: 0, max: 4 } }
+   */
+  fields?: Record<string, string | Omit<ContentField, 'default'>>;
+  /**
+   * Named stages over game time (a crop growing, a turret warming up, a building under construction). Each instance gets the state field stage
+   * (default 0, int 0..n-1, placeable and saved) and stageAt (clock.now when it entered); it advances near and far, catching up after a load or a skip.
+   */
+  stages?: ContentTemplateStage[];
+  /** Asked every step, near and far; false holds the current stage and the time blocked does not count (e.g. rec => rec.watered) */
+  canGrow?: (rec: WorldRecord, e: Engine) => boolean;
+  /** Gameplay per fixed step while near (world.simulate near); write record fields directly or with world.set, both are saved */
+  update?: (rec: WorldRecord, dt: number, e: Engine) => void;
 }
 
 // ======================================================================
@@ -1807,17 +1963,19 @@ export interface HudMarker {
   /** Delete */
   remove(): void;
 }
+/** Screen corner / edge a counter or bar column sits at (default 'top-left'); each anchor stacks its own column */
+export type HudAnchor = 'top-left' | 'top' | 'top-right' | 'left' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right';
 /** engine.hud: objective markers, counters, progress bars */
 export interface Hud {
   /** All markers */
   markers: HudMarker[];
   /** Add an objective marker: target is an object, position or place name */
   marker(target: HudTarget, opts?: HudMarkerOptions): HudMarker;
-  /** Counter (calling again with the same id = update; calling every frame is fine), e.g. counter('fish', { label: '鱼', value: 2, max: 5 }) */
-  counter(id: string, opts: { label?: string; icon?: string; value?: number; max?: number }): void;
+  /** Counter or text status (calling again with the same id = update; calling every frame is fine): counter('fish', { label: '鱼', value: 2, max: 5 }), counter('clock', { value: '08:30' }); no value = the label alone */
+  counter(id: string, opts: { label?: string; icon?: string; value?: number | string; max?: number; anchor?: HudAnchor }): void;
   /** Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged),
    *  value/max 0–max */
-  bar(id: string, opts: { value: number; max?: number; label?: string }): void;
+  bar(id: string, opts: { value: number; max?: number; label?: string; anchor?: HudAnchor }): void;
   /** Delete a counter or progress bar */
   remove(id: string): void;
 }

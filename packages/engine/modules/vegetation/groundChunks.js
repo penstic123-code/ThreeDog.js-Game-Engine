@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { makePlacer, makeNoise } from '../../core/scatter.js';
 import { xzOf } from '../../core/math.js';
-import { chunkRing } from '../../core/streamSources.js';
+import { chunkRing, dropChunks } from '../../core/streamSources.js';
 
 const COLLIDER_LAG = 30;   // fixed steps before a chunk's tree collision counts, times (1 + ring); ring 1 counts at once while loading
 
@@ -37,13 +37,13 @@ export class GroundChunks {
   refreshLevels() { for (const c of this.chunks.values()) c.level = -1; }
   /** Rings of chunks drawn around each stream source (the settings page's view distance); the next update loads / releases chunks to match */
   setViewChunks(n) { this.viewChunks = n; this.refreshLevels(); }
-  /** Vegetation density multiplier (rebuilds all chunks) */
-  setDensity(d) { this.density = d; this.rebuild(); }
   /** Drop every chunk; they are placed again around the stream sources (call it after changing the ground behind the same provider) */
   rebuild() {
-    for (const c of this.chunks.values()) { c.ticket?.remove(); this._dispose(c); }
-    this.chunks.clear(); this._want = []; this._key = ''; this.gen++;
+    dropChunks(this, c => c.ticket?.remove());   // a pending commit ticket is withdrawn with its chunk
+    this._key = ''; this.gen++;
   }
+  /** Vegetation density multiplier (rebuilds all chunks) */
+  setDensity(d) { this.density = d; this.rebuild(); }
 
   _inArea(cx, cz) {
     // no area given: a level that provides the ground bounds it (its walkable meshes), so plants never grow past the model's edge onto the

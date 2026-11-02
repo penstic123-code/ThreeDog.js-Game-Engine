@@ -1,17 +1,17 @@
-// style tools: `style check` on deliberately wrong styles, `new-style` generating a pack that passes, `style palette` on a generated PNG.
-import { mkdtempSync, writeFileSync, rmSync, existsSync, unlinkSync, rmdirSync } from 'node:fs';
+// style tools: `style check` on deliberately wrong styles, R34 on pack text, `style palette` on a generated PNG.
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { deflateSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
-import { ENGINE, ROOT, styleDir } from '../paths.mjs';
+import { ENGINE, styleDir } from '../paths.mjs';
 import { loadSchema } from '../style/schema.mjs';
+import { EXTRA } from '../threedog/dispatch.mjs';
 import { checkStyle, paletteRefs, colorProblem } from '../style/check.mjs';
-import { createStyle } from '../new-style.mjs';
 import { styleCheck } from '../style.mjs';
 import { paletteOf } from '../style/palette.mjs';
 
-export const name = 'style tools: check, new-style, palette';
+export const name = 'style tools: check, R34, palette';
 
 export const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
 const crc = buf => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
@@ -30,6 +30,7 @@ export function png(w, h, color) {
 export const near = (hex, rgb, tol = 24) => [1, 3, 5].every((i, k) => Math.abs(parseInt(hex.slice(i, i + 2), 16) - rgb[k]) <= tol);
 
 export async function run({ check }) {
+  check('CLI: style-palette help lists only options palette has (no --out)', !EXTRA['style-palette'].includes('--out'), EXTRA['style-palette']);
   const schema = loadSchema(), { closest } = await import(pathToFileURL(join(ENGINE, 'core', 'validate.js')).href);
   const purposes = ['default', 'terrain', 'vegetation', 'character', 'water', 'pickup', 'prop'];
   const find = (style, ctx = {}) => checkStyle(style, { schema, closest, purposes, ...ctx });
@@ -74,8 +75,9 @@ export async function run({ check }) {
   check('colorProblem names the fix for a missing #', colorProblem('ff8800').includes("'#ff8800'"));
   // water look hooks (recipes/44): the new keys are known, nested typos and bad colors are found
   const waterLook = { depthColor: { shallow: 0x55ddcc, deep: '#082040', by: 'wave', curve: 1.5 }, foam: { color: 0xffffff, start: 0.5, end: 0.8, opacity: 0.9 },
-    glsl: { wave: 'float threedogWaterWave(vec3 p, float t) { return 0.0; }', surface: '', waveMax: 0.3 }, uniforms: { uBands: 4 } };
-  check('style check knows the water look keys (depthColor, foam, glsl, uniforms)', find({ name: 'x', water: waterLook }).length === 0 && find({ name: 'x', water: { foam: true } }).length === 0);
+    uniforms: { uBands: 4 } };   // no glsl: water GLSL goes through engine.look.water.patch only
+  check('style check knows the water look keys (depthColor, foam, uniforms)', find({ name: 'x', water: waterLook }).length === 0 && find({ name: 'x', water: { foam: true } }).length === 0);
+  check('water.glsl is not a style key (the hook is look.water.patch)', find({ name: 'x', water: { glsl: { wave: '' } } }).some(x => x.path.startsWith('water.glsl')));
   r = find({ water: { depthColor: { shalow: 1, deep: '#12' }, foam: { colour: 1 } } });
   check('water look typos and bad colors are found', has(r, 'water.depthColor.shalow', "'shallow'") && has(r, 'water.foam.colour', "'color'") && has(r, 'water.depthColor.deep', 'bad color'));
   const drops = { shape: 'soft', color: 0x99aacc, opacity: 0.5, size: 12, maxSize: 6, length: 1, speed: 18, slant: 2, sway: 1, count: 4000, density: a => a,
@@ -89,18 +91,23 @@ export async function run({ check }) {
   r = find({ post: [fx('bloom'), fx('bloom'), fx('p', { slot: 'weird' }), { name: 'empty' }, fx('s1', { slot: 'scene' }), fx('s2', { slot: 'scene' })] });
   check('post: duplicate name, unknown slot, no create, two scene effects', has(r, 'post[1]', 'two post effects') && has(r, 'post[2]', "unknown slot") &&
     has(r, 'post[3]', 'neither create') && has(r, 'post', "'scene'"));
+  // a listed effect is on (r4 D1): the real factories, no enabled given, count as on
+  { const P = await import('@threedog/post-effects');
+    const on = find({ post: [P.outline(), P.vignette(), P.grain()] }).filter(x => x.path === 'post' && x.msg.includes('post effect(s) on'));
+    check('post: listed effects without enabled count as on (3 listed -> 3 on)', on.length === 1 && on[0].msg.startsWith('3 post effect(s) on'), JSON.stringify(on)); }
   r = find({ post: [fx('grade', { slot: 'hdr', order: 1, fuse: { glsl: '' } }), fx('outline', { needsDepth: true, order: 5 }), fx('late', { needsDepth: true, slot: 'ldr' })] });
   check('post: a depth reader after a buffer-swapping (fuse) effect, and one after tone mapping, are errors', has(r, 'post[1]', 'reads scene depth') && has(r, 'post[2]', 'after tone mapping'));
   r = find({ post: [fx('outline', { needsDepth: true, enabled: true, order: 10 }), fx('dof', { needsDepth: true, enabled: true, order: 15 })] });
   check('post: outline sorted before dof (both on) is an error that says dof goes first', has(r, 'post[1]', "'dof' runs after 'outline'") && r[0].level === 'error');
   r = find({ post: [fx('outline', { needsDepth: true, enabled: true, order: 10 }), fx('dof', { needsDepth: true, enabled: true, order: 5 })] });
-  check('post: dof before outline, both on, is fine (dof passes the depth on)', r.length === 0);
+  check('post: dof before outline, both on, is fine (dof passes the depth on)', r.filter(x => x.level !== 'note').length === 0);
   r = find({ post: [fx('dof', { needsDepth: true, enabled: false }), fx('outline', { needsDepth: true, enabled: true })] });
-  check('post: dof off with outline on is fine', r.length === 0);
+  check('post: dof off with outline on is fine', r.filter(x => x.level !== 'note').length === 0);
   r = find({ post: [fx('a'), fx('b'), fx('c'), fx('d', { enabled: false })] });
-  check('post: more than 2 effects on is a warning (not an error); disabled ones do not count', r.length === 1 && r[0].level === 'warn' &&
-    has(r, 'post', 'only the necessary') && has(r, 'post', '3 post effects'));
-  check('post: two effects on is fine', find({ post: [fx('a'), fx('b')] }).length === 0);
+  // how many effects is right is the game's call: the check reports which are on and how to see their cost, never a cap or "too many"
+  check('post: effects on are one note (no warning, no cap); disabled ones do not count', r.length === 1 && r[0].level === 'note' &&
+    has(r, 'post', "'a', 'b', 'c'") && !has(r, 'post', "'d'") && has(r, 'post', 'tier low') && !/more than|worse|necessary/.test(r[0].msg + r[0].fix));
+  check('post: a costly effect is named as such', has(find({ post: [fx('a', { costly: true })] }), 'post', "'a' costly"));
   r = find({ materials: { vegtation: { type: 'lambert' }, default: { type: 'toom' }, furniture: {} } }, {});
   check('materials: misspelled role warns, unknown type errors, own role names are fine', has(r, 'materials.vegtation', "'vegetation'") &&
     has(r, 'materials.default.type', "Did you mean 'toon'") && !r.some(x => x.path === 'materials.furniture'));
@@ -128,29 +135,21 @@ export async function run({ check }) {
       has(b.findings, 'sky.sunSise', 'unknown'));
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 
-  // ── new-style ──
-  const n = 'zz-test-style', dir = styleDir(n), link = join(ROOT, 'node_modules', '@threedog', `style-${n}`);
+  // ── R34 on pack text ──
+  // A throwaway folder under packages/styles (the folder R34 walks), removed afterwards. No generator makes packs any more: a game's look
+  // is its own style/ folder (recipes/09-style-pack.md), so the test writes the one file it needs by hand.
+  const dir = styleDir('zz-test-style');
   try {
-    createStyle(n, { lock: false });
-    check('new-style writes package.json (MIT, @threedog/style-<name>), index.js, models.js, index.d.ts, README', ['package.json', 'index.js', 'models.js', 'index.d.ts', 'README.md', 'LICENSE'].every(f => existsSync(join(dir, f))));
-    const pkg = JSON.parse((await import('node:fs')).readFileSync(join(dir, 'package.json'), 'utf8'));
-    check('package name and license are filled in', pkg.name === `@threedog/style-${n}` && pkg.license === 'MIT' && !JSON.stringify(pkg).includes('__NAME__'));
-    const g = await styleCheck(n);
-    check('style check passes on the generated pack (model palette keys all defined)', g.errors === 0 && g.warnings === 0);
-    check('a second new-style with the same name is refused', (() => { try { createStyle(n, { lock: false }); return false; } catch (e) { return /already exists/.test(e.message); } })());
+    mkdirSync(dir, { recursive: true });
     // R34 reads pack text: the water / weather look keys (one-line objects, sizes, glsl) are looks, never world state
     writeFileSync(join(dir, 'looks.js'), [
       "export const water = { depthColor: { shallow: 0x55ddcc, deep: 0x082040, by: 'wave' }, foam: { start: 0.5, end: 0.8 }, glsl: { waveMax: 0.3 }, uniforms: { uSize: 2 } };",
       "export const weather = { rain: { shape: 'soft', size: 9, count: 3000, density: a => a, glsl: { vertex: '', fragment: '' } }, snow: { sway: 2, size: 30 }, lightning: f => f };",
     ].join('\n'));
     const r34 = (await import('../rules/R34-style-looks-only.mjs')).default;
-    check('R34 does not flag the water / weather look keys', !r34.run().some(x => x.file.endsWith(`${n}/looks.js`)), JSON.stringify(r34.run().filter(x => x.file.includes(n))));
-    check('a bad name is refused', (() => { try { createStyle('Bad Name'); return false; } catch (e) { return /not allowed/.test(e.message); } })());
-  } finally {
-    // the link first: once the folder is gone a junction dangles and existsSync no longer sees it
-    try { unlinkSync(link); } catch { try { rmdirSync(link); } catch { /* no link was made */ } }
-    rmSync(dir, { recursive: true, force: true });
-  }
+    const mine = r34.run().filter(x => x.file.includes('zz-test-style'));
+    check('R34 does not flag the water / weather look keys', mine.length === 0, JSON.stringify(mine));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 
   // ── palette: 60×40 picture, 70% sand, 20% dark blue, 10% bright red ──
   const tmp2 = mkdtempSync(join(tmpdir(), 'threedog-pal-'));

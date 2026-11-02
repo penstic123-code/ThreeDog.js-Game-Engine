@@ -18,15 +18,17 @@ export function stopIndex(schedule, t) {
   for (let i = 0; i < schedule.length; i++) if (schedule[i].at <= t) cur = i;
   return cur;
 }
-/** time of day: always 0 without sky (only the first stop is used) */
-export const timeOfDay = e => e.sky ? e.sky.timeOfDay : 0;
+/** time of day from engine.calendar (any module meeting modules/calendar/contract.js; no sky needed): always 0 without a calendar (only the first stop is used) */
+export const timeOfDay = e => e.calendar ? e.calendar.timeOfDay : 0;
+/** The time channel an NPC record lives on (npcs.add({ channel }), default 'world') */
+export const npcChannel = rec => rec.look?.channel ?? 'world';
 
 /**
  * Walk without a model (far, or near but model not built yet): head in a straight line to the current scheduled stop; stop at the stop if reached, otherwise at
  * the interpolated point on the line.
- * seconds seconds is the world simulation dt (accumulated fixed-step seconds, same scale as the near mover, may be large): distance = speed * seconds;
- * when several stop-change times are crossed, walk in segments, each toward that segment's stop (day progress = seconds * clock.timeScale / dayLength, same as
- * the sky clock).
+ * seconds is the NPC's channel seconds (world.simulate({ channel }) scales the dt by the NPC's channel, the same dt the near mover gets; may be large):
+ * distance = speed * seconds; when several stop-change times are crossed, walk in segments, each toward that segment's stop (day progress follows the calendar
+ * clock: channel seconds / channel speed x clock.speed / dayLength).
  */
 export function advance(e, W, rec, seconds) {
   const s = rec.schedule;
@@ -37,9 +39,11 @@ export function advance(e, W, rec, seconds) {
     const g = s[i], dx = g.x - x, dz = g.z - z, d = Math.hypot(dx, dz), go = Math.min(d, rec.speed * sec);
     if (d > 1e-9) { x += dx / d * go; z += dz / d * go; }
   };
-  if (!e.sky) walk(stopIndex(s, 0), seconds);
+  const cal = e.calendar;
+  if (!cal) walk(stopIndex(s, 0), seconds);
   else {
-    const perDay = e.sky.dayLength / e.clock.timeScale, now = e.sky.timeOfDay;   // seconds for a full day (infinite when time is stopped: far NPCs do not walk)
+    // channel seconds for a full day (infinite when the calendar is stopped: far NPCs do not walk)
+    const k = e.time ? e.time.scale(npcChannel(rec), rec.id) : 1, perDay = cal.dayLength * k / e.clock.speed, now = cal.timeOfDay;
     let left = Math.min(1, seconds / perDay);   // more than one day counts as one day: every stop is visited once, more would only repeat
     let t = ((now - left) % 1 + 1) % 1;
     for (let guard = 0; left > 1e-9 && guard <= s.length + 1; guard++) {
@@ -70,7 +74,7 @@ export function settle(e, W, rec, x, z, moving) {
   const p = rec.position, nav = rec.nav; nav.path = null; nav.repath = 0;
   const m = rec.motion ??= {};
   const facing = x !== p.x || z !== p.z ? Math.atan2(x - p.x, z - p.z) : m.facing ?? 0;
-  Object.assign(m, { vx: 0, vz: 0, vy: 0, amount: 0, facing, grounded: true, swimming: false, coyote: 0 });
+  Object.assign(m, { vx: 0, vz: 0, vy: 0, amount: 0, facing, grounded: true, swimming: false, jump: { coyote: 0, used: 0 } });
   noteState(e, rec, moving ? 'walk' : 'idle');
   // NPC of another level: this level's ground height is meaningless for it, keep its y
   const here = rec.zone == null || W.zone == null || rec.zone === W.zone;

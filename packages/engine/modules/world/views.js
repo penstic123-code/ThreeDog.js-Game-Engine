@@ -4,7 +4,9 @@
 // It only decides "which records have a model" and never affects gameplay: simulation follows the gameplay anchor (sim.js), and how fast models are built, or
 // whether they are built, does not change simulation results.
 import { reportError } from '../../core/errors.js';
-import { DEV, checkOptionsArg, warnOnce } from '../../core/validate.js';
+import { DEV, warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+import { codedError } from '../../core/errorHints.js';
 
 const STRINGS = {
   noBuild: 'world.present(\'{kind}\', { build }) needs build: rec => three.js object',
@@ -37,10 +39,10 @@ export class Views {
   }
 
   present(kind, opts) {
-    if (typeof opts?.build !== 'function') throw new Error(say(STRINGS.noBuild, kind));
+    if (typeof opts?.build !== 'function') throw codedError('world-present', say(STRINGS.noBuild, kind));
     if (DEV) {
-      checkOptionsArg(`world.present('${kind}', opts)`, opts, OPTS);
-      if (opts.positionFrom != null && opts.positionFrom !== 'record' && opts.positionFrom !== 'view') throw new Error(say(STRINGS.positionFrom, kind));
+      readParams(`world.present('${kind}', opts)`, keysSchema(OPTS), opts);
+      if (opts.positionFrom != null && opts.positionFrom !== 'record' && opts.positionFrom !== 'view') throw codedError('world-present', say(STRINGS.positionFrom, kind));
       if (opts.dispose?.length === 1) warnOnce(say(STRINGS.disposeArgs, kind));
     }
     const old = this.presenters.get(kind);
@@ -152,7 +154,7 @@ export class Views {
     this.map.set(rec.id, v);
     const fail = err => { if (this.map.get(rec.id) === v) v.pending = false; reportError(e, err, say(STRINGS.failed, rec.kind), { soft: true }); };
     const done = obj => {
-      if (!obj?.isObject3D) throw new Error(say(STRINGS.nullBuild, rec.kind, rec.id, String(obj)));
+      if (!obj?.isObject3D) throw codedError('world-present', say(STRINGS.nullBuild, rec.kind, rec.id, String(obj)));
       if (this.map.get(rec.id) !== v) { this.drop(rec, p, obj); return; }   // no longer wanted by the time it was built
       v.obj = obj; v.pending = false; this.byObj.set(obj, rec.id);
       if (p.positionFrom === 'view') this.moving.add(rec.id);

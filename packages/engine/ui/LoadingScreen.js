@@ -1,4 +1,4 @@
-// Default 'loading' UI part: covers the view at start, shows progress, fades out when ready. start() drives it (show -> update... -> hide).
+// Default 'loading' UI part. Covers the view at start, shows progress, fades out when ready. start() drives it (show -> update... -> hide).
 // Replace it with createEngine({ ui: { loading: (engine) => ({ show, update, hide, dispose }) } }), turn it off with { loading: false }.
 // Look: CSS classes .threedog-loading* (override in style.ui.css), or the inner HTML with style.ui.templates.loading({ title }).
 // text names the item being waited for (engine.loading.text()); when a critical item fails, update gets failed (engine.loading tasks) and the

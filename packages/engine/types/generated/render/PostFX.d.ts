@@ -11,17 +11,29 @@ export class PostFX {
      */
     get active(): boolean;
     /**
-     * Renamed in 0.2: throws and names the new call (engine.look.post.patch / engine.look.post.replace, recipes/52-look.md)
-     * @param {PostEffect} _effect
-     * @param {{ slot?: PostSlot, order?: number, enabled?: boolean }} [_opts]
-     * @returns {never}
-     * @experimental
+     * The three.js EffectComposer the chain runs in, for reading (pass list, sizes, its targets), or null while no post work has run yet (built
+     * the first time an effect or MSAA is on; it is not built here, so asking never costs a half-float target). Read-only by rule, not by lock:
+     * the engine owns it, rebuilds composer.passes whenever the chain changes and disposes it with the engine. To add a pass use look.post.add,
+     * to own the whole chain look.post.replace (recipe 52). Why public: a game reading the chain had to dig into an internal field (review 2026-11-03)
+     * @returns {any}
      */
-    add(_effect: PostEffect, _opts?: {
-        slot?: PostSlot;
-        order?: number;
-        enabled?: boolean;
-    }): never;
+    object(): any;
+    /**
+     * The composer's render targets, for reading (sample the last frame's color or depth in a game pass, check formats / samples), or null while
+     * there is no composer. renderTarget1 / renderTarget2 are the ping-pong pair. During the chain readBuffer is a pass's input and writeBuffer its
+     * output; EffectComposer swaps them after every pass with needsSwap (most passes; the scene RenderPass does not). The last pass draws to the
+     * canvas and still swaps, so after the frame (engine.onRender(fn, { when: 'after' })) neither target holds the final picture: writeBuffer holds
+     * the input of that last pass (readBuffer when the last pass does not swap) and readBuffer is stale. For the final image, render into a target of your own.
+     * Owned by the engine like object(): it resizes them, changes samples on setAntialias and adds a depth texture when an effect needs depth;
+     * do not dispose them or swap their textures. A target of your own: new THREE.WebGLRenderTarget in onRender (recipe 54)
+     * @returns {{ renderTarget1: any, renderTarget2: any, readBuffer: any, writeBuffer: any } | null}
+     */
+    targets(): {
+        renderTarget1: any;
+        renderTarget2: any;
+        readBuffer: any;
+        writeBuffer: any;
+    } | null;
     /**
      * Read-only record of an added effect (name, slot, order, enabled, params), or undefined. Change one with engine.look.post.set({ 'bloom.strength': 0.6 })
      * @param {string} name
@@ -29,14 +41,6 @@ export class PostFX {
      * @experimental
      */
     get(name: string): PostHandle | undefined;
-    /**
-     * Renamed in 0.2: throws and names the new call (engine.look.post.set({ 'bloom.enabled': on }); MSAA: engine.post.setAntialias(on))
-     * @param {string} _name
-     * @param {boolean} _on
-     * @returns {never}
-     * @experimental
-     */
-    enable(_name: string, _on: boolean): never;
     /**
      * Turn MSAA (antialiasing of the post chain) on or off. It is a render target setting, not a look part.
      * @example engine.post.setAntialias(false);

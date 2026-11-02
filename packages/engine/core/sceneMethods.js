@@ -3,11 +3,10 @@
 // add registers each root in the thing registry (things.js) so engine.thing / hit.thing can say what it is and what a save keeps; engine.scene.add
 // stays the plain three.js way in, with no registration.
 import { DEV } from './validate.js';
-import { codedError, renamed } from './errorHints.js';
+import { codedError } from './errorHints.js';
 import { thing } from './thingOps.js';
 import { TONE, exposureDriver } from './look/coreParts.js';
-
-export { TONE } from './look/coreParts.js';   // style.toneMapping names -> three constants (kept here for older imports)
+import { ownedRow } from './owned.js';
 
 /** A short stack for "added at main.js:50" (dev): 4 frames are enough (this, add, its caller) and keep the cost low; it is formatted only when read */
 function captureStack() {
@@ -69,32 +68,44 @@ export const sceneMethods = {
       });
     }
   },
-  setPixelRatio(p) { this.renderer.setPixelRatio(p); this.post.setPixelRatio(p); },
+  // an engine.setPixelRatio call is the game's (or settings') request: written even when the game took the ratio, and re-read so it is not an outside write
+  setPixelRatio(p) { this.renderer.setPixelRatio(p); this.post.setPixelRatio(p); this._oPixelRatio?.mark(); },
   /**
    * Master shadow switch. Off: remember each light's castShadow (the game's choice) then turn it off; on: restore only the lights that cast before (lights the
    * game turned off stay off).
    * Lights added while off are left alone (the renderer has shadows off, so it makes no difference).
+   * Where the remembered values live: one engine-owned Map (this._shadowsHeld, shown as describe().owned 'shadows.off'), not light.userData: userData is the
+   * game's (it is JSON-cloned, saved and exported to glTF), and a hidden key there was a second, invisible record of who switched the light off.
    */
   setShadows(on) {
     this.shadows = on;
     this.renderer.shadowMap.enabled = on;
+    const held = this._shadowsHeld ??= new Map();
+    if (!held.size && !on) ownedRow(this, 'shadows.off', () => (held.size ? { part: 'shadow', key: 'enabled', writer: 'engine.setShadows(false)',
+      lights: [...held.keys()].map(l => l.name || l.type), back: 'engine.setShadows(true) gives each light back its own castShadow' } : undefined));
     this.scene.traverse(o => {
       if (o.isLight && o.shadow) {
-        const u = o.userData;
-        if (!on) { if (!('threedogCastShadow' in u)) u.threedogCastShadow = o.castShadow; o.castShadow = false; }
-        else if ('threedogCastShadow' in u) { o.castShadow = u.threedogCastShadow; delete u.threedogCastShadow; }
+        if (!on) { if (!held.has(o)) held.set(o, o.castShadow); o.castShadow = false; }
+        else if (held.has(o)) { o.castShadow = held.get(o); held.delete(o); }
       }
       if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true);
     });
+    // a light removed from the scene while off is not reached by the walk: forget it, so the Map does not keep it alive
+    if (on) held.clear();
     this.events.emit('settings:shadows', on);
   },
+  /** @internal the engine's view-distance path (terrain viewFog, the far plane); a game sets its fog distance with engine.look.fog.set({ far }) */
   setFogFar(d) {
     this.fogFar = d;
-    if (this.scene.fog) { this.scene.fog.far = d; this.scene.fog.near = d * 0.3; }
-    this.camera.far = d + 150; this.camera.updateProjectionMatrix();
+    // scene.fog is not written here: while the sky drives the fog, its next frame reads engine.fogFar through the owned fog path (sky/fog.js),
+    // so a game that owns the fog (look.fog.manual(), a direct write, look.fog.replace, or no sky at all) keeps its near / far.
+    // Writing it here was the "the engine silently overrode my fog" bug.
+    // camera.far is owned (core/owned.js): a game that set it itself keeps its value (look.view.manual('far'))
+    if (this._oFar) this._oFar.drive(d + 150); else { this.camera.far = d + 150; this.camera.updateProjectionMatrix(); }
   },
-  /** Renamed in 0.2: throws and names the new call, engine.look.tone.set({ mapping }). @param {string} _kind @returns {never} */
-  setToneMapping(_kind) { return renamed('setToneMapping'); },
-  /** Renamed in 0.2: throws and names the new call, engine.look.tone.set({ exposure }). @param {any} _v @returns {never} */
-  setExposure(_v) { return renamed('setExposure'); }
+  /** Raise camera.far to at least far (terrain view range, fog). Goes through ownership: a game that owns camera.far (look.view.manual('far')) keeps its value. @param {number} far */
+  viewFar(far) {
+    if (this.camera.far >= far) return;
+    if (this._oFar) this._oFar.drive(far); else { this.camera.far = far; this.camera.updateProjectionMatrix(); }
+  },
 };

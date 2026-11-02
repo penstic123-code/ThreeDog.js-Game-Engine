@@ -10,7 +10,7 @@ A scene object comes in either of two ways, and both end up in the same scene:
 - **Plain three.js.** Build a mesh or group, call `engine.add(obj)`. Nothing else is required. This is the right way for anything your code rebuilds
   on every start.
 - **A template.** Define it in `content/templates.js`, place it in `content/props.js` with an `id`, or create it during play with
-  `engine.spawn(name, at)`. This is the right way for anything that must be saved, be editable without code, or exist in many copies.
+  `engine.content.spawn(name, at)`. This is the right way for anything that must be saved, be editable without code, or exist in many copies.
 
 The same windmill, both ways:
 
@@ -48,7 +48,7 @@ Route A gives you less ceremony and full three.js control.
 | Has a state worth reading with `world.get(id)` | Pure presentation |
 
 The rule check (R33) is deliberately narrow. It flags only the calls that would run again after a load and so duplicate saved data: `world.add`,
-`engine.spawn`, `inventory.spawnPickup`, `npcs.add` and `entities.spawn` at startup. `engine.add`, `collision.*`, `rigid.*`, `interactions.add` and the
+`engine.content.spawn`, `pickups.spawn` and `npcs.add` at startup. `engine.add`, `collision.*`, `rigid.*`, `interactions.add` and the
 like are fine at startup.
 
 ## 3. Which state a save keeps
@@ -58,7 +58,7 @@ The registry (`41-thing-registry.md`) sorts every scene object into one of four 
 |---|---|---|---|
 | `record` | A world record: template instance, props entry, pickup, NPC, level node | The record's fields and position; the model is rebuilt from the template | Direct edits to the model; change the record instead (`world.set`) |
 | `code` | Added by your code with a stable id (`engine.add(obj, { id })`) during setup | Moves, visibility and deletion done through `thing.set` / `thing.remove` | Geometry, material changes, children added later, `userData`, state in closures (inside an `onFrame` callback) |
-| `session` | Added by your code without an id, or during play | Nothing: it exists for this session only | Everything. After a load it does not come back. To keep it, make it a template and call `engine.spawn` in an op |
+| `session` | Added by your code without an id, or during play | Nothing: it exists for this session only | Everything. After a load it does not come back. To keep it, make it a template and call `engine.content.spawn` in an op |
 | `engine` | Owned by an engine module (water, sky, terrain) | Managed by that module | Do not edit it directly |
 
 Writing `mesh.position.x = 3` in code always works; it just is not saved and cannot be undone.
@@ -80,7 +80,7 @@ write a template, add a placement with an id. Delete the `engine.add` line. Noth
 
 ## 7. Why is this mesh this colour? (material provenance)
 
-`engine.inspect.scene()` / `npx threedog scene` list, for each mesh, one `material:` line and the renderer line (tone mapping, exposure; the same text as `describe().render`). Diagnostics only: nothing about the look changes.
+`engine.inspect.scene()` / `threedog scene` list, for each mesh, one `material:` line and the renderer line (tone mapping, exposure; the same text as `describe().render`). Diagnostics only: nothing about the look changes.
 
 ```
 renderer: ACES (style) exposure 1.1 (style) shadows soft (engine)
@@ -101,7 +101,7 @@ Plain three.js is always allowed (`engine.scene`, `engine.renderer`, `engine.cam
 |---|---|
 | `new THREE.MeshStandardMaterial(...)` (not `makeMaterial` / a look material) | wind sway, snow and season cover, cloud shadows, the engine fog hook, cascaded shadows, `look.surface` lighting and detail, `look.materials` roles, `debug.view` modes |
 | your own `EffectComposer` / render call | `engine.post` effects, `look.post`, adaptive resolution, photo mode, `describe().render.post` |
-| `renderer.toneMappingExposure = x`, `scene.fog = ...` | the owner record and the debug layer (`describe().look` tags it `three`); the sky keeps writing fog unless `look.fog.replace('manual')` |
+| `renderer.toneMappingExposure = x`, `scene.fog = ...` | the owner record and the debug layer (`describe().look` tags it `three`); a direct write yields it (the sky stops writing fog); `look.fog.manual()` says so on purpose |
 
 Keep the integrations by going through the engine: `engine.makeMaterial('role', {...})` for the material, `look.materials.patch(name, { glsl }, { roles })` to add GLSL to a role, `look.post.patch(name, { glsl, slot })` or `look.post.replace([...])` for a screen effect.
 

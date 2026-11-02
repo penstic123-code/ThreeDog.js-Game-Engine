@@ -8,6 +8,7 @@ import { engineFiles, lines, P } from './_lib.mjs';
 const ALLOW = [
   ['core/validate.js', 'page-wide by design and documented there: one validate switch and one warn-once set per page'],
   ['modules/timeline/Tween.js', 'tweenId: owner names for the page-wide allowOwned set must be unique across engines'],
+  ['modules/sky/fog.js', 'held: the custom fog owner of THREE.ShaderChunk, which is one object per page; engines on one page must see each other'],
   ['render/patches.js', 'deriving: re-entrancy flag around one synchronous patchMaterial call, always cleared in finally'],
 ];
 

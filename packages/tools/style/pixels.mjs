@@ -73,17 +73,6 @@ export function hsl([r, g, b]) {
 export const luma = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 export const hex = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 
-/** Whole-picture numbers of RGBA bytes: mean luminance 0-1, mean saturation 0-1 (HSV: (max-min)/max), share of overexposed (all channels >= 250) and dark (all <= 20) pixels. Alpha is ignored (a screenshot is opaque). */
-export function lookStats(rgba) {
-  let n = 0, lum = 0, sat = 0, over = 0, dark = 0;
-  for (let i = 0; i < rgba.length; i += 4) {
-    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-    n++; lum += luma([r, g, b]); if (mx) sat += (mx - mn) / mx;
-    if (mn >= 250) over++; if (mx <= 20) dark++;
-  }
-  return n ? { luminance: lum / n, saturation: sat / n, overexposed: over / n, dark: dark / n } : { luminance: 0, saturation: 0, overexposed: 0, dark: 0 };
-}
-
 /** Opaque pixels of RGBA bytes as a flat [r, g, b, ...] (alpha < 128 skipped) */
 export function opaque(rgba) {
   const out = [];
@@ -140,4 +129,35 @@ export function laplacianVariance(rgba, w, h) {
     sum += v; sq += v * v; n++;
   }
   return sq / n - (sum / n) ** 2;
+}
+
+/**
+ * Write one PNG with two RGBA rasters side by side (left a, right b, same height), a thin divider and small labels.
+ * Drawn in a headless browser canvas like the reading side (text via fillText, no image library). → { w, h }
+ */
+export async function writeSideBySide(a, b, labels, file) {
+  const GAP = 6, w = a.w + GAP + b.w, h = Math.max(a.h, b.h), b64 = d => d.toString('base64');
+  const browser = await launchBrowser(), page = await browser.newPage();
+  try {
+    const png = await page.evaluate(([A, B, labels, GAP, w, h]) => {
+      const un = s => Uint8ClampedArray.from(atob(s), ch => ch.charCodeAt(0));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const g = c.getContext('2d');
+      g.fillStyle = '#ff00ff'; g.fillRect(0, 0, w, h);   // magenta divider: no picture is likely to have it, so the seam is obvious
+      g.putImageData(new ImageData(un(A.b64), A.w, A.h), 0, 0);
+      g.putImageData(new ImageData(un(B.b64), B.w, B.h), A.w + GAP, 0);
+      g.font = 'bold 12px sans-serif'; g.textBaseline = 'top';
+      [[labels[0], 0], [labels[1], A.w + GAP]].forEach(([t, x]) => {
+        const tw = g.measureText(t).width;
+        g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(x + 4, 4, tw + 8, 18);
+        g.fillStyle = '#fff'; g.fillText(t, x + 8, 7);
+      });
+      return c.toDataURL('image/png').split(',')[1];
+    }, [{ w: a.w, h: a.h, b64: b64(a.data) }, { w: b.w, h: b.h, b64: b64(b.data) }, labels, GAP, w, h]);
+    const { writeFileSync, mkdirSync } = await import('node:fs'), { dirname } = await import('node:path');
+    mkdirSync(dirname(resolve(file)), { recursive: true });
+    writeFileSync(resolve(file), Buffer.from(png, 'base64'));
+    return { w, h };
+  } finally { await browser.close(); }
 }

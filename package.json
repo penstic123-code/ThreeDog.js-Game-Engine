@@ -25,7 +25,6 @@
     "bake": "threedog bake",
     "assets": "threedog assets",
     "new-game": "threedog new-game",
-    "new-style": "threedog new-style",
     "doctor": "threedog doctor"
   },
   "devDependencies": {

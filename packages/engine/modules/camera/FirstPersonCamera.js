@@ -10,8 +10,9 @@
 //   engine.cameraRig.lookAt(position);    // turn toward a point (Vector3 / object / [x, y, z])
 //   engine.setCamera('follow');           // switch back to third person at runtime (mouse lock releases, body shows again); see recipes/21-camera.md
 import * as THREE from 'three';
-import { rigModule, defineRig, YAW_RIG, clickToLock, releaseLock } from './common.js';
+import { rigModule, defineRig, YAW_RIG, HIDE_RIG, clickToLock, releaseLock } from './common.js';
 import { vec3 } from '../../core/math.js';
+import { setFov } from '../../core/look/coreParts.js';
 
 export class FirstPersonCamera {
   /**
@@ -32,7 +33,7 @@ export class FirstPersonCamera {
   /** Called when this camera is switched in (module install, setCamera): applies fov and click-to-lock; a runtime switch (key press counts as a gesture) locks at once */
   onEnter(switched) {
     const { engine, fov } = this;
-    if (fov) { engine.camera.fov = fov; engine.camera.updateProjectionMatrix(); }
+    if (fov) setFov(engine, fov);
     // The shadow camera must see the hidden layer too, or the character's shadow vanishes
     this._shadowLayers();
     clickToLock(this, switched);
@@ -104,21 +105,11 @@ export class FirstPersonCamera {
     if (on) releaseLock(this, true);
   }
 
-  _hide() {
-    if (!this.hideTarget || !this.target) return;
-    this.target.traverse(o => {
-      if ((o.isMesh || o.isSkinnedMesh || o.isPoints || o.isLine) && !o.layers.isEnabled(this.hideLayer)) {
-        this._hidden.push([o, o.layers.mask]);
-        o.layers.set(this.hideLayer);
-      }
-    });
-  }
-  _unhide() { for (const [o, mask] of this._hidden) o.layers.mask = mask; this._hidden = []; }
-  // Done once at module install (the sky module has built the lights by then); lights added later call shadow.camera.layers.enable(hideLayer) themselves
-  _shadowLayers() { this.engine.scene.traverse(o => { if (o.isLight && o.shadow?.camera) o.shadow.camera.layers.enable(this.hideLayer); }); }
+  // also on every child added to the target (a held item, a swapped model): hide what is new
+  _hide() { if (this.hideTarget && this.target) this._hideTarget(); }
 }
 
-Object.assign(FirstPersonCamera.prototype, YAW_RIG);   // forward / right / focusPoint
+Object.assign(FirstPersonCamera.prototype, YAW_RIG, HIDE_RIG);   // forward / right / focusPoint; _hideTarget / _unhide / _shadowLayers
 
 /**
  * First-person camera module. Installs engine.cameraRig (pick it or followCamera; switch at runtime with engine.setCamera('firstPerson')).

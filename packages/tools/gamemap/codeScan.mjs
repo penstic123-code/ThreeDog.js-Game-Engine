@@ -1,5 +1,5 @@
 // GAMEMAP sections found by scanning the game's code (used by packages/tools/gamemap.mjs): timed events, objective markers and HUD, key actions,
-// events, save keys and style pack keys. ctx: c = loaded content, dir = game folder, g = path relative to the game folder, gameFiles, code = all
+// events, save keys and style keys. ctx: c = loaded content, dir = game folder, g = path relative to the game folder, gameFiles, code = all
 // game code without comments, ce = the createEngine(...) call text, sec(title, rows) = add a section.
 import { basename } from 'node:path';
 import { docRef } from '../paths.mjs';
@@ -8,10 +8,20 @@ import { declaredEvents, eventLines } from './extra.mjs';
 
 const CODEMAP = docRef('docs/CODEMAP.md');
 
+/**
+ * Whether source code uses the input action a: read by input (pressed / pressedRaw / down / released('a')), or named as the action of an
+ * interaction (interactions.add(obj, { action: 'a' }), a thing's second key). Why the second form: an action used only by an interaction
+ * was listed as "(not used)" although the engine reads it for that interaction
+ */
+export function actionUsed(src, a) {
+  const q = a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), s = `['"\`]${q}['"\`]`;
+  return new RegExp(`\\b(pressed|pressedRaw|down|released)\\(\\s*${s}\\s*\\)|\\baction\\s*:\\s*${s}`).test(src);
+}
+
 export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   // Timed events (engine.clock, engine.sky; between lists both clock times)
   const tm = [];
-  const TIMED = /(?:clock|sky)\.(at|between|after|every|daily|onSeason)\(([^,)]*(?:, '[^']*')?)/g;
+  const TIMED = /(?:clock|calendar).(at|between|after|every|daily|onSeason)\(([^,)]*(?:, '[^']*')?)/g;
   for (const f of gameFiles) for (const m of noComments(read(f)).matchAll(TIMED)) tm.push(`- ${m[1]}(${m[2].trim()}) — ${g(f)}`);
   if (tm.length) sec('Timed events (engine.clock, engine.sky)', uniq(tm));
 
@@ -27,7 +37,7 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   if (hl.length) sec('Objective markers and HUD (hud module)', uniq(hl));
 
   // Key actions
-  const handled = a => gameFiles.filter(f => new RegExp(`(pressed|pressedRaw|down)\\('${a}'\\)`).test(read(f))).map(g).join(', ') || '(not used)';
+  const handled = a => gameFiles.filter(f => actionUsed(read(f), a)).map(g).join(', ') || '(not used)';
   const al = Object.entries(c.actions || {}).map(([a, d]) => `| ${a} | ${d.keys.join(' ')} | ${d.label} | ${handled(a)} |`);
   for (const m of code.matchAll(/input\.define\(\s*'(\w+)',\s*\[([^\]]*)\],\s*'([^']+)'/g)) al.push(`| ${m[1]} | ${m[2].replace(/'/g,
     '')} | ${m[3]} | ${handled(m[1])} |`);
@@ -53,12 +63,12 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   const auto = code.match(/saves\.autosave\(([^)]*)\)/); if (auto) sv.push(`- Autosave: every ${auto[1] || 'default'} minutes`);
   const reg = uniq([...code.matchAll(/saves\.register\('([^']+)'/g)].map(m => m[1])); if (reg.length) sv.push(`- Save entries the game registers itself: ' +
     '${reg.join(', ')}`);
-  sv.push('- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)');
+  sv.push('- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `threedog catalog` (saves per module)');
   sec('Saves', sv);
 
-  // Style pack keys
+  // Style keys
   const st = [];
-  const style = ce?.match(/style: (\w+)/); st.push(`- Style pack: ${style ? style[1] : 'none (all neutral fallback look)'}`);
+  const style = ce?.match(/style: (\w+)/); st.push(`- Style: ${style ? style[1] : 'none (all neutral fallback look)'}`);
   const vegModels = Object.values(c.vegetation || {}).flatMap(v => [[v.model].flat()[0], v.lod].filter(Boolean));
   const tplModels = Object.values(c.templates || {}).map(t => [t?.model].flat()[0]).filter(m => typeof m === 'string');
   const models = uniq([...code.matchAll(/\.models\.(\w+)/g)].map(m => m[1]).concat(vegModels, tplModels,
@@ -71,5 +81,5 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   const sk2 = uniq([...code.matchAll(/\b(?:engine|e)\.style\.(\w+)/g)].map(m => m[1]));
   if (sk2.length) st.push(`- style keys read directly: ${sk2.join(', ')}`);
   if (Object.keys(c.vegetation || {}).length) st.push(`- Vegetation (content/vegetation.js): ${Object.keys(c.vegetation).join(', ')}`);
-  sec('Style pack keys', st);
+  sec('Style keys', st);
 }

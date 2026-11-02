@@ -3,13 +3,13 @@
 // Paths written into GAMEMAP are relative to the game folder (main.js, content/npcs.js) or node_modules/threedog/docs/..., so the map reads the
 //   same in the monorepo and in a game installed from npm.
 // An AI in a fresh window reads this one file to learn "what this game has": installed modules, files, NPCs, dialogues, items, quests, trigger zones,
-//   props, timed events, objective markers, key actions, events, saves, style pack keys.
+//   props, timed events, objective markers, key actions, events, saves, style keys.
 // The hand-written "design decisions" live in DESIGN.md in the same directory and are read in as is.
 //   node packages/tools/gamemap.mjs           generate
 //   node packages/tools/gamemap.mjs --check   check it is up to date (used by npm run check)
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, basename, sep } from 'node:path';
-import { findGames, loadGame, gameSetup } from './content-check.mjs';
+import { findGames, loadGame, levelIsFile } from './content-check.mjs';
 import { describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
 import { ENGINE, onlyGames, workspaceOf, docRef, rel } from './paths.mjs';
 import { MAX_ROWS, read, uniq, walk, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
@@ -107,9 +107,10 @@ async function buildMap(dir) {
 
   // NPC
   const pos = p => p.place ? `${p.place}${p.x || p.z ? `(${p.x ?? 0},${p.z ?? 0})` : ''}` : `(${p.x},${p.z})`;
-  sec('NPCs (content/npcs.js)', Object.keys(c.npcs || {}).length ? ['| id | Name | Schedule | Dialogue entry |', '|---|---|---|---|',
+  const npcUse = (id, i) => !i ? '—' : i.op === 'npc.talk' ? `talk ${i.args?.script ?? id} → start` : `op ${i.op}`;
+  sec('NPCs (content/npcs.js)', Object.keys(c.npcs || {}).length ? ['| id | Name | Schedule | Interact |', '|---|---|---|---|',
     ...Object.entries(c.npcs).map(([id, n]) =>
-      `| ${id} | ${n.name} | ${n.schedule?.map(s => `${s.at} ${pos(s)}`).join(' · ') ?? n.behavior} | ${n.talk ? `${n.talk} → start` : '—'} |`)] : []);
+      `| ${id} | ${n.name} | ${n.schedule?.map(s => `${s.at} ${pos(s)}`).join(' · ') ?? n.behavior} | ${npcUse(id, n.interact)} |`)] : []);
 
   // Dialogue
   const dl = Object.entries(c.dialogues || {}).map(([id, d]) => {
@@ -139,7 +140,7 @@ async function buildMap(dir) {
   if (c.rules?.kinds) sec('Game content kinds (content/rules.js kinds)', kindMapLines(c, cut));
 
   // Trigger zones and level markers
-  const levelFile = gameSetup(dir, code).levelFile;
+  const levelFile = levelIsFile(code);
   const inGlb = tag => levelFile && !c.level?.markers?.['trigger_' + tag];
   const tl = Object.entries(c.triggers || {}).map(([tag, t]) =>
     `- Trigger zone **${tag}**: ${t.fromLevel ? `level marker trigger_${tag}${inGlb(tag) ? ' (in the level .glb, cannot be read statically)' : ''}`
@@ -157,7 +158,7 @@ async function buildMap(dir) {
 
   // Object templates (content/templates.js), their placements and runtime spawns
   const tpl = templateLines(c, gameFiles, g);
-  if (tpl.length) sec('Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)', tpl);
+  if (tpl.length) sec('Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)', tpl);
   // Grids declared in code
   const grids = gridLines(gameFiles, g);
   if (grids.length) sec('Grids (engine.grids)', grids);

@@ -5,11 +5,15 @@ const PURE_STRINGS = {
   native: '{label}: must be a written-out function (not a built-in, bound or class method); it is sent to a worker as source text',
   async: '{label}: cannot be async or a generator; a worker batch needs the result immediately',
   parse: '{label}: could not be recompiled from its source text ({msg}); write it as (rec, dt) => { ... } or function (rec, dt) { ... }',
-  closure: '{label} runs in a worker and only sees its own parameters and globals like Math: {msg}. Put constants inside the function, or store the value on the record',
+  closure: '{label} runs in a worker, so closures are not supported (outer variables are not sent with the source text); it only sees its own parameters and globals like Math: {msg}. {fix}',
+  fixRecord: 'Put constants inside the function, or store the value on the record',
+  // terrain functions get settings as data: terrain({ params }) arrives as n.params in every worker (modules/terrain)
+  fixTerrain: 'Pass the values as data instead: terrain({ params: { hill: 30 }, height: (x, z, n) => n.params.hill * n.fbm(x * 0.004, z * 0.004) }), or put constants inside the function',
   unknown: '[threads] pure function {key} was not defined in this worker',
 };
 const fmt = (s, o) => s.replace(/\{(\w+)\}/g, (m, k) => o[k] ?? m);   // own copy: this file stays import-free for workers
 /** Errors carry the stable code 'pure-function' (errorHints.js) as err.code and a [pure-function] tag */
+const fixFor = label => /^terrain/.test(label) ? PURE_STRINGS.fixTerrain : PURE_STRINGS.fixRecord;
 const pureError = msg => Object.assign(new Error(msg + ' [pure-function]'), { code: 'pure-function' });
 
 /**
@@ -30,10 +34,10 @@ export function compilePure(fnOrSrc, label) {
   }
   const free = freeNames(used);
   // caught here, not on the first call: in a worker that call happens steps later and far from the line that registered the function
-  if (free.length) throw pureError(fmt(PURE_STRINGS.closure, { label, msg: `it reads ${free.map(n => `'${n}'`).join(', ')}, which is neither its parameter nor a global` }));
+  if (free.length) throw pureError(fmt(PURE_STRINGS.closure, { label, fix: fixFor(label), msg: `it reads ${free.map(n => `'${n}'`).join(', ')}, which is neither its parameter nor a global` }));
   const call = (...args) => {
     try { return fn(...args); } catch (err) {
-      if (err instanceof ReferenceError) throw pureError(fmt(PURE_STRINGS.closure, { label, msg: err.message }));
+      if (err instanceof ReferenceError) throw pureError(fmt(PURE_STRINGS.closure, { label, fix: fixFor(label), msg: err.message }));
       throw err;
     }
   };

@@ -7,5 +7,5 @@ import * as all from '../../index.js';   // every export, for specs that build t
 // mk: a throwaway headless engine on a detached canvas (specs pass createEngine so the call reads like createEngine itself)
 const mk = (create, saveKey, extra = {}) => create({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey, ui: { loading: false }, ...extra });
 window.threedogThreads = { createEngine, world, collision, characters, quests, level, nav, THREE, all, mk };
-const engine = window.engine = createEngine({ canvas: document.getElementById('view'), headless: true, loading: false, urlState: false, saveKey: 'threads-test' });
+const engine = window.engine = createEngine({ canvas: document.getElementById('view'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'threads-test' });
 engine.start();

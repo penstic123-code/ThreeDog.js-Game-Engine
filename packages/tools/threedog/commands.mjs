@@ -8,7 +8,7 @@
 // run(driver, command, args array, { dir }) → { ok, text }. text is English, at most 3 lines, read directly by the AI.
 // Functions executed in the page must be self-contained (sent via toString()); the 3rd argument brief is injected by page().
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname, extname, isAbsolute, resolve } from 'node:path';
 import { ev, evAttached, KEY } from './pageFns.mjs';
 import { saveSnapshot, compareSnapshot } from '../describe-snapshot.mjs';
 import { hintFor } from 'threedog/error-hints';
@@ -30,6 +30,17 @@ function opPairs(args, what = 'op arguments', e_g = 'n=2') {
     if (i < 1) throw new Error(`${what} are key=value, e.g. ${e_g} (got "${kv}"); in PowerShell quote commas: "position=3,0,-2"`);
     return [kv.slice(0, i), kv.slice(i + 1)];
   });
+}
+
+/**
+ * Where snap writes: a bare name → <dir>/.threedog/shots/<name>.png; a path (absolute, or containing a folder) → that path, relative ones from dir.
+ * .png is added only when there is no extension. → { file (absolute), shown (as printed) }
+ */
+export function snapPath(dir, arg) {
+  const given = arg || 'snap', withExt = extname(given) ? given : given + '.png';
+  if (isAbsolute(given) || /[\\/]/.test(given)) return { file: resolve(dir, withExt), shown: withExt };
+  const name = withExt.replace(/[^\w一-龥.-]+/g, '-');
+  return { file: join(dir, '.threedog/shots', name), shown: `.threedog/shots/${name}` };
 }
 
 /** Strip options such as --max N / --full, returning { rest, opt } */
@@ -59,16 +70,16 @@ export const COMMANDS = {
   hold: 'hold for N seconds: hold moveForward 1.5',
   state: 'change the scenario: state time=18:30 weather=rain pos=40,-20',
   eval: 'evaluate an expression in the page (engine is available, await works; multi-line statements need their own return): eval ' +
-    '"engine.sky.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes)',
-  js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.sky.timeOfDay" / js --file path',
+    '"engine.calendar.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes)',
+  js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.calendar.timeOfDay" / js --file path',
   'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
-  snap: 'save a screenshot to .threedog/shots/name.png (snap name; --width N scales the returned image down, the saved file stays full size)',
+  snap: 'save a screenshot to .threedog/shots/name.png and run the look check on the page, as threedog shot does (snap name, or snap path/to/file.png used as given; --width N scales the returned image down, the saved file stays full size; --no-look skips the check)',
   errors: 'page errors with id, time, tick, source and count: errors = new since the last read; errors latest [N] = the last N, repeatable; errors --since E5 = after id 5 (known classes come with the cause and the doc page)',
   reload: 'reload the page',
   resume: 'resume real-time running (the page is paused after step / press)',
   ops: 'what the player can do now (each op offer checked with can): ✓ shop.buy shop=bakery item=bread · ✗ … (reason)',
   op: 'run an op as source bridge (no time passes): op shop.buy shop=bakery item=bread n=2 (values converted by the op args shape)',
-  inspect: 'what is around the player (or inspect npc_3 / inspect 10,-4) and which ops it can do now, with reasons',
+  inspect: 'what is around the player (or inspect npc_3 / inspect 10,-4) and which ops it can do now, with reasons; inspect materials = every material: textures, size, color space (wrong ones first), VRAM estimate, engine/game, patches, shared-by; inspect perf = draw calls, triangles, programs, texture MB, JS ms, compile stalls, each against a budget with the next call',
   scene: 'the mesh exists but is not drawn: lists every Mesh / Points / Line / Sprite (position, size, material, drawn or not) and WHY each undrawn one is not (visible=false up the parents, layers, material flags, scale 0 / NaN, empty geometry, behind camera, beyond far, outside the view, fog...): scene [--hidden (only undrawn)] [--limit N] [--json]',
   pick: 'what is at screen pixel x,y (from the canvas top-left): pick 480,270 -> record id, kind, template, where it is defined (content file:line), fields',
   thing: 'everything about one id as JSON: thing player-chest (definition file:line, template, model, materials, state, collision rules, related ops, save status, how to change it)',
@@ -88,8 +99,8 @@ function loadingText({ view: v, ready }) {
   const fail = v.failed.map(f => `${f.critical ? '✗ critical' : '! fell back'} ${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}`
     + (f.fallback ? ` -> ${f.fallback}` : ''));
   const warn = v.warnings.map(w => `! "${w.name}" missing ${w.missing.join(', ')}`);
-  const h = v.failed.length ? hintFor(v.blocked ? 'Startup blocked: 1 critical item' : 'Asset failed to load') : v.warnings.length
-    ? hintFor('Asset loaded with missing references') : null;
+  const h = v.failed.length ? hintFor(v.blocked ? '[asset-critical]' : '[asset-load]') : v.warnings.length
+    ? hintFor('[asset-missing-ref]') : null;
   const lines3 = [head, [...fail, ...warn].join(' · ').slice(0, 300), h && `-> Possible cause: ${h.cause.slice(0, 160)} Read: ${h.docs.join(', ')}`];
   return { ok: v.ok && !v.blocked, text: lines3.filter(Boolean).join('\n') };
 }
@@ -135,17 +146,29 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       // --file: keep the script in a file, avoiding PowerShell / Bash quoting and multi-line problems
       if (opt.file && !existsSync(opt.file)) throw new Error(`Script file not found: "${opt.file}"`);
       const expr = opt.file ? readFileSync(opt.file, 'utf8') : rest.join(' ');
-      if (!expr.trim()) throw new Error('Usage: threedog js "engine.sky.timeOfDay" or threedog js --file script.js (same as eval)');
+      if (!expr.trim()) throw new Error('Usage: threedog js "engine.calendar.timeOfDay" or threedog js --file script.js (same as eval)');
       // a script with assert( / expect( is a checks script: one call, short report, ok false (exit 1) on any failure (steps.mjs)
       if (isStepsScript(expr)) return stepsReport(await ev(driver, 'steps', { src: expr }), opt.verbose);
-      return { ok: true, text: '✓ ' + await ev(driver, 'eval', { expr, max }) };
+      // no checks: prints the return value as before (same globals; log lines come first)
+      const r = await ev(driver, 'steps', { src: expr, plain: true, max });
+      return { ok: true, text: [...r.logs.map(l => '· ' + l), '✓ ' + r.text].join('\n') };
     }
     case 'snap': {
+      const usage = 'Usage: threedog snap [name | path] [--width N] [--no-look]. A bare name saves .threedog/shots/<name>.png; a path (absolute, or with a folder) '
+        + 'is used as given; .png is added only when it has no extension. --width N scales the returned image, the file stays full size. '
+        + 'The look check (as in threedog shot) runs on the page after the picture; --no-look skips it';
+      if (args.includes('--help') || args.includes('-h')) return { ok: true, text: usage };
+      const noLook = rest.includes('--no-look'); if (noLook) rest.splice(rest.indexOf('--no-look'), 1);
+      const flag = rest.find(x => x.startsWith('-'));
+      if (flag) throw new Error(`Unknown snap option "${flag}". Valid: --width N, --no-look (and --help). ` + usage);
+      if (rest.length > 1) throw new Error(`snap takes one name or path (got ${rest.length}: ${rest.join(' ')}). ` + usage);
+      const out = snapPath(dir, rest[0]);
       await ev(driver, 'settled', {});   // like threedog shot: never capture the loading screen mid-fade
-      const png = await driver.screenshot(), name = (rest[0] || 'snap').replace(/[^\w一-龥.-]+/g, '-');
-      mkdirSync(join(dir, '.threedog/shots'), { recursive: true });
-      writeFileSync(join(dir, `.threedog/shots/${name}.png`), png);
-      const brief = lines(await ev(driver, 'brief', {}), 2);
+      const png = await driver.screenshot();
+      mkdirSync(dirname(out.file), { recursive: true });
+      writeFileSync(out.file, png);
+      // the same lines as under a threedog shot (pageFns PICTURE): what bears on the picture, the rest via threedog describe
+      const brief = await ev(driver, 'picture', {});
       // --width N: the file keeps the full size (style compare reads it); the picture returned to the caller (MCP image) is scaled down to N px wide
       let image = png;
       if (opt.width && opt.width > 0) {
@@ -155,7 +178,15 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
         [png.toString('base64'), opt.width]);
         if (b64) image = Buffer.from(b64, 'base64');
       }
-      return { ok: true, image, text: `✓ Screenshot .threedog/shots/${name}.png (${(png.length / 1024).toFixed(0)} KB)${image !== png ? `, image shown ${opt.width} px wide` : ''}\n` + brief };
+      // the look check on this same live page: a picture taken through the bridge must not skip what `threedog shot` reports (glare with its
+      // source, shadows, noon / midnight). The probe renders and restores within one call, so the running game is left as it was
+      let look = '';
+      if (!noLook) {
+        const { pageLook, formatLook } = await import('../style/look.mjs');   // lazy: it pulls in the picture reader, which other commands never need
+        const lk = await pageLook((src, arg) => driver.evaluate(src, arg), { dir }).catch(e => ({ error: String(e?.message ?? e) }));
+        look = '\n' + (lk.error ? `Look: skipped (${lk.error})` : formatLook(lk.numbers, lk.probe, lk.hints).join('\n'));
+      }
+      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB)${image !== png ? `, image shown ${opt.width} px wide` : ''}\n` + brief + look };
     }
     case 'snap-describe': {
       const [mode, name] = rest, snapDir = join(dir, 'tests', 'snapshots');
@@ -183,7 +214,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     }
     case 'inspect': {
       const at = rest[0] && /^-?[\d.]+,-?[\d.]+$/.test(rest[0]) ? rest[0].split(',').map(Number) : rest[0];
-      return { ok: true, text: lines(await ev(driver, 'inspect', { at }), 3) };
+      const text = await ev(driver, 'inspect', { at });
+      return { ok: !/^✗/m.test(text), text: at === 'materials' || at === 'perf' ? String(text).slice(0, opt.max || 2000) : lines(text, 3) };
     }
     case 'scene': {
       const limit = opt.limit ? Number(opt.limit) : undefined;

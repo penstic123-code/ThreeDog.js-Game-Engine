@@ -1,7 +1,7 @@
 // look.water: the water's look as a look part (recipes/52-look.md).
 //   set({ color, opacity, waveHeight, waveScale, waveSpeed, fresnel })  live: uniforms and material fields, no recompile
 //   set({ depthColor, foam })                                           structural: the shared material is rebuilt once (one recompile)
-//   patch('wave' | 'surface', glsl)                                     the GLSL hooks of style.water.glsl (recipes/44)
+//   patch('wave' | 'surface', glsl)                                     the GLSL hooks (recipes/44), the only way GLSL reaches the water
 //   replace((engine, { uniforms, waves, surface, normalMap }) => Material)   the whole surface (style.water.material)
 // The style layer is style.water; the options of water({...}) are the game's own layer ('game'). Why a rebuild and not a patch of the old
 // material: depthColor / foam / hooks decide which GLSL exists, and the shader is part of the material program.
@@ -17,10 +17,10 @@ const validate = (w, k) => v => { try { waterLook({ ...w.st, [k]: v }); return n
 
 /** @param {any} w the Water module */
 export function defineWaterLook(w) {
-  const e = w.engine, st = w.st, g = st.glsl ?? {};
+  const e = w.engine, st = w.st;
   const pick = o => Object.fromEntries(KEYS.filter(k => o[k] !== undefined).map(k => [k, o[k]]));
   const built = { sig: '', material: undefined };
-  const sig = () => JSON.stringify([st.depthColor ?? null, st.foam ?? null, st.glsl ?? null]);
+  const sig = () => JSON.stringify([st.depthColor ?? null, st.foam ?? null, st._hooks ?? null]);
   built.sig = sig(); built.material = st.material;
   const live = (k, v) => {
     const m = w.material, u = w._u;
@@ -46,7 +46,7 @@ export function defineWaterLook(w) {
       depthColor: { type: 'any', default: null, neutral: true, cost: 'recompile', desc: '{ shallow, deep, by: "view" | "wave", curve } or null; rebuilds the water material once', check: validate(w, 'depthColor') },
       foam: { type: 'any', default: null, neutral: true, cost: 'recompile', desc: 'true | { color, start, end, opacity } or null; rebuilds the water material once', check: validate(w, 'foam') },
     },
-    style: () => ({ ...pick(e.style.water ?? {}), ...(g.wave ? { 'hook:wave': g.wave } : {}), ...(g.surface ? { 'hook:surface': g.surface } : {}),
+    style: () => ({ ...pick(e.style.water ?? {}),
       ...(e.style.water?.material ? { [REPLACE]: e.style.water.material } : {}) }),
     read: () => ({ opacity: !st.material && w.material.opacity !== undefined ? w.material.opacity : undefined }),
     apply(v, changed) {
@@ -59,14 +59,14 @@ export function defineWaterLook(w) {
         example: 'vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) { return vec4(base.rgb * (0.8 + wave), base.a); }' },
     },
     applyHook(name, glsl) {
-      const was = st.glsl;
-      st.glsl = { ...was, [name]: glsl ?? undefined };
-      try { waterLook(st); rebuild(); } catch (err) { st.glsl = was; throw err; }
+      const was = st._hooks;   // internal hook state (surface.js waterLook reads it), never a style / option key
+      st._hooks = { ...was, [name]: glsl ?? undefined };
+      try { waterLook(st); rebuild(); } catch (err) { st._hooks = was; throw err; }
     },
     replace: { accepts: '(engine, { uniforms, waves, surface, normalMap }) => THREE.Material', loses: ['built-in role "water" material, fresnel, color and opacity (your material owns them)', 'depthColor / foam unless your material uses surface'] },
     // checked before any layer is written: the replace slot is a function, a GLSL hook builds (waterLook compiles it on a copy of the state)
     validate: (k, v) => k === REPLACE ? (typeof v === 'function' ? null : 'is (engine, { uniforms, waves, surface, normalMap }) => THREE.Material')
-      : k.startsWith('hook:') ? validate(w, 'glsl')({ ...w.st.glsl, [k.slice(5)]: v }) : null,
+      : k.startsWith('hook:') ? validate(w, '_hooks')({ ...w.st._hooks, [k.slice(5)]: v }) : null,
     applyReplace(impl) {
       st.material = impl ?? undefined; rebuild();
     },
@@ -74,7 +74,6 @@ export function defineWaterLook(w) {
   // water({...}) options are the game's layer
   const o = w.opts ?? {}, mine = pick(o);
   if (Object.keys(mine).length) p.set(mine);
-  if (o.glsl) for (const k of ['wave', 'surface']) if (o.glsl[k]) p.patch(k, o.glsl[k]);
   if (o.material) p.replace(o.material);
   return p;
 }

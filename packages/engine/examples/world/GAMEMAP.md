@@ -13,16 +13,16 @@ Content: actions 4 · audio 3 · containers 1 · dialogues 1 · items 4 · npcs 
 
 ## Engine modules (engine.use)
 
-- createEngine: { style: lowpoly, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } }
-- openWorld preset ({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius:…) → world, terrain, vegetation, sky, weather, water, collision, rigid, characters, ambience, settings, debug
+- createEngine: { style, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } }
+- openWorld preset ({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius:…) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
 - interactions ({ ...presets.interactions.nearest })
 - dialogue
 - inventory ({ ...presets.keys.inventory })
+- pickups
 - quests ({ ...presets.keys.quests })
 - photo ({ ...presets.keys.photo })
 - timeline
 - triggers
-- entities
 - particles
 - music ({ duckDialogue: 0.35 })
 - hud
@@ -32,14 +32,14 @@ Content: actions 4 · audio 3 · containers 1 · dialogues 1 · items 4 · npcs 
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
 - terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
 - vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
-- sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
+- calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
+- sky: `node_modules/threedog/docs/recipes/38-environment-look-hooks.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
 - water: `node_modules/threedog/docs/recipes/44-water-weather-look-hooks.md` · `node_modules/threedog/docs/api/water.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
-- ambience: `node_modules/threedog/docs/recipes/31-audio.md` · `node_modules/threedog/docs/api/ambience.md`
-- …12 more modules: their pages are in `node_modules/threedog/docs/api/`
+- …13 more modules: their pages are in `node_modules/threedog/docs/api/`
 
 Not used yet (check these before writing the system yourself):
 
@@ -51,6 +51,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
+| assets.js | 7 | The asset packs this game registers (main.js: engine.assets.manifest(packs)). Kept in their own fil… |
 | content/actions.js | 9 |  |
 | content/audio.js | 26 |  |
 | content/bodies.js | 13 |  |
@@ -68,12 +69,16 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/vegetation.js | 33 |  |
 | main.js | 169 | Open-world example (slow photography life): riverside cabin + an old fisherman who walks by the clo… |
 | models.js | 29 | Models this game builds in code: the cabin (registered by name in main.js, placed by content/props.… |
+| style/humanoid.js | 49 | The 'humanoid' body: the procedural character body, exported in the asset pack (index.js `assets`),… |
+| style/index.js | 153 | The world example's own look (a game keeps its style in its style/ folder; recipes/09-style-pack.md… |
+| style/models.js | 59 | Procedural models of this look: trees, rocks, grass and flowers built in code, no files. Exported a… |
+| style/shapes.js | 10 | The ground pickup shape, registered as the asset model name 'pickup' (assets in index.js). It is an… |
 
 ## NPCs (content/npcs.js)
 
-| id | Name | Schedule | Dialogue entry |
+| id | Name | Schedule | Interact |
 |---|---|---|---|
-| fisher | 老渔夫 | 06:00 river · 12:00 home(-4,4) · 19:12 home(1,4.5) | fisher → start |
+| fisher | 老渔夫 | 06:00 river · 12:00 home(-4,4) · 19:12 home(1,4.5) | talk fisher → start |
 
 ## Dialogues (content/dialogues.js, node → destination)
 
@@ -112,7 +117,7 @@ Starting inventory: film×12. Pickups: 8: feather×3, berry×5 (respawn after 12
 
 - Condition **timeAfter** (clock): the day has passed this clock time
 
-## Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)
+## Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)
 
 | Template | Model | Collide | Interact (op / label) | Container | State (defaults) | Instances |
 |---|---|---|---|---|---|---|
@@ -161,11 +166,11 @@ Code that breaks saves or manages world models: none (rule R33).
 - Save prefix saveKey: default
 - Save slots: slot1
 - Autosave: every 3 minutes
-- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)
+- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `threedog catalog` (saves per module)
 
-## Style pack keys
+## Style keys
 
-- Style pack: lowpoly
+- Style: none (all neutral fallback look)
 - Models (asset names): pine, pineLow, roundTree, roundTreeLow, rock, grass, flower, cabin
 - Particle presets (style.particles): smoke, leaves, dust
 - Vegetation (content/vegetation.js): 松树, 圆树, 石头, 草, 野花

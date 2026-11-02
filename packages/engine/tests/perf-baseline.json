@@ -1,0 +1,9 @@
+{
+ "software": {
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "ratio": 11.671,
+  "frameMs": 254.4,
+  "calibMs": 18.2,
+  "date": "2026-11-02"
+ }
+}

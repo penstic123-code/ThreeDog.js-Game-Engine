@@ -30,7 +30,7 @@ export function world(opts = {}) {
       w = new World(e, opts);
       e.stream.player.at(() => w.center);   // the default stream source sits where gameplay is simulated (world.anchor, else the player)
       e.stream.readyCheck('world', s => s.detail !== 'full' || w.ready);
-      e.saves.register('world', { atomic: true, version: 3, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
+      e.saves.register('world', { atomic: true, version: 5, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
       e._things.addSource(recordSource(w));   // engine.thing / thing.set / the shared id space reach the records through this
       e.explainWith(worldExplain);
       e.budget.metric('worldRecords', () => w.records.size);

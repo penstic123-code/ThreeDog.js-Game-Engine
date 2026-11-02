@@ -1,6 +1,8 @@
 // One particle effect (helper of Particles.js): a ring buffer of particles drawn as one THREE.Points, updated on the CPU every frame.
 import * as THREE from 'three';
 import { vert, frag } from './shaders.js';
+import { warnOnce } from '../../core/validate.js';
+import { coded } from '../../core/errorHints.js';
 
 export const NEUTRAL = {
   max: 120, lifetime: [1, 2], rate: 10, speed: [0.5, 1.5], direction: [0, 1, 0], spread: 0.5, area: 0,
@@ -41,7 +43,7 @@ export class Effect {
     try {
       const tex = t.isTexture ? t : await this.sys.engine.assets.texture(t);
       this.material.uniforms.uMap.value = tex; this.material.uniforms.uHasMap.value = 1;
-    } catch (err) { console.warn(`[particles ${this.name}] texture failed to load; using a round dot instead`, err); }
+    } catch (err) { warnOnce(coded('load-failed', `[particles ${this.name}] texture failed to load (${err?.message ?? err}); using a round dot instead`)); }
   }
 
   /** Emit count particles. origin {x,y,z}; o is the merged params; frame optional: particle direction rotates with the object */

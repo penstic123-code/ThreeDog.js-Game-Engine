@@ -36,8 +36,12 @@ export async function run({ check }) {
   check('a blend over something else is not flagged', kinds('const t = Math.floor(x);\nconst c = colors[t] * (1 - f) + colors[t + 1] * f;\n') === '');
 
   // material
-  check('new MeshStandardMaterial with a color -> material', kinds('const m = new THREE.MeshStandardMaterial({ color: 0x8844aa });\n') === 'material');
-  check('constructor plus a later color edit -> material', kinds('const m = new MeshBasicMaterial();\nm.color.set(0xff0000);\n') === 'material');
+  // only a hand-colored material NEXT TO style materials is a bypass (it misses a style swap); hand-made materials alone are the plain three.js route
+  const styled = "const wall = makeMaterial('wall');\n";
+  check('a colored MeshStandardMaterial in a file that uses makeMaterial -> material', kinds(styled + 'const m = new THREE.MeshStandardMaterial({ color: 0x8844aa });\n') === 'material');
+  check('constructor plus a later color edit next to look.materials -> material', kinds('const s = engine.look.materials;\nconst m = new MeshBasicMaterial();\nm.color.set(0xff0000);\n') === 'material');
+  check('a hand-colored material in a file without style materials is not flagged (plain three.js route)', kinds('const m = new THREE.MeshStandardMaterial({ color: 0x8844aa });\n') === '');
+  check('art code (style/, art/, assets.js, art.js) is never material-hinted', scanText(styled + 'const m = new THREE.MeshStandardMaterial({ color: 1 });\n', undefined, { art: true }).length === 0);
   check('makeMaterial is not flagged', kinds("const m = makeMaterial('prop');\nm.color.set(0xff0000);\n") === '');
   check('a material without any color is not flagged', kinds('const m = new THREE.MeshStandardMaterial({ roughness: 1 });\n') === '');
 

@@ -7,6 +7,7 @@ Procedural terrain (terrain() module)
   - `density?: number` Vegetation density multiplier, default 1
   - `viewFog?: boolean` true: the fog distance (engine.fogFar) follows the view distance so the far chunk edge fades out; default false keeps the game's fog (openWorld() sets true)
   - `material?: Material | ((engine: Engine) => Material)` Ground material (default style.terrain.material, else the 'terrain' role with vertex colors); chunks have uv = world xz / chunk size. Cloud shadows and season tint are added
+  - `effects?: boolean` With material: false = draw it exactly as given, no cloud shadow / season / detail patch (same as look.ground.replace(m, { effects: false }))
 
 ## Methods and properties
 - `terrain.setViewChunks(n: number)` — Change the view distance (in chunks); fog and camera far plane adjust too

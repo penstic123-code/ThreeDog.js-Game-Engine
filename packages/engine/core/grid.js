@@ -1,3 +1,4 @@
+import { codedError } from './errorHints.js';
 // 2D grid fields: sampleGrid turns an array of numbers laid out on a regular grid into a function (x, z) -> value, and gridFromPixels / decodePng read
 // an image into such an array. A grid can hold any field of the ground plane: height, moisture, ground-type weight, density, a walkable mask, danger, cost.
 // No three.js and no DOM here (DecompressionStream exists in browsers and Node), so it runs in tests and workers alike.
@@ -23,16 +24,16 @@ const CHANNELS = { r: 0, g: 1, b: 2, a: 3 };
  */
 export function sampleGrid(data, opts = {}) {
   const { width, height, interp = 'linear', clamp = false, outside } = opts;
-  if (!data || !(width >= 1) || !(height >= 1) || !Number.isInteger(width) || !Number.isInteger(height)) throw new Error('sampleGrid(data, { width, height }): width and height are whole numbers >= 1');
-  if (data.length < width * height) throw new Error(`sampleGrid: data has ${data.length} values, but width * height is ${width * height}`);
-  if (!['nearest', 'linear', 'cubic'].includes(interp)) throw new Error(`sampleGrid: interp '${interp}' is not one of 'nearest', 'linear', 'cubic'`);
+  if (!data || !(width >= 1) || !(height >= 1) || !Number.isInteger(width) || !Number.isInteger(height)) throw codedError('grid-data', 'sampleGrid(data, { width, height }): width and height are whole numbers >= 1');
+  if (data.length < width * height) throw codedError('grid-data', `sampleGrid: data has ${data.length} values, but width * height is ${width * height}`);
+  if (!['nearest', 'linear', 'cubic'].includes(interp)) throw codedError('grid-data', `sampleGrid: interp '${interp}' is not one of 'nearest', 'linear', 'cubic'`);
   const [ox, oz] = opts.origin || [0, 0];
   let cx, cz;
   if (opts.size) { cx = opts.size[0] / Math.max(1, width - 1); cz = opts.size[1] / Math.max(1, height - 1); }
   else if (Array.isArray(opts.cellSize)) [cx, cz] = opts.cellSize;
   else if (opts.cellSize != null) cx = cz = opts.cellSize;
-  else throw new Error('sampleGrid: give cellSize (node spacing in world units) or size: [sx, sz] (the whole extent)');
-  if (!(cx > 0) || !(cz > 0)) throw new Error('sampleGrid: cellSize / size must be greater than 0');
+  else throw codedError('grid-data', 'sampleGrid: give cellSize (node spacing in world units) or size: [sx, sz] (the whole extent)');
+  if (!(cx > 0) || !(cz > 0)) throw codedError('grid-data', 'sampleGrid: cellSize / size must be greater than 0');
   const W = width, H = height, at = (i, j) => data[(j < 0 ? 0 : j >= H ? H - 1 : j) * W + (i < 0 ? 0 : i >= W ? W - 1 : i)];
   const hasOut = typeof outside === 'number';
   // Catmull-Rom weights through p0..p3 at t in [0, 1] (passes through p1 at 0 and p2 at 1)
@@ -53,7 +54,7 @@ export function sampleGrid(data, opts = {}) {
 /** Channel name or index -> index (r g b a, or 0-3) */
 function channelIndex(channel) {
   const i = typeof channel === 'string' ? CHANNELS[channel.toLowerCase()] : channel;
-  if (!Number.isInteger(i) || i < 0 || i > 3) throw new Error(`gridFromImage: channel '${channel}' is not 'r', 'g', 'b', 'a' or 0-3`);
+  if (!Number.isInteger(i) || i < 0 || i > 3) throw codedError('grid-data', `gridFromImage: channel '${channel}' is not 'r', 'g', 'b', 'a' or 0-3`);
   return i;
 }
 
@@ -66,9 +67,9 @@ function channelIndex(channel) {
  */
 export function gridFromPixels(img, { channel = 0, range = [0, 1], bits } = {}) {
   const ch = channelIndex(channel), n = img.width * img.height, bd = img.bitDepth;
-  if (ch >= img.channels) throw new Error(`gridFromImage: the image has ${img.channels} channel(s), so channel ${ch} does not exist`);
+  if (ch >= img.channels) throw codedError('grid-data', `gridFromImage: the image has ${img.channels} channel(s), so channel ${ch} does not exist`);
   const want = bits ?? (bd === 16 ? 16 : 8);
-  if (want !== 8 && want !== 16) throw new Error('gridFromImage: bits is 8 or 16');
+  if (want !== 8 && want !== 16) throw codedError('grid-data', 'gridFromImage: bits is 8 or 16');
   const [lo, hi] = range, data = new Float32Array(n);
   // asking for 8 bits from a 16-bit image keeps only the high byte (the stepped look of an 8-bit file); asking for 16 from 8 bits just stretches it
   const shift = bd === 16 && want === 8 ? 8 : 0, max = want === 16 ? 65535 : 255, src = img.samples;
@@ -93,7 +94,7 @@ async function inflate(bytes) {
  */
 export async function decodePng(input) {
   const b = input instanceof Uint8Array ? input : new Uint8Array(input), dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  if (b.length < 33 || dv.getUint32(0) !== 0x89504e47) throw new Error('decodePng: not a PNG file');
+  if (b.length < 33 || dv.getUint32(0) !== 0x89504e47) throw codedError('grid-data', 'decodePng: not a PNG file');
   let width = 0, height = 0, bitDepth = 0, colorType = 0, interlace = 0, p = 8;
   const idat = [];
   while (p + 8 <= b.length) {
@@ -103,11 +104,11 @@ export async function decodePng(input) {
     else if (type === 'IEND') break;
     p = d + len + 4;
   }
-  if (interlace) throw new Error('decodePng: interlaced PNG is not supported; save it without interlacing');
-  if (colorType === 3) throw new Error('decodePng: palette PNG is not supported; save it as grayscale or RGB');
-  if (bitDepth !== 8 && bitDepth !== 16) throw new Error(`decodePng: ${bitDepth}-bit PNG is not supported; use 8 or 16 bits per channel`);
+  if (interlace) throw codedError('grid-data', 'decodePng: interlaced PNG is not supported; save it without interlacing');
+  if (colorType === 3) throw codedError('grid-data', 'decodePng: palette PNG is not supported; save it as grayscale or RGB');
+  if (bitDepth !== 8 && bitDepth !== 16) throw codedError('grid-data', `decodePng: ${bitDepth}-bit PNG is not supported; use 8 or 16 bits per channel`);
   const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[colorType];
-  if (!channels) throw new Error(`decodePng: color type ${colorType} is not supported`);
+  if (!channels) throw codedError('grid-data', `decodePng: color type ${colorType} is not supported`);
   const all = new Uint8Array(idat.reduce((s, c) => s + c.length, 0));
   let o = 0; for (const c of idat) { all.set(c, o); o += c.length; }
   const raw = await inflate(all), bpp = channels * bitDepth / 8, stride = width * bpp, out = new Uint8Array(stride * height);

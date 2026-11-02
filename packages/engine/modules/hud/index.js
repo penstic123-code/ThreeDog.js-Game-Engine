@@ -1,10 +1,10 @@
-// Objective markers and a simple HUD: world markers (an edge-of-screen arrow when the target is off-screen), counters, progress bars.
-//   const m = engine.hud.marker(npc.root, { label: '面包师' });  m.set({ label: '面包师（关门了）' });  m.remove();
+// Objective markers and a simple HUD. World markers (an edge-of-screen arrow when the target is off-screen), counters, progress bars.
+//   const m = engine.hud.marker(npc.root, { label: '店主' });  m.set({ label: '店主（关门了）' });  m.remove();
 //   engine.hud.marker('river')                              // a place name (content places or a level marker point), { x, z }, an object or a character all work
 //   engine.hud.marker({ nearest: 'berry' })                 // the nearest not-yet-picked pickup of a kind (hides itself once all are taken)
 //   engine.hud.marker(() => targetOrNull)                   // function: resolves the target each frame, null hides it; m.setTarget(newTarget) swaps the target
 //   engine.hud.counter('fish', { icon: '🐟', label: '鱼', value: 2, max: 5 });   // calling again with the same id = update
-//   engine.hud.bar('stamina', { value: 0.6, label: '体力' });   engine.hud.remove('stamina');
+//   engine.hud.bar('stamina', { value: 0.6, label: '体力', anchor: 'bottom' });   engine.hud.remove('stamina');
 // Quests: a marker shows automatically when the current step has a target, and is removed on completion (turn off with hud({ questMarkers: false })).
 //   Quest markers follow the quests' state: they are dropped when a playthrough ends and rebuilt when the next starts (engine.session) or a save loads.
 //   Markers, counters and bars the game made itself stay; ones made during play go through engine.session.track(m) (counters / bars: hud.remove(id)).
@@ -12,11 +12,12 @@
 //   this file keeps the logic (targets, projection, arrows, quest sync, describe) so a replaced part only draws the data it gets.
 import * as THREE from 'three';
 import { injectUICSS, worldToScreen } from '../../ui/UI.js';
-import { checkOptions } from '../../core/validate.js';
+
 import { readParams, keysSchema } from '../../core/params.js';
 import { vec3 } from '../../core/math.js';
 import { surfaceOr } from '../../core/ground.js';
 import { CSS, defineHudParts } from './parts.js';
+import { codedError } from '../../core/errorHints.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Hud, HudOptions } from '../../types/gameplay' */
 
@@ -29,6 +30,8 @@ const _size = new THREE.Vector2();
 const EDGE = 28;   // how far the arrow sits from the screen edge (px)
 
 const HUD_PARAMS = keysSchema(['questMarkers']);
+/** Where a counter / bar column sits on screen (anchor option); default top-left */
+const ANCHORS = ['top-left', 'top', 'top-right', 'left', 'right', 'bottom-left', 'bottom', 'bottom-right'];
 
 /**
  * Objective markers, counters, progress bars -> engine.hud
@@ -46,15 +49,21 @@ export function hud(opts = {}) {
     if (!root) {
       injectUICSS(CSS);
       const layer = document.createElement('div'); layer.className = 'threedog-ui threedog-hud';
-      const stats = document.createElement('div'); stats.className = 'threedog-hud-stats';
-      layer.appendChild(stats); e.uiRoot.appendChild(layer);
-      root = { layer, stats };
+      e.uiRoot.appendChild(layer);
+      // one stats column per screen anchor, made when a counter / bar first asks for it
+      const cols = new Map();
+      const column = (anchor = 'top-left') => {
+        let c = cols.get(anchor);
+        if (!c) { c = document.createElement('div'); c.className = `threedog-hud-stats threedog-hud-${anchor}`; layer.appendChild(c); cols.set(anchor, c); }
+        return c;
+      };
+      root = { layer, column };
     }
     return root;
   };
 
   // { nearest: itemId } -> the nearest not-yet-picked pickup (world data, so it is found even when far away with no model)
-  const nearest = id => e.inventory?.nearestPickup(id, e.actorPosition())?.position ?? null;
+  const nearest = id => e.pickups?.nearest(id, e.actorPosition())?.position ?? null;
   // Target -> world position (written into v); null if not found
   const resolve = (target, height) => {
     if (typeof target === 'function') target = target();
@@ -100,6 +109,8 @@ export function hud(opts = {}) {
   };
 
   const item = (kind, id, o) => {
+    if (o.anchor !== undefined && !ANCHORS.includes(o.anchor)) throw codedError('hud-option', `hud.${kind}('${id}'): anchor '${o.anchor}' is not one of ${ANCHORS.join(' | ')}`, TypeError);
+    if (kind === 'counter' && o.value != null && typeof o.value !== 'number' && typeof o.value !== 'string') throw codedError('hud-option', `hud.counter('${id}'): value is a number (a count) or text (a time, a quest step); got ${typeof o.value}`, TypeError);
     let it = items.get(id);
     if (!it) { it = { kind, o: {}, part: e.ui.create('hud.' + kind) }; items.set(id, it); }
     else if (Object.keys(o).every(k => it.o[k] === o[k])) return;   // value unchanged: leave the part alone (cheap even when called every frame)
@@ -125,27 +136,31 @@ export function hud(opts = {}) {
     markers: [],
     /** Add an objective marker (target: object, character, { x, z }, place name, { nearest: itemId }, or a function returning a target); returns { set(opts), setTarget(t), remove() } */
     marker(target, o = {}) {
-      checkOptions('hud.marker()', o, MARKER_KEYS);
+      readParams('hud.marker()', keysSchema(MARKER_KEYS), o);
       const part = e.ui.create('hud.marker');
       const m = {
         target, o: { offscreen: 'arrow', distance: true, ...o }, part, el: part?.el ?? null, dist: null, onScreen: false, arrow: false, visible: false,
-        set(p) { checkOptions('hud.marker().set()', p, MARKER_KEYS); Object.assign(m.o, p); },
+        set(p) { readParams('hud.marker().set()', keysSchema(MARKER_KEYS), p); Object.assign(m.o, p); },
         setTarget(t) { m.target = t; },
         remove() { part?.dispose(); api.markers = api.markers.filter(x => x !== m); },
       };
       api.markers.push(m);
       return m;
     },
-    /** Counter (calling again with the same id = update): { label, icon, value, max } */
+    /**
+     * Counter (calling again with the same id = update): { label, icon, value, max, anchor }; value: a number (with max: '2 / 5') or text (a plain
+     * status: a clock, a quest step); no value = the label alone; anchor: 'top-left' (default) | 'top' | 'top-right' |
+     * 'left' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right', the screen corner / edge its column sits at
+     */
     counter(id, o) { item('counter', id, o); },
-    /** Progress bar (calling again with the same id = update): { value, max = 1, label } */
+    /** Progress bar (calling again with the same id = update): { value, max = 1, label, anchor } (anchor as for counter) */
     bar(id, o) { item('bar', id, o); },
     /** Remove a counter or bar */
     remove(id) { items.get(id)?.part?.dispose(); items.delete(id); },
   };
 
   return {
-    name: 'hud', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['inventory', 'content', 'level', 'quests'], stage: 'presentation', after: ['particles', 'settings'], presentation: true,
+    name: 'hud', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['inventory', 'pickups', 'content', 'level', 'quests'], stage: 'presentation', after: ['particles', 'settings'], presentation: true,
     install(engine) {
       e = engine;
       e.i18n.add(STRINGS);

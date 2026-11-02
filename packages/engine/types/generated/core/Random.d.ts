@@ -10,8 +10,8 @@ export class Random {
      * @example engine.random.setSeed(42);
      */
     setSeed(seed: number): this;
-    seed: number;
-    state: number;
+    seed: any;
+    state: any;
     /** A number from 0 (inclusive) to 1 (exclusive) @returns {number} */
     next(): number;
     /** A decimal between a and b @param {number} a @param {number} b @returns {number} */

@@ -6,6 +6,7 @@
 import { basename } from 'node:path';
 import { devServerInfo } from '../devinfo.mjs';
 import { allErrors, isError } from './errorlog.mjs';
+import { oneLine } from '../lib/oneline.mjs';
 import { rel } from '../paths.mjs';
 
 const get = async (url, init, ms = 1500) => { try { return await fetch(url, { ...init, signal: AbortSignal.timeout(ms) }); } catch { return null; } };
@@ -43,7 +44,7 @@ export async function diagnose(dir, err) {
     + 'Next: make the workspace vite.config.js use gameConfig() from @threedog/tools/vite (it installs the bridge), then restart the server.' };
   if (!/engine|start\(\)|window\.engine|did not respond|timed out|blocked/i.test(msg)) return null;
   const errs = allErrors(dir).filter(isError), last = errs.at(-1);
-  if (errs.length || /blocked/.test(msg)) return { kind: 'page-error', text: `✗ The page's script failed before the engine was ready${last ? `: ${last.message.split('\n')[0].slice(0, 140)}` : ' (startup is blocked)'}.\n`
+  if (errs.length || /blocked/.test(msg)) return { kind: 'page-error', text: `✗ The page's script failed before the engine was ready${last ? `: ${oneLine(last.message)}` : ' (startup is blocked)'}.\n`
     + `Next: threedog ${last ? 'errors latest' : 'loading'} ${last ? '(shows the cause and the doc page)' : '(shows the failed asset)'}.` };
   return { kind: 'starting', text: `✗ The dev server is up but the page has no ready engine yet and logged no error.\n`
     + 'Next: wait a few seconds and run threedog status (the first start compiles the game and generates the world). If it stays like this, main.js may never set window.engine = engine.' };

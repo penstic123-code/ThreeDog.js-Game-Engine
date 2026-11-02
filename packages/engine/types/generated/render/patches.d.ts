@@ -15,8 +15,11 @@ export type PatchCode = {
     after?: string;
     replace?: string;
 } | string;
+export type PatchSlot = "position" | "shadowPosition" | "clipPosition" | "map" | "color" | "normal" | "roughness" | "emissive" | "lightsPars" | "lightingModel" | "lighting" | "output" | "fogPars" | "fog";
 /**
- * glsl.vertex / glsl.fragment: anchor chunk name -> code; the key `pars` is declarations placed at the top of the shader.
+ * slot + glsl string: that slot's code (render/slots.js lists the slots, where each goes and what is in scope); glsl { slot: code }:
+ * several slots; pars: declarations at the top of every stage the patch touches (or { vertex, fragment }).
+ * Raw-anchor exit: glsl.vertex / glsl.fragment: three.js chunk name -> code; the key `pars` is declarations placed at the top of the shader.
  * shadow: the patch moves vertices, so the depth and point-light distance passes run its vertex code too.
  * needs.data: program inputs read, e.g. ['instancing']; needs.patches: patches it builds on, e.g. ['world'] (the vThreedogWorld varying).
  * conflicts: patch names it cannot be combined with. cacheKey: changes whenever the GLSL text changes (see the header).
@@ -33,7 +36,12 @@ export type ShaderPatch = {
         patches?: string[];
     };
     conflicts?: string[];
-    glsl?: {
+    slot?: PatchSlot;
+    pars?: string | {
+        vertex?: string;
+        fragment?: string;
+    };
+    glsl?: string | { [slot in PatchSlot]?: string; } | {
         vertex?: Record<string, PatchCode>;
         fragment?: Record<string, PatchCode>;
     };

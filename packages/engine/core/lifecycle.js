@@ -1,4 +1,6 @@
-// Engine lifecycle (part of Engine, mixed into Engine.prototype): dispose() and counts() for leak hunting.
+// Engine lifecycle: dispose() and counts() for leak hunting.
+//
+// Part of Engine (mixed into Engine.prototype).
 //
 // Who cleans up what:
 //   - DOM listeners: attach to engine.signal (an AbortController); dispose aborts them all at once. Modules and games adding their own window / document listeners do the same:
@@ -9,9 +11,23 @@
 //   - GPU memory: every geometry, material and texture in the scene, the assets cache, the post composer, then renderer.dispose().
 // Level changes do not come through here: things inside a level register with level.track(handle), and the level removes them itself on change.
 
-import { coded } from './errorHints.js';
+import { coded, codedError } from './errorHints.js';
+import { dropOwned } from './owned.js';
+import { reportError } from './errors.js';
 
-const STRINGS = { failed: '[engine] dispose hook of module {name} threw (the rest are still cleaned up)' };
+/** The per-step / per-frame callback lists (onFixed, onFrame, onRender, module hooks), empty: the constructor's starting state and what dispose leaves */
+export function clearHooks(e) {
+  e._fixed = []; e._fixedLate = []; e._frame = []; e._onRender = { before: [], after: [] }; e._hooks = { fixed: [], frame: [], afterRender: [], skip: [] };
+}
+
+const STRINGS = { failed: '[engine] dispose hook of module {name} threw (the rest are still cleaned up)',
+  released: 'createEngine(): this canvas lost its WebGL context in an earlier engine.dispose(), so a new engine cannot draw on it; use a new canvas, or dispose the old engine with dispose({ keepContext: true })',
+  opts: 'engine.dispose(opts): opts is { keepContext?: boolean }; got {v}' };
+
+// Canvases whose context dispose() released: a lost context cannot host a new renderer, so createEngine on one fails loudly instead of drawing black
+const released = new WeakSet();
+/** createEngine calls it before building its renderer on a canvas */
+export function checkCanvasUsable(canvas) { if (canvas && released.has(canvas)) throw codedError('canvas-released', STRINGS.released); }
 
 /** Dispose the geometry, materials and material textures used by an object */
 function disposeObject(o) {
@@ -26,25 +42,38 @@ export const lifecycleMethods = {
   /**
    * Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then clean up core (listeners, timers, sound, UI, GPU memory).
    * No callbacks fire afterwards and engine.disposed becomes true. Safe to call repeatedly.
+   * The engine's own renderer also gives its WebGL context back (renderer.forceContextLoss): browsers keep only about 16 live contexts, so a page that
+   * creates and disposes engines (level editor, tests, restart) would otherwise lose the oldest one. That canvas cannot host a new engine afterwards;
+   * keepContext: true keeps the context for a new engine on the same canvas. A renderer the game passed in (createEngine({ renderer })) is never released.
+   * @param {{ keepContext?: boolean }} [opts]
    */
-  dispose() {
+  dispose(opts = {}) {
+    if (opts === null || typeof opts !== 'object' || Object.keys(opts).some(k => k !== 'keepContext')) throw codedError('dispose-options', STRINGS.opts.replace('{v}', JSON.stringify(opts)));
     if (this.disposed) return;
     this.disposed = true; this.ready = false; this.paused = true;
     cancelAnimationFrame(this._raf);
+    dropOwned(this, [...(this._owned?.values() ?? [])]);   // owned.js keeps a page-wide list for allowOwned
     for (const m of [...this.modules.values()].reverse()) {
       this._modState.set(m.name, 'disposed');
       if (!m.dispose) continue;
-      try { m.dispose(this); } catch (err) { console.error(coded('module-dispose', STRINGS.failed.replace('{name}', m.name)), err); }
+      try { m.dispose(this); } catch (err) { reportError(this, err, coded('module-dispose', STRINGS.failed.replace('{name}', m.name)), { soft: true }); }
     }
     this._abort.abort();
+    this._wraps?.dispose();   // engine.wrap: every wrapped method back on its object (a game object or api may outlive the engine)
     this.debug.dispose();   // before the scene is disposed: undoes every diagnostic override and view (puts swapped materials back)
-    for (const part of [this.saves, this.audio, this.clock, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
-    this._fixed = []; this._frame = []; this._hooks = { fixed: [], frame: [], afterRender: [], skip: [] }; this._afterTick = null;
+    for (const part of [this.saves, this.audio, this.clock, this.time, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
+    this._roomEnv?.dispose(); this._roomEnv = null;
+    clearHooks(this); this._afterTick = null;
     this.scene.traverse(disposeObject);
-    for (const t of [this.scene.background, this.scene.environment]) if (t?.isTexture) t.dispose();
+    // scene.environment is never disposed here: the engine's own maps (sky PMREM targets, the baseline room map) were freed above by their
+    // owners, and anything else is the game's texture (look.env.replace(myTexture) or a direct write), which stays the game's to free
+    this.scene.environment = null;
+    if (this.scene.background?.isTexture) this.scene.background.dispose();
     this.assets.dispose();
     this.post.dispose();
+    this._gpu?.dispose();
     this.renderer.dispose();
+    if (this._ownsRenderer && !opts.keepContext) { this.renderer.forceContextLoss(); released.add(this.renderer.domElement); }
     this.ui._dispose();
     this._materials.remove();
     this._uiStyle.remove();
@@ -59,7 +88,7 @@ export const lifecycleMethods = {
   counts() {
     const mem = this.renderer.info.memory;
     const c = {
-      listeners: this.events.size, fixed: this._fixed.length, frame: this._frame.length, timers: this.clock.size,
+      listeners: this.events.size, fixed: this._fixed.length + this._fixedLate.length, frame: this._frame.length, timers: this.clock.size,
       statics: this.rays.statics.size, streamEntries: this.stream.entries.size, jobs: this.jobs.pending, commits: this.commits.pending,
       geometries: mem.geometries, textures: mem.textures,
     };

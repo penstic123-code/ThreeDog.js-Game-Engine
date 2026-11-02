@@ -3,7 +3,7 @@
 // (engine.thing says what each object keeps). What breaks is a startup call that creates something saved whole: the save restores it and the code
 // makes it again (a duplicate after every load, or a dupId error). That, and code moving a model world places every frame, are what this rule reports.
 // Detection (TypeScript AST, not regex), each fix names content or an op:
-//   error: world.add (without { save: false }), engine.spawn, inventory.spawnPickup, npcs.add, entities.spawn made at setup time:
+//   error: world.add (without { save: false }), content.spawn, pickups.spawn, npcs.add made at setup time:
 //     module top level, a callback of events.on/once('engine:ready' | 'level:loaded' | 'session:start'), an install / init method, or a same-file
 //     function called from one of those (one level of call graph). Array callbacks (forEach, map…) and IIFEs take the context around them.
 //   error: world.add(…, { initial: true }) anywhere: authored records come only from content loaders (saves diff against that baseline).
@@ -28,13 +28,16 @@ const PASS_THROUGH = new Set(['forEach', 'map', 'flatMap', 'filter', 'reduce', '
 const CONTENT_HINT = 'it is saved whole, so the save restores it and this code makes it again after every load. Put it in content '
   + '(a template in content/templates.js plus a placement { id, template, place, x, z } in content/props.js), or create it inside an op during play';
 
+// The first exit for world.add: most startup records are rebuilt by code anyway and need no save at all. Leading with it keeps a game that
+// just spawns things at startup from being pushed into content files it does not need.
+const SAVE_FALSE = "rebuilt by this code on every start and not meant to be saved? add { save: false }: engine.world.add(rec, { save: false }). Saved instead: ";
+
 // [callee regex, what it creates, extra fix]: calls that create something saved whole
 const CALLEES = [
-  [/\bworld\.add$/, 'a world record', 'authored records are props entries with an id (template = kind); a temporary record takes { save: false }'],
-  [/\b(?:content|engine|e)\.spawn$/, 'a template instance', 'at setup it is authored: write it in content/props.js'],
-  [/\bspawnPickup$/, 'a pickup', 'authored pickups go in content/pickups.js with an id'],
+  [/\bworld\.add$/, 'a world record', 'authored records are props entries with an id (template = kind)'],
+  [/\bcontent\.spawn$/, 'a template instance', 'at setup it is authored: write it in content/props.js'],
+  [/\bpickups\.spawn$/, 'a pickup', 'authored pickups go in content/pickups.js with an id'],
   [/\bnpcs\.add$/, 'an NPC', 'authored NPCs go in content/npcs.js'],
-  [/\bentities\.spawn$/, 'an entity', 'authored things are template placements in content/props.js'],
 ];
 const VIEW = /\bworld\.view$/, ADD = /^(?:engine|e|this\.engine)\.add$|\bscene\.add$/;
 const XFORM = new Set(['position', 'rotation', 'scale', 'quaternion']);
@@ -128,7 +131,7 @@ export function scan(sf) {
         line: lineOf(n), level: 'error',
         msg: initial ? `${text}(…, { initial: true }) in game code: authored records come only from content loaders (saves diff against them)`
           : `${text}() creates ${hit[1]} at setup (module top level or a startup event)`,
-        fix: initial ? 'write the record in content (content/props.js with an id); content.load adds it as authored' : `${CONTENT_HINT}; ${hit[2]}`,
+        fix: initial ? 'write the record in content (content/props.js with an id); content.load adds it as authored' : `${worldAdd ? SAVE_FALSE : ''}${CONTENT_HINT}; ${hit[2]}`,
       });
       if (ADD.test(text) && n.arguments.some(a => isView(a, names))) warn(n, `${text}() of a world.view() model: world already adds, places and tears down its models`);
       const callee = n.expression;

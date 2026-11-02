@@ -8,7 +8,7 @@ import { snapshot, rollback, markRolledBack } from './opsAtomic.js';
 import { withDefaults } from './params.js';
 
 const MAX_DEPTH = 16;
-export const RUN_STRINGS = {
+const RUN_STRINGS = {
   canRun: "{name}'s can called ops.run('{inner}'). can is read-only; call other ops from run",
   loop: 'ops call each other in a loop (deeper than ' + MAX_DEPTH + '): {chain}',
 };
@@ -31,7 +31,7 @@ export function runOp(ops, name, args, opts) {
   const parent = ops._stack.length ? ops._last : null;
   const ctx = ops._ctx(name, args, opts, parent);
   const depth = ops._stack.length, ev = e.events, where = `ops.run('${name}')`;
-  if (e._freezers.has('error')) { ops._log(name, args, ctx, false, 'halted', depth); return ops._res(failure('halted')); }
+  if (e.stacks.get('freeze').has('error')) { ops._log(name, args, ctx, false, 'halted', depth); return ops._res(failure('halted')); }
   if (DEV && args && typeof args === 'object') Object.freeze(args);
   const failed = (f, h) => {   // a failed run: log it, trace it with its code
     if (h) { h.ok = false; h.code = f.code; } else ops._log(name, args, ctx, false, f.code, depth);

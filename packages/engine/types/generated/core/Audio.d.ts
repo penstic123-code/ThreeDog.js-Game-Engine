@@ -5,12 +5,12 @@ export class Audio {
     ctx: any;
     /** Volume per bus 0-1 ('master' is the total). Every key is a bus: levels: { voice: 1 } adds a 'voice' bus @type {Record<string, number>} */
     levels: Record<string, number>;
-    /**
-     * The game's sound config from createEngine({ audio }); sounds and footsteps also hold content packs' (copies: the game's object is never changed).
-     * Content packs' ambience / music rules go to ambience() / music(), not here
-     * @type {import('../../core').AudioConfig}
-     */
-    config: import("../../core").AudioConfig;
+    config: {
+        sounds: any;
+        ambience: any;
+        music: any;
+        footsteps: any;
+    };
     /** Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks @type {Record<string, any>} */
     buses: Record<string, any>;
     /** The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules) @type {string | null} */
@@ -23,12 +23,20 @@ export class Audio {
     get running(): boolean;
     /**
      * Add a bus of your own (routed to master). It gets a settings slider like the others (label key settings.vol.<name>)
+     * until the handle is removed (the one give-back form, like every other handle). A name that is already a bus throws: two owners of one bus
+     * could not both remove it.
      * @param {string} name
-     * @param {number} [level]
-     * @returns {this}
-     * @example engine.audio.addBus('voice', 1); engine.audio.sfx('line-01', { bus: 'voice' });
+     * @param {{ level?: number, owner?: string }} [opts] level 0-1 (1)
+     * @returns {{ owner?: string, remove(): void }}
+     * @example const voice = engine.audio.addBus('voice', { level: 1 }); engine.audio.sfx('line-01', { bus: 'voice' }); voice.remove();
      */
-    addBus(name: string, level?: number): this;
+    addBus(name: string, opts?: {
+        level?: number;
+        owner?: string;
+    }): {
+        owner?: string;
+        remove(): void;
+    };
     /**
      * Set a bus volume 0-1 ('master' for the total)
      * @param {string} bus
@@ -50,23 +58,8 @@ export class Audio {
         remove(fade?: number): void;
     };
     /**
-     * Register a synthesized sound: synthFn(audio, params, out) connects its nodes to `out` and returns its length in seconds
-     * (or { stop(time) } for a loop). Plays for sounds entries that name it ('synth' or { synth: name }); a name with no sounds entry
-     * plays it too unless builtIn (engine modules pass builtIn: true so their synths stay silent until the game asks).
-     * @param {string} name
-     * @param {SynthFn} synthFn
-     * @param {{ builtIn?: boolean, bus?: string, params?: Record<string, any> }} [opts] bus: default bus ('sfx'); params: default params
-     * @returns {this}
-     * @example engine.audio.register('ding', (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; });
-    */
-    register(name: string, synthFn: SynthFn, opts?: {
-        builtIn?: boolean;
-        bus?: string;
-        params?: Record<string, any>;
-    }): this;
-    /**
      * Add a condition key for music / ambience rule lists: `when: { [name]: value }` calls test(value, engine). Modules add theirs
-     * (sky: time, weather: weather, triggers: zone); the engine has `state` (engine.audio.state).
+     * (calendar: time, weather: weather, triggers: zone); the engine has `state` (engine.audio.state).
      * @param {string} name
      * @param {(value: any, e: any) => boolean} test
      * @returns {{ remove(): void }}
@@ -77,7 +70,7 @@ export class Audio {
     };
     /**
      * Add a measure: a number rule data compares (`when: { daylight: { gt: 0.15 } }`; gt / gte / lt / lte) and adds up (`volume: { add: { wind: 0.08 } }`).
-     * sky adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both
+     * calendar adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both
      * @param {string} name
      * @param {(e: any) => number} fn
      * @returns {{ remove(): void }}
@@ -110,8 +103,9 @@ export class Audio {
      */
     volumeOf(volume: AudioVolume | undefined, ...extra: any[]): number;
     /**
-     * Play a sound by name from audio.sounds (file, variants, or a synth). Returns a SoundHandle (stop, fade, setPosition), or null when it is
-     * silent: not configured, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops.
+     * Play a sound by name: its audio.sounds rule (src / variants, volume, bus...), or with no rule the asset pack sound of that name (file or synth
+     * function from assets.manifest({ sounds })). Returns a SoundHandle (stop, fade, setPosition), or null when it is silent: not configured, a
+     * built-in synth the game did not name, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops.
      * @param {string} name
      * @param {{ volume?: number, pitch?: number, at?: any, bus?: string, loop?: boolean, params?: Record<string, any>, fadeIn?: number }} [opts]
      *   at: a position or an Object3D to follow (3D sound); params: extra synth params
@@ -194,7 +188,6 @@ export class Audio {
         at?: any;
     }): Promise<SoundHandle | null>;
 }
-import type { SynthFn } from '../../core';
 import type { AudioCondition } from '../../core';
 import type { AudioVolume } from '../../core';
 import { SoundHandle } from './audioVoice.js';

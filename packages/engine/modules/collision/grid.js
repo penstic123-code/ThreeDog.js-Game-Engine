@@ -1,5 +1,6 @@
 // Grid index of colliders: register each by bounding circle in the cells it covers; queries look at a few nearby cells instead of scanning all colliders.
 // Results are ordered circles first, then boxes, each in insertion order, exactly the callback order of a linear scan (resolve edits the position in turn, so a different order changes the result).
+// Worker-safe (no imports): the path worker (characters/pathJob.js) rebuilds the same grid from the colliders it mirrors.
 const CELL = 8, MAX_CELLS = 64, KEY = 1048576;   // colliders too large (covering > 64 cells) skip the grid and are scanned linearly, so registration cost does not blow up
 const byOrder = (a, b) => a._b - b._b || a._o - b._o;
 

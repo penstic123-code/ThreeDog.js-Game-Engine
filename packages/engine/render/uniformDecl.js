@@ -1,5 +1,6 @@
 // Declares style-supplied GLSL uniforms (sky clouds, wind): { uTint: new THREE.Color(...), uK: 0.4, uPaper: texture } -> GLSL lines + { name: { value } }.
 import * as THREE from 'three';
+import { codedError } from '../core/errorHints.js';
 
 const vec = a => a.length === 2 ? new THREE.Vector2(...a) : a.length === 3 ? new THREE.Vector3(...a) : new THREE.Vector4(...a);
 function glslType(label, name, v) {
@@ -7,7 +8,7 @@ function glslType(label, name, v) {
   if (v?.isColor) return 'vec3';
   if (v?.isVector2) return 'vec2'; if (v?.isVector3) return 'vec3'; if (v?.isVector4) return 'vec4';
   if (v?.isTexture) return 'sampler2D';
-  throw new Error(`${label}.${name} must be a number, THREE.Color, THREE.Vector2/3/4, [x, y(, z, w)] array or THREE.Texture; got ${v === null ? 'null' : typeof v}`);
+  throw codedError('material-option', `${label}.${name} must be a number, THREE.Color, THREE.Vector2/3/4, [x, y(, z, w)] array or THREE.Texture; got ${v === null ? 'null' : typeof v}`);
 }
 
 /**

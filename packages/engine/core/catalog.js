@@ -9,6 +9,7 @@
 // what existed before the first engine.use is 'core', what appeared outside any module is 'game'. An op named '<module>.verb' or a save
 // part keyed by the module name belongs to that module even when registered later (from game code calling into the module).
 import { parseSchema, schemaInfo } from './params.js';
+import { ENGINE_PARAMS } from './Engine.js';
 import { lookCatalog, lookSummaries } from './look/report.js';
 
 const TIME_HOOKS = ['fixed', 'frame', 'afterRender', 'skip', 'afterLoad'];
@@ -121,7 +122,9 @@ function moduleEntry(e, m) {
 function looseEntry(e, id) {
   const own = owned(e, id);
   return { id, kind: id, ops: own.op.map(n => opInfo(e, n, false)), saves: own.save.map(k => saveInfo(e, k)),
-    queries: { describe: null, extra: own.describe.map(n => `describe().${n}`), api: [] }, problems: [] };
+    queries: { describe: null, extra: own.describe.map(n => `describe().${n}`), api: [] }, problems: [],
+    // core 的参数就是 createEngine() 的选项：同一份 schema，用的值从 engine._createParams 读（和模块的 params 一个形状）
+    ...(id === 'core' ? { params: paramsOf({ name: 'core', params: ENGINE_PARAMS, options: e._createParams }) } : {}) };
 }
 
 function summary(x) {
@@ -150,7 +153,7 @@ function entries(e) {
  * The dev bridge `threedog catalog [id]` prints the same data and adds the doc, recipe and source files.
  * @param {string | { find?: string }} [id]
  * @returns {any}
- * @example engine.catalog();               // [{ id: 'sky', kind: 'module', state: 'running', stage: 'environment', ops: [], saves: ['sky'], time: 'fixed+skip' }, ...]
+ * @example engine.catalog();               // [{ id: 'calendar', kind: 'module', state: 'running', stage: 'environment', ops: [], saves: ['calendar'], time: 'fixed+skip' }, ...]
  * engine.catalog('shop').ops[0];           // { name: 'shop.buy', args: { n: { type: 'int', optional: true, default: 1 } }, failures: ['soldOut', 'noMoney'] }
  * engine.catalog('shop.buy').last;         // { tick: 812, ok: false, code: 'noMoney', ... }
  * engine.catalog({ find: 'throw' });       // only entries whose id, label, op or save mentions "throw"

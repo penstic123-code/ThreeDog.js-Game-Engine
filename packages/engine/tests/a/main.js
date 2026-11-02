@@ -2,7 +2,7 @@
 //   /tests/a/?state=corner   → defineState('corner') 的现场（玩家到 (30, 30)）
 import { createEngine, presets, world, collision, characters, level, THREE } from '../../index.js';
 import { toGLB, fromGLTF } from '../../core/Baked.js';
-import { ownedProps, allowOwned } from '../../core/validate.js';
+import { defineOwned, allowOwned } from '../../core/owned.js';
 import { buildTestBlock, buildHeavy } from '../fixtures/block.js';
 
 const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: false }, saveKey: 'test-a' });
@@ -19,7 +19,7 @@ for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) {
 }
 
 window.threedogTest = {
-  THREE, toGLB, fromGLTF, ownedProps, allowOwned, buildTestBlock, buildHeavy,
+  THREE, toGLB, fromGLTF, defineOwned, allowOwned, buildTestBlock, buildHeavy,
   urls: {
     meshopt: new URL('../fixtures/box-meshopt.glb', import.meta.url).href,
     draco: new URL('../fixtures/box-draco.glb', import.meta.url).href,

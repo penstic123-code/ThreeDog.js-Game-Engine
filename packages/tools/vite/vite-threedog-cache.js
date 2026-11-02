@@ -5,7 +5,7 @@
 //                                contents of the file it lives in and the project files it imports. Change the code and the hash changes, so the cache invalidates itself.
 //                                Engine files count too: names imported from the engine entry (index.js / threedog), such as mergeColored, are traced to the file that defines them (with the engine files it imports),
 //                                without hashing the whole engine (otherwise changing any engine code would invalidate every cache). node_modules does not count.
-//                                External variables a generator uses (closures) are not in its source: the caller must put them in params (see assets.cached)
+//                                External variables a generator uses (closures) are not in its source: the caller must put them in params (see Assets.cached, internal)
 //   GET/PUT /__threedog/cache/<key>.glb   read/write this workspace's .threedog/cache/<key>.glb (only beyond 200 files are the oldest deleted)
 //   GET /__threedog/bake-lists        for the bake page of npm run bake: { baked: URL of the module holding toGLB, lists: [{ url, from }] }
 //   GET /models/baked/index.json     returns {} when nothing has been baked yet (not a 404)

@@ -10,25 +10,22 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
-        const W = engine.world, I = engine.inventory, p = engine.player.position;
+        const W = engine.world, I = engine.inventory, p = engine.player.position, S = (item, at, o) => engine.pickups.spawn(at, { give: item, ...o });
         const pk = W.query({ kind: 'pickup' }).map(x => x.id), pr = W.query({ kind: 'prop' }).map(x => x.id);
         // two pickups of the same item at the same spot: each has its own id, taking one leaves the other
-        const a = I.spawnPickup('berry', [p.x + 3, 0, p.z], { id: 's1-a' }), b = I.spawnPickup('berry', [p.x + 3, 0, p.z], { id: 's1-b' });
-        const auto = I.spawnPickup('berry', [p.x + 3, 0, p.z]);
-        const again = I.spawnPickup('berry', [p.x + 3, 0, p.z], { id: 's1-a' });   // same id is reused, not added
+        const a = S('berry', [p.x + 3, 0, p.z], { id: 's1-a' }), b = S('berry', [p.x + 3, 0, p.z], { id: 's1-b' });
+        const auto = S('berry', [p.x + 3, 0, p.z]);
+        const again = S('berry', [p.x + 3, 0, p.z], { id: 's1-a' });   // same id is reused, not added
         a.remove();
-        const sameSpot = { bStays: !!W.get('s1-b'), aGone: !W.get('s1-a'), auto: auto.worldId, again: again.worldId };
-        let clash = null; try { I.spawnPickup('feather', [0, 0, 0], { id: 's1-b' }); } catch (e) { clash = e.message; }
+        const sameSpot = { bStays: !!W.get('s1-b'), aGone: !W.get('s1-a'), auto: auto.id, again: again.id };
+        let clash = null; try { S('feather', [0, 0, 0], { id: 's1-b' }); } catch (e) { clash = e.message; }
         // load the same content again: data is not duplicated
         const data = { props: [{ id: 's1-rock', model: 'rock', x: p.x + 6, z: p.z }, { model: 'rock', x: p.x + 7, z: p.z }], pickups: [{ item: 'berry', x: p.x + 6, z: p.z + 2 }] };
         const n0 = W.records.size;
         engine.content.load(data); const n1 = W.records.size;
         engine.content.load(data); const n2 = W.records.size;
         let clash2 = null; try { engine.content.load({ props: [{ id: 's1-rock', model: 'pine', x: 0, z: 0 }] }); } catch (e) { clash2 = e.message; }
-        const w0 = engine.world; engine.world = undefined;
-        let noWorld = null; try { I.spawnPickup('berry', [0, 0, 0]); } catch (e) { noWorld = e.message; }
-        engine.world = w0;
-        return { pk, pr, sameSpot, clash, n: [n0, n1, n2], clash2, noWorld, ids: [...W.records.keys()].length === new Set(W.records.keys()).size };
+        return { pk, pr, sameSpot, clash, n: [n0, n1, n2], clash2, ids: [...W.records.keys()].length === new Set(W.records.keys()).size };
       });
       check('content pickup id = pickup:<item>:<index>', r.pk.includes('pickup:feather:0') && r.pk.includes('pickup:berry:1') && r.pk.length === 8, JSON.stringify(r.pk));
       check('content prop id = prop:<model name>:<index> (models with params use the name)', r.pr.includes('prop:rock:3') && r.pr.includes('prop:flower:5') && r.pr.length === 7, JSON.stringify(r.pr));
@@ -36,7 +33,6 @@ export const specs = [
       check('id used by another item: throws and says to use a different id', /s1-b/.test(r.clash ?? '') && /different id/.test(r.clash), r.clash);
       check('same content loaded twice: data grows only once (3 records), ids do not collide', r.n[1] - r.n[0] === 3 && r.n[2] === r.n[1] && r.ids, JSON.stringify(r.n));
       check('prop id used by another model: throws and says to write a different id', /s1-rock/.test(r.clash2 ?? '') && /different id/.test(r.clash2), r.clash2);
-      check('world not installed: spawnPickup throws and says to use(world()) first', /world\(\)/.test(r.noWorld ?? ''), r.noWorld);
     },
   },
   {
@@ -51,13 +47,13 @@ export const specs = [
         engine.step(0.3);
         const before = { rock: !!W.view('prop:rock:3'), rockSolid: solid('prop:rock:3'), pine: !!W.view('prop:pine:0') };
         // pick one up (place one next to the player, go through interaction)
-        const mine = I.spawnPickup('berry', [home.x + 1, 0, home.z], { id: 's1-mine' }), n0 = I.count('berry');
+        const mine = engine.pickups.spawn([home.x + 1, 0, home.z], { give: 'berry', id: 's1-mine' }), n0 = I.count('berry');
         engine.step(0.3);
         const built = !!mine.object;
         engine.ops.run('interaction.use'); engine.step(0.2);
         const taken = { bag: I.count('berry') - n0, gone: !W.get('s1-mine'), noView: !mine.object };
         // with respawn: picking it up becomes a waiting record, it returns when time is up
-        const resp = I.spawnPickup('berry', [home.x - 1, 0, home.z], { id: 's1-resp', respawnSeconds: 30 });
+        const resp = engine.pickups.spawn([home.x - 1, 0, home.z], { give: 'berry', id: 's1-resp', respawnSeconds: 30 });
         engine.step(0.3); engine.ops.run('interaction.use'); engine.step(0.2);
         const waiting = W.get('s1-resp')?.until != null && !resp.object;   // same record gets until written, show says no model
         P.placeAt({ x: home.x + 600, z: home.z }); engine.step(3);

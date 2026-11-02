@@ -5,8 +5,11 @@
 //   id: 'fisher', name: '老渔夫', colors: { body: 0x4f6d8f },
 //   schedule: [ { at: '06:00', position: [10, 0, 20] },   // 早上 6 点去河边（at 也可写 0–1 时刻）
 //               { at: '13:00', position: [40, 0, -5] } ], // 中午回家
-//   talk: '老渔夫',                                      // 对话脚本名，靠近按 E 触发
+//   interact: { op: 'npc.talk' },                        // the interact key nearby runs this op (npc.talk = dialogue, script defaults to the NPC id)
 // });
+//   interact: { label: 'Trade', op: 'shop.open', args: { shelf: 'fish' } }   // any op: open a shop, hand in, recruit; the op gets { npc: id, ...args }
+// Why interact is an op and not a dialogue id: talking is one of many things an NPC offers (trade, recruit, heal, start a match); an op keeps the
+// record plain (saved), runs the same from the key, the dev bridge and tests, and refuses with a reason through its can.
 //
 // Facts and presentation are separate: an NPC's fact is a record in engine.world (kind 'npc', stable id: the given id, else the name),
 // the model (Character: mesh + mover + animation) is just a presentation built when near: torn down when far, rebuilt when near;
@@ -20,25 +23,29 @@
 //
 // One NPC record (all plain values, inspectable via engine.world.get(id)):
 // name, behavior (behavior name), mind (behavior params and memory, plain values the behavior reads/writes), schedule [{ at: 0-1, x, z }],
-// talk (dialogue id), talkLabel (when text), talkRadius, pathStep, repath, arriveDistance, speed,
-// look (look and feel params: colors, runSpeed...), zone (which level it belongs to; null = everywhere),
+// interact ({ label (when text), op, args, radius } or null), pathStep, repath, arriveDistance, speed,
+// look (look and feel params: colors, runSpeed, channel...), zone (which level it belongs to; null = everywhere),
+// npcs.add({ channel: 'enemies' }): its time channel (default 'world'); near and far both follow it, so bullet time slows it anywhere.
 // state (animation state), busy (in dialogue), nav { stop (current stop index), path (remaining waypoints), repath (re-path countdown) },
 // motion (motion state from Character.saveMotion)
-// model given as an asset name ('villager') is plain and goes into look (saved); a model object, animation, clips and function-form talkLabel
+// model given as an asset name ('villager') is plain and goes into look (saved); a model object, animation, clips and a function-form interact label
 // are not plain values and stay in memory only (by id); game code supplies them again via add after loading.
 import * as THREE from 'three';
 import { CHARACTER_KEYS } from './Character.js';
-import { buildNpcView, unbuildNpcView } from './npcView.js';
-import { checkOptions, warnOnce, fmt, DEV } from '../../core/validate.js';
+import { buildNpcView, unbuildNpcView, defineTalk } from './npcView.js';
+import { warnOnce, fmt, DEV } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { NpcAvoid } from './npcAvoid.js';
 import { parseClock } from '../../core/dayTime.js';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
-import { stopIndex, timeOfDay } from './npcSim.js';
+import { stopIndex, timeOfDay, npcChannel } from './npcSim.js';
 import { Behaviors } from './behaviors.js';
+import { codedError } from '../../core/errorHints.js';
 
 const STRINGS = {
-  noTalk: 'NPC "{name}" has talk set, but the interactions() and dialogue() modules are not installed: this NPC cannot be talked to',
+  noInteract: 'NPC "{name}" has interact set, but the interactions() module is not installed: nothing can use it',
+  badInteract: 'npcs.add(): interact is { op: \'npc.talk\' } or { label, op, args, radius } (op: the op name the interact key runs); got {got}',
   noWorld: 'NPCs need the world() module (facts live in engine.world): engine.use(world(), …, characters()); openWorld() already installs it. '
     + 'If you do not want NPCs, use characters({ npcs: false })',
   notNpc: 'npcs.add(): id "{id}" is already used by a "{kind}" in world; give this NPC a different id',
@@ -48,7 +55,7 @@ const STRINGS = {
 const KIND = 'npc';
 // Params that cannot go into saves: kept in memory only, used when building the model
 const RUNTIME_KEYS = ['model', 'animation', 'clips'];
-const NPC_KEYS = [...CHARACTER_KEYS, 'id', 'initial', 'zone', 'name', 'schedule', 'talk', 'talkLabel', 'talkRadius', 'pathStep', 'repath', 'arriveDistance',
+const NPC_KEYS = [...CHARACTER_KEYS, 'id', 'initial', 'zone', 'name', 'schedule', 'interact', 'pathStep', 'repath', 'arriveDistance',
   'position', 'behavior', 'mind'];
 
 /** NPC handle: finds the data and current model by id. Stays usable after the model is torn down or the data is replaced by loading (does not cache the data object) */
@@ -63,7 +70,8 @@ export class NPC {
   get data() { return this._m.world.get(this.id); }
   get name() { return this.data?.name; }
   get schedule() { return this.data?.schedule ?? []; }
-  get talk() { return this.data?.talk ?? null; }
+  /** What the interact key does near it: { label, op, args, radius }, null when nothing */
+  get interact() { return this.data?.interact ?? null; }
   /** Current behavior name */
   get behavior() { return this.data?.behavior; }
   /**
@@ -114,15 +122,15 @@ export class NPCManager {
   constructor(engine) {
     this.engine = engine;
     /** @internal */ this._handles = new Map();   // id -> NPC handle (just a cache, can be rebuilt any time)
-    /** @internal */ this._runtime = new Map();   // id -> non-saveable params (model, animation, clips, function talkLabel)
-    /** @internal */ this._views = new WeakMap(); // model root -> { ch, talk }
+    /** @internal */ this._runtime = new Map();   // id -> non-saveable params (model, animation, clips, function interact label)
+    /** @internal */ this._views = new WeakMap(); // model root -> { ch, use }
     /** @internal */ this._ready = false;
     /** Near NPCs avoid each other (on by default): avoid.set(false) turns it off, see npcAvoid.js */
     this.avoid = new NpcAvoid(engine);
     /** @internal */ this._b = new Behaviors();   // behavior name -> { near, far } (code, not saved)
     /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (to detect same names in dev)
   }
-  get world() { const W = this.engine.world; if (!W) throw new Error(STRINGS.noWorld); return W; }
+  get world() { const W = this.engine.world; if (!W) throw codedError('world-missing', STRINGS.noWorld); return W; }
 
   /** Register the NPC model and simulation with world (called in characters init; add calls it first if npcs.add comes earlier)@internal */
   setup() {
@@ -136,9 +144,19 @@ export class NPCManager {
       dispose: (rec, obj) => unbuildNpcView(this, rec, obj),
     });
     this._b.addBuiltin(e, W);
+    defineTalk(e, this);
     W.simulate(KIND, {
+      // near and far both run on the NPC's time channel (character.channel, else npcs.add({ channel })): world.simulate scales both dt by it
+      // (far dt, accumulated over farEvery steps, at the channel's speed now; exact in engine.skip, whose segments end where a speed changes)
+      channel: rec => this.character(rec.id)?.channel ?? npcChannel(rec),
+      // tiers: NPCs within half the world radius walk every step; the rest of the near zone (still on screen, models up to 1.25x the radius) takes a turn every
+      // 4 steps with 4 steps of dt. A crowd of hundreds otherwise paid pathing, mover, ground and avoidance for each NPC every step
+      fullRadius: () => W.radius * 0.5,
+      nearEvery: 4 / 60,
       near: (rec, dt) => {
-        if (rec.busy && !e.dialogue?.active) rec.busy = false;   // self-heal: after loading, dialogue is gone, so do not stand still forever
+        // self-heal: after loading, dialogue and bubbles are gone (session end drops both without onEnd), so do not stand still forever.
+        // A bubble talk (npc.talk channel 'bubble') runs with no main dialogue, so bubbles still showing keep it busy too
+        if (rec.busy && !e.dialogue?.active && !e.dialogue?.bubbles?.().length) rec.busy = false;
         this.avoid.stamp(rec);
         this._b.of(rec)?.near?.(rec, dt, this._handle(rec.id));
       },
@@ -165,7 +183,7 @@ export class NPCManager {
    * @param {string} name @param {{ near?: (rec: any, dt: number, npc: NPC) => void, far?: (rec: any, dt: number) => void }} impl
    */
   behavior(name, impl) {
-    checkOptions(`npcs.behavior('${name}')`, impl, ['near', 'far']);
+    readParams(`npcs.behavior('${name}')`, keysSchema(['near', 'far']), impl);
     this._b.set(name, impl);
     return this;
   }
@@ -177,31 +195,34 @@ export class NPCManager {
    * initial: true = NPC authored in content (everything content adds): saves record only changes, removed ones do not reappear after loading.
    */
   add(opts) {
-    checkOptions('npcs.add()', opts, NPC_KEYS);
-    for (const s of opts.schedule || []) checkOptions('npcs.add() schedule', s, ['at', 'position']);
+    readParams('npcs.add()', keysSchema(NPC_KEYS), opts);
+    for (const s of opts.schedule || []) readParams('npcs.add() schedule', keysSchema(['at', 'position']), s);
     this.setup();
     const e = this.engine, W = this.world;
-    const { id: given, name = 'NPC', schedule = [], talk = null, talkLabel, talkRadius = 3.2, pathStep = 2, repath = 2, arriveDistance = 1.2,
+    const { id: given, name = 'NPC', schedule = [], interact: io = null, pathStep = 2, repath = 2, arriveDistance = 1.2,
       position, zone = null, speed = 2.6, initial = false, behavior = 'schedule', mind = {}, ...rest } = opts;
+    if (io !== null && !(io && typeof io === 'object' && typeof io.op === 'string')) throw codedError('npc-option', fmt(STRINGS.badInteract, { got: JSON.stringify(io) }), TypeError);
+    if (io) readParams('npcs.add() interact', keysSchema(['label', 'op', 'args', 'radius']), io);
     const id = given ?? name, look = {}, runtime = {};
-    if (DEV && given == null) { if (this._byName.has(id)) throw new Error(fmt(STRINGS.sameName, { name })); this._byName.add(id); }
+    if (DEV && given == null) { if (this._byName.has(id)) throw codedError('world-id', fmt(STRINGS.sameName, { name })); this._byName.add(id); }
     // an asset name is data (saved); a model object, animation and clips stay in memory
     for (const [k, v] of Object.entries(rest)) (RUNTIME_KEYS.includes(k) && !(k === 'model' && typeof v === 'string') ? runtime : look)[k] = v;
-    if (typeof talkLabel === 'function') runtime.talkLabel = talkLabel;
+    if (typeof io?.label === 'function') runtime.interactLabel = io.label;
     this._b.check(behavior);
     this._runtime.set(id, runtime);
-    const hpd = e.sky?.hoursPerDay ?? 24;
+    const hpd = e.calendar?.hoursPerDay ?? 24;
     // at may be 'HH:MM' or 0-1
     const sched = schedule.map(s => { const [x, z] = xzOf(s.position); return { at: parseClock(s.at, hpd), x, z }; }).sort((a, b) => a.at - b.at);
-    if (talk && !(e.interactions && e.dialogue)) warnOnce(fmt(STRINGS.noTalk, { name }));
-    const def = { name, behavior, mind, schedule: sched, talk, talkLabel: typeof talkLabel === 'string' ? talkLabel : null,
-      talkRadius, pathStep, repath, arriveDistance, speed, look, zone };
+    if (io && !e.interactions) warnOnce(fmt(STRINGS.noInteract, { name }));
+    // the record keeps plain values only: a function label stays in runtime (above), the record gets null and the view reads runtime first
+    const interact = io && { label: typeof io.label === 'string' ? io.label : null, op: io.op, args: io.args ?? {}, radius: io.radius ?? 3.2 };
+    const def = { name, behavior, mind, schedule: sched, interact, pathStep, repath, arriveDistance, speed, look, zone };
     const old = W.get(id);
     if (old) {
-      if (old.kind !== KIND) throw new Error(fmt(STRINGS.notNpc, { id, kind: old.kind }));
+      if (old.kind !== KIND) throw codedError('world-id', fmt(STRINGS.notNpc, { id, kind: old.kind }));
       // re-add overrides only fields passed explicitly (unpassed zone, schedule etc. keep their values)
       const patch = {};
-      const keys = ['name', 'talk', 'talkRadius', 'pathStep', 'repath', 'arriveDistance', 'speed', 'zone', 'schedule', 'talkLabel'];
+      const keys = ['name', 'interact', 'pathStep', 'repath', 'arriveDistance', 'speed', 'zone', 'schedule'];
       for (const k of keys) if (opts[k] !== undefined) patch[k] = k === 'schedule' ? sched : def[k];
       if (opts.behavior !== undefined) { patch.behavior = behavior; patch.mind = mind; } else if (opts.mind !== undefined) patch.mind = mind;
       if (Object.keys(look).length) patch.look = { ...old.look, ...look };

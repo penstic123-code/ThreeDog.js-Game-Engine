@@ -14,9 +14,9 @@ export const specs = [
       const optLow = shadowFor('low', undefined, { cascades: 3 }), high = shadowFor('high', { cascades: 3 });
       check('低档默认 1 个级联（单阴影），low 覆盖可开；sky({ shadow }) 在低档也按 low.cascades；高档照写',
         low.cascades === 1 && lowOver.cascades === 2 && optLow.cascades === 1 && high.cascades === 3, JSON.stringify({ low, lowOver, optLow, high }));
-      const r = await ev(() => {
+      const r = await ev(async () => {
         const { THREE, applyEffects, patchMaterial, materialPatches } = threedogTest;
-        const sky = engine.sky, sun = sky.sun, L = THREE.ShaderLib, out = {};
+        const sky = engine.sky, sun = engine.lights.sun, L = THREE.ShaderLib, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const compile = (m, lib) => { const s = { uniforms: {}, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader }; m.onBeforeCompile(s, engine.renderer); return s; };
         engine.pause();
@@ -41,6 +41,25 @@ export const specs = [
         const late = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()); engine.scene.add(late);
         engine.step(1 / 30, { describe: false });
         out.late = materialPatches(late.material).join();
+        // no full walk after turning on: quiet frames visit nothing; a nested add and a material swap are picked up next frame
+        const w0 = sky.csm.view.walks; engine.step(1 / 30, { describe: false }); engine.step(1 / 30, { describe: false });
+        const quiet = sky.csm.view.walks - w0;
+        const holder = new THREE.Group(); engine.scene.add(holder); engine.step(1 / 30, { describe: false });
+        const nested = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshPhongMaterial()); holder.add(nested);
+        engine.step(1 / 30, { describe: false });
+        const swapped = new THREE.MeshToonMaterial(); late.material = swapped; engine.step(1 / 30, { describe: false });
+        out.walk = { quiet, nested: materialPatches(nested.material).join(), swapped: materialPatches(swapped).join(), total: sky.csm.view.walks - w0 };
+        engine.scene.remove(holder);
+        // 决定 4 方案 A：游戏自己 new 的内置受光材质也打（不打就 N 倍亮），describe().owned 点名；游戏的 ShaderMaterial 不悄悄打，警告给 include 原文
+        const lib = THREE.ShaderLib.lambert, sm = new THREE.ShaderMaterial({ name: 'myLit', lights: true, uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader });
+        const own = new THREE.Mesh(new THREE.BoxGeometry(), sm); engine.scene.add(own);
+        const w = await __t.warns(() => engine.step(1 / 30, { describe: false }));
+        out.shaderMat = { before: materialPatches(sm).join(), warned: w.warns.some(x => x.includes('engine.look.shadow.include(mat)') && x.includes('myLit')) };
+        engine.look.shadow.include(sm); engine.step(1 / 30, { describe: false });
+        out.shaderMat.after = materialPatches(sm).join();
+        out.ownedRow = engine.describe().owned?.['shadow.csm']?.materials ?? [];
+        out.engineMadeNotListed = !out.ownedRow.includes(m.name || 'none');
+        engine.scene.remove(own);
         out.bad = { count: err(() => engine.look.shadow.set({ cascades: 5 })), split: err(() => engine.look.shadow.set({ cascades: 2, split: 'logarithmc' })), kept: sky.shadow.cascades };
         out.clash = err(() => patchMaterial(new THREE.MeshLambertMaterial(), [{ name: 'a', glsl: { fragment: { lights_fragment_begin: { replace: '// a' } } } },
           { name: 'b', glsl: { fragment: { lights_fragment_begin: { replace: '// b' } } } }]));
@@ -49,16 +68,21 @@ export const specs = [
         engine.step(1 / 30, { describe: false });
         out.off = { names: materialPatches(m).join(), late: materialPatches(late.material).join(), csm: sky.csm, gone: extra.every(l => !l.parent), right: sun.shadow.camera.right === right0,
           chunks: THREE.ShaderChunk.lights_fragment_begin === chunks[0] };
-        engine.scene.remove(tree, basic, late); engine.resume();
+        engine.scene.remove(tree, basic, late); engine._resume();
         return out;
       });
       check('开启后材质补丁 = 原补丁链 + csm（风吹/季节/云影一个不少），MeshBasic 不受影响', r.on.names === r.on.before + ',csm' && r.on.before.includes('wind') && r.on.basic === '', JSON.stringify(r.on));
       check('影子深度材质仍是风吹补丁（风吹阴影照样摆动），编译后的顶点 / 片元都带风吹、季节、云影和级联代码，lights_fragment_begin 只被换一次',
         r.on.depth === 'wind' && Object.values(r.glsl).every(Boolean), JSON.stringify({ depth: r.on.depth, ...r.glsl }));
-      check('3 盏灯：sky.sun 是第 0 级，其余加在场景里，全部投影', r.on.lights === 3 && r.on.sunFirst && r.on.inScene && r.on.cast, JSON.stringify(r.on));
+      check('3 盏灯：engine.lights.sun 是第 0 级，其余加在场景里，全部投影', r.on.lights === 3 && r.on.sunFirst && r.on.inScene && r.on.cast, JSON.stringify(r.on));
       check('ShaderChunk.lights_fragment_begin / lights_pars_begin 全程未被替换（不影响别的材质和同页别的引擎）', r.chunksKept && r.off.chunks);
       check('budget 的阴影估算按级联数加倍', r.calls.three > r.calls.one, JSON.stringify(r.calls));
       check('之后加进场景的受光材质下一帧自动接上 csm', r.late === 'csm', r.late);
+      check('开启后不再整场景遍历（core/sceneDelta.js 只看新加的子树）：嵌套加进组里的网格、换掉的 mesh.material 下一帧接上 csm',
+        r.walk.quiet === 0 && r.walk.nested === 'csm' && r.walk.swapped === 'csm' && r.walk.total === 0, JSON.stringify(r.walk));
+      check('方案 A：游戏的 ShaderMaterial（lights: true）不被悄悄打，警告一次给 engine.look.shadow.include(mat)，include 后才打',
+        r.shaderMat.before === '' && r.shaderMat.warned && r.shaderMat.after === 'csm', JSON.stringify(r.shaderMat));
+      check('方案 A：被打补丁的游戏内置材质出现在 describe().owned["shadow.csm"]', r.ownedRow.includes('MeshStandardMaterial') && r.ownedRow.includes('MeshLambertMaterial'), JSON.stringify(r.ownedRow));
       check('写错报错且不生效：级联数 5、split 拼错；同一个块被两个补丁替换报错',
         r.bad.count.includes('1 (one shadow map') && r.bad.split.includes("'practical'") && r.bad.kept === 3 && r.clash.includes('both replace one chunk'), JSON.stringify({ ...r.bad, clash: r.clash }));
       check('运行时关掉：csm 补丁全部摘掉、多出的灯移出场景、sun 阴影框还原', r.off.names === r.on.before && r.off.late === '' && r.off.csm === null && r.off.gone && r.off.right, JSON.stringify(r.off));
@@ -70,10 +94,10 @@ export const specs = [
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.engine?.stateApplied && engine.world.ready, null, READY);
       const r = await ev(() => {
-        const T = engine.THREE, sky = engine.sky, sun = sky.sun, cam = engine.camera, R = engine.renderer, gl = R.getContext();
+        const T = engine.THREE, sky = engine.sky, sun = engine.lights.sun, cam = engine.camera, R = engine.renderer, gl = R.getContext();
         engine.pause();
         engine.ops.run('styletest.view', { name: 'path' });
-        sky.timeOfDay = 0.4;   // the sun off to one side, so pole shadows run diagonally across the floor
+        engine.calendar.timeOfDay = 0.4;   // the sun off to one side, so pole shadows run diagonally across the floor
         // only the test rig is drawn (exhibits would cast onto the floor or stand between the camera and far poles)
         const kept = []; engine.scene.traverse(o => { if ((o.isMesh || o.isPoints || o.isLine) && o.visible) { kept.push(o); o.visible = false; } });
         engine.step(1 / 30, { describe: false });
@@ -143,7 +167,7 @@ export const specs = [
         out.seam.centers = [a, b].map(l => l.map(x => +(x.center * 100).toFixed(1)));
         engine.look.shadow.set({ cascades: 1, maxFar: 120 });
         engine.scene.remove(rig); for (const o of kept) o.visible = true;
-        engine.ops.run('styletest.view', { name: 'overview' }); engine.resume();
+        engine.ops.run('styletest.view', { name: 'overview' }); engine._resume();
         return out;
       });
       const txt = JSON.stringify(r);

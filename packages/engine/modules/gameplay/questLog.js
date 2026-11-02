@@ -29,7 +29,7 @@ function questLogPart(engine) {
     w.innerHTML = `<div class="threedog-win-head"><span>${esc(v.title)}</span><span><span class="threedog-win-hint">${esc(v.key)}</span> <button class="threedog-btn threedog-close" type="button">${esc(engine.t('common.close'))}</button></span></div>${tpl ? tpl(v, tools) : body(v)}`;
     w.querySelector('.threedog-close').onclick = () => v.close();
   };
-  return { show: draw, update: draw, hide() { if (w) w.hidden = true; }, dispose() { w?.remove(); w = null; } };
+  return { show: draw, update: draw, hide() { if (w) w.hidden = true; }, get el() { return w; }, dispose() { w?.remove(); w = null; } };   // el: the UI choice cursor's root
 }
 
 /**

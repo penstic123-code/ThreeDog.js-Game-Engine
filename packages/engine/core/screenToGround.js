@@ -1,4 +1,4 @@
-// Screen point -> ground point: what clicking the ground means for click-to-move, the rts camera and grid placement. In core because several modules use it.
+// Screen point -> ground point. What clicking the ground means for click-to-move, the rts camera and grid placement. In core because several modules use it.
 import * as THREE from 'three';
 
 const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2();

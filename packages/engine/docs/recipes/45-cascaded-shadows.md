@@ -5,7 +5,7 @@ along the view into 2-4 maps (three's CSM addon): sharp near the camera, coarse 
 world is bigger than one map covers well.
 
 ```js
-engine.use(sky({ shadow: { cascades: 3 } }));             // or the style pack: style.sky.shadow.cascades
+engine.use(sky({ shadow: { cascades: 3 } }));             // or the style: style.sky.shadow.cascades
 engine.look.shadow.set({ cascades: 3, maxFar: 150 });       // at run time; { cascades: 1 } switches back
 ```
 
@@ -21,12 +21,16 @@ engine.look.shadow.set({ cascades: 3, maxFar: 150 });       // at run time; { ca
 follow the camera frustum and snap to whole shadow pixels themselves, so edges do not shimmer while the camera moves.
 
 ## How it works (what you can rely on)
-- `engine.sky.sun` stays the light the sky drives (color, intensity, direction, `sky({ sun: 'manual' })`) and is cascade 0; the other
+- `engine.lights.sun` stays the light the sky drives (color, intensity, direction; `look.lights.manual('sun.intensity')` takes it) and is cascade 0; the other
   cascades are extra DirectionalLights that copy its color and intensity every frame. `engine.sky.csm` is three's CSM object (lights,
   breaks, updateFrustums()), null when off.
-- Lit materials (Lambert, Phong, Standard, Physical, Toon, ShaderMaterial with `lights: true` and `#include <lights_fragment_begin>`) get a
-  named patch `csm`, added after the material's other patches; wind, cloud shadows, season, detail and lighting patches stay, and wind
-  shadows still sway. Materials added later are picked up the next frame (the scene is walked once per frame while cascades are on).
+- Built-in lit materials (Lambert, Phong, Standard, Physical, Toon), **your own `new` ones too**, get a named patch `csm`, added after the
+  material's other patches; wind, cloud shadows, season, detail and lighting patches stay, and wind shadows still sway. This is the one place
+  the engine changes a material it did not make: unpatched, a lit material is lit once by every cascade light (N times as bright, doubled
+  shadows). `engine.describe().owned['shadow.csm'].materials` lists your materials that got it. Materials added later are picked up the next
+  frame (the scene is walked once per frame while cascades are on).
+- Your own `ShaderMaterial` with `lights: true` is never patched unasked: one warning names it, and `engine.look.shadow.include(mat)` opts it
+  in (it needs `#include <lights_fragment_begin>`, i.e. a shader built from `THREE.ShaderLib`).
   Never call `CSM.setupMaterial` yourself: it overwrites `onBeforeCompile` and drops every patch. A game patch must not replace
   `lights_fragment_begin` (it would clash with `csm`, reported when added).
 - three's `ShaderChunk` is never changed (the addon's constructor does that globally; the engine swaps the chunk per material instead).

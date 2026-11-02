@@ -1,5 +1,9 @@
 # World data: things that must be saved, grow, and keep changing while far away
 
+**In this recipe**: 1. Three steps · 2. How to change data · 3. Example: a crop grows with game time, press E to… · 4. Data written in content ·
+5. Example: something that wanders · 6. Near, far, camera, player · 7. Time and ordering rules · 8. Querying nearby things ·
+9. zone and data limits · 10. Stream sources
+
 Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need
 `interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory({ ...presets.keys.inventory })`. The API list is in
 `../api/world.md`; this page explains how to use it and what the rules are.
@@ -149,12 +153,15 @@ function wander(rec, dt) {
 - Radius: present / simulate each take their own `radius` (meters or a function); without it they follow `world.radius` (default 60).
 
 ## 7. Time and ordering rules (nothing lost, nothing doubled, loading a save is bit-identical)
-- The dt of both near and far is accumulated fixed-step seconds (not multiplied by `clock.timeScale`). For one record, whether near, far, or
+- The dt of both near and far is accumulated fixed-step seconds (real seconds: not multiplied by `clock.rate`; with `simulate(kind, { channel: 'enemies' })` both are multiplied by that time channel's speed). For one record, whether near, far, or
   alternating, the dts add up to the elapsed time: on the step going from far to near, `far` first catches up the owed time, then `near` runs.
 - **Kinds that only define far** (crops) are not split into near and far; even when you stand next to them they advance at the far pace. **Kinds that
   only define near** are not simulated far away, and the owed time is not caught up.
 - Near: at the start of each step, the records inside the radius are gathered and simulated one by one **sorted by id** (independent of insertion
   order and loading; when near records affect each other, running continuously and saving then loading give bit-identical results).
+- **Near tiers** for crowds: `simulate(kind, { near, fullRadius: 25, nearEvery: 4 / 60 })` runs records within `fullRadius` every step and the rest of
+  the near zone once every `nearEvery` seconds, handing it the seconds since its last turn. Turns go by hashed id and step count (saved), so loading a
+  save between turns gives the same result. NPCs use it (full rate within half of `world.radius`); leave it off for enemies whose every step matters.
 - Far: records are bucketed by id and taken in turns (one round every `farEvery` seconds), at most `world.farMaxPerTick` records per fixed step
   (default 500); the rest queue for the next step, and dt keeps accumulating without loss. It counts records, not milliseconds, so the result does not
   depend on how fast the machine is.

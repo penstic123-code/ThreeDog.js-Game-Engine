@@ -8,7 +8,7 @@ const reload = async page => { await page.reload(); await page.waitForFunction((
 const setup = (ids = ['ss-a', 'ss-b', 'ss-c']) => {
   const p = engine.player.position, x = Math.round(p.x), z = Math.round(p.z);
   if (!engine.ops.defs.has('ssbox.open')) engine.ops.define('ssbox.open', { args: { id: 'id' }, run: (e, { id }) => e.world.set(id, { opened: true }) });
-  if (!engine.ops.defs.has('ssbox.make')) engine.ops.define('ssbox.make', { args: { x: 'number', z: 'number' }, run: (e, a) => e.spawn('ssbox', a).id });
+  if (!engine.ops.defs.has('ssbox.make')) engine.ops.define('ssbox.make', { args: { x: 'number', z: 'number' }, run: (e, a) => e.content.spawn('ssbox', a).id });
   engine.content.load({
     templates: { ssbox: { model: 'rock', state: { opened: false }, interact: { label: 'Open', op: 'ssbox.open' } } },
     props: ids.map((id, i) => ({ template: 'ssbox', id, x: x + 3 + i * 2, z: z + 3 })),
@@ -77,7 +77,7 @@ export const specs = [
       check('right after start no runtime record but the player and nothing removed (changes are only simulation: the NPC walking)', mid.before.records.join() === 'player' && mid.before.changed.every(id => id === 'fisher') && !mid.before.removed.length, JSON.stringify(mid.before));
       check('an opened authored instance is saved as a per-id change only; a removed one as a tombstone; untouched ones not at all',
         JSON.stringify(mid.changed['ss-a']) === '{"set":{"opened":true}}' && mid.removed.includes('ss-b') && !mid.changed['ss-c'], JSON.stringify({ changed: mid.changed, removed: mid.removed }));
-      check('engine.spawn during play is saved whole (kind, state, position)', mid.records.includes(mid.made) && mid.rec?.kind === 'ssbox' && mid.rec?.opened === false && !!mid.rec?.position, JSON.stringify(mid.rec));
+      check('engine.content.spawn during play is saved whole (kind, state, position)', mid.records.includes(mid.made) && mid.rec?.kind === 'ssbox' && mid.rec?.opened === false && !!mid.rec?.position, JSON.stringify(mid.rec));
       // reload with ss-c renamed in the content: its id is an orphan; its change must survive another save
       await reload(page);
       const r = await ev(async (src) => {
@@ -153,7 +153,7 @@ export const specs = [
         'use strict';
         engine.pause();
         const T = window.THREE, W = engine.world;
-        engine.assets.manifest({ models: { lvbox: () => new T.Mesh(new T.BoxGeometry(1, 2, 0.2)) } });   // this page has no style pack
+        engine.assets.manifest({ models: { lvbox: () => new T.Mesh(new T.BoxGeometry(1, 2, 0.2)) } });   // this page has no style
         if (!engine.content) engine.use(window.content());
         if (!engine.grids) engine.use(window.grids());
         engine.ops.define('lvdoor.open', { args: { id: 'id' }, run: (e, { id }) => e.world.set(id, { opened: true }) });

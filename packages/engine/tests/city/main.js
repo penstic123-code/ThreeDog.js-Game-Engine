@@ -1,8 +1,8 @@
-// City example: the same engine, a completely different game. No procedural terrain, no vegetation, no style pack (all neutral fallback look), top-down camera, hand-built block.
+// City example: the same engine, a completely different game. No procedural terrain, no vegetation, no style (all neutral fallback look), top-down camera, hand-built block.
 // The block is loaded with the level module: ground height, collision, spawn points and trigger zones are all read from the scene.
 // The block's builder is registered in the asset manifest (name city-block) and the level reads it by name: after npm run bake it reads the baked file, during development it caches automatically;
 // when switching to a Blender-exported glTF, change only this manifest line ('city-block': '/models/city.glb').
-import { createEngine, presets, world, sky, collision, rigid, followCamera, characters, interactions, dialogue, level, triggers, particles, timeline, settings, debug, content, flow, THREE, toast, makeMaterial } from '../../index.js';
+import { createEngine, presets, world, calendar, sky, collision, rigid, followCamera, characters, interactions, dialogue, level, triggers, particles, timeline, settings, debug, content, flow, THREE, toast, makeMaterial } from '../../index.js';
 import data from './content/index.js';
 
 import { buildBlock } from './block.js';
@@ -12,7 +12,7 @@ engine.assets.manifest({ models: { 'city-block': buildBlock } });
 engine.use(
   world(),   // world data: facts about NPCs such as the shopkeeper live here (changing level only tears down models)
   level({ url: 'city-block' }),
-  sky({ time: 0.45, dayLength: 360 }),   // NPC schedules follow the clock: this page needs the day to pass
+  calendar({ time: 0.45, dayLength: 360 }), sky(),   // NPC schedules follow the calendar: this page needs the day to pass
   collision(),
   rigid(),
   followCamera({ pitch: 1.0, distance: 26, minDistance: 14, maxDistance: 40, lockPitch: true }),
@@ -29,7 +29,7 @@ engine.use(
 );
 engine.setFogFar(220);
 
-// No style pack in this example, so the plaza trigger defines its own sparks (with a style pack, use its preset)
+// No style in this example, so the plaza trigger defines its own sparks (with a style, use its preset)
 engine.particles.define('sparks', { max: 80, lifetime: [0.3, 0.7], speed: [2, 5], direction: [0, 1, 0], spread: 0.9, gravity: -6, size: [0.1, 0.03], color: [0xffffff, 0xaaaaaa], opacity: [1, 0] });
 
 // Spawn and marker points exist only after the level loads (in start()): build the player, install content, place teleporters now

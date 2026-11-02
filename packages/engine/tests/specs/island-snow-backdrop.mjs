@@ -3,10 +3,12 @@
 // that fog follows, and without it the sky is untouched. Wrong settings throw with the fix.
 
 const HELPERS = `
-  const { THREE, createEngine, sky, weather } = threedogTest;
+  const { THREE, createEngine, sky, calendar, weather } = threedogTest;
   const types = { clear: {}, snow: { snow: 1, cloud: 0.6 } };
-  const make = async (style, skyOpts = {}) => {
+  // calOpts: a calendar (seasons) under the sky; without it the sky draws its fixed time (skyOpts.time)
+  const make = async (style, skyOpts = {}, calOpts = null) => {
     const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'isb', urlState: false, style });
+    if (calOpts) e.use(calendar(calOpts));
     e.use(sky(skyOpts), weather({ types, particles: 200 }));
     await e.start();
     return e;
@@ -39,19 +41,18 @@ export const specs = [
 
         // a 'mix' season (ground 50% to black) under full snow (80% to white): one mix of 90% to 0.889 gray
         e = await make({ seasons: { mode: 'mix', strength: 0.5, winter: { ground: 0x000000 } }, weather: { snow: { cover: { ground: 0xffffff, strength: 0.8 } } } },
-          { seasons: ['winter'] });
+          {}, { seasons: ['winter'] });
         e.weather.set('snow', 0.01); run(e);
         out.over = tint(e, 'Ground');
         e.dispose();
 
-        e = await make({}, { seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 7 });
+        e = await make({}, {}, { seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 7 });
         await e.applyState({ season: 'winter' });
-        out.season = [e.sky.season, e.sky.day];
+        out.season = [e.calendar.season, e.calendar.day];
         out.badSeason = await err(() => e.applyState({ season: 'wintr' }));
         e.dispose();
-        const got = [], w = console.warn; console.warn = (...a) => got.push(a.join(' '));
-        try { (await make({ weather: { snow: { cover: { ground: 0xffffff, strenght: 1 } } } })).dispose(); } finally { console.warn = w; }
-        out.badCover = got.join(' | ');
+        // since a1948cc7 (readParams) a misspelled key throws in dev with the did-you-mean, instead of warning
+        out.badCover = await err(async () => (await make({ weather: { snow: { cover: { ground: 0xffffff, strenght: 1 } } } })).dispose());
         out.emptyCover = await err(() => make({ weather: { snow: { cover: { strength: 1 } } } }));
         return out;
       }));
@@ -62,7 +63,7 @@ export const specs = [
       check('clear again: the cover melts back to neutral', r.melt.join() === '1,1,1,0,1,1,1,0', JSON.stringify(r.melt));
       check('over a mix season: one combined mix (0.9 toward 0.889)', Math.abs(r.over[3] - 0.9) < 1e-3 && Math.abs(r.over[0] - 0.889) < 2e-3, JSON.stringify(r.over));
       check('applyState({ season }) jumps to that season; a wrong name throws with the list', r.season[0] === 'winter' && r.season[1] === 22 && /spring, summer, autumn, winter/.test(r.badSeason), JSON.stringify([r.season, r.badSeason]));
-      check('misspelled cover key warns with did-you-mean; cover without a color throws with the fix', /strenght/.test(r.badCover) && /strength/.test(r.badCover) && /cover: \{ foliage/.test(r.emptyCover), `${r.badCover} | ${r.emptyCover}`);
+      check('misspelled cover key throws with did-you-mean; cover without a color throws with the fix', /strenght/.test(r.badCover) && /strength/.test(r.badCover) && /cover: \{ foliage/.test(r.emptyCover), `${r.badCover} | ${r.emptyCover}`);
     },
   },
   {
@@ -85,9 +86,9 @@ export const specs = [
         out.flat = { dome: e.sky.dome.visible, bg: e.scene.background.getHexString(), fog: e.scene.fog.color.getHexString(), px: shot(e),
           want: new THREE.Color(0xefebe4).toArray().map(v => Math.round(v * 255)) };
         e.dispose();
-        e = await make({ sky: { backdrop: s => (s.isDay ? 0xefebe4 : 0x2c3346) } }, { time: 0.5 });
+        e = await make({ sky: { backdrop: ({ sky: s }) => (s.isDay ? 0xefebe4 : 0x2c3346) } }, { time: 0.5 });
         run(e); const day = e.scene.background.getHexString();
-        e.sky.timeOfDay = 0.02; run(e);
+        e.sky.fixedTime = 0.02; run(e);
         out.fn = [day, e.scene.background.getHexString(), e.scene.fog.color.getHexString()];
         e.dispose();
         out.bad = await err(() => make({ sky: { backdrop: { r: 1 } } }));

@@ -6,6 +6,7 @@ import { warnOnce, fmt } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { loadGltf, loadTexture, loadFont, generated, placeholder, LoadError } from './assetLoad.js';
 import { failureText } from './Loading.js';
+import { paramValues } from './assetManifest.js';
 
 const STRINGS = {
   failed: 'Asset failed to load: {what}',
@@ -19,19 +20,35 @@ function shareModel(a, g) {
   return g;
 }
 
+/**
+ * Shadow flags of a model copy, one rule for files, generators and content props: an explicit castShadow / receiveShadow (the model() call,
+ * then the manifest entry) wins; otherwise a generator that set either flag on any of its meshes decided for itself and is kept as built
+ * (a decal that must not cast stays that way); otherwise (a file, or a generator that set nothing) every mesh casts and receives.
+ * @param {import('three').Object3D} root
+ * @param {{ castShadow?: boolean, receiveShadow?: boolean }} [set]
+ */
+export function shadowDefaults(root, { castShadow, receiveShadow } = {}) {
+  let decided = false;
+  root.traverse(o => { if (/** @type {any} */ (o).isMesh && (o.castShadow || o.receiveShadow)) decided = true; });
+  const cast = castShadow ?? (decided ? null : true), recv = receiveShadow ?? (decided ? null : true);
+  root.traverse(o => { if (/** @type {any} */ (o).isMesh) { if (cast != null) o.castShadow = cast; if (recv != null) o.receiveShadow = recv; } });
+  return root;
+}
+
 /** Load an entry as a task in engine.loading; a registered, non-critical file that fails resolves to its fallback */
 export function fetchEntry(a, e) {
   if (e.promise) return e.promise;
   const L = a.engine.loading, name = e.variantOf ?? e.name ?? e.url;
-  const t = L._begin(name, e.type, { critical: e.opts.critical === true, url: e.opts.build ? null : e.url, manifest: e.manifest ?? null });
+  const t = L._begin(name, e.type, { critical: e.opts.critical === true, url: e.opts.build || e.opts.texture ? null : e.url, manifest: e.manifest ?? null });
   if (e.type === 'model') {
-    const load = e.opts.build ? (t.phase('build'), generated(a, e.url, e.opts.build, e.opts.params, t)) : loadGltf(a, e.url, t);
+    const load = e.opts.build ? (t.phase('build'), generated(a, e.url, e.opts.build, e.schema ? paramValues(e) : e.opts.params, t)) : loadGltf(a, e.url, t);
     e.promise = load.then(g => shareModel(a, g));
   } else if (e.type === 'texture') e.promise = loadTexture(a, e, t);
   else if (e.type === 'font') e.promise = loadFont(a, e, t);
+  else if (e.type === 'sound' && e.opts.build) e.promise = Promise.resolve(e.opts.build);   // a synth function: nothing to download
   else if (e.type === 'sound') {
     t.phase('download');
-    e.promise = a.engine.audio.load(e.url).catch(err => { throw new LoadError(err.message, { url: e.url }); });
+    e.promise = a.engine.audio.load(e.url).catch(err => { throw new LoadError(err.reason ?? err.message, { url: e.url }); });   // reason: the bare cause, the asset line adds name and path
   }
   e.promise = e.promise.then(v => {
     L._done(t);
@@ -60,7 +77,7 @@ function failedEntry(a, e, t, err) {
 export function freeEntry(e) {
   if (!e.value) return;
   if (e.users > 0) { e.releasePending = true; return; }
-  if (e.type === 'texture') e.value.dispose();
+  if (e.type === 'texture' && !e.opts.texture) e.value.dispose();   // a Texture the game registered is the game's: never disposed here
   if (e.type === 'font') document.fonts.delete(e.value);   // a released font stops matching its family
   if (e.value.isBufferGeometry) e.value.dispose();   // code-generated geometry
   else if (e.type === 'model') {
@@ -80,7 +97,7 @@ export async function preloadEntries(a, onProgress, onlyMarked) {
   let done = 0;
   onProgress?.(list.length ? 0 : 1, '');
   // critical failures are reported by start(); others not already warned about (generated models) are warned here
-  await Promise.all(list.map(([name, e]) => fetchEntry(a, e).catch(err => { if (!e.opts.critical) console.warn(err.message); }).finally(() => {
+  await Promise.all(list.map(([name, e]) => fetchEntry(a, e).catch(err => { if (!e.opts.critical) warnOnce(err.message); }).finally(() => {
     done++;
     onProgress?.(done / list.length, name);
   })));

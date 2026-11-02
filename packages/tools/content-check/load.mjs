@@ -1,8 +1,9 @@
-// The reading part of content validation (used by packages/tools/content-check.mjs and gamemap.mjs): find game folders, read content/ data, find duplicate keys in one object, infer a game's style pack and asset manifest.
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+// The reading part of content validation (used by packages/tools/content-check.mjs and gamemap.mjs): find game folders, read content/ data, find duplicate keys in one object, read the game's asset packs (assets.js).
+import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT, rel, abs, gameDirs, CONTENT_RULES_REL, STYLE_PKG_PREFIX, styleDir } from '../paths.mjs';
+import { ROOT, rel, abs, gameDirs, CONTENT_RULES_REL } from '../paths.mjs';
+import { withDomStub } from './dom-stub.mjs';
 
 // The engine's content vocabulary (path read from paths.mjs); content-check.mjs and gamemap.mjs also take mergeRules etc. from here
 const rules = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
@@ -15,24 +16,71 @@ export const findGames = gameDirs;
 
 let loadSeq = 0;
 
-/** Read all content files of a game: { data: { items, … }, files: { items: path }, errors } */
+/** Import one content file fresh: ?t= keeps a file rewritten during this process (content write checks before and after) out of the ESM cache */
+export const importFresh = path => import(pathToFileURL(path).href + '?t=' + Date.now() + '-' + (++loadSeq));
+
+/** The files of one content kind in load order: [path] for content/<kind>.js, the folder's *.js by file name for content/<kind>/ (index.js skipped) */
+export function kindParts(cdir, name) {
+  const folder = join(cdir, name);
+  if (existsSync(folder) && statSync(folder).isDirectory()) return readdirSync(folder).filter(f => f.endsWith('.js') && f !== 'index.js').sort().map(f => join(folder, f));
+  return [join(cdir, name + '.js')];
+}
+
+/**
+ * Read all content files of a game: { data: { items, … }, files: { items: path }, parts: { items: [{ path, from, count }] }, errors }
+ * A kind is one file (content/props.js) or a folder (content/props/forest.js, town.js…: arrays joined, objects merged, in file-name order, the
+ * order the runtime contentParts() joins them). files[kind] is the file or the folder; parts says which file holds which entries (from = index of
+ * its first entry in the joined array), so a tool can go from "props[731]" to "content/props/town.js[31]".
+ */
 export async function loadGame(dir) {
-  const data = {}, files = {}, errors = [];
+  const data = {}, files = {}, parts = {}, errors = [];
   const cdir = join(dir, 'content');
-  if (!existsSync(cdir)) return { data, files, errors };
-  // rules.js first: its kinds decide which other file names are known (the same contentFiles() the engine loader uses)
-  const names = readdirSync(cdir).filter(f => f.endsWith('.js') && f !== 'index.js').map(f => f.slice(0, -3)).sort((a, b) => (b === 'rules') - (a === 'rules'));
+  if (!existsSync(cdir)) return { data, files, parts, errors };
+  // rules.js first: its kinds decide which other names are known (the same contentFiles() the engine loader uses)
+  const names = readdirSync(cdir).filter(f => f !== 'index.js' && (f.endsWith('.js') || statSync(join(cdir, f)).isDirectory()))
+    .map(f => f.replace(/\.js$/, '')).filter((f, i, a) => a.indexOf(f) === i).sort((a, b) => (b === 'rules') - (a === 'rules'));
   for (const name of names) {
-    const path = join(cdir, name + '.js');
-    if (!contentFiles(data.rules)[name]) { errors.push(`${rel(path)}: ${unknownContent(name, data.rules)}`); continue; }
-    try {
-      // ?t= : a content file rewritten during this process (content set checks before and after the edit) must not come back from the ESM cache
-      const mod = await import(pathToFileURL(path).href + '?t=' + Date.now() + '-' + (++loadSeq));
-      data[name] = mod.default; files[name] = path;
+    const folder = join(cdir, name), isFolder = existsSync(folder) && statSync(folder).isDirectory();
+    if (isFolder && existsSync(folder + '.js')) { errors.push(`${rel(folder)}: both content/${name}.js and the folder content/${name}/ exist: keep one (move the file into the folder)`); continue; }
+    if (!contentFiles(data.rules)[name]) { errors.push(`${rel(isFolder ? folder : folder + '.js')}: ${unknownContent(name, data.rules)}`); continue; }
+    const list = [];
+    for (const path of kindParts(cdir, name)) {
+      try { list.push({ path, mod: await importFresh(path) }); }
+      catch (err) { errors.push(`${rel(path)}: the file cannot be loaded (most likely a syntax error, such as a missing comma or bracket): ${err.message}`); }
+    }
+    if (!list.length) continue;
+    files[name] = isFolder ? folder : list[0].path;
+    if (!isFolder) {
+      const { path, mod } = list[0], d = mod.default;
+      data[name] = d; parts[name] = [{ path, from: 0, count: Array.isArray(d) ? d.length : Object.keys(d || {}).length }];
       if (mod.startItems) { data.startItems = mod.startItems; files.startItems = path; }
-    } catch (err) { errors.push(`${rel(path)}: the file cannot be loaded (most likely a syntax error, such as a missing comma or bracket): ${err.message}`); }
+      continue;
+    }
+    // A folder: every part must have the same shape; object keys may not repeat across files (a merge would silently drop one, as a duplicate key does)
+    const arrays = list.filter(p => Array.isArray(p.mod.default)).length;
+    if (arrays && arrays !== list.length) { errors.push(`${rel(folder)}: some files export an array and some an object; every file of one kind exports the same shape`); continue; }
+    let joined = arrays ? [] : {};
+    const owner = new Map();
+    parts[name] = [];
+    for (const { path, mod } of list) {
+      const d = mod.default ?? (arrays ? [] : {});
+      parts[name].push({ path, from: arrays ? joined.length : 0, count: arrays ? d.length : Object.keys(d).length });
+      if (arrays) { joined = joined.concat(d); continue; }
+      for (const k of Object.keys(d)) {
+        if (owner.has(k)) errors.push(`${rel(path)}: "${k}" is also defined in ${rel(owner.get(k))}; an id must be unique across the files of content/${name}/`);
+        else owner.set(k, path);
+      }
+      joined = { ...joined, ...d };
+    }
+    data[name] = joined;
   }
-  return { data, files, errors };
+  return { data, files, parts, errors };
+}
+
+/** Which file holds entry `index` of a joined array kind: { path, index (in that file) } or null */
+export function partOf(parts, name, index) {
+  const p = (parts[name] || []).find(x => index >= x.from && index < x.from + x.count);
+  return p ? { path: p.path, index: index - p.from } : null;
 }
 
 // Two identical keys in one object (JS silently lets the later one overwrite, so they must be found in the source)
@@ -68,22 +116,24 @@ export function dupKeys(src) {
 }
 
 /**
- * Model names and level source a game uses (inferred statically from the game code):
- *   style        style pack name (main.js etc. import @threedog/style-<name>), null if it cannot be inferred
- *   styleModels  model names in the style pack's models.js (a Set), null if there is no style pack
- *   manifest     model names registered by assets.manifest({ models: { name: … } })
- *   levelFile    the level is a file (level({ url })): markers are inside the .glb and cannot be read statically
+ * The asset names a game registers, read from the asset pack objects themselves (not from scanning source text): <game>/assets.js exports the
+ * packs main.js hands to engine.assets.manifest (export default one pack or a list), so the runtime and this check read the same objects.
+ * Returns { file, models, textures, sounds, error }: file = the assets.js path (null when the game has none), the rest Sets of names,
+ * error = why assets.js could not be imported (the names are then empty).
  */
-export function gameSetup(dir, code) {
-  // every style pack the game imports (style: [a, b] mixes them), plus its own pack in style/: model names are the union, not the first pack's
-  const names = [...new Set([...code.matchAll(new RegExp(`from\\s+['"]${STYLE_PKG_PREFIX}([\\w-]+)['"/]`, 'g'))].map(m => m[1]))];
-  const files = names.map(n => join(styleDir(n), 'models.js'));
-  if (/from\s+['"]\.\/style(\/index\.js)?['"]/.test(code)) { names.push('local'); files.push(join(dir, 'style', 'models.js')); }
-  const style = names.length ? names.join('+') : null;
-  const styleModels = style ? new Set(files.filter(f => existsSync(f)).flatMap(f => [...readFileSync(f, 'utf8').matchAll(/^ {2}(\w+):/gm)].map(m => m[1]))) : null;
-  const manifest = new Set();
-  for (const m of code.matchAll(/manifest\(\s*\{[\s\S]*?models:\s*\{([^}]*)\}/g)) for (const k of m[1].matchAll(/(?:^|,)\s*['"]?([\w\u4e00-\u9fff-]+)['"]?\s*(?=[:,]|$)/g)) manifest.add(k[1]);
-  const levelFile = /\blevel\(\s*\{[^}]*\burl\s*:/.test(code);
-  return { style, styleModels, manifest, levelFile };
+export async function gameAssets(dir) {
+  const file = join(dir, 'assets.js'), out = { file: existsSync(file) ? file : null, models: new Set(), textures: new Set(), sounds: new Set(), error: null };
+  if (!out.file) return out;
+  let packs;
+  // under no-op browser stand-ins: module-top canvas textures / materials (recipe 05) load in Node; only the names are read (dom-stub.mjs)
+  try { packs = (await withDomStub(() => importFresh(file))).default; }
+  catch (err) { out.error = `${rel(file)}: the file cannot be loaded: ${err.message}` + (/is not defined/.test(err.message) ? '. The check imports '
+    + 'assets.js (and the files it imports) in Node to read the asset names; drawing and DOM calls run as no-ops there, other browser-only work '
+    + 'at module top (loading a file, a font) does not: move it into the generator, or a texture function textures: { name: () => make() } '
+    + '(runs on first use in the browser)' : ''); return out; }
+  for (const pack of [packs].flat()) for (const kind of ['models', 'textures', 'sounds']) for (const k of Object.keys(pack?.[kind] || {})) out[kind].add(k);
+  return out;
 }
 
+/** The level is a file (level({ url })): its markers are inside the .glb and cannot be read statically */
+export const levelIsFile = code => /\blevel\(\s*\{[^}]*\burl\s*:/.test(code);

@@ -4,7 +4,10 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKIP_DIRS, notGameSource } from '../paths.mjs';
 
-export const read = f => readFileSync(f, 'utf8');
+// Line endings normalized to \n: a file checked out or saved with CRLF (Windows editors, git autocrlf) must give the same map as one with LF.
+// In JS regex '.' does not match \r, so '// summary\r' missed the comment pattern and '# Title\r\n' was not stripped; the map then flipped
+// between two outputs depending on how the file was last written. Callers only read (maps, scans, checks); nothing writes this text back.
+export const read = f => readFileSync(f, 'utf8').replace(/\r\n?/g, '\n');
 export const uniq = a => [...new Set(a)];
 
 /**

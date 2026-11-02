@@ -1,5 +1,5 @@
-// sheepisland: a style pack, LOOKS ONLY (recipes/09-style-pack.md, 35-style-from-reference.md), started from the new-style template
-// (packages/tools/templates/style). A soft painted diorama: few flat colors, round shapes, soft shadows, a pale warm background with no horizon.
+// sheepisland: this game's style, LOOKS ONLY (recipes/09-style-pack.md, 35-style-from-reference.md), filled in from the empty style/index.js
+// a new game starts with. A soft painted diorama: few flat colors, round shapes, soft shadows, a pale warm background with no horizon.
 // The world (island outline, river, wheat field) is the game's terrain() in ../main.js, never here.
 import { makeMaterial, applyEffects } from '../../../index.js';
 import { models, PALETTE } from './models.js';
@@ -11,15 +11,15 @@ export const assets = { name: 'sheepisland', models };
 // Background: zenith = horizon = fog color at every time, so the dome is one flat tone and no horizon line shows.
 // [time 0-1, zenith, horizon (= fog), sun color, sun intensity, ambient intensity]
 // Ground material with snow that survives shading: 'texture'. The engine's season tint runs at color_fragment, before the per-chunk color map is
-// multiplied in, so in 'mix' mode the map paints the green back over the white. This patch repeats the season mix later (emissivemap_fragment,
+// multiplied in, so in 'mix' mode the map paints the green back over the white. This patch repeats the season mix later (slot emissive, emissivemap_fragment,
 // after every color patch, before lighting), reading the engine's own season uniforms under new names (the season patch declares the old ones).
 /** @param {any} engine */
 function snowyGround(engine) {
   const u = engine.uniforms;
   return applyEffects(makeMaterial('terrain', { vertexColors: true }, engine), { clouds: false, patches: [{
     name: 'snowCover', cacheKey: 1, uniforms: { uSnowTint: u.uGroundTint, uSnowMix: u.uGroundMix },
-    glsl: { fragment: { pars: 'uniform vec3 uSnowTint; uniform float uSnowMix;',
-      emissivemap_fragment: 'diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint, uSnowMix);' } } }] });
+    pars: 'uniform vec3 uSnowTint; uniform float uSnowMix;',
+    slot: 'emissive', glsl: 'diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint, uSnowMix);' }] });
 }
 
 const DAY = 0xefebe4, DUSK = 0xf0d9c4, NIGHT = 0x2c3346;

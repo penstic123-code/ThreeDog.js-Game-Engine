@@ -1,8 +1,8 @@
-// Crisp per-cell tiles for a layer (tilled soil, wet soil, a painted floor): one mesh per layer, each non-empty cell a quad
+// Crisp per-cell tiles for a layer (a painted floor, a buildable zone, tilled soil): one mesh per layer, each non-empty cell a quad
 // whose four corners sit on engine.surface + lift, so tiles hug a ramp or terrain and work on any ground provider
 // (procedural terrain, a Blender level, a flat greenhouse floor). One merged mesh = one draw call; it is rebuilt only when
 // the layer version or the ground (level:loaded) changes.
-// Look: layer option tiles.look(data, cell) -> color | null, else tiles.colors = { field: color } (call site, same shape as the style table), else the style pack table style.grid.tiles[layer] = { field: color }
+// Look: layer option tiles.look(data, cell) -> color | null, else tiles.colors = { field: color } (call site, same shape as the style table), else the style table style.grid.tiles[layer] = { field: color }
 // (first truthy field in the table's order wins), else neutral gray. tiles: false = off; a function = your own part.
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
@@ -18,7 +18,7 @@ function tableLook(table) {
   return d => { for (const [f, c] of order) if (d[f]) return c; return null; };
 }
 
-/** Look function from the style pack table (null if the style has none for this layer) @internal */
+/** Look function from the style table (null if the style has none for this layer) @internal */
 function styleLook(e, name) {
   return tableLook(e.style.grid?.tiles?.[name]);
 }
@@ -47,8 +47,9 @@ export function layerTiles(e, layer) {
       const c = look(data, cell);
       if (c == null) continue;
       col.set(c);
-      const x0 = g.origin.x + (cell[0] + GAP) * g.cell, z0 = g.origin.z + (cell[1] + GAP) * g.cell, s = g.cell * (1 - 2 * GAP), n = pos.length / 3;
-      for (const [x, z] of [[x0, z0], [x0, z0 + s], [x0 + s, z0 + s], [x0 + s, z0]]) { pos.push(x, (last = surfaceOr(e, x, z, undefined, last)) + lift, z); clr.push(col.r, col.g, col.b); }
+      // from the grid's mapping (its cell centers), so a replaced mapping draws where its cells are
+      const [cx, cz] = g._map.center(cell), s = g.cell * (1 - 2 * GAP), x0 = cx - s / 2, z0 = cz - s / 2, n = pos.length / 3;
+      for (const [x, z] of [[x0, z0], [x0, z0 + s], [x0 + s, z0 + s], [x0 + s, z0]]) { pos.push(x, (last = g.y ?? surfaceOr(e, x, z, undefined, last)) + lift, z); clr.push(col.r, col.g, col.b); }
       idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
     }
     geo.dispose();   // frees the old GPU buffers now (new attributes are uploaded on the next draw) instead of leaving them to GC

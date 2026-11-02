@@ -8,7 +8,8 @@
 // Seed: createEngine({ seed }); if omitted, headless mode uses 1 (reproducible) and real-time runs use the current time (different each run).
 // Purely presentational randomness (particle jitter, bird-call pitch) does not use it: call Math.random() and tag the line // presentation (see packages/tools/rules/R04).
 
-import { mulberry32 } from './mulberry32.js';   // 32-bit state, plenty for gameplay
+import { mulberry32 } from './mulberry32.js';
+import { saveValues } from './saveValues.js';   // 32-bit state, plenty for gameplay
 
 /** engine.random is the seeded random generator. Gameplay randomness (auto weather, lightning, drops, spawning) uses it so step / tests are reproducible and the state is saved with the save. */
 export class Random {
@@ -48,5 +49,11 @@ export class Random {
   /** For saving: { seed, state } @returns {{ seed: number, state: number }} */
   toJSON() { return { seed: this.seed, state: this.state }; }
   /** For loading @param {{ seed: number, state: number } | null | undefined} d */
-  fromJSON(d) { if (d) { this.seed = d.seed >>> 0; this.state = d.state >>> 0; } }
+  fromJSON(d) {
+    if (!d) return;
+    // 'abc' >>> 0 is 0: a damaged state silently restarted the sequence; a bad value now keeps the current one, with one warning (saveValues)
+    const v = saveValues('random'), U32 = { min: 0, max: 0xffffffff, int: true };
+    this.seed = v.num(d.seed, 'seed', { ...U32, fallback: this.seed }) >>> 0; this.state = v.num(d.state, 'state', { ...U32, fallback: this.state }) >>> 0;
+    v.done();
+  }
 }

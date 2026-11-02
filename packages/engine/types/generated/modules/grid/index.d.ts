@@ -9,19 +9,24 @@ export function grids(): import("../../../core").ModuleDef<Grids>;
 /**
  * engine.grids: every placement grid, the item rules, previews and the occupancy index
  * @example
- * const farm = engine.grids.add('farm', { cell: 1, origin: [0, 0], size: [16, 12] });
- * engine.grids.define('bed', { size: [2, 1], kind: 'furniture', fields: { model: 'bed' } });
- * engine.ops.run('grid.place', { grid: 'farm', item: 'bed', cell: [4, 4], rotation: 1 });
+ * const shop = engine.grids.add('shop', { cell: 1, origin: [0, 0], size: [16, 12] });
+ * engine.grids.define('shelf', { size: [2, 1], kind: 'furniture', fields: { model: 'shelf' } });
+ * engine.ops.run('grid.place', { grid: 'shop', item: 'shelf', cell: [4, 4], rotation: 1 });
  * @experimental
  */
 export class Grids {
     /**
      * Create a grid. cell: edge length (m, default 1); origin: world [x, z] of the min corner of cell [0, 0]; size: [cells wide, cells deep] (omit = unbounded);
      * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5);
-     * layers: authored cells { soil: [[i, j, { tilled: true }], ...] } (content/grids.js): the baseline a save diffs against, so a save keeps only changed cells
+     * y: height of level 0 (m; default the ground under each cell), levelHeight: meters per level (default 3; level n is at y + n * levelHeight);
+     * mapping: { toCell(x, z) => [i, j], center([i, j]) => [x, z] } replaces the square cell <-> world math (one place: toCell, toWorld, tiles, flatness);
+     * layers: authored cells { zone: [[i, j, { buildable: true }], ...] } (content/grids.js): the baseline a save diffs against, so a save keeps only changed cells
      * @example const room = engine.grids.add('room', { cell: 0.5, origin: [-3, -3], size: [12, 12], zone: 'house' })
+     * @example const tower = engine.grids.add('tower', { cell: 1, origin: [0, 0], size: [8, 8], y: 0.1, levelHeight: 3.2 })   // three floors of one building
      * @param {string} name
-     * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number, layers?: Record<string, [number, number, Record<string, any>][]> }} [opts]
+     * @param {{ cell?: number, origin?: any, size?: [number, number], zone?: string, flat?: number, y?: number, levelHeight?: number,
+     *   mapping?: { toCell(x: number, z: number): [number, number], center(cell: [number, number]): [number, number] },
+     *   layers?: Record<string, [number, number, Record<string, any>][]> }} [opts]
      * @returns {Grid}
      */
     add(name: string, opts?: {
@@ -30,6 +35,12 @@ export class Grids {
         size?: [number, number];
         zone?: string;
         flat?: number;
+        y?: number;
+        levelHeight?: number;
+        mapping?: {
+            toCell(x: number, z: number): [number, number];
+            center(cell: [number, number]): [number, number];
+        };
         layers?: Record<string, [number, number, Record<string, any>][]>;
     }): Grid;
     /**
@@ -42,9 +53,11 @@ export class Grids {
     list(): Grid[];
     /**
      * Register what can be placed and its rules. size [w, d] in cells (default [1, 1]); kind of the world record (default the item name);
-     * ground: allowed engine.groundType values; layer: { layerName: field } that must be truthy on every cell (reason 'not' + Field, e.g. notTilled);
-     * flat: max height difference (overrides the grid's); fields: copied into the record; can(e, { grid, cell, rotation, cells }): your own rule
-     * @example engine.grids.define('crop', { size: [1, 1], layer: { soil: 'tilled' }, fields: { plantedAt: 0 } })
+     * occupy: the occupancy layer it takes (default 'main'): things in different layers share a cell ('floor' tile, 'main' table, 'wall' lamp), two in one
+     * layer do not; ground: allowed engine.groundType values; layer: { layerName: field } that must be truthy on every cell (reason 'not' + Field, e.g.
+     * notBuildable); flat: max height difference (overrides the grid's); fields: copied into the record; can(e, { grid, cell, rotation, cells, level }): your own rule
+     * @example engine.grids.define('tower', { size: [2, 2], layer: { zone: 'buildable' }, fields: { range: 6 } })   // tower defense
+     * @example engine.grids.define('tile', { occupy: 'floor' }); engine.grids.define('sofa', { size: [2, 1] })        // a sofa stands on a tile
      * @example engine.grids.define('shed', { size: [3, 2], ground: ['grass', 'dirt'], flat: 0.2 })
      * @param {string} name
      * @param {import('./Grid.js').GridRule} rule
@@ -56,10 +69,10 @@ export class Grids {
      * function, turned by the input action rotate (default name 'rotate'; the game binds it, or pass rotateKeys / ...presets.keys.gridRotate, the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
      * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
      * @example engine.input.define('place', ['Mouse0']);   // the game's own binding
-     *   const pv = engine.grids.preview({ grid: 'farm', item: 'crop', ...presets.keys.gridRotate });
-     *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.reason)); } });
+     *   const pv = engine.grids.preview({ grid: 'field', item: 'tower', ...presets.keys.gridRotate });
+     *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.code)); } });
      * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotateKeys?: string[], rotation?: number, look?: false | ((e: any) => any) }} opts
-     * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, reason: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, reason?: string }, remove(): void }}
+     * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, code: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, code?: string }, remove(): void }}
      */
     preview(opts: {
         grid: string;
@@ -73,12 +86,12 @@ export class Grids {
         cell: [number, number] | null;
         rotation: number;
         ok: boolean;
-        reason: string | null;
+        code: string | null;
         rotate(n?: number): void;
         place(fields?: object): {
             ok: boolean;
             value?: any;
-            reason?: string;
+            code?: string;
         };
         remove(): void;
     };

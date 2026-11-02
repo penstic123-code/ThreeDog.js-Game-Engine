@@ -8,9 +8,9 @@ const setup = () => {
   const wait = () => new Promise(r => setTimeout(r, 5));
   const H = window.TE = {
     async make(threads, opts = {}, key = 'te') {
-      const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads, urlState: false, saveKey: key + threads });
+      const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, threads, urlState: false, saveKey: key + threads });
       E.use(terrain({ seed: 7, viewChunks: 2, ...opts }), vegetation(), collision());
-      E.vegetation.add('tree', { geometry: new THREE.ConeGeometry(1, 3, 5), rule: { perChunk: 1500, collider: 0.4, minHeight: -99, maxHeight: 999, maxSlope: 99 } });
+      E.vegetation.define('tree', { geometry: new THREE.ConeGeometry(1, 3, 5), rule: { perChunk: 1500, collider: 0.4, minHeight: -99, maxHeight: 999, maxSlope: 99 } });
       E.ops.define('test.edit', { args: { x: 'number', z: 'number', o: 'any' }, run: (e, a) => e.terrain.edit({ x: a.x, z: a.z }, a.o) });
       await E.start();
       await H.settle(E, { x: 0, z: 0 });
@@ -95,7 +95,7 @@ export const specs = [
       check('collision gets a new token and reads the rebuilt mesh', r.col1.newToken && r.col1.same, JSON.stringify(r.col1));
       check('painted cell reads back as tilled, then wet', r.type1 === 'tilled' && r.wet === 'wet', `${r.type1} / ${r.wet}`);
       check('trees on dug ground are gone (instances and colliders)', r.treesBefore.n > 0 && r.treesAfter.n === 0 && r.treesAfter.k === 0, JSON.stringify([r.treesBefore, r.treesAfter]));
-      check('save / load restores heights, mesh and paint', near(r.h2, r.h1) && near(r.mesh2, r.h2v) && r.type2 === 'tilled' && !near(r.raised, r.h1), `${r.raised} -> ${r.h2}, ${r.type2}`);
+      check('save / load restores heights, mesh and paint', near(r.h2, r.h1) && near(r.mesh2, r.h2) && r.type2 === 'tilled' && !near(r.raised, r.h1), `${r.raised} -> ${r.h2} (mesh ${r.mesh2}), ${r.type2}`);
       check('chunk unloaded and regenerated comes back edited', r.goneA && r.goneB && near(r.h3, r.h1) && near(r.mesh3, r.h1) && near(r.meshB, r.h1), JSON.stringify([r.goneA, r.goneB, r.mesh3, r.meshB]));
       check('regenerated chunk keeps trees off the dug ground', r.treesBack.n === 0, JSON.stringify(r.treesBack));
       check('threads on (worker build) and off give the identical edited chunk', r.same && r.workers > 0, `workers ${r.workers}`);
@@ -112,7 +112,7 @@ export const specs = [
         const E = await T.make(2, { height: (x, z) => 2 + x * 0.25, groundType: (x, z, h) => h > 5 ? 'rock' : null }, 'tg');
         const out = { s: E.surface(8, 12), far: T.vtx(E, 64, 0), rock: E.groundType(40, 0), low: E.groundType(0, 0), workers: E.threads.size };
         E.dispose();
-        const k = 5, X = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads: 0, urlState: false, saveKey: 'tg-bad' });
+        const k = 5, X = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, threads: 0, urlState: false, saveKey: 'tg-bad' });
         try { X.use(terrain({ height: (x, z) => x * k })); out.err = 'no error'; } catch (e) { out.err = e.message; }
         X.dispose();
         return out;
@@ -133,7 +133,7 @@ export const specs = [
         const T = window.TE, { createEngine, terrain, grids, world } = threedogTerrain;
         const hills = (x, z) => 3 + Math.sin(x * 0.05) * 2 + z * 0.02;   // the generated landform only
         const build = async key => {
-          const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads: 0, urlState: false, saveKey: key });
+          const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, threads: 0, urlState: false, saveKey: key });
           E.use(terrain({ seed: 7, viewChunks: 2, height: hills }), world(), grids());
           E.grids.add('plots', { cell: 4, origin: [8, 16], size: [4, 4] });
           E.ops.define('plot.make', { args: { cell: 'any' }, run: (e, { cell }) => {

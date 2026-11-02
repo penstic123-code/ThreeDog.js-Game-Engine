@@ -8,7 +8,7 @@ jump to the symptoms.
 | Look | How | Typical values |
 |---|---|---|
 | Flat color blocks, no detail (minimal, flat illustration; on purpose) | `shading: 'flat'` or `'smooth'`, `colors` / `biomeColors`, no `detail`; a few `variation.patches` with `levels` | `resolution: 16`; `patches: { size: 90, levels: 3, strength: 0.15 }` |
-| Color map + detail layer + near grass (soft variation, crisp borders) | `terrain({ shading: 'texture', colorResolution })`, `style.terrain.detail`, grass with `vegetation.add(name, { nearOnly: true })` | `colorResolution: 128`; `detail: { noise: 'dabs', scale: 0.5, strength: 0.25, normal: 0.03 }` |
+| Color map + detail layer + near grass (soft variation, crisp borders) | `terrain({ shading: 'texture', colorResolution })`, `style.terrain.detail`, grass with `vegetation.define(name, { nearOnly: true })` | `colorResolution: 128`; `detail: { noise: 'dabs', scale: 0.5, strength: 0.25, normal: 0.03 }` |
 | Tiling or triplanar textures (your own painted, photographed or generated images) | material spec `map` + `repeat`, or `detail: { texture: 'name' }` (`projection: 'triplanar'` on slopes and rocks) | `repeat: 8`; `detail: { texture, scale: 0.5, strength: 0.6 }` |
 | Vertex color + toon lighting | vertex colors from `colors` and `variation.jitter`, `type: 'toon'` with a `ramp`; detail optional | `jitter: { size: 2, min: 0.9, range: 0.15 }`; `ramp: [0.4, 0.75, 1]` |
 | Your own shader or plain three.js | `terrain({ material })`, or recipe 40 section 8 (what you give up) | any |

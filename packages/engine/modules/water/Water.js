@@ -1,5 +1,5 @@
 // Water module: draws the global water plane (sea, big lakes; snaps to a grid following the focus so it doesn't "swim") and independent water bodies (mountain lakes, ponds, each with its own level).
-// Look comes from the style pack's style.water: color, opacity, waves, surface quality (material factory 'water'), normal map, grazing-angle reflection.
+// Look comes from the style's style.water: color, opacity, waves, surface quality (material factory 'water'), normal map, grazing-angle reflection.
 //
 // engine.use(water());                                      // global water only (level taken from the terrain water level)
 // engine.use(water({ sea: false }));                         // no global water
@@ -7,8 +7,8 @@
 // const lake = engine.addWaterBody({ position: [120, 0, -40], radius: 25, level: 18 });   // add a mountain lake (can be added any time); lake.remove()
 //
 // three.js objects: engine.water.sea (global water Mesh, may be null), material (shared by all water), bodies (Map: water body → its Mesh)
-// Style pack: water = { color, opacity, flat, waveHeight, waveScale, waveSpeed, normalMap: '/textures/water-n.jpg', normalScale, normalRepeat,
-//                   normalSpeed: [x, z], fresnel: 0.6, segments, depthColor, foam, glsl: { wave, surface }, uniforms,
+// Style: water = { color, opacity, flat, waveHeight, waveScale, waveSpeed, normalMap: '/textures/water-n.jpg', normalScale, normalRepeat,
+//                   normalSpeed: [x, z], fresnel: 0.6, segments, depthColor, foam, uniforms (for the look.water.patch hooks),
 //                   material?: (engine, { uniforms, waves, surface, normalMap }) => Material }   (look hooks: recipes/44-water-weather-look-hooks.md)
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
@@ -18,12 +18,13 @@ import { warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { waterLook, wavesPatch, surfacePatch } from './surface.js';
 import { defineWaterLook } from './look.js';
+import { codedError } from '../../core/errorHints.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Material, Vector3 } from '../../types/common' */
 /** @import { WaterBody, WaterOptions } from '../../types/world' */
-// Options accepted by water(): sea / level + any appearance item that overrides the style pack's style.water
+// Options accepted by water(): sea / level + any appearance item that overrides the style's style.water
 const WATER_OPTIONS = ['sea', 'level', 'color', 'opacity', 'flat', 'waveHeight', 'waveScale', 'waveSpeed', 'fresnel', 'size', 'segments', 'normalMap',
-  'normalScale', 'normalRepeat', 'normalSpeed', 'shininess', 'specular', 'material', 'depthColor', 'foam', 'glsl', 'uniforms'];
+  'normalScale', 'normalRepeat', 'normalSpeed', 'shininess', 'specular', 'material', 'depthColor', 'foam', 'uniforms'];   // no glsl: look.water.patch('wave' | 'surface') is the one GLSL entry
 const WATER_PARAMS = keysSchema(WATER_OPTIONS);
 
 /** engine.water */
@@ -73,11 +74,11 @@ export class Water {
     const look = waterLook(st), surface = surfacePatch(e, look), waves = wavesPatch(e, st, look, !!surface);
     // A whole custom surface (toon foam bands, pixel ripples): the engine still builds the meshes and keeps the shared uniforms and the
     // normal-map scroll running; the built-in look (role 'water', waves, fresnel) is skipped. waves (and surface, when depthColor / foam /
-    // glsl.surface ask for one; it needs waves before it) are offered for applyEffects({ patches })
+    // the surface hook ask for one; it needs waves before it) are offered for applyEffects({ patches })
     if (st.material) {
       this._u = waves.uniforms;
       const own = st.material(e, { uniforms: waves.uniforms, waves, surface, normalMap: this.normalMap });
-      if (!own?.isMaterial) throw new Error('style.water.material must return a three.js Material, e.g. material: (engine, { uniforms }) => new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })');
+      if (!own?.isMaterial) throw codedError('water-option', 'style.water.material must return a three.js Material, e.g. material: (engine, { uniforms }) => new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })');
       return own;
     }
     const m = makeMaterial('water', { color: st.color, transparent: st.opacity < 1, opacity: st.opacity, flatShading: st.flat, shininess: st.shininess ?? 90, specular: st.specular ?? 0xaaaaaa, roughness: 0.15, metalness: 0 }, e);
@@ -93,9 +94,9 @@ export class Water {
     // Basic material has no normal/view variables, so it gets no reflection
     if (!('isMeshBasicMaterial' in m)) patches.push({ name: 'fresnel',
       uniforms: { uFresnel, uFresnelColor: { get value() { return e.scene.fog?.color ?? grey; } } },
-      glsl: { fragment: { pars: 'uniform float uFresnel; uniform vec3 uFresnelColor;', opaque_fragment: { before: `
+      pars: 'uniform float uFresnel; uniform vec3 uFresnelColor;', slot: 'output', glsl: `
         float threedogFres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 3.0) * uFresnel;
-        outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));` } } } });
+        outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));` });
     return patchMaterial(m, patches, { strict: false });
   }
   /** Build the shared material again (look.water changed something structural) and hand it to every water mesh @internal */
@@ -156,5 +157,11 @@ export class Water {
 export function water(opts = {}) {
   readParams('water', WATER_PARAMS, opts);
   let w = null;
-  return { name: 'water', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], install(e) { w = new Water(e, opts); return w; }, frame(dt, e) { w.update(e.focus, dt); } };
+  return { name: 'water', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], install(e) { w = new Water(e, opts); return w; }, frame(dt, e) { w.update(e.focus, dt); },
+    // "is there water where I think": the global sea (its level and plane size; null = none, e.g. no water level) and each separate body
+    describe() {
+      const r = v => Math.round(v * 10) / 10, s = w.sea;
+      const bodies = [...w.bodies.keys()].map(b => ({ x: r(b.x), z: r(b.z), level: r(b.level), ...(b.radius ? { radius: r(b.radius) } : { size: [r(b.hw * 2), r(b.hd * 2)] }) }));
+      return { sea: s ? { level: r(s.position.y + 0.2), size: w.st.size } : null, bodies };
+    } };
 }

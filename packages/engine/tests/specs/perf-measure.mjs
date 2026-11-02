@@ -64,13 +64,17 @@ export const specs = [
         engine.player.placeAt({ x: pl.x + 700, z: pl.z });
         await __t.until(() => T.stats.queued === 0 && T.stats.builtThisFrame === 0 && T.chunks.size > 0, 90000);
         await new Promise(res => setTimeout(res, 1500));   // let every first-ring detail job come back
+        // 碰撞体按固定步数分批建（每步 1 块，不看墙钟，回放才一致），所以"多久到齐"取决于这台机器每秒跑几个固定步：
+        // 无头软件渲染下帧率低、每帧补的固定步有上限，原来睡固定 4 秒只到 1/9。这里等到齐（带上限），检查的仍是"全部到齐"
+        const CH = T.T.CHUNK, pcx = Math.floor(engine.player.position.x / CH), pcz = Math.floor(engine.player.position.z / CH);
+        const ring = () => { let n = 0; for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (engine.rigid.terrain.get((pcx + dx) + ',' + (pcz + dz))?.ready) n++; return n; };
+        await __t.until(() => ring() === 9, 30000).catch(() => {});
+        const ringReady = ring();
         cost.reset();
         await new Promise(res => setTimeout(res, 2500));   // standing still: nothing should be requested any more
-        const CH = T.T.CHUNK, pcx = Math.floor(engine.player.position.x / CH), pcz = Math.floor(engine.player.position.z / CH);
-        let ringReady = 0; for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (engine.rigid.terrain.get((pcx + dx) + ',' + (pcz + dz))?.ready) ringReady++;
-        return { ringReady, ringWant: 9, idle: cost.report().transit.n, chunks: T.chunks.size, near: engine.vegetation.nearNames().length };
+        return { ringReady, ringWant: 9, idle: cost.report().transit.n, chunks: T.chunks.size, near: engine.vegetation.nearNames().length, pending: engine.rigid._srcPending };
       });
-      check('colliders of a new ring are built over several steps but all arrive', r.ringReady === r.ringWant && r.ringWant >= 9, JSON.stringify(r));
+      check('colliders of a new ring are built over several steps but all arrive (and nothing is left pending)', r.ringReady === r.ringWant && r.ringWant >= 9 && r.pending === false, JSON.stringify(r));
       check('scene has a near-only species', r.near > 0, JSON.stringify(r));
       check('standing still: worker results stay bounded (no resend loop)', r.idle <= 3, JSON.stringify(r));
     },

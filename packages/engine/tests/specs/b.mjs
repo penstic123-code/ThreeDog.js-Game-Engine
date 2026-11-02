@@ -162,7 +162,7 @@ export const specs = [
     },
   },
   {
-    name: 'Camera: warning when camera.position is edited directly and overwritten (dev only)',
+    name: '[guard] Camera: a direct camera.position edit takes the camera (the rig stops, one warning), look.view.manual hands it back',
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -170,12 +170,25 @@ export const specs = [
           engine.pause(); engine.step(0.1);
           globalThis.__cam = engine.takeCamera('test'); engine.camera.position.x += 5; engine.step(0.1); globalThis.__cam?.remove(); engine.step(0.1);
         });
-        const after = await __t.warns(() => { engine.camera.position.x += 5; engine.step(0.1); engine.camera.position.x += 5; engine.step(0.1); });
-        return { clean: during.warns.length, n: [...during.warns, ...after.warns].filter(w => w.includes('camera.position')).length };
+        let x = 0, by = '';
+        const after = await __t.warns(() => {
+          engine.camera.position.x += 5; engine.step(0.1); engine.camera.position.x += 5; x = engine.camera.position.x; engine.step(0.1);
+          by = engine.describe().owned.camera.writer; globalThis.__holder = engine.cameraOverride?.owner;
+        });
+        const stays = engine.camera.position.x === x;
+        engine.look.view.manual('camera', false); engine.step(0.1);
+        const m = engine.look.view.manual('camera'); const mHolder = engine.cameraOverride?.owner; m.remove(); const freed = engine.cameraOverride;
+        const w = [...during.warns, ...after.warns].filter(w => w.includes('camera was changed outside'));
+        return { clean: during.warns.length, n: w.length, takeover: w.every(t => t.includes("engine.takeCamera('me')") && !t.includes("look.view.manual('camera')")), stays, by,
+          back: engine.describe().owned.camera.writer, moved: engine.camera.position.x !== x, holder: globalThis.__holder, mHolder, freed };
       });
       check('no warning when the camera is edited during an override', r.clean === 0, JSON.stringify(r));
-      // the test bundle enables THREEDOG_TEST so ownedProps is active: two edits warn once
-      check('direct camera.position edit: exactly 1 warning', r.n === 1, JSON.stringify(r));
+      check('direct camera.position edit: exactly 1 warning, the rig stops (the value stays), describe().owned says so', r.n === 1 && r.stays && /yielded/.test(r.by), JSON.stringify(r));
+      // the warning's takeover is the one canonical form, takeCamera (the hand-back for the yielded camera stays look.view.manual('camera', false))
+      check("the warning names engine.takeCamera('me') as the takeover", r.takeover, JSON.stringify(r));
+      check('look.view.manual(camera, false) hands it back: the rig places the camera again', r.back === 'engine' && r.moved, JSON.stringify(r));
+      // guard: one camera state. A direct write and look.view.manual are takeCamera holds (cameraOverride names them); remove() frees the camera
+      check('[guard] direct write / look.view.manual(camera) show as the camera holder; hand-back clears it', r.holder === 'three' && r.mHolder === 'manual:game' && r.freed === null, JSON.stringify(r));
     },
   },
   // ---------- Seams (review 6.8): vehicle saves, brake key, rigid-body shadows, fixed camera interrupting a blend, nav version, entity growth ----------
@@ -238,32 +251,18 @@ export const specs = [
     },
   },
   {
-    name: 'B 接缝：实体 canGrow=false 拦得住生长、NPC 删除彻底释放',
-    url: '/tests/entities/index.html',
+    name: 'B 接缝：NPC 删除彻底释放',
+    url: '/tests/placeables/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
-        let allow = false;
-        engine.entities.define('bGrow', {
-          create: e => new e.THREE.Mesh(new e.THREE.BoxGeometry(1, 1, 1), new e.THREE.MeshBasicMaterial()),
-          stages: [{ name: 'a', duration: 1 }, { name: 'b', duration: 1 }, { name: 'c' }],
-          canGrow: () => allow,
-        });
-        const ent = engine.entities.spawn('bGrow', { position: { x: 3, z: 3 } });
-        engine.step(3, { render: false });
-        const blocked = ent.state.stage;
-        allow = true; engine.step(0.1, { render: false });
-        const grown = ent.state.stage;
-        ent.remove();
         const npc = engine.npcs.add({ name: 'b路人', position: { x: 2, z: 2 } });
         engine.step(1 / 60, { render: false });   // the NPC model is world presentation: nearby ones are built on the next fixed step
         const root = npc.root, geo = root?.children[0]?.children[0]?.geometry ?? null;
         let disposed = false; geo?.addEventListener('dispose', () => { disposed = true; });
         engine.npcs.remove(npc);
-        return { blocked, grown, built: !!root, gone: !!root && !root.parent && !engine.world.get(npc.id), disposed: !geo || disposed };
+        return { built: !!root, gone: !!root && !root.parent && !engine.world.get(npc.id), disposed: !geo || disposed };
       });
-      check('canGrow returns false: stays at the first stage', r.blocked === 0, JSON.stringify(r));
-      check('canGrow set to true: growth continues', r.grown > 0, JSON.stringify(r));
       check('npcs.remove: record deleted, model removed from the scene, geometry disposed', r.built && r.gone && r.disposed, JSON.stringify(r));
     },
   },

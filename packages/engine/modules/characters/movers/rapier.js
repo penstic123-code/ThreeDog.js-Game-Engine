@@ -2,35 +2,35 @@
 // Feel parameters (speed, acceleration, jump, air control, swimming) match simple; while physics is not ready or the collision under the feet is not built, simple is used temporarily.
 // Native objects: mover.controller (KinematicCharacterController), mover.body, mover.collider.
 // The player uses rigid.playerBody / playerCollider (rigid syncs it to the player position each step); each NPC builds its own kinematic capsule.
-import { steer, water, float, tryJump, land, finish } from './common.js';
+import { steer, water, float, tryJump, tickJump, leaveGround, land, finish, stat, inherited } from './common.js';
+import { beginMove, endMove } from './support.js';
 
 /** Create the 'rapier' mover (c is the character, fallback is the simple mover used when not ready) */
 export function rapierMover(c, fallback) {
   const m = {
     name: 'rapier', controller: null, body: null, collider: null,
-    move(dirX, dirZ, run, dt, speedOverride) {
+    move(dirX, dirZ, run, dt) {
       const e = c.engine, r = e.rigid, p = c.root.position;
-      if (!r?.ready || !r.groundReady(p)) return fallback.move(dirX, dirZ, run, dt, speedOverride);
-      if (!m.controller) setup(e, r);
-      const col = m.collider, body = m.body.translation();
-      // teleported (placeAt, load, leaving a vehicle): first move the collider to the current position
-      if (Math.abs(body.x - p.x) + Math.abs(body.y - p.y) + Math.abs(body.z - p.z) > 0.3) {
-        m.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true); r.world.propagateModifiedBodyPositionsToColliders();
-      }
-      steer(c, dirX, dirZ, run, dt, speedOverride);
-      const ox = p.x, oz = p.z;
+      if (!r?.ready || !r.groundReady(p)) return fallback.move(dirX, dirZ, run, dt);
+      const fresh = !m.controller || m.gen !== r.gen;   // rigid rebuilt its world (newGame / load, RigidBodies._fresh): the old controller is gone with it
+      if (fresh) setup(e, r);
+      const col = m.collider;
+      // moved outside the mover (placeAt, load, leaving a vehicle, a platform carrying it; support.js tells exactly): the collider goes there first
+      if (beginMove(c) || fresh) { m.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true); r.world.propagateModifiedBodyPositionsToColliders(); }
+      steer(c, dirX, dirZ, run, dt);
+      const ox = p.x, oz = p.z, inh = c.grounded ? null : inherited(c);
 
       // vertical intent: float to the surface when swimming, otherwise gravity + jump
-      c._jumpBuffer -= dt; c._coyote -= dt;
+      tickJump(c, dt);
       let dy;
       if (c.swimming) dy = e.waterAt(p.x, p.z) - c.swimDepth - p.y;
       else {
         tryJump(c);
         if (c.grounded && c.vy <= 0) { c.vy = 0; dy = 0; }   // do not press down while standing (it would break auto step-up); downhill relies on ground snapping
-        else { c.vy += c.gravity * dt; dy = c.vy * dt; }
+        else { c.vy += stat(c, 'gravity') * dt; dy = c.vy * dt; }
       }
       const wasGrounded = c.grounded;
-      m.controller.computeColliderMovement(col, { x: c.velocity.x * dt, y: dy, z: c.velocity.y * dt }, r.R.QueryFilterFlags.EXCLUDE_DYNAMIC | r.R.QueryFilterFlags.EXCLUDE_SENSORS);
+      m.controller.computeColliderMovement(col, { x: (c.velocity.x + (inh?.x ?? 0)) * dt, y: dy, z: (c.velocity.y + (inh?.y ?? 0)) * dt }, r.R.QueryFilterFlags.EXCLUDE_DYNAMIC | r.R.QueryFilterFlags.EXCLUDE_SENSORS);
       const mv = m.controller.computedMovement();
       p.x += mv.x; p.y += mv.y; p.z += mv.z;
       // hit a wall (not stepping up): velocity becomes the wall-sliding velocity, so standing at a wall does not keep walking
@@ -39,18 +39,20 @@ export function rapierMover(c, fallback) {
       const grounded = m.controller.computedGrounded();
       if (c.vy > 0 && mv.y < dy * 0.5) c.vy = 0;                                   // hit the ceiling
 
-      const { swimY } = water(c, ox, oz);
+      const { swimY, ground, hit } = water(c, ox, oz);
       if (c.swimming) float(c, swimY);
       else if (grounded && !wasGrounded && c.vy <= 0) land(c, -c.vy);
-      else if (!grounded && wasGrounded && c.vy <= 0) { c.grounded = false; c._coyote = c.coyoteTime; }   // walked off an edge
+      else if (!grounded && wasGrounded && c.vy <= 0) leaveGround(c);   // walked off an edge
       else c.grounded = grounded;
       if (m.body !== r.playerBody) m.body.setNextKinematicTranslation({ x: p.x, y: p.y, z: p.z });
       finish(c, dt);
+      endMove(c, dt, hit && Math.abs(ground - p.y) < 0.1 ? hit : null, 'collider');   // a support counts when the capsule stands on its top
     },
     /** Called when the character is deleted: release the NPC's own capsule and controller */
     dispose() {
       const r = c.engine.rigid;
       if (!m.controller) return;
+      if (m.gen !== r.gen) { m.controller = m.body = m.collider = null; return; }   // built for a world that was rebuilt (and freed) since
       r.world.removeCharacterController(m.controller);
       if (m.body !== r.playerBody) r.world.removeRigidBody(m.body);
       m.controller = m.body = m.collider = null;
@@ -59,6 +61,7 @@ export function rapierMover(c, fallback) {
 
   function setup(e, r) {
     const R = r.R, w = r.world, p = c.root.position;
+    m.gen = r.gen;
     if (c === e.player) { m.body = r.playerBody; m.collider = r.playerCollider; }
     else {
       const hh = r.playerCapsule.halfHeight;

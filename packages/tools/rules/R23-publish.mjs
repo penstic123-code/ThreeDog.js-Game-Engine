@@ -51,6 +51,19 @@ export default {
         if (re.test(line)) out.push({ level: 'error', file: f, line: i + 1, msg: `generated engine doc names a private game: ${line.match(re)[0]}`, fix: 'the generator must scan the engine only (see codemap.mjs); then npm run map' });
       });
     }
+    // Shipped engine code (examples included, tests excluded) must not import a private workspace package ("private": true, never published):
+    // the import resolves inside this repository and breaks for every user who installs the engine. Checked here because the outside-the-repo
+    // install test (pack-external) is slow and rarely run.
+    if (P.MODE === 'monorepo') {
+      const priv = files.filter(f => basename(f) === 'package.json').map(f => { try { return JSON.parse(read(f)); } catch { return {}; } })
+        .filter(p => p.private && p.name).map(p => p.name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'));
+      const re = priv.length && new RegExp(`(?:from|import)\\s*\\(?\\s*['"](${priv.join('|')})(?:['"/])`);
+      if (re) for (const f of walk(P.ENGINE_REL, ['.js', '.mjs', '.ts']).filter(f => !P.under(f, P.ENGINE_TESTS_REL))) read(f).split('\n').forEach((line, i) => {
+        if (/^\s*(\/\/|\*)/.test(line) || !re.test(line)) return;
+        out.push({ level: 'error', file: f, line: i + 1, msg: `published engine file imports the private package ${line.match(re)[1]}`,
+          fix: "give the file its own copy (an example keeps its look in its own style/ folder) or move it under tests/" });
+      });
+    }
     out.note = `${files.length} publishable files scanned`;
     return out;
   },

@@ -1,8 +1,9 @@
 // Main-thread side of terrain({ shape }): checks the options and turns its functions into source text for the workers (the same rules as
 // height / groundType), keeps the side material out of the worker config, and watches for things falling out of the world (terrain:void).
 // The engine does not respawn anything: what falling off means (respawn, damage, a cutscene) is the game's choice.
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { compilePure } from '../../core/threadPure.js';
+import { codedError } from '../../core/errorHints.js';
 
 const NO_MASK = 'terrain({ shape }): mask is required, a pure (x, z, n) => number that is > 0 where there is ground, '
   + 'e.g. mask: (x, z) => 40 - Math.hypot(x, z), or a gray image { url, size: [200, 200], threshold: 0.5 }';
@@ -11,12 +12,12 @@ const src = (v, label) => (typeof v === 'function' ? compilePure(v, label).src :
 /** Validate cfg.shape and replace it with its worker-safe form (in place). Returns side.material (main thread only) or null */
 export function prepareShape(cfg) {
   const s = cfg.shape;
-  checkOptions('terrain({ shape })', s, ['mask', 'edge', 'side', 'bottom', 'voidY']);
-  if (s.mask == null) throw new Error(NO_MASK);
-  if (typeof s.mask === 'object') checkOptions('terrain({ shape: { mask } })', s.mask, ['url', 'data', 'width', 'height', 'size', 'center', 'threshold']);
-  checkOptions('terrain({ shape: { edge } })', s.edge || {}, ['noise', 'size', 'jitter', 'round']);
-  checkOptions('terrain({ shape: { side } })', s.side || {}, ['depth', 'ground', 'material']);
-  if (s.bottom) checkOptions('terrain({ shape: { bottom } })', s.bottom, ['depth', 'ground']);
+  readParams('terrain({ shape })', keysSchema(['mask', 'edge', 'side', 'bottom', 'voidY']), s);
+  if (s.mask == null) throw codedError('terrain-option', NO_MASK);
+  if (typeof s.mask === 'object') readParams('terrain({ shape: { mask } })', keysSchema(['url', 'data', 'width', 'height', 'size', 'center', 'threshold']), s.mask);
+  readParams('terrain({ shape: { edge } })', keysSchema(['noise', 'size', 'jitter', 'round']), s.edge || {});
+  readParams('terrain({ shape: { side } })', keysSchema(['depth', 'ground', 'material']), s.side || {});
+  if (s.bottom) readParams('terrain({ shape: { bottom } })', keysSchema(['depth', 'ground']), s.bottom);
   const { material = null, ...side } = s.side || {};
   side.depth = src(side.depth, 'terrain({ shape: { side: { depth } } })');
   cfg.shape = { ...s, mask: src(s.mask, 'terrain({ shape: { mask } })'), side,

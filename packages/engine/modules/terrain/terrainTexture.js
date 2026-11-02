@@ -21,12 +21,10 @@ export function mountColorMap(m, c, t, ox, oz) {
   applyEffects(mat, { clouds: false, patches: [{
     name: 'terrainColorMap', cacheKey: 1, needs: { patches: ['world'] },
     uniforms: { uTColorMap: { value: tex }, uTColorRect: { value: rect } },
-    glsl: { fragment: {
-      pars: 'uniform sampler2D uTColorMap; uniform vec4 uTColorRect;',
-      // before the vertex colors (white on a textured top): every after-patch on color_fragment, such as the season tint in 'mix'
-      // mode, then sees the mapped color instead of having it multiplied back over its result
-      color_fragment: { before: 'diffuseColor.rgb *= texture2D(uTColorMap, (vThreedogWorld.xz - uTColorRect.xy) * uTColorRect.z + uTColorRect.w).rgb;' },
-    } },
+    pars: 'uniform sampler2D uTColorMap; uniform vec4 uTColorRect;',
+    // slot 'map' (before the vertex colors, white on a textured top): every 'color' patch, such as the season tint in 'mix'
+    // mode, then sees the mapped color instead of having it multiplied back over its result
+    slot: 'map', glsl: 'diffuseColor.rgb *= texture2D(uTColorMap, (vThreedogWorld.xz - uTColorRect.xy) * uTColorRect.z + uTColorRect.w).rgb;',
   }] });
   c.colorTex = tex; c.colorMat = mat;
   return mat;

@@ -1,35 +1,35 @@
 // look.sky: the sky dome as a look part.
 //   set({ clouds: { coverage, scale, speed, opacity, softness, color, shade }, backdrop })   live uniforms of the dome; backdrop = one flat color instead of the dome
-//   patch('clouds', glsl)                       the cloud function threedogClouds (clouds.js); null gives the style / built-in kind back
+//   patch('clouds', glsl | { glsl, uniforms })  the cloud function threedogClouds (clouds.js), the one way to write your own; null gives the built-in kind back
 //   patch('layer:<name>', glsl | { glsl, uniforms, order, blend })   add or change a named dome layer (domeLayers.js); null removes it
 //   replace(skybox name | Texture | Object3D)   the dome gives way to a panorama or your own background object; null gives the dome back
-// Layers used to be an array addressed by index (style.sky.layers); they are named now. A style's array entries are named by their `name` key, else layer0, layer1 ...
+// Dome layers are addressed by name; a style's array of layers (style.sky.layers) names its entries by their `name` key, else layer0, layer1 ...
 // A hook change rebuilds the dome shader text and recompiles that one material (a hitch, so do it at a scene change, not every frame).
 import * as THREE from 'three';
 import { defineLookPart, REPLACE } from '../../core/look/part.js';
 import { resolveClouds } from './clouds.js';
 import { resolveDomeLayers } from './domeLayers.js';
 import { domeFragment, loadSkybox } from './shader.js';
-import { domeFog } from './fog.js';
+import { DOME_FOG } from './fog.js';
 import { resolveBackdrop } from './look.js';
 
 const LAYER = 'layer:';
 const CLOUD_KEYS = { 'clouds.coverage': 'uCloudCover', 'clouds.scale': 'uCloudScale', 'clouds.speed': 'uCloudSpeed', 'clouds.opacity': 'uCloudOpacity',
   'clouds.softness': 'uCloudSoft', 'clouds.color': 'uCloudColor', 'clouds.shade': 'uCloudShade' };
 const isColorLike = v => typeof v === 'number' || typeof v === 'string' || !!v?.isColor;
-const glslOf = v => (typeof v === 'string' ? v : v?.glsl);
+const colorOrFn = v => (isColorLike(v) || typeof v === 'function' ? null : `must be a color (0xefebe4, '#efebe4') or ({ time, state }) => color; got ${JSON.stringify(v)}`);
 
 /** @param {any} sky @param {object} st style.sky merged with the sky({ ... }) options */
 export function defineSkyLook(sky, st) {
   const e = sky.engine, scene = e.scene, U = sky.uniforms;
-  let part, added = null;
+  let part, added = null, addedHere = false;
   const layers = new Map((Array.isArray(st.layers) ? st.layers : []).map((l, i) => [l?.name ?? `layer${i}`, l]));
 
   // The dome shader from the current clouds function and layers; throws (changing nothing) when a hook is not valid GLSL for its contract
   const rebuild = (cloudsHook, map) => {
-    const cl = resolveClouds({ ...(st.clouds ?? {}), glsl: glslOf(cloudsHook), uniforms: { ...(st.clouds?.uniforms), ...(cloudsHook?.uniforms) } });
+    const cl = resolveClouds(st.clouds, cloudsHook);
     const l = resolveDomeLayers([...map.values()].map(v => (typeof v === 'string' ? { glsl: v } : v)));
-    const f = 'uFogColor' in U ? domeFog({ color: 'fog' }) : { decl: '', body: '' };   // the fog band exists only when the start fog color was not 'horizon'
+    const f = DOME_FOG;   // the fog band is always in the dome, switched by a uniform (fog.js)
     const text = domeFragment(cl, { decl: [f.decl, l.decl].filter(Boolean).join('\n'), body: f.body + l.body });
     return { text, uniforms: { ...cl.uniforms, ...l.uniforms } };
   };
@@ -65,14 +65,16 @@ export function defineSkyLook(sky, st) {
       'clouds.softness': { ...num(cloudDesc.softness), neutral: true, default: 0.3 },
       'clouds.color': { type: 'any', default: '#f4f4f4', neutral: true, cost: 'uniform', desc: cloudDesc.color },
       'clouds.shade': { type: 'any', default: '#aaaaaa', neutral: true, cost: 'uniform', desc: cloudDesc.shade },
-      backdrop: { type: 'any', default: null, neutral: true, cost: 'uniform', desc: 'a flat color (or (sky) => color) in place of the dome: no gradient, sun, moon, stars or clouds; null = the dome',
-        check: v => (isColorLike(v) || typeof v === 'function' ? null : `must be a color (0xefebe4, '#efebe4') or (sky) => color; got ${JSON.stringify(v)}`) },
+      backdrop: { type: 'any', default: null, neutral: true, fn: true, cost: 'uniform', desc: 'a flat color (or ({ time, state }) => color) in place of the dome: no gradient, sun, moon, stars or clouds; null = the dome',
+        check: colorOrFn },
+      // over the keyframes (null = the keyframes' color): a fixed color, or a function of the frame context (core/look/state.js) evaluated by frame.js
+      top: { type: 'any', default: null, neutral: true, fn: true, cost: 'uniform', desc: "zenith color over style.sky.keyframes: a color or ({ time, weather, season, state, sky }) => color; null = the keyframes", check: colorOrFn },
+      horizon: { type: 'any', default: null, neutral: true, fn: true, cost: 'uniform', desc: "horizon color over the keyframes (fog 'horizon' and the hemisphere follow it): a color or a function; null = the keyframes", check: colorOrFn },
     },
     style: () => ({
       'clouds.coverage': U.uCloudCover.value, 'clouds.scale': U.uCloudScale.value, 'clouds.speed': U.uCloudSpeed.value.toArray(), 'clouds.opacity': U.uCloudOpacity.value,
       'clouds.softness': U.uCloudSoft.value, 'clouds.color': '#' + U.uCloudColor.value.getHexString(), 'clouds.shade': '#' + U.uCloudShade.value.getHexString(),
       ...(st.backdrop != null ? { backdrop: st.backdrop } : {}),
-      ...(st.clouds?.glsl ? { 'hook:clouds': st.clouds.glsl } : {}),
       ...Object.fromEntries([...layers].map(([n, l]) => [`hook:${LAYER}${n}`, l])),
       ...(st.skybox ? { [REPLACE]: st.skybox } : {}),
     }),
@@ -94,15 +96,27 @@ export function defineSkyLook(sky, st) {
       apply(rebuild(part.value('hook:clouds'), next));   // throws before anything changes when the layer's GLSL is not valid
       layers.clear(); for (const [k, v] of next) layers.set(k, v);
     },
-    validate: (k, v) => k === REPLACE && typeof v !== 'string' && !v?.isTexture && !v?.isObject3D ? 'is a skybox asset name, a THREE.Texture or a THREE.Object3D; null gives the dome back' : null,
-    replace: { accepts: 'a skybox name (equirectangular panorama asset) | a THREE.Texture | a THREE.Object3D used as the background', loses: ['the gradient dome, sun and moon discs, stars, clouds and dome layers'] },
+    validate: (k, v) => k !== REPLACE ? null : v === false ? 'false is not a sky: give the dome back with engine.look.sky.replace(null)'
+      : typeof v !== 'string' && !v?.isTexture && !v?.isObject3D ? 'is a skybox asset name, a THREE.Texture or a THREE.Object3D; null gives the dome back' : null,
+    replace: { accepts: 'a skybox name (equirectangular panorama asset) | a THREE.Texture / CubeTexture | your own THREE.Object3D sky (three/addons Sky, a ShaderMaterial dome); the engine never writes it and keeps feeding engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind ...)',
+      loses: ['the gradient dome, sun and moon discs, stars, clouds and dome layers (time, lights, fog, weather and the uniforms keep running)'] },
+    // The game's own sky (three/addons Sky, a ShaderMaterial dome, a skybox texture) is never written: the engine only hides its dome, adds the
+    // object to the scene when it has no parent yet (and takes it out again on hand-back only then), and keeps feeding time / weather / season
+    // through engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind, uCloud ...) and the day / season / weather events. A plain Texture gets its
+    // panorama mapping on a clone, so the game's texture object stays as it was.
     applyReplace(impl) {
-      if (added) { scene.remove(added); added = null; }
+      if (added) { if (addedHere) scene.remove(added); added = null; addedHere = false; }
+      sky._ownSky = null;
       if (impl == null) { sky.skybox = null; scene.background = sky._backdrop?.color ?? null; sky.dome.visible = !sky._backdrop; return; }
       sky.dome.visible = false;
       if (typeof impl === 'string') loadSkybox(sky, impl);
-      else if (impl.isTexture) { impl.mapping = THREE.EquirectangularReflectionMapping; scene.background = impl; sky.skybox = impl; }
-      else if (impl.isObject3D) { scene.add(impl); added = impl; scene.background = null; sky.skybox = null; }
+      else if (impl.isTexture) {
+        const tex = impl.isCubeTexture || impl.mapping !== THREE.UVMapping ? impl : Object.assign(impl.clone(), { mapping: THREE.EquirectangularReflectionMapping });
+        scene.background = tex; sky.skybox = tex;
+      } else if (impl.isObject3D) {
+        addedHere = !impl.parent; if (addedHere) scene.add(impl);
+        added = impl; sky._ownSky = impl; scene.background = null; sky.skybox = null;
+      }
     },
   });
 }

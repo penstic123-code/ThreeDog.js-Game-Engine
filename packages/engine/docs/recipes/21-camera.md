@@ -1,5 +1,9 @@
 # Camera: first / third person, top-down strategy, fixed shots, switched at runtime
 
+**In this recipe**: 1. Press V to switch between first and third person · 2. What the engine does for you when switching · 3. Other common things ·
+4. Over the shoulder, lock-on framing, mouse lock · 4b. Looking up, ground and walls, driving the view yourself · 5. Take over the player ·
+6. Orthographic view, and taking the camera over yourself · 7. Your own camera module
+
 Four cameras; the kind names are always: `'follow'` third-person follow · `'firstPerson'` first person · `'rts'` top-down strategy · `'fixed'` fixed shots.
 Pick one at the start: `openWorld({ camera: 'firstPerson' })`, or by hand `engine.use(followCamera({ distance: 10 }))` /
 `firstPersonCamera({ height: 1.7 })` / `rtsCamera()` / `fixedCamera({ shots })`.
@@ -60,6 +64,24 @@ engine.cameraRig.frame(enemy.object);   // lock-on: turn to "behind the player, 
   mouse / stick yaw is ignored and a `yaw` you write directly is pulled back, because `frame()` owns the heading; `frame(null)` hands it back.
   `forward()` turns with it, so camera-relative movement strafes around the target.
 - Only the follow camera has `frame`, `shoulder` and `pointerLock`; check `engine.cameraRig.kind === 'follow'` after a runtime switch.
+
+## 4b. Looking up, ground and walls, driving the view yourself (follow camera)
+```js
+engine.use(followCamera(presets.camera.thirdPersonAction));   // locked mouse, look up ~60° and down, ground shortens the arm, walls pull in
+engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the same idea on your own options
+```
+- **Pitch sign**: positive = the camera is above the look point looking down; **negative = looking up**. Looking up needs `minPitch < 0`.
+- **`ground`** decides what happens when the camera would go below the ground:
+  `'shorten'` slides it along the arm toward the player (the view direction is kept, so you really look up);
+  `'raise'` lifts it straight up (the view direction changes: from flat ground you cannot look up);
+  `'none'` leaves it; a function `facts => position | null` gets `{ position, lookPoint, dir, arm, distance, groundY, clearance, surface, rig }`.
+  Default: `'shorten'` when `minPitch < 0`, otherwise `'raise'` (the older behaviour, fine for a camera that never looks up).
+- **Walls** (with `collision()` installed) pull the arm in at once and let it out slowly; the shortest arm is `collision({ cameraMin })` (default 1.5 m).
+- **Close-up**: when the camera ends up nearer than `hideTargetNear` (default 0.9 m) to the look point, the followed object is hidden from the
+  camera (shadow stays, layer `hideLayer`); `hideTargetNear: 0` turns it off.
+- **Drive the view from game code**: `engine.cameraRig.setView({ yaw, pitch, distance })` (clamped to the pitch / zoom ranges) and
+  `getView()` → `{ yaw, pitch, distance, arm, lookPoint, look }` (`look` is the 3D view direction, `arm` the actual length this frame).
+  With `mouseLook: false` the built-in mouse / stick look and wheel zoom are off and the game owns yaw and pitch (call `setView` every frame from `onFrame`).
 
 ## 5. Take over the player: your own movement, facing and lock-on
 The engine has no default here: `createPlayer` needs `control` (a preset such as `presets.player.thirdPerson` gives keys relative to the camera, Shift
@@ -151,3 +173,9 @@ ortho.position.set(10, 10, 10); ortho.lookAt(0, 0, 0); fit(); addEventListener('
 
 Swapping the object only works while no post effect is active: the post chain's scene pass keeps the camera it was built with. With post effects, use
 `projection: 'orthographic'` above instead.
+
+## 7. Your own camera module
+Everything else in the engine reads only what `modules/camera/contract.js` lists from `engine.cameraRig`: `forward()` / `right()` (control: 'camera',
+faceMode 'camera', targeting), `follow(object, opts?)` (createPlayer, getting in and out of a vehicle), `focusPoint()` (photo, where the world loads)
+and `screenToGround(ndcX, ndcY)` (click-to-move, placing things; every built-in kind has it). A module named `cameraRig` with those five methods
+replaces the built-in cameras: `tests/contract/fakeCamera.js` in the engine repository is one in ~35 lines and the player walks with it.

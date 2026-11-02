@@ -1,17 +1,18 @@
-// Sky cloud layer for the dome shader: built-in kinds ('plane' default, 'cumulus') or a style-pack GLSL function, plus the
-// uniforms they read. Split out of shader.js so a look can be replaced without touching the dome.
+// Sky cloud layer for the dome shader: built-in kinds ('plane' default, 'cumulus') or your own GLSL function (look.sky.patch('clouds')),
+// plus the uniforms they read. Split out of shader.js so a look can be replaced without touching the dome.
 //
-// Every kind implements the same function, which is the contract for style.sky.clouds.glsl too:
+// Every kind implements the same function, which is the contract for engine.look.sky.patch('clouds', glsl | { glsl, uniforms }) too:
 //   vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)
 //   dir      unit view direction, dir.y > 0 (only the upper hemisphere calls it; cover > 0.01)
 //   time     seconds (engine.uniforms.uTime); sunDir unit vector towards the sun (moon is opposite); night 0 day .. 1 night
 //   lit/shade style cloud colors (clouds.color / clouds.shade); cover = weather cloud amount * clouds.coverage, 0..1+
 //   returns  rgb = final cloud color, a = opacity 0..1 (the dome does mix(sky, rgb, a)); apply your own horizon fade
 // In scope for your code: threedogHash(vec2), threedogNoise(vec2), the built-in cloud uniforms (uCloudScale, uCloudSpeed,
-// uCloudHorizon, uCloudFade, uCloudSoft, uCloudOpacity, uCloudMul, uCloudWeights, uCloudRelief) and your clouds.uniforms.
+// uCloudHorizon, uCloudFade, uCloudSoft, uCloudOpacity, uCloudMul, uCloudWeights, uCloudRelief) and the patch's own uniforms.
 import * as THREE from 'three';
 import { closest } from '../../core/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
+import { codedError } from '../../core/errorHints.js';
 
 const KINDS = ['plane', 'cumulus'];
 
@@ -52,16 +53,23 @@ vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3
   return vec4(cc, body * smoothstep(uCloudFade.x, uCloudFade.y, d.y) * uCloudOpacity);
 }`;
 
-/** Checks style.sky.clouds and returns { kind, glsl, uniforms: {name: {value}}, decl: GLSL declarations of the custom uniforms } */
-export function resolveClouds(c) {
+/**
+ * Checks style.sky.clouds and returns { kind, glsl, uniforms: {name: {value}}, decl: GLSL declarations of the custom uniforms }.
+ * Your own cloud function is the look hook only, engine.look.sky.patch('clouds', glsl | { glsl, uniforms }), never a style key: one shader
+ * injection entry per look value, so style.sky.clouds.glsl / .uniforms throw and name the hook.
+ * @param {any} c style.sky.clouds @param {string | { glsl?: string, uniforms?: object } | null} [hook] look.sky's 'hook:clouds' value
+ */
+export function resolveClouds(c, hook) {
   const kind = c?.kind ?? 'plane';
-  if (!KINDS.includes(kind)) throw new Error(`style.sky.clouds.kind '${kind}' is not a cloud kind; use ${KINDS.map(k => `'${k}'`).join(' | ')}` + (closest(kind, KINDS) ? ` (did you mean '${closest(kind, KINDS)}'?)` : ''));
+  if (!KINDS.includes(kind)) throw codedError('sky-option', `style.sky.clouds.kind '${kind}' is not a cloud kind; use ${KINDS.map(k => `'${k}'`).join(' | ')}` + (closest(kind, KINDS) ? ` (did you mean '${closest(kind, KINDS)}'?)` : ''));
+  for (const k of ['glsl', 'uniforms']) if (c?.[k] != null) throw codedError('sky-option', `style.sky.clouds.${k} is not an option; your own cloud function goes through the look hook: engine.look.sky.patch('clouds', { glsl, uniforms }) (signature in modules/sky/clouds.js)`);
+  const h = typeof hook === 'string' ? { glsl: hook } : hook;
   let glsl = kind === 'cumulus' ? CUMULUS : PLANE;
-  if (c?.glsl != null) {
-    if (typeof c.glsl !== 'string' || !/vec4\s+threedogClouds\s*\(/.test(c.glsl)) throw new Error('style.sky.clouds.glsl must be GLSL that defines `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)` returning (rgb color, alpha); see modules/sky/clouds.js');
-    glsl = c.glsl;
+  if (h?.glsl != null) {
+    if (typeof h.glsl !== 'string' || !/vec4\s+threedogClouds\s*\(/.test(h.glsl)) throw codedError('sky-option', "look.sky.patch('clouds'): glsl must define `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)` returning (rgb color, alpha); see modules/sky/clouds.js");
+    glsl = h.glsl;
   }
-  const { uniforms, decl } = declareUniforms('style.sky.clouds.uniforms', c?.uniforms);
+  const { uniforms, decl } = declareUniforms("look.sky.patch('clouds').uniforms", h?.uniforms);
   return { kind, glsl, uniforms, decl };
 }
 

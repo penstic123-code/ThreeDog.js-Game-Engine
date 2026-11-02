@@ -44,8 +44,8 @@ export const TYPES_GEN_REL = `${TYPES_REL}/generated`;
  */
 export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/ui/UI.js`, `${ENGINE_REL}/ui/Focus.js`, `${ENGINE_REL}/ui/LoadingScreen.js`,
-  `${ENGINE_REL}/render/materials.js`, `${ENGINE_REL}/render/patches.js`, `${ENGINE_REL}/render/PostFX.js`,
-  `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
+  `${ENGINE_REL}/render/materials.js`, `${ENGINE_REL}/render/modeling.js`, `${ENGINE_REL}/render/patches.js`, `${ENGINE_REL}/render/PostFX.js`,
+  `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/calendar/Calendar.js`, `${ENGINE_REL}/modules/calendar/index.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
   `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Views.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/DebugOverrides.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
@@ -59,7 +59,7 @@ export const STABILITY = {
     [`${ENGINE_REL}/core/Threads.js`, 'Threads'],
     [`${ENGINE_REL}/modules/grid/index.js`, 'grids'], [`${ENGINE_REL}/modules/grid/index.js`, 'Grids'], [`${ENGINE_REL}/modules/grid/Grid.js`, 'Grid'], [`${ENGINE_REL}/modules/grid/Layer.js`, 'Layer'],
     [`${ENGINE_REL}/types/world.d.ts`, 'edit'],
-    [`${ENGINE_REL}/render/PostFX.js`, 'add'], [`${ENGINE_REL}/render/PostFX.js`, 'get'], [`${ENGINE_REL}/render/PostFX.js`, 'enable'], [`${ENGINE_REL}/render/PostFX.js`, 'list'],
+    [`${ENGINE_REL}/render/PostFX.js`, 'get'], [`${ENGINE_REL}/render/PostFX.js`, 'list'],
     [`${ENGINE_REL}/core/Stream.js`, 'source'], [`${ENGINE_REL}/core/Stream.js`, 'sources'], [`${ENGINE_REL}/core/Stream.js`, 'teleport'], [`${ENGINE_REL}/core/Stream.js`, 'readyCheck'],
     [`${ENGINE_REL}/modules/hlod/index.js`, 'hlod'],
     [`${ENGINE_REL}/core/Ops.js`, 'guard'], [`${ENGINE_REL}/core/Ops.js`, 'allow'],
@@ -101,8 +101,12 @@ export const EVENTS_GEN_REL = `${CORE_REL}/events.generated.js`;
 export const CORE_DTS_REL = `${TYPES_REL}/core.d.ts`;
 export const I18N_CORE_REL = `${CORE_REL}/I18n.js`;
 export const CONTENT_RULES_REL = `${MODULES_REL}/content/rules.js`;
+/** Content field tables (placement fields, template / kind fields): content-check validates entries with them */
+export const CONTENT_FIELDS_REL = `${MODULES_REL}/content/fields.js`;
 /** Content id rules (index ids, missingIds): read by `threedog content ids` */
 export const CONTENT_IDS_REL = `${MODULES_REL}/content/ids.js`;
+/** Template stages rules (Node-safe): content-check accepts the same stages the engine does */
+export const CONTENT_STAGES_REL = `${MODULES_REL}/content/stages.js`;
 export const BAKED_REL = `${CORE_REL}/Baked.js`;
 export const ENGINE_SPECS = abs(`${ENGINE_TESTS_REL}/specs.mjs`);
 /** Package name games use to import the engine (the d.ts types hang on this package too) */
@@ -188,8 +192,10 @@ export function workspaceOf(dir) {
 export function findWorkspace(name) {
   if (!name) return null;
   const list = workspaces();
-  const n = String(name).replace(/\/$/, '');
-  const exact = list.find(d => rel(d) === n || basename(d) === n || '@threedog/' + basename(d) === n || (d === ENGINE && (n === 'engine' || n === ENGINE_PKG)));
+  const n = String(name).replace(/[\\/]$/, '');
+  // a path from the current folder ('.', '../farm', an absolute path) names the workspace at that path: `check -w .` inside a game said "not found"
+  const at = resolve(n);
+  const exact = list.find(d => d === at || rel(d) === n || basename(d) === n || '@threedog/' + basename(d) === n || (d === ENGINE && (n === 'engine' || n === ENGINE_PKG)));
   if (exact) return exact;
   const part = list.filter(d => basename(d).includes(n));
   if (part.length > 1) throw new Error(`workspace "${n}" is ambiguous, matches: ${part.map(rel).join(', ')}`);
@@ -199,15 +205,20 @@ export function findWorkspace(name) {
 /**
  * The workspace a CLI command operates on: `-w name` / `--workspace name` in the arguments wins; otherwise the workspace of the current directory (with npm run
  * xx -w games/a the cwd is that one);
- * otherwise the fallback (the engine package by default). Returns { dir, args }, with the -w arguments removed from args.
+ * otherwise (with live) the one workspace whose dev server runs; otherwise the fallback (the engine package by default). Returns { dir, args }, with the -w arguments removed from args.
  */
-export function pickWorkspace(argv, { cwd = process.cwd(), fallback = ENGINE } = {}) {
+export function pickWorkspace(argv, { cwd = process.cwd(), fallback = ENGINE, live = false } = {}) {
   const args = [...argv];
   const i = args.findIndex(a => a === '-w' || a === '--workspace');
   if (i >= 0) {
     const name = args[i + 1]; args.splice(i, 2);
     const dir = findWorkspace(name);
-    if (!dir) throw new Error(`workspace "${name}" not found. Available: ${workspaces().map(rel).join(', ')}`);
+    if (!dir) {
+      // a game folder that is not one of this project's workspaces (e.g. a game kept outside games/ in the monorepo) is its own project: the command must run there
+      const other = name && existsSync(join(resolve(name), 'package.json')) && project(resolve(name)).root !== ROOT;
+      throw new Error(`workspace "${name}" not found. Available: ${workspaces().map(rel).join(', ')}` +
+        (other ? `. "${name}" is a game folder of its own: run the command inside it (cd ${name} && npx threedog ${process.argv[2] ?? '<command>'})` : ''));
+    }
     return { dir, args };
   }
   const here = workspaceOf(cwd);
@@ -217,6 +228,13 @@ export function pickWorkspace(argv, { cwd = process.cwd(), fallback = ENGINE } =
   for (let d = resolve(cwd); d === ROOT || d.startsWith(ROOT + sep); d = dirname(d)) {
     if (devServerInfo(d).state === 'live') return { dir: d, args };
     if (d === ROOT) break;
+  }
+  // live (the dev bridge commands): at the repo root nothing above says which game is meant, but the running dev servers do. One -> that one;
+  // several -> the caller must pick; falling back to the engine example said "no dev server is running" while a game's server was up
+  if (live) {
+    const up = workspaces().filter(w => devServerInfo(w).state === 'live');
+    if (up.length === 1) return { dir: up[0], args };
+    if (up.length > 1) throw new Error(`${up.length} dev servers are running (${up.map(rel).join(', ')}): pick one with -w, e.g. -w ${rel(up[0])}`);
   }
   return { dir: fallback, args };
 }
@@ -230,5 +248,11 @@ export function onlyGames(all, argv = process.argv.slice(2)) {
 
 /** Whether a file is under a directory (both as paths relative to the repo root) */
 export const under = (file, dirRel) => file === dirRel || file.startsWith(dirRel + '/');
+/**
+ * A game's art code (a path relative to ROOT, / separated): the style/ and art/ folders, assets.js, art.js. Procedural models, textures and
+ * hand-made three.js materials belong there (AI.md "Looks are plain three.js"), so R1 does not warn about its size below the error limit and
+ * R40 does not point its materials at makeMaterial.
+ */
+export const isArtFile = f => /(^|\/)(style|art)\//.test(f) || /(^|\/)(assets|art)\.m?js$/.test(f);
 /** Whether it is an existing file */
 export const isFile = p => existsSync(p) && statSync(p).isFile();

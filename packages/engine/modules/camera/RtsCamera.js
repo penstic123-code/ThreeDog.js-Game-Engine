@@ -2,7 +2,7 @@
 //   - Arrow keys / WASD pan (screen-relative), hold the mouse to drag-pan (grab the ground), mouse at the screen edge pans (edgePan)
 //   - Wheel zooms (changes camera height), Q/R rotate (actions rotateLeft / rotateRight, rebindable)
 //   - The focus always sticks to the ground (engine.surface); bounds limits the range
-//   - screenToGround(ndcX, ndcY) -> ground point under a screen point (for click-to-move and placing buildings)
+//   - screenToGround(ndcX, ndcY) -> ground point under a screen point (for click-to-move and placing buildings; every camera kind has it, common.js)
 //   - After follow(object) the focus tracks it (done automatically when the player is created) and WASD goes to the character; manual drag/edge pan drops the follow (unless followLock: true)
 //     To not follow: call engine.cameraRig.follow(null) after creating the player, and WASD pans the camera
 // Cutscene takeover: while someone holds engine.takeCamera (engine.cameraOverride is not null) the camera is left alone (see common.js).
@@ -11,8 +11,9 @@
 //   const p = engine.cameraRig.screenToGround(engine.input.pointer.ndcX, engine.input.pointer.ndcY);
 //   engine.cameraRig.moveTo(position);   // move the view somewhere; { instant: true } skips smoothing
 import * as THREE from 'three';
-import { rigModule, defineRig, screenToGround, CAMERA_STRINGS, YAW_RIG } from './common.js';
+import { rigModule, defineRig, CAMERA_STRINGS, YAW_RIG } from './common.js';
 import { xzOf } from '../../core/math.js';
+import { setFov } from '../../core/look/coreParts.js';
 import { surfaceOr } from '../../core/ground.js';
 
 export class RtsCamera {
@@ -47,13 +48,11 @@ export class RtsCamera {
 
   /** Follow an object (called automatically when the player is created). While following, WASD moves the character; manual drag/edge pan drops the follow (not with followLock) */
   /** Called when this camera is switched in (module install, setCamera): applies fov */
-  onEnter() { if (this.fov) { this.engine.camera.fov = this.fov; this.engine.camera.updateProjectionMatrix(); } }
+  onEnter() { if (this.fov) setFov(this.engine, this.fov); }
   follow(obj) { this.target = obj; this.following = !!obj; if (obj) this.moveTo(obj); }
   /** Move the view somewhere; with instant true there is no smoothing */
   moveTo(position, { instant = false } = {}) { const [x, z] = xzOf(position); this.focus.set(x, 0, z); this._clamp(); if (instant) { this._f.copy(this.focus); this._place(); } }
   focusPoint() { return this._f; }
-  /** Screen coordinates (-1..1) -> point on the ground (THREE.Vector3); null if the ray misses the ground */
-  screenToGround(ndcX, ndcY) { return screenToGround(this.engine, ndcX, ndcY); }
 
   update(dt, input) {
     const on = input.enabled;

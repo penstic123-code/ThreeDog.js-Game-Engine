@@ -1,4 +1,4 @@
-// Gamepad (standard layout) button names; like keyboard key names they can go into action bindings
+// Gamepad buttons. Standard layout names; like keyboard key names they can go into action bindings
 const PAD_BUTTONS = ['PadA', 'PadB', 'PadX', 'PadY', 'PadLB', 'PadRB', 'PadLT', 'PadRT', 'PadSelect', 'PadStart', 'PadL3', 'PadR3', 'PadUp', 'PadDown', 'PadLeft', 'PadRight'];
 
 /** Read the first connected gamepad into the input's keys, stick and look (every frame, allocates nothing) @internal */

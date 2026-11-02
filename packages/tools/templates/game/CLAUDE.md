@@ -1,43 +1,64 @@
 # Notes for this game
 
 __GAMEPLAY_NOTE__
-__STYLE_NOTE__
 
-First session: while DESIGN.md "Look and controls" has any "(not chosen)" row, ask the user before building anything visible: ask for reference images first,
-then for each row give 2-4 options with your recommendation and why. Write the answers into the table, then apply them (style/index.js, `engine.look.<part>.set`,
-`{ model }`, the camera in main.js). Never fall back silently on a published pack's look.
+## First session
+- Gameplay: before any code, when the request leaves room, offer 2-3 clearly different minimal versions, each with its scope, core loop, main risk
+  and how it will be checked; when it is already specific, restate your understanding and ask the user to confirm. Write the pick and the reason
+  into DESIGN.md.
+- Look: before building anything visible, ask only for reference images and the overall style, and what would be wrong for this game (it goes
+  into DESIGN.md "Loved / Not for this game"). Fill the other "Look and controls" rows with your recommendation, marked "(picked, not asked)"
+  with a one-line why, and show them to the user with the first screenshot to confirm or change.
+- When the user cannot be asked (the request says not to ask, or the run is unattended): take your recommendation, write it in marked "(picked, not
+  asked)" with a one-line why, carry on, and list those picks in your report so the user can change them. To change something DESIGN.md already
+  settled: ask first when you can; when you can't, mark it as above.
 
-Before building any system or content (a field, a shop, a save, a camera...): run `threedog how "<task in English>"` and `threedog catalog`. Write the engine system
-you use in DESIGN.md Systems, or one line why you use none. A hand-written replacement for an engine system is a defect, not a shortcut.
+## What done means
+The template is a starting point, not a look. Gray placeholders (empty style/index.js, capsule player, box props) mean the art is not made yet, and making
+it is your job as much as the gameplay. A feature is done when it plays AND looks as DESIGN.md describes; a placeholder goes into STATUS.md as unfinished,
+never reported as done. Plan time for both; when time is short, say which look work is left. Build a thin slice first (one place, one action, one goal, one shot with its real look), then widen it, not a spread of empty systems. Stop at DESIGN.md "Done
+for this version"; ideas past it go to STATUS.md Next.
 
-Tuning the look (recipe 35), in this order every round:
-1. Measure the reference once: `style palette <ref> --average`, then `style compare <ref> <your shot>`. Break the picture into techniques (shading, palette, edges, texture) before choosing values.
-2. Change one thing.
-3. `threedog shot --view <name> --compare <previous.png>` at a small size (`--size 480x270`); read the numbers first and at most one image per round.
-4. Something looks wrong: diagnose with `engine.debug.view('albedo'|'lighting'|'shadow'|'normals')` and `engine.describe().look` (who set which value), not by guessing.
-5. After two rounds that do not reach the reference, take the next exit and tell the user which and why: own GLSL `look.surface.patch('detail' | 'lighting', glsl)` -> painted textures
-   (`map`, `normalMap`) -> `look.materials.replace` -> plain three.js (recipe 40 section 8). Never call it "close to the reference" to stop tuning.
-6. Every few rounds show the user the shot and the numbers.
+## How to work
+1. Before you write, list every place the change must reach (callers, content, saves, tests, DESIGN.md / STATUS.md) and what it could break for the player.
+2. Take the first option that fully works: does it need to exist (name what you skipped) -> already in this game or the engine (GAMEMAP.md,
+   `threedog how "<task in English>"`, `threedog catalog`, the AI.md index; note the system in DESIGN.md Systems) -> plain three.js or the browser
+   (looks are plain three.js on `engine.scene / camera / renderer`, `node_modules/threedog/docs/THREE.md`) -> an installed package -> the least code that
+   works. "Least" is about code, never about the result.
+3. Use your own approach first. Technique examples (`threedog examples list`) are a reference for when a shot check or your own review finds something you
+   cannot fix, never a starting point or the look.
+4. No abstraction, option or "for later" code nobody asked for. When a new way replaces an old one, delete the old one in the same change.
+5. Debugging: find the root cause before changing anything (grep the callers, `engine.describe()`, AI.md "When something happens"), then fix it once where
+   it lives. No drive-by refactor while fixing. If you cannot reproduce it, say which specific information is missing instead of guessing.
+6. Learning from three.js examples, open-source code and articles is fine: learn the technique and write it for this game; check the license and tell the
+   user before using someone else's code or assets.
+7. Check at the end of a piece: logic with weight leaves one small test or assert; a look round ends with one shot. Run only the related tests.
+8. A shortcut with a known limit gets `// shortcut: <the limit>, <when to upgrade>`. Other comments say only the why the code cannot show.
+9. Never cut: save-data safety, input checks where data comes in, anything the user asked for.
+10. Report what is true: what was verified, what was not, what is still a placeholder. Never call a look "close to the reference".
+11. Subagents: split work only after DESIGN.md fixes the systems and their interfaces. Each subtask gets its scope, the files it must not touch and its
+    Done. The look and the gameplay direction stay with one agent.
+12. Before a long task ends, update STATUS.md (it is the handover page).
 
-Reading order (stop when you have enough):
-1. `STATUS.md`: where the game is, what is next.
-2. `DESIGN.md`: pitch, core loop, pillars, and the table of systems.
-3. The design or plan file for the task: `docs/design/<system>.md` or `docs/plans/<feature>.md`.
-4. `GAMEMAP.md` (generated by `npm run map`): what this game has, and "Read for this game", the engine recipes and api pages for its modules.
-5. Engine docs: `node_modules/threedog/docs/AI.md` (index), then the recipe it points to.
+Tuning the look: the round loop, the shot check and the look questions are in recipe 35 (`node_modules/threedog/docs/recipes/35-style-from-reference.md`;
+its top says what to skip without a reference picture).
+Take pictures with `threedog shot` or `threedog snap`: both run the look check (glare, shadows, night); a screenshot script of your own skips it.
+Taste is judged against DESIGN.md and its "Loved / Not for this game" list, never against a technique example.
 
-When something happens (an action fails, the picture looks wrong, the game seems stuck, verifying a change), read the AI.md section "When something happens -> which tool" before guessing.
+## Content vs code
+What a save keeps with its own state is content: a template (`content/templates.js`) plus a placement with an id (`content/props.js`); code-built scenery
+may use `engine.add(mesh, { id })` (`engine.thing(id)` says what a save keeps). `npm run check` rejects startup code that creates what a save
+stores whole (`world.add`, `engine.content.spawn`, pickups, NPCs). Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers),
+`onFrame` for looks (animation, camera, HUD). Things made during play come from `engine.content.spawn` inside an op. Content (items, NPCs, dialogues,
+quests...) goes in `content/`; models, textures and sounds are registered by name in `assets.js`; files go in `public/`.
 
-Use the engine's systems first: inventory, collision, characters, saves, interactions, quests, grids and templates are already built. Check the AI.md entry table before you write any of them yourself.
+## Commands and docs
+`npm run dev`, `npm run check`, `npm test`, `npm run map`, `npm run build`. After a change: `npm run map` only if you changed code, JSDoc or content, then
+`npm run check`, then only the related tests (`npm test -- name`). MCP (`.mcp.json`) exposes the dev bridge as tools while `npm run dev` runs (recipe 16
+§10); an `op` or `step` sent that way changes this session and its saves only, edit `content/` to change the level.
+Reading order (stop when you have enough): STATUS.md -> DESIGN.md -> `docs/design/<system>.md` or `docs/plans/<feature>.md` -> GAMEMAP.md
+(`npm run map`; "Read for this game") -> `node_modules/threedog/docs/AI.md` (index) -> the recipe it points to.
+Changing gameplay: update DESIGN.md (and the system's `docs/design/` file) and STATUS.md in the same commit; `npm run check` reports a file, command, test or engine name in backticks in DESIGN.md that no longer exists. A finished
+plan moves to `docs/plans/done/` with one line in STATUS.md. Reply in the language the user writes in.
 
-What is saved with its own state is content: a template (`content/templates.js`) plus a placement with an id (`content/props.js`); code-built scenery may use `engine.add(mesh, { id })` (`engine.thing(id)` says what a save keeps). `npm run check` (rule R33) rejects startup code that creates what a save stores whole (`world.add`, `engine.spawn`, pickups, NPCs). Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers), `onFrame` for looks (animation, camera, HUD). Things made during play come from `engine.spawn` inside an op.
-
-Content (items, NPCs, dialogues, quests...) goes in `content/`; art goes in `public/`.
-
-Commands: `npm run dev`, `npm run check`, `npm test`, `npm run map`, `npm run build`. After a change: `npm run map` only if you changed code, JSDoc or content, then `npm run check`, then only the related tests (`npm test -- name`).
-
-MCP: `.mcp.json` (written by `threedog init` / `npm run new-game`) makes Claude Code start the threedog server by itself; it exposes the dev bridge (describe, step, press, op, snap...) as native tools while `npm run dev` runs; see `node_modules/threedog/docs/recipes/16-dev-bridge.md` section 10. An `op` or `step` sent that way changes this play session and its saves only; edit `content/` to change the level.
-
-Changing gameplay: update DESIGN.md (and the system's `docs/design/` file) and STATUS.md in the same commit; R18 checks names in DESIGN.md. A finished plan moves to `docs/plans/done/` with a one-line summary in STATUS.md.
-
-Design trade-offs that change gameplay or a decision recorded in DESIGN.md: ask first, then change. Reply in the language the user writes in.
+<!-- "How to work" items 1-2, 4 and 7-9 adapt principles from the ponytail skill (github.com/DietrichGebert/ponytail, MIT). -->

@@ -165,7 +165,7 @@ export const specs = [
         lost.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
         const gpuHeld = engine.page.held;
         lost.dispatchEvent(new Event('webglcontextrestored'));
-        return { held, during, burst, stall, kept, gpuHeld, after: engine.page.held, scale: engine.clock.timeScale };
+        return { held, during, burst, stall, kept, gpuHeld, after: engine.page.held, scale: engine.clock.rate };
       });
       const s = r.scale || 1;
       check('blur holds gameplay: the game clock does not move while away', r.held === true && r.during === 0, JSON.stringify(r));
@@ -223,16 +223,16 @@ export const specs = [
         engine.step(0.1);
         const markersPlay = engine.hud.markers.length;
         let barkAfter = 0;
-        engine.dialogue.say('bark, a long line that is still typing', { lock: false }).then(() => barkAfter++);
+        engine.dialogue.say('bark, a long line that is still showing', { channel: 'bubble', at: engine.player.root, seconds: 30 }).then(() => barkAfter++);
         engine.step(0.1);
-        const barking = engine.dialogue.speaking, enterBefore = enters;
+        const barking = engine.dialogue.bubbles().length, enterBefore = enters;
         await engine.session.newGame();
         engine.step(0.2);
         const b = snap(), diff = [];
         for (const n of names) for (const k of new Set([...Object.keys(a[n]), ...Object.keys(b[n])]))
           if (JSON.stringify(a[n][k]) !== JSON.stringify(b[n][k])) diff.push(`${n}.${k}: ${JSON.stringify(a[n][k])} -> ${JSON.stringify(b[n][k])}`);
         engine.step(3);
-        const markersAfter = engine.hud.markers.length, barkActive = engine.dialogue.active;
+        const markersAfter = engine.hud.markers.length, barkActive = engine.dialogue.bubbles().length ? 'still showing' : null;
         // a locking dialogue: its UI focus entry and input context go with it
         const ctx0 = JSON.stringify(engine.input.contexts);
         engine.dialogue.define('s-talk', { start: { text: 'hello there, a long line' } });

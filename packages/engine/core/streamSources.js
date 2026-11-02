@@ -71,3 +71,13 @@ export function chunkRing(cx, cz, centers, viewChunks) {
   for (const s of centers) r = Math.min(r, Math.max(Math.abs(cx - s.cx), Math.abs(cz - s.cz), s.simple ? viewChunks : 0));
   return r;
 }
+
+/**
+ * Drop every chunk of a chunk table ({ chunks: Map, _want, _dispose(c) }, terrain and vegetation alike): before(c) first (a table's own extra
+ * cleanup), then its _dispose, then the map and the wanted list are empty. The next update places chunks again around the stream sources.
+ * @internal
+ */
+export function dropChunks(table, before) {
+  for (const c of table.chunks.values()) { before?.(c); table._dispose(c); }
+  table.chunks.clear(); table._want = [];
+}

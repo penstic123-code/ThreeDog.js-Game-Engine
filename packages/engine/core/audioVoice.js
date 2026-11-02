@@ -3,34 +3,46 @@
 // Randomness here (variant pick, jitter) only changes what is heard, never gameplay, so it uses Math.random and carries // presentation.
 import * as THREE from 'three';
 import { xzOf } from './math.js';
-import { missingText, warnOnce, checkOptions } from './validate.js';
+import { warnOnce, fmt } from './validate.js';
+import { readParams, keysSchema } from './params.js';
 import { codedError } from './errorHints.js';
+import { isHtml, NOT_THERE } from './assetLoad.js';
 
 const SFX_KEYS = ['volume', 'pitch', 'at', 'bus', 'loop', 'params', 'fadeIn'];
 const jit = (v, j) => v * (1 + (Math.random() * 2 - 1) * (j || 0));   // presentation
-const SOUND_KEYS = ['src', 'synth', 'params', 'bus', 'volume', 'pitch', 'jitter', 'cooldown', 'voices', 'loop', 'distance'];
+const SOUND_KEYS = ['src', 'params', 'bus', 'volume', 'pitch', 'jitter', 'cooldown', 'voices', 'loop', 'distance'];
+const SYNTH_GONE = "audio.sounds.{name}: {what} is gone. A synth is an asset now: register the function in assets.manifest({ sounds: { {src}: fn } }) "
+  + "(engine modules' footstep / shutter / thunder / ambience synths are already registered under their names) and write {name}: {fix}";
 
 const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _u = new THREE.Vector3(), _q = new THREE.Quaternion();
 
-/** Normalize a sounds entry: string / string[] / { src, synth, ... } -> one shape, so playback code has a single path */
-function soundDef(name, v) {
+/**
+ * Normalize a sounds rule: string / string[] / { src, ... } -> { src, ... }; no src = the asset of the rule's own name. The old synth forms throw
+ * with the fix: one way to say where a sound comes from (the manifest), so a rule never names a synth by another route. @internal
+ */
+export function soundDef(name, v) {
   if (v == null) return null;
-  if (v === 'synth') return { synth: name };
+  if (v === 'synth') throw codedError('audio-synth-gone', fmt(SYNTH_GONE, { name, what: "'synth'", src: name, fix: `'${name}' (or {} with volume, bus...)` }));
+  if (v && typeof v === 'object' && !Array.isArray(v) && 'synth' in v) throw codedError('audio-synth-gone',
+    fmt(SYNTH_GONE, { name, what: '{ synth }', src: v.synth, fix: `{ src: '${v.synth}', params, ... }` }));
   if (typeof v === 'string' || Array.isArray(v)) return { src: v };
-  return v.src == null && v.synth == null ? { ...v, synth: name } : v;
+  return v.src == null ? { ...v, src: name } : v;
 }
 
-/** The sounds entry for a name, or a game-registered synth of that name; null = silent (a built-in synth the game did not ask for) */
+/** The synth behind a sound asset name: { fn, params, bus, builtIn } for a manifest sound whose value is a function, else null (a file or unknown) @internal */
+export function synthOf(audio, src) {
+  const a = typeof src === 'string' ? audio.engine.assets.entries.get(src) : null;
+  return a?.type === 'sound' && a.opts.build ? { fn: a.opts.build, params: a.opts.params || {}, bus: a.opts.bus, builtIn: !!a.builtIn } : null;
+}
+
+/** The rule for a name: its audio.sounds entry, else the asset pack sound of that name; null = silent (a built-in synth the game did not ask for) */
 function resolveDef(audio, name) {
-  const def = soundDef(name, audio.config.sounds[name]), synth = audio.synths.get(def?.synth ?? name);
-  if (def) {
-    checkOptions(`audio.sounds.${name}`, def, SOUND_KEYS);
-    if (def.src == null && !synth) { warnOnce(missingText('synth', def.synth, [...audio.synths.keys()])); return null; }
-    return def;
-  }
-  if (synth && !synth.builtIn) return { synth: name };
-  if (!synth) warnOnce(`audio.sfx('${name}'): no sound named ${name}. Add it to a content pack's audio.sounds (${name}: an asset pack sound name, or 'synth') `
-    + `or to createEngine({ audio: { sounds: { ${name}: '/sfx/${name}.ogg' } } })`);
+  const def = soundDef(name, audio.config.sounds[name]);
+  if (def) { readParams(`audio.sounds.${name}`, keysSchema(SOUND_KEYS), def); return def; }
+  const asset = audio.engine.assets.entries.get(name);
+  if (asset?.type === 'sound' && asset.named) return asset.builtIn ? null : { src: name };   // built-in synths stay silent until a rule names them
+  warnOnce(`audio.sfx('${name}'): no sound named ${name}. Register it in an asset pack (engine.assets.manifest({ sounds: { ${name}: '/sfx/${name}.ogg' } }), `
+    + `or a synth function), and add a rule to audio.sounds for how it plays (a content pack's audio.sounds or createEngine({ audio: { sounds } }))`);
   return null;
 }
 
@@ -135,9 +147,9 @@ export class SoundHandle {
 }
 
 /** Start a synth or file for a voice. Synths get (audio, params, out) and return their length in seconds, or { stop(t) } when looping */
-function startSource(audio, voice, def, { pitch, loop, url, params }) {
+function startSource(audio, voice, def, { pitch, loop, url, synth, params }) {
   const ctx = audio.ctx;
-  if (url) {
+  if (!synth) {
     audio.load(url).then(buf => {   // url: a file, or a sound name from an asset pack (audio.load resolves it)
       if (!buf) { voice.endsAt = 0; voice.failed = true; return; }   // an asset that failed and fell back to silence (engine.loading has the error)
       if (voice._stopped || !audio.ctx) return;
@@ -147,7 +159,6 @@ function startSource(audio, voice, def, { pitch, loop, url, params }) {
     }).catch(err => { voice.endsAt = 0; voice.failed = true; audio._warn(err.message); });   // failed: rule loops (ambience) read it and stop retrying
     return;
   }
-  const synth = audio.synths.get(def.synth);
   const r = synth.fn(audio, { ...synth.params, ...def.params, ...params, pitch, loop }, voice.gain);
   if (r && typeof r === 'object') voice.loop = r;
   else voice.endsAt = typeof r === 'number' ? ctx.currentTime + r : loop ? Infinity : ctx.currentTime + 1;   // a one-shot synth asked to loop still ends
@@ -177,12 +188,18 @@ export function synthTone(audio, opts) {
 export async function loadSound(audio, url) {
   const asset = audio.engine.assets.entries.get(url);
   // a named sound asset goes through assets (an engine.loading task, fallback to silence); its url is the file, so this never loops back
+  if (asset?.named && asset.type === 'sound' && asset.opts.build) throw codedError('audio-synth-gone', `audio.load('${url}'): ${url} is a synth (a function in the asset pack), not a file: play it with audio.sfx('${url}')`);
   if (asset?.named && asset.type === 'sound' && asset.url !== url) return audio.engine.assets._fetch(asset);
   audio._init();
   if (!audio.ctx) throw codedError('audio-unsupported', 'Audio is not supported by this browser; check typeof AudioContext before calling');
   if (!audio.buffers.has(url)) {
-    const p = fetch(url).then(r => { if (!r.ok) throw codedError('asset-load', `Audio file failed to load: ${url} (${r.status} ${r.statusText})`); return r.arrayBuffer(); })
-      .then(b => audio.ctx.decodeAudioData(b));
+    // a dev server answers a missing file with its index.html (200): without the HTML check that surfaced as "Unable to decode audio data" with no path
+    const fail = reason => Object.assign(codedError('asset-load', `Sound failed to load: "${url}": ${reason}`), { reason, url });
+    const p = fetch(url).then(r => {
+      if (!r.ok) throw fail(`${r.status} ${r.statusText}`.trim());
+      if (isHtml(r)) throw fail(NOT_THERE);
+      return r.arrayBuffer();
+    }).then(b => audio.ctx.decodeAudioData(b).catch(err => { throw fail(`not a sound file this browser can decode (${err?.message ?? err})`); }));
     p.catch(() => { if (audio.buffers.get(url) === p) audio.buffers.delete(url); });   // a failed download is not cached: the next play tries again
     audio.buffers.set(url, p);
   }
@@ -190,7 +207,7 @@ export async function loadSound(audio, url) {
 }
 /** audio.play body: a file by path or asset name, no sounds entry needed */
 export async function playFile(audio, url, opts) {
-  checkOptions('audio.play()', opts, ['bus', 'volume', 'loop', 'fadeIn', 'pitch', 'at']);
+  readParams('audio.play()', keysSchema(['bus', 'volume', 'loop', 'fadeIn', 'pitch', 'at']), opts);
   const { bus = 'sfx', volume = 1, loop = false, fadeIn = 0, pitch = 1, at } = opts;
   // create the (suspended) context now: a named asset loads through engine.assets, which never creates it, and before the first click
   // there would be no context to build the voice on. The sound starts when the first click / key resumes the context
@@ -206,20 +223,21 @@ export async function playFile(audio, url, opts) {
 }
 /** audio.sfx body: cooldown, voice limit, variant pick, jitter, then start the source */
 export function playSound(audio, name, opts) {
-  checkOptions('audio.sfx()', opts, SFX_KEYS);
+  readParams('audio.sfx()', keysSchema(SFX_KEYS), opts);
   const def = resolveDef(audio, name);
   if (!def || !audio.running) return null;
   const now = audio.ctx.currentTime, last = audio._last.get(name);
   if (def.cooldown && last && now - last.at < def.cooldown) return null;
   const list = (audio._voices.get(name) || []).filter(v => v.playing);
   if (def.voices && list.length >= def.voices) list.shift().stop(0.03);
-  const [url, variant] = def.src != null ? pickVariant(def.src, last?.variant ?? -1) : [null, 0];
+  // one variant, then where it comes from: a manifest synth plays its function, anything else is a file (a path or a manifest file sound)
+  const [url, variant] = pickVariant(def.src, last?.variant ?? -1), synth = synthOf(audio, url);
   audio._last.set(name, { at: now, variant });
-  const bus = audio._bus(opts.bus ?? def.bus ?? audio.synths.get(def.synth)?.bus ?? 'sfx');
+  const bus = audio._bus(opts.bus ?? def.bus ?? synth?.bus ?? 'sfx');
   const v = new SoundHandle(audio, name, bus, opts.at, def.distance);
   const vol = jit((def.volume ?? 1) * (opts.volume ?? 1), def.jitter?.volume), pitch = jit((def.pitch ?? 1) * (opts.pitch ?? 1), def.jitter?.pitch);
   v.gain.gain.value = opts.fadeIn ? 0 : vol; if (opts.fadeIn) v.fade(vol, opts.fadeIn);
-  startSource(audio, v, def, { pitch, loop: opts.loop ?? def.loop ?? false, url, params: opts.params });
+  startSource(audio, v, def, { pitch, loop: opts.loop ?? def.loop ?? false, url, synth, params: opts.params });
   list.push(v); audio._voices.set(name, list);
   return v;
 }

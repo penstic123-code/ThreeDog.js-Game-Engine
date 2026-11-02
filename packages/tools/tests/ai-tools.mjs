@@ -8,51 +8,54 @@ import { DOCS_REL, ROOT } from '../paths.mjs';
 
 export const name = 'AI tools: error hint table and describe snapshots (node)';
 
-// Real messages as the engine writes them (see the throw / warn sites); each must land on the listed hint id
+// Real messages: the engine's own carry their [code] tag (codedError / coded), JavaScript / browser ones are plain and land on a pattern;
+// each must land on the listed id
 const SAMPLES = {
   'frozen-definition': "Cannot assign to read only property 'opened' of object '#<Object>'",
-  'module-requires': 'module npcs requires module "world", which is not installed',
-  'module-cycle': 'module order forms a cycle: a -> b -> a (check before / after on these modules)',
-  'module-stage': 'module x has stage "gamplay", which is not a stage; available stages: control, gameplay',
-  'module-name': 'module name sky clashes with an existing engine property; pick another name',
-  'module-called': 'engine.use received the module function sky itself; call it: sky()',
-  'describe-name': "describe.add('range'): this name is already taken; pick another (existing fields, module names and previously registered names cannot be reused)",
-  'world-missing': 'characters.createPlayer() needs world() installed first: the player is a record in world',
-  'world-plain': 'world data must be plain values (number, string, boolean, array, plain object): x is a function. Put models in world.present()',
-  'world-id': 'world.add(): id "crate_1" already exists. Omit id to auto-number',
-  'world-record': 'world.get(): no record with id "ghost" (world.query({ kind }) lists what exists)',
-  'world-add': 'world.add() needs a kind (what sort of thing this is)',
-  'world-present': "build of world.present('crate') returned undefined (record c1): build must return a three.js object",
-  'bad-position': 'npcs.add: position is not a valid number (got [null,0,1]). Common cause: a Vector3 used as an array',
-  'content-place': 'Place "dock" not found: give its coordinates in the places of content.load, or add this marker to the level',
-  'pickup-prop-id': "pickup id 'p1' is already used by other data (prop): use a different id",
-  'container': "inventory.transfer: from container 'chest' does not exist: create it first with inventory.container('chest', { capacity })",
-  'npc-behavior': 'no NPC behavior named "patrol". Registered: wander. Register a custom behavior first',
-  'unknown-option': 'npcs.add(): unknown option "shedule", did you mean `schedule`?',
-  'unknown-name': 'action "jupm" does not exist, did you mean `jump`? (available: jump, run)',
-  'options-object': 'sky.modify: the second argument must be an options object { … }, got 5',
-  'event-typo': 'event "quest:compleet" was never emitted or listened to; did you mean `quest:complete`?',
-  'owned-prop': 'sky.sun.intensity is recomputed every frame, so setting it directly gets overwritten',
-  'camera-kind': "setCamera() has no camera kind 'topdown'; available: follow, first",
-  'movement': 'movement.walk must be a positive number; got undefined',
-  'commit-fallback': 'commits.request() needs a fallback: it is computed on the main thread when due',
-  'asset-critical': 'Startup blocked: 1 critical item(s) failed to load, the game cannot start:',
-  'asset-missing-ref': 'Asset loaded with missing references: model "pig" <- /models/pig.gltf (missing /models/pig.png)',
-  'asset-load': 'Asset failed to load: models/pig.glb (404 Not Found)',
-  'audio-unsupported': 'Audio is not supported by this browser; check typeof AudioContext before calling',
-  'indexeddb': 'indexedDB is unavailable',
-  'gameplay-frozen': '[engine] listener of event quest:done threw and gameplay is frozen (in dev / tests a gameplay error fails hard)',
-  'module-disabled': '[engine] presentation module particles threw and was disabled (the game continues)',
+  'module-requires': 'module npcs requires module "world", which is not installed [module-requires]',
+  'module-cycle': 'module order forms a cycle: a -> b -> a (check before / after on these modules) [module-cycle]',
+  'module-stage': 'module x has stage "gamplay", which is not a stage; available stages: control, gameplay [module-stage]',
+  'module-name': 'module name sky clashes with an existing engine property; pick another name [module-name]',
+  'module-called': 'engine.use received the module function sky itself; call it: sky() [module-called]',
+  'describe-name': "describe.add('range'): this name is already taken; pick another (existing fields, module names and previously registered names cannot be reused) [describe-name]",
+  'world-missing': 'characters.createPlayer() needs world() installed first: the player is a record in world [world-missing]',
+  'world-plain': 'world data must be plain values (number, string, boolean, array, plain object): x is a function. Put models in world.present() [world-plain]',
+  'world-id': 'world.add(): id "crate_1" already exists. Omit id to auto-number [world-id]',
+  'world-record': 'world.get(): no record with id "ghost" (world.query({ kind }) lists what exists) [world-record]',
+  'world-add': 'world.add() needs a kind (what sort of thing this is) [world-add]',
+  'world-present': "build of world.present('crate') returned undefined (record c1): build must return a three.js object [world-present]",
+  'bad-position': 'npcs.add: position is not a valid number (got [null,0,1]). Common cause: a Vector3 used as an array [bad-position]',
+  'content-place': 'Place "dock" not found: give its coordinates in the places of content.load, or add this marker to the level [content-place]',
+  'pickup-prop-id': "pickup id 'p1' is already used by other data (prop): use a different id [pickup-prop-id]",
+  'container': "inventory.transfer: from container 'chest' does not exist: create it first with inventory.container('chest', { capacity }) [container]",
+  'npc-behavior': 'no NPC behavior named "patrol". Registered: wander. Register a custom behavior first [npc-behavior]',
+  'unknown-option': 'npcs.add(): unknown option "shedule", did you mean `schedule`? [unknown-option]',
+  'unknown-name': 'action "jupm" does not exist, did you mean `jump`? (available: jump, run) [unknown-name]',
+  'event-typo': 'event "quest:compleet" was never emitted or listened to; did you mean `quest:complete`? [event-typo]',
+  'owned-prop': 'sun.intensity was changed outside the engine, so the engine stopped writing it (auto-yield) [owned-prop]',
+  'camera-kind': "setCamera() has no camera kind 'topdown'; available: follow, first [camera-kind]",
+  'movement': 'movement.walk must be a positive number; got undefined [movement]',
+  'commit-fallback': 'commits.request() needs a fallback: it is computed on the main thread when due [commit-fallback]',
+  'asset-critical': 'Startup blocked: 1 critical item(s) failed to load, the game cannot start: [asset-critical]',
+  'asset-missing-ref': 'Asset loaded with missing references: model "pig" <- /models/pig.gltf (missing /models/pig.png) [asset-missing-ref]',
+  'asset-load': 'Asset failed to load: models/pig.glb (404 Not Found) [asset-load]',
+  'audio-unsupported': 'Audio is not supported by this browser; check typeof AudioContext before calling [audio-unsupported]',
+  'indexeddb': 'indexedDB is unavailable [indexeddb]',
+  'gameplay-frozen': '[engine] listener of event quest:done threw and gameplay is frozen (in dev / tests a gameplay error fails hard) [gameplay-frozen]',
+  'module-disabled': '[engine] presentation module particles threw and was disabled (the game continues) [module-disabled]',
   'not-installed': "Cannot read properties of undefined (reading 'give')",
+  // a read on null is not "not installed" (a three.js mergeGeometries that returned null got that hint once)
+  'null-value': "Cannot read properties of null (reading 'boundingSphere')",
   'not-function': 'engine.inventory.giv is not a function',
+  'resource-load': 'Failed to load <img> /textures/grass.png',
 };
 
 export async function run({ check }) {
   const ids = ERROR_HINTS.map(h => h.id);
-  check('hint table: 15-40 classes with unique ids', ids.length >= 15 && ids.length <= 40 && new Set(ids).size === ids.length, String(ids.length));
+  check('hint table: 3-8 classes (only messages the engine does not write) with unique ids', ids.length >= 3 && ids.length <= 8 && new Set(ids).size === ids.length, String(ids.length));
   const wrong = Object.entries(SAMPLES).filter(([id, msg]) => hintFor(msg)?.id !== id).map(([id, msg]) => `${id} -> ${hintFor(msg)?.id}`);
   check('every sample message lands on its own class', wrong.length === 0, wrong.join('; '));
-  check('every class has a sample in this test', ids.every(id => id in SAMPLES), ids.filter(id => !(id in SAMPLES)).join(', '));
+  check('every pattern class has a sample in this test', ids.every(id => id in SAMPLES), ids.filter(id => !(id in SAMPLES)).join(', '));
   const docs = ERROR_HINTS.flatMap(h => h.docs.map(d => [h.id, d])).filter(([, d]) => !existsSync(join(ROOT, DOCS_REL, d)));
   check('every doc page a hint points at exists (relative to the package docs)', docs.length === 0, docs.map(x => x.join(': ')).join('; '));
   check('withHint: appends the cause and the pages, and is idempotent; unknown messages stay unchanged',

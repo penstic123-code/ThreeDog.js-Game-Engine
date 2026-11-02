@@ -3,17 +3,20 @@
 // the work itself is Sky._applyShadow (shadow.js).
 import { defineLookPart } from '../../core/look/part.js';
 import { SHADOW_TYPES } from '../../core/shadowTypes.js';
+import { includeInCascades } from './cascades.js';
+import { SKY_BIAS } from './shadow.js';
+import { ownedRow } from '../../core/owned.js';
 
 const SPLITS = ['practical', 'uniform', 'logarithmic'];
-const KEYS = ['bias', 'normalBias', 'updateEvery', 'snap', 'ahead', 'type', 'radius', 'blurSamples', 'cascades', 'maxFar', 'fade', 'lightMargin', 'split'];
+const KEYS = ['bias', 'normalBias', 'updateEvery', 'snap', 'ahead', 'type', 'radius', 'blurSamples', 'cascades', 'maxFar', 'fade', 'lightMargin', 'split', 'follow', 'extent'];
 
 /**
  * @param {any} sky @param {object} sh shadowFor(...) at start: becomes the style layer (style.sky.shadow, tier-adjusted, merged with sky({ shadow }))
  */
 export function defineShadowLook(sky, sh) {
-  const e = sky.engine, sun = sky.sun;
+  const e = sky.engine, sun = sky._sun;
   const cost = 'shadow pass';
-  defineLookPart(e, {
+  const part = defineLookPart(e, {
     id: 'shadow', group: 'atmosphere', module: 'sky', object: () => sun.shadow, docs: ['recipes/52-look.md', 'recipes/45-cascaded-shadows.md'],
     params: {
       enabled: { type: 'bool', default: e.shadows, cost, desc: 'master shadow switch (engine.setShadows)',
@@ -21,7 +24,7 @@ export function defineShadowLook(sky, sh) {
       type: { type: 'string', default: e.shadowType, values: Object.keys(SHADOW_TYPES), neutral: true, cost, desc: "'basic' hard edge | 'pcf' | 'vsm' softest; switching recompiles materials, do it rarely" },
       radius: { type: 'number', default: 1, min: 0, neutral: true, cost: 'uniform', desc: 'edge softness (pcf, vsm)' },
       blurSamples: { type: 'int', default: 8, min: 1, neutral: true, cost, desc: 'blur quality (vsm only)' },
-      bias: { type: 'number', default: -0.0006, neutral: true, cost: 'uniform', desc: 'depth bias against acne' },
+      bias: { type: 'number', default: SKY_BIAS, neutral: true, cost: 'uniform', desc: 'depth bias against acne, in shadow-camera depth (0-1 over near-far: -0.00005 x 419 m = 2 cm); normalBias does most of the work' },
       normalBias: { type: 'number', default: 0.04, neutral: true, cost: 'uniform', desc: 'normal offset against acne (meters)' },
       mapSize: { type: 'int', default: 2048, min: 64, neutral: true, cost: 'gpu', desc: 'shadow map pixels (the nearest cascade with cascades)' },
       updateEvery: { type: 'int', default: 1, min: 1, neutral: true, cost, desc: 'update the shadow map every N frames' },
@@ -32,6 +35,10 @@ export function defineShadowLook(sky, sh) {
       maxFar: { type: 'number', default: 120, min: 0.001, neutral: true, cost: 'uniform', desc: 'meters from the camera that cascades cover' },
       fade: { type: 'bool', default: true, neutral: true, cost: 'uniform', desc: 'cascades blend into each other' },
       lightMargin: { type: 'number', default: 100, neutral: true, cost: 'uniform', desc: 'meters the cascade lights sit behind their frustum' },
+      // follow / extent: before these the shadow box always followed engine.focus at the style's size; a game that stages its own scene had no way out
+      follow: { type: 'any', default: 'focus', neutral: true, cost: 'uniform', desc: "what the shadow box centers on: 'focus' (engine.focus) | 'camera' | an Object3D | () => Vector3 | false (it stays where you put engine.lights.sun.target)",
+        check: v => (v === false || v === 'focus' || v === 'camera' || v?.isObject3D || typeof v === 'function' ? null : `must be 'focus' | 'camera' | an Object3D | () => Vector3 | false; got ${JSON.stringify(v)}`) },
+      extent: { type: 'number', default: 70, min: 1, neutral: true, cost: 'uniform', desc: 'half size of the shadow box in meters (one shadow map; cascades size their own)' },
       split: { type: 'any', default: 'practical', neutral: true, cost: 'uniform', desc: "'practical' | 'uniform' | 'logarithmic' | (count, near, far, out) => void",
         check: v => (typeof v === 'function' || SPLITS.includes(v) ? null : `must be ${SPLITS.map(s => `'${s}'`).join(' | ')} or a function (count, near, far, out) => void; got ${JSON.stringify(v)}`) },
     },
@@ -44,7 +51,15 @@ export function defineShadowLook(sky, sh) {
       if (changed.has('mapSize')) sky.setShadowMapSize(v.mapSize);
       if (Object.keys(o).length) sky._applyShadow(o);
     },
-    noPatch: "the cascade patch ('csm') is internal; change the shadows with look.shadow.set({ type, radius, cascades, ... })",
+    noPatch: "the cascade patch ('csm') is internal; change the shadows with look.shadow.set({ type, radius, cascades, ... }); a lit ShaderMaterial of yours joins with look.shadow.include(mat)",
+    extraSignatures: { include: 'include(material)' },
     noReplace: 'to own the shadows, light the world with your own three.js lights: sky({ sun: false }) or createEngine({ lights: false })',
+  });
+  // include: the opt-in for a game ShaderMaterial (lights: true) under cascaded shadows; built-in lit materials are patched without it (cascades.js header)
+  part.include = m => includeInCascades(sky, m);
+  // describe().owned shows which of the game's own materials carry the csm patch (option A patches built-in lit types the game made, too)
+  ownedRow(e, 'shadow.csm', () => {
+    const g = sky.csm?.gameMaterials();
+    return g?.length ? { part: 'shadow', key: 'csm', writer: 'engine (csm patch on your built-in lit materials; recipes/45)', materials: g } : undefined;
   });
 }

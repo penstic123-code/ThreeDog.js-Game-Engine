@@ -1,4 +1,4 @@
-// Props: decorations around the cabin. model is an asset name (the lowpoly asset pack registered in main.js; use an array for parameters), position is relative to the cabin (home), rot is facing (radians).
+// Props: decorations around the cabin. model is an asset name (the asset pack in ../style/, registered in main.js; use an array for parameters), position is relative to the cabin (home), rot is facing (radians).
 // collide sets collision ('box', 'circle' cylinder; omit for none). Only registered, not built at once: built when the player gets near (data lives in engine.world; id rules in modules/content/props.js).
 export default [
   { model: 'pine', place: 'home', x: -8, z: -6, scale: 1.2, collide: 'circle' },

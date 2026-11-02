@@ -17,34 +17,34 @@ export const specs = [
         // materials.set: merged into the role's spec, later materials only
         const c0 = engine.makeMaterial('prop').color.getHex(), k0 = key('prop');
         const h = L.materials.set({ prop: { color: 0xff0000, roughness: 0.2 } }, { owner: 'cave' });
-        out.set = [info().materials['prop.color'].by, engine.makeMaterial('prop').color.getHex() === 0xff0000, L.materials.object('prop')?.color.getHex() === 0xff0000];
+        out.set = [info().materials['prop.color'].writer, engine.makeMaterial('prop').color.getHex() === 0xff0000, L.materials.object('prop')?.color.getHex() === 0xff0000];
         h.remove();
-        out.setBack = [engine.makeMaterial('prop').color.getHex() === c0, info().materials['prop.color']?.by ?? 'gone'];
+        out.setBack = [engine.makeMaterial('prop').color.getHex() === c0, info().materials['prop.color']?.writer ?? 'gone'];
         out.typo = err(() => L.materials.replace(5, null));
         // materials.patch: a ShaderPatch added to the roles (none = all)
         const patch = { glsl: { fragment: { color_fragment: 'diffuseColor.rgb *= 0.5;' } } };
         const hp = L.materials.patch('dim', patch, { roles: ['prop'], owner: 'cave' });
-        out.patch = [info().materials['hook:dim'].by, key('prop') !== k0, key('character') === key('character')];
+        out.patch = [info().materials['hook:dim'].writer, key('prop') !== k0, key('character') === key('character')];
         hp.remove();
-        out.patchBack = [key('prop') === k0, info().materials['hook:dim']?.by ?? 'gone'];
+        out.patchBack = [key('prop') === k0, info().materials['hook:dim']?.writer ?? 'gone'];
         // materials.replace(role, Material)
         const mark = engine.makeMaterial('default').clone(); mark.userData.mark = 7;
         const hr = L.materials.replace('prop', mark, { owner: 'cave' });
-        out.replace = [info().materials['replace:prop'].by, engine.makeMaterial('prop').userData.mark];
+        out.replace = [info().materials['replace:prop'].writer, engine.makeMaterial('prop').userData.mark];
         hr.remove(); out.replaceBack = engine.makeMaterial('prop').userData.mark === undefined;
         // surface.set lighting / detail
         const kl = key('prop');
         const hs = L.surface.set({ lighting: { wrap: 0.5 }, detail: { noise: 'grain', strength: 0.2 } }, { owner: 'cave' });
-        out.surface = [info().surface['lighting.wrap'].by, info().surface.detail.by, key('prop') !== kl];
+        out.surface = [info().surface['lighting.wrap'].writer, info().surface.detail.writer, key('prop') !== kl];
         hs.remove();
-        out.surfaceBack = [key('prop') === kl, info().surface['lighting.wrap']?.by];
+        out.surfaceBack = [key('prop') === kl, info().surface['lighting.wrap']?.writer];
         out.badRim = err(() => L.surface.set({ lighting: { rim: { strength: 1 } } }));
         out.badRamp = err(() => L.surface.set({ ramp: [1] }));
         out.noReplace = err(() => L.surface.replace({}));
         // surface.patch('lighting' | 'detail', glsl): a lighting function, picked up by materials made after
         const glsl = 'void threedogLighting(inout ReflectedLight light, vec3 normal, vec3 viewDir, vec3 sunDir, float sunShadow, vec3 albedo){ light.directDiffuse *= 0.5; }';
         const hg = L.surface.patch('lighting', glsl, { owner: 'cave' });
-        out.hook = [info().surface['hook:lighting'].by, key('prop') !== kl];
+        out.hook = [info().surface['hook:lighting'].writer, key('prop') !== kl];
         hg.remove(); out.hookBack = key('prop') === kl;
         out.verbs = [engine.catalog('look.materials').verbs, engine.catalog('look.surface').verbs];
         return out;
@@ -70,30 +70,30 @@ export const specs = [
         // wind
         const f0 = u.uWindFreq.value;
         const hw = L.wind.set({ amplitude: 0, frequency: 3 }, { owner: 'cave' });
-        out.wind = [info().wind.amplitude.by, u.uWindAmp.value, u.uWindFreq.value, info().wind.frequency.by];
+        out.wind = [info().wind.amplitude.writer, u.uWindAmp.value, u.uWindFreq.value, info().wind.frequency.writer];
         hw.remove();
-        out.windBack = [u.uWindAmp.value, u.uWindFreq.value === f0, info().wind.frequency.by];
+        out.windBack = [u.uWindAmp.value, u.uWindFreq.value === f0, info().wind.frequency.writer];
         out.badSway = err(() => L.wind.patch('sway', 'void nope(){}'));
         out.noReplace = err(() => L.wind.replace({}));
         const sway = 'void threedogWind(inout vec3 transformed, vec3 ip, vec3 position){ transformed.x += 0.1; }';
         const hs = L.wind.patch('sway', sway, { owner: 'cave' });
-        out.sway = [info().wind['hook:sway'].by];
-        hs.remove(); out.swayBack = info().wind['hook:sway']?.by ?? 'gone';
+        out.sway = [info().wind['hook:sway'].writer];
+        hs.remove(); out.swayBack = info().wind['hook:sway']?.writer ?? 'gone';
         // the amplitude multiplier is in the GLSL of a species added now
         const m = engine.makeMaterial('vegetation'); engine.applyEffects?.(m, { wind: 0.05 });
         // ground
         const G = L.ground, t0 = engine.terrain.terrainMat, k0 = t0.customProgramCacheKey();
         const sh0 = G.value('shading');
         const hg = G.set({ shading: sh0 === 'flat' ? 'smooth' : 'flat', detail: { noise: 'grain', strength: 0.2 } }, { owner: 'cave' });
-        out.ground = [info().ground.shading.by, info().ground.detail.by, engine.terrain.terrainMat !== t0, engine.terrain.terrainMat.customProgramCacheKey() !== k0, typeof G.object === 'object'];
+        out.ground = [info().ground.shading.writer, info().ground.detail.writer, engine.terrain.terrainMat !== t0, engine.terrain.terrainMat.customProgramCacheKey() !== k0, typeof G.object === 'object'];
         hg.remove();
-        out.groundBack = [G.value('shading') === sh0, info().ground.shading.by !== 'game:cave', engine.terrain.terrainMat.customProgramCacheKey() === k0];
+        out.groundBack = [G.value('shading') === sh0, info().ground.shading.writer !== 'game:cave', engine.terrain.terrainMat.customProgramCacheKey() === k0];
         out.badShading = err(() => G.set({ shading: 'fancy' }));
         out.badColors = err(() => G.set({ colors: 5 }));
         const mat = engine.terrain.terrainMat.clone();
         const hm = G.replace(mat, { owner: 'cave' });
-        out.replace = [info().ground['@replace'].by];
-        hm.remove(); out.replaceBack = info().ground['@replace']?.by !== 'game:cave';
+        out.replace = [info().ground['@replace'].writer];
+        hm.remove(); out.replaceBack = info().ground['@replace']?.writer !== 'game:cave';
         out.verbs = [engine.catalog('look.wind').verbs, engine.catalog('look.ground').verbs];
         return out;
       });

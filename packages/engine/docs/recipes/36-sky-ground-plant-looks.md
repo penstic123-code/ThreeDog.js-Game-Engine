@@ -1,8 +1,8 @@
 # Sky, ground and plant looks: what a style can change
 
-For an AI turning a reference picture into a style pack and hitting "the engine draws it this way". Colors and materials are in `09-style-pack.md`, the
+For an AI turning a reference picture into a style and hitting "the engine draws it this way". Colors and materials are in `09-style-pack.md`, the
 order of work in `35-style-from-reference.md`. This page lists the places where the *shape* of a look was fixed in engine code and is now a style
-setting. Each table lists the engine default; a style that sets nothing here gets those defaults. Style packs hold looks only
+setting. Each table lists the engine default; a style that sets nothing here gets those defaults. Styles hold looks only
 (rule R34): none of these settings move a hill, a river or a species list.
 
 ## Sky clouds: `style.sky.clouds`
@@ -15,7 +15,6 @@ setting. Each table lists the engine default; a style that sets nothing here get
 | `opacity`, `softness` | cloud alpha; width of the cloud edge | 0.9 / 0.3 (cumulus 0.95 / 0.35) |
 | `noise` | plane only: `{ scales: [2.7, 6.1], weights: [0.6, 0.3, 0.1] }`, the two finer layers' frequency and the mix of the three | as shown |
 | `relief` | cumulus only: contrast of the sun-side light | 5 |
-| `glsl`, `uniforms` | replace the cloud function with your own (below); overrides `kind` | none |
 
 Why a thin band at the horizon with `plane`: the plane projection divides by height, so near the horizon one screen pixel covers a lot of cloud plane
 and the noise is dense and small; overhead one pixel covers little and the same coverage looks sparse. For a sky full of big clouds use
@@ -28,7 +27,7 @@ sky: { clouds: { kind: 'cumulus', coverage: 1, scale: 0.45, color: 0xfff4e4, sha
 ```
 
 ### Your own cloud function
-`clouds.glsl` must define this function; the dome calls it for every upper-hemisphere pixel with cover above 0.01, then does `mix(sky, rgb, a)`:
+`engine.look.sky.patch('clouds', glsl | { glsl, uniforms })` is the one way in (a `glsl` key in `style.sky.clouds` throws and names it). The GLSL must define this function; the dome calls it for every upper-hemisphere pixel with cover above 0.01, then does `mix(sky, rgb, a)`:
 ```glsl
 vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)
 // dir: unit view direction, dir.y > 0. sunDir: towards the sun (the moon is opposite). night: 0 day .. 1 night.
@@ -36,11 +35,12 @@ vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, ve
 // return: rgb = final cloud color (dim it at night yourself), a = opacity (apply your own horizon fade).
 ```
 In scope: the GLSL noise helpers `float threedogHash(vec2 p)` and `float threedogNoise(vec2 p)`, the built-in cloud uniforms (`uCloudScale`, `uCloudSpeed`, `uCloudHorizon`, `uCloudFade`...) and
-your `clouds.uniforms` (declared for you; number, `THREE.Color`, `THREE.Vector2/3/4`, array of 2-4 numbers, or `THREE.Texture`). Change one later
-with `engine.sky.dome.material.uniforms.uEdge.value = 0.1`. A bad `kind`, a `glsl` without the function, or an unsupported uniform value throws with the fix.
+the patch's `uniforms` (declared for you; number, `THREE.Color`, `THREE.Vector2/3/4`, array of 2-4 numbers, or `THREE.Texture`). Change one later
+with `engine.sky.dome.material.uniforms.uEdge.value = 0.1`. A bad `kind`, GLSL without the function, or an unsupported uniform value throws with the fix.
 Flat painted cloud blobs with a hard edge, multiplied by a texture:
 ```js
-clouds: { color: 0xfff1dc, shade: 0x9aa8c4, uniforms: { uPaper: paperTexture, uEdge: 0.06 },   // paperTexture: any THREE.Texture, repeat wrapping
+// style: clouds: { color: 0xfff1dc, shade: 0x9aa8c4 }; the function goes through the hook
+engine.look.sky.patch('clouds', { uniforms: { uPaper: paperTexture, uEdge: 0.06 },   // paperTexture: any THREE.Texture, repeat wrapping
   glsl: `vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover){
     vec2 p = d.xz / (d.y + 0.5) * 0.4 + vec2(0.004, 0.002) * time;
     float n = threedogNoise(p) * 0.65 + threedogNoise(p * 2.3 + 5.0) * 0.35;
@@ -48,7 +48,7 @@ clouds: { color: 0xfff1dc, shade: 0x9aa8c4, uniforms: { uPaper: paperTexture, uE
     float up = clamp(0.5 + (n - threedogNoise(p + sunDir.xz * 0.1)) * 6.0, 0.0, 1.0);  // sun side
     vec3 c = mix(shade, lit, up) * texture2D(uPaper, p * 3.0).rgb * (0.35 + 0.65 * (1.0 - night));
     return vec4(c, a * smoothstep(0.0, 0.1, d.y));
-  }` }
+  }` });
 ```
 
 ## Ground color: `style.terrain.variation`
@@ -90,23 +90,23 @@ Audit of what the vegetation code fixes, split into mechanism (stays) and look (
 
 | Where | What | Kind |
 |---|---|---|
-| `Vegetation.add` | per species: `wind` amplitude, `rule`, `lodRing`, `maxRing`, `nearOnly`, `castShadow`, `shadowRing`, `material`, `effects` | already options (game content) |
+| `Vegetation.define` | per species: `wind` amplitude, `rule`, `positions`, `densityMap`, `lodRing`, `maxRing`, `nearOnly`, `castShadow`, `shadowRing`, `material`, `effects` | already options (game content) |
 | `GroundChunks`, `Vegetation.levelOf` | one InstancedMesh per species per chunk; rings decide LOD swap, draw distance, shadow distance; 3 ms placement budget; collision lag | mechanism, stays |
-| wind sway shape | two sines (speed `1.2 + 0.6*uWind` and `2.9`, spatial phase from the instance origin), height-weighted, lean with wind strength | look: **`style.wind.glsl`** replaces it |
+| wind sway shape | two sines (speed `1.2 + 0.6*uWind` and `2.9`, spatial phase from the instance origin), height-weighted, lean with wind strength | look: **`engine.look.wind.patch('sway', glsl)`** replaces it |
 | wind speed | `uWindFreq` | already `style.wind.frequency` |
 | season tint | `diffuseColor.rgb *= tint` (default) or a blend towards the tint; colors from `style.seasons` | look, both settings: `style.seasons.mode: 'multiply' \| 'mix'` (+ `strength`); see recipe 43 |
 | defaults | `castShadow` = not `nearOnly`, `shadowRing` 1, `lodRing` 1 | per-species options, set them in the species |
 
 ```js
-wind: { frequency: 1, uniforms: { uSteps: 3 },    // stepped sway: plants snap between 3 poses instead of a smooth sine
+engine.look.wind.patch('sway', { uniforms: { uSteps: 3 },    // stepped sway: plants snap between 3 poses instead of a smooth sine; before vegetation.define
   glsl: `void threedogWind(inout vec3 transformed, vec3 ip, vec3 position){
     float s = floor(sin(uTime * uWindFreq + ip.x * 0.3 + ip.z * 0.2) * uSteps) / uSteps;
     transformed.x += s * max(position.y, 0.0) * THREEDOG_WIND_AMP * uWind;
-  }` }
+  }` });
 ```
 `threedogWind` receives the vertex (`transformed`, object space), `ip` (world position of this plant's origin, so each plant has its own phase) and
 `position`; `uTime`, `uWind` (weather), `uWindFreq` and `THREEDOG_WIND_AMP` (the species' amplitude) are in scope. It applies to every material made by
-`vegetation.add` that has `wind` set, and the shadow sways with it. A missing function throws with the signature. The same object works in code:
+`vegetation.define` that has `wind` set, and the shadow sways with it. A missing function throws with the signature. The same object works in code:
 `applyEffects(mat, { wind: { amplitude: 0.03, glsl, uniforms } })`.
 
 Cost, measured with software rendering (relative numbers only): 10,000 grass blades of 6 triangles in one InstancedMesh draw in 1 call; per frame
@@ -115,4 +115,4 @@ Reduce grass cost with `rule.perChunk`, `maxRing` and `nearOnly`, not the wind.
 
 ## What is still fixed
 Season tint is multiplicative. Cloud *shadows* on the ground (`threedog_clouds_pars_fragment`) keep their two-noise shape; only strength, scale and
-speed are style settings. Grass has no billboard or blade-shape setting: give `vegetation.add` your own `geometry` or `model`.
+speed are style settings. Grass has no billboard or blade-shape setting: give `vegetation.define` your own `geometry` or `model`.

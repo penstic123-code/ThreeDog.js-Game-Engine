@@ -9,6 +9,7 @@
 // WebGL context lost (driver reset, GPU memory pressure): gameplay waits and the player sees a message; three.js restores the context itself and play resumes.
 import { coded } from './errorHints.js';
 import { toast } from '../ui/UI.js';
+import { warnOnce } from './validate.js';
 
 const STRINGS = {
   'zh-CN': { 'page.gpuLost': '图形设备暂时不可用，正在恢复……如果画面一直不恢复，请刷新页面', 'page.gpuBack': '画面已恢复' },
@@ -45,7 +46,7 @@ export class Page {
     canvas.addEventListener('webglcontextlost', ev => {
       ev.preventDefault();   // tells the browser we want the context back
       this.contextLost = true;
-      console.error(coded('webgl-lost', DEV.lost));
+      warnOnce(coded('webgl-lost', DEV.lost));
       toast(engine, engine.t('page.gpuLost'), { kind: 'error', ms: 8000 });
       engine.events.emit('page:contextlost');
     }, { signal });

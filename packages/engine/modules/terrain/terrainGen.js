@@ -6,9 +6,11 @@
 // Split: defaults in terrainDefaults.js; chunk meshes and vegetation placement in terrainMesh.js (neither depends on three.js).
 import { DEFAULT_TERRAIN } from './terrainDefaults.js';
 import { makeMesher } from './terrainMesh.js';
-import { makeShape, grayAt } from './terrainShape.js';
+import { makeShape } from './terrainShape.js';
+import { grayAt } from '../../core/grayMap.js';
 import { makeNoise } from '../../core/scatter.js';
 import { compilePure } from '../../core/threadPure.js';
+import { codedError } from '../../core/errorHints.js';
 export { DEFAULT_TERRAIN } from './terrainDefaults.js';
 
 const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -17,7 +19,7 @@ const hexToLinear = h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 
 export function createTerrain(userCfg = {}) {
   const cfg = { ...DEFAULT_TERRAIN, ...userCfg, colors: { ...DEFAULT_TERRAIN.colors, ...(userCfg.colors || {}) }, boundsPad: { ...DEFAULT_TERRAIN.boundsPad, ...(userCfg.boundsPad || {}) } };
   for (const [k, ok] of [['shading', ['smooth', 'flat', 'texture']], ['diagonal', ['fixed', 'adaptive', 'alternate']], ['normals', [null, 'smooth', 'flat']]])
-    if (!ok.includes(cfg[k])) throw new Error(`terrain({ ${k} }) must be ${ok.filter(Boolean).map(v => `'${v}'`).join(' | ')}, got ${JSON.stringify(cfg[k])}`);
+    if (!ok.includes(cfg[k])) throw codedError('terrain-option', `terrain({ ${k} }) must be ${ok.filter(Boolean).map(v => `'${v}'`).join(' | ')}, got ${JSON.stringify(cfg[k])}`);
   const SEED = cfg.seed | 0, CHUNK = cfg.chunkSize, RES = cfg.resolution, CELL = CHUNK / RES, WATER = cfg.waterLevel;
   const PAL = {};
   for (const k in cfg.colors) PAL[k] = hexToLinear(cfg.colors[k]);
@@ -106,7 +108,7 @@ export function createTerrain(userCfg = {}) {
     return (userType && userType(x, z, h, sl, NOISE)) ?? 'default';
   }
 
-  // a ground type the style pack gives no color: one flat neutral gray (no noise blend, no jitter)
+  // a ground type the style gives no color: one flat neutral gray (no noise blend, no jitter)
   const FALLBACK = [0.5, 0.5, 0.5], GRAY = [FALLBACK];
   const pal = names => names.map(n => PAL[n] || FALLBACK);
   const BCOL = {}; for (const k in cfg.biomeColors) BCOL[k] = pal(cfg.biomeColors[k]);

@@ -17,9 +17,14 @@
 import * as THREE from 'three';
 import { rigModule, defineRig, viewForward, rightOf } from './common.js';
 import { setProjection } from './projection.js';
+import { setFov } from '../../core/look/coreParts.js';
 import { vec3 } from '../../core/math.js';
 import { ease as easing } from '../../core/easing.js';
-import { checkOptions, warnMissing } from '../../core/validate.js';
+import { warnMissing } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+import { codedError } from '../../core/errorHints.js';
+
+const SHOT_KEYS = ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight', 'projection', 'size'];
 
 export class FixedCamera {
   /**
@@ -31,8 +36,10 @@ export class FixedCamera {
    */
   constructor(engine, { shots = {}, start = null, auto = false, autoInterval = 0.25, hysteresis = 2, triggerBlend = 0,
     trackHeight = 1.2, trackSmoothing = 8, holdDirection = true, ease = 'inOutCubic', ...rest } = {}) {
-    if (!Object.keys(shots).length && rest.position) shots = { main: rest };   // setCamera('fixed', { position, lookAt, projection, size })
-    else checkOptions('fixedCamera()', rest, []);
+    readParams('fixedCamera()', keysSchema(SHOT_KEYS), rest);   // top-level shot fields: the one-shot form setCamera('fixed', { position, lookAt, projection, size })
+    if (!Object.keys(shots).length && rest.position) shots = { main: rest };
+    else if (Object.keys(rest).length) throw codedError('camera-option', `fixedCamera(): top-level ${Object.keys(rest).join(', ')} are the one-shot form `
+      + `(no shots, with position); with shots put them in shots.<name>`);
     Object.assign(this, { engine, auto, autoInterval, hysteresis, triggerBlend, trackHeight, trackSmoothing, holdDirection, ease });
     this.shots = {};
     for (const [n, s] of Object.entries(shots)) this.add(n, s);
@@ -53,8 +60,8 @@ export class FixedCamera {
 
   /** Add or replace a shot */
   add(name, s) {
-    checkOptions(`fixedCamera shots.${name}`, s, ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight', 'projection', 'size']);
-    if (s.projection === 'orthographic' && !(s.size > 0)) throw new Error(`fixedCamera shots.${name}: projection 'orthographic' needs size > 0 (world units of view height)`);
+    readParams(`fixedCamera shots.${name}`, keysSchema(SHOT_KEYS), s);
+    if (s.projection === 'orthographic' && !(s.size > 0)) throw codedError('camera-option', `fixedCamera shots.${name}: projection 'orthographic' needs size > 0 (world units of view height)`);
     this.shots[name] = {
       position: vec3(s.position), lookAt: s.lookAt ? vec3(s.lookAt) : null, track: !!s.track || !s.lookAt,
       fov: s.fov ?? null, size: s.projection === 'orthographic' ? s.size : null, at: s.at ? vec3(s.at) : null, trackHeight: s.trackHeight,
@@ -141,7 +148,7 @@ export class FixedCamera {
     const cam = this.engine.camera;
     cam.position.copy(pos); cam.lookAt(look);
     setProjection(cam, size ? 'orthographic' : 'perspective', size);
-    if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    if (Math.abs(cam.fov - fov) > 1e-3) setFov(this.engine, fov);   // yields to a fov the game set itself (look.view 'fov')
   }
   _latchDirection() {
     if (!this.holdDirection) return;

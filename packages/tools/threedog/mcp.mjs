@@ -1,6 +1,6 @@
 // threedog mcp: an MCP (Model Context Protocol) server over stdio that wraps the dev bridge, so MCP clients (Claude Code, Cursor...) drive the running game
 // natively.
-//   claude mcp add threedog -- npx threedog mcp          (see recipes/16-dev-bridge.md section 10)
+//   claude mcp add threedog -- node node_modules/@threedog/tools/bin/threedog.mjs mcp          (see recipes/16-dev-bridge.md section 10)
 //   threedog mcp [-w game] [--page /tests/city/index.html] [--allow-js]
 // One tool per bridge command; each runs the same commands.mjs code as the command line, so output and errors are identical.
 // Transport: newline-delimited JSON-RPC 2.0 on stdin / stdout (the small subset MCP needs: initialize, ping, tools/list, tools/call).
@@ -10,9 +10,10 @@
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pickWorkspace, ENGINE } from '../paths.mjs';
+import { pagePath as pageArg } from '../lib/cli-args.mjs';
 import { join } from 'node:path';
 import { execute } from './dispatch.mjs';
-import { EXTRA_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide } from './mcp-extra.mjs';
+import { EXTRA_TOOLS, STATIC_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide } from './mcp-extra.mjs';
 import { NONE } from './runtime.mjs';
 
 // stdout carries protocol messages only: anything else that prints goes to stderr
@@ -21,9 +22,9 @@ console.log = console.info = console.warn = console.error;
 const argv = process.argv.slice(2);
 const flag = f => { const i = argv.indexOf(f); return i >= 0 && argv.splice(i, 1).length > 0; };
 const value = f => { const i = argv.indexOf(f); return i >= 0 ? argv.splice(i, 2)[1] : undefined; };
-const allowJs = flag('--allow-js'), pagePath = value('--page');
-let dir;
-try { ({ dir } = pickWorkspace(argv)); } catch (e) { console.error('threedog mcp: ' + e.message); process.exit(1); }
+const allowJs = flag('--allow-js');
+let dir, pagePath;
+try { pagePath = value('--page'); if (pagePath) pagePath = pageArg(pagePath); ({ dir } = pickWorkspace(argv, { live: true })); } catch (e) { console.error('threedog mcp: ' + e.message); process.exit(1); }
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // ── Tools ─────────────────────────────────────────────
@@ -93,8 +94,8 @@ const TOOLS = {
     args: a => [a.name, ...pairs(a.args)],
   },
   inspect: {
-    description: 'What is around the player (or an actor id / a spot) and which ops can run there now, with reasons why not.',
-    schema: obj({ target: str('Optional: an actor id such as "npc_3", or a spot "x,z" such as "10,-4"') }),
+    description: 'What is around the player (or an actor id / a spot) and which ops can run there now, with reasons why not. target "materials": textures, color-space errors, VRAM; "perf": frame cost vs budgets.',
+    schema: obj({ target: str('Optional: an actor id such as "npc_3", a spot "x,z" such as "10,-4", "materials" or "perf"') }),
     args: a => a.target ? [String(a.target)] : [],
   },
   pick: {
@@ -124,7 +125,7 @@ const TOOLS = {
     args: a => a.name ? [a.name] : [],
   },
   snap: {
-    description: 'Screenshot as a small image (480 px wide; full file saved to .threedog/shots/). Check numbers (style compare, describe look) before reading the image.',
+    description: 'Screenshot as a small image (480 px wide; full file in .threedog/shots/) plus the look check of threedog shot on the live page (glare and its source, shadows, noon / midnight). Read those lines before the image.',
     schema: obj({ name: str('File name without extension (default "snap")'), size: num('Image width in pixels (default 480); raise it only to read fine detail') }),
     args: a => [...(a.name ? [a.name] : []), '--width', String(a.size > 0 ? a.size : SNAP_WIDTH)],
   },
@@ -138,10 +139,11 @@ const TOOLS = {
   },
   style_compare: {
     cmd: 'style-compare',
-    description: 'Numbers for two pictures: brightness, saturation, contrast, fine detail, main color. Run after each snap; read it before any image. Needs no game.',
+    description: 'Numbers for two pictures: brightness, saturation, contrast, fine detail, main color, plus a side-by-side image file (open it and look at both). Run after each snap; read the numbers first. Needs no game.',
     schema: obj({ reference: str('Reference picture file'), screenshot: str('Your screenshot, e.g. ".threedog/shots/snap.png"'),
-      region: str('Optional rectangle "x,y,w,h" cut from both') }, ['reference', 'screenshot']),
-    args: a => [a.reference, a.screenshot, ...opt('--region', a.region)],
+      region: str('Optional rectangle "x,y,w,h" cut from both'),
+      out: str('Side-by-side PNG to write (reference left, screenshot right). Default: next to the screenshot as <name>.compare.png') }, ['reference', 'screenshot']),
+    args: a => [a.reference, a.screenshot, ...opt('--region', a.region), '--out', a.out ?? a.screenshot.replace(/\.[^./\\]+$/, '') + '.compare.png'],
   },
   snap_describe: {
     cmd: 'snap-describe',
@@ -168,11 +170,11 @@ const TOOLS = {
     args: () => [],
   },
 };
-Object.assign(TOOLS, EXTRA_TOOLS);
+Object.assign(TOOLS, EXTRA_TOOLS, STATIC_TOOLS);
 if (allowJs) TOOLS.js = {
   description: 'DEV ONLY, DANGEROUS: run arbitrary JavaScript in the game page (engine in scope, await works). Last resort for reading what describe cannot show; ' +
     'never change state with it (use op).',
-  schema: obj({ code: str('An expression ("engine.sky.timeOfDay") or statements with return'), max: MAX }, ['code']),
+  schema: obj({ code: str('An expression ("engine.calendar.timeOfDay") or statements with return'), max: MAX }, ['code']),
   args: a => [a.code, ...opt('--max', a.max)],
 };
 
@@ -184,6 +186,15 @@ async function callTool(name, input = {}) {
   if (!t) return { content: [{ type: 'text',
     text: `No tool "${name}". Available: ${Object.keys(TOOLS).join(', ')}${name === 'js' ? ' (js needs threedog mcp --allow-js)' : ''}` }],
     structuredContent: { ok: false, code: 'command-error', summary: `No tool "${name}"`, runtime: NONE, data: null }, isError: true };
+  if (t.run) {   // static (how, check): read the files, never touch the dev server
+    try {
+      const r = await t.run(dir, input);
+      return { content: [{ type: 'text', text: r.text }], structuredContent: { ok: r.ok, code: r.ok ? 'ok' : 'blocked', summary: r.text.split('\n')[0].replace(/^[✓✗]\s*/, ''),
+        runtime: { ...NONE, blockedBy: [] }, data: r.data ?? null }, isError: !r.ok };
+    } catch (e) {
+      return { content: [{ type: 'text', text: '✗ ' + e.message }], structuredContent: { ok: false, code: 'command-error', summary: e.message, runtime: NONE, data: null }, isError: true };
+    }
+  }
   let png;
   try {
     const { text, ...structured } = await execute(dir, t.cmd || name, t.args(input), { page: pagePath, onShot: b => { png = b; } });
@@ -200,7 +211,7 @@ const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const send = msg => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
 const INSTRUCTIONS = RESULT_SHAPE + ' Drives the threedog game running under `npm run dev` (the dev bridge). No game running: call play. Then status or describe; change state with op (ops lists what ' +
   'is possible); step / press / hold advance game time and pause a real page (resume restores it); errors reads new page errors. If a tool cannot reach the game it ' +
-  'names the cause and the next step (play starts the server). ' + situationGuide(join(ENGINE, 'docs', 'AI.md'));   // the same table as AI.md "When something happens" (one source)
+  'names the cause and the next step (play starts the server). how and check need no game. ' + situationGuide(join(ENGINE, 'docs', 'AI.md'));   // the same table as AI.md "When something happens" (one source)
 
 let queue = Promise.resolve();   // tool calls run one at a time, in order: they drive one shared game
 async function handle(m) {

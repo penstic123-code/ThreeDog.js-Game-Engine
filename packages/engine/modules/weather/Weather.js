@@ -9,12 +9,13 @@
 // Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with
 // i18n.add.
 import * as THREE from 'three';
-import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnMissing, warnOnce } from '../../core/validate.js';
+import { builtInSounds } from '../../core/assetManifest.js';
+import { readParams, keysSchema, isOptions } from '../../core/params.js';
 import { makeSystem, updateSystem, dropSystem, RAIN, SNOW } from './particles.js';
 import { STRINGS, ERR } from './strings.js';
 import { defineWeatherLook } from './look.js';
-import { renamed } from '../../core/errorHints.js';
+import { codedError } from '../../core/errorHints.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../types/world' */
 
@@ -36,10 +37,10 @@ export class Weather {
   constructor(engine, { start, particles = 6000, types, autoPool, autoInterval = [90, 240], transition = 25, area } = {}) {
     /** @internal */ this.engine = engine;
     const st = engine.style.weather || {};
-    checkOptions('style.weather', st, STYLE_KEYS);
+    readParams('style.weather', keysSchema(STYLE_KEYS), st);
     // The game's table is the whole list (a desert game has no snow, a space station no rain); without one only a calm 'clear'.
-    // The style pack only fills fields of types the table has (its look of 'storm'), it never adds a kind of weather to a game.
-    if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw new Error(ERR.types.replace('{got}', JSON.stringify(types)));
+    // The style only fills fields of types the table has (its look of 'storm'), it never adds a kind of weather to a game.
+    if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw codedError('weather-option', ERR.types.replace('{got}', JSON.stringify(types)));
     const table = types ?? ONLY_CLEAR;
     /**
      * The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string,
@@ -49,13 +50,13 @@ export class Weather {
     for (const k of Object.keys(table)) {
       // calm, then the style's look, then the game's own numbers (a preset the game picked counts as the game's)
       const v = { ...CALM, ...(st.types?.[k] || {}), ...table[k] };
-      for (const f in v) if (typeof v[f] !== 'number') throw new Error(ERR.field.replace('{k}', k).replace('{f}', f).replace('{got}', JSON.stringify(v[f])));
+      for (const f in v) if (typeof v[f] !== 'number') throw codedError('weather-option', ERR.field.replace('{k}', k).replace('{f}', f).replace('{got}', JSON.stringify(v[f])));
       this.types[k] = v;
     }
     // a game field one type has ('heat' on 'heatwave') is 0 on the others, so a change always blends between two numbers
     for (const v of Object.values(this.types)) for (const o of Object.values(this.types)) for (const f in o) v[f] ??= 0;
     start ??= this.types.clear ? 'clear' : Object.keys(this.types)[0];
-    if (!this.types[start]) throw new Error(ERR.start.replace('{got}', start).replace('{list}', Object.keys(this.types).join(', ')));
+    if (!this.types[start]) throw codedError('weather-option', ERR.start.replace('{got}', start).replace('{list}', Object.keys(this.types).join(', ')));
     /** Current (mid-transition) weather parameters @type {WeatherPreset} */
     this.current = { ...this.types[start] };
     /** @internal */ this.from = { ...this.current };
@@ -69,44 +70,39 @@ export class Weather {
     /** @internal */ this.autoTimer = 0;
     /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} */
     this.autoPool = [...(autoPool || Object.keys(this.types))];
-    for (const k of this.autoPool) if (!this.types[k]) throw new Error(ERR.pool.replace('{got}', k).replace('{list}', Object.keys(this.types).join(', ')));
+    for (const k of this.autoPool) if (!this.types[k]) throw codedError('weather-option', ERR.pool.replace('{got}', k).replace('{list}', Object.keys(this.types).join(', ')));
     /** Automatic weather interval [min, max] seconds @type {number[]} */
     this.autoInterval = autoInterval;
     /** Transition seconds for automatic weather @type {number} */
     this.autoTransition = transition;
     /** @internal */ this.flashStrength = st.lightningBrightness ?? 1;
     // lightning look: flash (1 at the strike, fading over a third of a second) -> how bright the sky flashes; default flickers
-    if (st.lightning !== undefined && typeof st.lightning !== 'function') throw new Error('style.weather.lightning must be a function (flash 0..1, engine) => sky flash amount, e.g. lightning: f => f * 0.6; return 0 and draw your own bolt on the weather:lightning event');
+    if (st.lightning !== undefined && typeof st.lightning !== 'function') throw codedError('weather-option', 'style.weather.lightning must be a function (flash 0..1, engine) => sky flash amount, e.g. lightning: f => f * 0.6; return 0 and draw your own bolt on the weather:lightning event');
     /** @internal */ this.lightningLook = st.lightning ?? (f => f * (Math.random() > 0.3 ? 1 : 0.4));   // presentation: flash flickers
     /** @internal */ this.flash = 0;
     /** @internal */ this.nextBolt = 5;
     /** @internal */ this.grey = new THREE.Color(st.overcastColor ?? 0x8c8c8c);
-    /** @internal */ this._layer = { sun: 1, ambient: 1, fog: 1, tint: this.grey, tintAmount: 0, horizonTintAmount: 0, flash: 0 };   // reused every frame
+    // the 'weather' entries on the sky.* mod stacks (layers.js): option / value objects reused every frame, so the per-frame engine.mod is cheap
+    /** @internal */ this._mod = { owner: 'weather', mul: 1 };
+    /** @internal */ this._add = { owner: 'weather', add: 0 };
+    /** @internal */ this._tint = { owner: 'weather', value: { color: this.grey, amount: 0, horizon: 0 } };
     /** Default particle count per system (halved on low-tier devices) @type {number} */
     this.particles = engine.tier === 'low' ? Math.round(particles / 2) : particles;
     /** @internal */ this.area = area ?? st.area ?? 40;
-    /** Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus define()) @type {Map<string, any>} */
+    /** Particle systems drawn now: field -> { field, object, uniforms } (rain / snow when the table has them, plus fields look.weather.replace adds) @type {Map<string, any>} */
     this.systems = new Map();
     // zero cost when unused: a table where nothing ever rains or snows builds no particle meshes
     const { cover, ...snowLook } = st.snow || {};
     for (const [k, base] of [['rain', RAIN], ['snow', SNOW]]) if (Object.values(this.types).some(v => v[k] > 0)) this._build(k, k === 'snow' ? snowLook : st[k] || {}, base);
     // snow cover: foliage / ground season tint moves toward the snow colors as current.snow rises (sky layer cover, layers.js applyCover)
     if (cover !== undefined) {
-      checkOptions('style.weather.snow.cover', cover, ['foliage', 'ground', 'strength']);
-      if (cover.foliage == null && cover.ground == null) throw new Error("style.weather.snow.cover needs a color for foliage and / or ground, e.g. cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }");
+      if (isOptions(cover)) readParams('style.weather.snow.cover', keysSchema(['foliage', 'ground', 'strength']), cover);
+      if (cover.foliage == null && cover.ground == null) throw codedError('weather-option', "style.weather.snow.cover needs a color for foliage and / or ground, e.g. cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }");
       /** @internal */ this._cover = { strength: cover.strength ?? 0.8 };
-      Object.assign(this._layer, { foliageCover: cover.foliage ?? null, groundCover: cover.ground ?? null, coverAmount: 0 });
+      /** @internal */ this._coverMod = { owner: 'weather', value: { foliage: cover.foliage ?? null, ground: cover.ground ?? null, amount: 0 } };
     }
     defineWeatherLook(this);   // look.weather: the style's rain / snow / lightning values are its style layer
   }
-
-  /**
-   * Renamed in 0.2: throws and names the new call, engine.look.weather.replace({ [field]: spec }) (recipes/44-water-weather-look-hooks.md)
-   * @param {string} _field
-   * @param {import('../../types/style').StyleWeatherParticles} [_spec]
-   * @returns {never}
-   */
-  define(_field, _spec) { return renamed('weatherDefine'); }
 
   /** @internal */
   _build(field, spec, base) {
@@ -158,7 +154,9 @@ export class Weather {
     if (this.t < 1) {
       this.t = Math.min(1, this.t + dt / this.dur);
       const k = this.t * this.t * (3 - 2 * this.t);
-      for (const key in this.to) this.current[key] = this.from[key] + (this.to[key] - this.from[key]) * k;
+      // a finished blend lands on `to` exactly: from + (to - from) * 1 is off by a rounding error that depends on where the blend started, so a load
+      // or session.newGame (set(name, 0.01) from whatever the last playthrough left) would not give the same weather twice
+      for (const key in this.to) this.current[key] = this.t >= 1 ? this.to[key] : this.from[key] + (this.to[key] - this.from[key]) * k;
     }
     if (this.auto) {
       this.autoTimer -= dt;
@@ -174,24 +172,25 @@ export class Weather {
     this.flash = Math.max(0, this.flash - dt * 3);
   }
 
-  // per frame (before sky): weather effects go into the sky's 'weather' modifier layer, which sky composites with the others; rain/snow particles follow the
+  // per frame (before sky): weather holds the 'weather' entries on the sky.* engine.mod stacks, which sky composites with the others; rain/snow particles follow the
   // camera
   /**
-   * Write weather effects into the sky modifier layer and make rain/snow particles follow the camera (the module calls this itself every frame)
+   * Write weather effects into the 'weather' sky.* mod entries and make rain/snow particles follow the camera (the module calls this itself every frame)
    * @param {any} camera
    * @returns {void}
    * @internal
    */
   apply(camera) {
-    const c = this.current, L = this._layer;
-    const U = this.engine.uniforms, t = this.engine.elapsed;
+    const c = this.current, e = this.engine, m = this._mod, T = this._tint.value;
+    const U = e.uniforms, t = e.elapsed;
     U.uCloud.value = c.cloud;
     U.uWind.value = c.wind;
-    L.sun = c.sun; L.ambient = 0.75 + 0.25 * c.sun; L.fog = c.fog;
-    L.tintAmount = c.grey; L.horizonTintAmount = c.grey * 0.8;
-    L.flash = this.flash > 0 ? this.lightningLook(this.flash, this.engine) * this.flashStrength : 0;
-    if (this._cover) L.coverAmount = (c.snow ?? 0) * this._cover.strength;
-    this.engine.sky.modify('weather', L);   // weather depends on sky (requires), so it is always present
+    m.mul = c.sun; e.mod('sky.sunLight', m);
+    m.mul = 0.75 + 0.25 * c.sun; e.mod('sky.ambient', m);
+    m.mul = c.fog; e.mod('sky.fog', m);
+    T.amount = c.grey; T.horizon = c.grey * 0.8; e.mod('sky.tint', this._tint);
+    this._add.add = this.flash > 0 ? this.lightningLook(this.flash, e) * this.flashStrength : 0; e.mod('sky.flash', this._add);
+    if (this._cover) { this._coverMod.value.amount = (c.snow ?? 0) * this._cover.strength; e.mod('sky.cover', this._coverMod); }   // weather requires sky: the sky.* stacks exist
     for (const sys of this.systems.values()) updateSystem(sys, c[sys.field] ?? 0, camera, t, c.wind);
   }
 }
@@ -212,9 +211,9 @@ export function weather(opts = {}) {
       e.audio.condition('weather', v => [].concat(v).includes(w.name));   // audio rule condition { weather: 'rain' | ['rain', 'storm'] }
       for (const k of ['rain', 'snow', 'wind']) e.audio.measure(k, () => w.current[k]);   // data rules: { rain: { lt: 0.2 } }, volume add: { rain: 0.22 }
       if (opts.auto) w.auto = true;
-      e.audio.register('thunder', (audio, p, out) => { const dur = p.duration ?? 3.5, delay = 0.4 + Math.random() * 1.5;   // presentation: thunder delay
-        audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur, rate: 0.4 * p.pitch, delay, out }); return delay + dur; },
-      { builtIn: true, bus: 'ambience' });
+      builtInSounds(e.assets, { thunder: (audio, p, out) => { const dur = p.duration ?? 3.5, delay = 0.4 + Math.random() * 1.5;   // presentation: thunder delay
+        audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur, rate: 0.4 * p.pitch, delay, out }); return delay + dur; } },
+      { bus: 'ambience' });   // sound asset 'thunder', silent until audio.sounds names it
       e.events.on('weather:lightning', () => e.audio.sfx('thunder'));
       e.saves.register('weather', { save: () => ({ name: w.name, auto: w.auto, autoTimer: w.autoTimer, nextBolt: w.nextBolt }),
         load: d => { if (!d) return; w.set(d.name, 0.01); w.auto = d.auto; w.autoTimer = d.autoTimer ?? 0; w.nextBolt = d.nextBolt ?? 5; } });

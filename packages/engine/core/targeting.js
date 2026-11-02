@@ -10,7 +10,7 @@ const yawOf = view => typeof view === 'number' ? view : Math.atan2(view.x, view.
 /** Candidate position: an Object3D / NPC / Character / world record has .position; a Vector3 / { x, z } / [x, y, z] is the position itself */
 const posOf = c => c.position ?? c;
 function check(fn, opts) {
-  if ('range' in opts) throw codedError('unknown-option', `${fn}(): the distance option is radius (meters), as in entities.nearest / world.query: write { radius: ${opts.range} }`);
+  if ('range' in opts) throw codedError('unknown-option', `${fn}(): the distance option is radius (meters), as in world.query: write { radius: ${opts.range} }`);
   for (const k of Object.keys(opts)) if (!KEYS.includes(k)) throw codedError('unknown-option', `${fn}(): unknown option '${k}'; available: ${KEYS.join(', ')}`);
 }
 

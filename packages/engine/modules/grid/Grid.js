@@ -1,13 +1,20 @@
 // One placement grid (engine.grids.add returns it): world <-> cell math, footprints, occupancy, per-cell layers, can().
 // Occupancy is not stored: it is an index derived from world records that carry a `grid` field
-// ({ id, cell, size, rotation, item }), so a save holds each placed thing once (in world) and can never disagree with it.
-// Cells are integer pairs [i, j]; cell [0, 0] spans origin.x..origin.x+cell on x and origin.z..origin.z+cell on z.
+// ({ id, cell, size, rotation, item, occupy?, level? }), so a save holds each placed thing once (in world) and can never disagree with it.
+// Occupancy has layers (an item's `occupy`: 'floor', 'furniture', 'wall'...; default 'main') and levels (storeys, integer, default 0): a cell is taken
+// per (occupy, level), so a rug and a table share a cell while two tables do not, and a second floor holds its own furniture.
+// Cells are integer pairs [i, j]; by default cell [0, 0] spans origin.x..origin.x+cell on x and origin.z..origin.z+cell on z. The cell <-> world
+// mapping is one replaceable pair (grids.add({ mapping })), so a game with another lattice swaps two functions instead of every caller's math.
 // A footprint is anchored at its min corner cell; rotation is in quarter turns (0-3) and odd turns swap width and depth.
 import { Layer } from './Layer.js';
 import { xzOf } from '../../core/math.js';
 
-const key = (i, j) => i + ',' + j;
+/** The default occupancy layer of an item that names none */
+export const MAIN = 'main';
+/** Occupancy index key: one per (layer, level, cell) */
+export const occKey = (occupy, level, i, j) => `${occupy}|${level}|${i},${j}`;
 const cap = s => s[0].toUpperCase() + s.slice(1);
+const FLAT_SAMPLES = [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
 // [x, z] here (a grid is flat), [x, y, z] / Vector3 / Object3D / { x, z } as everywhere else
 const planar = v => (Array.isArray(v) && v.length === 2 ? v : xzOf(v));
 
@@ -18,6 +25,7 @@ const planar = v => (Array.isArray(v) && v.length === 2 ? v : xzOf(v));
  * room.toCell(engine.player.position);            // [3, 5]
  * room.can('table', [3, 5]);                      // true or a reason: 'occupied' 'outOfBounds' 'notFlat' 'wrongGround' or a layer reason ...
  * engine.ops.run('grid.place', { grid: 'room', item: 'table', cell: [3, 5] });
+ * engine.ops.run('grid.place', { grid: 'room', item: 'rug', cell: [3, 5] });   // rug: occupy 'floor', so it shares the table's cell
  * @experimental
  */
 export class Grid {
@@ -38,37 +46,51 @@ export class Grid {
     this.zone = opts.zone ?? null;
     /** Max height difference (m) allowed under a footprint before can() says 'notFlat' @type {number} */
     this.flat = opts.flat ?? 0.5;
-    /** @internal 'i,j' -> world record id */ this._occ = new Map();
+    /** Height of level 0 (m); null = the ground under each cell (engine.surface) @type {number | null} */
+    this.y = opts.y ?? null;
+    /** Height of one level (m): level n stands at (y or the ground) + n * levelHeight @type {number} */
+    this.levelHeight = opts.levelHeight ?? 3;
+    /** @internal { toCell(x, z) => [i, j], center([i, j]) => [x, z] }: the one place cell <-> world math lives */
+    this._map = opts.mapping ?? {
+      toCell: (x, z) => [Math.floor((x - this.origin.x) / this.cell), Math.floor((z - this.origin.z) / this.cell)],
+      center: ([i, j]) => [this.origin.x + (i + 0.5) * this.cell, this.origin.z + (j + 0.5) * this.cell],
+    };
+    /** @internal occKey(occupy, level, i, j) -> world record id */ this._occ = new Map();
     /** @internal name -> Layer */ this._layers = new Map();
   }
 
   /**
    * World position (Vector3 / object / [x, z] / [x, y, z] / (x, z)) -> cell [i, j]
-   * @example farm.toCell(engine.player.position)
+   * @example room.toCell(engine.player.position)
    * @param {any} x
    * @param {number} [z]
    * @returns {[number, number]}
    */
   toCell(x, z) {
     if (typeof x === 'object') [x, z] = planar(x);
-    return [Math.floor((x - this.origin.x) / this.cell), Math.floor((z - this.origin.z) / this.cell)];
+    return this._map.toCell(x, z);
   }
   /**
-   * Center of a footprint in world space, y on the ground (engine.surface). Without size it is the center of one cell
-   * @example obj.position.copy(farm.toWorld([3, 5]))
+   * Center of a footprint in world space; y is the level's height (grid y, else the ground under it, plus level * levelHeight). Without size it is the
+   * center of one cell
+   * @example obj.position.copy(room.toWorld([3, 5]))
+   * @example room.toWorld([3, 5], [1, 1], 0, 1)   // the same cell one storey up
    * @param {[number, number]} cell
    * @param {[number, number]} [size]
    * @param {number} [rotation]  quarter turns
+   * @param {number} [level]  storey, default 0
    * @returns {{ x: number, y: number, z: number }}
    */
-  toWorld(cell, size = [1, 1], rotation = 0) {
+  toWorld(cell, size = [1, 1], rotation = 0, level = 0) {
     const [w, d] = rotation & 1 ? [size[1], size[0]] : size;
-    const x = this.origin.x + (cell[0] + w / 2) * this.cell, z = this.origin.z + (cell[1] + d / 2) * this.cell;
-    return { x, y: this.engine.surface(x, z), z };
+    // the middle of the first and last cell's centers: the footprint center for the square lattice, a sane anchor for a replaced mapping
+    const [ax, az] = this._map.center(cell), [bx, bz] = this._map.center([cell[0] + w - 1, cell[1] + d - 1]);
+    const x = (ax + bx) / 2, z = (az + bz) / 2;
+    return { x, y: (this.y ?? this.engine.surface(x, z)) + level * this.levelHeight, z };
   }
   /**
    * Snap a world position to the center of the cell it is in
-   * @example mesh.position.copy(farm.snap(hit.point))
+   * @example mesh.position.copy(room.snap(hit.point))
    * @param {any} pos
    * @returns {{ x: number, y: number, z: number }}
    */
@@ -81,7 +103,7 @@ export class Grid {
   inside([i, j]) { return !this.size || (i >= 0 && j >= 0 && i < this.size[0] && j < this.size[1]); }
   /**
    * Cells covered by a footprint anchored at cell (min corner)
-   * @example farm.footprint([2, 2], [2, 1], 1)   // [[2,2],[2,3]]: a 2x1 bed turned a quarter covers two cells along z
+   * @example room.footprint([2, 2], [2, 1], 1)   // [[2,2],[2,3]]: a 2x1 bench turned a quarter covers two cells along z
    * @param {[number, number]} cell
    * @param {[number, number]} [size]
    * @param {number} [rotation]  quarter turns
@@ -93,73 +115,93 @@ export class Grid {
     return out;
   }
   /**
-   * Id of the world record occupying a cell, or null
-   * @example engine.world.get(farm.at([3, 5]))
+   * Id of the world record occupying a cell in one occupancy layer and level, or null. Without occupy: the 'main' layer
+   * @example engine.world.get(room.at([3, 5]))                      // the table there
+   * @example room.at([3, 5], { occupy: 'floor', level: 1 })         // the rug on that cell upstairs
    * @param {[number, number]} cell
+   * @param {{ occupy?: string, level?: number }} [opts]
    * @returns {string | null}
    */
-  at([i, j]) { return this._occ.get(key(i, j)) ?? null; }
+  at([i, j], { occupy = MAIN, level = 0 } = {}) { return this._occ.get(occKey(occupy, level, i, j)) ?? null; }
   /**
-   * Ids of the records occupying any cell of an area (each once)
-   * @example farm.area([0, 0], [4, 4])
+   * Everything on a cell at one level, by occupancy layer: { floor: 'rec1', main: 'rec2' } ({} when empty)
+   * @example room.stack([3, 5])
+   * @param {[number, number]} cell
+   * @param {{ level?: number }} [opts]
+   * @returns {Record<string, string>}
+   */
+  stack([i, j], { level = 0 } = {}) {
+    const out = {}, tail = `|${level}|${i},${j}`;
+    for (const [k, id] of this._occ) if (k.endsWith(tail)) out[k.slice(0, k.length - tail.length)] = id;
+    return out;
+  }
+  /**
+   * Ids of the records occupying any cell of an area in one occupancy layer and level (each once)
+   * @example room.area([0, 0], [4, 4])
    * @param {[number, number]} cell  min corner
    * @param {[number, number]} [size]
+   * @param {{ occupy?: string, level?: number }} [opts]
    * @returns {string[]}
    */
-  area(cell, size = [1, 1]) {
+  area(cell, size = [1, 1], opts) {
     const ids = new Set();
-    for (const c of this.footprint(cell, size)) { const id = this.at(c); if (id) ids.add(id); }
+    for (const c of this.footprint(cell, size)) { const id = this.at(c, opts); if (id) ids.add(id); }
     return [...ids];
   }
   /**
-   * Can this go here? Returns true or a reason: outOfBounds, occupied, wrongGround, not<Field> (a layer rule such as notTilled), notFlat, or the item's own can reason.
-   * what is an item name registered with engine.grids.define, a size [w, d], or an inline rule { size, ground, layer, flat, can }.
-   * @example farm.can('crop', [3, 5])                        // 'notTilled' until the soil layer says tilled
-   * @example farm.can([2, 1], [0, 0], { rotation: 1 })       // only bounds, occupancy and flatness
+   * Can this go here? Returns true or a reason: outOfBounds, occupied, wrongGround, not<Field> (a layer rule such as notPowered), notFlat, or the item's own can reason.
+   * what is an item name registered with engine.grids.define, a size [w, d], or an inline rule { size, occupy, ground, layer, flat, can }.
+   * Occupied means taken in the item's own occupancy layer at that level: a 'floor' tile does not block a 'main' table.
+   * @example room.can('table', [3, 5])                        // 'occupied' when another table stands there, true over a rug
+   * @example field.can('tower', [3, 5])                       // 'notBuildable' until the zone layer marks the cell buildable
+   * @example room.can([2, 1], [0, 0], { rotation: 1 })       // only bounds, occupancy and flatness
    * @param {string | [number, number] | GridRule} what
    * @param {[number, number]} cell
-   * @param {{ rotation?: number, ignore?: string }} [opts]  ignore: a record id to skip (moving a thing over its own cells)
+   * @param {{ rotation?: number, ignore?: string, level?: number }} [opts]  ignore: a record id to skip (moving a thing over its own cells); level: storey
    * @returns {true | string}
    */
-  can(what, cell, opts) { return this.check(what, cell, opts).reason ?? true; }
+  can(what, cell, opts) { return this.check(what, cell, opts).code ?? true; }
   /**
-   * can() with the details behind the answer (used by engine.explain): { reason, cell, by } where by is the occupying record id
+   * can() with the details behind the answer (used by engine.explain): { code, cell, by } where by is the occupying record id
    * @param {string | [number, number] | GridRule} what
    * @param {[number, number]} cell
-   * @param {{ rotation?: number, ignore?: string }} [opts]
-   * @returns {{ reason: string | null, cell?: [number, number], by?: string, text?: string }}
+   * @param {{ rotation?: number, ignore?: string, level?: number }} [opts]
+   * @returns {{ code: string | null, cell?: [number, number], by?: string, text?: string }}
    */
-  check(what, cell, { rotation = 0, ignore } = {}) {
-    const rule = this._owner._rule(what), e = this.engine, cells = this.footprint(cell, rule.size, rotation);
-    for (const c of cells) if (!this.inside(c)) return { reason: 'outOfBounds', cell: c };
-    for (const c of cells) { const by = this.at(c); if (by && by !== ignore) return { reason: 'occupied', cell: c, by }; }
-    const ground = rule.ground == null ? null : [].concat(rule.ground);
+  check(what, cell, { rotation = 0, ignore, level = 0 } = {}) {
+    const rule = this._owner._rule(what), e = this.engine, cells = this.footprint(cell, rule.size, rotation), occupy = rule.occupy ?? MAIN;
+    for (const c of cells) if (!this.inside(c)) return { code: 'outOfBounds', cell: c };
+    for (const c of cells) { const by = this.at(c, { occupy, level }); if (by && by !== ignore) return { code: 'occupied', cell: c, by }; }
+    // ground type and flatness are about the terrain: only level 0 on a grid that follows the ground stands on it
+    const onGround = level === 0 && this.y == null;
+    const ground = rule.ground == null || !onGround ? null : [].concat(rule.ground);
     for (const c of cells) {
       const p = this.toWorld(c);
-      if (ground && !ground.includes(e.groundType(p.x, p.z))) return { reason: 'wrongGround', cell: c, text: `ground is ${e.groundType(p.x, p.z)}, needs ${ground.join(' / ')}` };
+      if (ground && !ground.includes(e.groundType(p.x, p.z))) return { code: 'wrongGround', cell: c, text: `ground is ${e.groundType(p.x, p.z)}, needs ${ground.join(' / ')}` };
       for (const [layer, field] of Object.entries(rule.layer ?? {})) {
-        if (!this.layer(layer).get(c)?.[field]) return { reason: 'not' + cap(field), cell: c, text: `layer ${layer} has no ${field} here` };
+        if (!this.layer(layer).get(c)?.[field]) return { code: 'not' + cap(field), cell: c, text: `layer ${layer} has no ${field} here` };
       }
     }
     const flat = rule.flat ?? this.flat;
-    if (flat < Infinity) {
+    if (flat < Infinity && onGround) {
       let lo = Infinity, hi = -Infinity;
-      const [w, d] = rotation & 1 ? [rule.size[1], rule.size[0]] : rule.size;
-      for (let a = 0; a <= w; a++) for (let b = 0; b <= d; b++) {   // corners of every cell: a step inside the footprint counts too
-        const h = e.surface(this.origin.x + (cell[0] + a) * this.cell, this.origin.z + (cell[1] + b) * this.cell);
-        lo = Math.min(lo, h); hi = Math.max(hi, h);
+      // each cell's center and the four points half a cell off it (the corners on the square lattice): a step inside the footprint counts too
+      const h2 = this.cell / 2;
+      for (const c of cells) {
+        const [x, z] = this._map.center(c);
+        for (const [dx, dz] of FLAT_SAMPLES) { const h = e.surface(x + dx * h2, z + dz * h2); lo = Math.min(lo, h); hi = Math.max(hi, h); }
       }
-      if (hi - lo > flat) return { reason: 'notFlat', text: `height varies ${(hi - lo).toFixed(2)} m, allowed ${flat}` };
+      if (hi - lo > flat) return { code: 'notFlat', text: `height varies ${(hi - lo).toFixed(2)} m, allowed ${flat}` };
     }
-    const own = rule.can?.(e, { grid: this, cell, rotation, cells });
-    if (own != null && own !== true) return { reason: String(own) };
-    return { reason: null };
+    const own = rule.can?.(e, { grid: this, cell, rotation, cells, level });
+    if (own != null && own !== true) return { code: String(own) };
+    return { code: null };
   }
   /**
-   * A named per-cell data layer on this grid (created on first use): soil state, wetness, ownership, anything plain.
+   * A named per-cell data layer on this grid (created on first use): buildable zones, paint, ownership, power, soil, anything plain.
    * Writes go through ops like other saved gameplay state; the data is saved with the game (only non-empty cells).
-   * @example const soil = farm.layer('soil');   // in an op: soil.set([3, 5], { tilled: true })
-   * @example farm.layer('soil', { tiles: false })   // no tile visuals for this layer
+   * @example const zone = field.layer('zone');   // in an op: zone.set([3, 5], { buildable: true })
+   * @example room.layer('paint', { tiles: false })   // no tile visuals for this layer
    * @param {string} name
    * @param {import('./Layer.js').LayerOptions} [opts]  only read on creation
    * @returns {Layer}
@@ -179,6 +221,6 @@ export class Grid {
 
 /**
  * Placement rule: what engine.grids.define registers, or an inline rule for can()
- * @typedef {{ size?: [number, number], kind?: string, ground?: string | string[], layer?: Record<string, string>, flat?: number,
- *   fields?: Record<string, any>, can?: (e: any, info: { grid: Grid, cell: [number, number], rotation: number, cells: [number, number][] }) => true | string }} GridRule
+ * @typedef {{ size?: [number, number], kind?: string, occupy?: string, ground?: string | string[], layer?: Record<string, string>, flat?: number,
+ *   fields?: Record<string, any>, can?: (e: any, info: { grid: Grid, cell: [number, number], rotation: number, cells: [number, number][], level: number }) => true | string }} GridRule
  */

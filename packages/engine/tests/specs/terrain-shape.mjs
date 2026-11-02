@@ -48,10 +48,10 @@ export const specs = [
         // 2. engines: A main thread with player and physics, B workers
         const wait = () => new Promise(res => setTimeout(res, 0));
         const make = async (threads, mods) => {
-          const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, threads, urlState: false, saveKey: 'shape' + threads });
+          const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, threads, urlState: false, saveKey: 'shape' + threads });
           E.use(terrain(ISL), vegetation(), collision(), ...mods);
           // no trunk colliders: the walk to the rim must not get stuck on a tree
-          E.vegetation.add('tree', { geometry: new THREE.ConeGeometry(1, 3, 5), rule: { perChunk: 400, minHeight: -99, maxHeight: 999, maxSlope: 99 } });
+          E.vegetation.define('tree', { geometry: new THREE.ConeGeometry(1, 3, 5), rule: { perChunk: 400, minHeight: -99, maxHeight: 999, maxSlope: 99 } });
           await E.start();
           E.focus.set(0, 0, 0);
           for (let i = 0; i < 600 && !E.terrain.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60, { render: false }); await wait(); }

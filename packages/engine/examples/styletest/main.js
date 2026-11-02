@@ -1,15 +1,17 @@
 // @ts-check
-// Style test: one fixed scene to judge a style pack by (and the check an AI runs after turning a reference picture into a style).
+// Style test: one fixed scene to judge a style by (and the check an AI runs after turning a reference picture into a style).
 // Exhibits (content/): character, trees, rock, grass, flowers, water, terrain, glass, a shadow receiver, wood / stone / metal, a lit room (outside and inside),
 // and the UI parts (HUD, dialogue, bag) on the `ui` view. Parameters (params.js): time, weather, style, env, view, panel. Camera views: views.js.
 // main.js holds wiring only: modules, finding the stage, view switching, the lamp. The exhibits are content (rule R33).
 import { params } from './params.js';   // first: rewrites ?time=dusk style words before the engine reads the URL
 import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, fixedCamera, hud, lightPool, createTerrain } from '../../index.js';
-import lowpoly, { assets as lowpolyAssets } from '@threedog/style-lowpoly';   // optional package: the style under test, and the procedural trees / rocks
+// The style under test: the world example's style folder (its look, named 'lowpoly'); its procedural trees / rocks / humanoid are registered from assets.js.
+// To judge your own look, point this import and the one in assets.js at your game's style/index.js.
+import lowpoly from '../world/style/index.js';
 import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';
 import look from './look.js';
 import data from './content/index.js';
-import { woodBlock, stoneBlock, metalBall, glassPanes, shadowStage, room } from './models.js';
+import packs from './assets.js';
 import { makeViews, pathAt } from './views.js';
 
 // ---------- 0. The stage: a flat spot with water close by (same seed = same place every run) ----------
@@ -36,21 +38,20 @@ const parts = params.style === 'none' ? [] : [lowpoly, look];
 if (params.overrides) parts.push(params.overrides);   // the workbench's "rebuild preview" values
 const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style: parts.length ? parts : undefined, strings: terrainStrings, saveKey: 'threedog-styletest',
   ui: { loading: { title: 'style test' } } });
-engine.use(openWorld({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, radius: 30 }], sky: { ...presets.calendar.fixedTime, time: 0.5 },
+engine.use(openWorld({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, radius: 30 }], calendar: { ...presets.calendar.fixedTime, time: 0.5 },
   weather: presets.weather.temperate, autoWeather: false }),
   interactions({ ...presets.interactions.nearest }), dialogue({ holdSeconds: 1e6 }), inventory({ ...presets.keys.inventory }), hud(), lightPool({ point: 2 }), content());
 
-engine.assets.manifest(lowpolyAssets);
-engine.assets.manifest({ name: 'styletest', models: { woodBlock, stoneBlock, metalBall, glassPanes, shadowStage, room } });   // the names content/templates.js uses
+engine.assets.manifest(packs);   // assets.js: lowpoly's trees / rocks and the test models content/templates.js uses
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: params.style === 'none' ? null : 'humanoid', spawn: { x: stage.x + 0.5, z: stage.z + 6 } });   // style=none: the gray capsule
 engine.content.load(data, { places: { stage, water } });
-if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.sky.modify('env', { ambient: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
+if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.mod('sky.ambient', { owner: 'env', mul: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
 
 // ---------- 2. The room's lamp: emissive plus one pooled light, on from 18:00 to 06:00 ----------
 const lampPos = [stage.x + 14, engine.surface(stage.x + 14, stage.z - 2) + 2.7, stage.z - 2];
 const lampLight = engine.lightPool.add({ x: lampPos[0], y: lampPos[1], z: lampPos[2] }, { color: 0xffc070, intensity: 0, distance: 9 });
 let lampOn = false;
-engine.sky.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
+engine.calendar.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
 engine.onFrame(() => {
   const lamp = /** @type {import('three').Mesh<any, import('three').MeshLambertMaterial> | undefined} */ (engine.world.view('room')?.getObjectByName('lamp'));
   if (lamp) lamp.material.emissiveIntensity = lampOn ? 1.6 : 0;
@@ -63,7 +64,7 @@ const state = { view: params.view, since: 0, views: /** @type {any} */ (null) };
 /** Show the UI exhibits only on the ui view; close them when leaving it */
 function showUi(on) {
   if (on) {
-    engine.dialogue.say('The light is best just before dusk. Mind the step.', { speaker: 'Guide', lock: false });
+    engine.dialogue.say('The light is best just before dusk. Mind the step.', { speaker: 'Guide' });   // the main box, shown for its look
     engine.ui.open('inventory');
   } else { engine.dialogue.end(); engine.ui.close('inventory'); }
 }
@@ -88,8 +89,8 @@ engine.describe.add('styletest', () => ({ view: state.view, style: params.style,
 engine.events.on('engine:ready', () => engine.ops.run('styletest.view', { name: params.view }));
 if (params.badView) console.warn(`styletest: unknown view '${params.badView}', showing overview. Views: overview, character, water, room, path, ui`);
 
-// The workbench is a dev tool loaded only on ?panel=1 (its package may be missing: panel.js then says so in the page)
-if (params.panel) import('./panel.js').then(m => m.openPanel(engine, params.overrides));
+// The dev panel (@threedog/tools/panel) on ?panel=1; a production build gets a stub (tweakpane may be missing: the panel then says so in the page)
+if (params.panel) import('@threedog/tools/panel').then(m => m.openPanel(engine, { overrides: params.overrides }));
 
 engine.start();
 window.engine = engine;   // handy for debugging in the browser console

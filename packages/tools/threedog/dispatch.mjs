@@ -20,7 +20,7 @@ export const EXTRA = {
   play: 'start the game for the AI: starts the dev server if none runs, waits for the bridge and the engine, prints the page address (play --stop stops it)',
   status: 'is it ready: engine ready / loading / page errors / paused or frozen, or which of four causes keeps the bridge from answering',
   'style-palette': 'measure a reference picture, no game needed: style-palette art/reference/ref.png [--n 8] [--average] [--ignore-ui] [--region x,y,w,h] (same as threedog style palette)',
-  'style-compare': 'numbers for two pictures, no game needed: style-compare ref.png .threedog/shots/snap.png [--region x,y,w,h] (same as threedog style compare)',
+  'style-compare': 'numbers for two pictures, no game needed: style-compare ref.png .threedog/shots/snap.png [--region x,y,w,h] [--out side.png] (same as threedog style compare)',
   verify: 'run a scenario (tests/scenarios/<name>.json) and report what it tested and what it never touched: verify barter',
 };
 export const ALL = { ...COMMANDS, ...EXTRA };

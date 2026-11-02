@@ -8,6 +8,7 @@
 // Two entries with the same id in one load are an error with the fix. Source lines ("defined in content/props.js:14") come from the dev-only
 // line tables of packages/tools/vite/vite-threedog-content-src.js (srcOf); a release build has none.
 import { DEV, warnOnce, fmt } from '../../core/validate.js';
+import { codedError } from '../../core/errorHints.js';
 
 const STRINGS = {
   badId: 'content: id "{id}" ({what}) may not contain "#" or "/": "#" is for records made during play and "/" for level-model nodes. Write it with - _ . or :, e.g. "{fix}"',
@@ -32,8 +33,9 @@ const tableOf = v => (DEV && v && typeof v === 'object' && globalThis.__threedog
  * @internal
  */
 export function srcOf(container, key) {
-  const t = tableOf(container);
-  return t ? `${t.file}:${t.at[key] ?? t.line}` : null;
+  const t = tableOf(container), a = t?.at[key];
+  if (typeof a === 'string') return a;   // a kind joined from several files (parts.js): each entry names its own file
+  return t ? `${t.file}:${a ?? t.line}` : null;
 }
 
 /** Per content.load: catches duplicate ids across props, pickups, NPCs, containers and grid items, and collects stateful entries without an id @internal */
@@ -41,9 +43,9 @@ export class IdCheck {
   constructor() { this.seen = new Map(); this.missing = []; }
   /** An authored id: format check, and an error if this load already used it @param {string} id @param {string} what e.g. "props[3] (template chest)" */
   claim(id, what) {
-    if (typeof id === 'string' && /[#/]/.test(id)) throw new Error(fmt(STRINGS.badId, { id, what, fix: id.replace(/[#/]/g, '-') }));
+    if (typeof id === 'string' && /[#/]/.test(id)) throw codedError('content-id', fmt(STRINGS.badId, { id, what, fix: id.replace(/[#/]/g, '-') }));
     const a = this.seen.get(id);
-    if (a) throw new Error(fmt(STRINGS.dup, { id, a, b: what }));
+    if (a) throw codedError('content-id', fmt(STRINGS.dup, { id, a, b: what }));
     this.seen.set(id, what);
   }
   /** A stateful entry relies on its index id */
@@ -65,8 +67,8 @@ export class IdCheck {
  */
 export function applyRenames(e, map) {
   for (const [a, b] of Object.entries(map || {})) {
-    if (b !== null && typeof b !== 'string') throw new Error(fmt(RENAME_STRINGS.shape, { id: a, got: JSON.stringify(b) }));
-    if (typeof b === 'string' && b.includes('#')) throw new Error(fmt(RENAME_STRINGS.badTarget, { a, b }));
+    if (b !== null && typeof b !== 'string') throw codedError('content-id', fmt(RENAME_STRINGS.shape, { id: a, got: JSON.stringify(b) }));
+    if (typeof b === 'string' && b.includes('#')) throw codedError('content-id', fmt(RENAME_STRINGS.badTarget, { a, b }));
   }
   const stuck = e.world?.renameIds(map) ?? [];
   e.inventory?.renameIds(map);

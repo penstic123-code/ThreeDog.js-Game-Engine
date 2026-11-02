@@ -94,7 +94,7 @@ engine.input.define('menuConfirm', 'Space', 'OK', { context: 'menu' });         
   the switch blocks lose their held state, and a key cleared this way stays dead until released: closing a menu never leaves a key "still held" and
   keyboard auto-repeat does not bring it back.
 - Losing focus (`blur`, tab hidden) releases every held key.
-- `describe().ui.inputContexts` lists the stack; the event `input:context { stack }` fires on every change. `characters()` pushes `'vehicle'` while
+- `describe().holds.input` lists the stack with owners (`input.push(name, { owner })`; `input.gate(action, owner)` closes one action, listed in `holds.gates`); the event `input:context { stack }` fires on every change. `characters()` pushes `'vehicle'` while
   the player drives (its `brake` action lives there).
 - Test: `engine.input.push('menu'); engine.step(1 / 60);` then `input.pressed('attack')` is false.
 
@@ -124,7 +124,8 @@ applied (commits), stops the music, applies the start state and snaps the camera
 ## 5. Window and device (engine.page)
 One place listens to window focus, tab visibility, mouse lock and the WebGL context; modules never add their own listeners.
 - Window in the background / tab hidden: gameplay waits (no fixed steps; rendering and UI go on). `createEngine({ pauseOnBlur: false })` or
-  `engine.page.pauseOnBlur = false` keeps playing. Coming back resumes with no catch-up burst; a long frame turns into at most 0.1 s of fixed steps.
+  `engine.page.pauseOnBlur = false` keeps playing. Coming back resumes with no catch-up burst; a long frame turns into at most 0.1 s of fixed steps,
+  and fewer when the steps are heavy (at most about 33 ms of catch-up work per frame; the rest is dropped as a brief slow-down). `engine.step()` never drops time.
 - `engine.events.on('page:blur', () => engine.flow?.go('paused'))` also opens the pause menu. Other events: `page:focus`,
   `page:pointerlock { locked }` (cameras lock again on the next click), `page:contextlost` / `page:contextrestored` (gameplay waits and the player
   sees a message; three.js restores the context).

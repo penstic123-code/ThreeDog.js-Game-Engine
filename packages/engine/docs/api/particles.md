@@ -14,7 +14,7 @@ Particles (particles() module)
   - `effects: Map<string, ParticleEffect>` Defined effects
 
 ## Data structures
-- **ParticleOptions** Particle effect parameters (style.particles[name] of the style pack uses the same format too). All optional
+- **ParticleOptions** Particle effect parameters (style.particles[name] of the style uses the same format too). All optional
   - `max?: number` Maximum alive at once, default 120 (halved on low-end devices)
   - `lifetime?: Range` Seconds each particle lives [min, max]
   - `rate?: number` Default particles per second for attach

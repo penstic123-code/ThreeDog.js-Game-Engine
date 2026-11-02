@@ -1,8 +1,9 @@
-// The core UI parts every engine declares: 'loading' (on), 'toast' (on), 'title' (off until the game asks). Modules declare their own (hud.*).
+// Core UI parts. Every engine declares 'loading' (on), 'toast' (on), 'title' (off until the game asks). Modules declare their own (hud.*).
 // The title screen is a full-screen part: start() opens it after loading when the game turned it on; engine.ui.open('title') shows it again (e.g. "back to title").
 import { injectUICSS, toastPart, esc } from './UI.js';
 import { loadingScreen } from './LoadingScreen.js';
 import { touchPart } from './touchPart.js';
+import { codedError } from '../core/errorHints.js';
 /** @import { Engine, UIPart, UITitleItem } from '../types/core' */
 
 const STRINGS = {
@@ -36,7 +37,7 @@ function titleItems(e, items) {
   for (const it of items) {
     if (typeof it === 'string' && BUILTIN[it]) { const b = BUILTIN[it]; if (!b.when || b.when(e)) out.push({ id: it, label: e.t('title.' + it), run: () => b.run(e) }); }
     else if (it && typeof it.run === 'function') out.push({ id: it.id ?? it.label, label: typeof it.label === 'function' ? it.label(e) : it.label, run: () => it.run(e) });
-    else throw new Error(DEV.badItem.replace('{got}', JSON.stringify(it)));
+    else throw codedError('ui-misuse', DEV.badItem.replace('{got}', JSON.stringify(it)));
   }
   return out;
 }
@@ -56,8 +57,8 @@ function titleScreen(engine) {
       el.innerHTML = `<div class="threedog-title-name">${esc(title)}</div><div class="threedog-title-items">${items.map((it, i) => `<button type="button" class="threedog-btn" data-i="${i}">${esc(it.label)}</button>`).join('')}</div>`;
       el.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => items[+b.dataset.i].run(); });
       engine.uiRoot.appendChild(el);
-      el.querySelector('button')?.focus();
     },
+    get el() { return el; },   // the UI choice cursor picks Start / Continue with keys or a gamepad (no DOM focus: Enter would click twice)
     hide() { el?.remove(); },
     dispose() { el?.remove(); el = null; },
   };

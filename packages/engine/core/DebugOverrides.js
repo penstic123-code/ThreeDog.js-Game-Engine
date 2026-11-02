@@ -8,9 +8,11 @@
 // here disposes a material it did not create (stand-ins are cached on the original, so the original is never touched).
 import { codedError } from './errorHints.js';
 import { DebugView } from './debugView.js';
+import { reloadGlsl } from '../render/hotGlsl.js';
+import { reloadAssets } from './assetHot.js';
 
 const KEYS = ['visible', 'material', 'apply'];
-const MATERIALS = ['flat', 'wire'];
+const MATERIALS = ['flat', 'wire'];   // 'cost' (the shaderCost view) is internal: it needs patch.colorOf
 
 /** Drawable parts under obj (obj itself included) */
 function meshes(obj) { const out = []; obj.traverse(o => { if (o.isMesh || o.isPoints || o.isLine) out.push(o); }); return out; }
@@ -28,14 +30,40 @@ export class DebugOverrides {
     e.events?.on?.('save:loaded', () => this._prune());
   }
   /**
-   * Diagnostic view: 'albedo' | 'lighting' | 'shadow' | 'normals' to look at one part of the render, 'off' to restore. Temporary and owner-scoped; never saved
+   * Diagnostic view: 'albedo' | 'lighting' | 'shadow' | 'normals' to look at one part of the render, 'overdraw' (bright = many layers on a pixel),
+   * 'shaderCost' (materials green -> red by compiled program cost, approximate), 'off' to restore; modules add their own (triggers: 'triggers' draws
+   * the trigger zones), viewModes() lists them all. Temporary and owner-scoped; never saved
    * (describe().render says which view is active, so it is not mistaken for the real look). While one owner's view is on, another owner can neither switch it
    * nor turn it off without force: true; engine.debug.clear(owner) turns that owner's view off too.
    * @example engine.debug.view('normals');   // look at the screenshot, then engine.debug.view('off')
-   * @param {'albedo' | 'lighting' | 'shadow' | 'normals' | 'off'} mode @param {{ owner?: string, force?: boolean }} [opts]
+   * @param {'albedo' | 'lighting' | 'shadow' | 'normals' | 'overdraw' | 'shaderCost' | 'off' | string} mode @param {{ owner?: string, force?: boolean }} [opts]
    * @returns {{ mode: string, owner: string | null, what?: string, note?: string }}
    */
   view(mode, opts) { return this._view.set(mode, opts); }
+  /**
+   * Add a view mode for engine.debug.view (a module's overlay: zones, paths, volumes). apply(scene) draws it and returns the undo; it may run again
+   * when the debug chain re-applies, so it builds from scratch each time. Returns { remove() }.
+   * @example engine.debug.defineView('paths', { what: 'patrol paths as lines', apply: scene => { scene.add(g); return () => scene.remove(g); } });
+   * @param {string} name @param {{ what: string, apply: (scene: import('three').Scene) => () => void }} def
+   * @returns {{ remove(): void }}
+   */
+  defineView(name, def) { return this._view.define(name, def); }
+  /** Every mode engine.debug.view accepts now (built-in and module-added) @returns {string[]} */
+  viewModes() { return this._view.modes(); }
+  /**
+   * Shader hot reload: swap GLSL text `old` for `neu` in every scene material using it (ShaderMaterial code, shader patch code) and recompile them.
+   * The vite preset calls it when a `?raw`-imported .glsl / .vert / .frag file changes in dev; returns how many materials changed (0: the page reloads).
+   * @param {string} old @param {string} neu @param {string} [file] @returns {{ file: string | null, materials: number, names: string[] }}
+   */
+  reloadGlsl(old, neu, file) { return reloadGlsl(this.e, old, neu, file); }
+  /**
+   * Asset hot swap: register the asset packs again (the new module of an edited assets.js) and build what changed (a new generator function,
+   * url or params schema); every live copy swaps geometry and material in place, the page, player, clock and world state stay. The vite preset
+   * calls it when an art module imported by the game's assets.js is saved; returns what was swapped (also in describe().assetSwaps).
+   * @example import packs from './assets.js'; if (import.meta.hot) import.meta.hot.accept('./assets.js', m => engine.debug.reloadAssets(m.default));
+   * @param {any} packs @returns {Promise<{ why: string, names: string[], copies: Record<string, number>, ms: number, partsChanged?: string[] }>}
+   */
+  reloadAssets(packs) { return reloadAssets(this.e, packs); }
   /** The active view ({ mode: 'off', owner: null } when none) @returns {{ mode: string, owner: string | null, what?: string }} */
   viewState() { return this._view.state(); }
 
@@ -118,7 +146,7 @@ export class DebugOverrides {
         for (const m of meshes(obj)) {
           const was = m.material;
           if (!was) continue;
-          m.material = Array.isArray(was) ? was.map(x => this._stand(x, patch.material)) : this._stand(was, patch.material);
+          m.material = Array.isArray(was) ? was.map(x => this._stand(x, patch.material, patch.colorOf)) : this._stand(was, patch.material, patch.colorOf);
           undos.push(() => { m.material = was; });
         }
       }
@@ -127,12 +155,12 @@ export class DebugOverrides {
     o.undo = undo;
   }
   /** @internal One cached unlit stand-in per material and kind, kept on the original's userData (we created it; the original is never disposed here) */
-  _stand(m, kind) {
+  _stand(m, kind, colorOf) {
     if (m.userData._dbgOf) m = m.userData._dbgOf;   // already a stand-in (a view under an override): derive from the original, never stack copies
     const cache = m.userData._dbg ??= {};
-    if (cache[kind]) return cache[kind];
-    // a plain material on purpose: a diagnostic stand-in must not depend on the style pack it is diagnosing (rule 1 allows dev-only debug overlays)
-    const s = new this.e.THREE.MeshBasicMaterial({ color: m.color ?? 0xffffff, map: m.map ?? null, alphaMap: m.alphaMap ?? null, vertexColors: !!m.vertexColors,
+    if (cache[kind]) { if (colorOf) cache[kind].color.setHex(colorOf(m)); return cache[kind]; }
+    // a plain material on purpose: a diagnostic stand-in must not depend on the style it is diagnosing (rule 1 allows dev-only debug overlays)
+    const s = new this.e.THREE.MeshBasicMaterial({ color: colorOf ? colorOf(m) : m.color ?? 0xffffff, map: colorOf ? null : m.map ?? null, alphaMap: m.alphaMap ?? null, vertexColors: !!m.vertexColors,
       transparent: !!m.transparent, opacity: m.opacity ?? 1, side: m.side, alphaTest: m.alphaTest ?? 0, wireframe: kind === 'wire', fog: false });
     s.name = `debug:${kind}:${m.name || ''}`; s.userData._dbgOf = m;
     return cache[kind] = s;

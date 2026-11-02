@@ -3,7 +3,7 @@
 Modules needed: `characters()` (NPCs on by default), `interactions({ ...presets.interactions.nearest })`, `dialogue()`; clock-time schedules need
 `sky()` with a day cycle (`dayLength`, e.g. `presets.calendar.cycle`: without one the clock never moves and the NPC keeps to one stop). The
 `openWorld()` preset already installs `characters()` and `sky()` but not `interactions({ ...presets.interactions.nearest })` or `dialogue()`, so add
-them yourself: `engine.use(openWorld({ camera: 'follow', sky: presets.calendar.cycle, ...}), interactions({ ...presets.interactions.nearest }),
+them yourself: `engine.use(openWorld({ camera: 'follow', calendar: presets.calendar.cycle, ...}), interactions({ ...presets.interactions.nearest }),
 dialogue(), content())`.
 
 ## 1. Write data (recommended)
@@ -12,20 +12,23 @@ dialogue(), content())`.
 export default {
   guard: {
     name: 'Gate guard',
-    colors: { body: 0xc89a5a, legs: 0x5b4a3a, hair: 0x3a2a1a },   // omit to use the style pack's default colors
+    colors: { body: 0xc89a5a, legs: 0x5b4a3a, hair: 0x3a2a1a },   // omit to use the style's default colors
     start: { place: 'home', x: 6, z: -3 },                         // starting position; omitted = the first stop of the schedule
     schedule: [                                                    // at is a clock time 'HH:MM'; at that time the NPC walks there (pathfinding is automatic)
       { at: '07:00', place: 'home', x: 6, z: -3 },
       { at: '13:00', place: 'tower' },
       { at: '18:30', place: 'home', x: 2, z: 4 },
     ],
-    talk: 'guard',                                                 // a dialogue id in dialogues.js; press E when near
+    interact: { op: 'npc.talk' },                                  // the interact key nearby talks: dialogue 'guard' (the NPC id) in dialogues.js
   },
   cat: { name: 'Cat', start: { place: 'home' }, behavior: 'wander', mind: { radius: 6 } },   // no schedule: write behavior + start, omit schedule
 };
 ```
-A content NPC takes every `npcs.add` option (`speed`, `talkRadius`, `arriveDistance`, `pathStep`, `repath`, `talkLabel`, `model`...) written as a
+A content NPC takes every `npcs.add` option (`speed`, `interact`, `arriveDistance`, `pathStep`, `repath`, `model`...) written as a
 field; a misspelt one errors with the closest name. `start` and `schedule` are the content forms (clock strings, places); the key is the id.
+`interact` is what the interact key does near the NPC: the op it runs with `{ npc: id, ...args }`. Dialogue is the op `npc.talk` (script = the
+NPC id, or `args: { script }`); a shopkeeper, recruiter or healer names its own op: `interact: { label: 'Trade', op: 'shop.open', args: { shelf: 'tools' } }`
+(`radius` default 3.2 m).
 `content/dialogues.js`:
 ```js
 export default {
@@ -50,19 +53,20 @@ export default {
 };
 ```
 The words usable in conditions / effects are in the comment at the top of `modules/content/rules.js` (flag notFlag has lacks counter can / setFlag
-give take bump startQuest toast particles marker clearMarker op).
+give take bump startQuest toast particles marker clearMarker op). A game's own action is an op, always written as a pair `[name, args]` (a bare
+name string is rejected): `do: { op: ['delivery.done', { parcel: 'p1' }] }` (`23-ops.md`).
 The items used (coin, pass) must be defined in `items.js`, otherwise validation fails. A `place` name comes from `content.load(data, { places })` or
 from a level marker (such as `npc_guard`). Add a new content file to `content/index.js`.
 
 ## 2. Add in code (temporary NPCs, dynamic schedules)
 ```js
 engine.dialogue.define('passerby', { start: { text: 'Nice day.', speaker: 'Passerby' } });
-const npc = engine.npcs.add({ id: 'passerby', name: 'Passerby', position: [10, 0, 5], schedule: [{ at: '08:00', position: [20, 0, 5] }], talk: 'passerby' });   // at: 'HH:MM' or 0-1; without id the name is used
+const npc = engine.npcs.add({ id: 'passerby', name: 'Passerby', position: [10, 0, 5], schedule: [{ at: '08:00', position: [20, 0, 5] }], interact: { op: 'npc.talk' } });   // at: 'HH:MM' or 0-1; without id the name is used
 engine.npcs.remove('passerby');                   // remove by id, name or handle
 ```
 
 **An NPC that stands still** (a quest giver): give `start` and omit both `schedule` and `behavior`; the default `schedule` behavior with no stops
-has no goal, so it stays at `start`: `elder: { name: 'Elder', start: { x: 4, z: 6 }, talk: 'elder-hello' }`.
+has no goal, so it stays at `start`: `elder: { name: 'Elder', start: { x: 4, z: 6 }, interact: { op: 'npc.talk', args: { script: 'elder-hello' } } }`.
 
 ## NPC data and model (why npc.root is sometimes null)
 The fact of an NPC is one record in the world data `engine.world` (kind `'npc'`, the id is the id above / the key in content): position, schedule,
@@ -154,6 +158,12 @@ const walk = guard.walkTo(player.position, { arrive: 1.5 });
 if ((await walk).status === 'noPath') guard.face(player);   // walk.remove() cancels
 ```
 
+## Pick a dialogue choice, advance, close a dialogue
+The dialogue's keys go through two ops, so code, tests and the dev bridge drive it the same way a player does:
+- Pick a choice: `engine.ops.run('dialogue.choose', { index })`, the 0-based index among the visible choices (bridge: `threedog op dialogue.choose index=1`).
+- Advance: `engine.ops.run('dialogue.advance')` finishes typing the line, else goes on to the next node.
+- Close it from code: `engine.dialogue.end()` ends the main dialogue (there is no `close()`); a choice or node with no `next` ends it by itself.
+
 ## 3. Verify
 - `npm run check`: content validation catches "dialogue id does not exist", "bad clock-time format", "node next points to a missing node". After
   `npm run map` it shows up in the NPC table and dialogue graph of GAMEMAP.md.
@@ -165,3 +175,7 @@ if ((await walk).status === 'noPath') guard.face(player);   // walk.remove() can
   `engine.step(0.3)`. No real-time waiting.
 - Related tests: `npm test -- 小城` (the shopkeeper's schedule and dialogue), `npm test -- "S1 NPC"` (far-away simulation, changing level, saving,
   identical results after loading).
+
+## Talking in a bubble instead of a conversation
+`interact: { op: 'npc.talk', args: { channel: 'bubble' } }` (code or content) makes the interact key play the NPC's script as bubble lines over its head while the player keeps
+moving (a shopkeeper's greeting, a guard's warning); the default `'main'` opens the conversation that locks input. Choices need `'main'`.

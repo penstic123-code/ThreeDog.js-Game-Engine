@@ -9,7 +9,7 @@ import { walk, lines, codeOnly, P } from './_lib.mjs';
 // [core file, module, reason]
 const ALLOW = [
   ['thingExplain.js', 'content', 'explain reads the template definition (collide, interact) of a content template instance'],
-  ['skip.js', 'sky', 'engine.skip({ to: "06:00" }) reads the sky clock it skips to and its next clock mark'],
+  ['skip.js', 'calendar', 'engine.skip({ to: "06:00" }) reads the calendar clock it skips to and its next clock mark (only the fields of modules/calendar/contract.js)'],
   ['skip.js', 'flow', 'a fading skip goes through flow.transition when flow is installed, so it queues with other transitions'],
 ];
 

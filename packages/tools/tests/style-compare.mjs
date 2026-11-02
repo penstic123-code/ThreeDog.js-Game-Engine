@@ -63,6 +63,10 @@ export async function run({ check }) {
     const hue = await compareImages(join(tmp2, 'framed.png'), join(tmp2, 'framed.png'), { refRegion: { x: 25, y: 25, w: 25, h: 50 }, shotRegion: { x: 50, y: 25, w: 25, h: 50 } });
     check('compare: --ref-region / --shot-region compare chosen parts (sand vs green: the hue moves about +60 degrees)',
       hue.diff.averageHueShift > 40 && hue.diff.averageHueShift < 90);
+    const sbs = await compareImages(join(tmp2, 'a.png'), join(tmp2, 'big.png'), { out: join(tmp2, 'side.png') });
+    const sb = readFileSync(join(tmp2, 'side.png')), sw = sb.readUInt32BE(16), sh = sb.readUInt32BE(20);
+    check('compare: --out writes one PNG, reference left and screenshot right at one height (width = both + divider)',
+      sb.subarray(1, 4).toString() === 'PNG' && sh === 200 && sw >= 400 && sw <= 415 && sbs.sideBySide.size[0] === sw && sbs.sideBySide.size[1] === sh);
     check('compare: the result states the method and that it is not a score', /quality score/.test(dk.note) && dk.method.detail.includes('Laplacian'));
   } finally { rmSync(tmp2, { recursive: true, force: true }); }
 }

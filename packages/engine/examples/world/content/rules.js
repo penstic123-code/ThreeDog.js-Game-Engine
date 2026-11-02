@@ -4,7 +4,7 @@ const SHAPES = ['crate', 'ball', 'barrel'];
 
 export default {
   conditions: {
-    timeAfter: { ref: 'clock', desc: 'the day has passed this clock time', describe: v => `after ${v}`, test: (e, t) => (e.sky?.timeOfDay ?? 0) >= t },
+    timeAfter: { ref: 'clock', desc: 'the day has passed this clock time', describe: v => `after ${v}`, test: (e, t) => (e.calendar?.timeOfDay ?? 0) >= t },
   },
   kinds: {
     bodies: {

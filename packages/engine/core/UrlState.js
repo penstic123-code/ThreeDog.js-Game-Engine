@@ -1,14 +1,17 @@
+// engine.applyState: one-call scenarios.
 // Reproduce a scenario in one call: engine.applyState({ time, season, weather, pos, save, wait, cutscene, state }), engine.defineState(name, params).
 // In dev (or with createEngine({ urlState: true })) URL parameters are read automatically: /?time=18:30&weather=rain&pos=40,-20&cutscene=skip&wait=3&state=name
 //
 // Who handles which key: core handles save (saves.load), pos (player.placeAt, or sets the focus without a player) and wait (advances with engine.step);
-// the rest go to the module hook applyState(e, params) (written like the describe hook): sky -> time and season, weather -> weather, timeline -> cutscene.
+// the rest go to the module hook applyState(e, params) (written like the describe hook): calendar -> time and season (sky -> its fixed time without a calendar), weather -> weather, timeline -> cutscene.
 // Two phases, both called from start():
 //   early(): before modules are ready, applies save, pos, time, weather (terrain is generated directly at the new position)
 //   late(): after engine:ready, view (engine.views), cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
 // In a game, await engine.applyState({...}) at any time runs both phases back to back.
-import { checkOptions, warnMissing } from './validate.js';
+import { warnMissing } from './validate.js';
+import { readParams, keysSchema } from './params.js';
 import { xzOf } from './math.js';
+import { unsettled } from './headlessLoad.js';
 
 const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'save', 'wait', 'cutscene', 'view'];
 
@@ -20,7 +23,11 @@ export class UrlState {
     this.pending = null;       // URL parameters (used by start())
     this.applied = false;      // URL parameters are fully applied (npm run shot waits for it)
   }
-  define(name, params) { this.states.set(name, params); }
+  /** 返回句柄：和别的注册一样只有 remove() 一种撤销写法；同名重定义后旧句柄的 remove() 不会删掉新的 */
+  define(name, params, { owner } = {}) {
+    this.states.set(name, params);
+    return { owner, remove: () => { if (this.states.get(name) === params) this.states.delete(name); } };
+  }
 
   /** Expand the state name, check spelling, and turn strings from the URL into numbers */
   _expand(params) {
@@ -31,7 +38,7 @@ export class UrlState {
       p = { ...s, ...p };
       delete p.state;
     }
-    checkOptions('applyState()', p, KEYS);
+    readParams('applyState()', keysSchema(KEYS), p);
     if (typeof p.pos === 'string') { const [x, z] = p.pos.split(',').map(Number); p.pos = { x, z }; }
     if (p.wait != null) p.wait = +p.wait;
     return p;
@@ -45,7 +52,7 @@ export class UrlState {
   async _settle() {
     const e = this.engine;
     for (let i = 0; i < 600; i++) {
-      if (![...e.modules.values()].some(m => m.isReady && !m.isReady(e)) && e.stream.ready) return;
+      if (!unsettled(e).length) return;
       if (e.headless) e.step(1 / 30, { render: false, describe: false });
       await new Promise(r => setTimeout(r, 16));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
     }

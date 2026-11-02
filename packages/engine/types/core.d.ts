@@ -1,14 +1,14 @@
 // Engine core: the Engine class, events, input, i18n, saves, assets, audio, the ground interface, module definitions.
 import type { Object3D, Vector3, Vector2, Color, Texture, BufferGeometry, Handle, PositionLike, Vec3Like, ColorLike, Material } from './common';
-import type { Style, StyleInput } from './style';
+import type { Style, StyleInput, MaterialSpec } from './style';
 import type {
-  Terrain, Vegetation, Sky, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport,
+  Terrain, Vegetation, Sky, Calendar, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport,
 } from './world';
 import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
 import type { PostEffect } from './generated/render/PostFX';
 import type { Grids } from './generated/modules/grid/index';
-import type { Collision, RigidBodies, CameraRig, CameraKind, CameraShotEvent, Animator, AnimatorOptions, Vehicle } from './physics';
+import type { Collision, RigidBodies, CameraRig, CameraKind, CameraShotEvent, Animator, AnimatorOptions, Vehicle, Rideable } from './physics';
 import type { Nav } from './nav';
 import type { Stream } from './generated/core/Stream';
 import type { Batching } from './generated/core/Batching';
@@ -29,9 +29,9 @@ import type { Jobs } from './generated/core/Jobs';
 import type { Random } from './generated/core/Random';
 import type { PostFX } from './generated/render/PostFX';
 import type {
-  Timeline, Level, LevelLoadedEvent, Triggers, TriggerEvent, Entities, Entity, EntityStateEvent, EntityStageEvent,
+  Timeline, Level, LevelLoadedEvent, Triggers, TriggerEvent, TemplateStageEvent,
   Particles, Settings, Music, MusicChangeEvent, CharactersApi, NPCManager, Character,
-  Interactions, Dialogue, Inventory, ItemEvent, ItemUseEvent, ContainerEvent, PickupEvent, Quests, Photo, PhotoShot, Ambience, DebugPanel,
+  Interactions, Dialogue, Inventory, ItemEvent, ItemUseEvent, PickupEvent, Pickups, PickupsOptions, Quests, Photo, PhotoShot, Ambience, DebugPanel,
   Clock, Vars, Content, Flow, Hud,
 } from './gameplay';
 
@@ -83,10 +83,12 @@ export interface EventMap extends GameEvents {
   'water:add': [body: WaterBody];
   /** A water body was removed */
   'water:remove': [body: WaterBody];
-  /** A new day (the argument is the day number, starting at 1; needs the sky module) */
+  /** A new day (the argument is the day number, starting at 1; needs the calendar module) */
   'day:start': [day: number];
   /** Season changed (the argument is the season name, e.g. 'autumn') */
   'season:change': [season: string];
+  /** A mod with `for` ran out (engine.mod(target, { owner, for })): target is the quantity's name, id the record for per-record ones */
+  'mod:end': [{ target: string; owner: string; id: string | null }];
   /** engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran */
   'time:skip': [{ seconds: number }];
   /** Lightning strike (weather module) */
@@ -98,11 +100,18 @@ export interface EventMap extends GameEvents {
   /** engine.setCamera switched the camera kind; settings that belong to the camera (sensitivity, invert Y, field of view) are re-applied on it */
   'camera:change': [{ kind: string; previous: string }];
   /** A character jumped */
-  'character:jump': [{ character: Character }];
+  'character:jump': [{ character: Character; air: boolean; index: number }];
+  'character:launch': [{ character: Character; speed: number; owner: string }];
+  'character:fall': [{ character: Character; safe: Vector3 | null; preventDefault(): void }];
   /** A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set) */
   'character:model': [{ character: Character; model: Object3D }];
   /** A character landed; impact is the landing speed (m/s), the larger the harder the fall */
   'character:land': [{ character: Character; impact: number }];
+  /**
+   * A character went into or out of deep water (water option): in true on entering, mode what the water option did there ('swim' | 'block' | 'wade',
+   * or what the function returned)
+   */
+  'character:water': [{ character: Character; in: boolean; mode: string; depth: number }];
   /** Dialogue started; the argument is the dialogue script name */
   'dialogue:start': [speaker: string];
   /**
@@ -110,18 +119,20 @@ export interface EventMap extends GameEvents {
    * shots without replacing the UI part
    */
   'dialogue:line': [{ script: string; node: string; speaker: string; text: string; data: Record<string, any> }];
+  /** A bubble line started showing (the bubble channel: lines over their speakers while play goes on); at is what it is attached to, null = a screen line */
+  'dialogue:bubble': [{ speaker: string; text: string; at: any }];
   /** Dialogue ended; the argument is the dialogue script name */
   'dialogue:end': [speaker: string];
-  /** An item was added to the inventory */
+  /** An item was added to a container (any bag or chest: container names it, actor says who did it) */
   'item:add': [ItemEvent];
-  /** An item was removed from the inventory */
+  /** An item was removed from a container (container names it, actor says who did it) */
   'item:remove': [ItemEvent];
-  /** An item was added to a non-player container (chest, corpse...); container is the container id */
-  'container:add': [ContainerEvent];
-  /** An item was removed from a non-player container */
-  'container:remove': [ContainerEvent];
-  /** An item on the ground was picked up */
-  'item:pickup': [PickupEvent];
+  /** A pickup was taken off the ground (pickup = world id, item = its item id or null for a give function, actor = who took it) */
+  'pickup:take': [PickupEvent];
+  /** A hold interaction started (the key went down on it); seconds is its hold */
+  'interaction:hold': [{ id: string; action: string; seconds: number }];
+  /** A hold interaction stopped before it completed: 'released' | 'tooFar' | 'disabled' | 'removed' | 'inputLocked' */
+  'interaction:interrupt': [{ id: string; action: string; reason: string; progress: number }];
   /** An item was used through the inventory.use op (after use ran) */
   'item:use': [ItemUseEvent];
   /** A quest started */
@@ -148,14 +159,8 @@ export interface EventMap extends GameEvents {
   'timeline:start': [{ id: number }];
   /** A cutscene ended; skipped tells whether it was skipped */
   'timeline:end': [{ id: number; skipped: boolean }];
-  /** An entity was spawned */
-  'entity:spawn': [Entity];
-  /** An entity was removed */
-  'entity:remove': [Entity];
-  /** A state value of an entity changed */
-  'entity:state': [EntityStateEvent];
-  /** An entity entered a new growth stage */
-  'entity:stage': [EntityStageEvent];
+  /** A content template instance entered a new stage by growing (templates with stages) */
+  'template:stage': [TemplateStageEvent];
   /** The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale */
   'ground:change': [{ x0: number; z0: number; x1: number; z1: number }];
   /** terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides */
@@ -197,9 +202,9 @@ export interface EventMap extends GameEvents {
   /** A presentation module errored and was disabled (the game continues) */
   'module:disabled': [{ name: string; message: string }];
   /** A character boarded a vehicle */
-  'vehicle:enter': [{ character: Character; vehicle: Vehicle }];
+  'vehicle:enter': [{ character: Character; vehicle: Rideable }];
   /** A character exited a vehicle */
-  'vehicle:exit': [{ character: Character; vehicle: Vehicle }];
+  'vehicle:exit': [{ character: Character; vehicle: Rideable }];
   /** Game flow state changed */
   'flow:change': [{ from: string; to: string }];
   /** Scene transition: phase 'start' begins fading to black, 'end' finishes fading back in */
@@ -229,7 +234,6 @@ export type EventName = keyof EventMap | (string & {});
 // Input
 // ======================================================================
 
-/** Mouse / touch pointer. ndcX/ndcY are screen coordinates in -1..1 */
 /** Per-engine shader uniforms (engine.uniforms): { value } objects shared by every material of that engine */
 export interface EngineUniforms {
   /** Fixed seconds (= engine.elapsed) */
@@ -246,14 +250,21 @@ export interface EngineUniforms {
   uCloudScale: { value: number };
   /** Cloud drift per second (style.clouds.speed) */
   uCloudSpeed: { value: Vector2 };
-  /** Season tint of foliage (sky calendar) */
+  /** Unit vector toward the sun (sky, every frame); share the object in your own sky: mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir */
+  uSunDir: { value: Vector3 };
+  /** 0 at night .. 1 at noon (sky, the sun it draws) */
+  uDaylight: { value: number };
+  /** Time of day 0-1 the sky draws (calendar time, or the sky's fixed time) */
+  uTimeOfDay: { value: number };
+  /** Season tint of foliage (sky, by the calendar's season) */
   uFoliageTint: { value: Color };
-  /** Season tint of the ground (sky calendar) */
+  /** Season tint of the ground (sky, by the calendar's season) */
   uGroundTint: { value: Color };
   uFoliageMix: { value: number };
   uGroundMix: { value: number };
 }
 
+/** Mouse / touch pointer. ndcX/ndcY are screen coordinates in -1..1 */
 export interface Pointer {
   /** Pixels from the canvas's top-left corner (not the window's): the same space as worldToScreen and the UI root */
   x: number; y: number;
@@ -300,6 +311,9 @@ export interface SaveProvider {
   /** Upgrade steps: old version -> data => data in the next version's shape, e.g. { 1: d => ({ ...d, beds: [] }) }.
    *  The second argument is the whole save as read ({ parts, versions }, read only), for a step that depends on another part */
   migrate?: Record<number, (data: any, save: { parts: Record<string, any>, versions: Record<string, number> }) => any>;
+  /** This part's data used to be saved under another part's name: { oldPart: data => newData } (newData in this version's shape). An old save without
+   *  this part but with oldPart loads it here; oldPart is then dropped unless a registered part still owns that name */
+  movedFrom?: Record<string, (data: any) => any>;
 }
 
 
@@ -318,8 +332,23 @@ export type AssetEntry = string | ModelBuilder | {
   url?: string;
   /** Model: generator function (instead of url) */
   build?: ModelBuilder;
-  /** Model: parameters passed to build */
-  params?: any;
+  /**
+   * Model: a params schema (core/params.js format plus 'color'), e.g. { height: { type: 'number', min: 1, max: 8, default: 3 } }: build gets one
+   * object (defaults < dev panel values < a call's own ['name', { ... }]) and the dev panel shows the fields
+   */
+  params?: Record<string, string | { type: string; default?: any; min?: number; max?: number; values?: any[]; desc?: string; optional?: boolean }>;
+  /**
+   * Model generator: false = never stored in the dev cache (.threedog/cache); for materials the GLB round trip cannot keep
+   * (own onBeforeCompile, ShaderMaterial uniforms that code keeps a reference to)
+   */
+  cache?: boolean;
+  /**
+   * Model: every mesh casts (receives) shadows, or none does. Left out: a generator that set the flag on any mesh keeps its own,
+   * otherwise (files, generators that set nothing) all meshes cast and receive
+   */
+  castShadow?: boolean;
+  /** Model: see castShadow */
+  receiveShadow?: boolean;
   /** Bake manifest (bake.js) only: 'file' = the baked file is the source of truth (edited in Blender), npm run bake no longer overwrites it */
   source?: 'file';
   /** Preload at startup */
@@ -354,10 +383,17 @@ export interface AssetManifest {
   base?: string | URL;
   /** Models (.glb / .gltf, Draco/Meshopt compression also works): name -> path or generator function */
   models?: Record<string, AssetEntry>;
-  /** Textures: name -> path */
-  textures?: Record<string, AssetEntry>;
-  /** Sounds: name -> path */
-  sounds?: Record<string, AssetEntry>;
+  /**
+   * Textures: name -> path, or a texture made in code: a function returning a THREE.Texture (run once, on first use) or the Texture itself.
+   * Code textures come back as made (their colorSpace / wrap / repeat are yours) and are never disposed by the engine if passed as a Texture.
+   * Example: textures: { brick: () => makeBrickTexture(), sign: mySignTexture }
+   */
+  textures?: Record<string, AssetEntry | Texture | (() => Texture | Promise<Texture>)>;
+  /**
+   * Sounds: name -> file path, or a sound made in code: a synth function (SynthFn) or { build: synthFn, params } (params: its defaults). Used by name
+   * like a file: audio.sfx(name), audio.sounds rules (src / variants), music and ambience. Example: sounds: { step: '/sfx/step.ogg', ding: dingSynth }
+   */
+  sounds?: Record<string, AssetEntry | SynthFn | { build: SynthFn; params?: Record<string, any> }>;
   /** Fonts: name -> file, or { url, family, weight, style, ... } (family defaults to the name). style.ui.fonts lists the names the UI uses */
   fonts?: Record<string, string | FontAssetEntry>;
 }
@@ -378,9 +414,13 @@ export interface Assets {
    * Register an asset manifest or asset pack (can be called several times; a later entry with the same name replaces the earlier one). Its name labels
    * it in engine.loading, base resolves its relative paths
    */
-  manifest(m: AssetManifest): this;
+  manifest(m: AssetManifest | AssetManifest[]): this;
   /** The generator function registered under a model name, null for a file model or an unknown name (content builds [name, ...params] models with it) */
   builder(name: string): ((...args: any[]) => any) | null;
+  /** The params of a generator registered with a params schema: { schema, values (built with now), tuned (from setParams) }, or null */
+  paramsOf(name: string): { schema: Record<string, any>; values: Record<string, any>; tuned: Record<string, any> } | null;
+  /** Dev tuning: build a generator with these params (replacing its defaults) and swap every live copy in place; the dev panel's models folder calls it */
+  setParams(name: string, values: Record<string, any>): Promise<{ why: string; names: string[]; copies: Record<string, number>; ms: number; partsChanged?: string[] }>;
   /**
    * Preload (onProgress(0–1, current name)). Code-generated models and fonts are only loaded up front if marked preload. failed includes entries now
    * showing their fallback
@@ -397,7 +437,8 @@ export interface Assets {
    */
   model(nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean }): Promise<Object3D>;
   /**
-   * A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs
+   * A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs.
+   * Code-built models (a build function in the manifest) count too: they are null until one await model(name) or an entry with preload: true ran (dev warns [asset-not-loaded])
    * @example const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');
    */
   modelNow(nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean }): Object3D | null;
@@ -413,8 +454,8 @@ export interface Assets {
    */
   release(name: string): void;
   /**
-   * Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() /
-   * cached() are not released automatically. Returns the released names
+   * Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() and
+   * code-generated models are not released automatically. Returns the released names
    */
   trim(): string[];
   /** How many copies of this model are in use now (taken with model() and not yet removed with engine.remove) */
@@ -424,13 +465,6 @@ export interface Assets {
    * under it
    */
   forget(obj: Object3D): void;
-  /**
-   * Code-generated model: generated only once per name + params, returns a copy (for geometry, the same one).
-   * Order: files baked by npm run bake (public/models/baked/) -> automatic dev cache (.threedog/cache, invalidated automatically when the generator or
-   * a file it imports changes) -> compute now.
-   * When the generator is newer than the baked file during development, it computes now and prints a one-time hint "run npm run bake once it is final"
-   */
-  cached<T = any>(name: string, build: (params?: any) => T | Promise<T>, params?: any): Promise<T>;
   /** Generations faster than this many milliseconds are not written to the automatic cache (reading the file would be slower), default 20 */
   cacheMinMs: number;
   /** Geometry and materials shared by model copies (engine.remove does not release them, use release) */
@@ -529,13 +563,15 @@ export type AudioBus = 'master' | 'music' | 'sfx' | 'ambience' | 'ui' | (string 
 /** A playing sound (returned by audio.sfx / audio.play): stop(fade), fade(to, seconds), setPosition(at) */
 import type { SoundHandle } from './generated/core/audioVoice';
 export type { SoundHandle };
-/** One sounds entry in full form. src: a file or variants (random, no immediate repeat); synth: a registered synth name (default: the entry's own name) */
+/**
+ * One sounds rule in full form: how a sound plays, never what it is made of (that is the asset manifest's: a file or a synth function).
+ * src: an asset pack sound name or a path, or variants (random, no immediate repeat); default: the asset of the rule's own name
+ */
 export interface SoundDef {
   src?: string | string[];
-  synth?: string;
-  /** Passed to the synth (merged over its registered defaults) */
+  /** Passed to a synth source (merged over the manifest entry's params) */
   params?: Record<string, any>;
-  /** Bus it plays on (default 'sfx', or the synth's registered bus) */
+  /** Bus it plays on (default 'sfx', or the built-in synth's own bus) */
   bus?: AudioBus;
   volume?: number;
   /** Playback rate multiplier (1 = as recorded); synths get it as params.pitch */
@@ -550,7 +586,7 @@ export interface SoundDef {
   /** 3D falloff for sfx(name, { at }): ref meters at full volume (2), max meters (60), rolloff (1) */
   distance?: { ref?: number; max?: number; rolloff?: number };
 }
-/** A sounds entry: a file, variants, 'synth' (the synth registered under the same name) or the full form */
+/** A sounds rule: a sound name / path, variants, or the full form */
 export type SoundSource = string | string[] | SoundDef;
 /** A measure comparison in a rule's `when`: every given key must hold ({ daylight: { gt: 0.15 } }, { rain: { lt: 0.2 } }) */
 export interface AudioCompare { gt?: number; gte?: number; lt?: number; lte?: number }
@@ -576,11 +612,14 @@ export interface AmbienceRule {
   /** Bus (default 'ambience') */
   bus?: AudioBus;
 }
-/** Synthesized sound: connect to `out` and return the length in seconds, or { stop(time) } for a loop (params.loop is true then) */
+/**
+ * Synthesized sound, registered as a sound asset (assets.manifest({ sounds: { ding: fn } }) or { build: fn, params }): connect to `out` and return
+ * the length in seconds, or { stop(time) } for a loop (params.loop is true then)
+ */
 export type SynthFn = (audio: Audio, params: Record<string, any>, out: any) => number | void | { stop(time: number): void };
 
 /**
- * The audio table of a content pack (content.load({ audio })): data only. sounds name asset pack sounds ('synth' for a built-in);
+ * The audio table of a content pack (content.load({ audio })): data only. sounds are play rules naming asset pack sounds (files or synths);
  * ambience and music.rules use condition keys and measures, never functions. Merged with createEngine({ audio }); a name in both is an error
  */
 export interface ContentAudio {
@@ -589,9 +628,9 @@ export interface ContentAudio {
   music?: { tracks?: Record<string, import('./gameplay').MusicTrack>; rules?: import('./gameplay').MusicRule[] };
   footsteps?: Record<string, string>;
 }
-/** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio). Not part of a style pack */
+/** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio). Not part of a style */
 export interface AudioConfig {
-  /** Sound name -> file / variants / 'synth' / SoundDef */
+  /** Sound name -> play rule: an asset sound name / path, variants, or SoundDef */
   sounds?: Record<string, SoundSource>;
   /** ambience() rule table */
   ambience?: AmbienceRule[];
@@ -631,6 +670,8 @@ export interface UIPart {
   /** May return a promise that resolves when a fade-out has finished (engine.ui.settled() waits for it) */
   hide?(): void | Promise<void>;
   dispose?(): void;
+  /** A modal part's root element: the UI choice cursor (uiFocus nav) moves over the controls inside it, so the part works with a gamepad / keyboard only */
+  readonly el?: HTMLElement | null;
   [key: string]: any;
 }
 /** Your own part: called once per single part (loading, toast, title) or once per item (hud.*); options are what the game passed as an object */
@@ -759,7 +800,7 @@ export interface ModuleDef<Api = any> {
   optional?: string[] | Record<string, string>;
   /**
    * Hook stages (first -> last): 'control' timeline, camera -> 'world' terrain, level -> 'environment' weather, sky, water -> 'gameplay' interactions,
-   * dialogue, triggers, entities
+   * dialogue, triggers
    * -> 'presentation' particles, settings, objective markers -> 'late' (default) -> 'audio' music. Within a stage use before / after, then install order
    */
   stage?: 'control' | 'world' | 'environment' | 'gameplay' | 'presentation' | 'late' | 'audio';
@@ -797,9 +838,9 @@ export interface ModuleDef<Api = any> {
   /** After rendering */
   afterRender?(dt: number, e: Engine): void;
   /**
-   * engine.skip moved time without stepping: advance your own time by dt fixed seconds (game seconds = dt x clock.timeScale), no per-step work.
-   * Called once per skip segment (segments end at timers and sky clock marks); done is true on the last one: do expensive catch-up only then.
-   * Only for modules that keep time themselves (sky, world); modules that compare against clock.now need nothing
+   * engine.skip moved time without stepping: advance your own time by dt fixed seconds (calendar seconds = dt x clock.speed), no per-step work.
+   * Called once per skip segment (segments end at timers and calendar clock marks); done is true on the last one: do expensive catch-up only then.
+   * Only for modules that keep time themselves (calendar, world); modules that compare against clock.now need nothing
    */
   skip?(dt: number, e: Engine, done: boolean): void;
   /**
@@ -812,7 +853,7 @@ export interface ModuleDef<Api = any> {
   counts?(e: Engine): number | Record<string, number>;
   /** Optional: answer engine.explain({ key: value }) for your own keys, e.g. explain: { quest: (e, id) => ({ ok: false, text: 'waits on step 2: ...' }) } */
   explain?: Record<string, (e: Engine, value: any, query: Record<string, any>) => { ok: boolean; text: string; [k: string]: any }>;
-  /** Optional: handle the keys of engine.applyState that this module owns (e.g. sky handles time) */
+  /** Optional: handle the keys of engine.applyState that this module owns (e.g. calendar handles time and season) */
   applyState?(e: Engine, params: StateParams): void | Promise<void>;
   /**
    * Optional: called on engine.dispose() (in reverse install order). Only clean up what the core cannot: Workers, the physics world, real-time timers,
@@ -835,7 +876,7 @@ export interface EngineOptions {
   /** A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures
    * (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48) */
   renderer?: any;
-  /** Style pack (looks only: materials, sky, lighting, post, UI look), a pack you made or installed (import basePack from 'your-pack'), or a list of parts
+  /** Style (looks only: materials, sky, lighting, post, UI look), the game's own style (import style from './style/index.js'), or a list of parts
    * deep-merged left to right: [basePack, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders */
   style?: StyleInput;
   /** Real-time shadows, default true */
@@ -865,7 +906,7 @@ export interface EngineOptions {
   near?: number;
   /** Default fog distance (meters), default 600 */
   fogFar?: number;
-  /** UI language: 'auto' (default) follows the browser (a language starting with zh gives 'zh-CN', anything else 'en'); or force 'zh-CN' | 'en' | your own */
+  /** UI language: 'auto' (default) follows the browser (a language starting with zh gives 'zh-CN', anything else 'en'); or force 'zh-CN' | 'en' | your own. Matched by language: 'zh' / 'zh-Hans' give 'zh-CN', 'en-US' gives 'en'; a language with no strings warns once */
   locale?: string;
   /** Override / add UI strings: { 'zh-CN': { key: text } } */
   strings?: StringTables;
@@ -915,7 +956,7 @@ export interface EngineOptions {
   pauseOnBlur?: boolean;
   /** false: no default lights in the scene at all (engine.lights.sun / hemi still exist, detached, so sky and describe never see undefined); the game adds its own. Default true */
   lights?: boolean;
-  /** Automatic instancing of repeated static models (engine.batching): false turns it off; default { minCount: 8, cell: engine.stream.cellSize } */
+  /** Automatic instancing of repeated static models the engine places (engine.batching; your own meshes opt in with userData.batch = true): false turns it off; default { minCount: 8, cell: engine.stream.cellSize } */
   batching?: false | BatchingOptions;
 }
 
@@ -1056,6 +1097,10 @@ export interface BatchingStats {
   instances: number;
   /** Draw calls saved per pass (instances - batches) */
   saved: number;
+  /** Present while anything is batched: what batching did to the engine's content meshes and how to raycast / opt out / turn it off */
+  note?: string;
+  /** Dev only, while at least minCount identical game-made meshes draw unbatched: the opt-in line (obj.userData.batch = true) */
+  hint?: string;
 }
 /** One entry of engine.batching.batches */
 export interface BatchInfo {
@@ -1143,7 +1188,7 @@ export interface StateParams {
   state?: string;
   /** Time of day: 'HH:MM' or 0–1 */
   time?: string | number;
-  /** Season name from sky({ seasons }): jumps sky.day to that season's first day (time of day kept) */
+  /** Season name from calendar({ seasons }): jumps calendar.day to that season's first day (time of day kept) */
   season?: string;
   /** Weather name */
   weather?: string;
@@ -1151,24 +1196,18 @@ export interface StateParams {
   pos?: string | PositionLike;
   /** Which save slot to load */
   save?: string;
-  /** How many seconds to advance (fixed-step seconds, not multiplied by clock.timeScale) */
+  /** How many seconds to advance (real seconds: fixed-step seconds, no scale) */
   wait?: number;
   /** Opening cutscene: 'skip' skips it | 'keep' plays it as usual */
   cutscene?: 'skip' | 'keep';
+  /** A view declared with engine.views to show after engine:ready (?view=name); ignored when the game declared no views */
+  view?: string;
 }
 
 /** A claim on something only its owner releases (pause, freeze, takeCamera, views) */
 export interface OwnerHandle { owner: string; remove(): void }
-/** What pause / freeze return: the claim handle, plus the old chaining calls forwarded to the engine */
-export interface ChainedHandle extends OwnerHandle {
-  pause(owner?: string | { owner?: string; kind?: 'test' }, opts?: { kind?: 'test' }): ChainedHandle;
-  resume(owner?: string | { owner?: string }): Engine;
-  freeze(owner?: string | { owner?: string; kind?: 'title' }, opts?: { kind?: 'title' }): ChainedHandle;
-  unfreeze(owner?: string | { owner?: string }): Engine;
-  step(seconds: number, opts?: { render?: boolean; frameEvery?: number; describe?: boolean }): GameState | null;
-}
-/** engine.runState: state in one word, by = every pause / freeze owner, blockedBy = opaque input contexts plus 'error' / 'loading' */
-export interface RunState { state: 'loading' | 'title-frozen' | 'test-paused' | 'paused' | 'running'; by: string[]; blockedBy: string[] }
+/** engine.runState: state in one word, owners = every pause / freeze owner, blockedBy = opaque input contexts plus 'error' / 'loading' */
+export interface RunState { state: 'loading' | 'title-frozen' | 'test-paused' | 'paused' | 'running'; owners: string[]; blockedBy: string[] }
 /** Camera takeover: when non-null no camera module moves the camera (for cutscenes); see engine.takeCamera */
 export interface CameraOverride {
   /** Who took over (any name) */
@@ -1186,13 +1225,37 @@ export interface AdaptiveState { paused: boolean; on: boolean; target: number; m
 
 /** Returned by set / patch / replace: remove() takes that owner's layer back off */
 export interface LookHandle { remove(): void }
+/** engine.look.shadow */
+export interface LookShadowPart extends LookPart<LookShadow> {
+  /**
+   * Let cascaded shadows patch a lit ShaderMaterial of yours (lights: true, built from THREE.ShaderLib); built-in lit materials need nothing. Returns it.
+   * @example engine.look.shadow.include(myShaderMaterial);
+   */
+  include<M extends import('three').Material>(material: M): M;
+}
 /** engine.look.post: a LookPart with add() for one custom pass */
 export interface LookPost extends LookPart {
   /** Add ONE custom post pass (name, create | fuse, slot, order, params) without replacing the chain; remove() takes it out again. Slot, order and depth-order errors throw and add nothing. Change its params with set({ '<name>.<param>': v }) */
   add(effect: PostEffect, opts?: LookOptions): LookHandle;
 }
+/** engine.look.materials: a LookPart with glow() for emissive that follows daylight */
+export interface LookMaterials extends LookPart<Record<string, Record<string, any>>> {
+  /**
+   * Materials matching `match` (a material role or material.name such as 'window', one Material, or (material) => boolean) get emissiveIntensity
+   * `night` at night and `day` by day, faded in as daylight (calendar, else sky) drops below `dusk` (default 0.3, a starting value: raise it
+   * for signs that come on early, lower it for things that only glow in full dark). Finds models built later (templates, streamed
+   * cells) after each scene change; the emissive color stays the game's. remove() gives each material its own emissiveIntensity back.
+   * describe().look.materials lists each rule and how many materials it found
+   * @example engine.look.materials.glow('window', { night: 2 });
+   */
+  glow(match: string | import('three').Material | ((material: import('three').Material) => boolean), opts: { night: number; day?: number; dusk?: number; owner?: string }): LookHandle;
+}
 /** owner: who writes the layer (non-empty name, default 'game'); roles: only materials.patch, the material roles that get the patch */
-export interface LookOptions { owner?: string; roles?: string[] }
+export interface LookOptions {
+  owner?: string; roles?: string[];
+  /** look.ground.replace(myMaterial, { effects: false }): your material as is, no cloud shadow / season / detail patch */
+  effects?: boolean;
+}
 /** patch(name, spec): a spec instead of plain GLSL. post: fuse snippet (glsl, slot, order, uniforms, values); sky 'layer:<name>': glsl, blend, order, uniforms */
 export interface LookPatchSpec {
   glsl?: string | Record<string, any>;
@@ -1221,6 +1284,14 @@ export interface LookPart<P = Record<string, any>> {
   /** Take the whole part over (Material, texture, object, effect list ...: see the catalog); replace(null) gives it back. materials.replace takes the role first */
   replace(impl: any, opts?: LookOptions): LookHandle;
   replace(role: string, impl: any, opts?: LookOptions): LookHandle;
+  /**
+   * Take values the engine writes on its own (every frame or on a timer: the sky's sun, the fog, camera.far ...) for the game: the engine stops
+   * writing them and the three.js object is yours. manual(keys, false) or the handle's remove() gives them back. Keys match by dotted prefix
+   * ('sun' takes sun.intensity and sun.color); none = every one of the part; a key that matches nothing throws with the part's keys.
+   * A direct write without manual() takes the value too (the engine yields and warns once). Which values: describe().owned, recipes/52 "Who writes it".
+   * @example engine.look.lights.manual('sun'); engine.lights.sun.intensity = 3;
+   */
+  manual(keys?: string | string[] | boolean, on?: boolean): LookHandle;
   /** Drop every game and debug layer of that owner (the style value shows again); returns how many layers were removed, like engine.debug.clear */
   clear(owner: string): number;
   /** The resolved value of a key (what is in use now) */
@@ -1253,13 +1324,17 @@ export interface LookPart<P = Record<string, any>> {
   dispose(): void;
 }
 
-export interface LookTone { mapping: string; exposure: number | Array<[number, number]> | ((t: number) => number) }
-export interface LookLightSide { color?: ColorLike; intensity?: number }
-export interface LookLights { sun: LookLightSide | 'manual' | false; hemi: LookLightSide | 'manual' | false }
+/** Exposure only: the tone curve is plain three.js (engine.renderer.toneMapping), written by the engine once at creation (style.toneMapping, else AgX) */
+export interface LookTone { exposure: number | Array<[number, number]> | ((t: number) => number) }
+export interface LookLightSide { color?: ColorLike; intensity?: number; /** sun only: cast soft shadows (no style: on) */ shadow?: boolean; /** hemi only */ ground?: ColorLike }
+/** env: the neutral generated room environment (scene.environment) the no-style baseline uses; 0 = none */
+export interface LookLights { sun: LookLightSide | 'manual' | false; hemi: LookLightSide | 'manual' | false; env: { intensity: number } }
 /** The map itself is the replace slot: look.env.replace('sky' | Texture | null) */
 export interface LookEnv { intensity: number; rotation: number; interval: number }
 export interface LookFog { kind: string; color: ColorLike | 'horizon'; density: number; near: number; far: number; height: number; falloff: number; enabled: boolean }
-export interface LookSky { clouds: Record<string, any>; backdrop: ColorLike | null }
+/** Color keys also take ({ time, weather, season, day, state, sky }) => color, evaluated every frame (engine.look.state feeds state) */
+export type LookColorFn = ColorLike | ((ctx: import('./style').LookContext) => ColorLike) | null;
+export interface LookSky { clouds: Record<string, any>; backdrop: LookColorFn; top: LookColorFn; horizon: LookColorFn }
 export interface LookShadow {
   type: 'basic' | 'pcf' | 'vsm'; radius: number; blurSamples: number; bias: number; normalBias: number; mapSize: number; updateEvery: number;
   snap: number | 'texel'; ahead: number; cascades: number; maxFar: number; fade: boolean; lightMargin: number; enabled: boolean;
@@ -1281,15 +1356,22 @@ export interface LookWater {
 export interface Look {
   tone: LookPart<LookTone>;
   lights: LookPart<LookLights>;
+  /**
+   * The camera and canvas values the engine writes on its own: camera.far, camera.fov, the pixel ratio. No params, shader or replace slot:
+   * manual('far' | 'fov' | 'pixelRatio') takes one for the game (to place the camera itself use engine.takeCamera(owner))
+   * @example engine.look.view.manual('far'); engine.camera.far = 3000; engine.camera.updateProjectionMatrix();
+   */
+  view: LookPart<{}>;
   cloudShadow: LookPart<LookCloudShadow>;
   /** Old name of cloudShadow (recipes/52-look.md, Old names) */
   clouds: LookPart<LookCloudShadow>;
   env: LookPart<LookEnv>;
   fog: LookPart<LookFog>;
   sky: LookPart<LookSky>;
-  shadow: LookPart<LookShadow>;
-  /** Roles are the keys: set({ wool: { roughness: 0.4 } }), patch(name, spec, { roles }), replace('wool', Material | fn) */
-  materials: LookPart<Record<string, Record<string, any>>>;
+  /** set({ type, cascades, follow, extent ... }); include(myLitShaderMaterial) opts a ShaderMaterial of yours into cascaded shadows */
+  shadow: LookShadowPart;
+  /** Roles are the keys: set({ wool: { roughness: 0.4 } }), patch(name, spec, { roles }), replace('wool', Material | fn), glow('window', { night: 2 }) */
+  materials: LookMaterials;
   surface: LookPart<LookSurface>;
   ground: LookPart<LookGround>;
   wind: LookPart<LookWind>;
@@ -1298,8 +1380,14 @@ export interface Look {
   weather: LookPart;
   /** Per effect: set({ bloom: { strength: 0.6 }, vignette: false }); patch(name, { glsl, slot, order, uniforms, values }); add(effect, { owner }); replace([effects]) */
   post: LookPost;
+  /**
+   * The game's half of the frame context every function-valued look key reads ({ time, weather, season, day, state, sky }): merge fields
+   * (null drops one) and get the state back; state() only reads it
+   * @example engine.look.fog.set({ color: ({ state }) => state.boss ? '#400' : 'horizon' }); engine.look.state({ boss: true });
+   */
+  state(patch?: Record<string, any> | null): Record<string, any>;
   /** Parts made with defineLookPart */
-  [custom: string]: LookPart;
+  [custom: string]: LookPart | ((patch?: Record<string, any> | null) => Record<string, any>);
 }
 
 /**
@@ -1312,11 +1400,11 @@ export declare class Engine {
   // ---------- Core objects ----------
   /** three.js (a game can also import { THREE } from 'threedog' directly) */
   THREE: typeof import('three');
-  /** Style pack */
+  /** Style */
   style: Style;
   /** three.js renderer */
   renderer: import('three').WebGLRenderer;
-  /** Device tier: 'low' (phones, integrated graphics) | 'high' */
+  /** Device tier: 'low' (phones, integrated graphics) | 'high'. A headless page takes it from ?threedog-tier=low|high (threedog shot / gallery / capture pass high, shot --tier low checks the low tier) */
   tier: 'low' | 'high';
   /** three.js scene */
   scene: import('three').Scene;
@@ -1325,7 +1413,7 @@ export declare class Engine {
    * false`
    */
   lights: { sun: import('three').DirectionalLight; hemi: import('three').HemisphereLight };
-  /** three.js perspective camera */
+  /** three.js PerspectiveCamera (class EngineCamera, core/engineCamera.js): a camera rig with projection: 'orthographic' switches it to an orthographic matrix in place (orthoSize; describe().camera.projection says which) */
   camera: import('three').PerspectiveCamera;
   /**
    * Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the
@@ -1371,8 +1459,9 @@ export declare class Engine {
   readonly moduleStates: Record<string, 'registered' | 'initializing' | 'running' | 'failed' | 'disposed'>;
   /**
    * What this game can do, read from the existing registrations (modules, ops, save parts, describe, params schemas).
-   * No argument: short list; a module id / op name: that entry expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md
-   * @example engine.catalog('shop').ops[0].failures   // ['soldOut', 'noMoney']
+   * No argument: the short list, an ARRAY of { id, kind, label, ops, saves, ... } (read .id, not Object.keys); a module id / op name: that entry
+   * expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md
+   * @example engine.catalog().map(s => s.id);   engine.catalog('shop').ops[0].failures   // ['soldOut', 'noMoney']
    */
   catalog(id?: string | { find?: string }): any;
   /**
@@ -1428,7 +1517,7 @@ export declare class Engine {
   cpuMs: number;
   /** cpuMs split by phase (last frame): fixed = input + fixed steps, frame = frame hooks incl. stream / jobs, render = draw submission, afterRender = its hooks */
   cpuPhases: { fixed: number; frame: number; render: number; afterRender: number };
-  /** The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Assigning { owner } / null is the old alias of takeCamera */
+  /** The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Read-only */
   cameraOverride: CameraOverride | null;
   /** Take the camera over (camera modules leave it alone) until remove(); the latest holder is in charge, releasing hands it back to the previous one */
   takeCamera(owner: string | ({ owner: string } & Partial<CameraOverride>), opts?: Partial<CameraOverride>): OwnerHandle;
@@ -1436,8 +1525,26 @@ export declare class Engine {
   readonly runState: RunState;
   /** Draco/KTX2 decoder directory */
   decoders: string;
-  /** Game clock: game seconds now, after / every (clock-time / season timers are on engine.sky) */
+  /** Calendar clock: calendar seconds now, after / every, the rate (clock-time / season timers are on engine.calendar) */
   clock: Clock;
+  /**
+   * The one way several systems change a shared quantity: an entry per owner, combined by layer, ended by its handle; nothing remembers an old value.
+   * @example engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 })   // bullet time on the enemies channel
+   * @example engine.mod('time.player', { owner: 'haste', mul: 1.2, for: 5 })          // haste on the player
+   * @example engine.mod('freeze', { owner: 'pause-menu' })                             // pause menu (same as engine.freeze('pause-menu'))
+   */
+  mod(name: string, opts: import('./gameplay').ModOptions): import('./gameplay').ModHandle;
+  /** Every shared quantity by name; define your own with engine.stacks.define(name, { base }) */
+  stacks: import('./gameplay').Stacks;
+  /**
+   * The one way to change what a module's public method does without copying the module: fn(next, ...args) runs instead of it; call next(...args)
+   * for the method (do work before, after, or skip it). Several wrappers compose (the last wrapped runs first); remove() takes one out; listed in
+   * describe().wraps. Private (_) methods throw. The methods a module promises are its contract.js api.
+   * @example engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) => carried() + weightOf(id) * n > 30 ? false : next(id, n, o), { owner: 'weight' })
+   */
+  wrap<T extends object>(target: T, method: string, fn: (next: (...args: any[]) => any, ...args: any[]) => any, opts?: { owner?: string }): Handle;
+  /** Time channels: real seconds, channel seconds (world, player, your own), read speeds with scale(ch, id?) */
+  time: import('./gameplay').Time;
   /** Story flags and counters (autosaved) */
   vars: Vars;
   /** Performance budget (off by default) */
@@ -1466,14 +1573,14 @@ export declare class Engine {
    * add one for a teleport destination)
    */
   stream: Stream;
-  /** Automatic batching: the same static model placed many times in a cell is drawn as one InstancedMesh (createEngine({ batching })) */
+  /** Automatic batching: the same static model the engine placed (world records, stream builds, level files) many times in a cell is drawn as one InstancedMesh; your own meshes only with userData.batch = true (createEngine({ batching })) */
   batching: Batching;
   /** Startup timing report (null until start() completes) */
   startup: StartupReport | null;
   /**
-   * Run seconds: unaffected by the sky time scale, does not advance while frozen or paused; for presentation animation (swaying, floating).
-   * The other two "times": game seconds engine.clock.now (= fixed-step seconds x clock.timeScale, saved); sky time of day engine.sky.timeOfDay (0–1,
-   * one day = dayLength game seconds)
+   * Real seconds: no scale, does not advance while frozen or paused; for presentation animation (swaying, floating).
+   * The other rulers: channel seconds engine.time.now(ch); calendar seconds engine.clock.now (= world-channel seconds x clock.rate, saved); time of day
+   * engine.calendar.timeOfDay (0–1, one day = dayLength calendar seconds)
    */
   readonly elapsed: number;
   /**
@@ -1491,8 +1598,10 @@ export declare class Engine {
   terrain?: Terrain;
   /** Vegetation (vegetation() module; grows on terrain or on any ground provider) */
   vegetation?: Vegetation;
-  /** Sky, day/night, calendar (sky() module) */
+  /** Sky dome, sun / moon light and fog drawn from the calendar's time (sky() module) */
   sky?: Sky;
+  /** Time of day, day, seasons and clock-time timers (calendar() module); NPC schedules, content clock conditions and audio time rules read it */
+  calendar?: Calendar;
   /** Weather (weather() module, needs sky) */
   weather?: Weather;
   /** Water surface (water() module) */
@@ -1510,25 +1619,21 @@ export declare class Engine {
   /** Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamera) */
   cameraRig?: CameraRig;
   /**
-   * Switch the camera at runtime (only exists with a camera module installed): the target and horizontal heading carry over; the first-person camera
+   * Switch the camera at runtime between kinds, once a camera module is installed (openWorld installs followCamera; with none it throws camera-none
+   * naming the module to install, e.g. engine.use(fixedCamera({ position, lookAt }))): the target and horizontal heading carry over; the first-person camera
    * hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for
    * switching back.
    * Passing opts rebuilds this kind of camera with the new parameters. A wrong kind throws and lists the available options.
    * @example engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' :
    * 'follow'); });
    */
-  setCamera?(kind: CameraKind, opts?: object): CameraRig;
+  setCamera(kind: CameraKind, opts?: object): CameraRig;
   /** Cutscenes, tweens (timeline() module) */
   timeline?: Timeline;
   /** Hand-built level (level() module) */
   level?: Level;
   /** Trigger zones (triggers() module) */
   triggers?: Triggers;
-  /**
-   * Entities: single stateful, saved objects such as saplings, campfires and chests; the data is a record of engine.world, the model is built only when
-   * nearby (entities() module)
-   */
-  entities?: Entities;
   /** Particles (particles() module) */
   particles?: Particles;
   /** Settings menu (settings() module) */
@@ -1541,10 +1646,16 @@ export declare class Engine {
   npcs?: NPCManager;
   /** Interaction prompts (interactions() module) */
   interactions?: Interactions;
-  /** Dialogue (dialogue() module) */
+  /**
+   * Dialogue (dialogue() module). Ops: `dialogue.advance` (finish typing the line, else go on to the next one) and `dialogue.choose { index }` (pick
+   * visible choice index, 0-based) are the only ways keys, clicks, tests and the dev bridge move a conversation on:
+   * `engine.ops.run('dialogue.choose', { index: 0 })`
+   */
   dialogue?: Dialogue;
   /** Inventory (inventory() module) */
   inventory?: Inventory;
+  /** pickups() */
+  pickups?: Pickups;
   /** Quests (quests() module) */
   quests?: Quests;
   /** Photo mode (photo() module) */
@@ -1572,8 +1683,8 @@ export declare class Engine {
   /** Whether a module is installed */
   has(name: string): boolean;
 
-  /** Material by role from this engine's style pack: engine.makeMaterial('prop', { color: 0x8a5a36 }) */
-  makeMaterial(purpose?: string, params?: { color?: ColorLike, [prop: string]: any }): Material;
+  /** Material by role from this engine's style: engine.makeMaterial('prop', { color: 0x8a5a36 }) */
+  makeMaterial(purpose?: string, params?: MaterialSpec): Material;
 
   // ---------- Ground ----------
   /** Set the ground (called by the terrain and level modules); missing parts fall back to flat ground */
@@ -1632,21 +1743,51 @@ export declare class Engine {
   detach(...objs: Object3D[]): void;
   /**
    * Fixed-step logic (60 times per second, dt in fixed seconds): movement, physics, cooldowns, and gameplay keys (read pressed() here: a per-step
-   * snapshot, independent of frame rate). Returns a handle { remove() }
+   * snapshot, independent of frame rate). dt is real seconds (always 1/60) unless { channel } names a time channel: then the channel's scaled dt.
+   * phase 'early' (default) runs before every module fixed hook (the player has not moved yet this step); 'late' after them, before the clock
+   * (hit checks, reading this step's result). Returns a handle { remove() }
+   * @example engine.onFixed(() => checkHits(engine.player.position), { phase: 'late' })
    */
-  onFixed(fn: (dt: number) => void): Handle;
+  onFixed(fn: (dt: number) => void, opts?: { channel?: string, phase?: 'early' | 'late' }): Handle;
   /**
    * Once per frame (dt in frame seconds): animation, camera, UI and UI keys (menus read this frame's latest input). Gameplay keys belong in onFixed.
    * Returns a handle { remove() }
    */
   onFrame(fn: (dt: number) => void): Handle;
+  /**
+   * Around the main frame render, after the camera update and batching. when 'before' (default): render into your own render target here
+   * (mirror, minimap, portal, picking); the render target is reset to the screen afterwards. 'after': right after the frame (read pixels).
+   * The main frame render itself stays the engine's (post chain). Returns a handle { remove() }
+   * @example const rt = new THREE.WebGLRenderTarget(256, 256);
+   * engine.onRender(({ renderer, scene }) => { renderer.setRenderTarget(rt); renderer.render(scene, mapCam); });
+   */
+  onRender(fn: (ctx: { renderer: import('three').WebGLRenderer; scene: import('three').Scene; camera: import('three').Camera; dt: number }) => void, opts?: { when?: 'before' | 'after' }): Handle;
+
+  // ---------- Light probes (render/probes.js) ----------
+  /**
+   * Bake a grid of light probes from the scene as it is now: a cube render at every grid point, turned into spherical harmonics (three's
+   * LightProbeGenerator), then one scene `LightProbe` that follows a point (`follow`, default the camera focus) and takes the light
+   * interpolated there every frame. The probe light adds to whatever ambient light the scene has (hemi, environment): lower those yourself
+   * where the probes take over. A load-time cost, not per frame: 6 renders + a GPU read back per probe, awaited one probe at a time so the page
+   * keeps drawing; ship the result with `toJSON()` + `engine.loadProbes(json)` instead of baking at every start.
+   * Render targets and cube cameras are disposed before it resolves. Adding the probe changes the light setup: bake at start-up, not mid-play.
+   * @example const probes = await engine.bakeProbes({ bounds: { min: [-20, 0, -20], max: [20, 6, 20] }, spacing: 4, include: o => !o.userData.moving });
+   * probes.sample(npc.position, npcProbe);   // your own probe for one object
+   */
+  bakeProbes(opts: { bounds: import('three').Box3 | { min: PositionLike; max: PositionLike }; spacing: number; resolution?: number;
+    include?: (o: Object3D) => boolean; height?: number; follow?: ProbeFollow; owner?: string }): Promise<ProbeSet>;
+  /**
+   * A probe set from a file made by `handle.toJSON()` (no baking). A wrong shape is refused with code `probes-data` and nothing is added.
+   * @example const probes = engine.loadProbes(await (await fetch('probes.json')).json());
+   */
+  loadProbes(json: ProbeData, opts?: { follow?: ProbeFollow; owner?: string }): ProbeSet;
 
   // ---------- Settings ----------
   /** Render resolution */
   setPixelRatio(p: number): void;
   /** Shadow toggle */
   setShadows(on: boolean): void;
-  /** Fog distance (meters), also adjusts the camera far plane */
+  /** Engine-internal view-distance path (terrain viewFog): sets engine.fogFar and the camera far plane; never writes a fog the game owns. Games: engine.look.fog.set({ far }) */
   setFogFar(d: number): void;
   /** Exposure per frame from style.exposure / look.tone keyframes or function, null for a plain number; the sky module calls it with engine.sky @readonly */
   exposureDriver: ((sky: any) => number) | null;
@@ -1656,15 +1797,10 @@ export declare class Engine {
   raycast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions): RayHit | null;
   /** Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY) */
   pick(ndcX: number, ndcY: number, opts?: RaycastOptions): RayHit | null;
-  /**
-   * New runtime instance of a content template (inside an op or fixed step), saved whole; returns the world record (kind = template name). Needs content().
-   * e.g. engine.spawn('chest', { x: 10, z: 4 }, { opened: true })
-   */
-  spawn(name: string, at: any, fields?: { id?: string; rot?: number; scale?: number; y?: number; items?: Record<string, number>; [stateField: string]: any }): import('./generated/modules/world/World').WorldRecord;
   /** Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes; emits state:applied when done */
   applyState(params: StateParams): Promise<void>;
-  /** Name a group of scenario parameters, then use applyState({ state: name }) or URL ?state=name */
-  defineState(name: string, params: StateParams): this;
+  /** Name a group of scenario parameters, then use applyState({ state: name }) or URL ?state=name. Returns a handle: remove() forgets the name */
+  defineState(name: string, params: StateParams, opts?: { owner?: string }): { owner?: string; remove(): void };
   /**
    * Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it:
    * page.waitForFunction(() => window.engine?.stateApplied)
@@ -1686,26 +1822,22 @@ export declare class Engine {
    * Pause the real-time loop: the picture stops and even rendering stops, only step() advances (for tests and screenshots). Use freeze() for a game menu
    * pause
    */
-  pause(owner?: string | { owner?: string; kind?: 'test' }, opts?: { kind?: 'test' }): ChainedHandle;
-  /** Resume the real-time loop (only this owner's pause) */
-  resume(owner?: string | { owner?: string }): this;
+  pause(owner?: string | { owner?: string; kind?: 'test' }, opts?: { kind?: 'test' }): OwnerHandle;   // end it with the handle's remove()
   /** Run fn at the start of the next fixed step (via commits); a Promise of fn's value */
   nextFixed<T>(fn: () => T): Promise<T>;
   /**
    * Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame
    * hooks and rendering continue and the UI works.
    * So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's
-   * name, default 'game'
+   * name, default 'game'. uniforms.uTime (wind, water, clouds) keeps moving while frozen; { ambient: true } stops it too
    */
-  freeze(owner?: string | { owner?: string; kind?: 'title' }, opts?: { kind?: 'title' }): ChainedHandle;
-  /** Release the freeze of owner (gameplay resumes only when all freezers are released) */
-  unfreeze(owner?: string | { owner?: string }): this;
+  freeze(owner?: string | { owner?: string; kind?: 'title'; ambient?: boolean }, opts?: { kind?: 'title'; ambient?: boolean }): OwnerHandle;
   /** Is anyone freezing gameplay? */
   readonly frozen: boolean;
   /**
    * Advance seconds of fixed-step time synchronously; seconds must be a finite number >= 0: 0 advances nothing (no step, no render),
-   * negative or non-finite throws (code step-seconds), any positive value runs at least one fixed step (60Hz; when timeScale is not 1,
-   * game seconds clock.now and sky time of day run faster or slower than it;
+   * negative or non-finite throws (code step-seconds), any positive value runs at least one fixed step (60Hz; time channels and
+   * the calendar clock.now / sky time of day run at their own speeds;
    * frame hooks run once every frameEvery fixed steps, default 2; describe: false returns null instead of building describe()).
    * jobs ignore real time and finish every frame; results of stream's synchronous build are attached to the scene before returning. When render is true
    * (default) one frame is rendered at the end. Returns the describe() result after advancing
@@ -1729,7 +1861,7 @@ export declare class Engine {
    * @returns a = after skip, b = after stepping
    * @example const r = await engine.checkSkip(600); if (!r.ok) console.log(r.diffs);
    */
-  checkSkip(seconds: number, opts?: { ignore?: string[] }): Promise<{ ok: boolean; diffs: { path: string; a: any; b: any }[] }>;
+  checkSkip(seconds: number, opts?: { ignore?: string[] }): Promise<{ ok: boolean; code?: 'frozen' | 'rate0'; diffs: { path: string; a: any; b: any }[] }>;
   /**
    * Consistency check: save -> load gives the same saved state back (nothing is written to the browser).
    * @example const r = await engine.checkSave(); if (!r.ok) console.log(r.diffs);
@@ -1756,9 +1888,9 @@ export declare class Engine {
   describeText(opts?: { radius?: number; full?: boolean; path?: string }): string;
   /**
    * What is around an actor or a spot, and what that actor can do now (each op offer checked with can, possible first, at most 8; failed ones carry
-   * reason and the op's reasons note).
+   * code and the op's reasons note).
    * at: a world record id (that actor), [x, z] / { x, z } (a spot, ops as the player), or nothing (the player). radius default 10 m.
-   * @example engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, reason: 'noMoney',
+   * @example engine.inspect();            // { actor: 'player', at: { x, z }, near: [...], ops: [{ op: 'shop.buy', args, ok: false, code: 'noMoney',
    * why: 'Not enough gold' }] }
    * @example engine.inspect('enemy_3');   // why is this enemy not attacking: its ops and their reasons
    * @example engine.inspect('chest-home').thing.definedAt   // 'content/props.js:14': edit that line to change the level for good
@@ -1767,7 +1899,7 @@ export declare class Engine {
   inspect: {
     (at?: string | { x: number; z: number } | number[], opts?: { radius?: number }): {
       actor: string; at: { x: number; z: number }; near: any[]; thing?: HitThing;
-      ops: { op: string; args: any; ok: boolean; reason?: string; why?: string | null }[];
+      ops: { op: string; args: any; ok: boolean; code?: string; why?: string | null; facts?: any; nextActions?: any[] }[];
     };
     /**
      * The mesh exists but is not drawn: use this first. Lists every Mesh / Points / Line / Sprite in the scene (name, type, world position, bounding radius,
@@ -1779,6 +1911,25 @@ export declare class Engine {
      * @example engine.inspect.scene().text
      */
     scene(opts?: { hidden?: boolean; limit?: number }): SceneInspect;
+    /**
+     * Every material in the scene with its textures (slot, size, color space, estimated GPU bytes, how many materials share it), who made it
+     * (engine / game), its shader patches and their slots, and how many meshes share it. issues lists wrong color spaces first (a color map that is not
+     * sRGB renders washed out; a normal / roughness map marked sRGB bends its data). Computed on call. Plain three.js: scene.traverse + texture.colorSpace.
+     * @example engine.inspect.materials().issues   // ['material "rock" (mesh "cliff"): normalMap "rock_n" holds data but is marked sRGB ...']
+     */
+    materials(opts?: { limit?: number }): { count: number; textures: number; textureBytes: number; issues: string[]; text: string;
+      materials: { name: string | null; type: string; uuid: string; madeBy: 'engine' | 'game'; role: string | null; sharedBy: number; firstMesh: string | null;
+        patches: { name: string; slots: string[] }[];
+        textures: { slot: string; name: string | null; size: string; colorSpace: string; bytes: number; sharedBy: number; issue?: string }[] }[] };
+    /**
+     * The last frame's cost against budgets, each with the next call when over: draw calls, triangles, shader programs, texture memory (estimate),
+     * JS ms per frame (cpuPhases), compile stalls during play (frames where three.js compiled new programs; startup compile ms), the costliest programs.
+     * Budgets are the game's engine.budget limits, else a reference (desktop 60 fps; not enforced). Plain three.js: renderer.info.
+     * @example engine.inspect.perf().text
+     */
+    perf(opts?: { top?: number }): { drawCalls: number; triangles: number; programs: number; textureMB: number; cpuMs: number; compileMs: number; ok: boolean; text: string;
+      budgets: { name: string; value: number; budget: number; from: 'engine.budget' | 'reference'; ok: boolean; next?: string }[];
+      compiles: { at: number; programs: number; ms: number }[]; [k: string]: any };
   };
   /**
    * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it
@@ -1791,7 +1942,7 @@ export declare class Engine {
    * thing has the rest).
    */
   explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): {
-    ok: boolean; reason?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing;
+    ok: boolean; code?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing;
   };
   /**
    * Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per
@@ -1802,9 +1953,11 @@ export declare class Engine {
   /**
    * Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then reclaim listeners, timers, audio, UI and GPU
    * memory (scene, assets cache, post-processing, renderer).
-   * After that no callbacks fire and step() returns null. Safe to call repeatedly. Don't use it for level changes; use level.track(handle)
+   * After that no callbacks fire and step() returns null. Safe to call repeatedly. Don't use it for level changes; use level.track(handle).
+   * The engine's own renderer gives its WebGL context back (browsers keep about 16 live ones), so that canvas cannot host a new engine; keepContext: true
+   * keeps it. A renderer passed to createEngine({ renderer }) is never released.
    */
-  dispose(): void;
+  dispose(opts?: { keepContext?: boolean }): void;
   /**
    * Counts for leak hunting: they should not keep growing after repeatedly entering / leaving levels or opening / closing windows. geometries / textures
    * come from three.js renderer.info.memory (counted only after rendering)
@@ -1812,7 +1965,6 @@ export declare class Engine {
   counts(): EngineCounts;
 }
 
-/** Result of engine.counts() */
 /** engine.error and the engine:error event: where and why, plus a stable code, the fix and the pages to read (from the error or the hint table) */
 export interface EngineError {
   /** Where it happened, e.g. "fixed hook of module quests" or "load() of save part 'inventory'" */
@@ -1823,10 +1975,13 @@ export interface EngineError {
   code: string | null;
   /** What to do about it; null when unknown */
   fix: string | null;
+  /** The first frame of the stack ("at onFixed (main.js:91:12)"): which line threw; null when the error has no stack */
+  at: string | null;
   /** Doc pages to read, relative to the package docs */
   docs: string[];
 }
 
+/** Result of engine.counts() */
 export interface EngineCounts {
   /** Number of event listeners */
   listeners: number;
@@ -1855,7 +2010,7 @@ export interface EngineCounts {
   /** Only with particles() installed: alive is the number of live particles, emitters the number of attached emitters */
   particles?: { alive: number; emitters: number };
   /** Only with sky() installed: timers is the number of at / between / daily / onSeason timers */
-  sky?: { timers: number };
+  calendar?: { timers: number };
   /** Any other module's counts(e) hook result, under the module name */
   [module: string]: any;
 }
@@ -1893,20 +2048,30 @@ export interface GameState {
     elapsed: number; paused: boolean; frozen: boolean; headless: boolean; clock?: string; day?: number; season?: string; isDay?: boolean;
     [key: string]: any;
   };
-  /** Player (null when there is no player), position in meters */
-  /** ground is the ground type, groundName its display name (i18n key ground.<type>, null if none) */
+  /**
+   * Everyone who holds something (empty parts left out): pause / freeze / camera / debugView [{ owner, at }], input [{ context, owner, pass }]
+   * (input.push), gates { action: owners } (input.gate), stacks { name: holders } (other engine.mod quantities)
+   */
+  holds: { pause?: any[]; freeze?: any[]; camera?: any[]; debugView?: any[]; input?: { context: string; owner: string; pass: boolean }[];
+    gates?: Record<string, string[]>; stacks?: Record<string, any>; };
+  /**
+   * Player (null when there is no player), position in meters; ground is the ground type, groundName its display name
+   * (i18n key ground.<type>, null if none)
+   */
   player: {
     x: number; y: number; z: number; ground: string; groundName: string | null; inWater: boolean; state: string | null;
     running: boolean; jumping: boolean; [key: string]: any;
   } | null;
   /** Camera: type 'follow' | 'first' | 'fixed' | 'rts', override is the takeover owner's name */
-  camera: { type: string | null; x: number; y: number; z: number; focus: { x: number; z: number }; override: string | null; [key: string]: any };
+  camera: { type: string | null; /** a camera rig may switch engine.camera (an EngineCamera) to orthographic */ projection: 'perspective' | 'orthographic'; orthoSize?: number; x: number; y: number; z: number; focus: { x: number; z: number }; override: string | null; [key: string]: any };
   /** How far counts as nearby (meters) */
   nearbyRadius: number;
   /** Nearby things, sorted by distance (at most 15) */
   nearby: NearbyThing[];
-  /** UI: open windows, whether input is locked, the dialogue in progress */
-  /** windows: open windows and full-screen UI parts (e.g. 'title'); parts: each UI part 'default' | 'custom' | 'off' */
+  /**
+   * UI: open windows, whether input is locked, the dialogue in progress. windows: open windows and full-screen UI parts (e.g. 'title');
+   * parts: each UI part 'default' | 'custom' | 'off'
+   */
   ui: {
     windows: string[]; inputLocked: boolean; parts: Record<string, string>; [key: string]: any;
     dialogue: { speaker: string; text: string; choices: string[]; [key: string]: any } | null;
@@ -1939,6 +2104,11 @@ export interface GameState {
    * snowVisible whether raindrops / snowflakes are drawn right now (object names weather-rain / weather-snow)
    */
   weather?: any;
+  /**
+   * Every value the engine writes on its own (sun, fog, exposure, camera.far, pixel ratio, camera ...) and who writes it now (writer): 'engine',
+   * 'manual:<who>' (look.<part>.manual / sky({ sun: 'manual' })) or 'three (engine yielded)' (the game wrote it directly). manual = the takeover call
+   */
+  owned?: Record<string, { part: string; key: string; writer: string; manual?: string }>;
   /** Content added by other modules */
   [module: string]: any;
 }
@@ -1956,7 +2126,7 @@ export interface DescribeContext {
 
 /** engine.skip options: pass to or seconds */
 export interface SkipOptions {
-  /** Until the sky clock next reads this time ('HH:MM' or 0-1; needs sky). The current time itself means a full day */
+  /** Until the calendar clock next reads this time ('HH:MM' or 0-1; needs calendar). The current time itself means a full day */
   to?: string | number;
   /** Game seconds to skip (> 0) */
   seconds?: number;
@@ -1964,4 +2134,32 @@ export interface SkipOptions {
   fade?: number;
   /** Save slot written after the jump, before the fade in (true = 'auto') */
   save?: string | boolean;
+}
+
+/** Where a probe set's scene LightProbe samples the grid each frame; false: no scene probe (read the grid with sample()) */
+export type ProbeFollow = 'focus' | 'camera' | Object3D | (() => PositionLike) | false;
+/** A probe file: what ProbeSet.toJSON() returns and engine.loadProbes reads (sh: count x 27 numbers, x fastest, then y, then z) */
+export interface ProbeData { format: 'threedog-probes'; version: 1; origin: [number, number, number]; step: [number, number, number]; counts: [number, number, number]; height: number | null; sh: number[] }
+/** A baked or loaded grid of SH light probes (engine.bakeProbes / loadProbes); describe().render.probes lists the live ones */
+export interface ProbeSet extends Handle {
+  /** number of probes */
+  count: number;
+  /** probes per axis [x, y, z] (y is 1 in height mode) */
+  counts: [number, number, number];
+  /** the actual distance between neighbours per axis (<= spacing, so the grid ends on the bounds) */
+  step: [number, number, number];
+  /** the scene LightProbe the engine writes the sh of every frame (null with follow: false); its intensity is yours. Writing its sh yourself takes it over (look.lights.manual('probes')) */
+  probe: import('three').LightProbe | null;
+  /** bake time in ms (null for a loaded set) */
+  bakeMs: number | null;
+  /** 'bake' | 'file' */
+  source: string;
+  /** the interpolated SH at a position (trilinear; outside the grid the nearest edge), written into target (a SphericalHarmonics3 or a LightProbe's sh) */
+  sample(pos: PositionLike, target?: import('three').SphericalHarmonics3 | import('three').LightProbe): import('three').SphericalHarmonics3;
+  /** world position of probe i */
+  point(i: number, out?: Vector3): Vector3;
+  /** plain data for a file: engine.loadProbes(json) makes the same set */
+  toJSON(): ProbeData;
+  /** takes the scene probe out and stops updating it; sample / toJSON still work */
+  remove(): void;
 }

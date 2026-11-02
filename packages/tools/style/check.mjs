@@ -1,5 +1,5 @@
 // Static checks of a merged style (what styleFrom makes of style: [a, b, {...}]); pure functions, no browser.
-// Each finding: { level: 'error' | 'warn', path, msg, fix? }. The key list comes from types/style.d.ts (schema.mjs); the world-state rule mirrors
+// Each finding: { level: 'error' | 'warn' | 'note', path, msg, fix? }; a note is a plain fact (no verdict, nothing to fix). The key list comes from types/style.d.ts (schema.mjs); the world-state rule mirrors
 // core/styleParts.js WORLD (which only throws in a dev run) so the same mistake is found before the game starts.
 // Not provable here: that a pack holds no gameplay logic (functions are opaque); R34 covers the patterns it can see by text.
 import { childOf } from './schema.mjs';
@@ -39,7 +39,7 @@ function unknownFields(style, schema, closest, worldPaths) {
       if (spec.open || worldPaths.has(p)) continue;
       if (!path && WORLDISH.includes(k)) {
         out.push(f('error', p, `'${k}' is world state, not a look: swapping the style would change the map or the rules`,
-          'put it where the world is made (water({...}), terrain({...}), sky({ hoursPerDay }))'));
+          'put it where the world is made (water({...}), terrain({...}), calendar({ hoursPerDay }))'));
         continue;
       }
       out.push(f('error', p, `unknown style field '${k}'.${didYou(k, spec.keys, closest)}`, `allowed here: ${[...spec.keys].join(', ')} (types/style.d.ts)`));
@@ -131,7 +131,6 @@ function paletteKeys(style, refs, closest) {
 
 // ── post effects ───────────────────────────────────────────
 const SLOTS = ['scene', 'hdr', 'ldr', 'final'];
-const MAX_POST = 2;
 function post(style) {
   const list = style.post, out = [];
   if (list === undefined) return out;
@@ -161,12 +160,17 @@ function post(style) {
     if (on && (e.slot === 'scene' || e.fuse)) swapped ??= e.name;
   }
   // dof copies the scene depth into its output, so an outline after it works (crisp lines over the blur); dof after an outline would find no scene depth
-  const dof = chain.find(e => e.name === 'dof' && e.enabled === true), line = chain.find(e => e.name === 'outline' && e.enabled === true);
+  const dof = chain.find(e => e.name === 'dof' && e.enabled !== false), line = chain.find(e => e.name === 'outline' && e.enabled !== false);
   if (dof && line && chain.indexOf(dof) > chain.indexOf(line)) out.push(f('error', `post[${dof.i}]`, "'dof' runs after 'outline' (both on): outline swaps buffers, so dof would not find the scene depth",
     `give 'dof' a lower order than 'outline' (dof ${dof.order} -> below ${line.order}); both can be on, lines then stay sharp over the blur`));
-  // More effects stacked rarely means closer to a reference: each one adds its own look, and the sum drifts away from the picture
+  // Which effects are on is a fact worth seeing (each is a full-screen pass, and their looks add up); how many is right depends on the game's
+  // art direction, so this is a note with the way to see each one's cost, never a cap or a verdict
   const on = eff.filter(e => e.enabled !== false);
-  if (on.length > MAX_POST) out.push(f('warn', 'post', `${on.length} post effects are on (${on.map(e => `'${e.name}'`).join(', ')}); more than ${MAX_POST}`, 'Do not add effects the reference picture does not show; more effects make it worse. Turn them off until only the necessary ones remain'));
+  if (on.length) {
+    const costly = on.filter(e => e.costly).map(e => `'${e.name}'`);
+    out.push(f('note', 'post', `${on.length} post effect(s) on: ${on.map(e => `'${e.name}'`).join(', ')}${costly.length ? ` (${costly.join(', ')} costly: off on low-tier devices)` : ''}`,
+      `to see what one adds or costs, shoot it off and on (look.post.set({ '${on[0].name}.enabled': false }), threedog shot --compare <previous.png>); threedog shot --tier low shows what a low device leaves out`));
+  }
   return out;
 }
 

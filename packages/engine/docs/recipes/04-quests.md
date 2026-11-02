@@ -23,7 +23,7 @@ export default {
   },
 };
 ```
-`target` forms: a place name, `{ place, x, z }`, `{ x, z }` (world coordinates; any of these may add `floor` / `y` for a storey on multi-layer ground,
+`target` forms: a place name (its coordinates come from `engine.content.load(data, { places })` or a level marker, recipe 01), `{ place, x, z }`, `{ x, z }` (world coordinates; any of these may add `floor` / `y` for a storey on multi-layer ground,
 as in props), `{ npc: 'id in npcs.js' }`, `{ nearest: 'itemId' }` (the closest not-yet-picked-up pickup of that kind to the player; hidden
 automatically once picked up).
 In code you can also write a function `target: () => target or null` (evaluated every frame); to change the target of a manual marker use
@@ -71,7 +71,8 @@ engine.events.on('quest:done', ({ id }) => { /* quest completed */ });   // ther
 ```
 To turn off automatic markers: `hud({ questMarkers: false })`. To add a marker by hand: `const m = engine.hud.marker('gate', { label: 'Gate' }); m.remove();`;
 content effects can add them too: `{ marker: 'gate' }` / `{ clearMarker: 'gate' }`. A counter in the screen corner:
-`engine.hud.counter('slimes', { label: 'Slimes', value: 2, max: 3 })`.
+`engine.hud.counter('slimes', { label: 'Slimes', value: 2, max: 3 })`; `anchor: 'top-right'` (or `top`, `bottom`, `bottom-left`...) puts a counter
+or bar in that screen column.
 
 ## 3. Verify
 - `npm run check`: a wrong item / flag / place name / NPC id in a step is an error; "flag is only checked but never set" is a warning. After
@@ -81,3 +82,9 @@ content effects can add them too: `{ marker: 'gate' }` / `{ clearMarker: 'gate' 
   In more detail: `engine.quests.list()` (each step has `current/done/target`), `engine.quests.isActive(id)`; story flags in `engine.vars.flags`.
 - Objective markers: `describe().hud.markers` has `{ label: quest title, distance: meters, onScreen }`; counters are in `describe().hud.counters`.
 - After advancing a condition you don't have to wait: `engine.quests.check()` checks immediately. Related test: `npm test -- 目标指示`.
+
+## Reading and moving progress from code
+`engine.quests.state(id)` gives `{ step, steps, done, failed, active }` (or null before it starts): a copy, so read it, never write it.
+A step the game finishes from its own code (a cutscene ended, a boss fell) can skip its condition: `engine.quests.advance(id)` moves to the next step
+and completes the quest after the last one (reward, `quest:done`); call it from an op or a fixed step. A replacement quests module meets
+`modules/gameplay/quests.contract.js` (define / start / advance / state / list, events quest:start / quest:step / quest:done, save key quests).

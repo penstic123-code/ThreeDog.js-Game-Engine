@@ -67,7 +67,9 @@ export const specs = [
         const states = { idle: { clip: 'Idle_Armed' }, walk: { clip: 'Walk' }, attack: { clip: 'Slash', loop: false, timing: 0.5 }, hurt: { clip: 'Hit', loop: false } };
         engine.assets.manifest({ name: 'generated', models: {
           dummy: { url, animation: { fade: 0.2, states } },
-          dummyBad: { url, animation: { states: { idle: { clip: 'Idle' }, attack: { clip: 'Slsh', loops: false } } } },
+          dummyBad: { url, animation: { states: { idle: { clip: 'Idle' }, attack: { clip: 'Slsh', loop: false } } } },
+          // 键名写错（loops）走 readParams：开发时 animate() 抛错，不是警告；片段名写错（Slsh）才是提示（片段可能晚到）
+          dummyTypo: { url, animation: { states: { attack: { clip: 'Slash', loops: false } } } },
         } });
         const m = await engine.assets.model('dummy'); engine.add(m);
         const loaded = { clips: engine.loading.get('dummy')?.source.animations, bones: m.getObjectByProperty('isSkinnedMesh', true)?.skeleton.bones.length };
@@ -88,11 +90,13 @@ export const specs = [
         // 映射缺动作 / 资源名写错 / 键名写错：都指向清单里那一条
         const missing = a.check(['idle', 'attack', 'die']);
         const bad = await __t.warns(async () => { const mb = await engine.assets.model('dummyBad'); engine.assets.animate(mb).dispose(); });
+        let typo = ''; const mt = await engine.assets.model('dummyTypo');
+        try { engine.assets.animate(mt).dispose(); } catch (e) { typo = e.message; }
         // 角色按名字用这个模型：默认的 Idle 不能盖掉清单映射的 Idle_Armed
         const c = new window.Character(engine, { model: 'dummy' }); await c.whenReady;
         const ch = { idle: c.anim?.states.idle.clip, fade: c.anim?.fade };
         c.dispose(); engine.remove(m);
-        return { loaded, mapped, mid, after, top, topAgain, down, held, ends, back, missing, bad: bad.warns, ch };
+        return { loaded, mapped, mid, after, top, topAgain, down, held, ends, back, missing, bad: bad.warns, typo, ch };
       });
       check('生成的 glb 走真实导入：片段名保持 Blender 式 "Armature|Slash"，骨骼 3 根', r.loaded.clips?.includes('Armature|Slash') && r.loaded.bones === 3, JSON.stringify(r.loaded));
       check('清单里的映射生效（attack → Slash，fade 0.2），check 全部动作通过', r.mapped.attack === 'Slash' && r.mapped.fade === 0.2 && r.mapped.ok.length === 0, JSON.stringify(r.mapped));
@@ -101,7 +105,8 @@ export const specs = [
       check('姿态跟着 t：t=0.15 手在最高（约 2.2），t=0.3 已砍下', r.top > 2.15 && r.down < r.top - 0.6, `top ${r.top.toFixed(3)} down ${r.down.toFixed(3)}`);
       check('sync(null) 交还控制后 go 照常（切回 idle）', r.back.state === 'idle', JSON.stringify(r.back));
       check('check 报缺：die 没有映射，改法指向清单 models.dummy.animation.states.die 并列出片段', r.missing.length === 1 && r.missing[0].includes('manifest "generated" models.dummy.animation.states.die') && r.missing[0].includes('Slash'), JSON.stringify(r.missing));
-      check('清单写错：资源名 Slsh 提示 Slash 并指向清单条目，键名 loops 提示 loop', r.bad.some(w => w.includes('models.dummyBad.animation.states.attack') && w.includes('Slash')) && r.bad.some(w => w.includes('loops') && w.includes('`loop`')), JSON.stringify(r.bad));
+      check('清单写错：片段名 Slsh 提示 Slash 并指向清单条目', r.bad.some(w => w.includes('models.dummyBad.animation.states.attack') && w.includes('Slash')), JSON.stringify(r.bad));
+      check('清单写错：键名 loops 开发时报错，提示 loop 并指向清单条目', r.typo.includes('models.dummyTypo.animation.states.attack') && r.typo.includes('loops') && r.typo.includes('`loop`'), r.typo);
       check('角色用这个模型：清单映射的 Idle_Armed 不被默认 Idle 盖掉，fade 用清单的', r.ch.idle === 'Idle_Armed' && r.ch.fade === 0.2, JSON.stringify(r.ch));
     },
   },

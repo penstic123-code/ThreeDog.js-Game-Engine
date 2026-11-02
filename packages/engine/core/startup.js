@@ -7,6 +7,8 @@ import { catalogSnap, catalogClaim } from './catalog.js';
 import { codedError } from './errorHints.js';
 import { touchStart } from './inputTouch.js';
 import { Loading, failureText } from './Loading.js';
+import { syncRoomEnvironment } from '../render/lights.js';
+import { startHeadlessLoad } from './headlessLoad.js';
 
 const DEV_STRINGS = {
   initFailed: 'init of module {name}',
@@ -76,9 +78,19 @@ export const startupMethods = {
     // Compile every visible material for the current lights now, behind the loading screen, instead of stalling the first frame that shows it
     // (async where the browser has KHR_parallel_shader_compile). A later change in the number of lights compiles again: see recipes/09 "Lights and stalls"
     const tc = performance.now();   // measure
-    await this.renderer.compileAsync(this.scene, this.camera);
-    const compileMs = ms(tc);
+    syncRoomEnvironment(this);                 // the baseline room map, if a material reads scene.environment: before compiling, since it is part of the program key
+    // compile for the target the scene really draws into (the composer's when post is on): see PostFX._sceneTarget.
+    // compile() runs synchronously inside compileAsync, so the target only needs to be set around the call, not across the await
+    const r = this.renderer, target = this.post._sceneTarget();
+    r.setRenderTarget(target);
+    let compiling;
+    try { compiling = r.compileAsync(this.scene, this.camera); } finally { r.setRenderTarget(null); }
+    await compiling;
     this._alive('compiling shaders');
+    // One hidden frame behind the loading screen: shadow depth materials, the post passes and the background quad are programs compileAsync
+    // never sees, and without this frame they compiled in the first frame the player saw (a 300 ms hitch measured)
+    if (!this.headless) { try { this._render(0); } catch (err) { reportError(this, err, 'render (warm-up frame)', { soft: true }); } }
+    const compileMs = ms(tc);
     this.ready = true;
     this.commits.rebase();                     // background results registered during loading restart timing from now (see Commits.js)
     // Startup timing: totalMs from page open to playable, startMs from start() to playable
@@ -89,6 +101,7 @@ export const startupMethods = {
     this.session._capture();                   // the state engine.session.newGame() returns to: set up, nothing played yet
     this.ui.open('title');                     // the title screen, only when the game turned it on (createEngine({ ui: { title: {...} } }))
     await this._urlState.late();              // scenario parameters: skip the cutscene, wait, align the time, then emit state:applied
+    startHeadlessLoad(this);                  // headless: what the game sets up after start (a species, a teleport) still loads with no step() (headlessLoad.js)
     return this;
   },
 
@@ -99,7 +112,7 @@ export const startupMethods = {
   _blocked(fatal) {
     const err = codedError(fatal.some(t => t.kind === 'module') ? 'module-critical' : 'asset-critical', DEV_STRINGS.blocked.replace('{n}', String(fatal.length)).replace('{list}', fatal.map(failureText).join('\n  ')));
     this.ui.get('loading')?.update({ progress: 1, text: this.t('loading.failed', { name: fatal.map(t => t.name).join(', ') }), failed: fatal });
-    console.error(err.message);
+    reportError(this, err, 'engine.start()', { soft: true });   // logged once (errors.log in dev), then start() rejects with it
     throw err;
   },
 

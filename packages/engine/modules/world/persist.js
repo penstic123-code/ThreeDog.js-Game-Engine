@@ -7,17 +7,22 @@
 //   Loading before content is loaded works too: changes and removals are remembered and applied / skipped when content is added. Things newly added to content after a game update still show up with an old save.
 //   Temporary things (data for effects, one-off spawns): add(def, { save: false }) — not saved, cleared on load.
 //   Changes are found by comparing JSON against the original content, not by events: fields changed directly inside simulate are saved too.
-// Save format (part 'world', version 3): every record is keyed by its stable id, and only what play changed is stored:
+// Save format (part 'world', version 4): every record is keyed by its stable id, and only what play changed is stored:
 //   { seq, step, time, records: { id: whole runtime record without id }, changed: { id: { set?: changed fields, del?: [removed fields] } },
 //     removed: [ids of removed initial records], owed: { id: simulation seconds owed, only for kinds simulated with far } }
 //   Version 1 kept records as an array: migrate step 1 (WORLD_MIGRATE) turns it into the id-keyed object.
 //   Version 2 numbered runtime records `<kind>-<n>`; version 3 uses `<kind>#<n>`, so a runtime id can never equal an authored one (authored ids may not
 //   contain `#`, content/ids.js). Step 2 renames them (legacyRuntimeIds says which), and the containers part follows with the same map (a template
 //   instance's container is keyed by the record id).
+//   Version 4: a character's motion (Character.saveMotion: on the player record itself, in rec.motion for NPCs) keeps its jump state as
+//   jump: { coyote, used } instead of the flat coyote field (the jump API: air jumps count used jumps). Step 3 moves it.
+//   Version 5: an NPC's talk / talkLabel / talkRadius became interact { label, op: 'npc.talk', args: { script }, radius } (talking is one interact op
+//   among many). Step 4 moves them, on whole records and on changed fields.
 //   Removed fields are recorded separately (not saved as null): after loading it is "no such field", same as in a live run; a field that was null stays null.
 //   step / time are the simulation step count and accumulated seconds: far simulation takes turns by step-count buckets, so one save advances the same way every time (see sim.js).
 
 import { legacyRuntimeIds, renameIdKeys, renameIdValues } from '../../core/saveIds.js';
+import { codedError } from '../../core/errorHints.js';
 
 const PLAIN_STRINGS = {
   msg: 'world data must be plain values (number, string, boolean, array, plain object): {path} is {what}. Put models in world.present() and logic in world.simulate()',
@@ -25,7 +30,7 @@ const PLAIN_STRINGS = {
 };
 /** Dev-time check: data must not contain three.js objects, functions or DOM elements (saves can only store plain values) @internal */
 export function checkPlain(v, path, depth = 0) {
-  const fail = what => { throw new Error(PLAIN_STRINGS.msg.replace('{path}', path).replace('{what}', what)); };
+  const fail = what => { throw codedError('world-plain', PLAIN_STRINGS.msg.replace('{path}', path).replace('{what}', what)); };
   if (v == null || typeof v !== 'object') { if (typeof v === 'function') fail(PLAIN_STRINGS.fn); return; }
   const what = v.isObject3D ? PLAIN_STRINGS.obj : v.isMaterial || v.isBufferGeometry || v.isTexture ? PLAIN_STRINGS.asset : typeof Element !== 'undefined' && v instanceof Element ? PLAIN_STRINGS.dom : null;
   if (what) fail(what);
@@ -52,6 +57,27 @@ export const WORLD_MIGRATE = {
     if (!map.size) return d;
     return { ...d, records: renameIdValues(renameIdKeys(d.records, map), map), changed: renameIdValues(d.changed, map), owed: renameIdKeys(d.owed, map) };
   },
+  3: d => {   // motion coyote -> jump: { coyote, used: 0 } (whole runtime records and changed fields; the player keeps it on the record, NPCs in motion)
+    const fix = m => { if (!m || typeof m !== 'object' || !('coyote' in m)) return m; const { coyote, ...rest } = m; return { ...rest, jump: { coyote: coyote ?? 0, used: 0 } }; };
+    const rec = r => { const o = fix(r); return o && typeof o === 'object' && o.motion ? { ...o, motion: fix(o.motion) } : o; };
+    const map = (o, f) => o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)])) : o;
+    return { ...d, records: map(d.records, rec), changed: map(d.changed, c => c?.set ? { ...c, set: rec(c.set) } : c) };
+  },
+  4: d => {   // NPC talk / talkLabel / talkRadius -> interact (records of any kind that carry talk: only NPCs had it)
+    const fix = r => {
+      if (!r || typeof r !== 'object' || !('talk' in r)) return r;
+      const { talk, talkLabel, talkRadius, ...rest } = r;
+      return { ...rest, interact: talk ? { label: talkLabel ?? null, op: 'npc.talk', args: { script: talk }, radius: talkRadius ?? 3.2 } : null };
+    };
+    const map = (o, f) => o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)])) : o;
+    // a changed entry of an initial NPC: a removed talk means it no longer talks (interact removed). A label / radius alone (set or removed) has no
+    // script to build an interact from, so it is dropped and the content's interact stays; a stray key would sit on the record unread
+    const OLD = ['talkLabel', 'talkRadius'];
+    const strip = s => s && typeof s === 'object' && !('talk' in s) && OLD.some(k => k in s) ? Object.fromEntries(Object.entries(s).filter(([k]) => !OLD.includes(k))) : s;
+    const del = l => Array.isArray(l) ? [...new Set(l.filter(k => !OLD.includes(k)).map(k => k === 'talk' ? 'interact' : k))] : l;
+    const change = c => c && typeof c === 'object' ? { ...c, ...(c.set && { set: strip(fix(c.set)) }), ...(c.del && { del: del(c.del) }) } : c;
+    return { ...d, records: map(d.records, fix), changed: map(d.changed, change) };
+  },
 };
 
 
@@ -70,8 +96,42 @@ export function saveWorld(w) {
   return { seq: w._seq, ...w._s.toJSON(), records, changed, removed: [...w._removed] };
 }
 
+// Shape check of a world save before anything is replaced. Why here and not in add(): putPos only checks in dev, and a save bypasses add() entirely,
+// so a hand-edited or damaged record ({ x: 1e12, y: null, z: 'abc' }) went straight into the records and threw later in a listener / a mover,
+// with the game half-loaded. Refusing throws: saves.apply rolls the whole load back and reports this message (save-bad-record).
+const SHAPE_STRINGS = {
+  bad: "world save: {path} {why} (got {got}); the save was refused and the game was rolled back. The save was edited by hand or damaged: fix that field, or load another save",
+  obj: 'must be a plain object', kind: 'must have kind (a string)', pos: 'must be { x, y, z } with finite numbers within ±{max}',
+  arr: 'must be an array of record ids', count: 'must be a finite number >= 0',
+};
+/** Positions beyond this are damage, not a big world: float32 models are already centimetres off at 1e5 and useless far before 1e7 */
+const POS_MAX = 1e7;
+const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+/** Throw save-bad-record for the first malformed core field of a world save (fields of the game's own are not checked) @internal */
+export function checkWorldSave(d) {
+  const bad = (path, why, got) => { throw codedError('save-bad-record', SHAPE_STRINGS.bad.replace('{path}', path).replace('{why}', why.replace('{max}', String(POS_MAX))).replace('{got}', String(JSON.stringify(got)).slice(0, 120))); };
+  const pos = (path, p) => { if (!isObj(p) || !['x', 'y', 'z'].every(k => Number.isFinite(p[k]) && Math.abs(p[k]) <= POS_MAX)) bad(path, SHAPE_STRINGS.pos, p); };
+  const num = (path, v) => { if (v !== undefined && !(Number.isFinite(v) && v >= 0)) bad(path, SHAPE_STRINGS.count, v); };
+  if (!isObj(d)) bad('the world part', SHAPE_STRINGS.obj, d);
+  num('seq', d.seq); num('step', d.step); num('time', d.time);
+  for (const f of ['records', 'changed', 'owed']) if (d[f] !== undefined && !isObj(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
+  if (d.removed !== undefined && !(Array.isArray(d.removed) && d.removed.every(id => typeof id === 'string'))) bad('removed', SHAPE_STRINGS.arr, d.removed);
+  for (const [id, r] of Object.entries(d.records ?? {})) {
+    if (!isObj(r)) bad(`records.${id}`, SHAPE_STRINGS.obj, r);
+    if (typeof r.kind !== 'string') bad(`records.${id}`, SHAPE_STRINGS.kind, r.kind);
+    if ('position' in r) pos(`records.${id}.position`, r.position);
+  }
+  for (const [id, c] of Object.entries(d.changed ?? {})) {
+    if (!isObj(c) || (c.set !== undefined && !isObj(c.set)) || (c.del !== undefined && !Array.isArray(c.del))) bad(`changed.${id}`, SHAPE_STRINGS.obj, c);
+    if (c.set && 'position' in c.set) pos(`changed.${id}.set.position`, c.set.position);
+    if (c.set && 'kind' in c.set && typeof c.set.kind !== 'string') bad(`changed.${id}.set`, SHAPE_STRINGS.kind, c.set.kind);
+  }
+  for (const [id, v] of Object.entries(d.owed ?? {})) num(`owed.${id}`, v);
+}
+
 /** Load: replace runtime records wholesale; loaded initial records go back to the original then get the save's changes; unloaded content waits for its add. Independent of the order of content.load @internal */
 export function loadWorld(w, d) {
+  checkWorldSave(d);   // before anything is cleared: a refused save leaves the world as it was (the rollback then has nothing to undo here)
   w._v.clear();
   w.records.clear(); w._cells.clear(); w._unsaved.clear();
   for (const id of [...w._origin.keys()]) if (!w._base.has(id)) w._origin.delete(id);   // runtime records come from the save now (no op to name)

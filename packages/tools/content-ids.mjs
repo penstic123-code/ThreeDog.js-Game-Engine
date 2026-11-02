@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { parseAst } from 'vite';
 import { abs, rel, pickWorkspace, CONTENT_IDS_REL } from './paths.mjs';
-import { loadGame } from './content-check/load.mjs';
+import { loadGame, partOf } from './content-check/load.mjs';
 import { exportedLiteral } from './vite/vite-threedog-content-src.js';
 
 const { missingIds } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
@@ -20,12 +20,17 @@ const { missingIds } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
  * @param {string} dir  game folder
  */
 export async function planIds(dir) {
-  const { data, files } = await loadGame(dir);
+  const { data, parts } = await loadGame(dir);
   const byFile = new Map();
-  for (const m of missingIds(data)) { if (!byFile.has(m.file)) byFile.set(m.file, []); byFile.get(m.file).push(m); }
+  for (const m of missingIds(data)) {   // m.index is in the joined kind; a folder kind (content/props/*.js) maps it to the file and its own index
+    const at = partOf(parts, m.file, m.index);
+    if (!at) continue;
+    if (!byFile.has(at.path)) byFile.set(at.path, []);
+    byFile.get(at.path).push({ ...m, index: at.index });
+  }
   const out = { files: [], manual: [] };
-  for (const [name, list] of byFile) {
-    const path = files[name], code = readFileSync(path, 'utf8'), node = exportedLiteral(parseAst(code));
+  for (const [path, list] of byFile) {
+    const code = readFileSync(path, 'utf8'), node = exportedLiteral(parseAst(code));
     const edits = [];
     for (const m of list) {
       const el = node?.type === 'ArrayExpression' ? node.elements[m.index] : null;
@@ -47,8 +52,8 @@ export async function planIds(dir) {
 
 async function main(argv) {
   const [sub, ...rest] = argv;
-  if (sub === 'set') return (await import('./content-set.mjs')).main(rest);
-  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies) · threedog content set <id> <field> <json> [--in file] [--dry]'); return 1; }
+  if (sub === 'set' || sub === 'add' || sub === 'remove') return (await import('./content-write.mjs')).main(sub, rest);
+  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies) · threedog content set|add|remove … (threedog content set for its usage)'); return 1; }
   let dir, args;
   try { ({ dir, args } = pickWorkspace(rest)); } catch (e) { console.log('✗ ' + e.message); return 1; }
   const folder = args.find(a => !a.startsWith('-'));   // or a game folder by path (the engine's examples are not workspaces)

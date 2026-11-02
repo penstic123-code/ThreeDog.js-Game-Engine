@@ -8,6 +8,8 @@
  * build() callback.
  */
 export class ApplyCost {
+    /** Frames in which three.js compiled new shader programs (the last COMPILES_KEPT): { at (page time s), programs (new), ms (render ms of that frame over the usual) } */
+    compiles: any[];
     /**
      * Per stage: n results, totalMs, maxMs of one result, frameMs (smoothed ms per frame), bytes (transit only)
      * @returns {Record<string, { n: number, totalMs: number, maxMs: number, frameMs: number, bytes: number }>}

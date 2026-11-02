@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>threedog · technique: Outlines and rim</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#000;color:#223;font:13px system-ui,sans-serif}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  #labels div{background:rgba(255,255,255,.75);padding:2px 8px;border-radius:6px;white-space:nowrap;pointer-events:none}
+  #help{position:fixed;left:12px;top:12px;background:rgba(255,255,255,.75);padding:6px 10px;border-radius:8px}
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="labels"></div>
+<div id="help">Technique example: Outlines and rim (examples/techniques/outlines-and-rim, README there)</div>
+<script>if (location.search.includes('threedog-headless')) document.getElementById('help').hidden = true;</script>
+<script type="module" src="/examples/techniques/outlines-and-rim/main.js"></script>
+</body>
+</html>

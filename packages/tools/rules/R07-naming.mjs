@@ -10,7 +10,7 @@
 //    Which one wins: the `Cancel convention:` line under `## Interface conventions` in .claude/rules/api-design.md.
 //    If that file, section or line is missing, or the line names none of the three, the rule reports an error (it never skips silently).
 //    Methods returning void / this / numbers (not something to cancel with) are not checked here.
-// C. Members named list / get / has are methods (engine.npcs.list() and engine.entities.list.length must not both exist). Error.
+// C. Members named list / get / has are methods (engine.npcs.list() and engine.items.list.length must not both exist). Error.
 // D. Methods named tick / update / apply on public types are module plumbing the module calls itself: they must be @internal (or _x), so an
 //    AI does not call weather.apply() to "apply weather". Module definitions (hooks) and ALLOW are exempt. Error.
 // E. Shape-based cancel check: any method (whatever its name, e.g. grids.preview) returning an object with stop() or cancel() but no remove()
@@ -18,7 +18,7 @@
 // G. No Engine member named after a three.js class (raycaster, loader, mixer, composer: engine.rays is not a THREE.Raycaster) or after a verb that
 //    names other APIs (load: saves.load, session.load, level.load...). Error.
 // H. Every [file, name] in STABILITY.experimental (paths.mjs) has @experimental in the JSDoc right above its declaration. Error.
-// Limitation: B only looks at the shape of the return type; it cannot know about methods that "return void but should be removable" (such as spawnPickup, which
+// Limitation: B only looks at the shape of the return type; it cannot know about methods that "return void but should be removable" (such as pickups.spawn, which
 // has no way to delete).
 import { ts, dtsProgram, dtsFiles, abs, rel, read, P } from './_lib.mjs';
 

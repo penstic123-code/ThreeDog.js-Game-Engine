@@ -1,4 +1,4 @@
-// UI parts (engine.ui): every piece of screen UI the engine or a module draws is a named part with a default implementation.
+// UI parts (engine.ui). Every piece of screen UI the engine or a module draws is a named part with a default implementation.
 // A game swaps any part for its own DOM / canvas code, or turns it off, without touching the engine; the engine keeps the behavior
 // (when to show it, the UI focus stack, Esc, input lock, i18n), the part only draws.
 //
@@ -13,6 +13,7 @@
 // Value per name: false = off; true = the default; a plain object = the default with these options; a function (engine, options) => part = your own.
 // Names and the data each part receives are listed in `engine.ui.describe()` and in recipes/26-ui-parts.md.
 import { uiFocus } from './Focus.js';
+import { codedError } from '../core/errorHints.js';
 /** @import { Engine } from '../types/core' */
 /** @import { UIPart, UIPartFactory, UIPartValue, UIPartDef } from '../types/core' */
 
@@ -30,10 +31,10 @@ const kind = v => v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
 
 /** @internal Fill missing verbs with no-ops so callers never write ?. */
 function normalize(name, p) {
-  if (!p || typeof p !== 'object') throw new Error(fmt(DEV.badPart, { name, got: kind(p) }));
+  if (!p || typeof p !== 'object') throw codedError('ui-misuse', fmt(DEV.badPart, { name, got: kind(p) }));
   for (const v of VERBS) {
     if (p[v] == null) p[v] = noop;
-    else if (typeof p[v] !== 'function') throw new Error(fmt(DEV.badVerb, { name, verb: v }));
+    else if (typeof p[v] !== 'function') throw codedError('ui-misuse', fmt(DEV.badVerb, { name, verb: v }));
   }
   return p;
 }
@@ -75,7 +76,7 @@ export class UIParts {
    */
   set(name, value) {
     const t = kind(value);
-    if (t !== 'boolean' && t !== 'function' && t !== 'object') throw new Error(fmt(DEV.badValue, { name, got: t }));
+    if (t !== 'boolean' && t !== 'function' && t !== 'object') throw codedError('ui-misuse', fmt(DEV.badValue, { name, got: t }));
     this.values.set(name, value);
   }
 
@@ -129,7 +130,8 @@ export class UIParts {
   create(name) { return this._make(name); }
 
   /**
-   * Open a full-screen part (the title screen): shows it, pushes the UI focus stack (Esc goes to it), locks gameplay input, emits ui:open.
+   * Open a full-screen part (the title screen): shows it, pushes the UI focus stack (Esc goes to it; the choice cursor moves over the controls inside the
+   * part's el), locks gameplay input, emits ui:open.
    * @param {string} name
    * @param {object} [data]  passed to the part's show()
    * @returns {boolean} false when the part is off
@@ -137,7 +139,7 @@ export class UIParts {
    */
   open(name, data) {
     const d = this.defs.get(name);
-    if (!d?.modal) throw new Error(fmt(DEV.notModal, { name, known: [...this.defs].filter(([, x]) => x.modal).map(([n]) => n).join(', ') }));
+    if (!d?.modal) throw codedError('ui-misuse', fmt(DEV.notModal, { name, known: [...this.defs].filter(([, x]) => x.modal).map(([n]) => n).join(', ') }));
     const p = this.get(name);
     if (!p) return false;
     if (this.opened.has(name)) return true;
@@ -146,8 +148,8 @@ export class UIParts {
     // m.freeze may be a function (inventory: pauseGame is switchable at runtime)
     // a string names the freeze kind engine.runState reads ('title' = waiting for start), so core never matches part names
     const fr = typeof m.freeze === 'function' ? m.freeze(e) : m.freeze;
-    if (fr) e.freeze('ui-' + name, { kind: typeof fr === 'string' ? fr : undefined });
-    this.opened.set(name, { focus: uiFocus(e).push('ui-' + name, { cancel: m.cancel ? () => m.cancel(e) : null }), ctx: e.input.push('ui-' + name) });   // own opaque context: gameplay actions stop responding
+    const freeze = fr ? e.freeze('ui-' + name, { kind: typeof fr === 'string' ? fr : undefined }) : null;
+    this.opened.set(name, { freeze, focus: uiFocus(e).push('ui-' + name, { cancel: m.cancel ? () => m.cancel(e) : null, nav: () => p.el ?? null }), ctx: e.input.push('ui-' + name) });   // own opaque context: gameplay actions stop responding
     p.show({ ...m.data?.(e, this._resolve(name).options), ...data });
     e.events.emit('ui:open', name);
     return true;
@@ -163,8 +165,7 @@ export class UIParts {
     if (!f) return;
     const e = this.engine;
     this.opened.delete(name);
-    f.focus.remove(); f.ctx.remove();
-    e.unfreeze('ui-' + name);
+    f.focus.remove(); f.ctx.remove(); f.freeze?.remove();
     this.live.get(name)?.hide();
     e.events.emit('ui:close', name);
   }
@@ -188,7 +189,7 @@ export class UIParts {
 
   /** @internal start(): every module is installed, so a name the game set but nobody defined is a typo */
   _check() {
-    for (const n of this.values.keys()) if (!this.defs.has(n)) throw new Error(fmt(DEV.unknown, { name: n, known: [...this.defs.keys()].join(', ') }));
+    for (const n of this.values.keys()) if (!this.defs.has(n)) throw codedError('ui-misuse', fmt(DEV.unknown, { name: n, known: [...this.defs.keys()].join(', ') }));
   }
   /** @internal engine.dispose() */
   _dispose() {

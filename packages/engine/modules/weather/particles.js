@@ -9,9 +9,11 @@
 // or create(engine, { area, count }) => { object, update?(amount, ctx) } for a system of your own (the engine adds it, shows it while the
 // amount is above 0.02 and calls update every frame with ctx = { camera, time, wind }).
 import * as THREE from 'three';
-import { checkOptions, closest, warnOnce } from '../../core/validate.js';
+import { closest, warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { lineVert, lineFrag, pointVert, pointFrag, SHAPES, shaderMat, scatter } from './shaders.js';
+import { codedError } from '../../core/errorHints.js';
 
 const SPEC_KEYS = ['shape', 'texture', 'color', 'opacity', 'size', 'maxSize', 'length', 'speed', 'slant', 'sway', 'count', 'density', 'glsl', 'uniforms', 'create'];
 const SHAPE_LIST = ['line', ...Object.keys(SHAPES)];
@@ -30,16 +32,16 @@ const DRIFT = { ...SNOW, opacity: 1 };
  */
 export function makeSystem(engine, field, spec, { area, count, base = DRIFT }) {
   const where = `weather particles '${field}'`;
-  checkOptions(where, spec, SPEC_KEYS);
+  readParams(where, keysSchema(SPEC_KEYS), spec);
   const s = { ...base, ...spec, shape: spec.shape ?? (spec.texture ? 'round' : base.shape) };
   const n = Math.max(1, Math.round(spec.count ? (engine.tier === 'low' ? spec.count / 2 : spec.count) : count));
   if (s.create) {
     const own = s.create(engine, { area, count: n });
-    if (!own?.object?.isObject3D) throw new Error(`${where}: create must return { object: THREE.Object3D, update?(amount, { camera, time, wind }) }`);
+    if (!own?.object?.isObject3D) throw codedError('weather-option', `${where}: create must return { object: THREE.Object3D, update?(amount, { camera, time, wind }) }`);
     return finish(engine, field, { field, object: own.object, uniforms: null, update: own.update?.bind(own) ?? null, own: true });
   }
-  if (!SHAPE_LIST.includes(s.shape)) throw new Error(`${where}: shape '${s.shape}' must be ${SHAPE_LIST.map(k => `'${k}'`).join(' | ')}` + (closest(s.shape, SHAPE_LIST) ? ` (did you mean '${closest(s.shape, SHAPE_LIST)}'?)` : ''));
-  if (typeof s.density !== 'function') throw new Error(`${where}: density must be a function amount (0..1) => share of particles drawn (0..1), e.g. density: a => a * a`);
+  if (!SHAPE_LIST.includes(s.shape)) throw codedError('weather-option', `${where}: shape '${s.shape}' must be ${SHAPE_LIST.map(k => `'${k}'`).join(' | ')}` + (closest(s.shape, SHAPE_LIST) ? ` (did you mean '${closest(s.shape, SHAPE_LIST)}'?)` : ''));
+  if (typeof s.density !== 'function') throw codedError('weather-option', `${where}: density must be a function amount (0..1) => share of particles drawn (0..1), e.g. density: a => a * a`);
   const line = s.shape === 'line', custom = declareUniforms(`${where}.uniforms`, s.uniforms);
   const u = { uCam: { value: new THREE.Vector3() }, uSize: { value: area }, uFallOff: { value: 0 }, uOpacity: { value: 0 }, uColor: { value: new THREE.Color(s.color) }, ...custom.uniforms };
   const geo = new THREE.BufferGeometry(), p3 = scatter(n * 3, area);
@@ -55,7 +57,7 @@ export function makeSystem(engine, field, spec, { area, count, base = DRIFT }) {
     if (s.texture) engine.assets.texture(s.texture).then(t => { u.uMap.value = t; u.uUseMap.value = 1; }).catch(err => warnOnce(err.message));
   }
   const g = s.glsl || {};
-  if (s.glsl !== undefined) checkOptions(`${where}.glsl`, g, ['vertex', 'fragment']);
+  if (s.glsl !== undefined) readParams(`${where}.glsl`, keysSchema(['vertex', 'fragment']), g);
   const vert = g.vertex ?? (line ? lineVert : pointVert), frag = g.fragment ?? (line ? lineFrag : pointFrag(s.shape));
   const mat = shaderMat(custom.decl ? custom.decl + '\n' + vert : vert, custom.decl ? custom.decl + '\n' + frag : frag, u);
   const object = line ? new THREE.LineSegments(geo, mat) : new THREE.Points(geo, mat);

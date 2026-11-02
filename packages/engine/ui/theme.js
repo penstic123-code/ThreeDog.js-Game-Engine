@@ -1,5 +1,6 @@
+import { codedError } from '../core/errorHints.js';
 // UI theme and default CSS in <head> (part of ui/UI.js): the --threedog-* variables from style.ui, the engine's base classes, module
-// defaults, the style pack's css and fonts. The classes use only var(--threedog-*), never a color of their own.
+// defaults, the style's css and fonts. The classes use only var(--threedog-*), never a color of their own.
 /** @import { StyleUI } from '../types/style' */
 
 const DEFAULT_UI = {
@@ -20,6 +21,7 @@ const BASE_CSS = `
 .threedog-win-hint{color:var(--threedog-muted);font-weight:400;font-size:12px}
 .threedog-btn{background:none;border:1px solid var(--threedog-line);border-radius:8px;color:var(--threedog-fg);font:inherit;padding:4px 10px;cursor:pointer}
 .threedog-btn:hover,.threedog-btn:focus-visible{border-color:var(--threedog-accent);outline:none}
+.threedog-ui .is-cursor{outline:2px solid var(--threedog-accent);outline-offset:1px}
 .threedog-close{border:0;color:var(--threedog-muted);font-size:13px}
 .threedog-empty{color:var(--threedog-muted)}
 .threedog-list{display:flex;flex-direction:column}
@@ -37,6 +39,7 @@ const BASE_CSS = `
   padding:6px 14px;animation:threedogIn .25s ease-out;transition:opacity .4s}
 .threedog-prompt{position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:6px 10px;border-radius:8px;background:var(--threedog-bg);
   color:var(--threedog-fg);font:13px var(--threedog-font);cursor:pointer;z-index:15;white-space:nowrap}
+.threedog-prompt-hold{background:linear-gradient(90deg,var(--threedog-accent) calc(var(--progress,0)*100%),var(--threedog-bg) 0)}
 .threedog-dlg{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));
   width:min(640px,calc(100% - 32px));
   background:var(--threedog-bg);color:var(--threedog-fg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);
@@ -67,14 +70,14 @@ const BASE_CSS = `
 @media (prefers-reduced-motion:reduce){.threedog-toast{animation:none}}
 `;
 
-// <head> styles. Engine and module defaults go before every style pack's CSS, so style.ui.css wins ties of equal specificity
+// <head> styles. Engine and module defaults go before every style's CSS, so style.ui.css wins ties of equal specificity
 // whatever order modules inject their defaults in. Defaults are deduped by text and shared by every engine on the page (removed
 // with the last one); a pack's CSS, fonts and theme variables belong to their engine and go with its dispose().
 const defaults = new Map();   // css text -> its <style>
 const live = new Set();       // engines whose style.ui is applied
 const kebab = k => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
 /**
- * Add default CSS (engine or module look, built only from var(--threedog-*)) once per page, ahead of the style packs' CSS
+ * Add default CSS (engine or module look, built only from var(--threedog-*)) once per page, ahead of the styles' CSS
  * @internal
  */
 export function injectUICSS(css = '') {
@@ -115,10 +118,10 @@ export function applyUIStyle(engine, ui = {}) {
 // A style holds looks, never files (packages/engine/docs/recipes/09-style-pack.md): a font file is an asset, so the style names it. The old forms carried
 // paths (fontFaces[].url, a fontCSS stylesheet URL) and are refused with the new form, so a pack cannot slip a file back in.
 function checkFonts(ui) {
-  if (ui.fontFaces || ui.fontCSS) throw new Error(`style.ui.${ui.fontFaces ? 'fontFaces' : 'fontCSS'} is gone: a style names fonts, an asset pack holds the files. `
+  if (ui.fontFaces || ui.fontCSS) throw codedError('ui-misuse', `style.ui.${ui.fontFaces ? 'fontFaces' : 'fontCSS'} is gone: a style names fonts, an asset pack holds the files. `
     + "Register them with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }), then style.ui: { fonts: ['pixel'], font: '\"pixel\", " +
       "system-ui' }");
   if (ui.fonts != null && !(Array.isArray(ui.fonts) && ui.fonts.every(n => typeof n === 'string' && !/[/\.]/.test(n))))
-    throw new Error(`style.ui.fonts must be a list of font asset names, got ${JSON.stringify(ui.fonts)}. Example: fonts: ['pixel'] with `
+    throw codedError('ui-misuse', `style.ui.fonts must be a list of font asset names, got ${JSON.stringify(ui.fonts)}. Example: fonts: ['pixel'] with `
       + "engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } })");
 }

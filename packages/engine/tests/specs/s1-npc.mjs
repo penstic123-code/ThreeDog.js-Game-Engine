@@ -6,7 +6,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
-        const W = engine.world, P = engine.player, S = engine.sky, home = P.position.clone();
+        const W = engine.world, P = engine.player, S = engine.calendar, home = P.position.clone();
         S.timeOfDay = 9 / 24;
         const A = { x: home.x + 4, z: home.z + 4 }, B1 = { x: home.x + 34, z: home.z + 4 }, B2 = { x: home.x + 204, z: home.z + 4 };
         // two NPCs with two stops each, both heading to B at 10:00: one B is near (reachable within 1 hour, stops at the stop), the other far (unreachable, stops on the line)
@@ -18,7 +18,7 @@ export const specs = [
         const away = { near: near.root, far: W.view('s1-far'), data: !!W.get('s1-near') && !!W.get('s1-far'), pos: near.position.x };
         const twoHours = S.dayLength * 2 / 24, t0 = S.timeOfDay;
         engine.step(twoHours, { render: false });
-        const tod = S.timeOfDay, walked = near.data.speed * (tod - 10 / 24) * S.dayLength / (S.timeScale || 1);   // distance walked after leaving at 10:00
+        const tod = S.timeOfDay, walked = near.data.speed * (tod - 10 / 24) * S.dayLength / (S.rate || 1);   // distance walked after leaving at 10:00
         const farData = { ...far.data.position };
         P.placeAt({ x: home.x, z: home.z }); engine.step(3);
         return { built, isHandle, away, t0, tod, walked, farData, A, B1, B2,
@@ -52,18 +52,18 @@ export const specs = [
     },
   },
   {
-    name: 'S1 NPC: content npcs pass every npcs.add option through (arriveDistance, talkRadius) and a misspelt field is reported (city block)',
+    name: 'S1 NPC: content npcs pass every npcs.add option through (arriveDistance, interact) and a misspelt field is reported (city block)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.content.load({ name: 'npc-opts', npcs: { 'co-npc': { name: 'co', start: { x: 2, z: 2 }, arriveDistance: 2.5, talkRadius: 5, speed: 1.1 } } });
+        engine.content.load({ name: 'npc-opts', npcs: { 'co-npc': { name: 'co', start: { x: 2, z: 2 }, arriveDistance: 2.5, interact: { op: 'npc.talk', radius: 5 }, speed: 1.1 } } });
         const d = engine.npcs.get('co-npc').data;
         // a misspelt option is reported like npcs.add's own (dev warning with the closest name)
         let msg = ''; const w = console.warn; console.warn = (...a) => { msg += a.join(' '); };
         try { engine.content.load({ name: 'npc-typo', npcs: { 'co-typo': { name: 'x', start: { x: 2, z: 2 }, arriveDistanse: 2 } } }); } catch (err) { msg += String(err.message || err); } finally { console.warn = w; }
-        return { arrive: d.arriveDistance, talk: d.talkRadius, speed: d.speed, msg };
+        return { arrive: d.arriveDistance, talk: d.interact?.radius, speed: d.speed, msg };
       });
-      check('content npc: arriveDistance / talkRadius / speed reach npcs.add', r.arrive === 2.5 && r.talk === 5 && r.speed === 1.1, JSON.stringify(r));
+      check('content npc: arriveDistance / interact / speed reach npcs.add', r.arrive === 2.5 && r.talk === 5 && r.speed === 1.1, JSON.stringify(r));
       check('[guard] content npc: a misspelt option is reported and names the right one', /arriveDistance/.test(r.msg), r.msg);
     },
   },
@@ -124,7 +124,7 @@ export const specs = [
       const r = await ev(async () => {
         engine.pause();
         const P = engine.player, home = P.position.clone();
-        engine.sky.timeOfDay = 6.02 / 24;   // just past 6:00: the old fisherman heads to the river and the test NPC to its second stop, both walking
+        engine.calendar.timeOfDay = 6.02 / 24;   // just past 6:00: the old fisherman heads to the river and the test NPC to its second stop, both walking
         const A = { x: home.x + 3, z: home.z + 3 };
         engine.npcs.add({ id: 's1-det', name: '确定性', position: A, schedule: [{ at: '00:00', position: A }, { at: '06:00', position: { x: home.x + 18, z: home.z - 12 } }] });
         engine.step(1);
@@ -133,7 +133,7 @@ export const specs = [
         const snap = () => {
           const pos = id => { const p = engine.world.get(id).position; return [p.x, p.y, p.z]; };
           return { det: pos('s1-det'), fisher: pos('fisher'), detState: engine.world.get('s1-det').state, vars: JSON.stringify(engine.vars.toJSON?.() ?? engine.saves.collect().parts.vars),
-            clock: engine.clock.now, random: JSON.stringify(engine.random.toJSON()), tod: engine.sky.timeOfDay };
+            clock: engine.clock.now, random: JSON.stringify(engine.random.toJSON()), tod: engine.calendar.timeOfDay };
         };
         const N = 5;
         engine.step(N, { render: false });
@@ -273,6 +273,46 @@ export const specs = [
       console.log('avoidance cost ms/step (400 NPCs pushed once each)', JSON.stringify(r));
       check('spread-out crowd (400 with models): avoidance < 1ms per fixed step', r.crowd.models >= 400 && r.crowd.ms < 1, JSON.stringify(r.crowd));
       check('packed crowd (400): avoidance < 4ms per fixed step', r.pile.models >= 400 && r.pile.ms < 4, JSON.stringify(r.pile));
+    },
+  },
+  {
+    // guard for near tiers (world.simulate({ fullRadius, nearEvery }), NPCs use them): the outer part of the near zone takes turns by hashed id, so time is
+    // conserved, a save taken between turns loads into the same turns and dts, and tiered NPCs still get where they are going
+    name: 'S1 NPC near tiers: outer records run every nearEvery with the accumulated dt (no time lost), save between turns → load gives identical results, tiered NPCs arrive and match after reload (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.pause();
+        const W = engine.world, h = engine.player.position.clone();
+        W.simulate('tierk', { near: (rec, dt) => { rec.n++; rec.t += dt; }, fullRadius: 10, nearEvery: 4 / 60 });
+        W.add({ id: 'tk-in', kind: 'tierk', position: { x: h.x + 4, z: h.z }, n: 0, t: 0 });
+        for (let i = 0; i < 6; i++) W.add({ id: 'tk-out' + i, kind: 'tierk', position: { x: h.x + 20 + i, z: h.z + 3 }, n: 0, t: 0 });
+        // NPCs between half the world radius and the near radius: tiered; each walks 8 m to its stop
+        const ids = Array.from({ length: 6 }, (_, i) => 'tn' + i), goals = {};
+        ids.forEach((id, i) => {
+          const a = i / 6 * Math.PI * 2, A = { x: h.x + Math.cos(a) * 42, z: h.z + Math.sin(a) * 42 }, G = { x: A.x + Math.cos(a) * 8, z: A.z + Math.sin(a) * 8 };
+          goals[id] = G; engine.npcs.add({ id, name: id, position: A, schedule: [{ at: '00:00', position: G }] });
+        });
+        engine.step(1, { render: false });
+        const s0 = W.steps, t0 = { in: W.get('tk-in').t, out: W.get('tk-out0').t, outN: W.get('tk-out0').n };
+        engine.step(1 + 1 / 60, { render: false });   // 61 steps: the save lands between two turns of the outer part
+        engine.saves.save('s1-tier');
+        const snap = () => JSON.stringify({ k: [...W.records.values()].filter(o => o.kind === 'tierk').map(o => [o.id, o.n, o.t]), npc: ids.map(id => { const p = W.get(id).position; return [p.x, p.y, p.z]; }) });
+        engine.step(10, { render: false });
+        const a = snap(), steps = W.steps - s0;
+        const inn = W.get('tk-in'), out = W.get('tk-out0');
+        const arrived = ids.map(id => { const p = W.get(id).position, g = goals[id]; return Math.hypot(p.x - g.x, p.z - g.z); });
+        await engine.saves.load('s1-tier');
+        engine.step(10, { render: false });
+        const b = snap();
+        return { a, b, steps, inN: inn.n, outN: out.n - t0.outN, inT: inn.t - t0.in, outT: out.t - t0.out, arrived, arrive: W.get('tn0').arriveDistance };
+      });
+      const sec = r.steps / 60;
+      check('inner record runs every step', r.inN === r.steps + 60, JSON.stringify(r));
+      check('outer records run about once every 4 steps', Math.abs(r.outN - r.steps / 4) <= 1, JSON.stringify(r));
+      check('outer records lose no time (dt accumulates to the elapsed seconds, within one turn)', Math.abs(r.outT - sec) <= 4 / 60 + 1e-6 && Math.abs(r.inT - sec) < 1e-6, JSON.stringify(r));
+      check('tiered NPCs arrive at their stop', r.arrived.every(d => d < r.arrive + 0.5), JSON.stringify(r.arrived));
+      check('straight run vs save between turns → load: records and NPC positions bit-identical', r.a === r.b, `${r.a}\n${r.b}`);
     },
   },
 ];

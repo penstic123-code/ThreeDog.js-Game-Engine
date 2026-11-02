@@ -2,7 +2,7 @@
 // explain, plus idOf / view / ids / restore for the model link and undo), never the World class, so engine.thing, thing.set and the shared id space
 // work the same whether or not this module is installed.
 const SAY = {
-  defined: 'defined in {at}: edit it there to change the level for good (ops change only this session), or: npx threedog content set {id} <field> <json>',
+  defined: 'defined in {at}: edit it there to change the level for good (ops change only this session), or: threedog content set {id} <field> <json>',
   node: 'level {level} node {node}: change it in the level model',
   spawned: 'made during play{op}: not in content, saved whole',
 };

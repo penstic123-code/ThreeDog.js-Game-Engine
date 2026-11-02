@@ -1,10 +1,12 @@
-// @threedog/post-effects: optional post effects for engine.post. The engine ships none (it owns no look); a style pack or a game adds the ones it wants:
+// @threedog/post-effects: optional post effects for engine.post. The engine ships none (it owns no look); a style or a game adds the ones it wants:
 //   import { vignette, grain, lut } from '@threedog/post-effects';
 //   createEngine({ canvas, style: [basePack, postAdd(vignette({ enabled: true }), grain({ enabled: true }))] });
-// Style packs list bloom / ao / outline in their own style.post; they all import from here, never from each other.
+// Styles list bloom / ao / outline in their own style.post; they all import from here, never from each other.
 // hdr slot (linear, before tone mapping): bloom, ao, outline, dof. ldr slot (sRGB, after it): lut, grain, vignette, chromatic.
 // lut / grain / vignette / chromatic carry a `fuse` GLSL snippet, so when several are on they run as one fullscreen pass.
-// All are off unless you pass enabled: true.
+// Listed = on: an effect in style.post / look.post.add is on unless it says enabled: false (list it off for the game to switch on later with
+// look.post.set({ '<name>.enabled': true })); the engine's rule for every effect, so listing one never silently does nothing. The costly ones
+// (bloom, ao, dof, outline mode normal/both) start off on low-tier devices even when enabled; createEngine({ post: { name: true } }) forces them.
 import * as THREE from 'three';
 export { dof } from './dof.js';
 export { bloom, ao } from './hdr.js';
@@ -27,7 +29,7 @@ identity.format = THREE.RGBAFormat; identity.minFilter = identity.magFilter = TH
  *   temperature: -1 cool .. 1 warm
  * @returns {PostEffect}
  */
-export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temperature = 0, enabled = false, order = 10 } = {}) {
+export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temperature = 0, enabled, order = 10 } = {}) {
   return { name: 'lut', slot: 'ldr', order, enabled, params: { lut, amount, contrast, saturation, temperature },
     fuse: {
       uniforms: { uLutTex: 'sampler3D', uLutSize: 'float', uLutAmount: 'float', uLutContrast: 'float', uLutSaturation: 'float', uLutTemp: 'float' },
@@ -46,7 +48,7 @@ export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temp
  *   amount: noise strength; size: grain size in device pixels; animated: new noise every frame (24 per second)
  * @returns {PostEffect}
  */
-export function grain({ amount = 0.06, size = 1, animated = true, enabled = false, order = 30 } = {}) {
+export function grain({ amount = 0.06, size = 1, animated = true, enabled, order = 30 } = {}) {
   return { name: 'grain', slot: 'ldr', order, enabled, params: { amount, size, animated },
     fuse: {
       uniforms: { uGrainAmount: 'float', uGrainSize: 'float', uGrainAnimated: 'float' },
@@ -62,7 +64,7 @@ export function grain({ amount = 0.06, size = 1, animated = true, enabled = fals
  *   strength: darkness at the corners (0..1); start: distance from the center where darkening begins (0 center .. 1 corner)
  * @returns {PostEffect}
  */
-export function vignette({ strength = 0.35, start = 0.45, enabled = false, order = 20 } = {}) {
+export function vignette({ strength = 0.35, start = 0.45, enabled, order = 20 } = {}) {
   return { name: 'vignette', slot: 'ldr', order, enabled, params: { strength, start },
     fuse: {
       uniforms: { uVigStrength: 'float', uVigStart: 'float' },
@@ -77,7 +79,7 @@ export function vignette({ strength = 0.35, start = 0.45, enabled = false, order
  * @param {{ amount?: number, enabled?: boolean, order?: number }} [o]  amount: edge shift in screen fractions
  * @returns {PostEffect}
  */
-export function chromatic({ amount = 0.004, enabled = false, order = 5 } = {}) {
+export function chromatic({ amount = 0.004, enabled, order = 5 } = {}) {
   return { name: 'chromatic', slot: 'ldr', order, enabled, params: { amount },
     fuse: {
       reads: true,

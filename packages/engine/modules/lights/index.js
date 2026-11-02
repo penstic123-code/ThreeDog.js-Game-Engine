@@ -1,4 +1,5 @@
-// Light pool: many light sources (torches, street lamps, campfires, muzzle flashes, neon signs) lit by a fixed handful of real three.js lights.
+// Light pool: many sources, a few real lights.
+// Sources: torches, street lamps, campfires, muzzle flashes, neon signs; the real lights are a fixed handful of three.js lights.
 //   engine.use(lightPool({ point: 8 }));                                     // 8 real PointLights, created now, never added / removed / hidden
 //   const torch = engine.lightPool.add(torchMesh, { color: 0xffa040, intensity: 4, distance: 8 });
 //   torch.set({ intensity: 0 });  torch.remove();
@@ -13,15 +14,21 @@
 // Shadows: none by default; lightPool({ shadows: k }) makes k of the point lights cast, used by sources added with castShadow: true.
 // An idle shadow light (no source, or faded to 0) stops re-rendering its cube shadow map (shadow.autoUpdate = false): six shadow passes a frame for a dark light.
 // When every point light casts (shadows >= point) there are no plain ones, so sources without castShadow also take the shadow lights (they cast then) instead of never lighting.
+// Day / night: a source added with `dusk` (street lamps, shop lights) is scaled by the same daylight curve as look.materials.glow (render/lookGlow.js,
+// shared code, not a copy), so its real light, its stand-in and the game's window glow switch on together. Off by default: a torch in a cave, a
+// muzzle flash or a lamp the game wants lit at noon keeps its intensity. Its scaled intensity is what the choice scores, so lamps that are off by
+// day give their lights to sources that are lit.
 import * as THREE from 'three';
-import { checkOptions, warnOnce } from '../../core/validate.js';
+import { warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { vec3 } from '../../core/math.js';
+import { codedError, coded } from '../../core/errorHints.js';
+import { DUSK, daylightOf, nightOf } from '../../render/lookGlow.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { LightPool, LightPoolOptions } from '../../types/world' */
 
 const OPT_KEYS = ['point', 'spot', 'shadows', 'every', 'fade', 'focus'];
-const ADD_KEYS = ['name', 'type', 'color', 'intensity', 'distance', 'decay', 'priority', 'castShadow', 'angle', 'penumbra', 'target', 'flicker', 'glow'];
+const ADD_KEYS = ['name', 'type', 'color', 'intensity', 'distance', 'decay', 'priority', 'castShadow', 'angle', 'penumbra', 'target', 'flicker', 'glow', 'dusk'];
 const SET_KEYS = ['position', ...ADD_KEYS.filter(k => k !== 'type' && k !== 'castShadow')];   // the kind of light a source needs is fixed when it is added
 const BONUS = 1.25;   // score bonus for a source that already holds a light (hysteresis)
 const STRINGS = {
@@ -29,6 +36,8 @@ const STRINGS = {
   type: "lightPool.add(): type must be 'point' or 'spot', got ",
   allShadow: 'lightPool({ point: {n}, shadows: {k} }): every point light casts shadows, so sources added without castShadow use shadow lights too (and cast). For plain lights next to the shadow ones give point more than shadows, e.g. lightPool({ point: {m}, shadows: {k} })',
   noSlot: "lightPool.add(): a '{type}' source but lightPool({ {type}: 0 }) has no {type} lights; give lightPool() a count, e.g. lightPool({ {type}: 2 })",
+  dusk: 'lightPool.add(): dusk is true (the glow default, {d}), false, or the daylight (0..1, above 0) below which the source fades in; got ',
+  noDay: 'lightPool: a source follows daylight (dusk) but nothing tells day from night, so it stays at its day value (off). Install calendar() (or sky())',
 };
 
 /** The material a glow stand-in drives, and which of its numbers: emissiveIntensity when it has one (emissive mesh), else opacity (halo sprite) */
@@ -54,19 +63,25 @@ const LIGHT_POOL_PARAMS = keysSchema(OPT_KEYS);
 export function lightPool(opts = {}) {
   readParams('lightPool', LIGHT_POOL_PARAMS, opts);
   const { point = 8, spot = 0, shadows = 0, every = 0.1, fade = 0.3 } = opts;
-  let e = null, timer = Infinity, time = 0, seq = 0;
+  let e = null, timer = Infinity, time = 0, seq = 0, daylight = null;
   const sources = [], groups = [], tmp = new THREE.Vector3(), at = new THREE.Vector3();
 
   const worldPos = (src, out) => src.follow ? out.setFromMatrixPosition(src.follow.matrixWorld) : out.copy(src.pos);
+  // 1 for a source that ignores the time of day, else glow's night factor (0 by day, 1 at night) for its dusk
+  const nightK = src => src.dusk === null ? 1 : nightOf(daylight, src.dusk);
+  const litOf = src => src.intensity * nightK(src);
   const setGlow = (src, k) => {
     const g = src.glow;
-    if (!g || g.k === k) return;
+    if (!g) return;
+    k *= nightK(src);   // a lamp that is off by day has its stand-in off too
+    if (g.k === k) return;
     g.k = k; g.m[g.key] = g.base * k;
   };
   function score(src, focus) {
-    if (!(src.intensity > 0) || !(src.priority > 0)) return 0;
+    const lit = litOf(src);
+    if (!(lit > 0) || !(src.priority > 0)) return 0;
     const r = src.distance > 0 ? src.distance : 10;
-    const s = src.priority * src.intensity / (1 + worldPos(src, tmp).distanceToSquared(focus) / (r * r));
+    const s = src.priority * lit / (1 + worldPos(src, tmp).distanceToSquared(focus) / (r * r));
     return src.slot && src.slot.w > 0 ? s * BONUS : s;
   }
   // a slot that has faded its source out lets it go: the source is free for any group again and its stand-in shows fully
@@ -81,7 +96,7 @@ export function lightPool(opts = {}) {
   function assign() {
     const f = api.focus ?? e.camera;
     if (f.isObject3D) f.getWorldPosition(at); else vec3(f, at);   // fresh (not last frame's matrix): the camera may have just moved
-    for (const s of sources) s.score = score(s, at);
+    for (const s of sources) { s.score = score(s, at); if (!s.slot && s.dusk !== null) setGlow(s, 1); }   // an unlit lamp's stand-in follows daylight
     const taken = new Set();
     for (const g of groups) {
       // a source fading out of another group's slot waits until it is released, so it never holds two lights
@@ -114,7 +129,7 @@ export function lightPool(opts = {}) {
       if (src.follow) src.follow.getWorldPosition(L.position); else L.position.copy(src.pos);   // fresh for the few lit ones: a muzzle flash must not lag a frame
       L.color.copy(src.color); L.distance = src.distance; L.decay = src.decay;
       const fl = src.flicker ? src.flicker(time, src.index) : 1;
-      L.intensity = src.intensity * slot.w * fl;
+      L.intensity = litOf(src) * slot.w * fl;
       if (L.isSpotLight) {
         L.angle = src.angle; L.penumbra = src.penumbra;
         if (src.target?.isObject3D) L.target.position.setFromMatrixPosition(src.target.matrixWorld);
@@ -129,6 +144,11 @@ export function lightPool(opts = {}) {
   function apply(src, o) {
     if ('color' in o) src.color.set(o.color);
     for (const k of ['intensity', 'distance', 'decay', 'priority', 'angle', 'penumbra', 'flicker', 'target', 'name']) if (k in o) src[k] = o[k];
+    if ('dusk' in o) {
+      const d = o.dusk === true ? DUSK : o.dusk === false || o.dusk == null ? null : o.dusk;
+      if (d !== null && !(typeof d === 'number' && d > 0 && d <= 1)) throw codedError('look-param', STRINGS.dusk.replace('{d}', String(DUSK)) + JSON.stringify(o.dusk), TypeError);
+      src.dusk = d;
+    }
     if ('glow' in o) { if (src.glow) setGlow(src, 1); src.glow = glowOf(o.glow); setGlow(src, src.slot ? 1 - src.slot.w : 1); }
     timer = Infinity;   // a changed source is reconsidered on the next frame, not after `every`
   }
@@ -140,13 +160,13 @@ export function lightPool(opts = {}) {
     focus: opts.focus ?? null,
     /** Register a light source at a position (Object3D: it follows that object) and return its handle { set(patch), remove(), light, weight } */
     add(position, o = {}) {
-      checkOptions('lightPool.add()', o, ADD_KEYS);
+      readParams('lightPool.add()', keysSchema(ADD_KEYS), o);
       const type = o.type ?? 'point';
-      if (type !== 'point' && type !== 'spot') throw new TypeError(STRINGS.type + JSON.stringify(type));
-      if (!groups.some(g => g.type === type)) throw new TypeError(STRINGS.noSlot.replaceAll('{type}', type));
+      if (type !== 'point' && type !== 'spot') throw codedError('light-type', STRINGS.type + JSON.stringify(type), TypeError);
+      if (!groups.some(g => g.type === type)) throw codedError('light-type', STRINGS.noSlot.replaceAll('{type}', type), TypeError);
       const src = { index: seq++, type, castShadow: !!o.castShadow, follow: position?.isObject3D ? position : null, pos: position?.isObject3D ? null : vec3(position),
         color: new THREE.Color(0xffffff), intensity: 1, distance: 10, decay: 2, priority: 1, angle: Math.PI / 4, penumbra: 0.3, target: null, flicker: null, name: null,
-        glow: null, slot: null, score: 0, removed: false };
+        glow: null, dusk: null, slot: null, score: 0, removed: false };
       apply(src, o);
       sources.push(src);
       const h = {
@@ -156,7 +176,7 @@ export function lightPool(opts = {}) {
         get weight() { return src.slot?.w ?? 0; },
         /** Change the source: { position, color, intensity, distance, decay, priority, angle, penumbra, target, flicker, glow, name } */
         set(patch) {
-          checkOptions('lightPool.add().set()', patch, SET_KEYS);
+          readParams('lightPool.add().set()', keysSchema(SET_KEYS), patch);
           if ('position' in patch) { const p = patch.position; src.follow = p?.isObject3D ? p : null; src.pos = p?.isObject3D ? null : vec3(p); }
           apply(src, patch);
           return h;
@@ -215,6 +235,8 @@ export function lightPool(opts = {}) {
     },
     frame(dt) {
       time += dt;   // presentation seconds for flicker: keeps running while gameplay is frozen, like the picture
+      daylight = daylightOf(e);
+      if (daylight === null && sources.some(s => s.dusk !== null)) warnOnce(coded('look-param', STRINGS.noDay));
       if ((timer += dt) >= every) { timer = 0; assign(); }
       update(dt);
     },

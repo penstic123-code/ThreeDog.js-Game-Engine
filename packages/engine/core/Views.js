@@ -3,8 +3,9 @@
 //   engine.views.show('gate');   // or the URL ?view=gate, or `npm run shot -- -w my-game --view gate`
 // A view takes over the camera with engine.takeCamera('views') (the same claim cutscenes use) until release() or the handle's remove(): a cutscene that
 // held the camera before gets it back, instead of the camera going to nobody. It is a diagnostic aid, not a camera mode.
-import { checkOptions, warnMissing } from './validate.js';
-import { codedError, renamed } from './errorHints.js';
+import { warnMissing } from './validate.js';
+import { readParams, keysSchema } from './params.js';
+import { codedError } from './errorHints.js';
 
 const vec3 = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 
@@ -17,8 +18,7 @@ export class Views {
    * @returns {{ remove(): void }}
    */
   define(name, v) {
-    if (v && v.pos !== undefined) renamed('viewsPos', `views.define('${name}', { pos })`);
-    checkOptions(`views.define('${name}')`, v, ['position', 'target', 'fov']);
+    readParams(`views.define('${name}')`, keysSchema(['position', 'target', 'fov']), v);
     if (!vec3(v.position)) throw codedError('views-define', `views.define('${name}'): position must be [x, y, z], got ${JSON.stringify(v.position)}`);
     if (v.target !== undefined && !vec3(v.target)) throw codedError('views-define', `views.define('${name}'): target must be [x, y, z], got ${JSON.stringify(v.target)}`);
     const rec = { position: v.position, target: v.target ?? [0, 0, 0], fov: v.fov };
@@ -39,7 +39,7 @@ export class Views {
     const e = this.engine, c = e.camera;
     this._cam = e.takeCamera('views');
     c.position.fromArray(v.position); c.lookAt(...v.target);
-    if (v.fov != null && c.isPerspectiveCamera) { c.fov = v.fov; c.updateProjectionMatrix(); }
+    if (v.fov != null && c.isPerspectiveCamera) { c.fov = v.fov; c.updateProjectionMatrix(); e._oFov?.mark(); }   // asked through the engine: not an outside write
     c.updateMatrixWorld(true);
     this.current = name;
     return { remove: () => { if (this.current === name) this.release(); } };

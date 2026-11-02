@@ -82,7 +82,7 @@ export interface Collision {
   /** walkable with plain numbers, allocating nothing (A* inner loops); radius defaults to engine.movement.radius */
   walkableAt(x: number, z: number, radius?: number): boolean;
   /** Line of sight with height: is the 3D segment a -> b free of boxes, circles and terrain trees? radius fattens the line; addBlocked water is ignored. Give eye heights in a / b */
-  lineClear(a: PositionLike, b: PositionLike, opts?: { radius?: number }): boolean;
+  lineClear(a: PositionLike, b: PositionLike, opts?: { radius?: number; /** who is looking (names the line in the event trace) */ who?: string }): boolean;
 }
 
 // ======================================================================
@@ -113,6 +113,8 @@ export interface RigidOptions {
 }
 /** Parameters for adding a physics body */
 export interface RigidBodyOptions {
+  /** Stable id (e.g. the world record id): saves keep this body's pose, rotation, velocities and sleep under it, and a load hands them back to the body with this id, also one built after the load. Without an id the body is not saved. Unique among live bodies and vehicles */
+  id?: string;
   /** Mass (kilograms), default 1 */
   mass?: number;
   /** Friction, default 0.7 */
@@ -138,7 +140,9 @@ export interface RigidBallOptions extends RigidBodyOptions {
 }
 /** A physics body (the handle returned by addBox / addBall / addHull) */
 export interface RigidEntry extends Handle {
-  /** Rapier rigid body (translation(), mass(), setLinvel()…) */
+  /** The id it was added with (saves name it by this), undefined without one */
+  readonly id?: string;
+  /** Rapier rigid body (translation(), mass(), setLinvel()…); newGame / a load rebuild the world, so read entry.body again instead of keeping it */
   body: any;
   /** Rapier collider */
   collider: any;
@@ -192,8 +196,11 @@ export interface RigidBodies {
   groundReady(position: PositionLike): boolean;
   /** All vehicles */
   vehicles: Vehicle[];
-  /** Turn a model into a drivable car (Rapier vehicle controller); remove it with vehicle.remove() (anyone inside gets out first). Returns null if not ready */
-  addVehicle(mesh: Object3D, opts: VehicleOptions): Vehicle | null;
+  /**
+   * Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out
+   * first). Returns null if not ready. Boats, mounts and mechs are the game's own objects with the same seat interface
+   */
+  addWheeled(mesh: Object3D, opts: VehicleOptions): Vehicle | null;
   /** Statistics */
   readonly stats: { bodies: number; active: number; colliders: number };
 }
@@ -201,9 +208,9 @@ export interface RigidBodies {
 // ---------- Vehicles ----------
 /** A wheel: position relative to the body (meters), radius (meters), steer can steer, drive is powered, object is the wheel model that spins */
 export interface VehicleWheel { position: Vec3Like; radius: number; steer?: boolean; drive?: boolean; object?: Object3D }
-/** Parameters of rigid.addVehicle() */
+/** Parameters of rigid.addWheeled() */
 export interface VehicleOptions {
-  /** Stable id (default 'vehicle1', 'vehicle2'... in creation order): saves name the player's vehicle by it; give one when the creation order varies */
+  /** Stable id (default 'vehicle1', 'vehicle2'... in creation order): saves name the player's vehicle and the vehicle's body state by it; give one when the creation order varies */
   id?: string;
   /** Wheels (at least 3) */
   wheels: VehicleWheel[];
@@ -217,8 +224,10 @@ export interface VehicleOptions {
   maxSteer?: number;
   /** Suspension: rest natural length (meters), stiffness, damping */
   suspension?: { rest?: number; stiffness?: number; damping?: number };
-  /** Seat (relative to the body, meters): the player gets out beside it */
-  seat?: Vec3Like;
+  /** Seat positions relative to the body (meters): the first drives, the rest ride; each gets out beside its own seat. Default one at the body center */
+  seats?: Vec3Like[];
+  /** Hide whoever sits in it, default true; false keeps riders visible on their seats, turning with the vehicle (bikes, open carts, karts) */
+  hideDriver?: boolean;
   /** Camera distance and height while driving (meters) */
   camera?: { distance?: number; height?: number };
   /** Body collision box size [width, height, depth] (meters); if omitted, taken from the model's bounding box (wheels excluded) */
@@ -228,9 +237,9 @@ export interface VehicleOptions {
   /** Distance from the side of the body when getting out (meters), default 0.8 */
   exitOffset?: number;
 }
-/** A vehicle (returned by rigid.addVehicle, faces the model's +Z). player.enter(vehicle) gets in; with interactions installed, press the interact key nearby to get in / out */
-export interface Vehicle extends RigidEntry {
-  /** Stable id (rigid.addVehicle({ id })); saves name the player's vehicle by it */
+/** A vehicle (returned by rigid.addWheeled, faces the model's +Z). player.enter(vehicle) gets in; with interactions installed, press the interact key nearby to get in / out */
+export interface Vehicle extends RigidEntry, Rideable {
+  /** Stable id (rigid.addWheeled({ id })); saves name the player's vehicle by it */
   readonly id: string;
   /** Body model (the mesh you passed in) */
   object: Object3D;
@@ -239,18 +248,41 @@ export interface Vehicle extends RigidEntry {
   /** Rapier vehicle controller (DynamicRayCastVehicleController) */
   controller: any;
   wheels: VehicleWheel[];
-  /** Current speed (m/s) */
+  seats: number;
+  passengers: Character[];
+  hideDriver: boolean;
+  /** World position of a seat (default 0, the driver's) */
+  seatPosition(seat?: number): Vector3;
+  /** Where to get out of a seat (outside the door on that seat's side, world coordinates) */
+  exitPosition(seat?: number): Vector3;
+}
+/**
+ * What character.enter(vehicle) needs from anything it rides (modules/characters/vehicle.contract.js): rigid.addWheeled's car passes it, and so does a
+ * game's own boat, horse, mech or lift built on three.js or another physics library.
+ */
+export interface Rideable {
+  /** Stable id when saves should put the player back in it (rigid vehicles have one) */
+  readonly id?: string;
+  /** What the camera follows while driving */
+  object: Object3D;
+  /** Current speed (m/s): the driver's moveAmount (animation, describe) */
   readonly speed: number;
-  /** Who is driving (null if nobody) */
+  /** Who is driving (null if nobody); character.enter / exit set it */
   driver: Character | null;
+  /** Number of seats, driver included (default 1); enter takes the driver seat, else the first free passenger seat */
+  seats?: number;
+  /** Who rides in the other seats (enter creates the list when missing) */
+  passengers?: Character[];
+  /** false keeps riders visible on their seats (bikes, open carts); default hidden */
+  hideDriver?: boolean;
   /** Camera parameters while driving */
   camera?: { distance?: number; height?: number };
-  /** Controls: throttle -1..1, steer -1..1 (right is positive), brake 0–1 */
+  /** Controls, called every fixed step while driven: throttle -1..1, steer -1..1 (right is positive), brake 0–1; exit calls drive(0, 0, 1) */
   drive(throttle: number, steer: number, brake?: number): void;
-  /** World position of the seat */
-  seatPosition(): Vector3;
-  /** Where to get out (outside the door on the driver's side, world coordinates) */
-  exitPosition(): Vector3;
+  /** World position of a seat (default 0, the driver's; a rider is kept there) */
+  seatPosition(seat?: number): Vector3 | Vec3Like;
+  /** Where to get out of a seat (world coordinates; rigid cars: outside the door on that seat's side) */
+  exitPosition(seat?: number): Vector3 | Vec3Like;
 }
 
 // ======================================================================
@@ -297,7 +329,7 @@ export interface AnimatorInfo {
 }
 /** Animation state machine parameters */
 export interface AnimatorOptions {
-  /** Default transition seconds, default 0.25 (style pack style.character.animation.fade) */
+  /** Default transition seconds, default 0.25 (style.character.animation.fade) */
   fade?: number;
   /** States: name → state */
   states?: Record<string, AnimatorState>;
@@ -361,8 +393,10 @@ export interface CameraRigBase {
   forward(): DirXZ;
   /** The "right" direction on the horizontal plane */
   right(): DirXZ;
-  /** Where the world loads around */
+  /** Where the world loads around (the followed object's position, else the camera's) */
   focusPoint(): Vector3;
+  /** Screen coordinates (-1..1, engine.input.pointer.ndcX / ndcY) → the point on the ground under it, null if nothing is hit (every camera kind) */
+  screenToGround(ndcX: number, ndcY: number): Vector3 | null;
   /** Update the camera every frame */
   update(dt: number, input: Input): void;
   /** Called when a cutscene takeover starts / ends */
@@ -374,6 +408,10 @@ export interface CameraRigBase {
 }
 
 export interface FollowCameraOptions {
+  /** 'orthographic' draws without perspective (isometric / 2.5D; the wheel then changes size); default 'perspective' */
+  projection?: 'perspective' | 'orthographic';
+  /** With projection 'orthographic': world units of view height, default 20 */
+  size?: number;
   /** Which side of the focus the camera sits on (radians), default 0.8: camera = focus + (sin yaw, cos yaw) × distance, it looks along forward() = -(sin yaw, cos yaw). Behind a character facing f: yaw = f + PI */
   yaw?: number;
   /** Pitch angle (radians), default 0.42 */
@@ -406,6 +444,47 @@ export interface FollowCameraOptions {
   pointerLock?: boolean;
   /** The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too */
   swallowLockClick?: boolean;
+  /**
+   * What happens when the camera would go below the ground. 'raise': lift it (the view direction changes, so you cannot look up from flat ground);
+   * 'shorten': pull it along the arm toward the look point (the view direction is kept, a negative minPitch really looks up); 'none': leave it;
+   * a function gets the facts and returns the camera position (or null to keep it). Default: 'shorten' when minPitch < 0, else 'raise'
+   */
+  ground?: 'raise' | 'shorten' | 'none' | ((facts: FollowCameraGroundFacts) => Vec3Like | null | void);
+  /** false: the built-in mouse / stick look and wheel zoom are off, the game drives the view with setView() (default true) */
+  mouseLook?: boolean;
+  /** Hide the followed object from the camera when the camera is closer than this to the look point (meters, 0 = never; default 0.9). The shadow stays */
+  hideTargetNear?: number;
+  /** Layer used to hide the followed object (0-31), default 30 */
+  hideLayer?: number;
+}
+/** What a followCamera({ ground: fn }) function receives each frame */
+export interface FollowCameraGroundFacts {
+  /** Camera position after wall avoidance (a copy) */
+  position: Vector3;
+  /** The point the camera looks at (target + height + shoulder) */
+  lookPoint: Vector3;
+  /** Unit arm direction, look point -> camera */
+  dir: Vec3Like;
+  /** Arm length after walls (m); distance is the wanted one */
+  arm: number;
+  distance: number;
+  /** Ground height under the camera, groundClearance, and a ground query (x, z) => height */
+  groundY: number;
+  clearance: number;
+  surface(x: number, z: number): number;
+  rig: FollowCamera;
+}
+/** followCamera getView() */
+export interface FollowCameraView {
+  yaw: number;
+  /** Positive = camera above the look point looking down; negative = looking up */
+  pitch: number;
+  /** Wanted distance; arm is the actual one this frame (after walls and ground) */
+  distance: number;
+  arm: number;
+  lookPoint: Vec3Like;
+  /** Unit 3D direction the camera looks along */
+  look: Vec3Like;
 }
 /** Third-person follow camera */
 export interface FollowCamera extends CameraRigBase, Required<Omit<FollowCameraOptions, 'lockPitch'>> {
@@ -418,6 +497,12 @@ export interface FollowCamera extends CameraRigBase, Required<Omit<FollowCameraO
   framing: { target: Object3D | Vec3Like; strength: number } | null;
   /** Lock-on framing: turn yaw each frame toward "behind the followed object, looking at target"; mouse yaw is ignored meanwhile; null hands yaw back. strength default 6 (1/s) */
   frame(target: Object3D | Vec3Like | null, opts?: { strength?: number }): void;
+  /** Set the view from game code: pitch is clamped to minPitch..maxPitch, distance to the zoom range. Negative pitch looks up. Pair with mouseLook: false to own it every frame */
+  setView(view: { yaw?: number; pitch?: number; distance?: number }): this;
+  /** The current view: angles, wanted / actual arm, look point and 3D look direction */
+  getView(): FollowCameraView;
+  /** Actual arm length last frame (after walls and ground), meters */
+  readonly arm: number;
 }
 
 export interface FirstPersonCameraOptions {
@@ -474,8 +559,13 @@ export interface CameraShot {
   at?: Vec3Like;
   /** How high above the character to look at (meters) */
   trackHeight?: number;
+  /** 'orthographic' draws this shot without perspective (isometric / 2.5D); default 'perspective' */
+  projection?: 'perspective' | 'orthographic';
+  /** With projection 'orthographic' (required there): world units of view height; the width follows the aspect */
+  size?: number;
 }
-export interface FixedCameraOptions {
+/** fixedCamera / setCamera('fixed', ...) options; the shot fields (position, lookAt, projection, size...) at the top level are a one-shot form: shots = { main: them } */
+export interface FixedCameraOptions extends Partial<CameraShot> {
   /** Shots: name → shot */
   shots?: Record<string, CameraShot>;
   /** Initial shot name */
@@ -566,8 +656,6 @@ export interface RtsCamera extends CameraRigBase, Required<Omit<RtsCameraOptions
   rotate: boolean;
   /** Move the view to position (instant: true skips smoothing) */
   moveTo(position: PositionLike, opts?: { instant?: boolean }): void;
-  /** Screen coordinates (-1..1) → a point on the ground, null if nothing is hit */
-  screenToGround(ndcX: number, ndcY: number): Vector3 | null;
 }
 
 /**

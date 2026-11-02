@@ -3,14 +3,16 @@ export class DebugOverrides {
     /** The F3 debug panel (the debug() module), or null when it is not installed @type {any} */
     panel: any;
     /**
-     * Diagnostic view: 'albedo' | 'lighting' | 'shadow' | 'normals' to look at one part of the render, 'off' to restore. Temporary and owner-scoped; never saved
+     * Diagnostic view: 'albedo' | 'lighting' | 'shadow' | 'normals' to look at one part of the render, 'overdraw' (bright = many layers on a pixel),
+     * 'shaderCost' (materials green -> red by compiled program cost, approximate), 'off' to restore; modules add their own (triggers: 'triggers' draws
+     * the trigger zones), viewModes() lists them all. Temporary and owner-scoped; never saved
      * (describe().render says which view is active, so it is not mistaken for the real look). While one owner's view is on, another owner can neither switch it
      * nor turn it off without force: true; engine.debug.clear(owner) turns that owner's view off too.
      * @example engine.debug.view('normals');   // look at the screenshot, then engine.debug.view('off')
-     * @param {'albedo' | 'lighting' | 'shadow' | 'normals' | 'off'} mode @param {{ owner?: string, force?: boolean }} [opts]
+     * @param {'albedo' | 'lighting' | 'shadow' | 'normals' | 'overdraw' | 'shaderCost' | 'off' | string} mode @param {{ owner?: string, force?: boolean }} [opts]
      * @returns {{ mode: string, owner: string | null, what?: string, note?: string }}
      */
-    view(mode: "albedo" | "lighting" | "shadow" | "normals" | "off", opts?: {
+    view(mode: "albedo" | "lighting" | "shadow" | "normals" | "overdraw" | "shaderCost" | "off" | string, opts?: {
         owner?: string;
         force?: boolean;
     }): {
@@ -19,6 +21,45 @@ export class DebugOverrides {
         what?: string;
         note?: string;
     };
+    /**
+     * Add a view mode for engine.debug.view (a module's overlay: zones, paths, volumes). apply(scene) draws it and returns the undo; it may run again
+     * when the debug chain re-applies, so it builds from scratch each time. Returns { remove() }.
+     * @example engine.debug.defineView('paths', { what: 'patrol paths as lines', apply: scene => { scene.add(g); return () => scene.remove(g); } });
+     * @param {string} name @param {{ what: string, apply: (scene: import('three').Scene) => () => void }} def
+     * @returns {{ remove(): void }}
+     */
+    defineView(name: string, def: {
+        what: string;
+        apply: (scene: import("three").Scene) => () => void;
+    }): {
+        remove(): void;
+    };
+    /** Every mode engine.debug.view accepts now (built-in and module-added) @returns {string[]} */
+    viewModes(): string[];
+    /**
+     * Shader hot reload: swap GLSL text `old` for `neu` in every scene material using it (ShaderMaterial code, shader patch code) and recompile them.
+     * The vite preset calls it when a `?raw`-imported .glsl / .vert / .frag file changes in dev; returns how many materials changed (0: the page reloads).
+     * @param {string} old @param {string} neu @param {string} [file] @returns {{ file: string | null, materials: number, names: string[] }}
+     */
+    reloadGlsl(old: string, neu: string, file?: string): {
+        file: string | null;
+        materials: number;
+        names: string[];
+    };
+    /**
+     * Asset hot swap: register the asset packs again (the new module of an edited assets.js) and build what changed (a new generator function,
+     * url or params schema); every live copy swaps geometry and material in place, the page, player, clock and world state stay. The vite preset
+     * calls it when an art module imported by the game's assets.js is saved; returns what was swapped (also in describe().assetSwaps).
+     * @example import packs from '../../../core/assets'; if (import.meta.hot) import.meta.hot.accept('./assets.js', m => engine.debug.reloadAssets(m.default));
+     * @param {any} packs @returns {Promise<{ why: string, names: string[], copies: Record<string, number>, ms: number, partsChanged?: string[] }>}
+     */
+    reloadAssets(packs: any): Promise<{
+        why: string;
+        names: string[];
+        copies: Record<string, number>;
+        ms: number;
+        partsChanged?: string[];
+    }>;
     /** The active view ({ mode: 'off', owner: null } when none) @returns {{ mode: string, owner: string | null, what?: string }} */
     viewState(): {
         mode: string;

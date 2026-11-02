@@ -41,7 +41,6 @@ export class Ops {
     /** @internal names of the ops currently running (nesting) */ this._stack = [];
     /** @internal */ this._inCan = null;
     /** @internal > 0 while state may be written without an op (save load, applyState, net sync) */ this._allowDepth = 0;
-    /** @internal */ this._warned = new Set();
     /** @internal request counter (net replies carry it) */ this._seq = 0;
     /** @internal ctx of the innermost running op (nested ops inherit source and actor) */ this._last = null;
     /** @internal set by net() on clients: (def, args, opts) => result to return instead of running locally, or null to run here */ this._route = null;
@@ -55,6 +54,12 @@ export class Ops {
   _res(f) { f.revision = this.revision; return f; }
   /** @internal Name of the innermost op running right now, or null (world records who spawned a runtime record with it, dev only) @type {string | null} */
   get running() { return this._stack.at(-1) ?? null; }
+  /**
+   * Who is acting right now: the actor of the innermost running op (a net peer, an NPC, the local user), else engine.actor.
+   * Code that changes state outside an op's own ctx (an item event, a content effect) names its actor with this, so it is never assumed to be the local player.
+   * @type {string}
+   */
+  get actor() { return this._stack.length && this._last ? this._last.actor : this.engine.actor; }
 
   /** History entries kept (ring, default 256); setting it clears the history */
   get historySize() { return this._ring.length; }
@@ -150,7 +155,7 @@ export class Ops {
     if (!d) return this._res(failure('unknownOp'));
     args = withDefaults(d.defaults, args);
     const ctx = this._ctx(name, args, opts, this._stack.length ? this._last : null);
-    if (this.engine._freezers.has('error')) return this._res(failure('halted'));
+    if (this.engine.stacks.get('freeze').has('error')) return this._res(failure('halted'));
     let res;
     try { res = this._can(d, args, ctx); } catch (err) { if (err?.opsDevError) throw err; res = 'error'; }
     return this._res(res === true ? { ok: true } : failure(res));

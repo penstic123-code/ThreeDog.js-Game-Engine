@@ -1,4 +1,4 @@
-// Opt-in gameplay presets: named, plain option objects a game picks on purpose, like a style pack for feel.
+// Opt-in gameplay presets: named, plain option objects a game picks on purpose, like a style for feel.
 // The engine never applies one by itself (weather() alone has only 'clear', sky() has no seasons and no day cycle, music() does not duck for dialogue, no module binds a gameplay key, createPlayer() and interactions() refuse to guess a feel
 // or a key); a preset only bundles options the game could write itself, so spreading it and overriding a field is always the same as writing it out:
 //   engine.use(weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] }));
@@ -18,7 +18,7 @@ const use = pick => Object.freeze({ pick, keys: Object.freeze(['KeyE', 'PadX']) 
 
 /**
  * Opt-in presets, grouped by the option they fill. Each value is an options object for the function named in its group.
- * @example engine.use(openWorld({ weather: presets.weather.temperate, sky: presets.calendar.fourSeasons }))
+ * @example engine.use(openWorld({ weather: presets.weather.temperate, calendar: presets.calendar.fourSeasons }))
  * @example engine.use(followCamera(presets.camera.overShoulder)); engine.characters.createPlayer({ ...presets.player.aim, spawn })
  * @example engine.use(interactions({ ...presets.interactions.nearest }))
  */
@@ -39,13 +39,13 @@ export const presets = Object.freeze({
       autoPool: Object.freeze(['clear', 'clear', 'clear', 'cloudy', 'cloudy', 'overcast', 'rain', 'storm', 'fog']),
     }),
   }),
-  /** sky({ ... }) calendar options */
+  /** calendar({ ... }) options */
   calendar: Object.freeze({
     /** Spring, summer, autumn, winter, 7 days each, with the 360 s day cycle of `cycle` (a cozy life sim; set daysPerSeason: 28 for longer seasons) */
     fourSeasons: Object.freeze({ seasons: Object.freeze(['spring', 'summer', 'autumn', 'winter']), daysPerSeason: 7, dayLength: 360 }),
-    /** A day-night cycle, one day = 360 game seconds (6 minutes at timeScale 1); sky() alone keeps a fixed time of day */
+    /** A day-night cycle, one day = 360 game seconds (6 minutes at clock.rate 1); calendar() alone keeps a fixed time of day */
     cycle: Object.freeze({ dayLength: 360 }),
-    /** One time of day that never moves (dungeon, arena, space station), what sky() does without a dayLength; pick the hour with time */
+    /** One time of day that never moves (dungeon, arena, space station), what calendar() does without a dayLength; pick the hour with time */
     fixedTime: Object.freeze({ dayLength: Infinity }),
   }),
   /** characters.createPlayer({ ... }) movement, facing, run / jump keys and camera follow (createPlayer has no default: pick one of these or write the options) */
@@ -92,5 +92,8 @@ export const presets = Object.freeze({
     follow: Object.freeze({}),
     /** Close over-the-shoulder view with a locked mouse (third-person shooter, soulslike) */
     overShoulder: Object.freeze({ distance: 3, shoulder: 0.7, pitch: 0.15, pointerLock: true }),
+    /** Third-person action: locked mouse, look up to about +60° and down, the ground shortens the arm (look direction kept), walls pull it in, the player hides when the camera is inside it */
+    thirdPersonAction: Object.freeze({ distance: 4.5, minDistance: 1.5, maxDistance: 9, height: 1.6, shoulder: 0.5, pitch: 0.25, minPitch: -1.05, maxPitch: 1.2,
+      ground: 'shorten', groundClearance: 0.3, hideTargetNear: 0.9, pointerLock: true }),
   }),
 });

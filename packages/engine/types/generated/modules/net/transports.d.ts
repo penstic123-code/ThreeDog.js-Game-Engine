@@ -3,8 +3,10 @@
  * An in-process network for tests and offline demos: one host and any number of clients in the same page, with optional latency, jitter and loss.
  * Messages are deep-copied on send (no shared objects, like a real wire). Order per link is kept, as on a WebSocket.
  * manual: true delivers only when you call advance(ms) (deterministic tests); otherwise messages land after real time.
+ * connect({ heartbeat }) turns on the ping / pong check for that client (off by default here so loss and jitter replay the same); a client's cut()
+ * kills its link silently in both directions, which only the heartbeat notices (then the client gets 'close' and the host 'leave').
  * @param {{ latency?: number, jitter?: number, loss?: number, seed?: number, manual?: boolean }} [opts] latency / jitter in ms, loss 0..1
- * @returns {{ host(): any, connect(opts?: { key?: string }): any, advance(ms: number): void, readonly now: number, loss: number, latency: number, jitter: number }}
+ * @returns {{ host(): any, connect(opts?: { key?: string, heartbeat?: number }): any, advance(ms: number): void, readonly now: number, loss: number, latency: number, jitter: number }}
  * @example
  * const wire = fakeNetwork({ latency: 80, jitter: 30, loss: 0.05, manual: true });
  * host.use(net({ role: 'host', transport: wire.host() }));
@@ -22,6 +24,7 @@ export function fakeNetwork(opts?: {
     host(): any;
     connect(opts?: {
         key?: string;
+        heartbeat?: number;
     }): any;
     advance(ms: number): void;
     readonly now: number;
@@ -33,8 +36,12 @@ export function fakeNetwork(opts?: {
  * WebSocket transport: talks to the relay in packages/tools/net-relay.mjs (`node packages/tools/net-relay.mjs 8787`).
  * The host joins a room with host: true; clients join the same room. The relay assigns peer ids and remembers each client's key for reconnects.
  * Messages are JSON. For a dedicated server or Colyseus, write another transport with the same send / on / close shape instead.
+ * heartbeat (ms, default 2000, 0 = off): ping the relay that often; 3 intervals with nothing received closes the link and emits 'close'.
+ * reconnect (clients only, default false): after a close, open again with the same key, waiting 0.5 s, 1 s, 2 s ... up to 15 s between tries; 'open' fires
+ * again on success (net() then asks the host for a full snapshot). Off by default: engine.net.reconnect(webSocket(url, { key })) on net:close is the
+ * documented path and leaves the game in charge of retries and messages; t.close() stops a reconnecting transport.
  * @param {string} url e.g. 'ws://localhost:8787/my-room'
- * @param {{ host?: boolean, key?: string }} [opts] key: reuse a previous peer id after a reconnect (read transport.key after 'open')
+ * @param {{ host?: boolean, key?: string, heartbeat?: number, reconnect?: boolean }} [opts] key: reuse a previous peer id after a reconnect (read transport.key after 'open')
  * @returns {{ send(msg: any, to?: number): void, on(type: string, fn: Function): { remove(): void }, close(): void, key: string | null, id: number | null }}
  * @example
  * engine.use(net({ role: 'host', transport: webSocket('ws://localhost:8787/farm', { host: true }) }));
@@ -44,9 +51,11 @@ export function fakeNetwork(opts?: {
  * engine.use(net({ role: 'client', transport: t }));
  * @experimental
  */
-export function webSocket(url: string, { host, key }?: {
+export function webSocket(url: string, { host, key, heartbeat, reconnect }?: {
     host?: boolean;
     key?: string;
+    heartbeat?: number;
+    reconnect?: boolean;
 }): {
     send(msg: any, to?: number): void;
     on(type: string, fn: Function): {

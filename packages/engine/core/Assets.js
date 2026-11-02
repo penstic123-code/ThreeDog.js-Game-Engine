@@ -5,7 +5,8 @@
 // 4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs
 // below).
 //   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets produces compressed files).
-//   6. Code-generated models: write a function (or { build, params }) in the manifest; it is built on demand and cached automatically, see cached() below.
+//   6. Made in code: a model / texture / sound may be a function in the manifest instead of a file, used by name exactly like a file (content, model(),
+//      pickups, vegetation, audio.sounds). Models are built on demand and cached automatically (baked file -> dev cache -> build, the internal cached()).
 //   7. Observable: every load is a task in engine.loading. A registered file that fails falls back (gray placeholder / silence / the entry's fallback)
 //      unless it is critical: true, which stops start() instead (assetEntry.js).
 // 8. Asset packs: a manifest is a plain object, so a folder or an npm package can ship one and a game registers it with one call (recipes/05-props-bake.md
@@ -17,7 +18,7 @@
 //   name: 'main',                                        // shown as the source manifest in engine.loading
 //   models:   { house: '/models/house.glb', hero: { url: '/models/hero.glb', critical: true }, block: buildBlock },
 //   textures: { paper: { url: '/textures/paper.jpg', color: true }, ground: '/textures/ground.ktx2' },
-//   sounds:   { bgm: '/sounds/morning.mp3' },
+//   sounds:   { bgm: '/sounds/morning.mp3', ding: (audio, p, out) => { audio.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; } },
 //   fonts:    { pixel: '/fonts/pixel.woff2', pixelBold: { url: '/fonts/pixel-bold.woff2', family: 'pixel', weight: 700 } },   // style.ui.fonts names them
 // });
 // engine.assets.manifest({ name: 'forest', base: '/packs/forest/', models: { oak: 'oak.glb' } });   // -> /packs/forest/oak.glb
@@ -28,16 +29,19 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import { warnMissing, warnOnce, fmt } from './validate.js';
+import { warnMissing, warnOnce, fmt, DEV } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { Animator } from './Animator.js';
-import { fetchEntry, freeEntry, preloadEntries } from './assetEntry.js';
-import { registerManifest } from './assetManifest.js';
+import { fetchEntry, freeEntry, preloadEntries, shadowDefaults } from './assetEntry.js';
+import { registerManifest, paramValues } from './assetManifest.js';
+import { setParams } from './assetHot.js';
+import { schemaInfo } from './params.js';
 import { loadGrid } from './gridLoad.js';
 
 const STRINGS = {
+  notLoaded: 'assets.modelNow(\'{name}\') is null: nothing has loaded that model yet (a code-built model is built, or read from the bake cache, on its first load too). Use `engine.assets.modelNow(\'{name}\') ?? await engine.assets.model(\'{name}\')`, or mark it preload: true in the manifest and await engine.assets.preload()',
   noFont: 'assets.font(\'{name}\'): no font named {name}{known}. Register the file in an asset pack: engine.assets.manifest({ fonts: { {name}: \'/fonts/{name}.woff2\' } })',
-  sameName: 'assets.cached(\'{name}\'): the same name was used with two different generator functions, so the cache would mix them (keyed by name + params). Use a different name per model; if the result depends on outer variables, put them in params',
+  sameName: 'model \'{name}\': the same name was used with two different generator functions, so the cache would mix them (keyed by name + params). Use a different name per model; if the result depends on outer variables, put them in params',
 };
 /** Short hash of the source (cache key; tells apart same-name, different-function cases) */
 const srcHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
@@ -60,7 +64,9 @@ export class Assets {
 
   /**
    * Register an asset manifest or asset pack (may be called repeatedly; a later entry with the same name replaces the earlier one). A model may be a generator
-   * function or { build, params, preload }.
+   * function or { build, params, preload, cache } (cache: false = never stored in the dev cache, recipes/05-props-bake.md §2a). params is a schema in the
+   * core/params.js format ({ height: { type: 'number', min: 1, max: 6, default: 3 }, color: { type: 'color', default: 0x557733 } }): the generator is
+   * then called with one object (defaults, then dev panel values, then a call's own `['tree', { height: 4 }]`), and the dev panel shows the fields.
    * Per entry: critical: true = start() stops if it fails (otherwise it falls back and the game continues); fallback: 'otherName' replaces the gray
    * placeholder.
    * name labels the manifest in engine.loading (default 'manifest#1', '#2'...), so a failure says which list it came from.
@@ -69,13 +75,15 @@ export class Assets {
    * @example engine.assets.manifest({ name: 'level-1', models: { hero: { url: '/models/hero.glb', critical: true }, bush: { url: '/models/bush.glb', fallback:
    * 'rock' } } });
    * @example import forest from 'my-forest-assets'; engine.assets.manifest(forest);   // { name: 'forest', base, models: { oak: 'oak.glb' } }
+   * @example import packs from './assets.js'; engine.assets.manifest(packs);   // a list: the game's assets.js, which `npm run check` reads too
+   * @param {import('../types/core').AssetManifest | import('../types/core').AssetManifest[]} [pack]
   */
   manifest(pack = {}) { return registerManifest(this, pack); }
 
   /**
    * The generator function registered under a model name (manifest models: { pine: fn } or { build }), null for a file model or an unknown name.
-   * Content uses it to build parametrized procedural models ([name, ...params]) through cached(); code rarely needs it
-   * @example const fn = engine.assets.builder('flower'); if (fn) engine.assets.cached('flower', fn, 0xff0000);
+   * Code rarely needs it: name the model instead (content { model: ['flower', 0xff0000] }, assets.model('flower'), item model, vegetation.define)
+   * @example if (!engine.assets.builder('flower')) console.warn('flower is a file model');
    * @param {string} name
    * @returns {((...args: any[]) => any) | null}
    */
@@ -83,6 +91,27 @@ export class Assets {
     const e = this.entries.get(name);
     return e?.named && e.type === 'model' && e.opts.build || null;
   }
+
+  /**
+   * The params of a generator that declares a schema: { schema (plain data), values (what it is built with now), tuned (set by setParams) }, or null
+   * @example engine.assets.paramsOf('tree')?.values   // { height: 3, color: 5600051 }
+   * @param {string} name
+   * @returns {{ schema: Record<string, any>, values: Record<string, any>, tuned: Record<string, any> } | null}
+   */
+  paramsOf(name) {
+    const e = this.entries.get(name);
+    return e?.schema ? { schema: schemaInfo(e.schema), values: paramValues(e), tuned: { ...e.tuned } } : null;
+  }
+  /**
+   * Dev tuning: build a generator again with these params (they replace its defaults; a call's own values still win) and swap every live copy in
+   * place (props, templates, pickups, vegetation, model() copies). The dev panel's models folder calls it; `threedog tune write` writes them back.
+   * @example await engine.assets.setParams('tree', { height: 4.5 });
+   * @param {string} name @param {Record<string, any>} values
+   * @returns {Promise<{ why: string, names: string[], copies: Record<string, number>, ms: number, partsChanged?: string[] }>}
+   */
+  setParams(name, values) { return setParams(this.engine, name, values); }
+  /** @internal a module rebuilds its own copies after a hot swap (vegetation): fn({ names, geometry, material }) -> { name: copies } */
+  onSwap(fn) { (this._swapHooks ||= []).push(fn); }
 
   _resolve(nameOrUrl, type) {
     let e = this.entries.get(nameOrUrl);
@@ -132,15 +161,18 @@ export class Assets {
    */
   modelNow(nameOrUrl, opts = {}) {
     const e = this.entries.get(nameOrUrl);
-    return e?.type === 'model' && e.value ? this._copy(e, e.value, opts) : null;
+    if (e?.type === 'model' && e.value) return this._copy(e, e.value, opts);
+    // 为什么提示：代码生成的模型也要先 load 一次（开发时读烘焙缓存的 GLB，发布时读烘焙文件），所以没 await 过 model() 时这里是 null；
+    // 一次试玩里 world.present 只调 modelNow，模型从没出现、也没有任何说明。已经在加载中（promise 在）就不提示：那是正常的"还没好"
+    if (DEV && e?.type === 'model' && !e.promise) warnOnce(coded('asset-not-loaded', fmt(STRINGS.notLoaded, { name: nameOrUrl })));
+    return null;
   }
   /** @internal one counted copy of a loaded model */
   _copy(e, gltf, { castShadow, receiveShadow, static: isStatic = false } = {}) {
     const root = skeletonClone(gltf.scene);
     e.users = (e.users || 0) + 1; e.releasePending = false; this._instances.set(root, e);
-    // code-generated models keep their own shadow settings; file models cast and receive shadows by default
-    const cast = castShadow ?? (e.opts.build ? null : true), recv = receiveShadow ?? (e.opts.build ? null : true);
-    root.traverse(o => { if (o.isMesh) { if (cast != null) o.castShadow = cast; if (recv != null) o.receiveShadow = recv; } });
+    // the call, then the manifest entry; else a generator's own flags; else cast + receive (shadowDefaults, the same rule content props use)
+    shadowDefaults(root, { castShadow: castShadow ?? e.opts.castShadow, receiveShadow: receiveShadow ?? e.opts.receiveShadow });
     root.userData.animations = gltf.animations;
     if (isStatic) this.engine.rays.addStatic(root);
     return root;
@@ -155,7 +187,7 @@ export class Assets {
   report(nameOrRoot) {
     const root = typeof nameOrRoot === 'string' ? null : nameOrRoot, e = root ? this._instances.get(root) : this.entries.get(nameOrRoot);
     const gltf = e?.value;
-    if (!gltf?.scene) throw new Error(`assets.report: ${root ? 'that object is not a model copy from assets.model()' : `model "${nameOrRoot}" is not loaded yet (await engine.assets.model(...) first)`}`);
+    if (!gltf?.scene) throw codedError('asset-misuse', `assets.report: ${root ? 'that object is not a model copy from assets.model()' : `model "${nameOrRoot}" is not loaded yet (await engine.assets.model(...) first)`}`);
     return reportGltf(gltf, e, root ?? gltf.scene, this.engine.renderer);
   }
   /** assets.report as text for the console / describe */
@@ -170,10 +202,12 @@ export class Assets {
   /**
    * Get a texture (name or path; .ktx2 works too). Color textures default to sRGB; pass { color: false } for normal/roughness maps.
    * opts is part of the cache key: the same image fetched with different opts gives two separately configured textures (never silently reuses the first one's
-   * settings)
+   * settings). A texture made in code is registered by name too and comes back as made (its colorSpace / wrap / repeat are yours):
+   * @example engine.assets.manifest({ textures: { brick: () => makeBrickTexture(), sign: mySignCanvasTexture } }); makeMaterial('wall', { map: 'brick' });
   */
   async texture(nameOrUrl, opts = {}) {
     const base = this._resolve(nameOrUrl, 'texture');
+    if (base.opts.build || base.opts.texture) return this._fetch(base);   // made in code: one texture as made, no per-option variants
     const diff = Object.keys(opts).filter(k => k !== 'url' && JSON.stringify(opts[k]) !== JSON.stringify(base.opts[k]));
     if (!diff.length) return this._fetch(base);
     const key = nameOrUrl + '#' + JSON.stringify(Object.fromEntries(diff.sort().map(k => [k, opts[k]])));
@@ -225,6 +259,7 @@ export class Assets {
   }
 
   /**
+   * @internal Only core/namedModel.js calls this (the one path for "a model made in code, used by name"): games name the model instead.
    * Code-generated model (build returns an Object3D or BufferGeometry): built once per name + params, returns a copy (geometry returns the same instance).
    * A generator written with `function` (not an arrow) can read this.palette = style.palette (the key includes it, so a new palette rebuilds).
    * Cache key = name + generator source + params: outer variables build uses (colors, sizes, seeds in the closure...) must go in params,

@@ -60,7 +60,7 @@ export const specs = [
         const fogged = E.inspect.scene({ limit: 1000 }); out.fog = { behind: fogged.items.find(i => i.name === 'ok')?.reasons?.map(x => x.code) ?? [] };
         const far = m('fogfar'); far.position.z = -100; const f2 = E.inspect.scene({ limit: 1000 });
         out.fog.far = f2.items.find(i => i.name === 'fogfar').reasons.map(x => x.code + ':' + x.level); out.fog.farDrawn = f2.items.find(i => i.name === 'fogfar').drawn;
-        scene.fog = fog0; scene.remove(G); E.resume();
+        scene.fog = fog0; scene.remove(G); E._resume();
         return out;
       });
       const c = r.codes, has = (n, code) => c[n]?.includes(code);
@@ -98,7 +98,7 @@ export const specs = [
         const ma = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), a), mb = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), b); ma.name = 'zz-a'; mb.name = 'zz-b';
         E.scene.add(ma, mb);
         const res = E.inspect.scene({ limit: 5000 }), ia = res.items.find(i => i.name === 'zz-a').material.info[0], ib = res.items.find(i => i.name === 'zz-b').material.info[0];
-        E.scene.remove(ma, mb); E.resume();
+        E.scene.remove(ma, mb); E._resume();
         return { src: a.userData.materialSource, ia, ib, render: res.render };
       });
       check('makeMaterial 记 materialSource（role / from / keys）', r.src.role === 'zz-role' && ['call-params', 'pack-spec', 'default'].includes(r.src.from) && r.src.keys.includes('color'), JSON.stringify(r.src));

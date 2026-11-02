@@ -1,5 +1,6 @@
 // R19 workers only through engine.threads: in engine source (packages/engine: index.js, core, modules, render, ui, styles, examples, vite.config.js;
-//   not tests / docs / public), `new Worker(` outside a lane factory and `.postMessage(` outside core/Threads.js / core/threadServe.js → error.
+//   not tests / docs / public), `new Worker(` outside a lane factory and `.postMessage(` outside core/Threads.js / core/threadServe.js → error
+//   (a line naming BroadcastChannel is exempt: cross-tab notes such as core/Saves.js carry no work and bypass nothing).
 // Detection: line-based regex on raw lines, lines starting with // or * skipped. A Worker is accepted only when written as `create: () => new Worker(`
 //   on the same line (the lane factory passed to engine.threads.lane). Known limits: a Worker built in a helper and returned to create is flagged
 //   (inline it into create); a postMessage reached through another name (e.g. const send = w.postMessage) is not seen.
@@ -25,7 +26,7 @@ export default {
         if (/^\s*(\/\/|\*)/.test(l)) return;
         if (/new Worker\(/.test(l) && !/create: \(\) => new Worker\(/.test(l))
           out.push({ level: 'error', file: f, line: i + 1, msg: 'new Worker outside an engine.threads lane', fix: 'create workers only in engine.threads.lane({ create: () => new Worker(...), local }) or use world.simulate(kind, { worker: true })' });
-        if (/\.postMessage\(/.test(l) && !POOL.has(f))
+        if (/\.postMessage\(/.test(l) && !POOL.has(f) && !/BroadcastChannel/.test(l))   // a BroadcastChannel note to other tabs is not worker work
           out.push({ level: 'error', file: f, line: i + 1, msg: 'postMessage outside core/Threads.js', fix: 'send work through a lane (lane.run); only the pool talks to workers directly' });
       });
     }

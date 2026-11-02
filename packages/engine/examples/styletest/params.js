@@ -3,7 +3,7 @@
 //   time     day | dusk | night, or HH:MM         weather  clear | rain | snow (晴 雨 雪), or any engine weather name
 //   style    lowpoly | none                       env      1 = environment lighting from the sky (default 0)
 //   view     overview | character | water | room | path | ui   (总览 角色特写 水面 室内 移动镜头路径 界面)
-//   panel    1 = the style workbench (needs the tweakpane dev package)
+//   panel    1 = the dev panel, @threedog/tools/panel (needs the tweakpane dev package)
 //   ov       style overrides the workbench exports for "rebuild preview" (JSON, URL-encoded)
 /** @type {Record<string, string>} */
 const TIME = { day: '12:00', 白天: '12:00', dusk: '18:30', 黄昏: '18:30', night: '23:00', 夜晚: '23:00' };

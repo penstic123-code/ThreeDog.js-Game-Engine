@@ -7,21 +7,12 @@
 import * as THREE from 'three';
 import { warnOnce } from '../../core/validate.js';
 import { fmt } from '../../core/opsCheck.js';
-import { renamed } from '../../core/errorHints.js';
 import { makeMaterial } from '../../render/materials.js';
-
-/**
- * Bodies are assets, not style (0.2): a style pack that still gives style.character.create / model / colors throws renamed-api at once,
- * instead of silently getting gray capsules. style.character.animation (default fade) stays: it is a look of motion, not a body.
- */
-export function checkStyleCharacter(engine) {
-  const sc = engine.style.character;
-  if (sc && ('create' in sc || 'model' in sc || 'colors' in sc)) renamed('characterBody');
-}
+import { codedError } from '../../core/errorHints.js';
 
 /**
  * Build a procedural model asset now (synchronously) when `name` is a registered builder; null when it is a file model, unknown, or the
- * builder is async (those load through loadAssetModel). The builder gets this = { palette: style.palette, engine } like engine.assets.cached.
+ * builder is async (those load through loadAssetModel). The builder gets this = { palette: style.palette, engine } like any generator in the manifest.
  */
 export function buildNow(engine, name) {
   const build = engine.assets.builder(name);
@@ -49,7 +40,7 @@ export function loadAssetModel(ch, name, use) {
   const e = ch.engine, A = e.assets;
   const names = [...A.entries].filter(([, x]) => x.type === 'model' && x.named).map(([n]) => n);
   const list = names.join(', ') || 'none; register them with engine.assets.manifest({ models })';
-  if (!names.includes(name) && !/[/.]/.test(name)) throw new Error(fmt(STRINGS.unknown, { name, list }));
+  if (!names.includes(name) && !/[/.]/.test(name)) throw codedError('character-option', fmt(STRINGS.unknown, { name, list }));
   const fail = why => warnOnce(fmt(STRINGS.failed, { name, why, list }));
   const swap = m => {
     if (ch._disposed || e.disposed) { e.remove(m); return; }   // removed before loading finished: never reaches the scene, the copy is released
@@ -63,7 +54,7 @@ export function loadAssetModel(ch, name, use) {
     e.events.emit('character:model', { character: ch, model: m });
   };
   // already loaded (another NPC uses it, or this one was built before): swap now, so a character rebuilt far -> near never shows the placeholder
-  const now = A.modelNow(name);
+  const now = A.entries.get(name)?.value ? A.modelNow(name) : null;   // only when loaded: modelNow hints in dev when nothing loads it
   if (now) { swap(now); return Promise.resolve(); }
   ch.ready = false;
   return A.model(name).then(swap).catch(err => { if (!ch._disposed) fail(err.message); }).finally(() => { ch.ready = true; });

@@ -7,6 +7,7 @@
 //       { path: { object: npc, points: [[0,0,0], [4,0,2], [8,0,0]], duration: 3, lookAhead: 0.05, ground: true } },
 //     ] },
 //     { say: { speaker: '老渔夫', text: '你来了。' } },      // needs the dialogue module; waits for the dialogue to end
+//     { say: { speaker: '路人', text: '看那边！', channel: 'bubble', at: npc.root } },   // a bubble over the speaker (input stays free); waits for it too
 //     { wait: 0.5 },                                         // wait 0.5 seconds
 //     { waitFor: 'quest:done' },                             // wait for an event
 //     { do: engine => engine.events.emit('door:open') },     // run code (may be async)
@@ -28,8 +29,11 @@ import { Tweener } from './Tween.js';
 import { fadeScreen, uiFocus } from '../../ui/UI.js';
 import { cameraStep, pathStep, releaseCamera } from './shots.js';
 import { buildLetterbox } from './letterbox.js';
-import { checkOptions } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+
+import { readParams, keysSchema, isOptions } from '../../core/params.js';   // isOptions: a step part can also be a shot name, a text or a point list
+import { warnOnce } from '../../core/validate.js';
+import { coded } from '../../core/errorHints.js';
+import { reportError } from '../../core/errors.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Ease } from '../../types/common' */
 /** @import { TimelineStep, TimelinePlayOptions, TimelineOptions, TweenTo, TweenPromise } from '../../types/gameplay' */
@@ -40,13 +44,13 @@ const STEP_KEYS = {
   tween: ['target', 'to', 'duration', 'ease'],
   camera: ['from', 'to', 'duration', 'ease', 'fov', 'release'],
   path: ['object', 'points', 'duration', 'ease', 'lookAhead', 'ground', 'closed', 'curve', 'tension', 'upright'],
-  say: ['speaker', 'text', 'nodes', 'node'],
+  say: ['speaker', 'text', 'nodes', 'node', 'channel', 'at', 'seconds'],
 };
 const SHOT_KEYS = ['position', 'lookAt', 'fov'];
 function checkStep(s) {
-  checkOptions('timeline step', s, STEP_KEYS.step);
-  for (const k of ['tween', 'camera', 'path', 'say']) if (s[k]) checkOptions(`timeline ${k}`, s[k], STEP_KEYS[k]);
-  if (s.camera) for (const k of ['from', 'to']) checkOptions(`timeline camera.${k}`, s.camera[k], SHOT_KEYS);
+  readParams('timeline step', keysSchema(STEP_KEYS.step), s);
+  for (const k of ['tween', 'camera', 'path', 'say']) if (isOptions(s[k])) readParams(`timeline ${k}`, keysSchema(STEP_KEYS[k]), s[k]);
+  if (s.camera) for (const k of ['from', 'to']) if (isOptions(s.camera[k])) readParams(`timeline camera.${k}`, keysSchema(SHOT_KEYS), s.camera[k]);
 }
 
 /** engine.timeline */
@@ -87,7 +91,7 @@ export class Timeline {
    * @returns {Promise<{ skipped: boolean }>}
    */
   async play(steps, opts = {}) {
-    checkOptions('timeline.play()', opts, ['skippable', 'letterbox', 'lockInput']);
+    readParams('timeline.play()', keysSchema(['skippable', 'letterbox', 'lockInput']), opts);
     const { skippable = true, letterbox = false, lockInput = true } = opts;
     const e = this.engine;
     const run = { id: ++this._runSeq, skippable, letterbox, lockInput, skipping: false, cancels: new Set(), cam: null };
@@ -101,7 +105,7 @@ export class Timeline {
     try {
       await this._step(steps, run);
     } catch (err) {
-      console.error('[timeline] step failed', err);
+      reportError(this.engine, err, 'timeline step', { soft: true });   // a step that threw ends this run; the game carries on
     } finally {
       releaseCamera(this, run);
       run.focus.remove();
@@ -187,16 +191,16 @@ export class Timeline {
     });
   }
 
-  /** Line: { speaker, text, node? }. Needs the dialogue module; skipped with a warning if not installed @internal */
+  /** Line: { speaker, text, node?, channel?: 'main' | 'bubble', at?, seconds? }. Needs the dialogue module; skipped with a warning if not installed @internal */
   _say(s, run) {
     const e = this.engine, d = e.dialogue;
-    if (!d) { console.warn('[timeline] say requires the dialogue module to be installed'); return Promise.resolve(); }
+    if (!d) { warnOnce(coded('module-needs', '[timeline] say requires the dialogue module to be installed')); return Promise.resolve(); }
     if (run.skipping) return Promise.resolve();
     // the line is on top of the focus stack: Esc still skips the whole cutscene
-    const said = d.say(s.nodes || s.text, { speaker: s.speaker, node: s.node || 'start', onCancel: run.skippable ? () => this.skip(run) : null });
+    const said = d.say(s.nodes || s.text, { speaker: s.speaker, node: s.node || 'start', channel: s.channel, at: s.at, seconds: s.seconds, onCancel: run.skippable ? () => this.skip(run) : null });
     return new Promise(done => {
       // skipping the cutscene closes this line; it also settles the step when the line was dropped without ending (a new playthrough)
-      const cancel = () => { if (d.speaking === said.id) d.end(); done(); };
+      const cancel = () => { said.stop(); done(); };   // stop(): the say() handle of the dialogue contract, either channel
       run.cancels.add(cancel);
       said.then(() => { run.cancels.delete(cancel); done(); });
     });

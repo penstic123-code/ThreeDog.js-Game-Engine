@@ -23,22 +23,32 @@ function gameRootOf(dir) {
   }
 }
 
+// Windows 路径不分大小写：cwd 的盘符大小写可能和 realpath 不同，比较前统一
+const norm = p => process.platform === 'win32' ? p.toLowerCase() : p;
+const within = (p, dir) => norm(p) === norm(dir) || norm(p).startsWith(norm(dir) + sep);
+/** Whether a folder is one of this monorepo's own workspaces (the root, packages/*, games/*), so commands there run in monorepo mode */
+const monorepoOwns = d => d === MONO || within(d, join(MONO, 'packages')) || within(d, join(MONO, 'games'));
+
 /**
  * Resolve the project a command runs in. Returns { mode, root, engineDir, gameDirs(), docRef(p) }:
- *   mode       'monorepo' (this repository) or 'game' (a game that installed threedog from npm)
- *   root       the monorepo root, or the game folder (nearest package.json that depends on threedog)
+ *   mode       'monorepo' (cwd in this repository's root, packages/* or games/*) or 'game' (any other game folder: installed from npm,
+ *              or a game anywhere else, even nested inside this repository or another repo's npm workspaces)
+ *   root       the monorepo root, or the game folder (nearest package.json at or above cwd that depends on threedog)
  *   engineDir  the engine package folder, found with createRequire from root
  *   gameDirs() folders with a main.js: monorepo = engine examples/* + games/*; game mode = root (+ games/* if present)
  *   docRef(p)  how generated game docs cite an engine file: `node_modules/threedog/<p>`, valid in both layouts
  */
 export function project(cwd = process.cwd()) {
-  const root = MONO ?? gameRootOf(cwd) ?? resolve(cwd);
+  // 为什么先找离 cwd 最近的游戏根：从 monorepo 的工具跑命令时，以前一律当成 monorepo，放在仓库里别处（如 .demo/x）或仓库外的游戏，
+  // npm run dev / check 都作用到了外层（"dev: packages/engine"），游戏自己的检查从没跑过。monorepo 自己的工作区（根、packages/*、games/*）仍是 monorepo
+  const game = gameRootOf(cwd);
+  const root = MONO && (!game || monorepoOwns(game)) ? MONO : game ?? resolve(cwd);
   let engineDir;
   for (const from of [join(root, 'package.json'), fileURLToPath(import.meta.url)]) {
     try { engineDir = realpathSync(dirname(createRequire(from).resolve('threedog/package.json'))); break; } catch {}
   }
   engineDir ??= join(root, 'node_modules', 'threedog');
-  const mode = MONO ? 'monorepo' : 'game';
+  const mode = MONO && norm(root) === norm(MONO) ? 'monorepo' : 'game';
   const gameDirs = () => (mode === 'monorepo' ? [...subdirs(join(engineDir, 'examples')), ...subdirs(join(root, 'games'))]
     : [root, ...subdirs(join(root, 'games'))]).filter(d => existsSync(join(d, 'main.js')));
   return { mode, root, engineDir, gameDirs, docRef: p => `node_modules/threedog/${p.replace(/^\/+/, '')}` };

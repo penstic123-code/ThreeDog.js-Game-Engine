@@ -136,7 +136,8 @@ export class Loading {
 /** English line for describe / the bridge: 'decoding model "hero" (/models/hero.glb, manifest "main") 40%' */
 function waitingText(t) {
   const verb = t.kind === 'module' ? VERB.module : VERB[t.state];
-  const what = t.kind === 'module' ? `${t.name}${t.label && t.label !== t.name ? ` (${t.label})` : ''}` : t.kind === 'stream' ? 'the stream\'s required nearby builds' : `${t.kind} "${t.name}"`;
+  // module: its id only; t.label is the player-facing translated name (the loading screen's), which put "(地形)" into this English line
+  const what = t.kind === 'module' ? t.name : t.kind === 'stream' ? 'the stream\'s required nearby builds' : `${t.kind} "${t.name}"`;
   const src = t.source?.url && t.source.url !== t.name ? ` (${t.source.url}${t.source.manifest ? `, manifest "${t.source.manifest}"` : ''})` : '';
   return `${verb} ${what}${src}${t.state === 'download' && t.progress > 0 ? ' ' + Math.round(t.progress * 100) + '%' : ''}`;
 }

@@ -18,7 +18,7 @@ export const specs = [
         a.setVolume('voice', 0.4); o.set = a.buses.voice.gain.value;
         a.setVolume('master', 0.7); o.master = a.master.gain.value;
         try { a.setVolume('nope', 1); } catch (err) { o.err = err.message; }
-        a.addBus('radio', 0.6); o.added = a.buses.radio?.gain.value;
+        a.addBus('radio', { level: 0.6 }); o.added = a.buses.radio?.gain.value;
         return o;
       });
       check('buses are GainNodes: music sfx ambience ui + the game\'s voice bus', b.buses === 'ambience,music,sfx,ui,voice' && Math.abs(b.voice - 0.9) < 1e-6, b.buses);
@@ -50,6 +50,22 @@ export const specs = [
       check('cooldown: a second play inside it returns null', s.first && s.second, JSON.stringify(s));
       check('voices: 2 at most, the oldest stops for a new one', s.buzz === 2, s.buzz);
       check('[guard] a built-in synth the game did not name stays silent (sfx returns null)', s.builtin);
+
+      // 声音只有一条来源：manifest（文件或合成函数）。audio.register 和 'synth' / { synth } 写法都没有了，写了就报错并给出改法
+      const g = await ev(() => {
+        const a = engine.audio, o = {}, code = f => { try { f(); return null; } catch (e) { return e.code ?? e.message; } };
+        o.register = typeof a.register;
+        o.synthWord = code(() => engine.content.load({ name: 'old1', audio: { sounds: { zap: 'synth' } } }));
+        o.synthKey = code(() => engine.content.load({ name: 'old2', audio: { sounds: { zap: { synth: 'ping' } } } }));
+        let n = 0;
+        engine.assets.manifest({ name: 'guard-synth', sounds: { guardBeep: (au, p, out) => { n++; au.tone({ freq: 500 * p.pitch, dur: 0.05, out }); return 0.05; } } });
+        o.noRule = !!a.sfx('guardBeep');   // a manifest synth plays by name with no rule, like a manifest file
+        o.calls = n;
+        return o;
+      });
+      check('[guard] audio.register is gone: synths are manifest sounds', g.register === 'undefined', g.register);
+      check("[guard] 'synth' and { synth } rules throw audio-synth-gone (one way to say where a sound comes from)", g.synthWord === 'audio-synth-gone' && g.synthKey === 'audio-synth-gone', JSON.stringify(g));
+      check('a synth function in assets.manifest({ sounds }) plays through audio.sfx(name)', g.noRule && g.calls === 1, JSON.stringify(g));
       check('3D: a PannerNode follows the Object3D every frame', s.panner && s.spatial === 1 && Math.abs(s.followX + 7) < 0.01, s.followX);
       check('zero cost: stopped positional voices leave the per-frame set empty', s.spatialAfter === 0, s.spatialAfter);
 
@@ -61,7 +77,7 @@ export const specs = [
         o.unknown = a.matches({ inside: true });
         return o;
       });
-      check('conditions: time (sky), weather, zone (triggers), functions', c.day && !c.night && c.range && c.clear && !c.rain && !c.zone && c.fn, JSON.stringify(c));
+      check('conditions: time (calendar), weather, zone (triggers), functions', c.day && !c.night && c.range && c.clear && !c.rain && !c.zone && c.fn, JSON.stringify(c));
       check('[guard] an unknown condition key never matches (warns with the fix)', c.unknown === false);
 
       await ev(() => { engine.audio.state = 'combat'; engine.music.intensity = 1; });
@@ -115,7 +131,7 @@ export const specs = [
         engine.assets.manifest({ name: 'tones', sounds: { toneA: window.toneUrl } });
         const warn = console.warn; let w = ''; console.warn = m => { w += m; };
         o.load = err(() => engine.content.load([
-          { name: 'p1', audio: { sounds: { chime: 'toneA', drone: { synth: 'ping', loop: true } }, music: { tracks: { packTrack: 'toneA' } },
+          { name: 'p1', audio: { sounds: { chime: 'toneA', drone: { src: 'ping', loop: true } }, music: { tracks: { packTrack: 'toneA' } },
             ambience: [{ sound: 'drone', when: { daylight: { gt: 0.1 } }, volume: { base: 0.1, add: { rain: 1 }, max: 0.3 }, fade: 0.1 }] } },
           { name: 'p2', audio: { ambience: [{ sound: 'drone', when: () => true }], footsteps: { sand: 'chime' } } },
         ]));
@@ -123,7 +139,7 @@ export const specs = [
         console.warn = warn; o.warn = w;
         o.rules = engine.ambience.info.map(i => i.sound).join(',');
         o.cfg = 'chime' in a.config.sounds && a.config.footsteps.sand === 'chime' && engine.music.tracks.has('packTrack');
-        o.dup = err(() => engine.content.load([{ name: 'x', audio: { sounds: { s1: 'synth' } } }, { name: 'y', audio: { sounds: { s1: 'synth' } } }]));
+        o.dup = err(() => engine.content.load([{ name: 'x', audio: { sounds: { s1: 'toneA' } } }, { name: 'y', audio: { sounds: { s1: 'toneA' } } }]));
         o.code = err(() => engine.content.load({ name: 'z', audio: { sounds: { hit: 'toneA' } } }));
         o.measures = ['daylight', 'rain', 'snow', 'wind', 'nearWater', 'altitude'].filter(n => typeof a.value(n) !== 'number');
         o.cmp = [a.matches({ daylight: { gt: 0.1 } }), a.matches({ daylight: { lt: 0.1 } }), a.matches({ rain: { lte: 0, gte: 0 } })];

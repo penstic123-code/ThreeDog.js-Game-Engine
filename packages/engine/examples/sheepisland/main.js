@@ -1,12 +1,13 @@
 // @ts-check
-// Sheep island: a small floating island built only from the engine's public entry points (the acceptance scene of docs/plans/acceptance-sheepisland.md).
+// Sheep island: a small floating island built only from the engine's public entry points (the acceptance scene of docs/plans/done/acceptance-sheepisland.md).
 // A meadow with a river, round trees, a wheat field and a flock of sheep on an island with a ragged rim, over a pale backdrop with no horizon.
 // Parameters (params.js): time day | dusk | night, weather clear | snow, view overview | flock | field | river | rim.
 // main.js holds wiring only: modules, the island's terrain functions, view switching and the snow-to-winter link. Objects are content (rule R33),
-// the look is the style pack in style/.
+// the look is the style in style/.
 import { params, VIEW_NAMES } from './params.js';   // first: rewrites ?time=dusk style words before the engine reads the URL
 import { createEngine, openWorld, presets, content, fixedCamera } from '../../index.js';
-import style, { assets } from './style/index.js';
+import style from './style/index.js';
+import packs from './assets.js';
 import data from './content/index.js';
 import { VIEWS } from './views.js';
 
@@ -38,16 +39,16 @@ const WINTER_DAY = 1001;   // seasons last 1000 days each, so the season never b
 const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, saveKey: 'threedog-sheepisland',
   ui: { loading: { title: 'sheep island' } } });
 engine.use(openWorld({ camera: fixedCamera(), terrain: island, water: false, rigid: false, ambience: false,
-  sky: { ...presets.calendar.fixedTime, time: 0.5, seasons: ['summer', 'winter'], daysPerSeason: 1000 },
+  calendar: { ...presets.calendar.fixedTime, time: 0.5, seasons: ['summer', 'winter'], daysPerSeason: 1000 },
   weather: { ...presets.weather.temperate, start: 'clear' }, autoWeather: false }), content());
-engine.assets.manifest(assets);
+engine.assets.manifest(packs);
 engine.content.load(data);
 
 // ---------- 3. Snow means winter: the engine's season tint (style.seasons.winter) whitens foliage and ground ----------
 // The weather module sends no change event and a weather has no ground cover of its own, so the calendar day follows the weather each frame.
 engine.onFrame(() => {
   const day = engine.weather?.name === 'snow' ? WINTER_DAY : 1;
-  if (engine.sky.day !== day) engine.sky.day = day;
+  if (engine.calendar.day !== day) engine.calendar.day = day;
 });
 
 // ---------- 4. Views: an op, so the URL, the dev bridge and tests switch the same way ----------
@@ -63,7 +64,7 @@ engine.ops.define('sheepisland.view', {
   },
   reasons: { unknownView: 'View names: overview, flock, field, river, rim' },
 });
-engine.describe.add('sheepisland', () => ({ view: state.view, season: engine.sky.season, weather: engine.weather?.name }));
+engine.describe.add('sheepisland', () => ({ view: state.view, season: engine.calendar.season, weather: engine.weather?.name }));
 engine.events.on('engine:ready', () => engine.ops.run('sheepisland.view', { name: params.view }));
 if (params.badView) console.warn(`sheepisland: unknown view '${params.badView}', showing overview. Views: ${VIEW_NAMES.join(', ')}`);
 

@@ -11,6 +11,7 @@ import { bridgeDriver } from './connect.mjs';
 import { probe, diagnose } from './diagnose.mjs';
 import { readRuntime } from './runtime.mjs';
 import { allErrors, isError } from './errorlog.mjs';
+import { oneLine } from '../lib/oneline.mjs';
 import { devServerInfo, pidAlive } from '../devinfo.mjs';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs'), wait = ms => new Promise(r => setTimeout(r, ms));
@@ -74,14 +75,20 @@ export async function status(dir, { page } = {}) {
   const bad = !runtime.ready || lv?.blocked || errs.length > 0;
   const head = `${bad ? '✗' : '✓'} ${runtime.ready ? 'Ready' : 'Not ready'}: ${loading}, ${errs.length ? `${errs.length} page error${errs.length === 1 ? '' : 's'}` : 'no page errors'}`;
   const rs = raw.run, run = rs ? `
-Run state: ${rs.state === 'paused' ? `paused(by ${rs.by.join(', ')})` : rs.state}` : '';
+Run state: ${rs.state === 'paused' ? `paused(by ${rs.owners.join(', ')})` : rs.state}` : '';
   return { ok: !bad, runtime, data: { port: p.port, loading: lv, run: rs, errors: { count: errs.length, latest: last ?? null } },
-    text: `${head}${last ? ` (latest E${last.id}: ${last.message.split('\n')[0].slice(0, 100)}; threedog errors latest)` : ''}${run}` };
+    text: `${head}${last ? ` (latest E${last.id}: ${oneLine(last.message)}; threedog errors latest)` : ''}${run}` };
 }
 
 export async function stopServer(dir) {
   const own = (() => { try { return JSON.parse(readFileSync(playFile(dir), 'utf8')).pid; } catch { return null; } })();
-  if (!own) return { ok: false, text: '✗ threedog play did not start a server for this workspace.\nNext: close the terminal where you ran npm run dev.' };
+  if (!own) {
+    // a server started by hand stays up, but the headless browser its bridge opened (e.g. for threedog status) is closed: that one burns CPU
+    if ((await probe(dir)).state !== 'ok') return { ok: false, text: '✗ No dev server of this workspace is running, nothing to stop.' };
+    const closed = await bridgeDriver(dir).closeHeadless().catch(() => false);
+    return { ok: true, text: `✓ ${closed ? 'Closed the headless browser the dev bridge had opened' : 'No headless browser was open'}; `
+      + 'the dev server was not started by threedog play, so it keeps running.\nNext: to stop it, close the terminal where you ran npm run dev.' };
+  }
   // Kill only a process the dev bridge itself vouches for (it answers with the token in dev.json): a recorded pid alone may have been reused by an unrelated program
   const live = (await probe(dir)).state === 'ok', pids = live ? [own, devServerInfo(dir).pid] : [];
   if (!live) {

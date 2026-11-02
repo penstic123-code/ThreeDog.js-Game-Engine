@@ -8,43 +8,40 @@
 //   Both run in workers, so they are pure (threads.pure rules: only parameters and globals like Math; an outside variable throws here, naming it).
 //   Settings a function needs travel as params (plain data, read as n.params). The engine still does chunks, streaming, collision, flatten and edits on top.
 // Height map: terrain({ heightmap: { url: '/textures/height.png', size: [1024, 1024], min: -5, max: 60 } }), a grayscale image, whiter is higher, read at startup.
-// Colors come from the style pack style.terrain (colors palette, biomeColors per ground type, steep); a type without a color is neutral gray.
+// Colors come from the style.terrain (colors palette, biomeColors per ground type, steep); a type without a color is neutral gray.
 // Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-look-hooks.md).
 // Material: terrain({ material }) or style.terrain.material, a Material or (engine) => Material; chunks carry position, normal, color
-//   and uv (world xz / chunk size, continuous across chunks). Cloud shadows and season tint are added to it.
+//   and uv (world xz / chunk size, continuous across chunks). Cloud shadows and season tint are added to it; terrain({ material, effects: false })
+//   draws it exactly as given (the same switch as look.ground.replace(m, { effects: false })), so a game's own shader is never patched.
 // Edits: engine.terrain.edit(pos, { radius: 2, lower: 1 }) digs; { paint: 'tilled' } paints a ground type (its color: style.terrain.biomeColors). Saved, see terrainEdit.js.
 
 // Outline: terrain({ shape: { mask: (x, z, n) => 40 - Math.hypot(x, z), side: { depth: 2 } } }) keeps ground only where mask > 0 (an island
 //   with cliff sides); off it engine.surface is -Infinity, engine.ground.has false, and a fall emits terrain:void. See recipes/42-terrain-shape.md.
 
-/** Read a grayscale image into a 0-1 array (height map, outline mask) */
-async function loadGray(url) {
-  const img = new Image(); img.src = url; await img.decode();
-  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
-  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
-  const px = g.getImageData(0, 0, c.width, c.height).data, data = new Float32Array(c.width * c.height);
-  for (let i = 0; i < data.length; i++) data[i] = px[i * 4] / 255;
-  return { data, width: c.width, height: c.height };
-}
 import { ChunkManager } from './ChunkManager.js';
 import { DEFAULT_TERRAIN } from './terrainGen.js';
-import { checkOptions } from '../../core/validate.js';
+
 import { readParams, keysSchema } from '../../core/params.js';
 import { compilePure } from '../../core/threadPure.js';
 import { warnOnce } from '../../core/validate.js';
+import { loadGray } from '../../core/grayMap.js';
 import { prepareShape, voidWatcher } from './terrainShapeMain.js';
 import { defineGroundLook } from './lookGround.js';
+import { codedError } from '../../core/errorHints.js';
 
 const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a look). '
   + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/terrain-noise';
 
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
-const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
+const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
 
 export function terrain(opts = {}) {
   readParams('terrain', TERRAIN_PARAMS, opts);
-  const { viewChunks = 4, density = 1, material, viewFog = false, ...cfg } = opts;
+  const { viewChunks = 4, density = 1, material, effects, viewFog = false, ...cfg } = opts;
+  // effects only says how the game's own material is used: without one it would silently do nothing
+  if (effects !== undefined && (material == null || typeof effects !== 'boolean'))
+    throw codedError('terrain-option', 'terrain({ effects }): goes with your own material, terrain({ material: myMaterial, effects: false }) = drawn as given (no cloud shadow / season / detail patch); got ' + JSON.stringify({ effects, material: material == null ? material : typeof material }));
   let w = null, watchVoid = null;
   return {
     name: 'terrain', label: 'Terrain', params: TERRAIN_PARAMS, options: opts, noSkip: 'void-fall watch only; nothing accumulates over time', optional: ['vegetation'], stage: 'world',
@@ -59,15 +56,15 @@ export function terrain(opts = {}) {
       if (style.biomeColors) terrainCfg.biomeColors = { ...style.biomeColors, ...(cfg.biomeColors || {}) };
       if (style.steep && !cfg.steep) terrainCfg.steep = style.steep;
       if (style.variation) {   // look only (plain data), so it rides along to the workers
-        checkOptions('style.terrain.variation', style.variation, ['blend', 'jitter', 'patches']);
-        checkOptions('style.terrain.variation.blend', style.variation.blend || {}, ['size', 'strength']);
-        checkOptions('style.terrain.variation.jitter', style.variation.jitter || {}, ['size', 'min', 'range']);
-        checkOptions('style.terrain.variation.patches', style.variation.patches || {}, ['size', 'strength', 'levels', 'tint']);
+        readParams('style.terrain.variation', keysSchema(['blend', 'jitter', 'patches']), style.variation);
+        readParams('style.terrain.variation.blend', keysSchema(['size', 'strength']), style.variation.blend || {});
+        readParams('style.terrain.variation.jitter', keysSchema(['size', 'min', 'range']), style.variation.jitter || {});
+        readParams('style.terrain.variation.patches', keysSchema(['size', 'strength', 'levels', 'tint']), style.variation.patches || {});
         terrainCfg.variation = style.variation;
       }
       if (!terrainCfg.height && !terrainCfg.heightmap) warnOnce(NO_HEIGHT);
       const sideMat = terrainCfg.shape ? prepareShape(terrainCfg) : null;
-      w = new ChunkManager(e, terrainCfg, material ?? style.material);
+      w = new ChunkManager(e, terrainCfg, material ?? style.material, { effects: material == null || effects !== false });
       if (sideMat) w.sideMat = typeof sideMat === 'function' ? sideMat(e) : sideMat;
       if (terrainCfg.shape) watchVoid = voidWatcher(e, w);
       w.density = density;
@@ -75,7 +72,7 @@ export function terrain(opts = {}) {
       this._cfg = terrainCfg;
       // look.ground: what terrain({...}) itself was given goes on the game layer (owner 'terrain()'); the style's values are the style layer
       defineGroundLook(e, w, { cfg: () => this._cfg, setCfg: c => { this._cfg = c; },
-        game: { colors: cfg.colors && terrainCfg.colors, biomeColors: cfg.biomeColors && terrainCfg.biomeColors, steep: cfg.steep, shading: cfg.shading, material } });
+        game: { colors: cfg.colors && terrainCfg.colors, biomeColors: cfg.biomeColors && terrainCfg.biomeColors, steep: cfg.steep, shading: cfg.shading, material, effects } });
       e.setGround({
         height: (x, z) => w.T.surface(x, z),
         slope: (x, z) => w.T.slope(x, z),

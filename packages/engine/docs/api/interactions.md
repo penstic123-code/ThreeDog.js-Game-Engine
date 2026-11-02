@@ -19,13 +19,16 @@ Interaction prompts (interactions() module)
   - `pickMode: InteractionPick` How the one in front of the actor is chosen; can be changed at runtime
   - `current: any` The interaction the prompt shows right now (null if none)
   - `options: { action: string; id: string; label: string }[]` One best interaction per key action this frame, for a prompt that lists several keys
+  - `holding: { id, action, seconds, progress } | null` The hold in progress (progress 0-1), null when none
 
 ## Data structures
 - **InteractionOptions**
   - `id?: string` Stable id for the op interaction.use { id } (default: the world record id it was built for, else a running number)
-  - `label?: string | (() => string)` Prompt text, or a function returning text
+  - `label?: string | ((object, ctx) => string)` Prompt text, or a function (object, { actor }) returning text; actor = world record id of who looks at it
   - `radius?: number` How close the actor must be (meters), default interactions({ radius }) = 2.5
   - `action?: string` Key action name, default 'interact' (E key). Give one object a second verb by adding another interaction with another action
-  - `onUse?: (object: Object3D) => void` Called when pressed
-  - `enabled?: () => boolean` When this returns false the whole prompt disappears (to show a state such as "growing", don't use enabled: have the label function return different text by state and decide in onUse whether it can be used)
+  - `onUse?: (object: Object3D, ctx: { actor: string }) => any` Called when used, with who uses it (ctx.actor of interaction.use: the local user, a net peer, an NPC). Its return value is the op's value; { ok: false, code } fails the op with that code
+  - `enabled?: (object: Object3D, ctx: { actor: string }) => boolean` When this returns false the whole prompt disappears (to show a state such as "growing", don't use enabled: have the label function return different text by state and decide in onUse whether it can be used)
   - `height?: number` How high the prompt floats above the object (meters)
+  - `hold?: number` Seconds the key must stay down before onUse runs (0 = a press). The engine counts it and interrupts it on release, leaving reach, enabled() false or locked input (interaction:hold / interaction:interrupt); the prompt gets progress 0-1. The op interaction.use itself is the completed use
+  - `approach?: boolean` Walk the player there first (walkTo, stops 1.2 m away), then use it; with radius: Infinity it can be used from anywhere (point-and-click)

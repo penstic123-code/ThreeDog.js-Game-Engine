@@ -3,6 +3,8 @@
 Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamera)
 
 - followCamera options `FollowCameraOptions`:
+  - `projection?: 'perspective' | 'orthographic'` 'orthographic' draws without perspective (isometric / 2.5D; the wheel then changes size); default 'perspective'
+  - `size?: number` With projection 'orthographic': world units of view height, default 20
   - `yaw?: number` Which side of the focus the camera sits on (radians), default 0.8: camera = focus + (sin yaw, cos yaw) × distance, it looks along forward() = -(sin yaw, cos yaw). Behind a character facing f: yaw = f + PI
   - `pitch?: number` Pitch angle (radians), default 0.42
   - `distance?: number` Distance (meters), default 13
@@ -20,6 +22,10 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `shoulder?: number` Over-the-shoulder offset: meters to the right of the target the camera aims (negative = left shoulder), default 0
   - `pointerLock?: boolean` Click locks the mouse; mouse motion turns the view without dragging (Esc releases), default false
   - `swallowLockClick?: boolean` The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too
+  - `ground?: 'raise' | 'shorten' | 'none' | ((facts) => Vec3Like | null | void)` What happens when the camera would go below the ground.
+  - `mouseLook?: boolean` false: the built-in mouse / stick look and wheel zoom are off, the game drives the view with setView() (default true)
+  - `hideTargetNear?: number` Hide the followed object from the camera when the camera is closer than this to the look point (meters, 0 = never; default 0.9). The shadow stays
+  - `hideLayer?: number` Layer used to hide the followed object (0-31), default 30
 - firstPersonCamera options `FirstPersonCameraOptions`:
   - `height?: number` Eye height above the feet (meters), default 1.6
   - `sensitivity?: number` Mouse sensitivity, default 1
@@ -37,7 +43,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `yawLimits?: number[] | null` Turn range left / right [min, max] (radians), unlimited by default
   - `smoothing?: number` Smoothing of the camera following the body
   - `invertY?: boolean` Invert vertical
-- fixedCamera options `FixedCameraOptions`:
+- fixedCamera options `FixedCameraOptions` (also includes the fields of Partial<CameraShot>):
   - `shots?: Record<string, CameraShot>` Shots: name → shot
   - `start?: string | null` Initial shot name
   - `auto?: false | 'nearest'` Automatic switching: false / 'nearest' (pick the one nearest to the player)
@@ -71,7 +77,8 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
 - `cam.follow(obj: Object3D | null, opts?: { distance?, height? })` — Follow someone (called automatically when the player is created), null to cancel. opts temporarily changes distance / height (used while driving), restored when the target changes
 - `cam.forward() → DirXZ` — The "forward" direction on the horizontal plane (player movement is relative to it)
 - `cam.right() → DirXZ` — The "right" direction on the horizontal plane
-- `cam.focusPoint() → Vector3` — Where the world loads around
+- `cam.focusPoint() → Vector3` — Where the world loads around (the followed object's position, else the camera's)
+- `cam.screenToGround(ndcX: number, ndcY: number) → Vector3 | null` — Screen coordinates (-1..1, engine.input.pointer.ndcX / ndcY) → the point on the ground under it, null if nothing is hit (every camera kind)
 - `cam.update(dt: number, input: Input)` — Update the camera every frame
 - `cam.onOverride(on: boolean)` — Called when a cutscene takeover starts / ends
 - `cam.onEnter(switched?: boolean)` — Called when this camera is switched in (switched: switched at runtime)
@@ -81,10 +88,13 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `target: Object3D | null` The object being followed
 - followCamera only: every item of the options (the options of `followCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
   - `cam.frame(target: Object3D | Vec3Like | null, opts?: { strength?: number })` — Lock-on framing: turn yaw each frame toward "behind the followed object, looking at target"; mouse yaw is ignored meanwhile; null hands yaw back. strength default 6 (1/s)
+  - `cam.setView(view: { yaw?, pitch?, distance? })` — Set the view from game code: pitch is clamped to minPitch..maxPitch, distance to the zoom range. Negative pitch looks up. Pair with mouseLook: false to own it every frame
+  - `cam.getView() → FollowCameraView` — The current view: angles, wanted / actual arm, look point and 3D look direction
   - `focus: Vector3` Smoothed follow point
   - `lockPitch?: boolean`
   - `avoidOcclusion?: boolean` false: no occlusion handling
   - `framing: { target: Object3D | Vec3Like; strength: number } | null` Lock-on framing set by frame()
+  - `arm: number` Actual arm length last frame (after walls and ground), meters
 - firstPersonCamera only: every item of the options (the options of `firstPersonCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
   - `cam.lookAt(position: PositionLike)` — Turn toward a world position (Vector3 / object / [x, y, z] / { x, y, z })
   - `eye: Vector3` Eye position
@@ -105,7 +115,6 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `ease: Ease`
 - rtsCamera only: every item of the options (the options of `rtsCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
   - `cam.moveTo(position: PositionLike, opts?: { instant?: boolean })` — Move the view to position (instant: true skips smoothing)
-  - `cam.screenToGround(ndcX: number, ndcY: number) → Vector3 | null` — Screen coordinates (-1..1) → a point on the ground, null if nothing is hit
   - `following: boolean` Is it following target
   - `focus: Vector3` Focus (on the ground)
   - `rotate: boolean` Can it rotate
@@ -118,3 +127,5 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `fov?: number` Field of view (degrees)
   - `at?: Vec3Like` Position used to judge the "nearest shot", defaults to position
   - `trackHeight?: number` How high above the character to look at (meters)
+  - `projection?: 'perspective' | 'orthographic'` 'orthographic' draws this shot without perspective (isometric / 2.5D); default 'perspective'
+  - `size?: number` With projection 'orthographic' (required there): world units of view height; the width follows the aspect

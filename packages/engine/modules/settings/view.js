@@ -1,6 +1,8 @@
 // UI part of the settings menu (tabs, redraw, click/slider events); Settings inherits it.
 import { formatValue, BUILTIN_SECTIONS, OPTIONAL_SECTIONS, settingsTools } from './sections.js';
 import { esc } from '../../ui/UI.js';
+import { codedError } from '../../core/errorHints.js';
+import { reportError } from '../../core/errors.js';
 
 const CSS_ESC = s => (globalThis.CSS?.escape ? globalThis.CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&'));
 
@@ -8,7 +10,7 @@ export class SettingsView {
   /** @internal Add a built-in or optional tab by name; an optional tab registers its own settings once (setup) */
   _builtin(id) {
     const s = BUILTIN_SECTIONS[id] ?? OPTIONAL_SECTIONS[id];
-    if (!s) throw new Error(`settings: no built-in tab '${id}'. Built-in: ${Object.keys(BUILTIN_SECTIONS).join(', ')}; optional: ${Object.keys(OPTIONAL_SECTIONS).join(', ')}. A tab of your own: engine.settings.addSection('${id}', { title, render }).`);
+    if (!s) throw codedError('settings-tab', `settings: no built-in tab '${id}'. Built-in: ${Object.keys(BUILTIN_SECTIONS).join(', ')}; optional: ${Object.keys(OPTIONAL_SECTIONS).join(', ')}. A tab of your own: engine.settings.addSection('${id}', { title, render }).`);
     if (this.sections.has(id)) return;
     this.sections.set(id, s);
     s.setup?.(this);
@@ -22,7 +24,7 @@ export class SettingsView {
     const tools = this._tools();
     const sec = this.sections.get(this.current);
     let body = '';
-    try { body = sec ? sec.render(tools, this.engine, this) : ''; } catch (err) { console.error(`[settings] tab ${this.current} failed to render`, err); }
+    try { body = sec ? sec.render(tools, this.engine, this) : ''; } catch (err) { reportError(this.engine, err, `settings tab '${this.current}' render`, { soft: true }); }
     return { sections: list.map(([id, s]) => ({ id, title: s.title(this.engine), active: id === this.current })), current: this.current, body, values: { ...this.values } };
   }
   _tools() { return settingsTools(this.engine, esc); }
@@ -34,7 +36,7 @@ export class SettingsView {
     if (!this.win.open) return;
     for (const a of this.actionList()) if (a.conflict) this.win.el.querySelector(`[data-rebind="${CSS_ESC(a.action)}"]`)?.classList.add('is-conflict');
     const sec = this.sections.get(this.current);
-    try { sec?.bind?.(this.win.el, this.engine, this); } catch (err) { console.error(`[settings] tab ${this.current}`, err); }
+    try { sec?.bind?.(this.win.el, this.engine, this); } catch (err) { reportError(this.engine, err, `settings tab '${this.current}' bind`, { soft: true }); }
   }
   _bindDOM(el) {
     el.addEventListener('click', ev => {

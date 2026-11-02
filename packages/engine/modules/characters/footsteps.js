@@ -1,5 +1,5 @@
 // Built-in footstep synth and the ground-type -> sound-name lookup (split out of index.js)
-// Built-in footstep synth, silent until the game names it: sounds: { 'step.grass': { synth: 'footstep', params: { surface: 'grass' } } }.
+// Built-in footstep synth (sound asset 'footstep'), silent until the game names it: sounds: { 'step.grass': { src: 'footstep', params: { surface: 'grass' } } }.
 // params: surface (a key of STEP_SYNTH or params.surfaces), volume, surfaces ({ mud: [filter, Hz, volume, seconds] } to add or retune one)
 const STEP_SYNTH = { grass: ['bandpass', 900, 0.08, 0.12], sand: ['lowpass', 1400, 0.1, 0.14], rock: ['bandpass', 2400, 0.05, 0.1], snow: ['lowpass', 900, 0.12, 0.16], water: ['bandpass', 600, 0.15, 0.18] };
 export function footstepSynth(audio, params, out) {

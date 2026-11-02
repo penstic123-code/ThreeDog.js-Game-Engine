@@ -2,11 +2,10 @@
 // Action example: one room, one player, one slime, one drop. Shows how an action game wires the engine's systems; the combat rules are this file's own.
 // main.js holds rules only: modules, ops (attack, damage, enemy attack, death), fixed-step logic, presentation. The room, the slime and its stats are
 // content (content/templates.js + props.js, rule R33). The engine has no health, damage or death: all of that is below, as plain game state and ops.
-import { createEngine, openWorld, followCamera, presets, interactions, inventory, content, hud, toast } from '../../index.js';
-import lowpoly, { assets as lowpolyAssets } from '@threedog/style-lowpoly';   // optional style pack + its asset pack (the humanoid body); ?style=none runs with the engine's gray placeholders
-import look from './look.js';
+import { createEngine, openWorld, followCamera, presets, interactions, inventory, pickups, content, hud, toast } from '../../index.js';
+import look from './look.js';   // this example's whole look (room and enemy colors); ?style=none runs with the engine's gray placeholders
 import data from './content/index.js';
-import { models } from './models.js';
+import packs from './assets.js';
 
 const url = new URLSearchParams(location.search);
 // Tuning of the rules (the slime's own numbers are instance state in content/templates.js)
@@ -19,19 +18,16 @@ const TUNE = Object.freeze({
   onDeath: url.get('death') ?? 'respawn',
 });
 
-const style = url.get('style') === 'none' ? undefined : [lowpoly, look];
+const style = url.get('style') === 'none' ? undefined : look;
 const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: 'action' } }, saveKey: 'threedog-action' });
 // A room needs no terrain, plants, weather, water or physics; a fixed time of day; an over-the-shoulder camera that locks the mouse on click,
 // starting behind the player looking along +Z into the room (yaw = which side of the player the camera sits on: PI = the -Z side)
 engine.use(openWorld({ camera: followCamera({ ...presets.camera.overShoulder, yaw: Math.PI }), terrain: false, vegetation: false, weather: false, water: false, rigid: false, ambience: false,
-  sky: { ...presets.calendar.fixedTime, time: 0.42 }, characters: { npcs: false } }),
-  interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), content(), hud());
+  calendar: { ...presets.calendar.fixedTime, time: 0.42 }, characters: { npcs: false } }),
+  interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), pickups(), content(), hud());
 
-const m = models(engine);   // the names content/templates.js uses, written out so `npm run check` can see them
-engine.assets.manifest({ name: 'action', models: { floor: m.floor, wall: m.wall, pillar: m.pillar, enemy: m.enemy } });
-engine.audio.register('blip', (a, p, out) => { a.tone({ freq: (p.freq ?? 440) * p.pitch, dur: 0.12, out }); return 0.12; });   // content/audio.js names it
-if (style) engine.assets.manifest(lowpolyAssets);   // the 'humanoid' body; style=none keeps the gray capsule
-engine.characters.createPlayer({ ...presets.player.aim, model: style ? 'humanoid' : null, spawn: TUNE.spawn });   // face where the camera looks: a swing goes where you aim
+engine.assets.manifest(packs);   // assets.js: floor / wall / pillar / enemy (content/templates.js) and the blip synth (content/audio.js)
+engine.characters.createPlayer({ ...presets.player.aim, spawn: TUNE.spawn });   // no body asset: the engine's gray capsule; face where the camera looks: a swing goes where you aim
 engine.content.load(data, { places: { room: { x: 0, z: 0 } } });
 
 // ---------- Game state: plain values, described and saved (one player, so it is not keyed by actor) ----------
@@ -66,7 +62,7 @@ engine.ops.define('enemy.damage', {
     const r = e.world.get(id), hp = Math.max(0, r.hp - amount);
     if (hp > 0) { e.world.set(id, { hp }); e.audio.sfx('hit', { at: r.position }); return hp; }
     // Death: the drop is a pickup made during play (inside an op, rule R33); a stable id ties it to this slime so a save keeps it
-    e.inventory.spawnPickup(r.drop, r.position, { id: `${id}-drop`, respawnSeconds: 0 });
+    e.pickups.spawn(r.position, { give: r.drop, id: `${id}-drop` });
     e.world.remove(id);   // the saved world remembers the slime is gone
     e.vars.bump('kills');
     e.audio.sfx('kill', { at: r.position });

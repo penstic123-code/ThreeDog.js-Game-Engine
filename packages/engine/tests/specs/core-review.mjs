@@ -20,7 +20,7 @@ export const specs = [
         a = 2; bad = true;
         const second = await S.save('cr1');
         const kept = JSON.parse(S._json.get('cr1')).parts.crA.a, saveCode = E.error?.code;
-        E.error = null; E.unfreeze('error'); bad = false;
+        E.error = null; E.stacks.get('freeze').release('error'); bad = false;
         const env = S.collect();
         S._json.set('cr-f2', JSON.stringify({ ...env, format: 2 }));
         const f2 = S.check('cr-f2');
@@ -33,7 +33,7 @@ export const specs = [
         a = 5;
         S._json.set('cr-boom', JSON.stringify({ ...env, parts: { ...env.parts, crA: { a: 99 }, crB: { boom: true } } }));
         const p = S.load('cr-boom'), isPromise = typeof p?.then === 'function', boom = await p, afterBoom = a, boomCode = E.error?.code;
-        E.error = null; E.unfreeze('error');
+        E.error = null; E.stacks.get('freeze').release('error');
         const missing = S.load('nope'), missingIsPromise = typeof missing?.then === 'function', missingOk = await missing;
         [console.error, console.warn] = quiet;
         E.dispose();
@@ -195,7 +195,7 @@ export const specs = [
         E.step(0.1);
         console.error = quiet;
         out.error = E.error && { code: E.error.code, fix: !!E.error.fix, docs: E.error.docs.length, where: E.error.where };
-        E.error = null; E.unfreeze('error');
+        E.error = null; E.stacks.get('freeze').release('error');
         const text = E.describeText().split('\n');
         out.text = { lines: text.length, last: text.at(-1), path: E.describeText({ path: 'time' }).split('\n')[0], full: E.describeText({ full: true }).includes('More:') };
         E.i18n.setLocale('auto'); out.locale = E.i18n.locale;
@@ -239,15 +239,15 @@ export const specs = [
         // content inserts a step before b: progress stays on b
         E.quests.define('q', { title: 'Q', steps: [step('a', () => true), step('new'), step('b'), step('c')] });
         await E.saves.apply(saved);
-        const afterInsert = E.quests.state.q.step;
+        const afterInsert = E.quests.state('q').step;
         // an old (version 1) save stored the position 2: migrated through the current definition
         const v1 = { ...saved, versions: { ...saved.versions, quests: 1 }, parts: { ...saved.parts, quests: { state: { q: { step: 2, done: false } } } } };
         const v1ok = await E.saves.apply(v1);
-        const migratedStep = E.quests.state.q.step, migratedId = E.saves.collect().parts.quests.state.q.step;
+        const migratedStep = E.quests.state('q').step, migratedId = E.saves.collect().parts.quests.state.q.step;
         // a step id the definition lost: restarts the quest
         const lost = { ...saved, parts: { ...saved.parts, quests: { state: { q: { step: 'gone', done: false } } } } };
         await E.saves.apply(lost);
-        const lostStep = E.quests.state.q.step;
+        const lostStep = E.quests.state('q').step;
         // old world format (records as an array) still loads
         const oldWorld = { ...saved, versions: { ...saved.versions, world: 1 }, parts: { ...saved.parts, world: { ...w, records: Object.entries(w.records).map(([id, rec]) => ({ id, ...rec })) } } };
         const oldOk = await E.saves.apply(oldWorld);
@@ -261,7 +261,7 @@ export const specs = [
       check('a step inserted before the saved one: progress stays on the same step', r.afterInsert === 2, JSON.stringify(r));
       check('a version-1 save (positions) migrates to ids through the definition', r.v1ok === true && r.migratedStep === 2 && r.migratedId === 'b', JSON.stringify(r));
       check('a saved step id the quest no longer has restarts the quest', r.lostStep === 0, JSON.stringify(r));
-      check('world: owed is written only for kinds simulated with far; records are keyed by id (version 3)', r.owed.length > 0 && r.owed.every(id => id.startsWith('crop')) && r.recordsIsObject && r.wVersion === 3, JSON.stringify(r));
+      check('world: owed is written only for kinds simulated with far; records are keyed by id (version 5)', r.owed.length > 0 && r.owed.every(id => id.startsWith('crop')) && r.recordsIsObject && r.wVersion === 5, JSON.stringify(r));
       check('a version-1 world save (records as an array) still loads', r.oldOk === true && r.propsBack === 30, JSON.stringify(r));
     },
   },

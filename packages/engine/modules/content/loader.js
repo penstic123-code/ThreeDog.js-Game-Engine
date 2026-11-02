@@ -5,18 +5,24 @@
 // Optional floor (reference height on multi-layer ground) and y (meters above that ground): see content.where.
 import { toast } from '../../ui/UI.js';
 import { parseClock } from '../../core/dayTime.js';
-import { cachedModel } from './models.js';
+import { vegetationModel } from '../../core/namedModel.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
 import { srcOf, applyRenames, pickupId } from './ids.js';
-import { DEV, checkOptions } from '../../core/validate.js';
+import { DEV } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent, list } from './rules.js';
+import { codedError } from '../../core/errorHints.js';
+import { reportError } from '../../core/errors.js';
 
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
 const all = (o, fn) => Object.entries(o || {}).every(([k, n]) => fn(k, n));
 
-/** The inventory for the item words (has / lacks / give / take); without the module, a clear error instead of a TypeError deep inside */
-const inv = (e, word) => e.inventory ?? (() => { throw new Error(`content word { ${word} } needs the inventory module: add inventory() to engine.use(...), `
+/**
+ * The bag the item words (has / lacks / give / take) use: the container of ctx.actor (content.test / run pass it; default the running op's actor, else
+ * engine.actor), never a fixed 'player' bag. Without the module, a clear error instead of a TypeError deep inside
+ */
+const inv = (e, word, ctx) => e.inventory?.of(ctx?.actor ?? e.ops.actor) ?? (() => { throw codedError('content-misuse', `content word { ${word} } needs the inventory module: add inventory() to engine.use(...), `
   + 'or track the thing with a flag / counter ({ setFlag } / { bump }) or a game condition word instead'); })();
 
 /** Execution part of the engine's built-in words (descriptions are in rules.js) */
@@ -24,14 +30,14 @@ export const BUILTIN_TESTS = {
   can: (e, v) => e.ops.can(v[0], v[1] ?? {}).ok,
   flag: (e, v) => !!e.vars.flag(v),
   notFlag: (e, v) => !e.vars.flag(v),
-  has: (e, v) => all(v, (id, n) => inv(e, 'has').has(id, n)),
-  lacks: (e, v) => all(v, (id, n) => !inv(e, 'lacks').has(id, n)),
+  has: (e, v, raw, ctx) => all(v, (id, n) => inv(e, 'has', ctx).has(id, n)),
+  lacks: (e, v, raw, ctx) => all(v, (id, n) => !inv(e, 'lacks', ctx).has(id, n)),
   counter: (e, v) => all(v, (k, n) => e.vars.counter(k) >= n),
 };
 export const BUILTIN_RUNS = {
   op: (e, v) => { e.ops.run(v[0], v[1] ?? {}); },  setFlag: (e, v) => e.vars.setFlag(v),
-  give: (e, v) => each(v, (id, n) => inv(e, 'give').add(id, n)),
-  take: (e, v) => each(v, (id, n) => inv(e, 'take').remove(id, n)),
+  give: (e, v, raw, ctx) => each(v, (id, n) => inv(e, 'give', ctx).add(id, n)),
+  take: (e, v, raw, ctx) => each(v, (id, n) => inv(e, 'take', ctx).remove(id, n)),
   bump: (e, v) => e.vars.bump(v),
   startQuest: (e, v) => e.quests.start(v),
   toast: (e, v) => toast(e, v),
@@ -65,13 +71,13 @@ export function loadContent(e, api, c, st, ids) {
   const zoneOf = (...ps) => onLevel(...ps) ? e.world?.zone ?? null : null;
 
   each(c.rules?.conditions, (name, d) => api.condition(name, d));
-  if (c.rules?.effects) throw new Error(NO_GAME_EFFECTS);
+  if (c.rules?.effects) throw codedError('content-misuse', NO_GAME_EFFECTS);
   // game kinds stay registered across loads, so a later content.load({ recipes }) without rules still finds them
   const bad = kindProblems(c.rules);
-  if (bad.length) throw new Error('content/rules.js: ' + bad.join('; '));
+  if (bad.length) throw codedError('content-misuse', 'content/rules.js: ' + bad.join('; '));
   Object.assign(st.kinds, c.rules?.kinds);
   const known = contentFiles({ kinds: st.kinds });
-  for (const k of Object.keys(c)) if (k !== 'name' && !known[k]) throw new Error('content.load: ' + unknownContent(k, { kinds: st.kinds }));
+  for (const k of Object.keys(c)) if (k !== 'name' && !known[k]) throw codedError('unknown-option', 'content.load: ' + unknownContent(k, { kinds: st.kinds }));
   collectOps(c, st.ops);
 
   if (c.renames) applyRenames(e, c.renames);   // first: saved state under an old id must reach the new id before anything is placed under it
@@ -86,16 +92,16 @@ export function loadContent(e, api, c, st, ids) {
   // views: named fixed camera views (core/Views.js); defining a name again replaces it, so a hot reload just works
   each(c.views, (name, v) => e.views.define(name, v));
 
-  // vegetation: generator models go through assets.cached (baked file -> dev cache -> compute), file models give their first mesh's geometry; register all
+  // vegetation: model names resolve through vegetationModel (models.js, the same resolver vegetation.define uses for a name); register all
   // kinds at the same moment once all models are ready
   // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them
   const veg = [];
   each(c.vegetation, (name, { model: m, lod, ...rest }) => {
-    const geo = x => cachedModel(e, x) ?? e.assets.geometry(list(x)[0]);
-    veg.push(Promise.all([geo(m), lod && geo(lod)]).then(([geometry, lodGeometry]) => [name, { ...rest, geometry, ...(lodGeometry && { lodGeometry }) }])
-      .catch(err => { console.error(`[content] vegetation ${name}: model generation failed`, err); return null; }));   // one failure does not affect the others
+    veg.push(Promise.all([vegetationModel(e, m), lod && vegetationModel(e, lod)])
+      .then(([main, low]) => [name, { ...rest, ...main, ...(low && { lodGeometry: low.model ?? low.geometry }) }])
+      .catch(err => { reportError(e, err, `content vegetation ${name}: model generation`, { soft: true }); return null; }));   // one failure does not affect the others
   });
-  if (veg.length) st.wait(Promise.all(veg).then(list => { for (const v of list) if (v) e.vegetation.add(v[0], v[1]); }));
+  if (veg.length) st.wait(Promise.all(veg).then(list => { for (const v of list) if (v) e.vegetation.define(v[0], v[1]); }));
 
   each(c.items, (id, d) => e.inventory.define(id, d));
   each(c.startItems, (id, n) => e.inventory.add(id, n, { silent: true }));
@@ -104,21 +110,21 @@ export function loadContent(e, api, c, st, ids) {
   each(c.containers, (id, d) => { ids.claim(id, `containers.${id}`); e.inventory.container(id, { capacity: d.capacity, items: d.items }); });
   // pickups: data goes into world (kind 'pickup'). id: the written id if given, else `pickup:<item>:<index in the pickups array>` (stable for the same content;
   // when inserting in the middle, give existing entries an id)
-  if (c.pickups?.length) needWorld(e);
+  if (c.pickups?.length && !e.pickups) throw codedError('module-needs', 'content pickups lie on the ground as pickups: add pickups() to engine.use(...) after world() (and inventory() for item pickups)');
   c.pickups?.forEach((p, i) => {
     const id = pickupId(p, i);
     if (p.id != null) ids.claim(id, `pickups[${i}] (${p.item})`); else ids.unnamed(id, `pickups[${i}] (${p.item})`);   // taken / respawning is state
-    e.inventory.spawnPickup(p.item, where(p), { id, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zoneOf(p) });
+    e.pickups.spawn(where(p), { give: p.item, id, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zoneOf(p) });
     origin(id, c.pickups, i);
   });
 
-  const hpd = e.sky?.hoursPerDay ?? 24;
+  const hpd = e.calendar?.hoursPerDay ?? 24;
   each(c.npcs, (id, n) => {   // the key in content is the NPC's stable id (used by saves and quest targets)
     const plan = n.schedule ?? [];
     ids.claim(id, `npcs.${id}`);
-    // every documented npcs.add option can be written in content (arriveDistance, talkRadius, speed...); the same option table checks the spelling.
+    // every documented npcs.add option can be written in content (arriveDistance, interact, speed...); the same option table checks the spelling.
     // The content form owns start / schedule (clock strings, places) and the id (the key), so those are translated below and not passed as written
-    checkOptions(`content npcs.${id}`, n, [...e.npcs.optionKeys.filter(k => !['id', 'position', 'zone', 'initial'].includes(k)), 'start']);
+    readParams(`content npcs.${id}`, keysSchema([...e.npcs.optionKeys.filter(k => !['id', 'position', 'zone', 'initial'].includes(k)), 'start']), n);
     const { start: _s, schedule: _p, ...rest } = n;
     e.npcs.add({ ...rest, id, schedule: plan.map(s => ({ at: parseClock(s.at, hpd), position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
     origin(id, c.npcs, id);
@@ -163,14 +169,15 @@ export function loadContent(e, api, c, st, ids) {
       if (!t.fromLevel) bind(e.triggers.add({ ...t, tag, position: where(t.position), onEnter: null, onExit: null }), t.position);
     });
     st.subs ??= [
-      e.events.on('trigger:enter', ({ tag }) => api.run(st.triggers[tag]?.onEnter)),
-      e.events.on('trigger:exit', ({ tag }) => api.run(st.triggers[tag]?.onExit)),
+      // the effects act for whoever crossed the zone (a { give } lands in that actor's bag); a zone emptied by removal has no id: engine.actor
+      e.events.on('trigger:enter', ({ tag, id }) => api.run(st.triggers[tag]?.onEnter, { actor: id ?? e.actor })),
+      e.events.on('trigger:exit', ({ tag, id }) => api.run(st.triggers[tag]?.onExit, { actor: id ?? e.actor })),
     ];
   }
 
   // grids (layout rules, not saved) before props: a props entry with grid places an item on one; a repeated load keeps the grid that exists
   each(c.grids, (name, g) => {
-    if (!e.grids) throw new Error(`content grids: install grids() to use grid "${name}"`);
+    if (!e.grids) throw codedError('content-misuse', `content grids: install grids() to use grid "${name}"`);
     if (!e.grids.get(name)) e.grids.add(name, g);
   });
   // templates before props: a props entry with template places an instance of it

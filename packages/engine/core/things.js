@@ -6,18 +6,13 @@
 //   { set: { id: { position?, rotation?, scale?, visible? } }, removed: [id] }; ids a save names before the object exists wait in pending.
 import { DEV, warnOnce } from './validate.js';
 import { codedError, coded } from './errorHints.js';
+import { stackFrames, frameText } from './stackFrames.js';
 
 /** Stacks taken per session in dev: bullets or debris added every frame must not slow dev builds down for a file:line nobody reads */
 const STACK_CAP = 2000;
 const KEYS = ['position', 'rotation', 'scale', 'visible'];
-const FRAME = /\(?((?:[a-z]+:\/\/[^/\s]+)?[^\s()]+?\.[cm]?[jt]sx?)(?:\?[^:\s)]*)?:(\d+):\d+\)?\s*$/i;
-
 /** 'main.js:50' from a captured Error: frame 0 is captureStack, 1 engine.add, 2 its caller; the host part of a URL is dropped */
-function stackAt(err) {
-  const frames = String(err?.stack ?? '').split('\n').map(l => FRAME.exec(l)).filter(Boolean);
-  const f = frames[2]; if (!f) return null;
-  return `${f[1].replace(/^[a-z]+:\/\/[^/]+\//i, '').replace(/^\/+/, '')}:${f[2]}`;
-}
+function stackAt(err) { const f = stackFrames(err?.stack)[2]; return f ? frameText(f) : null; }
 
 /** One registered root. `at` parses the stack the first time it is read (V8 formats a stack only when .stack is read) */
 class Entry {
@@ -130,7 +125,7 @@ export class Things {
     const tier = this.tier(en);
     if (tier === 'session' && (en.save === true || en.op)) {
       this.unsaved.add(new WeakRef(obj));
-      if (DEV && en.save === true) warnOnce(coded('thing-unsaved', `engine.add(obj, { save: true })${en.at ? ` at ${en.at}` : ''}: this object cannot be saved (${en.stable ? 'it was made during play' : 'it has no stable id'}), so it will not come back after a load. Give it an id and add it at setup (engine.add(obj, { id: 'name' })), or make it a template and create it inside an op with engine.spawn(name, at)`));
+      if (DEV && en.save === true) warnOnce(coded('thing-unsaved', `engine.add(obj, { save: true })${en.at ? ` at ${en.at}` : ''}: this object cannot be saved (${en.stable ? 'it was made during play' : 'it has no stable id'}), so it will not come back after a load. Give it an id and add it at setup (engine.add(obj, { id: 'name' })), or make it a template and create it inside an op with engine.content.spawn(name, at)`));
     }
     if (tier === 'code') this.applySaved(obj, en.id);
   }
@@ -202,7 +197,7 @@ export class Things {
   }
   warnLost(where) {
     const l = this.lost(); if (!l.length) return;
-    warnOnce(coded('thing-unsaved', `${where}: ${l.length} object(s) added with engine.add during play will not come back after a load (${l.slice(0, 5).map(en => `${en.id}${en.at ? ` at ${en.at}` : ''}${en.op ? ` in op ${en.op}` : ''}`).join(', ')}). To keep such things, make them a template and create them inside the op with engine.spawn(name, at)`));
+    warnOnce(coded('thing-unsaved', `${where}: ${l.length} object(s) added with engine.add during play will not come back after a load (${l.slice(0, 5).map(en => `${en.id}${en.at ? ` at ${en.at}` : ''}${en.op ? ` in op ${en.op}` : ''}`).join(', ')}). To keep such things, make them a template and create them inside the op with engine.content.spawn(name, at)`));
   }
   /** Dev finding: two systems manage one object (kept for describe().scene.conflicts, warned once per text) */
   conflict(text) {

@@ -31,14 +31,19 @@
 //   fog true        affected by fog
 //   maxPixels 512   largest on-screen size of one particle (pixels), so smoke drifting past the camera does not fill the screen
 //
-// Style pack: style.particles[name] = {...same params...} sits under the define() params (what define sets wins).
-//         so a game can write only engine.particles.define('leaves', { max: 200 }) and leave color and texture to the style pack.
+// Style: style.particles[name] = {...same params...} sits under the define() params (what define sets wins).
+//         so a game can write only engine.particles.define('leaves', { max: 200 }) and leave color and texture to the style.
 //         style.particles.default = {...} is the fallback for all effects.
-//   The style pack can also define effects directly: a name in style.particles that the game never define()d is defined from the style pack on the first emit/attach.
+//   The style can also define effects directly: a name in style.particles that the game never define()d is defined from the style on the first emit/attach.
 import * as THREE from 'three';
 import { vec3 } from '../../core/math.js';
 import { Effect, NEUTRAL, KEYS } from './effect.js';
-import { checkOptions, checkOptionsArg, warnMissing } from '../../core/validate.js';
+import { warnMissing } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+// 每个公开入口一份 schema（未知键开发时抛错带 did-you-mean）。效果参数值的形状多（数字或 [min, max]、颜色），只查键名
+const FX_PARAMS = keysSchema(KEYS);
+const EMIT_PARAMS = { count: { type: 'number', default: 10, min: 0, desc: 'particles in this burst' }, overrides: 'any?' };   // overrides: null is allowed (no override)
+const ATTACH_PARAMS = { rate: { type: 'number', optional: true, min: 0, desc: 'particles per second (default: the effect rate)' }, offset: 'any?', overrides: 'any?' };
 const _vs = new THREE.Vector2();   // canvas CSS size (particle point scale follows the canvas height, not the window)
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, PositionLike } from '../../types/common' */
@@ -69,7 +74,7 @@ export class Particles {
    * @returns {ParticleEffect}
    */
   define(name, opts = {}) {
-    checkOptions(`particles.define('${name}')`, opts, KEYS);
+    readParams(`particles.define('${name}')`, FX_PARAMS, opts);
     const old = this.effects.get(name);
     const o = { ...NEUTRAL, ...this._styleFor(name), ...opts };
     const fx = new Effect(this, name, o);
@@ -100,10 +105,9 @@ export class Particles {
    * @returns {void}
    */
   emit(name, position, opts = {}) {
-    checkOptionsArg(`particles.emit('${name}')`, opts, ['count', 'overrides']);
-    const { count = 10, overrides = null } = typeof opts === 'object' && opts ? opts : {};
+    const { count, overrides = null } = readParams(`particles.emit('${name}')`, EMIT_PARAMS, opts);
     const fx = this._get(name); if (!fx) return;
-    if (overrides) checkOptions(`particles.emit('${name}') overrides`, overrides, KEYS);
+    if (overrides) readParams(`particles.emit('${name}') overrides`, FX_PARAMS, overrides);
     fx.spawn(vec3(position, this._e), count, overrides ? { ...fx.o, ...overrides } : fx.o, null);
   }
 
@@ -115,9 +119,8 @@ export class Particles {
    * @returns {ParticleEmitter}
    */
   attach(name, object3d, opts = {}) {
-    checkOptions(`particles.attach('${name}')`, opts, ['rate', 'offset', 'overrides']);
-    const { rate, offset = [0, 0, 0], overrides = null } = opts;
-    if (overrides) checkOptions(`particles.attach('${name}') overrides`, overrides, KEYS);
+    const { rate, offset = [0, 0, 0], overrides = null } = readParams(`particles.attach('${name}')`, ATTACH_PARAMS, opts);
+    if (overrides) readParams(`particles.attach('${name}') overrides`, FX_PARAMS, overrides);
     const fx = this._get(name); if (!fx) return { remove() {}, rate: 0, active: false };
     const h = { fx, object: object3d, rate: rate ?? fx.o.rate, offset, overrides, active: true, acc: 0, remove: () => { h.active = false; this.emitters.delete(h); } };
     this.emitters.add(h);
@@ -175,5 +178,11 @@ export class Particles {
 export function particles() {
   let p = null;
   return { name: 'particles', label: 'Particles', stage: 'presentation', presentation: true, install(e) { p = new Particles(e); return p; }, frame(dt) { p.update(dt); },
-    counts() { return { alive: p.count(), emitters: p.emitters.size }; } };   // engine.counts().particles
+    counts() { return { alive: p.count(), emitters: p.emitters.size }; },   // engine.counts().particles
+    // "did the dust burst fire": live particles in total and per effect that has any (idle effects left out to stay short). Kept under `alive`
+    // because the numbers change every frame (an emitter's smoke): state comparisons (the session spec) skip that key as presentation, not game state
+    describe() {
+      const each = {}; for (const [name, fx] of p.effects) if (fx.alive) each[name] = fx.alive;
+      return { effects: p.effects.size, emitters: p.emitters.size, alive: { total: p.count(), effects: each } };
+    } };
 }

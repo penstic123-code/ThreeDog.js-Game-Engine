@@ -128,7 +128,7 @@ export const specs = [
         const origErr = console.error; console.error = () => {};   // the deliberate errors are reported in the console; restored before the test ends
         const ok = await S.load('s1-bad');
         const errWhere = engine.error?.where;
-        engine.error = null; engine.unfreeze('error');
+        engine.error = null; engine.stacks.get('freeze').release('error');
         const noImportedAfterFail = (() => {   // disk write failure: _put returns false
           S.store.putSlot = () => Promise.reject(new Error('disk'));
           return S.importFile(new File([JSON.stringify({ threedog: 'save', data: { parts: { s1good: { b: 3 } } } })], 'x.json'), 's1-imp');

@@ -12,7 +12,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 ## Engine modules (engine.use)
 
 - createEngine: { style: parts.length ? parts : undefined, strings: terrainStrings, saveKey: 'threedog-styletest', ui: { load…
-- openWorld preset ({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, …) → world, terrain, vegetation, sky, weather, water, collision, rigid, characters, ambience, settings, debug
+- openWorld preset ({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, …) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
 - interactions ({ ...presets.interactions.nearest })
 - dialogue ({ holdSeconds: 1e6 })
 - inventory ({ ...presets.keys.inventory })
@@ -25,14 +25,14 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
 - terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
 - vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
-- sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
+- calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
+- sky: `node_modules/threedog/docs/recipes/38-environment-look-hooks.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
 - water: `node_modules/threedog/docs/recipes/44-water-weather-look-hooks.md` · `node_modules/threedog/docs/api/water.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
-- ambience: `node_modules/threedog/docs/recipes/31-audio.md` · `node_modules/threedog/docs/api/ambience.md`
-- …7 more modules: their pages are in `node_modules/threedog/docs/api/`
+- …8 more modules: their pages are in `node_modules/threedog/docs/api/`
 
 Not used yet (check these before writing the system yourself):
 
@@ -46,6 +46,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
+| assets.js | 7 | The asset packs this game registers (main.js: engine.assets.manifest(packs)). Kept in their own fil… |
 | content/index.js | 10 |  |
 | content/items.js | 9 |  |
 | content/npcs.js | 9 |  |
@@ -53,17 +54,15 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 17 |  |
 | content/templates.js | 10 |  |
 | content/vegetation.js | 32 |  |
-| look.js | 12 | This example's look, a style part merged over the lowpoly pack (createEngine({ style: [lowpoly, loo… |
-| main.js | 96 | @ts-check Style test: one fixed scene to judge a style pack by (and the check an AI runs after turn… |
+| look.js | 12 | This example's look, a style part merged over the style under test (createEngine({ style: [lowpoly,… |
+| main.js | 97 | @ts-check Style test: one fixed scene to judge a style by (and the check an AI runs after turning a… |
 | models.js | 88 | The exhibits that are not in the lowpoly asset pack, built in code and registered by name in main.j… |
-| overrides.js | 34 | What the style workbench exports: the values the user changed, as a plain object literal to paste i… |
-| panel.js | 136 | Style workbench (?panel=1): sliders and color pickers over the running style test, plus an export o… |
 | params.js | 33 | URL parameters of the style test page. Import this file first in main.js: it rewrites word values i… |
 | views.js | 32 | Named camera positions of the style test. Same name = same framing every time, so two screenshots d… |
 
 ## NPCs (content/npcs.js)
 
-| id | Name | Schedule | Dialogue entry |
+| id | Name | Schedule | Interact |
 |---|---|---|---|
 | guide | Guide | wander | — |
 
@@ -90,7 +89,7 @@ Starting inventory: apple×5, key×1, wood×12. Pickups: 0.
 - Place stage: a flat spot near water (found at startup); all exhibits are placed relative to it
 - Place water: the nearest water to the stage (found at startup)
 
-## Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)
+## Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)
 
 | Template | Model | Collide | Interact (op / label) | Container | State (defaults) | Instances |
 |---|---|---|---|---|---|---|
@@ -126,10 +125,10 @@ Code that breaks saves or manages world models: none (rule R33).
 ## Saves
 
 - Save prefix saveKey: threedog-styletest
-- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)
+- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `threedog catalog` (saves per module)
 
-## Style pack keys
+## Style keys
 
-- Style pack: parts
+- Style: parts
 - Models (asset names): pine, pineLow, roundTree, roundTreeLow, rock, grass, flower, woodBlock, stoneBlock, metalBall, glassPanes, shadowStage, room
 - Vegetation (content/vegetation.js): 松树, 圆树, 石头, 草, 野花

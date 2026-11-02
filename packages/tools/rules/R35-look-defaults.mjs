@@ -1,7 +1,7 @@
 // R35 no hidden look defaults (packages/engine/docs/recipes/52-look.md): every param of a defineLookPart(engine, { params }) spec
 //   · declares default (the value the engine uses when nobody sets it), and
 //   · when that default changes the picture, says why it is there and off (how to turn it off); a default that changes nothing is marked neutral: true.
-// Level: error in engine code (core / modules / render / ui), warning in style packs and games (third-party parts are told, not blocked).
+// Level: error in engine code (core / modules / render / ui), warning in styles and games (third-party parts are told, not blocked).
 // Detection: the AST of each defineLookPart call; params is an object literal written inline or a const in the same file, each param an object
 //   literal (const ids resolve too). Known limit: params built at runtime (spread of an imported object, a computed key) are not seen; the
 //   runtime still throws for a missing default (core/look/part.js).

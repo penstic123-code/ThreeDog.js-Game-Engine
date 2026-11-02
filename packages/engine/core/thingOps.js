@@ -23,7 +23,7 @@ function editText(en, tier, rec) {
   if (tier === 'engine') return `managed by ${en.owner}: change it through that module, not directly`;
   if (tier === 'code') return `added by code${at} (id '${en.id}'): to change it for good edit that line; thing.set changes are saved as overrides`;
   if (!en.stable) return `added by code${at} without an id: give it one at setup (engine.add(obj, { id: 'name' })) to save thing.set changes; now they last this session only`;
-  return `made during play${en.op ? ` by op ${en.op}` : ''}${at}: to keep it, make it a template and create it inside the op with engine.spawn(name, at)`;
+  return `made during play${en.op ? ` by op ${en.op}` : ''}${at}: to keep it, make it a template and create it inside the op with engine.content.spawn(name, at)`;
 }
 
 /** thing.explain(): the whole story of the id in one object (thingExplain.js); a method, not a field, so the thing stays small */
@@ -89,8 +89,6 @@ export function installThings(e) {
    * @example engine.explainWith((e, t, out) => { const r = e.myRecords.get(t.id); if (r) out.state = { ...r }; });
    */
   e.explainWith = fn => { T.explainers.push(fn); };
-  // content() replaces this; without it a bare "spawn is not a function" would not say which module to install
-  e.spawn = () => { throw new Error("engine.spawn needs the content module: add content() to engine.use(...) (import { content } from 'threedog')"); };
   e.saves.register('scene', { atomic: true, save: () => T.save(), load: d => T.load(d) });
   const kindOf = id => T.source(id) ? 'record' : T.live(id) ? T.tier(T.byObj.get(T.live(id))) : null;
   const reasons = {

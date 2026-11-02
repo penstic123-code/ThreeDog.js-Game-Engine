@@ -1,7 +1,9 @@
 // Ground API (part of Engine, mixed into Engine.prototype): whoever provides ground height is the "terrain" -- a procedural terrain module, a hand-made level, or a flat plane.
 // The queries below take (x, z), or a Vector3 / Object3D directly: engine.surface(mesh.position)
 import { xzOf } from './math.js';
-import { checkOptions, DEV } from './validate.js';
+import { DEV } from './validate.js';
+import { readParams, keysSchema } from './params.js';
+import { codedError } from './errorHints.js';
 
 // Default ground: an infinite flat plane at y = 0. A terrain or level module replaces it
 export const flatGround = {
@@ -21,7 +23,7 @@ const noGround = (who, x, z, left = '') => NO_GROUND.replace('{who}', who).repla
 export function placeY(e, who, x, z, refY, fallback = 0) {
   const y = e.surface(x, z, refY);
   if (y !== -Infinity) return y;
-  if (DEV) throw new Error(noGround(who, x, z));
+  if (DEV) throw codedError('ground-missing', noGround(who, x, z));
   return fallback;
 }
 /** Ground height for a visual-only reader (hud anchor, grid tiles, camera start, shot path): off the island use `fallback`, never throw. @internal */
@@ -67,7 +69,7 @@ export const groundMethods = {
   snapToGround(obj, offset = 0) {
     const p = obj.position, y = this.surface(p.x, p.z, p.y);
     if (y === -Infinity) {   // never write an infinite y: the object would vanish and poison bounds and physics
-      if (DEV) throw new Error(noGround('engine.snapToGround()', p.x, p.z, ', so the object was left where it is'));
+      if (DEV) throw codedError('ground-missing', noGround('engine.snapToGround()', p.x, p.z, ', so the object was left where it is'));
       return obj;
     }
     p.y = y + offset; return obj;
@@ -87,7 +89,7 @@ export const groundMethods = {
   },
   /** Add a water body: a circle { position, radius, level } or a rectangle { position, halfWidth, halfDepth, level } (meters). Returns a handle { body, remove() }. The water module draws it */
   addWaterBody(opts) {
-    checkOptions('engine.addWaterBody()', opts, WATER_KEYS);
+    readParams('engine.addWaterBody()', keysSchema(WATER_KEYS), opts);
     const [x, z] = xzOf(opts.position);
     const b = opts.radius != null ? { x, z, radius: opts.radius, level: opts.level }
       : { x, z, hw: opts.halfWidth ?? 1, hd: opts.halfDepth ?? 1, level: opts.level };

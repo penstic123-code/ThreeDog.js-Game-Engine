@@ -43,13 +43,13 @@ export const specs = [
         Q.define('sf-q', { title: 'Q', steps: [steps()[0], { id: 'mayor', text: 'see the mayor', done: () => false }, ...steps().slice(1)] });
         met = false; partA = false;
         await engine.saves.load('sf-quest');
-        const after = { step: Q.state['sf-q'].step, parts: Q.state['sf-q'].parts, current: Q.list().find(q => q.id === 'sf-q').steps.find(s => s.current)?.parts?.map(p => p.done) };
+        const after = { step: Q._progress['sf-q'].step, parts: Q._progress['sf-q'].parts, current: Q.list().find(q => q.id === 'sf-q').steps.find(s => s.current)?.parts?.map(p => p.done) };
         // a version 1 save (positions, booleans) of a quest without ids, and one with ids
         Q.define('sf-old', { title: 'Old', steps: [{ text: 'x', done: () => false }, { all: [{ text: 'p', done: () => false }, { text: 'q', done: () => false }] }] });
         const v1 = { savedAt: 1, versions: {}, parts: { quests: { state: { 'sf-old': { step: 1, done: false, parts: [false, true] }, 'sf-q': { step: 1, done: false, parts: [true, false] } } } } };
         const ok = engine.saves.apply(v1, 'v1');
         const now = engine.saves.collect().parts.quests.state;
-        return { saved, after, ok, old: Q.state['sf-old'], q: Q.state['sf-q'], v2: now['sf-old'], qv2: now['sf-q'] };
+        return { saved, after, ok, old: Q._progress['sf-old'], q: Q._progress['sf-q'], v2: now['sf-old'], qv2: now['sf-q'] };
       });
       check('the save names the step and the parts met', r.saved.step === 'defend' && JSON.stringify(r.saved.parts) === '["a"]', JSON.stringify(r.saved));
       check('after inserting a step, the old save resumes on the same step with the same part met', r.after.step === 2 && JSON.stringify(r.after.current) === '[true,false]', JSON.stringify(r.after));

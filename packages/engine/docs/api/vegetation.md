@@ -11,19 +11,21 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
 
 ## Methods and properties
 - `vegetation.rebuild()` — Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically
-- `vegetation.setShadowRing(name: string, ring: number)` — Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default, larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones. Example: `engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk`
-- `vegetation.add(name: string, opts: VegetationOptions) → Species` — Register a kind of vegetation
+- `vegetation.setShadowRing(name: string, ring: number)` — Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default, larger = further and dearer). Takes effect at once; the define() option shadowRing is only the starting value. An unknown name warns with the known ones. Example: `engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk`
+- `vegetation.define(name: string, opts: VegetationOptions) → Species | Promise<Species>` — Define a kind of vegetation (a model name in model / lodGeometry: resolves first, so the result is a Promise of the species)
 - `vegetation.removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }) → string` — Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name
 - `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — Restore one
 - `vegetation.instanceAt(position: PositionLike, opts?: { radius?, species? }) → VegetationHit | null` — The one nearest to position within radius meters (default 2) (species restricts to one kind), null if none
 - Also: `vegetation.get(name: string) → Species | undefined`, `vegetation.list() → Species[]`, `vegetation.isRemoved(species: string, cx: number, cz: number, id: number) → boolean`
 
 ## Data structures
-- **VegetationOptions** Parameters of engine.vegetation.add(name, {...})
+- **VegetationOptions** Parameters of engine.vegetation.define(name, {...})
   - `geometry?: BufferGeometry` High-detail model (this or model is required)
-  - `model?: Object3D` Multi-material model (one material per mesh, e.g. bark trunk + leaf cards); still one InstancedMesh per species. Its materials are cloned
-  - `lodGeometry?: BufferGeometry | Object3D` Low-detail model, switched to beyond lodRing rings; with model an Object3D with the same mesh order, or a geometry drawn with the first material
-  - `rule?: VegetationRule` Placement rule
+  - `model?: Object3D | string | [string, ...any[]]` A model name from an asset pack ('pine', or ['flower', color] for a generator with params), resolved as content resolves it (file or generator, cache, bake; add then returns a Promise of the species), or a multi-material Object3D (one material per mesh, e.g. bark trunk + leaf cards); still one InstancedMesh per species. Its materials are cloned
+  - `lodGeometry?: BufferGeometry | Object3D | string | [string, ...any[]]` Low-detail model, switched to beyond lodRing rings: a model name, or with model an Object3D with the same mesh order, or a geometry drawn with the first material
+  - `rule?: VegetationRule` Placement rule (random scatter per chunk)
+  - `positions?: number[][]` The game's own spots instead of the random scatter: [x, z], [x, z, scale] or [x, z, scale, yaw] in world metres / size multiplier / radians.
+  - `densityMap?: ((x, z) => number) | { url?, data?, width?, height?, size, center?, … }` How much of this species survives at each spot, 0 (none) ..
   - `wind?: number` Wind sway amplitude, 0 = still
   - `nearOnly?: boolean` Only generated near the player (grass, flowers)
   - `maxRing?: number` No longer drawn beyond this many rings
@@ -32,10 +34,10 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
   - `castShadow?: boolean` Cast shadows
   - `shadowRing?: number` Cast shadows within this many rings
   - `receiveShadow?: boolean` Receive shadows, default true
-  - `material?: Material` Custom material, any three.js material (default: the style pack's 'vegetation' role); wind, cloud shadows and season tint are added to it
+  - `material?: Material` Custom material, any three.js material (default: the style's 'vegetation' role); wind, cloud shadows and season tint are added to it
   - `effects?: boolean` false: leave a custom material untouched (no wind / clouds / season added)
   - `doubleSided?: boolean` Double-sided rendering
-- **VegetationRule** Vegetation placement rule (must be JSON-able, no functions)
+- **VegetationRule** Vegetation placement rule (must be JSON-able, no functions: it is sent to the terrain workers)
   - `perChunk?: number` Placement attempts per chunk, default 100
   - `chance?: number` Success probability of each attempt 0–1 (when cluster is 'none'), default 1
   - `minHeight?: number` Altitude range (meters); default unlimited both ways (a terrain game names its band above the water, e.g. minHeight: 1.5)

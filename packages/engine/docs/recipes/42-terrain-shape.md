@@ -26,7 +26,7 @@ engine.events.on('terrain:void', ({ who }) => {   // fell off: the game decides 
 });
 ```
 
-Colors come from the style pack as usual: add `cliff` and `rock` to `style.terrain.biomeColors` (a name without a color is neutral gray).
+Colors come from the style as usual: add `cliff` and `rock` to `style.terrain.biomeColors` (a name without a color is neutral gray).
 
 ## 2. The keys
 
@@ -48,7 +48,7 @@ Without `bottom` the island is open underneath (the cheapest choice when the cam
 
 - `engine.surface(x, z)` is `-Infinity`, `engine.ground.has(x, z)` is `false`, `engine.slope` is 0, `engine.groundType` is `'void'`.
   Check `has` before placing things: `engine.snapToGround` over the void throws in development instead of writing an infinite y.
-  The same holds for every place-it-here entry (`engine.spawn`, content props, pickups, npcs, `character.placeAt`): in development they throw with this advice, in a release build they keep the caller's y (or 0), never `-Infinity` (a save would turn it into NaN). Camera starts, HUD anchors, grid tiles and shot paths fall back to y 0 / the last height and do not throw.
+  The same holds for every place-it-here entry (`engine.content.spawn`, content props, pickups, npcs, `character.placeAt`): in development they throw with this advice, in a release build they keep the caller's y (or 0), never `-Infinity` (a save would turn it into NaN). Camera starts, HUD anchors, grid tiles and shot paths fall back to y 0 / the last height and do not throw.
 - Characters walk off the rim and fall; pathfinding and spawn search treat the void as not walkable.
 - Physics: the top and the walls collide (a rolling barrel stops at a wall, a ball falls off the edge); the underside does not.
 - Vegetation never grows off the outline. `engine.terrain.edit` off it does nothing (returns `{ heights: 0, cells: 0 }`); near the rim it

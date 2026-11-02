@@ -1,84 +1,148 @@
-# threedog.js（中文说明）
+<p align="center">
+  <img src="docs/brand/threedog-square.png" alt="ThreeDog.js 标志：三只卡通小狗" width="240">
+</p>
 
-用 three.js 0.187 写的网页 3D 游戏引擎，分三层：**核心**（渲染、主循环、输入、声音、存档、界面）→ **模块**（地形、天空天气、物理、角色、对话、背包、任务……按需安装）→ **风格包**（所有美术，可选）。
-引擎只提供机制，不带任何美术：不给风格包时一切都是中性灰占位。仓库里另有一个可选的低模风格包（`@threedog/style-lowpoly`）和两个示例：开放世界摄影慢生活（`/`），关卡全部写在内容文件里；单房间动作小游戏（`/action.html`：玩家、敌人、掉落物，战斗规则是示例自己的操作）。English: [README.md](README.md)。
+<h1 align="center">ThreeDog.js</h1>
 
-仓库是 npm workspaces：`packages/engine`（引擎包 `threedog`）、`packages/tools`（工具 `@threedog/tools`，命令行 `threedog`）、`packages/styles/lowpoly`（可选风格包 `@threedog/style-lowpoly`）、`packages/terrain-noise`（可选地形生成器 `@threedog/terrain-noise`）、`games/*`（每个游戏一个文件夹）。
+<p align="center">
+  建在 three.js 上的网页 3D 游戏引擎，专门给 AI 编程助手用。
+</p>
 
-## 特点
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT 许可证"></a>
+</p>
 
-### 为 AI 设计
-| 特点 | 说明 |
+<p align="center">
+  <a href="README.md">English</a> · 中文
+</p>
+
+<p align="center">
+  <img src="docs/brand/screens/street-rain-night.png" alt="雨夜的小镇街道，路灯和窗户亮着" width="720">
+</p>
+
+## 为什么要有它
+
+让 AI 编程助手用 three.js 写一个游戏，它面对的是一个空场景。还没碰到玩法，它就得先写存档读档、昼夜交替、跟着时间变化的灯光、碰撞和天气；换一个游戏，这些又从头写一遍，每次写法都不太一样。小游戏里这只是费时间，游戏一大，各部分就开始互相打架：天气把天色压暗，昼夜系统又把它调亮，黄昏存的档读出来变成了正午。
+
+ThreeDog 把这些系统接过来，写一次，并且让它们彼此配合。AI 的力气就能花在这个游戏自己的东西上，也就是玩法和画面。
+
+## 设计思路
+
+**three.js 始终可以直接写。** 引擎里的对象就是普通的 three.js 对象，AI 已经会的 three.js 知识全都照用。游戏自己改了某个值，比如一盏灯的亮度，引擎就不再写这个值，并记下它现在归游戏管。游戏不用跟引擎抢控制权；有人问"这盏灯怎么这么亮"，也能查到是谁设的。
+
+**引擎只做三件事。** 它协调那些各管各就会冲突的系统，比如时间、天气、灯光和存档。它接下又难、每个游戏又都要重写的工程活，比如大世界分区加载、物理、寻路和不丢数据的存档。它还让 AI 看得见、查得了自己做出来的东西。three.js 本来就做得好的，引擎不重复做。
+
+**引擎从不决定游戏长什么样。** 游戏没给自己的画风时，一切都画成中性的灰色占位。颜色、材质、天空、后期效果都属于游戏自己，所以像素风的农场和阴郁的城市街道可以用同一个引擎，谁也不会带着一股"默认画面"的味道。
+
+## 为 AI 设计
+
+下面每一项都从 AI 真实遇到的问题出发。
+
+| 问题 | 引擎怎么做 |
 |---|---|
-| 文档分层 | 目录（AI.md）→ 任务教程 → 从代码注释自动生成的接口文档，AI 只读手头任务需要的部分 |
-| `llms.txt` | AI 工具会自动找的标准入口文件，写明阅读顺序 |
-| 游戏状态转成文字 | 一条命令把整个游戏现状写成简短摘要，需要时再展开细节 |
-| 统一操作接口（`engine.ops`） | 玩家、NPC、AI 都走同一套操作：先问能不能做、执行、记录、撤销、重放 |
-| 解释"为什么不行" | 操作做不了时说明原因和改法，比如"门锁着，需要钥匙" |
-| 报错带编号和改法 | 每个引擎错误都有固定编号、修改建议和文档位置 |
-| 直接操作运行中的游戏 | 命令行和 MCP 让 AI 按键、推进时间、执行操作、查看状态、截图（Claude Code、Cursor） |
-| 文字测试 | 用场景测试和状态快照检查玩法，不靠截图比对 |
-| 自动生成地图 | 引擎和游戏的地图列出文件、内容、模板、网格、事件，以及这个游戏该读的教程 |
-| 文档不会过期 | 文档里写到的名字或路径不存在、或文档过大时，检查直接报错 |
+| 把文档全读一遍，还没开工上下文就满了 | 一页目录（[AI.md](packages/engine/docs/AI.md)）每个任务一行；`threedog how "rain at night"` 直接给出该读的那一段 |
+| AI 凭记忆猜接口，常常差一点 | 报错里写着正确写法。比如已经移走的选项 `sky({ dayLength })`，报错会指向现在负责它的模块 |
+| 同一件事有两种做法，AI 会混着用 | 每个任务只推荐一个入口，列在 [CONVENTIONS.md](packages/engine/docs/CONVENTIONS.md) 的一张表里 |
+| AI 不知道运行中的游戏正在发生什么 | `threedog describe` 把游戏状态写成简短的文字；`threedog explain` 说明某个操作为什么做不了（比如门锁着，需要钥匙） |
+| 检查一次改动，就得找人来玩 | AI 自己操作游戏：按键、推进时间、执行操作、截图，用命令行或 MCP 都行（MCP 是模型上下文协议，Claude Code、Cursor 这类工具用它调用外部工具） |
+| AI 看自己的截图，判断不可靠 | 每张截图都附带一次画面检查，只报事实：哪里过曝、哪里太暗，可能是哪盏灯造成的，它现在的值是多少。检查从不给目标值，因为画面由游戏自己决定 |
 
-### 性能
-| 特点 | 说明 |
+## 架构
+
+引擎分四层。游戏只装自己用到的模块，而且在任何一层都可以直接写 three.js。
+
+```mermaid
+flowchart TB
+  A["AI 工具：文档目录、threedog how、开发桥、MCP、截图和画面检查"]
+  B["可选模块：开放世界、日历、天气、角色、对话、任务、网格摆放、物理、联机……"]
+  C["核心：存档、游戏时间、玩家操作、谁改了哪个值的记录"]
+  D["three.js 和 Rapier 物理"]
+  A --> B --> C --> D
+```
+
+玩家、NPC 和 AI 触发的操作都走同一套命名操作接口（`engine.ops`），所以每个操作都能先检查能不能做，再执行、记录、撤销和重放。
+
+## 截图
+
+下面的截图来自 AI 用这个引擎做的游戏，每个都是 15 分钟的画面测试，没有任何后期修图。两组用的是不同画风，画风由游戏自己写，不是引擎自带的。
+
+| | |
 |---|---|
-| 分区加载 | 只加载玩家和相机附近的区域，离开后卸掉画面但保留数据 |
-| 远处自动简化 | 远处物体合成简单模型，近了换回细节 |
-| 自动合批 | 重复的静态模型按格子合成一批绘制（实测 3000 个物体绘制次数降到 1/43） |
-| 后台线程 | 地形生成、寻路、远处模拟可以放到后台，不卡画面 |
-| 远处照常运转 | 看不见的地方作物照长、NPC 照日程走，只是算得更省 |
-| 素材压缩 | 一条命令压缩模型和贴图 |
-| 不用不花钱 | 功能按需安装，没装的模块不占性能 |
-| 切走自动暂停 | 切换标签页时暂停，回来不会突然快进 |
+| ![黄昏的小镇街道，柔和着色](docs/brand/screens/street-dusk.png) | ![同一条街，雨夜](docs/brand/screens/street-rain-night.png) |
+| 黄昏的小镇街道，柔和着色，没有描边 | 同一条街的雨夜，路灯和窗户亮着 |
+| ![黄昏的沙漠废墟和棕榈树，描边卡通风](docs/brand/screens/desert-dusk.png) | ![同一片沙漠的夜晚](docs/brand/screens/desert-night.png) |
+| 黄昏的沙漠绿洲，用描边和平涂的卡通着色 | 同一个地方的夜晚，帐篷边点着篝火 |
+| ![正午的沙漠营地和废墟](docs/brand/screens/oasis-noon.png) | ![夜里篝火点起来的营地](docs/brand/screens/oasis-campfire-night.png) |
+| 另一次沙漠测试，正午 | 同一个营地的夜晚，篝火点着 |
 
-### 画面
-| 特点 | 说明 |
+## 快速开始
+
+先安装 [Node.js](https://nodejs.org)（LTS 版本）。
+
+**新建一个游戏：**
+
+```sh
+git clone https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git
+cd ThreeDog.js-Game-Engine
+npm install
+npm run new-game -- my-game --open-world   # 新建 games/my-game：地形、天空、跟随相机和一个玩家
+npm run dev -- my-game                     # 打开它打印出来的地址
+```
+
+引擎暂时还没有发布到 npm，目前从这个仓库直接使用。
+
+不加 `--open-world` 时，新游戏只有一个带相机的空场景和一个空的 `style/` 文件夹。它还会写 `CLAUDE.md` 和 `.mcp.json`，在这个文件夹里打开 Claude Code，它自己就能找到引擎的文档和 MCP 服务。已经存在的文件不会被覆盖。
+
+**游戏运行时 AI 常用的命令：**
+
+```sh
+npx threedog how "day and night cycle"   # 某个任务该用哪个接口、看哪篇教程
+npx threedog describe --full             # 把游戏现在的状态写成文字
+npx threedog press interact              # 在运行中的游戏里按一个操作或按键
+npx threedog step 2                      # 让游戏往前走 2 秒
+npx threedog shot                        # 截图，附带画面检查
+```
+
+`npx threedog --help` 列出所有命令，[COMMANDS.md](packages/engine/docs/COMMANDS.md) 有逐条说明。`how` 按英文文档检索，任务描述请用英文写。
+
+**开发引擎本身（这个仓库）：**
+
+```sh
+npm install
+npm run new-game -- my-game --open-world   # 新建 games/my-game
+npm run dev -- my-game
+npm run check                              # 检查文档、类型和内容
+npm test
+```
+
+用代码写一个最小游戏的例子，以及引擎在导入时对 three.js 做的两处全局改动，见 [packages/engine/README.md](packages/engine/README.md)。
+
+## 包
+
+| 包 | 是什么 |
 |---|---|
-| 风格包 | 颜色、形状、光影、后期效果都在可替换的风格包里；引擎本身没有默认画风 |
-| 可选的低模风格包 | `@threedog/style-lowpoly`：低模模型、天空、材质、地面颜色，想要才装 |
-| 可选的噪声地形 | `@threedog/terrain-noise`：`terrainPreset()` 丘陵 / 海岛 / 峡谷 / 平原、河流和地貌表（只管世界形状，颜色由所用风格包给） |
-| 可选的后期效果 | `@threedog/post-effects`：`lut`、`grain`、`vignette`、`chromatic`、`dof`（默认关；相邻的 ldr 效果合成一个 pass），用 `postAdd(...)` 加入 |
-| 昼夜与天空 | 太阳移动、天色随时间变化、云影在地上移动 |
-| 天气与季节 | 雨雪；植物颜色随季节变化 |
-| 风吹草动 | 草和树随风摆动 |
-| 水面 | 波浪和反光，也可以换成自己的水 |
-| 后期效果 | 泛光、描边、环境光遮蔽和自定义效果，按顺序排列 |
-| 骨骼动画 | 直接用 Blender 等导出的带动画模型 |
-| 美术可完全替换 | 角色、植物、地面、水都能换成自己的模型和材质 |
+| [`threedog`](packages/engine) | 引擎本体 |
+| [`@threedog/tools`](packages/tools) | `threedog` 命令行、MCP 服务，以及操作运行中游戏的工具 |
+| [`@threedog/post-effects`](packages/post-effects) | 可选的后期效果：调色、胶片颗粒、暗角、景深等 |
+| [`@threedog/terrain-noise`](packages/terrain-noise) | 可选的噪声地形：丘陵、海岛、峡谷、河流 |
 
-### 现成的玩法系统（规则由游戏决定）
-| 系统 | 提供什么 |
+## 现状
+
+0.3 是基于 WebGL 渲染器的早期版本，接口还可能变；下一阶段是 WebGPU 渲染器。和 0.2 相比改了什么，见[更新日志](packages/engine/CHANGELOG.md)；老游戏怎么升级，按常见程度排好的步骤在 [MIGRATING-0.3.md](packages/engine/docs/MIGRATING-0.3.md)。
+
+## 文档
+
+文档以英文为主。
+
+| 文件 | 内容 |
 |---|---|
-| 存档 | 存档、读档、新游戏、继续；存档失败不会覆盖旧档 |
-| 时间 | 游戏时钟、定时事件、跳过时间（比如睡到早上） |
-| 网格摆放 | 种田、摆家具、搭建筑，带旋转和"能不能放"检查 |
-| 可改地形 | 挖、垫、平、换地面，改动会存档 |
-| 对象模板 | 一种东西定义一次，到处都能摆 |
-| 背包与物品 | 可叠放，也可每件单独带数据 |
-| 对话与任务 | 分支对话、任务步骤，卡住时解释原因 |
-| NPC | 日程、远近切换 |
-| 角色与物理 | 移动、碰撞、刚体、载具 |
-| 寻路 | 网格寻路和导航网格，可放后台线程 |
-| 输入情境 | 打开菜单时自动屏蔽走路按键，层层叠加 |
-| 联机（实验性） | 基础的多人同步 |
+| [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | AI 从这里开始读：每个任务一行，指向详细说明 |
+| [packages/engine/llms.txt](packages/engine/llms.txt) | AI 工具会自动找的标准入口文件 |
+| [packages/engine/docs/recipes/](packages/engine/docs/recipes) | 按任务写的教程：新游戏、NPC、物品、任务、天气、Blender 模型、载具、性能…… |
+| [packages/engine/docs/API.md](packages/engine/docs/API.md) | 接口索引，从代码注释生成 |
+| [packages/engine/docs/THREE.md](packages/engine/docs/THREE.md) | 在引擎旁边直接用 three.js |
+| [packages/engine/docs/PERF.md](packages/engine/docs/PERF.md) | 怎么测性能 |
 
-### 自由
-| 特点 | 说明 |
-|---|---|
-| 不写死操作 | 按键、移动方式、相机都能整套替换 |
-| 不写死界面 | 血条、对话框、菜单、背包、加载画面都只是默认件，可替换或关掉 |
-| 不限游戏类型 | 种田、动作、探索、建造类都能用 |
-| 就是 three.js | 引擎对象是 three.js 原生对象，three.js 的知识和插件照用 |
+## 许可证
 
-## 跑起来
-1. 安装 [Node.js](https://nodejs.org)（LTS 版本）。
-2. 在这个文件夹打开终端：`npm install`，然后 `npm run dev`。
-3. 浏览器打开终端里显示的地址（通常 http://localhost:5173）。
-4. 打开某个游戏：`npm run dev -w games/<游戏>`（或 `npm run dev -- 名字的一部分`）。
-
-按键（开放世界示例）：WASD 移动 · Shift 跑 · 拖动转视角 · E 交互 · I 背包 · J 任务 · P 拍照 · Esc 设置 · F3 性能面板。
-
-## 文档在哪
-引擎用法（写给 AI 读）在 `packages/engine/docs/AI.md`，按任务的做法在 `packages/engine/docs/recipes/`，接口索引 `API.md`，性能 `PERF.md`；开发引擎本身的规则在 `CLAUDE.md` 和 `.claude/rules/`。文档以英文为主。
+[MIT](LICENSE)。标志由 AI 生成，截图由引擎渲染，素材来源见 [ASSETS.md](ASSETS.md)。

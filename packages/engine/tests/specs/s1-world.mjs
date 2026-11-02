@@ -116,7 +116,7 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const W = engine.world, p = engine.player.position;
-        engine.clock.timeScale = 30;   // game clock runs 30x: dt does not follow it
+        engine.mod('clock.rate', { owner: 'test', set: 30 });   // game clock runs 30x: dt does not follow it
         let T = 0;
         const h = engine.onFixed(dt => { T += dt; });   // the test counts elapsed seconds itself (onFixed runs before world simulation)
         const acc = (rec, dt) => { rec.acc += dt; rec.at = T; };

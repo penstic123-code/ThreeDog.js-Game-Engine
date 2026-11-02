@@ -1,6 +1,6 @@
 // Test scene for the audio system (tests/specs/audio.mjs): buses, sounds by name (variants, cooldown, voice limit, 3D), the ambience
 // rule table, music rules and stems, ducking, the settings sliders. No real listening: the spec reads gains and counters.
-import { createEngine, world, sky, weather, triggers, ambience, music, settings, followCamera, content, THREE } from '../../index.js';
+import { createEngine, world, calendar, sky, weather, triggers, ambience, music, settings, followCamera, content, THREE } from '../../index.js';
 
 // sound files made in the page (a built test page has no static files to fetch): a 1 s mono 16-bit sine WAV as a blob: URL
 function wav(freq) {
@@ -20,17 +20,17 @@ const engine = createEngine({ canvas: document.getElementById('view'), saveKey: 
   levels: { voice: 0.9 },   // a game bus of its own
   sounds: {
     hit: [a, b, c],
-    ping: { synth: 'ping' },
-    slow: { synth: 'ping', cooldown: 0.5 },
-    buzz: { synth: 'ping', voices: 2 },
-    hum: { synth: 'ping', loop: true },
+    ping: {},
+    slow: { src: 'ping', cooldown: 0.5 },
+    buzz: { src: 'ping', voices: 2 },
+    hum: { src: 'ping', loop: true },
   },
   ambience: [{ sound: 'hum', when: { state: 'combat' }, volume: 0.5, fade: 0.1 }],
   music: { tracks: { calm: a, fight: { url: a, stems: [{ url: b, at: [0.5, 1] }] } },
     rules: [{ track: 'fight', when: { state: 'combat' }, priority: 5 }, { track: 'calm' }], hold: 0, interval: 0.1 },
 } });
-engine.audio.register('ping', ping);
-engine.use(world(), sky({ time: 0.5 }), weather({ start: 'clear' }), triggers(), followCamera(), ambience({ interval: 0.1 }), music(), settings(), content());
+engine.assets.manifest({ name: 'audio-test', sounds: { ping } });   // the synth is a sound asset; the rules above only say how it plays
+engine.use(world(), calendar({ time: 0.5 }), sky(), weather({ start: 'clear' }), triggers(), followCamera(), ambience({ interval: 0.1 }), music(), settings(), content());
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(50, 50).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x8a9a7a }));
 engine.add(ground);
 window.engine = engine; window.THREE = THREE;   // the spec makes an Object3D for a positional sound to follow

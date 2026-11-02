@@ -5,16 +5,23 @@ Everything you hear is the game's. The engine ships no sound files and plays not
 `api/ambience.md`, `api/music.md`.
 
 ## 1. Config in one place
+Two places, one job each: **the asset manifest says what a sound is** (a file, or a synth function made in code, registered by name like a
+model), **`audio.sounds` says how it plays** (which sound or variants, volume, bus, cooldown...). Engine modules register their own synths
+(`footstep`, `shutter`, `thunder`, ambience's `wind` `rain` `water` `birds` `crickets`) as built-in sound assets that stay silent until a rule names them.
 ```js
+engine.assets.manifest({ name: 'sfx', sounds: {
+  door: '/sfx/door.ogg', hit1: '/sfx/hit1.ogg', hit2: '/sfx/hit2.ogg', shot: '/sfx/shot.ogg',
+  ding: (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; },   // a synth: connect to out, return seconds (or { stop(t) })
+} });
 const engine = createEngine({ canvas, audio: {
   levels: { music: 0.4, voice: 1 },                                   // volume per bus; an extra key (voice) adds a bus
   sounds: {
-    door: '/sfx/door.ogg',                                             // a file
-    hit: ['/sfx/hit1.ogg', '/sfx/hit2.ogg', '/sfx/hit3.ogg'],          // variants: random, never the same one twice in a row
-    shot: { src: '/sfx/shot.ogg', jitter: { pitch: 0.08, volume: 0.1 }, cooldown: 0.05, voices: 4, distance: { ref: 3, max: 80 } },
-    footstep: 'synth',                                                 // the engine's synthesized one
-    'step.sand': { synth: 'footstep', params: { surface: 'sand' } },   // a synth with parameters
-    wind: 'synth', birds: 'synth',
+    door: {},                                                          // the asset of the same name, default rules
+    hit: ['hit1', 'hit2'],                                             // variants: random, never the same one twice in a row
+    shot: { src: 'shot', jitter: { pitch: 0.08, volume: 0.1 }, cooldown: 0.05, voices: 4, distance: { ref: 3, max: 80 } },
+    footstep: {},                                                      // a built-in synth asset, named so it plays
+    'step.sand': { src: 'footstep', params: { surface: 'sand' } },     // a synth source with parameters
+    wind: {}, birds: {}, ding: { volume: 0.6 },
   },
   ambience: [ /* rule table, section 3 */ ],
   music: { tracks: { /* section 4 */ }, rules: [] },
@@ -35,15 +42,16 @@ const hum = engine.audio.sfx('engine-hum', { loop: true, at: [4, 0, 2] });
 hum?.fade(0.2, 1.5); hum?.stop(1);                          // the handle (null while silent, see below): fade(to, seconds), stop(fade), setPosition(at)
 engine.audio.sfx('click', { bus: 'ui' });
 ```
-`sfx` returns `null` when the sound is silent: not in `audio.sounds`, audio still locked (before the first click), or inside its `cooldown`. Over its
+`sfx` returns `null` when the sound is silent: neither a rule nor an asset of that name, a built-in synth no rule names, audio still locked (before
+the first click), or inside its `cooldown`. A manifest sound with no rule plays by its name with default rules. Over its
 `voices` limit the oldest voice stops. Files by path without an entry: `await engine.audio.play(url, { bus, loop, fadeIn })`.
 
 Built-in synth parameters (`params`): `wind` / `water` take `freq` (filter Hz), `birds` `range: [low, high]` Hz, `crickets` `freq` (chirp Hz, default
 4300); every synth also gets `pitch`, the sfx pitch multiplier (~1). A sound whose file fails to load keeps its ambience rule silent (one warning)
 until the rules load again, instead of refetching.
 
-Your own synth: `engine.audio.register('ding', (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; })`. Connect to `out` and
-return the length in seconds (or `{ stop(t) }` for a loop).
+Your own synth is a sound asset: `engine.assets.manifest({ sounds: { ding: synthFn } })` (or `{ build: synthFn, params }` for default params).
+Connect to `out` and return the length in seconds (or `{ stop(t) }` for a loop).
 
 ## 3. Ambience: a rule table
 Each rule names a sound and says when and how loud. A rule with `every` is a one-shot at random gaps; without, a loop that fades in and out (and stops
@@ -99,7 +107,7 @@ A content pack carries the game's audio the way it carries items: data only, sou
 ```js
 // content/audio.js (export it from content/index.js like any content file)
 export default {
-  sounds: { wind: 'synth', door: 'door', hit: ['hit1', 'hit2'], shot: { src: 'shot', cooldown: 0.05 } },   // 'synth' or asset pack sound names
+  sounds: { wind: {}, door: 'door', hit: ['hit1', 'hit2'], shot: { src: 'shot', cooldown: 0.05 } },   // asset pack sound names (files or synths)
   ambience: [
     { sound: 'wind', volume: { base: 0.05, add: { wind: 0.08, altitude: 0.00375 }, max: 0.5 } },        // base + measure x factor, clamped
     { sound: 'rain', volume: { add: { rain: 0.22 } } },
@@ -113,7 +121,7 @@ export default {
 engine.assets.manifest({ name: 'sfx', base: '/sounds/', sounds: { door: 'door.ogg', hit1: 'hit1.ogg', hit2: 'hit2.ogg', shot: 'shot.ogg', 'music-day': 'day.ogg' } });
 engine.content.load([base, forest]);   // each pack's audio merges in
 ```
-- **Names, never paths or code.** A sounds string other than `'synth'` is a sound name from an asset pack (`engine.audio.load` and music resolve it
+- **Names, never paths or code.** A sounds string is a sound name from an asset pack, a file or a synth (`engine.audio.load` and music resolve it
   through `engine.assets`, so a missing file falls back to silence as an `engine.loading` task). A file path warns in dev; a function anywhere in the
   table drops that rule with a dev warning. `npm run check` reports both as errors.
 - **Measures** are the numbers data compares and adds up. Built in: `daylight` (sky, 0 at night), `rain` / `snow` / `wind` (weather), `nearWater`

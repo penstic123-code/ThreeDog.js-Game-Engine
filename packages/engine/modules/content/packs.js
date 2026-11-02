@@ -11,6 +11,7 @@
 // Content references assets by name only: a model written as a file path or a function is reported here in dev (the static check is
 // npm run check -> content-check, packages/tools/content-check/world.mjs).
 import { DEV, warnOnce, fmt } from '../../core/validate.js';
+import { codedError } from '../../core/errorHints.js';
 
 const STRINGS = {
   dup: 'content.load: {key}.{id} is defined by both {a} and {b}. Packs loaded together may not share an id: rename one, or drop it from one pack',
@@ -39,12 +40,12 @@ export function packsOf(data) {
   const claim = (key, table, i) => {
     for (const id of Object.keys(table || {})) {
       const k = key + '.' + id, was = owner.get(k);
-      if (was !== undefined) throw new Error(fmt(STRINGS.dup, { key, id, a: packLabel(packs[was], was), b: packLabel(packs[i], i) }));
+      if (was !== undefined) throw codedError('content-pack', fmt(STRINGS.dup, { key, id, a: packLabel(packs[was], was), b: packLabel(packs[i], i) }));
       owner.set(k, i);
     }
   };
   packs.forEach((p, i) => {
-    if (!plain(p)) throw new Error(fmt(STRINGS.notPack, { at: i + 1, got: Array.isArray(p) ? 'an array' : typeof p }));
+    if (!plain(p)) throw codedError('content-pack', fmt(STRINGS.notPack, { at: i + 1, got: Array.isArray(p) ? 'an array' : typeof p }));
     for (const [key, v] of Object.entries(p)) {
       if (key === 'rules') { claim('rules.conditions', v?.conditions, i); claim('rules.kinds', v?.kinds, i); }
       // audio: named tables are ids (a sound in two packs is an error), rule lists concatenate
@@ -60,7 +61,7 @@ export function packsOf(data) {
 function modelRefs(p) {
   const check = (what, m) => {
     const name = Array.isArray(m) ? m[0] : m;
-    if (typeof name === 'function') throw new Error(fmt(STRINGS.code, { what }));
+    if (typeof name === 'function') throw codedError('content-pack', fmt(STRINGS.code, { what }));
     if (typeof name === 'string' && PATH.test(name)) warnOnce(fmt(STRINGS.path, { what, m: name, short: name.split(/[/\\]/).pop().replace(/\.\w+$/, '') }));
   };
   for (const [n, v] of Object.entries(p.vegetation || {})) { check(`vegetation.${n}`, v?.model); if (v?.lod) check(`vegetation.${n}.lod`, v.lod); }

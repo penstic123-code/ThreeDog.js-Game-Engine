@@ -33,6 +33,7 @@ import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
 import { applySetting } from './apply.js';
 import { readParams, keysSchema } from '../../core/params.js';
+import { reportError } from '../../core/errors.js';
 
 // Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
 const PRESETS = {
@@ -40,7 +41,7 @@ const PRESETS = {
   medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewChunks: 4, density: 0.75 },
   high: { pixelRatio: 1.5, shadows: true, antialias: true, bloom: true, ao: false, viewChunks: 5, density: 1 },
 };
-// Settings keys that switch a style post effect of the same name; a key whose effect the style pack lacks is hidden and ignored
+// Settings keys that switch a style post effect of the same name; a key whose effect the style lacks is hidden and ignored
 const POST_KEYS = ['bloom', 'ao'];
 
 export class Settings extends SettingsView {
@@ -115,7 +116,7 @@ export class Settings extends SettingsView {
   define(key, def, apply) {
     this.custom.set(key, { def, apply });
     if (!(key in this.values)) this.values[key] = def;
-    try { apply?.(this.values[key], this.engine); } catch (err) { console.error(`[settings] ${key}`, err); }
+    try { apply?.(this.values[key], this.engine); } catch (err) { reportError(this.engine, err, `settings '${key}' apply`, { soft: true }); }
     return this;
   }
   /** Add a tab */
@@ -268,7 +269,7 @@ export class Settings extends SettingsView {
   _pause(on) {
     if (!this.freezeWorld) return;
     const e = this.engine, f = e.flow;
-    if (!f) { on ? e.freeze('settings') : e.unfreeze('settings'); return; }
+    if (!f) { if (on) this._frozen ??= e.freeze('settings'); else { this._frozen?.remove(); this._frozen = null; } return; }
     if (on) { this._flowBefore = f.state; f.go('paused'); }
     else { if (f.state === 'paused' && this._flowBefore) f.go(this._flowBefore); this._flowBefore = null; }
   }
@@ -293,5 +294,7 @@ export function settings(opts = {}) {
     install(e) { s = new Settings(e, opts); return s; },
     init() { s.init(); },
     frame(dt) { s.frame(dt); },
+    // the values the player chose (quality preset, volumes, ...) explain a picture or a sound level; open / tab / capturing say the menu holds the input
+    describe() { return { open: s.isOpen, tab: s.current, capturing: s.capturing, values: { ...s.values } }; },
   };
 }

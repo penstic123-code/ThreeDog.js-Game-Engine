@@ -1,6 +1,6 @@
 // Co-op example game code, shared by the host and every client (the same file runs on all machines; only net({ role }) differs).
 // Two players share a chest and a shop. Everything that changes shared state is an op; the ones friends may request say net: 'peer'.
-import { createEngine, world, inventory, net } from '../../index.js';
+import { createEngine, world, inventory, pickups, net } from '../../index.js';
 
 const PRICE = { apple: 3, bread: 5 };
 const SELL = { apple: 2, bread: 3 };
@@ -69,7 +69,7 @@ export function seedCoop(e) {
  */
 export async function makeCoop(role, transport, extra = {}) {
   const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'coop-' + role + Math.random() });
-  e.use(world(), inventory({ keys: [] }), net({ role, transport, onJoin: (e, p) => { if (!e.inventory.container(p.actor).has('gold')) e.inventory.container(p.actor).add('gold', 10); }, ...extra }));
+  e.use(world(), inventory({ keys: [] }), pickups(), net({ role, transport, onJoin: (e, p) => { if (!e.inventory.container(p.actor).has('gold')) e.inventory.container(p.actor).add('gold', 10); }, ...extra }));
   setupCoop(e);
   if (role === 'host') seedCoop(e);
   await e.start();

@@ -3,8 +3,9 @@
 import { DEV, fmt } from '../../core/validate.js';
 import { STRINGS as RECORD_STRINGS, restRecord, orphanIds } from './records.js';
 import { saveWorld, loadWorld, renamePending } from './persist.js';
-import { Cells } from './cells.js';
+import { Cells } from '../../core/cells.js';
 import { centerOf } from './pos.js';
+import { codedError } from '../../core/errorHints.js';
 
 export function initState(w, cellSize) {
   /** @internal */ w._anchor = null;
@@ -88,7 +89,7 @@ class Internals {
   /** @internal */
   _inZone(rec) { return this.zone == null || rec.zone == null || rec.zone === this.zone; }
   /** @internal */
-  _need(id, fn) { const r = this.records.get(id); if (!r) throw new Error(fmt(RECORD_STRINGS.noId, { fn, id })); return r; }
+  _need(id, fn) { const r = this.records.get(id); if (!r) throw codedError('world-record', fmt(RECORD_STRINGS.noId, { fn, id })); return r; }
   /** Copy the original initial record and apply the changes from the save @internal */
   _fromBase(id, base) {
     const rec = structuredClone(base), d = this._pending.get(id);

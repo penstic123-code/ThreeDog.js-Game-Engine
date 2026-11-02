@@ -53,9 +53,12 @@ export class Input {
     touchButton(action: string, labelKey: string): void;
     /**
      * Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key
-     * @example engine.input.simulate('jump'); engine.step(1 / 60); engine.input.simulate('jump', false)
+     * and holds it until simulate(action, false), so the player walks like with a held key. Takes action names (moveForward, moveLeft, run, interact, ...;
+     * engine.input.actions lists them), not keys; an unknown name throws unknown-name with the closest one
+     * @param {string} action @param {boolean} [down]
+     * @example engine.input.simulate('moveForward'); engine.step(1); engine.input.simulate('moveForward', false)
      */
-    simulate(action: any, down?: boolean): void;
+    simulate(action: string, down?: boolean): void;
     /** Rebind a key @param {string} action @param {string | string[]} keys */
     rebind(action: string, keys: string | string[]): void;
     /** All keys bound to an action @param {string} action @returns {string[]} */
@@ -88,19 +91,46 @@ export class Input {
      * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., {
      * context }); menu keys: pressedRaw.
      * @param {string} name e.g. 'vehicle', 'menu', 'build' (the base context is 'gameplay')
-     * @param {{ pass?: boolean }} [opts]
+     * owner (default the name) is who pushed it, listed in describe().holds.input
+     * @param {{ pass?: boolean, owner?: string }} [opts]
      * @returns {{ name: string, remove(): void }} remove() pops it (safe to call twice)
      * @example const h = engine.input.push('vehicle', { pass: true });   // vehicle-context actions (brake) work, and shadow gameplay actions on the same key
      *   h.remove();
      */
     push(name: string, opts?: {
         pass?: boolean;
+        owner?: string;
     }): {
         name: string;
         remove(): void;
     };
     /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
     get contexts(): string[];
+    /**
+     * Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read)
+     * @returns {{ context: string, owner: string, pass: boolean }[]}
+     */
+    get holders(): {
+        context: string;
+        owner: string;
+        pass: boolean;
+    }[];
+    /**
+     * Close one action while anyone holds its gate (stun: no jump; a tutorial: no attack yet), without a whole input context. Same rules as every
+     * engine.mod stack (it is the stack 'input.gate', one entry per owner and action): only the owner opens it, { for } ends it by itself.
+     * A closed action reads as not down / pressed / released; describe().holds.gates lists the owners.
+     * @param {string} action @param {string | { owner?: string, for?: number, clock?: string }} [owner] default 'game'
+     * @returns {{ owner: string, remove(): void }}
+     * @example const stun = engine.input.gate('jump', { owner: 'stun', for: 1.5 });   // no jumping for 1.5 s; stun.remove() reopens it early
+     */
+    gate(action: string, owner?: string | {
+        owner?: string;
+        for?: number;
+        clock?: string;
+    }): {
+        owner: string;
+        remove(): void;
+    };
     /**
      * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean}
      */

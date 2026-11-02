@@ -13,7 +13,7 @@ import { TIME } from '../threedog/runtime.mjs';
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['catalog', 'describe', 'errors', 'explain', 'hold', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'style_compare', 'style_palette', 'thing', 'verify'];
+const EXPECTED = ['art_list', 'catalog', 'check', 'describe', 'errors', 'explain', 'hold', 'how', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'style_compare', 'style_palette', 'thing', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -64,6 +64,12 @@ async function steps(check, plain) {
     const unknown = await plain.rpc('nope/method').then(() => 'answered', e => e.message);
     check('unknown method: JSON-RPC "Method not found" error', unknown.includes('Method not found'), unknown);
   } finally { withJs.close(); }
+
+  // 1b. Static tools answer from the files, with or without a dev server
+  const how = await plain.rpc('tools/call', { name: 'how', arguments: { task: 'tone mapping' } });
+  check('how: static, the plain three.js answer first (no dev server needed)', !how.isError && /^1\. plain three\.js/.test(how.content[0].text) && how.structuredContent.ok, how.content[0].text.slice(0, 300));
+  const chk = await plain.rpc('tools/call', { name: 'check', arguments: { rule: 'R33' } });
+  check('check: static, runs npm run check (one rule here) and answers with a verdict line', /^[✓✗] check (passed|failed)/.test(chk.content[0].text) && typeof chk.structuredContent.data?.exit === 'number', chk.content[0].text.slice(0, 300));
 
   // 2. No dev server: a tool call says how to fix it (skipped when someone is running dev on the engine right now)
   const dir = ENGINE;

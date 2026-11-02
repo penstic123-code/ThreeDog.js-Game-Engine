@@ -4,11 +4,12 @@
 //   await engine.checkSave()      // save -> load: same saved state?
 // "State" is what engine.saves.collect() returns (every save part), so a module that keeps state outside its save part is invisible here: that is the point
 // of the check, a skip or a load that loses it shows up as a diff of the part's data.
+import { failure } from './opsFail.js';
 
 const MAX_DIFFS = 20;
 
 /** Flatten two JSON values into the paths where they differ: [{ path, a, b }] (at most MAX_DIFFS; numbers within 1e-6 are equal) */
-export function diffState(a, b, ignore = []) {
+function diffState(a, b, ignore = []) {
   const out = [];
   const walk = (x, y, path) => {
     if (out.length >= MAX_DIFFS || ignore.some(p => path === p || path.startsWith(p + '.'))) return;
@@ -33,21 +34,22 @@ export const checkMethods = {
    * or a test, not in the middle of a real one. A diff usually means a module that keeps its own time lacks (or has a wrong) skip hook.
    * @param {number} seconds game seconds, > 0
    * @param {{ ignore?: string[] }} [opts] ignore: state paths (or their prefix, e.g. 'random') not to compare
-   * Refuses ({ ok: false, reason: 'frozen' | 'timeScale0' }) while gameplay is frozen or paused, or the clock is stopped.
-   * @returns {Promise<{ ok: boolean, reason?: string, diffs: { path: string, a: any, b: any }[] }>} a = after skip, b = after stepping
+   * Refuses (failure: { ok: false, code: 'frozen' | 'rate0', facts, nextActions, diffs }) while gameplay is frozen or paused, or the calendar is stopped.
+   * @returns {Promise<{ ok: boolean, code?: string, diffs: { path: string, a: any, b: any }[] }>} a = after skip, b = after stepping
    * @example const r = await engine.checkSkip(600); if (!r.ok) console.log(r.diffs);
    */
   async checkSkip(seconds, { ignore = [] } = {}) {
-    // Refuse where the two paths cannot be the same thing: frozen gameplay does not step, and a stopped clock (timeScale 0) makes "seconds" mean nothing
-    const refuse = (why, b) => ({ ok: false, reason: why, diffs: [{ path: '(precondition)', a: why, b }] });
-    if (this.frozen) return refuse('frozen', 'unfreeze first (stepping obeys freezes): ' + [...this._freezers.keys()].join(', '));
-    if (!(this.clock.timeScale > 0)) return refuse('timeScale0', 'set clock.timeScale > 0');
+    // Refuse where the two paths cannot be the same thing: frozen gameplay does not step, and a stopped calendar (rate or world speed 0) makes "seconds" mean nothing
+    const refuse = (why, b) => Object.assign(failure({ code: why, facts: { fix: b } }), { diffs: [{ path: '(precondition)', a: why, b }] });
+    if (this.frozen) return refuse('frozen', 'unfreeze first (stepping obeys freezes): ' + this.stacks.get('freeze').names().join(', '));
+    const perFixed = this.clock.speed;   // calendar seconds per real second
+    if (!(perFixed > 0)) return refuse('rate0', `calendar stopped (engine.clock.rate ${this.clock.rate}, world speed ${this.time.scale('world')}); end the mod that sets it to 0, e.g. engine.mod('clock.rate', { owner: 'game', set: 1 })`);
     this.commits.tick(Infinity);   // pending background results land first, so they cannot sit in one path's state and not the other's
     const before = JSON.parse(JSON.stringify(this.saves.collect()));
     await this.skip({ seconds });
     const skipped = snapshot(this);
     if (!(await this.saves.apply(before, 'checkSkip'))) return { ok: false, diffs: [{ path: '(rewind)', a: 'applied', b: 'refused' }] };
-    this.step(seconds / this.clock.timeScale, { render: false });
+    this.step(seconds / perFixed, { render: false });
     const diffs = diffState(skipped, snapshot(this), ignore);
     return { ok: diffs.length === 0, diffs };
   },

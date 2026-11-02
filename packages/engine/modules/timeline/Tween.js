@@ -8,8 +8,10 @@
 //   const p = tw.tween(...); p.finish() jumps to the end; p.cancel() stops where it is
 import * as THREE from 'three';
 import { ease as easing } from '../../core/easing.js';
-import { allowOwned } from '../../core/validate.js';
+import { allowOwned } from '../../core/owned.js';
 import { getPath } from '../../core/util.js';
+import { warnOnce } from '../../core/validate.js';
+import { coded } from '../../core/errorHints.js';
 
 const COMPS = ['x', 'y', 'z', 'w'];
 
@@ -22,7 +24,7 @@ function resolve(target, path) {
 /** Build an interpolator for a property: returns k => apply progress k (0..1) */
 function makeProp(target, path, toValue) {
   const r = resolve(target, path);
-  if (!r) { console.warn(`[tween] property not found: ${path}`); return null; }
+  if (!r) { warnOnce(coded('tween-property', `[tween] property not found: ${path}`)); return null; }
   const { obj, key } = r, cur = obj[key];
   if (typeof cur === 'number') {
     const from = cur, to = +toValue;
@@ -40,7 +42,7 @@ function makeProp(target, path, toValue) {
   if (cur && typeof cur === 'object') {
     // vector / Euler: interpolate per component
     const comps = COMPS.filter(c => typeof cur[c] === 'number');
-    if (!comps.length) { console.warn(`[tween] unsupported property type: ${path}`); return null; }
+    if (!comps.length) { warnOnce(coded('tween-property', `[tween] unsupported property type: ${path}`)); return null; }
     const from = comps.map(c => cur[c]);
     const to = comps.map((c, i) => Array.isArray(toValue) ? (toValue[i] ?? from[i]) : typeof toValue === 'number' ? toValue : (toValue?.[c] ?? from[i]));
     const at = (i, k) => from[i] + (to[i] - from[i]) * k;
@@ -48,7 +50,7 @@ function makeProp(target, path, toValue) {
     if (cur.isEuler) return k => { cur.set(at(0, k), at(1, k), at(2, k), cur.order); };
     return k => { for (let i = 0; i < comps.length; i++) cur[comps[i]] = at(i, k); };
   }
-  console.warn(`[tween] unsupported property type: ${path}`);
+  warnOnce(coded('tween-property', `[tween] unsupported property type: ${path}`));
   return null;
 }
 
@@ -74,15 +76,21 @@ export class Tweener {
   }
 
   /** Property tween: to = { 'position.x': 3, 'material.color': 0xffffff }. A value may also be a function () => value (evaluated at start) */
-  // tweens are exempt from the "per-frame overwritten property" warning (tweening lights and fog is a legitimate takeover)
+  // a tween is a legitimate temporary takeover of what it animates (a light, the fog): those objects only skip the engine's outside-write
+  // detection (core/owned.js) while it runs, so the engine neither warns nor yields them for good; everything else stays checked
   tween(target, to, duration = 1, ease = 'inOutCubic', group = null) {
     let props = [];
     const owner = 'tween:' + (++tweenId);
     return this.run({
       duration, ease, group,
-      start: () => { allowOwned(owner); props = Object.entries(to).map(([path, v]) => makeProp(target, path, typeof v === 'function' ? v() : v)).filter(Boolean); },
+      start: () => {
+        const objs = new Set([target]);
+        for (const path of Object.keys(to)) { const r = resolve(target, path); if (r) { objs.add(r.obj); if (r.obj[r.key] && typeof r.obj[r.key] === 'object') objs.add(r.obj[r.key]); } }
+        allowOwned(owner, objs);
+        props = Object.entries(to).map(([path, v]) => makeProp(target, path, typeof v === 'function' ? v() : v)).filter(Boolean);
+      },
       step: k => { for (const f of props) f(k); },
-      end: () => allowOwned(owner, false),
+      end: () => allowOwned(owner, false),   // the tween's last value is marked by the next engine frame, so ending is not an outside write
     });
   }
 

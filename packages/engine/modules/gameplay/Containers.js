@@ -1,8 +1,10 @@
 // Container table: implementation of inventory.container() / transfer() and the containers save part.
-import { checkOptions, DEV } from '../../core/validate.js';
+import { DEV } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { Container } from './Container.js';
+import { codedError } from '../../core/errorHints.js';
 
-/** Container table: implementation of inventory.container() / transfer(); the player inventory is the one with id 'player'. @internal */
+/** Container table: implementation of inventory.container() / transfer(); bag is the home bag 'player' (saved as its own part, never removed). @internal */
 export class Containers {
   constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); this.renames = new Map(); this.loaded = new WeakSet(); }
 
@@ -22,9 +24,9 @@ export class Containers {
   }
 
   get(id, opts) {
-    if (typeof id !== 'string' || !id) throw new Error(`inventory.container(id): id must be a non-empty string (e.g. the chest's id in world), got ${JSON.stringify(id)}`);
-    checkOptions(`inventory.container('${id}')`, opts, ['capacity', 'maxWeight', 'items']);
-    for (const k of ['capacity', 'maxWeight']) if (opts?.[k] != null && !(opts[k] > 0)) throw new Error(`inventory.container('${id}'): ${k} must be a positive number (Infinity = no limit), got ${opts[k]}`);
+    if (typeof id !== 'string' || !id) throw codedError('container', `inventory.container(id): id must be a non-empty string (e.g. the chest's id in world), got ${JSON.stringify(id)}`);
+    readParams(`inventory.container('${id}')`, keysSchema(['capacity', 'maxWeight', 'items']), opts);
+    for (const k of ['capacity', 'maxWeight']) if (opts?.[k] != null && !(opts[k] > 0)) throw codedError('container', `inventory.container('${id}'): ${k} must be a positive number (Infinity = no limit), got ${opts[k]}`);
     let c = this.map.get(id);
     if (!c) {
       this.map.set(id, c = new Container(this.inv, id, opts));
@@ -41,7 +43,7 @@ export class Containers {
   find(x, role) {
     if (x instanceof Container) return x;
     const c = typeof x === 'string' && this.map.get(x);
-    if (!c) throw new Error(`inventory.transfer: ${role} container '${x}' does not exist: create it first with inventory.container('${x}', { capacity }) (existing: ${[...this.map.keys()].join(', ')})`);
+    if (!c) throw codedError('container', `inventory.transfer: ${role} container '${x}' does not exist: create it first with inventory.container('${x}', { capacity }) (existing: ${[...this.map.keys()].join(', ')})`);
     return c;
   }
 
@@ -51,7 +53,7 @@ export class Containers {
   transfer(from, to, x, n = 1) {
     DEV && this.inv.engine.ops.guard('inventory.transfer');
     const a = this.find(from, 'from'), b = this.find(to, 'to');
-    if (!(n > 0)) throw new Error(`inventory.transfer: count must be a positive number, got ${n}`);
+    if (!(n > 0)) throw codedError('container', `inventory.transfer: count must be a positive number, got ${n}`);
     if (a === b) return 0;
     let moved = 0;
     for (const e of a._of(x)) {   // each entry keeps its data, and its key when it lands as a new entry
@@ -65,7 +67,7 @@ export class Containers {
   }
 
   remove(id) {
-    if (id === this.bag.id) throw new Error(`The player inventory ('${id}') cannot be removed`);
+    if (id === this.bag.id) throw codedError('container', `The player inventory ('${id}') cannot be removed`);
     return this.map.delete(id);
   }
 

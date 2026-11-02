@@ -19,6 +19,36 @@ async function setup() {
 
 export const specs = [
   {
+    // 不许绕开: a game's own scene.add / engine.add meshes are never moved to layer 31 or drawn by an InstancedMesh unless userData.batch = true
+    name: '[guard] batching: game-made meshes stay as made (layer 0, own Raycaster hits them); dev hint names the opt-in; userData.batch = true batches them (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => { try {
+        const { B } = await window.__bt();
+        const T = engine.THREE, g = new T.BoxGeometry(0.4, 0.4, 0.4), m = new T.MeshStandardMaterial(), p = engine.player.position;
+        const mine = [], opted = [];
+        for (let i = 0; i < 12; i++) { const x = new T.Mesh(g, m); x.position.set(p.x + 3 + i * 0.6, p.y + 40, p.z + 3); (i % 2 ? engine.scene : engine).add(x); mine.push(x); }
+        engine.step(0.05); engine.step(0.05);
+        const rc = new T.Raycaster(new T.Vector3(mine[0].position.x, p.y + 60, mine[0].position.z), new T.Vector3(0, -1, 0));
+        const own = { layer0: mine.every(x => x.layers.mask === 1 && !B.of(x).length), hit: rc.intersectObjects(engine.scene.children, true)[0]?.object === mine[0],
+          hint: B.stats.hint ?? null, counted: B.plain.get(`${g.id}|${m.id}`)?.n ?? 0, perf: /userData\.batch = true/.test(engine.inspect.perf().text) };
+        const g2 = new T.BoxGeometry(0.2, 0.2, 0.2);
+        for (let i = 0; i < 12; i++) { const x = new T.Mesh(g2, m); x.position.set(p.x + 3 + i * 0.6, p.y, p.z + 5); x.userData.batch = true; engine.scene.add(x); opted.push(x); }
+        engine.step(0.05); engine.step(0.05);
+        const opt = { batched: opted.every(x => B.of(x).length === 1) };
+        for (const x of [...mine, ...opted]) engine.remove(x);
+        engine.step(0.05);
+        return { own, opt, after: B.plain.has(`${g.id}|${m.id}`) };
+      } catch (err) { return { err: String(err.stack) }; } });
+      if (r.err) { check('runs without error', false, r.err); return; }
+      check('12 identical game meshes (scene.add and engine.add) are not batched: layer 0, no instance', r.own.layer0, JSON.stringify(r.own));
+      check('a plain THREE.Raycaster over the scene hits the game mesh itself', r.own.hit, JSON.stringify(r.own));
+      check('dev hint in batching.stats and inspect.perf() names userData.batch = true', r.own.counted === 12 && /userData\.batch = true/.test(r.own.hint) && r.own.perf, JSON.stringify(r.own));
+      check('userData.batch = true opts game meshes in (batched)', r.opt.batched, JSON.stringify(r.opt));
+      check('removed game meshes no longer count toward the hint', r.after === false, String(r.after));
+    },
+  },
+  {
     name: 'batching: same-model props become one batch per cell; move / recolor / pick / remove one item; batch: false opt-out; shadows (open world)',
     url: '/?cutscene=skip',
     async run({ check, ev }) {

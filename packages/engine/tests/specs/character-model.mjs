@@ -71,9 +71,9 @@ export const specs = [
     },
   },
   {
-    // [守] 身体是资源不是风格：这条守住"不许绕开"——风格里再写 style.character.create / model / colors 必须抛 renamed-api，
+    // [守] 身体是资源不是风格：
     // 程序身体只能走 { model: 'humanoid' } 这一条路（和 GLB 同一个入口）；没有 model 就是灰胶囊。
-    name: '[守] 角色身体是资源：humanoid 按名字立刻建好（关节、肢体摆动）、风格按材质角色上色、colors 单个改色、旧的 style.character.* 抛 renamed-api',
+    name: '[守] 角色身体是资源：humanoid 按名字立刻建好（关节、肢体摆动）、风格按材质角色上色、colors 单个改色',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
@@ -91,10 +91,6 @@ export const specs = [
         const n = mk(lowpoly, 'body-n'), cap = new Character(n, {});
         out.capsule = { limbs: cap.limbs.length, meshes: (() => { let k = 0; cap.root.traverse(o => { if (o.isMesh) k++; }); return k; })() };
         try { new Character(n, { model: 'humanoid' }); out.unknown = 'no throw'; } catch (e) { out.unknown = e.message; }
-        out.old = ['create', 'model', 'colors'].map(k => {
-          const e = mk([lowpoly, { character: { [k]: k === 'create' ? () => null : k === 'model' ? 'hero' : { body: 1 } } }], 'body-old-' + k);
-          try { new Character(e, {}); return 'no throw'; } catch (err) { return err.code; }
-        });
         for (const e of [a, g, n]) e.dispose();
         return out;
       });
@@ -103,8 +99,7 @@ export const specs = [
       check('走路时腿在摆（rig 从资源的 userData.rig 读回来）', r.swing, String(r.swing));
       check('别的风格改 materials.cloth 就给所有 humanoid 换色', r.styleTint === 0x00ff00, String(r.styleTint));
       check('没有 model：灰胶囊（一个网格、没有肢体）', r.capsule.limbs === 0 && r.capsule.meshes === 1, JSON.stringify(r.capsule));
-      check('没注册资源包就用 humanoid：立刻报错并指向 lowpoly 的 assets', /"humanoid"/.test(r.unknown) && /lowpoly/.test(r.unknown), r.unknown);
-      check('旧的 style.character.create / model / colors 都抛 renamed-api', r.old.every(c => c === 'renamed-api'), JSON.stringify(r.old));
+      check('没注册资源包就用 humanoid：立刻报错并说明怎么注册（assets.manifest）', /"humanoid"/.test(r.unknown) && /assets\.manifest/.test(r.unknown), r.unknown);
     },
   },
 ];

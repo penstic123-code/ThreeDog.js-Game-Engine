@@ -40,7 +40,7 @@ mark('trigger_test', 0, 1, -5, 1.5);   // a 3×3×3 box, bottom at y=-0.5
 mark('marker_chest', 5, 0, 5);
 
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Level test' } }, adaptiveResolution: false });
-engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false }), level({ scene: root }), triggers({ debug: true }));
+engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false }), level({ scene: root }), triggers());
 
 window.log = { enter: [], exit: [] };
 window.grids = grids;   // installed at runtime by tests/specs/grid.mjs (the test build has no source files to import)

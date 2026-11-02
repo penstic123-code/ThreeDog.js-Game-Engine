@@ -8,10 +8,12 @@
 // avatar and bag are its actor id ('guest-2'). A client sees itself as 'player' and the host's avatar as 'host', so the two names swap
 // at the wire (toLocal / toHost). Record fields that hold actor ids (owner...) are listed in net({ actorFields }) and swapped too.
 
-const SKIP = ['random', 'level', 'inventory', 'containers', 'world', 'vars'];   // random/level stay per machine; inventory is the player bag, sent inside containers
+// random/level stay per machine; inventory is the home bag 'player', sent inside containers with every other bag; rigid (body velocities, for loads)
+// stays per machine too: each machine simulates its own physics, clients follow the host through world records (docs/recipes/11-vehicles.md, section 3)
+const SKIP = ['random', 'level', 'inventory', 'containers', 'world', 'vars', 'rigid'];
 const GENERIC = '=';
 
-/** @internal parts to sync: 'auto' = world, containers, vars and every other save provider except random / level */
+/** @internal parts to sync: 'auto' = world, containers, vars and every other save provider except random / level / rigid */
 export function partKeys(e, sync) {
   if (Array.isArray(sync)) return sync;
   const keys = [];

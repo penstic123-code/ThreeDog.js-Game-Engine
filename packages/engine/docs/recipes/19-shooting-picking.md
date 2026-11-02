@@ -9,7 +9,7 @@ ray registration is needed.**
 ## 1. A first-person shooting range (copy it and it runs)
 ```js
 import { createEngine, presets, openWorld, hud, THREE, makeMaterial } from 'threedog';
-import style from './style/index.js';                    // the game's own style pack
+import style from './style/index.js';                    // the game's own style
 import { terrainPreset } from '@threedog/terrain-noise';
 
 const engine = createEngine({ canvas: document.getElementById('view'), style, saveKey: 'range' });
@@ -70,8 +70,8 @@ engine.pause();
 engine.input.simulate('shoot'); engine.step(0.1); engine.input.simulate('shoot', false);   // simulate a click on the action bound to Mouse0 (use your action name)
 // To hit a specific target: first aim the camera at it with engine.cameraRig.lookAt(target), then click
 ```
-From the command line: `npx threedog press Mouse0` (the same as pressing a keyboard key), then look at `describe range`:
+From the command line: `threedog press Mouse0` (the same as pressing a keyboard key), then look at `describe range`:
 ```
-npx threedog press Mouse0
-npx threedog describe range
+threedog press Mouse0
+threedog describe range
 ```

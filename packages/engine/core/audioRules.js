@@ -1,11 +1,13 @@
+// Audio rule data: conditions and measures.
 // The data side of audio rules: condition keys, measures (comparable numbers), data volumes, and the audio of content packs.
 // Split out of Audio.js so the bus / playback side and the rule side each stay readable in one go.
 //
-// Why measures: a content pack is data, so `when: e => e.sky.daylight > 0.15` cannot live in it. A module registers the number once
-// (sky: daylight; weather: rain, snow, wind; ambience: nearWater, altitude) and data compares it: `when: { daylight: { gt: 0.15 } }`,
+// Why measures: a content pack is data, so `when: e => e.calendar.daylight > 0.15` cannot live in it. A module registers the number once
+// (calendar: daylight; weather: rain, snow, wind; ambience: nearWater, altitude) and data compares it: `when: { daylight: { gt: 0.15 } }`,
 // `volume: { base: 0.05, add: { wind: 0.08 }, max: 0.5 }`. Code may still pass functions (createEngine({ audio }), ambience.add).
-import { codedError } from './errorHints.js';
-import { DEV, fmt, missingText, warnOnce, checkOptions } from './validate.js';
+import { codedError, coded } from './errorHints.js';
+import { DEV, fmt, missingText, warnOnce } from './validate.js';
+import { readParams, keysSchema } from './params.js';
 
 const COMPARE = { gt: (x, v) => x > v, gte: (x, v) => x >= v, lt: (x, v) => x < v, lte: (x, v) => x <= v };
 const VOLUME_KEYS = ['base', 'add', 'min', 'max'];
@@ -17,7 +19,7 @@ const PATH = /[/\\]|\.(mp3|ogg|wav|m4a|aac|flac|webm|opus)$/i;
 const STRINGS = {
   clash: "audio: '{name}' is both a condition key and a measure; one name is one thing. Rename one (measures are numbers compared with { gt, lt, gte, lte })",
   compare: "audio rule when.{key}: a measure is compared with { gt, lt, gte, lte } (e.g. { {key}: { gt: 0.15 } }), got {got}",
-  noMeasure: 'audio volume add.{key}: no measure named {key}{known}. sky() adds daylight, weather() rain / snow / wind, ambience() nearWater / altitude; '
+  noMeasure: 'audio volume add.{key}: no measure named {key}{known}. calendar() adds daylight, weather() rain / snow / wind, ambience() nearWater / altitude; '
     + 'or engine.audio.measure(name, e => number)',
   fn: 'content {from}: audio.{what} holds a function, so the rule was dropped. Content is data: compare a measure ({ daylight: { gt: 0.15 } }), '
     + 'write volume as { base, add: { rain: 0.22 }, min, max }, or register a value with engine.audio.measure(name, fn)',
@@ -44,8 +46,8 @@ export function matchesWhen(audio, when, extra) {
     const test = audio.conditions.get(k);
     if (test) { if (!test(v, audio.engine)) return false; continue; }
     if (audio.measures.has(k)) { if (!compare(audio, k, v)) return false; continue; }
-    warnOnce(missingText('condition', k, [...audio.conditions.keys(), ...audio.measures.keys()])
-      + '. time comes from sky(), weather from weather(), zone from triggers(), measures (daylight, rain, nearWater...) from their modules; or write when: e => ...');
+    warnOnce(coded('unknown-name', missingText('condition', k, [...audio.conditions.keys(), ...audio.measures.keys()])
+      + '. time comes from calendar(), weather from weather(), zone from triggers(), measures (daylight, rain, nearWater...) from their modules; or write when: e => ...'));
     return false;
   }
   return true;
@@ -56,7 +58,7 @@ export function volumeOf(audio, v, extra) {
   if (v == null) return 1;
   if (typeof v === 'number') return v;
   if (typeof v === 'function') return v(audio.engine, ...extra);
-  checkOptions('audio rule volume', v, VOLUME_KEYS);
+  readParams('audio rule volume', keysSchema(VOLUME_KEYS), v);
   let x = v.base ?? 0;
   for (const [k, f] of Object.entries(v.add || {})) {
     const m = audio.measures.get(k);
@@ -72,7 +74,7 @@ export function checkRuleName(audio, name, isMeasure) {
 }
 
 /** Variants / src of a sounds entry, for the path check */
-const srcsOf = v => typeof v === 'string' ? (v === 'synth' ? [] : [v]) : Array.isArray(v) ? v : v && typeof v === 'object' ? [v.src].flat().filter(Boolean) : [];
+const srcsOf = v => typeof v === 'string' ? [v] : Array.isArray(v) ? v : v && typeof v === 'object' ? [v.src].flat().filter(Boolean) : [];
 const trackSrcs = t => typeof t === 'string' ? [t] : t && typeof t === 'object' ? [t.url, ...(t.stems || []).map(s => s?.url)].filter(Boolean) : [];
 
 /**
@@ -81,9 +83,9 @@ const trackSrcs = t => typeof t === 'string' ? [t] : t && typeof t === 'object' 
  * Returns { sounds, footsteps, ambience, music: { tracks, rules } } with the dropped rules gone.
  */
 export function packAudio(audio, data, from) {
-  checkOptions(`content ${from} audio`, data, PACK_KEYS);
+  readParams(`content ${from} audio`, keysSchema(PACK_KEYS), data);
   const music = data.music || {};
-  checkOptions(`content ${from} audio.music`, music, ['tracks', 'rules']);
+  readParams(`content ${from} audio.music`, keysSchema(['tracks', 'rules']), music);
   const tables = { sounds: data.sounds, footsteps: data.footsteps, tracks: music.tracks };
   for (const [table, map] of Object.entries(tables)) for (const name of Object.keys(map || {}))
     if (audio._code[table].has(name)) throw codedError('audio-name-clash', fmt(STRINGS.codeToo, { table: table === 'tracks' ? 'music.tracks' : table, name, from }));

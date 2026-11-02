@@ -2,6 +2,7 @@
 // The host runs the game as usual; clients mirror its state and send op requests. Host.js / Client.js hold each side; sync.js what is synced.
 import { NetHost } from './Host.js';
 import { NetClient } from './Client.js';
+import { codedError } from '../../core/errorHints.js';
 
 /** engine.net (installed by net()): role, who this machine is, connection state and counters. Changes go through engine.ops, never through net. @experimental */
 export class Net {
@@ -37,7 +38,7 @@ export class Net {
    * engine.events.on('net:close', () => setTimeout(() => engine.net.reconnect(webSocket(url, { key: oldKey })), 2000));
    */
   reconnect(transport) {
-    if (this.role !== 'client') throw new Error('engine.net.reconnect() is for clients; the host keeps its transport');
+    if (this.role !== 'client') throw codedError('net-option', 'engine.net.reconnect() is for clients; the host keeps its transport');
     this._side.connect(transport);
   }
   /** @internal */

@@ -84,4 +84,18 @@ export const specs = [
       check('正交无透视：深度不影响 x；渲染期间无 console.error；切回 follow 恢复透视', r.parallel && r.errs === 0 && r.back, JSON.stringify(r));
     },
   },
+  {
+    // 没装相机模块的场景（没 openWorld、没玩家）：setCamera 以前是 undefined，报 "setCamera is not a function"，不说怎么修
+    name: '相机切换：没装相机模块时 setCamera 报带代码的错，说出要先 engine.use(fixedCamera(...))',
+    url: '/tests/lights/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const out = { rig: !!engine.cameraRig };
+        try { engine.setCamera('fixed', { position: [10, 10, 10], lookAt: [0, 0, 0] }); out.err = ''; } catch (e) { out.err = e.message; out.code = e.code; }
+        return out;
+      });
+      check('[guard] 无相机模块：报 camera-none，消息点名 engine.use(fixedCamera({ position, lookAt }))', !r.rig && r.code === 'camera-none'
+        && /engine\.use\(fixedCamera\(\{ position, lookAt \}\)\)/.test(r.err), JSON.stringify(r));
+    },
+  },
 ];

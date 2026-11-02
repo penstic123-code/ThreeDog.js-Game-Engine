@@ -31,6 +31,9 @@ export class Saves {
      * shape.
      * A save whose part is newer than this build's version is refused as a whole (load returns false, the save is kept).
      * A part registered after a save was loaded (a module installed later) is handed its data from that save at once.
+     * movedFrom: { oldPart: data => newData } when this part's data used to be saved under another part's name (a module split in two: the calendar's
+     * time and day were part 'sky'); an old save without this part but with oldPart hands that data, converted, to this part, and oldPart is dropped
+     * (unless a registered part still owns that name).
      * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
      * @param {string} key
      * @param {SaveProvider} provider
@@ -78,8 +81,8 @@ export class Saves {
      * Refused before anything changes (false, toast) when the data is corrupt, from a newer build or cannot be migrated.
      * After every part loaded it runs the modules' afterLoad hooks (gameplay frozen until they resolve), for saves.load, session.newGame / quit and direct calls
      * alike.
-     * If a part's load throws, the game is rolled back to how it was before (every part reloads its pre-load state) and it resolves false; the error goes through
-     * the error tiers.
+     * If a part's load throws, a listener of an event it emits while loading (world:load) throws, or a module's afterLoad throws, the game is rolled back to
+     * how it was before (every part reloads its pre-load state) and it resolves false; the error goes through the error tiers.
      * The state changes synchronously unless a part's load is async; only the result is a Promise.
      * @param {any} data
      * @param {string} [slot]  for messages only

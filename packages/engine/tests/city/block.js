@@ -5,7 +5,7 @@ import data from './content/index.js';
 // ---------- Build a block in code (later replaced by a Blender-exported glTF) ----------
 export function buildBlock() {
   const root = new THREE.Group();
-  const mat = makeMaterial('building', { color: 0xc8c4bc });   // no style pack: neutral default material, color passed through
+  const mat = makeMaterial('building', { color: 0xc8c4bc });   // no style: neutral default material, color passed through
   const ground = new THREE.Mesh(new THREE.BoxGeometry(160, 1, 160), makeMaterial('ground', { color: 0x9a9a96 }));
   ground.name = 'ground'; ground.position.y = -0.5; root.add(ground);
   // A platform in the middle of the plaza that can be walked onto + a ramp

@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
 const { DebugOverrides } = await import(pathToFileURL(join(ENGINE, 'core/DebugOverrides.js')).href);
+const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/stacks.js')).href);
 
 export const name = 'debug view: albedo / lighting / shadow / normals are temporary, owned, and share one override chain with debug.override';
 
@@ -15,7 +16,9 @@ export async function run({ check }) {
   let disposed = 0; mat.addEventListener('dispose', () => disposed++);
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat), amb = new THREE.AmbientLight(), hemi = new THREE.HemisphereLight(), sun = new THREE.DirectionalLight();
   scene.add(mesh, amb, hemi, sun);
-  const d = new DebugOverrides({ scene, THREE, thing: () => ({ object: mesh }), _things: { entryOf: () => null, live: () => mesh } });
+  const fake = { scene, THREE, thing: () => ({ object: mesh }), _things: { entryOf: () => null, live: () => mesh } };
+  fake.stacks = new Stacks(fake);   // the view holder is a 'top' stack since stacks replaced claims
+  const d = new DebugOverrides(fake);
   const v = { set: (m, o) => d.view(m, o), state: () => d.viewState() };
   v.set('albedo');
   check('albedo draws the base color unlit', mesh.material.isMeshBasicMaterial && mesh.material.color.getHex() === 0x336699);

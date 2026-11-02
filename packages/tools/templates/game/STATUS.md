@@ -1,19 +1,23 @@
 # __NAME__: status
 
-<!-- A short progress page (keep it under about 4 KB). Active plans live in docs/plans/<feature>.md; a finished plan moves to docs/plans/done/
-     and keeps one line here under Done. -->
+<!-- The handover page: the next session (or another agent) starts here. Keep it under about 4 KB; active plans live in docs/plans/<feature>.md,
+     a finished plan moves to docs/plans/done/ and keeps one line under Done. Before a long task ends, update this page. -->
 
-**Milestone**: a clean start: ground, player, camera, sky. No gameplay yet.
+**Goal and Done condition**: the game described by the gameplay note at the top of CLAUDE.md (and DESIGN.md "Pitch"). Done = DESIGN.md "Done for
+this version": the playable, shot-checked state where this version stops.
 
-**Next**
-1. Write the pitch and core loop in DESIGN.md.
-2. Build the first system (docs/design/<system>.md).
+**Done** (item, its files)
+- Project created from the threedog game template.
 
-**Known issues**
+**Verified** (command, result)
 - None yet.
 
-**Active plans**
-- None yet (write one as docs/plans/<feature>.md).
+**Open problems** (the full error, the next step)
+- None yet.
 
-**Done**
-- Project created from the threedog game template.
+**Decisions not to overturn** (the decision, why, where it is recorded)
+- None yet.
+
+**Next**
+1. Offer three minimal versions of the game (CLAUDE.md "First session"); record the pick in DESIGN.md.
+2. Build the first system (docs/design/<system>.md).

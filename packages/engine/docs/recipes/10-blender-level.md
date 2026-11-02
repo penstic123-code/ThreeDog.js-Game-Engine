@@ -49,14 +49,26 @@ the flat default. Rules read `engine.surface / slope / groundType`, so pick the 
 property, else its material name) with `rule.biomes`, and limit the scatter with `area`:
 ```js
 engine.use(level({ url: '/models/town.glb' }), vegetation({ area: { min: [-80, -80], max: [80, 80] }, viewChunks: 3 }), collision());
-engine.vegetation.add('grass', { geometry: grassGeo, nearOnly: true, rule: { perChunk: 500, biomes: { lawn: 1 } } });
-engine.vegetation.add('tree', { model: oak, rule: { perChunk: 6, biomes: { lawn: 0.6, park: 1 }, maxSlope: 0.4, collider: 0.4 } });
+engine.vegetation.define('grass', { geometry: grassGeo, nearOnly: true, rule: { perChunk: 500, biomes: { lawn: 1 } } });
+engine.vegetation.define('tree', { model: oak, rule: { perChunk: 6, biomes: { lawn: 0.6, park: 1 }, maxSlope: 0.4, collider: 0.4 } });
 ```
 Chunks stream around `engine.stream` sources and stay one InstancedMesh per species per chunk (LOD, shadows and felling work as on terrain:
 `instanceAt` / `removeInstance`, saved). Collision and path planning see the trees through `engine.ground.forEachCollider`; a new level or `setGround`
 re-places them; after changing a ground function behind the same provider call `engine.vegetation.rebuild()`. Heights are unlimited unless the rule
 sets `minHeight / maxHeight`. Content `vegetation` works the same way. With `terrain()` installed, `vegetation()` takes no options (density and view
 distance are terrain options). Rapier (`rigid()`) bodies collide with them too (cylinders from `engine.ground.forEachCollider`, gone when felled).
+
+Where a species grows is decided in the same `add()` call, with up to three parts (on a level, a code-built ground or terrain alike):
+```js
+// rule: random scatter per chunk (above). positions: the game's own spots instead, [x, z] or [x, z, scale, yaw], planted at the ground height
+engine.vegetation.define('hedge', { model: hedge, positions: hedgeSpots /* [[x, z], ...] from your level data */, rule: { collider: 0.5 } });
+// densityMap: thins the rule's or the positions' result, 0..1 per spot -- a function of game data, or a gray image with the heightmap keys
+engine.vegetation.define('weeds', { geometry: weedGeo, rule: { perChunk: 300 }, densityMap: (x, z) => farm.neglect(x, z) });
+engine.vegetation.define('flowers', { geometry: flowerGeo, rule: { perChunk: 200 }, densityMap: { url: '/maps/flowers.png', size: [256, 256] } });
+```
+With `positions`, the rule keeps only what shapes an instance (`scale`, `stretch`, `sink`, `tints`, `tintJitter`, `collider`); the scatter filters
+are refused. The id of a listed plant is its index in the list. After what a density function reads changes, call `engine.vegetation.rebuild()`.
+A game that wants every instance under its own code still builds a plain `THREE.InstancedMesh` and adds it to the scene.
 
 ## 5. Verify
 - `npm run assets` prints each file's size before and after compression; a browser 404 appears in `.threedog/errors.log` (asset load failure).

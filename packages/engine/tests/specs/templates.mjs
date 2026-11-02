@@ -40,7 +40,7 @@ export const specs = [
           solid: va?.userData.colliders.length };
         const use = engine.ops.run('interaction.use', { id: 'tc-a' }); engine.step(0.1);
         const moved = engine.ops.allow(() => I.transfer('tc-a', 'player', 'berry', 1));
-        const spawned = engine.ops.allow(() => engine.spawn('tchest', { x: x - 6, z }, { opened: true, items: { wood: 3 } }));
+        const spawned = engine.ops.allow(() => engine.content.spawn('tchest', { x: x - 6, z }, { opened: true, items: { wood: 3 } }));
         engine.step(0.1);
         const after = {
           a: W.get('tc-a').opened, b: W.get('tc-b').opened, lidA: W.view('tc-a')?.userData.lid, lidB: W.view('tc-b')?.userData.lid,
@@ -86,7 +86,7 @@ export const specs = [
       check('two instances share the prototype model (same geometry and material), each its own object; collide builds collision', mid.shared.both && mid.shared.distinct && mid.shared.geo && mid.shared.mat && mid.shared.solid === 1, JSON.stringify(mid.shared));
       check('using chest A (interaction.use -> template op) opens only A; animate follows each record; label reads the record; use sound played', mid.after.use && a.a === true && a.b === false && a.lidA === 1 && a.lidB === 0 && mid.label === 'Close' && a.played.includes('ding'), JSON.stringify({ ...a, label: mid.label }));
       check('goods are per instance: taking a berry from A leaves B alone; a placement items override replaces the starting goods', a.moved === 1 && a.aBerry === 1 && a.bBerry === 0 && a.bFeather === 1, JSON.stringify(a));
-      check('engine.spawn: runtime instance, kind = template name, own state override and container (capacity from the template)', a.sKind === 'tchest' && a.sOpen === true && a.sWood === 3 && a.sCap === 4, JSON.stringify(a));
+      check('engine.content.spawn: runtime instance, kind = template name, own state override and container (capacity from the template)', a.sKind === 'tchest' && a.sOpen === true && a.sWood === 3 && a.sCap === 4, JSON.stringify(a));
       check('definition unchanged and frozen; writes to a template or item definition throw', mid.defs.opened === false && mid.defs.items === '{"berry":2}' && mid.defs.frozen && mid.defs.stateShared === undefined
         && ['state', 'items', 'add', 'item'].every(k => /read only|not extensible/.test(mid.errs[k] ?? '')), JSON.stringify({ defs: mid.defs, errs: mid.errs }));
       check('wrong placements say how to fix: definition field per instance, unknown template (did you mean), interact without op',
@@ -97,7 +97,7 @@ export const specs = [
     },
   },
   {
-    name: 'Off the island: engine.spawn / a placed prop beyond terrain({ shape }) throws with the fix (dev); a record saves finite positions',
+    name: 'Off the island: engine.content.spawn / a placed prop beyond terrain({ shape }) throws with the fix (dev); a record saves finite positions',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -106,17 +106,44 @@ export const specs = [
         // stand-in for terrain({ shape }): surface() is -Infinity beyond x = 1000
         engine.setGround({ height: x => x > 1000 ? -Infinity : 0, has: x => x <= 1000 });
         engine.content.load({ templates: { tvoid: { model: 'rock' } } });
-        const spawnOut = err(() => engine.ops.allow(() => engine.spawn('tvoid', { x: 2000, z: 0 })));
+        const spawnOut = err(() => engine.ops.allow(() => engine.content.spawn('tvoid', { x: 2000, z: 0 })));
         const propOut = err(() => engine.content.load({ props: [{ template: 'tvoid', id: 'tv-out', x: 2000, z: 0 }] }));
-        const spawnIn = engine.ops.allow(() => engine.spawn('tvoid', { x: 5, z: 0 }));
+        const spawnIn = engine.ops.allow(() => engine.content.spawn('tvoid', { x: 5, z: 0 }));
         engine.content.load({ props: [{ template: 'tvoid', id: 'tv-y', x: 7, z: 0, y: 3 }] });
         engine.step(0.1);
         const text = JSON.stringify(engine.saves.collect());
         return { spawnOut, propOut, inY: spawnIn.position.y, yRec: engine.world.get('tv-y')?.position.y, bad: /null|NaN|Infinity/.test(JSON.stringify(engine.world.get('tv-y').position) + JSON.stringify(spawnIn.position)), len: text.length };
       });
-      check('engine.spawn beyond the island throws and says to check engine.ground.has', /no ground/.test(r.spawnOut ?? '') && /ground\.has/.test(r.spawnOut ?? ''), r.spawnOut);
+      check('engine.content.spawn beyond the island throws and says to check engine.ground.has', /no ground/.test(r.spawnOut ?? '') && /ground\.has/.test(r.spawnOut ?? ''), r.spawnOut);
       check('a content prop beyond the island throws too; inside spawns on the ground', /no ground/.test(r.propOut ?? '') && r.inY === 0, JSON.stringify([r.propOut, r.inY]));
       check('records never hold null / NaN / Infinity positions after a save', r.yRec === 3 && !r.bad, JSON.stringify(r));
+    },
+  },
+  {
+    // guard: an editor panel lists exactly engine.content.fields(); the loader enforces the same table (range, values, no default in fields)
+    name: 'Template fields: engine.content.fields() merges placement fields and state fields (default from state); placements out of range or a default in fields throw',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.pause();
+        const err = f => { try { f(); return null; } catch (e) { return e.message; } };
+        engine.content.load({ templates: { tcrop: { model: 'rock', state: { stage: 0, sort: 'wheat' }, fields: { stage: { type: 'int', min: 0, max: 4, desc: 'growth' }, sort: { values: ['wheat', 'corn'] } } } } });
+        const f = engine.content.fields('tcrop'), p = engine.content.fields('props');
+        engine.content.load({ props: [{ template: 'tcrop', id: 'tcrop-1', x: 3, z: 0, stage: 2 }] });
+        return {
+          stage: f.stage, sort: f.sort, placement: !!f.rot && !!f.x && !!f.template, propRot: p.rot?.type, byId: !!engine.content.fields('tcrop-1').stage,
+          range: err(() => engine.content.load({ props: [{ template: 'tcrop', id: 'tcrop-2', x: 3, z: 0, stage: 9 }] })),
+          spawn: err(() => engine.ops.allow(() => engine.content.spawn('tcrop', { x: 4, z: 0 }, { sort: 'rice' }))),
+          dflt: err(() => engine.content.load({ templates: { tbad: { model: 'rock', state: { n: 1 }, fields: { n: { type: 'int', default: 2 } } } } })),
+          grid: err(() => engine.content.load({ props: [{ id: 'g-1', grid: 'yard', item: 'bed', cel: [0, 0] }] })),
+          unknown: err(() => engine.content.fields('nope')),
+        };
+      });
+      check('fields(template): state field with default from state, range and desc from fields; type inferred when not written', r.stage?.type === 'int' && r.stage.default === 0 && r.stage.max === 4
+        && r.stage.desc === 'growth' && r.sort?.type === 'string' && r.sort.default === 'wheat' && r.sort.values?.length === 2 && r.placement && r.propRot === 'number' && r.byId, JSON.stringify(r));
+      check('a placement or spawn outside the template fields throws', /stage must be <= 4/.test(r.range ?? '') && /sort must be one of/.test(r.spawn ?? ''), JSON.stringify([r.range, r.spawn]));
+      check('default inside fields throws (defaults live only in state); a misspelled grid key says did you mean', /fields\.n has a default/.test(r.dflt ?? '') && /did you mean 'cell'/.test(r.grid ?? ''), JSON.stringify([r.dflt, r.grid]));
+      check('an unknown name lists what fields() knows', /field table/.test(r.unknown ?? '') && /props\.grid/.test(r.unknown ?? ''), r.unknown);
     },
   },
 ];

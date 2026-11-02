@@ -1,10 +1,14 @@
 # Content vocabulary, key actions in actions.js, saving and loading at startup
 
+**In this recipe**: 1. Condition words / effect words · 1b. Content packs · 2. actions.js: a game's own key actions · 3. Interact keys ·
+4. Continue and new game · Save failures and versions · Save format
+
 ## 1. Condition words / effect words
 The full vocabulary is in the last section of `../api/content.md` (**generated from `modules/content/rules.js`**, so it never goes stale):
 `flag has counter setFlag give take bump startQuest toast particles marker ...`, each with how to write its value. A game's own words go in
 `content/rules.js` (format in the comment at the top of `rules.js`), or in code with `engine.content.condition(name, def)`. A game's own actions are
-ops, used from content as `{ op: [...] }` / `{ can: [...] }` (`23-ops.md`), not new effect words.
+ops, used from content as `{ op: ['noun.verb', { args }] }` / `{ can: [...] }` (`23-ops.md`), not new effect words:
+`do: [{ take: { parcel: 1 } }, { op: ['delivery.done', { to: 'baker' }] }]`.
 - `has / lacks / give / take` need the `inventory()` module; without it they throw an error that says so.
 - Conditions are used in: quest step `done`, dialogue choice `if`, line variant `if`. Several entries in one object = all must hold; an array = every
   item must hold.
@@ -28,6 +32,8 @@ export default {
         for (const [id, r] of Object.entries(data)) if (!ctx.data.items?.[r.makes]) ctx.err(`recipe ${id} makes unknown item ${r.makes}`);
       },
       map: data => Object.entries(data).map(([id, r]) => `${id} -> ${r.makes}`),   // optional GAMEMAP lines
+      // optional: the keys of each entry (core/params.js format, no default); threedog check reports unknown keys, wrong types, out of range
+      fields: { needs: 'object', makes: 'string', seconds: { type: 'number', min: 0, optional: true, desc: 'crafting time' } },
     },
   },
 };
@@ -39,14 +45,19 @@ export default { bread: { needs: { flour: 2 }, makes: 'bread' } };
 Add `recipes` to `content/index.js` like any other file. A file in `content/` that is neither an engine file nor a registered kind is an error,
 and so is `content.load({ enemies })` without the kind: both say how to register it. A kind may not reuse an engine file name.
 
+**Field tables.** Every content entry has one: the engine declares the placement fields of its own files once (`modules/content/rules.js`,
+`PLACEMENT_FIELDS`: props, template instances, grid items, pickups, views), templates add `fields` for their state (recipes/30-templates.md), and
+a kind adds `fields` as above. `threedog check` validates every entry against its table (a misspelled `scael` names `scale`), and
+`engine.content.fields(name)` returns the same table for tools such as an editor panel, so the two cannot disagree.
+
 ## 1b. Content packs: several data sets in one load
 A content pack is the same object `content/index.js` exports (`{ items, templates, props, quests, ... }`, optional `name` for messages), shipped as a
 folder or an npm package: data only, assets by name (never a path or a function; `npm run check` and a dev warning report both). Load several together:
 ```js
 import base from './content/index.js';
 import forest from 'forest-content';                        // its props name templates from base and models from the forest asset pack
-import forestAssets from 'forest-assets';                   // that asset pack: { name, base, models, textures, sounds, fonts }
-engine.assets.manifest(forestAssets);
+import packs from './assets.js';                            // export default [forestAssets, ...]: the asset packs ({ name, base, models, textures, sounds, fonts })
+engine.assets.manifest(packs);                              // the same objects `npm run check` reads the names from
 engine.content.load([base, forest], { places: { home } });
 ```
 - Packs load in list order, so a pack may use what an earlier one defines.
@@ -101,10 +112,28 @@ engine.input.define('take', 'KeyF', 'Take');
 engine.interactions.add(thing, { label: 'Inspect', onUse: inspect });                                // E
 engine.interactions.add(thing, { label: 'Take', action: 'take', enabled: () => ready, onUse: take });   // F
 ```
+**Hold and walk-over.** `hold: seconds` makes the key a hold (pump a well, defuse, pick a lock): the engine counts it on fixed steps, interrupts it
+when the key is released, the actor leaves the radius, `enabled()` turns false or input locks (`interaction:hold` / `interaction:interrupt
+{ reason }`), and the prompt part gets `progress` 0-1 (the default prompt fills its background). `engine.interactions.holding` is the one in progress.
+`approach: true` walks the player there first (`walkTo`, stops 1.2 m away) and uses it on arrival; with `radius: Infinity` it is usable from anywhere
+(point-and-click, "talk to the clerk across the shop"). The op `interaction.use` is the completed use in both cases (tests and the dev bridge
+skip the hold; an approach returns `{ approaching }`, a promise of onUse's result).
+```js
+engine.interactions.add(well, { label: 'Pump', hold: 1.5, onUse: fill });
+engine.interactions.add(clerk, { label: 'Talk', radius: Infinity, approach: true, onUse: talk });
+```
 **Who acts** is `engine.actor` (a world record id, default `'player'`). Interactions, trigger zones, objective-marker distances, the world simulation
 center and the default `ctx.actor` of ops all measure from `engine.actorPosition()`. To let the user drive a boat or switch squad members, set
 `engine.actor = 'boat_1'` and back to `'player'`; nothing else changes. Module code reads `engine.actorPosition()`, never `engine.player.position`
 (rule R17 warns).
+The actor is handed down, never assumed: `label / enabled / onUse` get `(object, { actor })` (the actor of `interaction.use`: the local user, a net
+peer, an NPC); trigger callbacks get `(t, who, id)` and the events carry `id` (`who` may list actor ids: `who: () => [e.actor, ...peerIds]`); content
+`has / lacks / give / take` use the bag of the running op's actor (else `engine.actor`), and `engine.content.run(effect, { actor })` /
+`content.test(cond, { actor })` name one explicitly; trigger `onEnter / onExit` effects act for whoever crossed the zone.
+```js
+engine.interactions.add(door, { label: (o, { actor }) => keyOf(actor) ? 'Open' : 'Locked', onUse: (o, { actor }) => engine.ops.run('door.open', { id: o.name }, { actor }) });
+engine.triggers.add({ position: gate, who: () => [engine.actor, ...guards], onEnter: (t, who, id) => engine.ops.run('gate.alarm', { by: id }) });
+```
 
 ## 4. Continue and new game (the engine does not load automatically on start)
 After a page refresh the game is a new run; to "continue last time", load **after** `await engine.start()` through `engine.session`, the standard form:
@@ -117,6 +146,9 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
   state. `engine.saves.load(slot)` is a quick load onto the running playthrough; never build Continue from it.
 - Loading restores the player, world data (world changes and deletions), inventory, quests, clock and random state; initial data in content files
   (`initial`) is the same whether it is loaded before or after the save, so ignore the order.
+- A load rebuilds the props and other world records: an Object3D your code kept from before (a door mesh, a lamp) is gone afterwards. Keep the
+  record id, not the mesh, and look it up again on `save:loaded`: `engine.world.get(id)` for the record, `engine.world.view(id)` for its model
+  now (null while not built or far away).
 - For a "main menu: Continue / New game": show "Continue" only when `engine.saves.check(slot) === null`; on click `await engine.session.load(slot)`;
   "New game" is `await engine.session.newGame()`.
 - During development, to jump straight into a save: URL `?save=slot1` (`threedog state` also understands `save=`).
@@ -128,8 +160,14 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
 - A corrupt save, a part from a newer build or a missing migrate step is refused before anything changes: `load` returns `false` with a message, the
   running game and the stored save stay as they were. Ask first with `engine.saves.check(slot)` → `null | 'missing' | 'corrupt' | 'tooNew' | 'migrate'`.
 - A part whose `save()` throws makes the whole save fail (`false`, the slot keeps its previous save); a part whose `load()` throws rolls the game back
-  to how it was before the load (`false`). Both go through the error tiers (`engine.error` in dev, code `save-part-threw` / `save-load-threw`).
-- `engine.saves.versions` lists the version of every part this build reads (`{ world: 3, clock: 1, ... }`); raise a part's `version` with a `migrate`
+  to how it was before the load (`false`). So does a listener of an event the load emits (`world:load`) or a module's `afterLoad` that throws. Both go
+  through the error tiers (`engine.error` in dev, code `save-part-threw` / `save-load-threw`).
+- A save edited by hand or damaged: a `null` part makes it `'corrupt'` (a `save()` returning `null` is simply left out); a world record whose
+  position is not three finite numbers is refused and rolled back (`save-bad-record`, no gameplay error); a bad number of the clock, time
+  channels, random state or item counts is clamped or dropped with one `save-value` warning per part, and the rest loads.
+- Two tabs of one game: a tab overwrites a slot only while it holds the copy it last read, wrote or loaded. A save over a newer one another tab
+  wrote returns `false` (toast, `save-stale`); that tab then lists the newer save, and loading it lets it save there again.
+- `engine.saves.versions` lists the version of every part this build reads (`{ world: 4, clock: 1, ... }`); raise a part's `version` with a `migrate`
   step when its data changes shape.
 - Import is offline and checked: `saves.import(text)` and `saves.importFile(file)` (default slot `'imported'`) refuse anything that is not a save, and
   attachments must be `data:` URLs (nothing is fetched).
@@ -139,7 +177,7 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
 ```js
 { format: 1,                       // the envelope's own version: a save with a higher format is refused as tooNew (none = 1)
   savedAt: 1730000000000,           // real time of the save
-  versions: { world: 3, quests: 2, clock: 1 },   // each part's version (none = 1)
+  versions: { world: 4, quests: 2, clock: 1 },   // each part's version (none = 1)
   parts: { world: {...}, quests: {...}, clock: {...}, vars: {...} } }   // each saves.register part's data, by key
 ```
 - **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. When `save()` changes shape, raise
@@ -150,7 +188,7 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
 - **Authored baseline + per-id diff**: everything placed in a level comes from content (props, template instances, pickups, NPCs, grid items in
   `props`, level-model nodes tagged `template` / `id`) with a stable id, and the world part stores only what play changed on top of it, keyed by id:
   `changed` (fields of an authored record that differ), `removed` (authored records removed), `records` (records created during play, such as
-  `engine.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same
+  `engine.content.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same
   world, and a new game's world part is empty: in dev, start warns about records that code created or changed before it, naming them.
 - **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written
   back, <!-- r18-ignore-line -->
@@ -167,7 +205,7 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
   the <!-- r18-ignore-line -->
   `grids` part (version 2) stores only changed cells (`set`) and emptied authored ones (`clear`), and keeps a diff for a grid the run does not
   have. <!-- r18-ignore-line -->
-- **Stable ids, never positions**: saved data names things by stable ids. The player's vehicle is saved by `rigid.addVehicle(mesh, { id })`; quest
+- **Stable ids, never positions**: saved data names things by stable ids. The player's vehicle is saved by `rigid.addWheeled(mesh, { id })`; quest
   progress by step ids (`steps: [{ id: 'talk-mayor', ... }]`, recipe 04). Content edits (a new step, a new prop) then never shift an old save.
 - **Built-in part versions**: `world` 3 (version 1 kept `records` as an array, version 2 the `<kind>-<n>` runtime ids), `quests` 2 (version 1 kept
   step positions; the migrate step maps them to ids through the quest definitions), `containers` 2 and `grids` 2, every other part 1.

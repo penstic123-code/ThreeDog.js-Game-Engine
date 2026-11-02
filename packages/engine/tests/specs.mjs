@@ -15,7 +15,7 @@ import { specs as specsS1Saves } from './specs/s1-saves.mjs';
 import { specs as specsS1World } from './specs/s1-world.mjs';
 import { specs as specsS1WorldSave } from './specs/s1-world-save.mjs';
 import { specs as specsS1WorldSim } from './specs/s1-world-sim.mjs';
-import { specs as specsS1Entities } from './specs/s1-entities.mjs';
+import { specs as specsTemplateStages } from './specs/template-stages.mjs';
 import { specs as specsS1Props } from './specs/s1-props.mjs';
 import { specs as specsS1Npc } from './specs/s1-npc.mjs';
 import { specs as specsS1Perf } from './specs/s1-perf.mjs';
@@ -24,49 +24,81 @@ import { specs as specsContainers } from './specs/containers.mjs';
 import { specs as specsA2 } from './specs/a2-input-player.mjs';
 import { specs as specsFriction } from './specs/friction-fixes.mjs';
 import { specs as specsCameraSwitch } from './specs/camera-switch.mjs';
+import { specs as specsCameraLook } from './specs/camera-look.mjs';
 import { specs as specsAiTools } from './specs/ai-tools.mjs';
 import { specs as specsDescribeRender } from './specs/describe-render.mjs';
 import { specs as specsPlayerControl } from './specs/player-control.mjs';
 import { specs as specsUIParts } from './specs/ui-parts.mjs';
 import { specs as specsInputContext } from './specs/input-context.mjs';
 import { specs as specsThreads } from './specs/threads.mjs';
+import { specs as specsArtFriction } from './specs/art-friction.mjs';
 import { specs as specsPaths } from './specs/paths.mjs';
 import { specs as specsWalkTo } from './specs/walk-to.mjs';
 import { specs as specsS1Load } from './specs/s1-load.mjs';
 import { specs as specsArt } from './specs/art.mjs';
 import { specs as specsRender } from './specs/render.mjs';
 import { specs as specsPostFuse } from './specs/post-fuse.mjs';
+import { specs as specsPostAo } from './specs/post-ao.mjs';
 import { specs as specsGenericity } from './specs/genericity.mjs';
+import { specs as specsGenericityFixes } from './specs/genericity-fixes.mjs';
 import { specs as specsOps } from './specs/ops.mjs';
 import { specs as specsCatalog } from './specs/catalog.mjs';
 import { specs as specsLook } from './specs/look.mjs';
 import { specs as specsLookSurface } from './specs/look-surface.mjs';
 import { specs as specsLookAtmosphere } from './specs/look-atmosphere.mjs';
-import { specs as specsRenamedApi } from './specs/renamed-api.mjs';
+import { specs as specsOneEntry } from './specs/one-entry.mjs';
+import { specs as specsStrictOptions } from './specs/strict-options-handles.mjs';
 import { specs as specsLookLive } from './specs/look-live.mjs';
+import { specs as specsModelGenerators } from './specs/model-generators.mjs';
+import { specs as specsOwned } from './specs/owned.mjs';
+import { specs as specsLookTail } from './specs/look-tail.mjs';
+import { specs as specsAuditFixes } from './specs/audit-fixes.mjs';
 import { specs as specsLookWaterPost } from './specs/look-water-post.mjs';
 import { specs as specsArtShapes } from './specs/art-shapes.mjs';
 import { specs as specsAnim } from './specs/anim.mjs';
 import { specs as specsCharacterModel } from './specs/character-model.mjs';
 import { specs as specsLoading } from './specs/loading.mjs';
 import { specs as specsNet } from './specs/net.mjs';
+import { specs as specsRc2d } from './specs/rc2d.mjs';
+
+import { specs as specsModularBuilding } from './specs/modular-building.mjs';
+import { specs as specsTechniqueLooks } from './specs/technique-looks.mjs';
+import { specs as specsSilentBreaks } from './specs/silent-breaks.mjs';
+import { specs as specsWetRoad } from './specs/wet-road.mjs';
+import { specs as specsNightLights } from './specs/night-lights.mjs';
+import { specs as specsProcAnim } from './specs/procedural-animation.mjs';
+import { specs as specsTechniquesLight } from './specs/techniques-light.mjs';
+import { specs as specsLightingDefaults } from './specs/lighting-defaults.mjs';
+import { specs as specsLookDemo3 } from './specs/look-demo3.mjs';
+import { specs as specsLookCheck } from './specs/look-check.mjs';
+import { specs as specsLocaleSimulate } from './specs/locale-simulate.mjs';
+import { specs as specsActors } from './specs/actors.mjs';
+import { specs as specsProbes } from './specs/probes.mjs';
 import { specs as specsTerrainEdit } from './specs/terrain-edit.mjs';
+import { specs as specsDurabilityEngine } from './specs/durability-engine.mjs';
+import { specs as specsUiNav } from './specs/ui-nav.mjs';
 import { specs as specsGrid } from './specs/grid.mjs';
 import { specs as specsRigidTrees } from './specs/rigid-trees.mjs';
+import { specs as specsRigidDeterminism } from './specs/rigid-determinism.mjs';
 import { specs as specsTriggersGrid } from './specs/triggers-grid.mjs';
 import { specs as specsSkip } from './specs/skip.mjs';
+import { specs as specsCalendar } from './specs/calendar.mjs';
 import { specs as specsAiChecks2 } from './specs/ai-checks2.mjs';
 import { specs as specsInspectScene } from './specs/inspect-scene.mjs';
+import { specs as specsDevHelpers } from './specs/dev-helpers.mjs';
+import { specs as specsAssetHot } from './specs/asset-hot.mjs';
 import { specs as specsSession } from './specs/session.mjs';
 import { specs as specsTemplates } from './specs/templates.mjs';
 import { specs as specsSingleSource } from './specs/single-source.mjs';
 import { specs as specsThings } from './specs/things.mjs';
 import { specs as specsThingsExplain } from './specs/things-explain.mjs';
 import { specs as specsSaveFormat } from './specs/save-format.mjs';
+import { specs as specsDurabilitySaves } from './specs/durability-saves.mjs';
 import { specs as specsGameplayGuards } from './specs/gameplay-guards.mjs';
 import { specs as specsBatching } from './specs/batching.mjs';
 import { specs as specsAudio } from './specs/audio.mjs';
 import { specs as specsLights } from './specs/lights.mjs';
+import { specs as specsDemo2Fixes } from './specs/demo2-fixes.mjs';
 import { specs as specsCoreReview } from './specs/core-review.mjs';
 import { specs as specsCanvasBox } from './specs/canvas-box.mjs';
 import { specs as specsVegetationGround } from './specs/vegetation-ground.mjs';
@@ -74,8 +106,10 @@ import { specs as specsPacks } from './specs/packs.mjs';
 import { specs as specsReviewGuards } from './specs/review-guards.mjs';
 import { specs as specsAction } from './specs/action.mjs';
 import { specs as specsCoreModules } from './specs/core-modules.mjs';
+import { specs as specsColdStart } from './specs/cold-start.mjs';
 import { specs as specsProperties } from './specs/properties.mjs';
 import { specs as specsPerfMeasure } from './specs/perf-measure.mjs';
+import { specs as specsPerfAlarm } from './specs/perf-alarm.mjs';
 import { specs as specsEnvironment } from './specs/environment.mjs';
 import { specs as specsAppearance } from './specs/appearance.mjs';
 import { specs as specsTerrainLook } from './specs/terrain-look.mjs';
@@ -88,8 +122,12 @@ import { specs as specsSurface } from './specs/surface.mjs';
 import { specs as specsCascades } from './specs/cascades.mjs';
 import { specs as specsCollisionSegBlocked } from './specs/collision-segment-blocked.mjs';
 import { specs as specsCollisionLineClear } from './specs/collision-lineclear-astar.mjs';
+import { specs as specsContactShadows } from './specs/contact-shadows.mjs';
+import { specs as specsDayNightGrade } from './specs/day-night-grade.mjs';
 
 
+import { specs as specsPerfHotspots } from './specs/perf-hotspots.mjs';
+import { specs as specsR4Fixes } from './specs/r4-fixes.mjs';
 export const specs = [
   {
     name: '开放世界示例',
@@ -110,7 +148,7 @@ export const specs = [
       await ev(() => engine.pause());
       await page.keyboard.press('Space');
       const rise = await ev(() => { const y0 = engine.player.position.y; engine.step(0.3, { render: false }); return engine.player.position.y - y0; });
-      await ev(() => engine.resume());
+      await ev(() => engine._resume());
       check('空格起跳', rise > 0.3, rise.toFixed(2));
 
       await page.keyboard.press('KeyI'); await frames(2);
@@ -156,7 +194,7 @@ export const specs = [
       check('街道高度 0', Math.abs(g.street) < 0.05, g.street);
       check('楼的碰撞盒都建好了', g.boxes >= 40, g.boxes);
       await ev(() => engine.player.position.set(0, engine.surface(0, -14), -14));
-      await ev(() => { engine.pause(); engine.step(1.2, { render: false }); engine.resume(); });   // 推进 1.2 游戏秒：触发区更新、箱子落地
+      await ev(() => { engine.pause(); engine.step(1.2, { render: false }); engine._resume(); });   // 推进 1.2 游戏秒：触发区更新、箱子落地
       check('走上广场触发区', await ev(() => engine.triggers.byTag('plaza')[0]?.inside));
       check('箱子落在地面上', await ev(() => engine.rigid.bodies.every(b => b.body.translation().y > 0.3)));
     },
@@ -171,14 +209,14 @@ export const specs = [
     },
   },
   {
-    name: '实体与粒子测试页',
-    url: '/tests/entities/index.html',
+    name: '模板物件与粒子测试页',
+    url: '/tests/placeables/index.html',
     async run({ check, ev, wait }) {
       const before = await ev(() => engine.particles.count());
       await ev(() => engine.particles.emit('dust', engine.player.position, { count: 50 }));
       check('粒子爆发', await ev(n => engine.particles.count() > n, before));
-      const ent = await ev(() => { const e = engine.entities.spawn('sapling', { position: { x: 3, z: 3 } }); engine.step(0.2); return !!e?.object?.parent; });
-      check('生成实体', ent);
+      const placed = await ev(async () => { engine.ops.allow(() => engine.content.spawn('sapling', { x: 3, z: 3 }, { id: 'pt-1' })); engine.world.refresh(); await engine.world.whenReady; engine.step(0.2); return !!engine.world.view('pt-1')?.parent; });
+      check('放下模板物件', placed);
       await wait(300);
     },
   },
@@ -218,12 +256,12 @@ export const specs = [
       });
       check('pause + step(10)：游戏时间前进约 10 秒', r.paused && r.ret && Math.abs(r.dt - 10) < 0.05, r.dt);
       check('step 期间 autopilot 让玩家移动了', r.moved > 5, r.moved);
-      const s = await ev(() => { const t0 = performance.now(), c0 = engine.sky.totalDays; engine.step(600, { render: false }); return { ms: performance.now() - t0, days: engine.sky.totalDays - c0 }; });
+      const s = await ev(() => { const t0 = performance.now(), c0 = engine.calendar.totalDays; engine.step(600, { render: false }); return { ms: performance.now() - t0, days: engine.calendar.totalDays - c0 }; });
       check('step(600) 在 30 秒内完成，天数前进', s.days > 1.5, `${Math.round(s.ms)} 毫秒（只打印，不判定），${s.days.toFixed(2)} 天`);
       // paused: the engine's onFrame does not run, so count browser animation frames (the loop's own tick) instead of milliseconds
       const still = await ev(async () => { const t = engine.elapsed; await new Promise(r => { let k = 0; const f = () => ++k >= 10 ? r() : requestAnimationFrame(f); requestAnimationFrame(f); }); return engine.elapsed === t; });
       check('暂停时实时循环不推进', still);
-      check('resume 后恢复推进', await ev(async () => { engine.resume(); const t = engine.elapsed; await __t.until(() => engine.elapsed > t, 5000).catch(() => {}); return engine.elapsed > t && !engine.paused; }));
+      check('resume 后恢复推进', await ev(async () => { engine._resume(); const t = engine.elapsed; await __t.until(() => engine.elapsed > t, 5000).catch(() => {}); return engine.elapsed > t && !engine.paused; }));
     },
   },
   {
@@ -258,38 +296,47 @@ export const specs = [
     },
   },
   {
-    name: '运行时检查：选项名、动作名写错时提示改法（只提示一次）',
+    name: '运行时检查：选项名写错开发时直接报错带改法；动作名写错提示一次',
     url: '/tests/cameras/index.html?cam=fixed',
     async run({ check, ev }) {
       const r = await ev(async () => {
+        // 为什么分两种：选项名拼错走 readParams，开发时抛错（2026-11-01 决定），写错就停在那一行；
+        // 动作名每帧都可能查，写错只提示一次，不抛（抛了游戏每帧都死）
+        const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
+        const out = {};
         const { warns } = await __t.warns(() => {
           for (let i = 0; i < 2; i++) {
             // createEngine 的选项（shadows 拼错）
-            const e2 = new engine.constructor({ canvas: document.createElement('canvas'), ui: { loading: false }, shadwos: false, saveKey: 'validate-test' });
-            e2.renderer.dispose();
-            // 模块选项：fixedCamera({ shots }) 里每个机位的参数（position 拼错）
-            engine.cameraRig.add('test', { postion: [0, 5, 5], lookAt: [0, 0, 0] });
+            out.engine = err(() => { const e2 = new engine.constructor({ canvas: document.createElement('canvas'), ui: { loading: false }, shadwos: false, saveKey: 'validate-test' }); e2.renderer.dispose(); });
+            // 模块选项：fixedCamera 机位参数（position 拼错）
+            out.shot = err(() => engine.cameraRig.add('test', { postion: [0, 5, 5], lookAt: [0, 0, 0] }));
             // 按键动作名（jump 拼错）
             engine.input.pressed('jupm'); engine.input.down('jupm');
           }
         });
-        const n = s => warns.filter(w => w.includes(s) && w.includes('did you mean')).length;
-        return { engine: n('shadwos'), shot: n('postion'), action: n('jupm'), all: warns };
+        out.added = 'test' in (engine.cameraRig.shots ?? {});
+        out.action = warns.filter(w => w.includes('jupm') && w.includes('did you mean')).length;
+        out.all = warns;
+        return out;
       });
-      check('createEngine 选项写错：一条"你是不是想写 shadows"', r.engine === 1 && r.all.some(w => w.includes('`shadows`?')), JSON.stringify(r.all));
-      check('模块选项写错：一条"你是不是想写 position"', r.shot === 1 && r.all.some(w => w.includes('`position`?')), JSON.stringify(r.all));
+      check('createEngine 选项写错：开发时抛错"你是不是想写 shadows"', r.engine.includes('shadwos') && r.engine.includes('`shadows`?'), JSON.stringify(r));
+      check('模块选项写错：开发时抛错"你是不是想写 position"，机位没加上', r.shot.includes('postion') && r.shot.includes('`position`?') && !r.added, JSON.stringify(r));
       check('按键动作写错：一条"你是不是想写 jump"', r.action === 1 && r.all.some(w => w.includes('`jump`?')), JSON.stringify(r.all));
-      check('没有别的警告', r.all.length === 3, JSON.stringify(r.all));
+      check('没有别的警告', r.all.length === 1, JSON.stringify(r.all));
     },
   },
   {
-    name: '运行时检查：npcs.add 字段写错（小城示例）',
+    name: '运行时检查：npcs.add 字段写错开发时报错（小城示例）',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
-      const r = await ev(async () => (await __t.warns(() => {
-        for (let i = 0; i < 2; i++) engine.npcs.remove(engine.npcs.add({ name: '路人' + i, position: { x: 3, z: 3 }, scedule: [] }));
-      })).warns);
-      check('npcs.add 字段写错：一条"你是不是想写 schedule"', r.length === 1 && r[0].includes('scedule') && r[0].includes('did you mean `schedule`?'), JSON.stringify(r));
+      const r = await ev(async () => {
+        let msg = '';
+        const { warns } = await __t.warns(() => {
+          try { engine.npcs.remove(engine.npcs.add({ name: '路人', position: { x: 3, z: 3 }, scedule: [] })); } catch (e) { msg = e.message; }
+        });
+        return { msg, warns };
+      });
+      check('npcs.add 字段写错：抛错"你是不是想写 schedule"，不另外警告', r.msg.includes('scedule') && r.msg.includes('did you mean `schedule`?') && r.warns.length === 0, JSON.stringify(r));
     },
   },
   {
@@ -312,7 +359,7 @@ export const specs = [
             const t = engine.clock.after(1, () => n++); t.remove(); engine.step(2, { render: false }); out.clock = n;
             out.handles = [engine.onFrame(() => {}), engine.onFixed(() => {}), engine.rays.addStatic([]), engine.budget.metric('conv', () => 0)].every(h => typeof h.remove === 'function' && (h.remove(), true));
             // 位置参数：旧写法（数字）直接报错
-            try { engine.collision.addBox(1, 2, 3, 4); out.oldThrows = false; } catch (e) { out.oldThrows = /must be passed as one argument/.test(e.message); }
+            try { engine.collision.addBox(1, 2, 3, 4); out.oldThrows = false; } catch (e) { out.oldThrows = /options argument must be an object.*a position is one argument/.test(e.message) && e.code === 'module-params'; }
             // 射线 targets: 'all' 打到刚体，默认 'static' 打不到
             const b = engine.rigid.bodies.reduce((m, x) => x.object.position.y > m.object.position.y ? x : m), p = b.object.position;
             const from = { x: p.x, y: p.y + 5, z: p.z }, down = [0, -1, 0];
@@ -327,7 +374,7 @@ export const specs = [
             engine.input.define('convAct', ['KeyY']); engine.input.define('convAct', ['KeyU']);
             out.redefine = engine.input.keysOf('convAct').includes('KeyU') && !engine.input.keysOf('convAct').includes('KeyY');
           }));
-        } finally { engine.resume(); }
+        } finally { engine._resume(); }
         out.warns = warns;
         return out;
       });
@@ -354,5 +401,5 @@ export const specs = [
       check('按 W 沿相机前方移动', moved !== null && moved > 0.9, String(moved));
     },
   })),
-  ...specsFriction, ...specsCameraSwitch, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Entities, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsDescribeRender, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsCatalog, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsAiChecks2, ...specsPaths, ...specsWalkTo, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards, ...specsAction, ...specsCoreModules, ...specsProperties, ...specsPerfMeasure, ...specsEnvironment, ...specsAppearance, ...specsTerrainLook, ...specsPostFuse, ...specsStyletest, ...specsRigidTrees, ...specsTriggersGrid, ...specsSurface, ...specsAppearanceEnv, ...specsInspectScene, ...specsThings, ...specsThingsExplain, ...specsTerrainShape, ...specsIslandSnowBackdrop, ...specsAppearanceWater, ...specsCascades, ...specsCollisionSegBlocked, ...specsCollisionLineClear, ...specsLook, ...specsLookSurface, ...specsLookAtmosphere, ...specsLookWaterPost, ...specsRenamedApi, ...specsLookLive,
+  ...specsFriction, ...specsCameraSwitch, ...specsCameraLook, ...specsA, ...specsB, ...specsC, ...specsD, ...specsRules, ...specsS1, ...specsS1Ground, ...specsS1Move, ...specsS1Saves, ...specsS1World, ...specsS1WorldSave, ...specsS1WorldSim, ...specsS1Props, ...specsS1Npc, ...specsS1Perf, ...specsE, ...specsContainers, ...specsA2, ...specsAiTools, ...specsDescribeRender, ...specsPlayerControl, ...specsUIParts, ...specsInputContext, ...specsThreads, ...specsArt, ...specsOps, ...specsCatalog, ...specsArtShapes, ...specsLoading, ...specsNet, ...specsAnim, ...specsGrid, ...specsSkip, ...specsAiChecks2, ...specsPaths, ...specsWalkTo, ...specsGenericity, ...specsTerrainEdit, ...specsS1Load, ...specsSession, ...specsCharacterModel, ...specsTemplates, ...specsSingleSource, ...specsSaveFormat, ...specsGameplayGuards, ...specsRender, ...specsBatching, ...specsAudio, ...specsLights, ...specsCoreReview, ...specsCanvasBox, ...specsVegetationGround, ...specsPacks, ...specsReviewGuards, ...specsAction, ...specsCoreModules, ...specsColdStart, ...specsProperties, ...specsPerfMeasure, ...specsPerfAlarm, ...specsEnvironment, ...specsAppearance, ...specsTerrainLook, ...specsPostFuse, ...specsPostAo, ...specsStyletest, ...specsRigidTrees, ...specsRigidDeterminism, ...specsTriggersGrid, ...specsSurface, ...specsAppearanceEnv, ...specsInspectScene, ...specsDevHelpers, ...specsAssetHot, ...specsThings, ...specsThingsExplain, ...specsTerrainShape, ...specsIslandSnowBackdrop, ...specsAppearanceWater, ...specsCascades, ...specsCollisionSegBlocked, ...specsCollisionLineClear, ...specsLook, ...specsLookSurface, ...specsLookAtmosphere, ...specsLookWaterPost, ...specsLookLive, ...specsModelGenerators, ...specsOwned, ...specsLookTail, ...specsAuditFixes, ...specsTemplateStages, ...specsOneEntry, ...specsStrictOptions, ...specsArtFriction, ...specsDurabilityEngine, ...specsCalendar, ...specsDurabilitySaves, ...specsGenericityFixes, ...specsActors, ...specsUiNav, ...specsProbes, ...specsRc2d, ...specsWetRoad, ...specsNightLights, ...specsLocaleSimulate, ...specsLightingDefaults, ...specsLookDemo3, ...specsLookCheck, ...specsDemo2Fixes, ...specsContactShadows, ...specsDayNightGrade, ...specsProcAnim, ...specsModularBuilding, ...specsTechniquesLight, ...specsTechniqueLooks, ...specsSilentBreaks, ...specsPerfHotspots, ...specsR4Fixes,
 ];

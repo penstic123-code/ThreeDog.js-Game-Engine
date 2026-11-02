@@ -1,12 +1,14 @@
 // Built-in tabs of the settings menu: graphics, audio, keys, language.
 // Each tab is { title: engine => text, render: (tools, engine, settings) => HTML, bind?: (element, engine, settings) => void, when?: engine => show or not, order }
-// Controls bind no events directly; they carry data-* attributes that Settings.js handles in one place (a style pack's whole-page template can use the same attributes):
+// Controls bind no events directly; they carry data-* attributes that Settings.js handles in one place (a style's whole-page template can use the same attributes):
 //   data-tab="graphics"                   switch tab
 //   data-set="shadows" data-value="true"  click sets the setting shadows to true (value parsed as JSON, falls back to a string)
 //   data-range="vol.music"                slider <input type="range">; applies live while dragging, saves on release
 //   data-rebind="interact"                click to enter the "press a key" state
 //   data-reset="controls"                 restore default keys
 //   data-locale="en"                      switch language
+
+import { setFov } from '../../core/look/coreParts.js';
 
 const pct = v => Math.round(v * 100) + '%';
 /** Value shown beside a slider */
@@ -142,7 +144,7 @@ export const OPTIONAL_SECTIONS = {
       const e = s.engine, rig = () => e.cameraRig;
       s.define('camera.sensitivity', rig()?.sensitivity ?? 1, v => { if (rig() && 'sensitivity' in rig()) rig().sensitivity = v; });
       s.define('camera.invertY', rig()?.invertY ?? false, v => { if (rig() && 'invertY' in rig()) rig().invertY = v; });
-      s.define('camera.fov', e.camera.fov, v => { if (e.camera.fov !== v) { e.camera.fov = v; e.camera.updateProjectionMatrix(); } });
+      s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (look.view.manual('fov'))
       // a new rig starts from its own defaults (and setCamera resets the fov): put the player's choices back on it
       e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); });
     },

@@ -12,13 +12,14 @@ Quests (quests() module)
 ## Methods and properties
 - `quests.define(id: string, def: QuestDef)` — Define a quest (chainable)
 - `quests.start(id: string)` — Start a quest
+- `quests.state(id: string) → { step, steps, done, failed, active } | null` — One quest's progress (a copy): step index, step count, done, failed, active; null before it starts
+- `quests.advance(id: string) → boolean` — Finish the current step from code (its done() is not asked) and go on; the last step completes the quest. false when not active
 - `quests.isActive(id: string) → boolean` — Started, not done and not failed
 - `quests.isFailed(id: string) → boolean` — Its fail condition held (start(id) begins it again)
 - `quests.check()` — Check completion conditions once immediately
 - `quests.list() → { id, title, desc?, done, failed, steps }[]` — Quest list (for custom UI)
 - Also: `quests.isDone(id: string) → boolean`
 - Properties:
-  - `state: Record<string, { step: number; done: boolean; failed?: bool…` Quests in progress / completed / failed: id -> { step (current step), done, failed?, parts? }
   - `win: { open, toggle, refresh }` The quest log (UI part 'questLog'): open, toggle(on?), refresh()
 
 ## Data structures

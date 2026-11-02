@@ -160,9 +160,9 @@ for (const p of engProps) {
       + 'kinds: { name: { desc, load(e, data), check?, map? } } (enemies, recipes, loot tables…)');
 }
 
-// ---------- Style pack ----------
+// ---------- Style ----------
 {
-  const L = page('style', 'Style pack Style — createEngine({ style }), all the look (any style pack: a folder with index.js; recipes/09-style-pack.md)');
+  const L = page('style', 'Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style-pack.md)');
   const { props } = split(get('Style'), 'Style');
   L.push('- **Style** fields (all optional):', ...fieldLines(props));
   L.push('', '## Sub-structures');
@@ -191,7 +191,7 @@ for (const p of engProps) {
   }
 }
 idx.push('', '## Other');
-idx.push(`- [Style pack Style](${link('style')}): all look options (sky, weather, water, terrain, UI, materials, particles, sound, models)`);
+idx.push(`- [Style](${link('style')}): all look options (sky, weather, water, terrain, UI, materials, particles, sound, models)`);
 idx.push(`- [Utility functions](${link('tools')}): ${indexFns.filter(f => !['createEngine', 'openWorld'].includes(f.name) && !factories.includes(f)).map(f => f.name).slice(0, 24).join(' ')} …`);
 idx.push('');
 

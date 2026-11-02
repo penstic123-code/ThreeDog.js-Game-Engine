@@ -53,17 +53,17 @@ export const specs = [
         A.manifest({ name: 'forest', base: '/packs/forest', models: { oak: 'oak.glb', abs: '/m/abs.glb', cdn: 'https://x.test/a.glb' }, textures: { bark: { url: 'bark.png', color: true } } });
         out.assets = { pine: typeof A.builder('pine'), oak: A.builder('oak'), oakUrl: A.entries.get('oak').url, abs: A.entries.get('abs').url, cdn: A.entries.get('cdn').url,
           bark: A.entries.get('bark').url, list: A.entries.get('oak').manifest };
-        const warn = console.warn; let w = ''; console.warn = m => { w += m; };
-        A.manifest(/** @type {any} */ ({ modles: {} }));
-        console.warn = warn; out.typo = /modles/.test(w) && /models/.test(w);
+        // 键名写错走 readParams：开发时直接抛错（不是警告），信息带近似名
+        let w = ''; try { A.manifest(/** @type {any} */ ({ modles: {} })); } catch (err) { w = err.message; }
+        out.typo = /modles/.test(w) && /did you mean `models`/.test(w);
         e2.dispose(); e3.dispose();
         return out;
       });
-      check('lowpoly 默认导出只放外观：没有 models（在资源包 assets 里）、没有 sky.hoursPerDay（玩法计时，sky() 选项）', !r.visualOnly.models && !r.visualOnly.hours, JSON.stringify(r.visualOnly));
+      check('lowpoly 默认导出只放外观：没有 models（在资源包 assets 里）、没有 sky.hoursPerDay（玩法计时，calendar() 选项）', !r.visualOnly.models && !r.visualOnly.hours, JSON.stringify(r.visualOnly));
       check('部件深合并：只改 sunSize / clouds.coverage，其余 sky 字段和数组原样；null 去掉 post；嵌套列表展平；原包不被改', r.merge.sunSize === 600 && r.merge.keyframes && r.merge.cloudColor && r.merge.coverage === 0.2 && !r.merge.post && r.merge.accent === '#123456' && r.merge.fg && r.merge.untouched, JSON.stringify(r.merge));
       check('只给一个对象：engine.style 就是它本身（不用就零成本）', r.same);
       check('资源包：生成函数可查 builder，base 只解析相对路径，/ 开头和完整网址原样，name 标在条目上', r.assets.pine === 'function' && r.assets.oak === null && /\/packs\/forest\/oak\.glb$/.test(r.assets.oakUrl) && r.assets.abs === '/m/abs.glb' && r.assets.cdn === 'https://x.test/a.glb' && /\/packs\/forest\/bark\.png$/.test(r.assets.bark) && r.assets.list === 'forest', JSON.stringify(r.assets));
-      check('manifest 写错键名会提示 did you mean', r.typo);
+      check('manifest 写错键名开发时报错并给 did you mean', r.typo);
     },
   },
   {
@@ -82,7 +82,7 @@ export const specs = [
         const a = mk(lowpoly, 'bound-a');
         const types = root => { const t = new Set(); root.traverse(o => { if (o.isMesh) t.add(o.material.type); }); return [...t]; };
         out.iso = { a: types(lowpolyModels.humanoid.call({ engine: a })), b: types(lowpolyModels.humanoid.call({ engine: b })),
-          pickupA: a.style.pickup.model({}, { color: 1, size: 1 }, a).material.type, pickupB: b.style.pickup.model({}, { color: 1, size: 1 }, b).material.type,
+          pickupA: a.makeMaterial('pickup').type, pickupB: b.makeMaterial('pickup').type,
           methodA: a.makeMaterial('prop').type, methodB: b.makeMaterial('prop').type };
         // palette: one value recolors the generated models; without it the old colors
         const has = (geo, hex) => { const c = new THREE.Color(hex), at = geo.attributes.color; for (let i = 0; i < at.count; i++) if (Math.abs(at.getX(i) - c.r) + Math.abs(at.getY(i) - c.g) + Math.abs(at.getZ(i) - c.b) < 1e-4) return true; return false; };

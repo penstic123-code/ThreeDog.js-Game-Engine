@@ -11,12 +11,12 @@ export const specs = [
       const r = await ev(async () => {
         const { createEngine, vegetation, collision, level, THREE } = threedogTerrain;
         const wait = () => new Promise(res => setTimeout(res, 5));
-        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, urlState: false, saveKey: 'veg-ground' });
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-ground' });
         const root = new THREE.Group();
         const floor = (name, type, x) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2)); m.name = name; m.position.set(x, 5, 0); m.userData.groundType = type; root.add(m); };
         floor('ground_lawn', 'lawn', -20); floor('ground_stone', 'stone', 20);
         E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 3, area: { min: [-40, -20], max: [40, 20] } }), collision());
-        E.vegetation.add('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 80, maxSlope: 1, sink: 0, biomes: { lawn: 1 }, collider: 0.4 } });
+        E.vegetation.define('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 80, maxSlope: 1, sink: 0, biomes: { lawn: 1 }, collider: 0.4 } });
         await E.start();
         const settle = async (x, z) => { E.focus.set(x, 0, z); for (let i = 0; i < 300 && E.stream.sources().length && !E.vegetation.host.isReadyAround({ x, z }); i++) { E.step(1 / 60); await wait(); } E.step(2.2); };   // 2.2 s: the outer ring's collision is due by then (commits lag by ring)
         await settle(0, 0);
@@ -54,7 +54,7 @@ export const specs = [
         out.stillJoined = typeof E.ground.forEachCollider === 'function';
         E.dispose();
         // with terrain installed, vegetation() options are terrain options: refused with where they live
-        const T = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, urlState: false, saveKey: 'veg-ground-t' });
+        const T = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-ground-t' });
         T.use(threedogTerrain.terrain({ viewChunks: 1 }));
         try { T.use(vegetation({ density: 2 })); out.refused = 'no throw'; } catch (err) { out.refused = err.message; }
         T.dispose();
@@ -78,7 +78,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { createEngine, vegetation, level, settings, THREE } = threedogTerrain;
-        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, urlState: false, saveKey: 'veg-ground-settings' });
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-ground-settings' });
         const root = new THREE.Group();
         const m = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2)); m.name = 'ground'; root.add(m);
         E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 2 }), settings());
@@ -100,11 +100,11 @@ export const specs = [
       const r = await ev(async () => {
         const { createEngine, vegetation, level, rigid, collision, THREE } = threedogTerrain;
         const wait = () => new Promise(res => setTimeout(res, 5));
-        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, urlState: false, saveKey: 'veg-ground-rigid' });
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-ground-rigid' });
         const root = new THREE.Group();
         const m = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2)); m.name = 'ground_lawn'; m.userData.groundType = 'lawn'; root.add(m);
         E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 2 }), collision(), rigid());
-        E.vegetation.add('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 30, maxSlope: 1, sink: 0, collider: 0.4 } });
+        E.vegetation.define('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 30, maxSlope: 1, sink: 0, collider: 0.4 } });
         await E.start();
         for (let i = 0; i < 300 && !E.vegetation.host.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60); await wait(); }
         E.step(2.2);
@@ -127,15 +127,15 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { createEngine, vegetation, level, THREE } = threedogTerrain;
-        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, loading: false, urlState: false, saveKey: 'veg-fade' });
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-fade' });
         const root = new THREE.Group(), m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2)); m.name = 'ground_lawn'; m.userData.groundType = 'lawn'; root.add(m);
         E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 2 }));
         const g = () => new THREE.ConeGeometry(0.1, 1, 4), rule = { perChunk: 5 };
-        const tuft = E.vegetation.add('tuft', { geometry: g(), nearOnly: true, maxRing: 2, wind: 0.2, rule });
-        const hard = E.vegetation.add('hard', { geometry: g(), nearOnly: true, fade: false, rule });
-        const set = E.vegetation.add('set', { geometry: g(), nearOnly: true, fade: { start: 5, end: 9 }, rule });
-        const tree = E.vegetation.add('tree', { geometry: g(), rule });
-        let bad = null; try { E.vegetation.add('bad', { geometry: g(), nearOnly: true, fade: { start: 9, end: 5 }, rule }); } catch (e) { bad = String(e.message); }
+        const tuft = E.vegetation.define('tuft', { geometry: g(), nearOnly: true, maxRing: 2, wind: 0.2, rule });
+        const hard = E.vegetation.define('hard', { geometry: g(), nearOnly: true, fade: false, rule });
+        const set = E.vegetation.define('set', { geometry: g(), nearOnly: true, fade: { start: 5, end: 9 }, rule });
+        const tree = E.vegetation.define('tree', { geometry: g(), rule });
+        let bad = null; try { E.vegetation.define('bad', { geometry: g(), nearOnly: true, fade: { start: 9, end: 5 }, rule }); } catch (e) { bad = String(e.message); }
         await E.start();
         E.focus.set(12, 0, -7); E.step(0.1);
         const out = { tuft: tuft.fade, hard: hard.fade, set: set.fade, tree: tree.fade, bad, center: tuft.fadeUniforms.uNearFadeCenter.value.toArray(), hardU: hard.fadeUniforms };
@@ -150,6 +150,65 @@ export const specs = [
       check(/start < end/.test(r.bad || ''), 'a reversed band is refused with the numbers', String(r.bad));
       check(r.center[0] === 12 && r.center[2] === -7, 'the fade centre follows the view focus each frame', JSON.stringify(r.center));
       check(r.programsOk, 'the faded wind material compiles (no shader error)');
+    },
+  },
+  {
+    // "do not bypass" guard of the three placement parts of one add(): positions plants exactly the listed spots (on own chunks and on terrain
+    // chunks, through the worker), densityMap thins by a function or an image, and the old rule path is untouched
+    name: 'vegetation ground: positions and densityMap go through the same add() (explicit spots, function / image density, on both hosts)',
+    url: '/tests/terrain-edit/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, vegetation, terrain, THREE } = threedogTerrain;
+        const wait = () => new Promise(res => setTimeout(res, 5));
+        const all = (E, name) => { const H = E.vegetation.host, out = []; for (const c of H.chunks.values()) { const im = c.veg[name]; if (!im) continue; const a = im.instanceMatrix.array;
+          for (let i = 0; i < im.count; i++) out.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14], im.userData.ids[i], a[i * 16]]); } return out; };
+        const settle = async (E, ok) => { for (let i = 0; i < 400 && !ok(); i++) { E.step(1 / 60); await wait(); } E.step(0.5); };
+        const out = {};
+        // own chunks over a code-built ground at y = 1
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-pos' });
+        E.use(vegetation({ chunkSize: 16, viewChunks: 2 }));
+        E.setGround({ height: () => 1, slope: () => 0, type: () => 'lawn' });
+        const geo = new THREE.ConeGeometry(0.4, 1, 4), spots = [[3, 4], [-10, 7, 2, 0], [20, -5]];
+        E.vegetation.define('post', { geometry: geo, positions: spots, rule: { sink: 0, collider: 0.3 } });
+        E.vegetation.define('half', { geometry: geo, rule: { perChunk: 200 }, densityMap: (x) => (x < 0 ? 0 : 1) });
+        E.vegetation.define('img', { geometry: geo, rule: { perChunk: 200 }, densityMap: { data: [1, 0, 1, 0], width: 2, height: 2, size: [64, 64] } });
+        E.vegetation.define('plain', { geometry: geo, rule: { perChunk: 200 } });
+        await E.start();
+        await settle(E, () => E.vegetation.host.isReadyAround({ x: 0, z: 0 }, { rings: 2 }));
+        const post = all(E, 'post').sort((a, b) => a[3] - b[3]);
+        out.post = post.map(p => [Math.round(p[0] * 100) / 100, Math.round(p[2] * 100) / 100, p[1], p[3]]);
+        out.postScale = post.find(p => p[3] === 1)?.[4];
+        const half = all(E, 'half'), plain = all(E, 'plain'), img = all(E, 'img');
+        out.half = { n: half.length, westAny: half.some(p => p[0] < 0), plainWest: plain.filter(p => p[0] < 0).length, plainN: plain.length };
+        // a 2 x 2 image over [-32, 32]: column 0 (x < 0) is 1, column 1 is 0; bilinear in between, so only the far east edge is fully bare
+        out.img = { n: img.length, farEast: img.filter(p => p[0] > 31).length, farWest: img.filter(p => p[0] < -31).length };
+        // a listed plant is felled like a scattered one: its id is the list index
+        const hit = E.vegetation.instanceAt({ x: 3, z: 4 }, { radius: 0.1, species: 'post' });
+        out.hitId = hit?.id ?? null;
+        try { E.vegetation.define('bad', { geometry: geo, positions: [[1, 2]], rule: { perChunk: 5 } }); out.refusedRule = 'no throw'; } catch (err) { out.refusedRule = err.message; }
+        try { E.vegetation.define('bad2', { geometry: geo, positions: [[1, 'a']] }); out.refusedEntry = 'no throw'; } catch (err) { out.refusedEntry = err.message; }
+        try { E.vegetation.define('bad3', { geometry: geo, densityMap: { data: [1], width: 1, height: 1 } }); out.refusedMap = 'no throw'; } catch (err) { out.refusedMap = err.message; }
+        E.dispose();
+        // terrain chunks: the list travels to the worker inside the rule and comes back placed on the terrain height
+        const T = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-pos-t' });
+        T.use(terrain({ viewChunks: 1, height: (x, z) => 2 }), vegetation());
+        T.vegetation.define('post', { geometry: geo, positions: [[5, 5], [6, -3]], rule: { sink: 0 } });
+        await T.start();
+        await settle(T, () => all(T, 'post').length >= 2);
+        out.terrain = all(T, 'post').map(p => [Math.round(p[0]), Math.round(p[2]), Math.round(p[1] * 100) / 100]).sort((a, b) => a[0] - b[0]);
+        T.dispose();
+        return out;
+      });
+      check('[guard] positions plants exactly the listed spots at the ground height, ids are the list indexes, scale from the entry',
+        JSON.stringify(r.post) === JSON.stringify([[3, 4, 1, 0], [-10, 7, 1, 1], [20, -5, 1, 2]]) && Math.abs(r.postScale - 2) < 1e-5, JSON.stringify(r));
+      check('[guard] densityMap function: nothing where it is 0, the plain rule species still grows there', r.half.n > 0 && !r.half.westAny && r.half.plainWest > 0, JSON.stringify(r.half));
+      check('[guard] densityMap image (data + size, terrain heightmap keys): bare where the image is 0, grows where it is 1', r.img.n > 0 && r.img.farEast === 0 && r.img.farWest > 0, JSON.stringify(r.img));
+      check('a listed plant is found by instanceAt with its list index as id', r.hitId === 0, String(r.hitId));
+      check('scatter-only rule keys next to positions are refused by name', /rule\.perChunk/.test(r.refusedRule || ''), r.refusedRule);
+      check('a malformed positions entry is refused with its index', /positions\[0\]/.test(r.refusedEntry || ''), r.refusedEntry);
+      check('a density image without size is refused', /size/.test(r.refusedMap || ''), r.refusedMap);
+      check('[guard] on terrain the positions reach the worker and land on the terrain height', JSON.stringify(r.terrain) === JSON.stringify([[5, 5, 2], [6, -3, 2]]), JSON.stringify(r.terrain));
     },
   },
 ];

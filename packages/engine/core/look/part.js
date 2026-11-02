@@ -11,14 +11,19 @@
 // A part author never touches `_` fields: write / ownerValue / extend / retract / has / resolved are the public author methods (review r2 #2).
 import { closest } from '../validate.js';
 import { codedError } from '../errorHints.js';
-import { REPLACE, HOOK, addParams, topOf, allKeys, sourceOf, refresh, quietRefresh, commit, retractKeys, aliased } from './layers.js';
+import { REPLACE, HOOK, addParams, topOf, allKeys, sourceOf, refresh, quietRefresh, commit, retractKeys } from './layers.js';
 import { setOn, setStyle, writeLayer, dropLayer, takeVerb, example } from './write.js';
+import { manualVerb, ownedOf } from '../owned.js';
+import { defineState, live } from './state.js';
 
 export { REPLACE };
+
+/** A patch(name, value) hook value as an object: a bare GLSL string becomes { glsl }, a { glsl, uniforms, ... } spec passes through */
+export const hookSpec = v => (typeof v === 'string' ? { glsl: v } : v);
 export { disposeLooksOf } from './layers.js';
 const SPEC_FIELDS = ['id', 'group', 'module', 'object', 'params', 'style', 'read', 'apply', 'applyAtStart', 'hooks', 'applyHook', 'noPatch',
-  'replace', 'applyReplace', 'noReplace', 'docs', 'normalize', 'validate', 'verbs', 'appliesTo', 'extraSignatures'];
-const SIG = { set: 'set(params, { owner })', patch: 'patch(name, glsl, { owner })', replace: 'replace(impl, { owner })' };
+  'replace', 'applyReplace', 'noReplace', 'docs', 'normalize', 'validate', 'verbs', 'appliesTo', 'extraSignatures', 'info'];
+const SIG = { set: 'set(params, { owner })', patch: 'patch(name, glsl, { owner })', replace: 'replace(impl, { owner })', manual: 'manual(keys?, on = true)' };
 
 class LookPart {
   /** @param {any} e @param {any} spec see defineLookPart */
@@ -29,6 +34,7 @@ class LookPart {
     this._style = new Map();
     this._owners = { game: new Map(), debug: new Map() };   // owner -> { values: Map, seq, at }
     this._resolved = new Map();
+    this._rev = 0;   // goes up whenever refresh changed a resolved key, so a per-frame reader rebuilds its view only after a change
     this._driven = new Map();   // key -> who writes it every frame from the style (sky keyframes drive the sun)
   }
   /** Catalog / override id: 'look.<part>' */
@@ -40,7 +46,20 @@ class LookPart {
     const s = this._spec, out = { set: SIG.set };
     if (s.hooks) out.patch = s.verbs?.patch?.signature ?? SIG.patch;
     if (s.replace) out.replace = s.verbs?.replace?.signature ?? SIG.replace;
+    if (ownedOf(this._e, s.id).length) out.manual = SIG.manual;
     return Object.assign(out, s.extraSignatures);   // a part's own verb (look.post.add), listed so the catalog shows it
+  }
+
+  /**
+   * The error for a verb this part does not have. Every part says it the same way: why not, the part's own pointer (noPatch / noReplace) or a set()
+   * example, then the verbs it does have with their call shapes (the same list as engine.catalog('look.<part>').signatures), so the next call is
+   * always on screen and no part's message can drift from what the part offers.
+   * @param {string} verb @param {string} why @param {string} [hint]
+   */
+  _lacks(verb, why, hint) {
+    const has = Object.values(this.signatures).map(sig => `${this.id}.${sig}`).join(', ');
+    const next = (hint ?? `Change it with ${this.id}.set(${example(this)})`).replace(/\.\s*$/, '');   // a hint may end in a period: not two
+    return codedError('look-verb', `${this.id}.${verb}(): ${why}. ${next}. Verbs it has: ${has}`);
   }
 
   /**
@@ -57,7 +76,7 @@ class LookPart {
    */
   patch(name, glsl, o) {
     const hooks = this._spec.hooks;
-    if (!hooks) throw codedError('look-verb', `${this.id}.patch(): this part has no GLSL hooks. ${this._spec.noPatch ?? `Change it with ${this.id}.set(${example(this)})`}`);
+    if (!hooks) throw this._lacks('patch', 'this part has no GLSL hooks', this._spec.noPatch);
     if (this._spec.verbs?.patch?.take) return this._take('patch', [...arguments]);
     if (!(name in hooks) && !hooks['*']) {   // hooks['*'] = any name the game picks (post: patch(name, fuse) makes an effect)
       const c = closest(name, Object.keys(hooks)); throw codedError('look-verb', `${this.id}.patch('${name}'): unknown hook${c ? ` (did you mean '${c}'?)` : ''}; hooks: ${Object.keys(hooks).join(', ')}`);
@@ -66,15 +85,29 @@ class LookPart {
   }
   /**
    * Take the whole part over (what it accepts and what is lost: engine.catalog('look.<part>').replace); null gives it back
-   * @param {any} impl @param {{ owner?: string }} [o]
+   * @param {any} impl @param {{ owner?: string, [option: string]: any }} [o] owner, plus the part's own options (catalog replace.options)
    */
   replace(impl, o) {
-    if (!this._spec.replace) throw codedError('look-verb', `${this.id}.replace(): this part cannot be swapped whole. ${this._spec.noReplace ?? `Change it with ${this.id}.set(${example(this)})`}`);
+    if (!this._spec.replace) throw this._lacks('replace', 'this part cannot be swapped whole', this._spec.noReplace);
     if (this._spec.verbs?.replace?.take) return this._take('replace', [...arguments]);
+    // options besides owner are the part's own (look.ground: { effects: false }); a key the part does not take throws instead of doing nothing
+    const extra = Object.keys(o ?? {}).filter(k => k !== 'owner'), takes = this._spec.replace.options ?? [];
+    const bad = extra.find(k => !takes.includes(k));
+    if (bad) throw codedError('look-param', `${this.id}.replace(impl, { ${bad} }): ${takes.length ? `options are owner, ${takes.join(', ')}` : 'the only option is owner'}`);
+    if (extra.length) this._spec.replace.withOptions(impl, o);
     return this.write(o?.owner ?? 'game', { [REPLACE]: impl });
   }
-  /** Remove every layer `owner` wrote on this part (game and debug); returns how many layers were removed (the same count shape as engine.debug.clear) */
-  clear(owner) { let n = 0; for (const l of ['game', 'debug']) if (this._drop(l, owner)) n++; return n; }
+  /**
+   * Take properties the engine writes on its own (every frame or on a timer) for the game, or hand them back. Taken, the engine stops writing them
+   * and the three.js object is yours (engine.lights.sun.intensity = 3 sticks); manual(keys, false) or the returned remove() gives them back.
+   * Keys match by dotted prefix ('sun' takes sun.intensity and sun.color); none = every one of this part. Which keys: describe().owned.
+   * A direct write without manual() does the same (the engine yields and warns once), manual() just says it on purpose.
+   * @example engine.look.lights.manual('sun'); engine.lights.sun.intensity = 3;   engine.look.lights.manual('sun', false);   engine.look.fog.manual();
+   * @param {string | string[]} [keys] @param {boolean} [on] @returns {{ remove(): void }}
+   */
+  manual(keys, on) { return manualVerb(this._e, this._spec.id, keys, on); }
+  /** @internal drop every layer owner wrote (game and debug), for tests and tools that did not keep the handle; returns how many */
+  _clear(owner) { let n = 0; for (const l of ['game', 'debug']) if (this._drop(l, owner)) n++; return n; }
   /** The value in effect for a key (after all layers) */
   value(key) { return this._resolved.get(key); }
   /** Only what the game or a debug override set for a key, else undefined (a driver writes its own value, then this one over it) */
@@ -90,10 +123,13 @@ class LookPart {
     for (const k of keys) by ? this._driven.set(k, by) : this._driven.delete(k);
     this._refresh();
   }
-  /** For a driver, after it wrote its keys this frame: re-apply the driven keys a game or debug layer set, so those layers win (cheap: a few keys) */
-  applyTop() {
+  /** Who drives key every frame ('sky'), or null (part authors: a function value is only evaluated on a driven key) */
+  driven(key) { return this._driven.get(key) ?? null; }
+  /** For a driver, after it wrote its keys this frame: re-apply the driven keys a game or debug layer set, so those layers win (cheap: a few keys); ctx evaluates fn values */
+  applyTop(ctx) {
     let v = null, changed = null;
-    for (const k of this._driven.keys()) { const t = topOf(this, k); if (t) { (v ??= {})[k] = t.value; (changed ??= new Set()).add(k); } }
+    // a function value (fn keys) is evaluated here with the frame context, so a game's ({ state }) => ... wins over the keyframes the same way a number does
+    for (const k of this._driven.keys()) { const t = topOf(this, k); if (t) { (v ??= {})[k] = ctx ? live(t.value, ctx) : t.value; (changed ??= new Set()).add(k); } }
     if (changed) this._spec.apply?.(v, changed);
   }
 
@@ -147,11 +183,12 @@ class LookPart {
  * @param {any} engine @param {{ id: string, group?: string, module?: string, object?: () => any, params?: Record<string, any>, style?: () => object,
  *   read?: () => object, apply?: (values: object, changed: Set<string>) => void, applyAtStart?: boolean,
  *   hooks?: Record<string, { signature?: string, scope?: string[], example?: string }>, applyHook?: (name: string, glsl: any) => void, noPatch?: string,
- *   replace?: { accepts: string, loses?: string[] }, applyReplace?: (impl: any) => void, noReplace?: string, docs?: string[],
+ *   replace?: { accepts: string, loses?: string[], options?: string[], withOptions?: (impl: any, o: object) => void }, applyReplace?: (impl: any) => void, noReplace?: string, docs?: string[],
  *   validate?: (key: string, value: any) => string | null | undefined,
  *   verbs?: Record<'patch' | 'replace', { signature: string, take: (bad: (msg: string) => never, ...args: any[]) => [Record<string, any>, string?] }>,
- *   appliesTo?: string }} spec validate: why a value is wrong (checked before anything is written); verbs: a verb with its own call shape
- *   (materials.replace(role, impl)); appliesTo: what a change reaches when not everything ('new materials')
+ *   appliesTo?: string, info?: () => Record<string, object> }} spec validate: why a value is wrong (checked before anything is written); verbs: a verb with its own call shape
+ *   (materials.replace(role, impl)); appliesTo: what a change reaches when not everything ('new materials'); info: read-only rows describe().look
+ *   adds beside the params (look.env's source: which map, does it follow the time)
  * @returns {LookPart}
  * @example
  * defineLookPart(engine, { id: 'glow', group: 'screen', module: 'myGlow', object: () => glowPass,
@@ -162,7 +199,8 @@ class LookPart {
 export function defineLookPart(engine, spec) {
   for (const k of Object.keys(spec ?? {})) if (!SPEC_FIELDS.includes(k)) { const c = closest(k, SPEC_FIELDS); throw codedError('look-param', `defineLookPart: unknown spec field ${k}${c ? ` (did you mean ${c}?)` : ''}; fields: ${SPEC_FIELDS.join(', ')}`); }
   if (!/^[a-z][\w]*$/i.test(spec?.id ?? '')) throw codedError('look-param', `defineLookPart: id is the part name, e.g. 'fog' (engine.look.fog, catalog id 'look.fog'); got ${JSON.stringify(spec?.id)}`);
-  const look = aliased(engine.look ??= {});
+  const look = engine.look ??= {};
+  defineState(look, engine);   // engine.look.state(patch): the game's half of the frame context function values read (state.js)
   if (look[spec.id] && look[spec.id]._spec.module !== spec.module) throw codedError('look-param', `defineLookPart('${spec.id}'): engine.look.${spec.id} is already registered (by ${look[spec.id]._spec.module ?? 'core'})`);
   const part = new LookPart(engine, spec);
   part._setStyle(spec.style?.());

@@ -77,7 +77,13 @@ const smokeSpecs = dir => readdirSync(dir).filter(f => f.endsWith('.html')).sort
 async function specsOf(dir) {
   const file = dir === ENGINE ? ENGINE_SPECS : join(dir, 'tests', 'specs.mjs');
   // scenario tests (tests/scenarios/*.json, see scenario.mjs) join the workspace's own items
-  return [...(existsSync(file) ? (await import(pathToFileURL(file).href)).specs : smokeSpecs(dir)), ...scenarioSpecs(dir)];
+  const all = [...(existsSync(file) ? (await import(pathToFileURL(file).href)).specs : smokeSpecs(dir)), ...scenarioSpecs(dir)];
+  // A repeated name means an item would run twice in this one process. That is never wanted and it hides bugs: the second run sees
+  //   process-wide state the first one left (warn-once sets, module caches), so a check can pass or fail depending on the order. It
+  //   happened once when a merge conflict kept both copies of the spread line in the engine's specs.mjs. Stop here, before any browser.
+  const dup = [...new Set(all.map(s => s.name).filter((n, i, a) => a.indexOf(n) !== i))];
+  if (dup.length) throw new Error(`${file}: ${dup.length} test item name(s) appear more than once (a spec array spread twice?): ${dup.slice(0, 5).map(n => JSON.stringify(n)).join(', ')}${dup.length > 5 ? ', ...' : ''}`);
+  return all;
 }
 
 let pass = 0, fail = 0, ran = 0;
@@ -110,7 +116,8 @@ if (only.length && !plan.some(p => p[1].length) && !toolTests.length && !packs.s
   process.exit(1);
 }
 
-const browser = await launchBrowser();
+const browser = await launchBrowser();   // software rendering: the same pixels on every machine (forced elsewhere only by THREEDOG_RENDER / --gpu)
+if (browser.render.kind === 'gpu') console.log('Note: tests forced onto the hardware GPU: pixel comparisons and the slowdown alarm baseline are recorded on software');
 try {
   for (const [dir, list] of plan) {
     if (!list.length) continue;

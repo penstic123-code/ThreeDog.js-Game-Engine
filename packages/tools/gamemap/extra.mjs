@@ -1,5 +1,5 @@
 // GAMEMAP sections for what a game declares in code rather than in one content file (used by packages/tools/gamemap.mjs):
-// the content inventory line, object templates (content/templates.js + props { template } + engine.spawn), grids (grids.add / grids.define)
+// the content inventory line, object templates (content/templates.js + props { template } + engine.content.spawn), grids (grids.add / grids.define)
 // and the game's own events (interface GameEvents in the game's *.d.ts, merged with the events its code emits and listens to).
 import { walk as walkAll, read, uniq, balanced, balancedAll, splitTop } from '../lib/text.mjs';
 
@@ -21,7 +21,7 @@ export function contentLine(c) {
 /** ops the game defines in code (ops.define('name', …)) */
 export const opsDefined = code => new Set([...code.matchAll(/ops\.define\(\s*'([\w.:-]+)'/g)].map(m => m[1]));
 
-/** Object templates: one table row per template, with placements (props { template }) and runtime spawns (engine.spawn('name', …)) */
+/** Object templates: one table row per template, with placements (props { template }) and runtime spawns (engine.content.spawn('name', …)) */
 export function templateLines(c, files, g) {
   const t = c.templates || {};
   const names = Object.keys(t);
@@ -29,7 +29,7 @@ export function templateLines(c, files, g) {
   const code = files.map(f => [f, noComments(read(f))]);
   const ops = opsDefined(code.map(x => x[1]).join('\n'));
   const spawned = {};
-  for (const [f, text] of code) for (const m of text.matchAll(/\b(?:engine|e)\.spawn\(\s*'([\w-]+)'/g)) (spawned[m[1]] ||= new Set()).add(g(f));
+  for (const [f, text] of code) for (const m of text.matchAll(/\b(?:engine|e)\.content\.spawn\(\s*'([\w-]+)'/g)) (spawned[m[1]] ||= new Set()).add(g(f));
   const fn = v => typeof v === 'function' ? '(fn)' : v;
   const show = v => v === undefined ? '—' : typeof v === 'function' ? '(fn)' : typeof v === 'object' ? JSON.stringify(v, (k, x) => typeof x === 'function' ? '(fn)' : x) : String(v);
   const rows = names.map(name => {
@@ -42,7 +42,7 @@ export function templateLines(c, files, g) {
     const state = d.state && typeof d.state === 'object' ? Object.entries(d.state).map(([k, v]) => `${k}=${show(v)}`).join(', ') : '—';
     return `| ${name} | ${show(fn([d.model].flat()[0]))} | ${show(d.collide)} | ${it ? `${show(it.op)} / ${show(it.label)}${op}` : '—'} | ${box} | ${cut(state, 60)} | ${inst} |`;
   });
-  const lost = Object.keys(spawned).filter(n => !names.includes(n)).map(n => `- ⚠ engine.spawn('${n}') in ${[...spawned[n]].join(', ')}: no such template`);
+  const lost = Object.keys(spawned).filter(n => !names.includes(n)).map(n => `- ⚠ engine.content.spawn('${n}') in ${[...spawned[n]].join(', ')}: no such template`);
   return ['| Template | Model | Collide | Interact (op / label) | Container | State (defaults) | Instances |', '|---|---|---|---|---|---|---|', ...rows, ...lost];
 }
 

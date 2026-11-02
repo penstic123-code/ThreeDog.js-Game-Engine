@@ -13,10 +13,10 @@ export const specs = [
         const can = engine.ops.can('inventory.transfer', { from: 'player', to: 'g-box', item: 'g-sword', n: 3 });
         const can1 = engine.ops.can('inventory.transfer', { from: 'player', to: 'g-box', item: 'g-sword', n: 1 });
         // drop: the pickup's reference height is the actor's y, not 0
-        const p = engine.player.position, seen = [], orig = I.spawnPickup.bind(I);
-        I.spawnPickup = (id, at, o) => { seen.push(at[1]); return orig(id, at, o); };
+        const p = engine.player.position, seen = [], P = engine.pickups, orig = P.spawn.bind(P);
+        P.spawn = (at, o) => { seen.push(at[1]); return orig(at, o); };
         engine.ops.run('inventory.drop', { item: 'g-sword', n: 1 });
-        I.spawnPickup = orig;
+        P.spawn = orig;
         // grid.place: fields may not set id / kind / position
         let grid = null;
         if (engine.grids) {
@@ -28,7 +28,7 @@ export const specs = [
       });
       check('3 entries into 1 free slot is refused as full; 1 is fine', r.can === 'full' && r.can1, JSON.stringify(r));
       check('drop passes the actor height as the floor reference', Math.abs(r.dropY - r.py) < 1e-6, JSON.stringify(r));
-      check('grid.place refuses fields that set id (when grids is installed)', r.grid === null || r.grid.reason === 'badFields', JSON.stringify(r));
+      check('grid.place refuses fields that set id (when grids is installed)', r.grid === null || r.grid.code === 'badFields', JSON.stringify(r));
     },
   },
   {
@@ -66,26 +66,115 @@ export const specs = [
     },
   },
   {
-    name: 'gameplay guards: interaction ids are the record id for NPCs, pickups and entities; triggers bind F4 only in dev; flow.transition does not autosave by default (open world) [guard]',
+    name: 'gameplay guards: interaction ids are the record id for NPCs, pickups and template instances; triggers bind F4 only in dev; flow.transition does not autosave by default (open world) [guard]',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const W = fn => engine.ops.allow(fn), p = engine.player.position;
-        engine.entities.define('g-box', { create: () => new engine.THREE.Group(), interact: { label: 'open', onUse: () => {} } });
-        const ent = W(() => engine.entities.spawn('g-box', { position: { x: p.x + 1, z: p.z } }));
-        const pick = W(() => engine.inventory.spawnPickup('film', { x: p.x - 1, z: p.z }, { id: 'g-film' }));
-        engine.world.refresh(); engine.step(0.1);
+        if (!engine.ops.defs.has('gBox.open')) engine.ops.define('gBox.open', { run: () => {} });
+        engine.content.load({ templates: { gBox: { model: 'rock', interact: { label: 'open', op: 'gBox.open' } } } });
+        const ent = W(() => engine.content.spawn('gBox', { x: p.x + 1, z: p.z }));
+        const pick = W(() => engine.pickups.spawn({ x: p.x - 1, z: p.z }, { give: 'film', id: 'g-film' }));
+        engine.world.refresh(); await engine.world.whenReady; engine.step(0.1);
         const ids = engine.interactions.items.map(i => i.id);
         let saved = 0;
         const off = engine.events.on('save:written', () => saved++);
         if (engine.flow) await engine.flow.transition(() => {}, { fade: 0.01 });
         off.remove();
-        return { ent: ent.id, entIn: ids.includes(ent.id), pickIn: ids.includes(pick.worldId), npc: ids.some(id => engine.world.get(id)?.kind === 'npc'), npcs: engine.world.query({ kind: 'npc' }).length,
+        return { ent: ent.id, entIn: ids.includes(ent.id), pickIn: ids.includes(pick.id), npc: ids.some(id => engine.world.get(id)?.kind === 'npc'), npcs: engine.world.query({ kind: 'npc' }).length,
           triggerKey: engine.input.actions.has('triggersDebug'), saved, flow: !!engine.flow };
       });
-      check('entity and pickup interactions are named by their record id', r.entIn && r.pickIn && /^entity:g-box#\d+$/.test(r.ent), JSON.stringify(r));
+      check('template instance and pickup interactions are named by their record id', r.entIn && r.pickIn && /^gBox#\d+$/.test(r.ent), JSON.stringify(r));
       check('dev builds bind the trigger debug toggle', r.triggerKey, JSON.stringify(r));
       check('transition saves nothing unless asked', !r.flow || r.saved === 0, JSON.stringify(r));
+    },
+  },
+  {
+    // 拾取物的形状和 content 的 props / 模板走同一个 protoOf：生成器只建一次、同几何共享、影子按同一套规则；文件模型也行；风格包不再给形状
+    name: '[guard] pickups: the shape is a model name through the content model path (generator built once + shared + shadows, file model works); item mesh and style.pickup.model are gone',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev, page }) {
+      await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
+      const r = await ev(async () => {
+        const { THREE, toGLB } = threedogTest, I = engine.inventory, W = fn => engine.ops.allow(fn), p = engine.actorPosition();
+        let n = 0;
+        const url = URL.createObjectURL(new Blob([await toGLB(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshStandardMaterial()), engine)], { type: 'model/gltf-binary' })) + '#pk.glb';
+        engine.assets.manifest({ name: 'pk-test', models: { pkGem: () => { n++; return new THREE.OctahedronGeometry(0.3, 0); }, pkFile: url } });
+        I.define('pk-a', { name: 'a', model: 'pkGem', color: 0xff0000 }); I.define('pk-b', { name: 'b', model: 'pkGem', color: 0x00ff00 }); I.define('pk-c', { name: 'c', model: 'pkFile' });
+        const ids = ['pk-a', 'pk-b', 'pk-c'].map((id, i) => W(() => engine.pickups.spawn({ x: p.x + 1 + i, z: p.z + 1 }, { give: id, id: 'pk-' + i })).id);
+        engine.world.refresh(); engine.step(0.1);
+        const inter = ids.every(id => engine.interactions.items.some(x => x.id === id));   // the interaction is there at once, before the model arrives
+        await __t.until(() => ids.every(id => engine.world.view(id)?.children.length), 15000).catch(() => {});
+        const meshes = id => { const s = []; engine.world.view(id)?.traverse(o => { if (o.isMesh) s.push(o); }); return s; };
+        const [a, b, c] = ids.map(meshes);
+        let meshErr = null; try { I.define('pk-old', { mesh: () => null }); } catch (e) { meshErr = e.code; }
+        // vegetation's code API takes the same model name content does: same resolver, same cached geometry, no second build
+        const sp = await engine.vegetation.define('pkVeg', { model: 'pkGem', rule: { perChunk: 0 } });
+        const veg = { same: !!sp && sp.geometry === a[0]?.geometry, builds: n };
+        return { veg, n, inter, a: a.length, b: b.length, c: c.length, sameGeo: !!a[0] && a[0].geometry === b[0]?.geometry,
+          colors: [a[0]?.material.color.getHex(), b[0]?.material.color.getHex()], role: a[0]?.material.userData?.purpose ?? null,
+          shadow: [a[0]?.castShadow, a[0]?.receiveShadow, c[0]?.castShadow], viaCache: !!engine.assets._cachedSrc?.has('pkGem'),
+          meshErr, styleModel: 'model' in (engine.style.pickup || {}) };
+      });
+      check('[guard] a generator model name: built once for two items, geometry shared, through the cached path content uses', r.n === 1 && r.sameGeo && r.viaCache, JSON.stringify(r));
+      check('a bare-geometry generator gets the item color per item (pickup material), and casts + receives shadows like a template', r.colors[0] === 0xff0000 && r.colors[1] === 0x00ff00 && r.shadow[0] && r.shadow[1], JSON.stringify(r));
+      check('vegetation.define(name, { model: "pkGem" }) resolves the name like content: the same cached geometry, no second build', r.veg.same && r.veg.builds === 1, JSON.stringify(r.veg));
+      check('a file model name works for pickups (and casts by the same shadow rule)', r.c > 0 && r.shadow[2] === true, JSON.stringify(r));
+      check('the pickup interaction exists at once (the model fills in later)', r.inter, JSON.stringify(r));
+      check('[guard] item mesh is refused with the fix (item-mesh); a style carries no pickup shape', r.meshErr === 'item-mesh' && !r.styleModel, JSON.stringify(r));
+    },
+  },
+  {
+    // guard for the shared xz index (core/cells.js) under interactions: picks must equal a full scan of every item (fixed, following an Object3D, on a
+    // moving NPC or pickup model, ties to the earlier added), and a pick must not measure every far item again (the index is not bypassed)
+    name: '[guard] interactions index: nearest pick equals a full scan for fixed, followed, NPC and moved pickup items across 24 spots; ties go to the earlier added; far items are not measured per pick',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev, page }) {
+      await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
+      const r = await ev(async () => {
+        const THREE = engine.THREE, I = engine.interactions, A = fn => engine.ops.allow(fn), h = engine.actorPosition().clone();
+        engine.pause();
+        I.pickMode = 'nearest';
+        engine.inventory.define('ix-berry', { name: 'berry' });
+        const at = (i, k, r0, r1) => { const a = i * k, r = r0 + (i * 7919 % 97) / 97 * (r1 - r0); return { x: h.x + Math.cos(a) * r, z: h.z + Math.sin(a) * r }; };
+        for (let i = 0; i < 300; i++) { const q = at(i, 2.39996, 2, 40); I.add({ x: q.x, y: engine.surface(q.x, q.z), z: q.z }, { id: 'ix-f' + i, label: 'f' }); }
+        const followers = [];
+        for (let i = 0; i < 20; i++) { const q = at(i, 1.3, 2, 30), o = new THREE.Object3D(); o.position.set(q.x, engine.surface(q.x, q.z), q.z); engine.scene.add(o); followers.push(o); I.add(o, { id: 'ix-o' + i, label: 'o' }); }
+        const pk = [];
+        for (let i = 0; i < 40; i++) { const q = at(i, 0.77, 2, 35); pk.push(A(() => engine.pickups.spawn(q, { give: 'ix-berry', id: 'ix-p' + i })).id); }
+        for (let i = 0; i < 20; i++) { const q = at(i, 2.1, 3, 25); engine.npcs.add({ id: 'ix-n' + i, name: 'n' + i, behavior: 'wander', mind: { radius: 4 }, position: q, interact: { op: 'npc.talk' } }); }
+        // two at the very same spot: the earlier added must win
+        const tie = { x: h.x + 60, y: engine.surface(h.x + 60, h.z + 60), z: h.z + 60 }; I.add(tie, { id: 'ix-tie-a', label: 't' }); I.add(tie, { id: 'ix-tie-b', label: 't' });
+        engine.world.refresh(); await engine.world.whenReady; engine.step(0.2);
+        const P = new THREE.Vector3(), Q = new THREE.Vector3();
+        const scan = () => {
+          const p = engine.actorPosition(); P.set(p.x, p.y ?? 0, p.z);
+          let best = null, bs = Infinity;
+          for (const it of I.items) { const d = it.object.getWorldPosition(Q).distanceTo(P); if (d < it.radius && it.enabled(it.object, { actor: engine.actor }) && d < bs) { best = it; bs = d; } }
+          return best?.id ?? null;
+        };
+        const diffs = [], seen = new Set();
+        for (let k = 0; k < 24; k++) {
+          const q = at(k, 2.7, 0, 30);
+          followers.forEach((o, i) => { o.position.x += Math.sin(k + i) * 3; o.position.z += Math.cos(k + i) * 3; });
+          A(() => engine.world.move(pk[k % pk.length], [q.x + 0.6, engine.surface(q.x + 0.6, q.z), q.z]));   // a pickup record moves next to the spot
+          engine.player.placeAt(q); engine.step(1 / 30);
+          const got = I.pick()?.id ?? null, want = scan();
+          if (got) seen.add(got.replace(/\d+$/, ''));
+          if (got !== want) diffs.push({ k, got, want });
+        }
+        engine.player.placeAt({ x: tie.x, z: tie.z }); engine.step(1 / 30);
+        const tieGot = I.pick()?.id;
+        // far from everything except the tie: a pick measures the followed objects and what the index finds near, not the 380 others
+        let calls = 0; const gw = THREE.Object3D.prototype.getWorldPosition;
+        THREE.Object3D.prototype.getWorldPosition = function (t) { calls++; return gw.call(this, t); };
+        try { I.pick(); } finally { THREE.Object3D.prototype.getWorldPosition = gw; }
+        return { diffs, seen: [...seen], tieGot, calls };
+      });
+      check('nearest pick equals a full scan at every spot (fixed, followed, NPC, moved pickup)', r.diffs.length === 0, JSON.stringify(r.diffs));
+      check('the spots really hit several kinds of item', r.seen.length >= 3, JSON.stringify(r.seen));
+      check('a tie goes to the earlier added', r.tieGot === 'ix-tie-a', JSON.stringify(r));
+      check('a pick far from the crowd measures only followed objects and nearby candidates', r.calls <= 25, String(r.calls));
     },
   },
 ];

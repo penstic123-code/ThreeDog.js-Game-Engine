@@ -2,6 +2,8 @@
 // and that packages/engine/index.js does not export (so it is not public API) → warning. A stray export makes the AI think it is usable API.
 // Criteria: collect each file's import { a as b } from 'path' / export { a } from / export * from via the syntax tree, resolve the path to a file, and record which names of whom are used.
 //   import * as ns and dynamic import(): any name in the target file that appears as a same-named word in the importer counts as used (conservative, no false positives).
+//   const { a, b } = await import(<computed path>): tools load engine files by a path built at run time (pathToFileURL(abs(...))), which cannot be
+//   resolved to a file; the destructured names count as used in every engine file (conservative: a same-named export elsewhere also passes).
 // Convention: a module's implementation class (export class Sky) pairs one-to-one with the same-named interface type in the d.ts; exporting it eases cross-reference, so it is not reported (only classes without a same-named type in the d.ts are).
 // Limitation: another project (a game repo) importing engine internals directly is invisible here.
 import { ts, parse, visit, engineFiles, projectFiles, resolveImport, lineOf, read, strValue, dtsFiles, E, P } from './_lib.mjs';
@@ -12,12 +14,10 @@ const ALLOW = [
   [E('modules/terrain/chunkWorker.js'), '*', 'Worker entry, loaded through new Worker'],
   // The content vocabulary is for Node tools: content-check/load.mjs imports it dynamically via the path in paths.mjs (the path is not hard-coded), so static analysis cannot see it
   [P.CONTENT_RULES_REL, 'CONTENT_FILES', 'tools (content check, game map) import it dynamically'],
-  [P.CONTENT_RULES_REL, 'REFS', 'the API doc generator (apidoc.mjs) imports it dynamically'],
   [P.CONTENT_RULES_REL, 'CLOCK_RE', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'mergeRules', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'describeCond', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'describeEffect', 'tools (content check, game map) import it dynamically'],
-  [P.CONTENT_IDS_REL, 'missingIds', 'threedog content ids (content-ids.mjs) imports it dynamically'],
 ];
 
 function exportsOf(sf) {
@@ -37,9 +37,16 @@ export default {
     const used = new Map();          // file → Set(names); '*' means all
     const loose = new Map();         // file → [importer files] (namespace / dynamic import)
     const mark = (f, n) => { if (!used.has(f)) used.set(f, new Set()); used.get(f).add(n); };
+    const dynNames = new Set();      // names destructured from import(<computed path>), target unknown
+    const isImportCall = x => x && ts.isCallExpression(x) && x.expression.kind === ts.SyntaxKind.ImportKeyword;
     for (const file of projectFiles()) {
       const sf = parse(file);
       visit(sf, n => {
+        if (ts.isVariableDeclaration(n) && n.initializer && ts.isObjectBindingPattern(n.name)) {
+          const init = ts.isAwaitExpression(n.initializer) ? n.initializer.expression : null;
+          if (isImportCall(init) && strValue(init.arguments[0]) == null)
+            for (const el of n.name.elements) { const k = el.propertyName ?? el.name; if (ts.isIdentifier(k)) dynNames.add(k.text); }
+        }
         let spec = null, clause = null, star = false, dyn = false;
         if (ts.isImportDeclaration(n)) { spec = strValue(n.moduleSpecifier); clause = n.importClause; }
         else if (ts.isExportDeclaration(n) && n.moduleSpecifier) { spec = strValue(n.moduleSpecifier); star = !n.exportClause; clause = n.exportClause; }
@@ -67,7 +74,7 @@ export default {
       const text = read(file);
       for (const { name, node } of exportsOf(sf)) {
         if (ts.isClassDeclaration(node) && dtsTypes.has(name)) continue;
-        if (u.has(name) || ALLOW.some(([f, n]) => f === file && n === name)) continue;
+        if (u.has(name) || dynNames.has(name) || ALLOW.some(([f, n]) => f === file && n === name)) continue;
         if ((loose.get(file) || []).some(g => new RegExp(`\\b${name}\\b`).test(read(g)))) continue;
         const selfUse = (text.match(new RegExp(`\\b${name}\\b`, 'g')) || []).length > 1;
         out.push({ level: 'warn', file, line: lineOf(node), msg: `exports ${name}, but no file in the project imports it and packages/engine/index.js does not export it`,

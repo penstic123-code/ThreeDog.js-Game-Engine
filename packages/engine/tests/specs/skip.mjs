@@ -1,5 +1,5 @@
 // engine.skip（跳过时间）：和 step 慢慢推结果一致、跨天跨季节、跳过中按键无效。
-// 守的是"不许绕开"：跳过必须走分段补算（定时按顺序、不重复），不能直接改 clock.now / sky.timeOfDay 了事。
+// 守的是"不许绕开"：跳过必须走分段补算（定时按顺序、不重复），不能直接改 clock.now / cal.timeOfDay 了事。
 export const specs = [
   {
     name: 'SKIP 跳过时间：跳 12 小时与 step 慢慢推一致（作物、NPC、定时、店门）',
@@ -7,9 +7,9 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip(); engine.pause();
-        const W = engine.world, sky = engine.sky, P = engine.player.position;
-        engine.clock.timeScale = 10;                       // 12 sky hours = 180 game seconds = 18 fixed seconds
-        sky.timeOfDay = 0.75; engine.step(0.05, { render: false });
+        const W = engine.world, cal = engine.calendar, P = engine.player.position;
+        engine.mod('clock.rate', { owner: 'test', set: 10 });                       // 12 sky hours = 180 game seconds = 18 fixed seconds
+        cal.timeOfDay = 0.75; engine.step(0.05, { render: false });
         W.simulate('skcrop', { far: (rec, dt) => { rec.g += dt; } });
         W.add({ id: 'sk-near', kind: 'skcrop', position: { x: P.x + 2, z: P.z }, g: 0 });
         W.add({ id: 'sk-far', kind: 'skcrop', position: { x: P.x + 400, z: P.z }, g: 0 });
@@ -20,14 +20,14 @@ export const specs = [
         const arm = () => [
           engine.clock.every(35, () => log.push('every')),
           engine.clock.after(100, () => log.push('after')),
-          sky.at('22:00', () => log.push('at22')),
-          sky.at('03:00', () => log.push('at3')),
-          sky.daily(d => log.push('daily' + d)),
-          sky.between('05:00', '09:00', { on: () => log.push('open'), off: () => log.push('close') }),
+          cal.at('22:00', () => log.push('at22')),
+          cal.at('03:00', () => log.push('at3')),
+          cal.daily(d => log.push('daily' + d)),
+          cal.between('05:00', '09:00', { on: () => log.push('open'), off: () => log.push('close') }),
         ];
         const read = () => ({ log: log.join(','), near: W.get('sk-near').g, far: W.get('sk-far').g, npc: { ...W.get('sk-npc').position },
-          now: engine.clock.now, clock: sky.clock, day: sky.day, ts: engine.clock.timeScale });
-        const t0 = engine.clock.now, gap = ((0.25 - sky.timeOfDay) % 1 + 1) % 1 * sky.dayLength;   // game seconds to 06:00
+          now: engine.clock.now, clock: cal.clock, day: cal.day, ts: engine.clock.rate });
+        const t0 = engine.clock.now, gap = ((0.25 - cal.timeOfDay) % 1 + 1) % 1 * cal.dayLength;   // game seconds to 06:00
         let hs = arm();
         engine.step(gap / 10, { render: false });
         const slow = read();
@@ -38,7 +38,7 @@ export const specs = [
         engine.skip({ to: '06:00' }).then(v => { done = v; });   // fade 0: time has moved on return
         const fast = read();
         hs.forEach(h => h.remove());
-        engine.clock.timeScale = 1;
+        engine.mod('clock.rate', { owner: 'test', set: 1 });
         return { slow, fast, farEvery: W.farEvery, sync: fast.clock === '06:00', want: (fast.now - t0) / 10 };
       });
       const { slow, fast } = r, tol = r.farEvery + 1e-6;
@@ -56,18 +56,18 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip(); engine.pause();
-        const sky = engine.sky, log = [];
-        sky.day = 7; sky._season = sky.season; sky.timeOfDay = 23 / 24; engine.step(0.05, { render: false });
-        const startSeason = sky.season;
-        const hs = [sky.daily(d => log.push('d' + d)), sky.at('12:00', d => log.push('n' + d)),
-          sky.onSeason('summer', () => log.push('summer')), sky.onSeason('autumn', () => log.push('autumn')),
+        const cal = engine.calendar, log = [];
+        cal.day = 7; cal._season = cal.season; cal.timeOfDay = 23 / 24; engine.step(0.05, { render: false });
+        const startSeason = cal.season;
+        const hs = [cal.daily(d => log.push('d' + d)), cal.at('12:00', d => log.push('n' + d)),
+          cal.onSeason('summer', () => log.push('summer')), cal.onSeason('autumn', () => log.push('autumn')),
           engine.events.on('day:start', d => log.push('new' + d)), engine.events.on('time:skip', e => log.push('skip' + Math.round(e.seconds)))];
-        engine.skip({ seconds: 8 * sky.dayLength });
+        engine.skip({ seconds: 8 * cal.dayLength });
         hs.forEach(h => h.remove());
         const bad = engine.ops.run('time.skip', { seconds: 0 });
         let threw = '';
         try { engine.skip({}); } catch (err) { threw = err.message; }
-        return { log, startSeason, season: sky.season, day: sky.day, clock: sky.clock, bad, threw, dayLength: sky.dayLength };
+        return { log, startSeason, season: cal.season, day: cal.day, clock: cal.clock, bad, threw, dayLength: cal.dayLength };
       });
       const days = [8, 9, 10, 11, 12, 13, 14, 15];
       const want = days.flatMap(d => [`new${d}`, ...(d === 8 ? ['summer'] : d === 15 ? ['autumn'] : []), `d${d}`, `n${d}`]).concat(`skip${8 * r.dayLength}`);
@@ -82,7 +82,7 @@ export const specs = [
     async run({ check, ev, page }) {
       await ev(() => {
         engine.timeline.skip(); engine.pause();
-        engine.sky.timeOfDay = 0.5; engine.step(0.1, { render: false });
+        engine.calendar.timeOfDay = 0.5; engine.step(0.1, { render: false });
         window.__sk = { p0: { ...engine.player.position }, done: false, t0: engine.clock.now };
         engine.saves.remove('sk-auto');
         engine.skip({ seconds: 60, fade: 0.2, save: 'sk-auto' }).then(() => { window.__sk.done = true; });

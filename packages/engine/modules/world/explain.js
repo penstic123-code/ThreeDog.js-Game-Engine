@@ -8,4 +8,4 @@ export function worldExplain(e, t, out) {
   out.state = { ...t.fields, position: t.position };
   Object.assign(out.rules, { blocksMovement: rec.collide ?? false, pickable: rec.static !== false, interact: null, note: RULES_NOTE });
 }
-export const RULES_NOTE = 'blocksMovement = the collision shape (box / circle) walkers stop at; blocking sight is not modelled by the engine';
+const RULES_NOTE = 'blocksMovement = the collision shape (box / circle) walkers stop at; blocking sight is not modelled by the engine';

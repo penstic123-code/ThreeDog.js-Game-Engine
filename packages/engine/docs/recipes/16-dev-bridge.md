@@ -1,4 +1,8 @@
-# Dev bridge: operate the running game from the terminal (npx threedog describe / step / press / op...)
+# Dev bridge: operate the running game from the terminal (threedog describe / step / press / op...)
+
+**In this recipe**: 1. Usage · 2. Notes · 2b. A scripted playthrough, and three kinds of check · 3. Windows / PowerShell notes ·
+3b. Speed, a session, and checks in one call · 4. Let describe see the game's own state · 5. Safety · 6. Reuse in scenario tests ·
+7. Describe snapshots instead of screenshots · 8. Errors carry a code, a fix and a doc page · 9. Reusable scenarios · 10. MCP server
 
 Purpose: after changing code, don't write a playwright script or take a screenshot; just ask "what does the game look like now", advance time, press
 keys, change state. Output is English, three lines or fewer, to save tokens.
@@ -9,7 +13,7 @@ the level, edit `content/*.js` (templates, props, npcs…) or the level model an
 ## 1. Usage
 ```
 npm run dev -- my-game          # terminal A: start the dev server first (for the engine example just npm run dev)
-npx threedog describe -w my-game     # terminal B: look at the scene (inside the game folder you can omit -w)
+threedog describe -w my-game     # terminal B: look at the scene (inside the game folder you can omit -w)
 ```
 No browser needs to be open: when the first command arrives, the dev server itself opens a headless page with Playwright (`?threedog-headless`; the
 game only advances on step); once you open the page in a browser, commands go to the real page you clicked most recently.
@@ -33,7 +37,7 @@ game only advances on step); once you open the page in a browser, commands go to
 | `explain op shop.buy shop=trader item=ammo` / `explain quest my-quest` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and events around it), or where a quest is stuck (`engine.explain`) | `✗ shop.buy {...} cannot run now: noMoney (Not enough gold)` |
 | `scenario barter` | Run `tests/scenarios/barter.json` (recipes/23-ops.md section 7); prints failed checks, leaves it paused | `✓ barter: 6 checks passed` |
 | `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state) | `✓ Set · 18:30 day 1 · rain` |
-| `js "engine.sky.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js` | `✓ 0.77` |
+| `js "engine.calendar.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js` | `✓ 0.77` |
 | `snap name` | Screenshot to `.threedog/shots/name.png` | `✓ Screenshot .threedog/shots/t1.png (163 KB)` |
 | `snap-describe save` / `snap-describe diff` + name | Describe snapshot instead of a screenshot: save the gameplay part of `describe()` as a baseline, or print how the running page differs from it (section 7) | `✗ describe "market" differs from the baseline in 1 place:` |
 | `errors` | Page errors added since last time (full log: `.threedog/errors.log`). Known classes get a cause + recipe line (section 8) | `✗ 1 new error` / `✗ 3 new errors` / `✓ No new errors` |
@@ -41,13 +45,17 @@ game only advances on step); once you open the page in a browser, commands go to
 | `reload` / `resume` | Reload the page / resume real-time running | |
 
 ## 2. Notes
-- **Smallest scenario** (`tests/scenarios/coins.json` <!-- r18-ignore-line -->, then `npx threedog verify coins` or `scenario coins`; `verify` with no file says "Have: none"):
+- **Smallest scenario** (`tests/scenarios/coins.json` <!-- r18-ignore-line -->, then `threedog verify coins` or `scenario coins`; `verify` with no file says "Have: none"):
   `{ "name": "coins", "url": "/", "state": { "pos": "6,4" }, "steps": [ { "step": 1 }, { "expect": { "inventory.items.coin": 1 } } ] }`
-- **Teleport + `step 1` collects `auto` pickups** (`state pos=`, `player.placeAt`): the pickup check runs in the fixed step after any move.
-- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the file name (no overwrite); `shot --look` prints mean luminance / saturation and the share of overexposed (>=250) and dark (<=20) pixels.
-- **`step` / `press` pause the real page**; resume with `npx threedog resume` when done (they pause as owner `threedog`, so a game's own pause stays). A headless page only advances on step anyway.
-- **Run state** is printed after `step` / `press` / `skip` / `resume` and by `npx threedog status`: `running`, `title-frozen` (title screen waiting for start), `test-paused` (only the bridge paused it), `paused(by owners)` (every `pause` / `freeze` owner, e.g. `ui-inventory`) or `loading`. The same object is `engine.runState` and `describe().time.run`: `{ state, by, blockedBy }`, where `blockedBy` lists what keeps input from driving the game (opaque input contexts such as `win-settings`, `ui-title`, `dialogue`, `cutscene`, plus `error` and `loading`); the bridge and the MCP tools copy it as-is. A test that pauses passes `pause(owner, { kind: 'test' })` to read as `test-paused`.
-- **Who holds what**: `describe().time.heldBy` lists every pause, freeze, camera and debug-view holder in one shape `[{ owner, at }]` (`at` = file:line of the first take), so a stuck pause or a camera nobody gave back has a name.
+- **Teleport the player**: `threedog state "pos=40,-20"` on the bridge, `await engine.applyState({ pos: '40,-20' })` in a test or `js` (both wait for the
+  ground there to load). A bare `player.placeAt` from the bridge or a test is a gameplay write outside an op and prints the ops-guard warning; in the
+  game itself it belongs in an op (a teleporter pad). `step 1` after it collects `auto` pickups: the pickup check runs in the fixed step after any move.
+- **Ops with a reach** (`interaction.use`, `pickup.take`) check the player's distance as a key press would, also from the bridge: put the player next
+  to the thing first (`threedog state "pos=x,z"`), then `threedog op interaction.use id=gate`. A `tooFar` result carries `facts: { distance, radius, at }`.
+- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the file name (no overwrite); every shot prints the look numbers and hints (recipes/35 "Look check after every shot"; `--no-look` skips them).
+- **`step` / `press` pause the real page**; resume with `threedog resume` when done (they pause as owner `threedog`, so a game's own pause stays). A headless page only advances on step anyway.
+- **Run state** is printed after `step` / `press` / `skip` / `resume` and by `threedog status`: `running`, `title-frozen` (title screen waiting for start), `test-paused` (only the bridge paused it), `paused(by owners)` (every `pause` / `freeze` owner, e.g. `ui-inventory`) or `loading`. The same object is `engine.runState` and `describe().time.run`: `{ state, owners, blockedBy }`, where `blockedBy` lists what keeps input from driving the game (opaque input contexts such as `win-settings`, `ui-title`, `dialogue`, `cutscene`, plus `error` and `loading`); the bridge and the MCP tools copy it as-is. A test that pauses passes `pause(owner, { kind: 'test' })` to read as `test-paused`.
+- **Who holds what**: `describe().holds` lists every holder in one place: `pause / freeze / camera / debugView` as `[{ owner, at }]` (`at` = game clock time of the take, `engine.clock.now`, so two new games read the same), `input` (pushed contexts `[{ context, owner, pass }]`), `gates` (`input.gate` owners by action) and `stacks` (every other `engine.mod` quantity), so a stuck pause, a closed jump or a camera nobody gave back has a name.
 - **`snap` on a real page captures only the canvas** (not the HTML UI); on a headless page it captures the whole page. To see UI state use `describe`
   (`ui.windows`, dialogue).
 - **Keys go through `engine.input` like a real keyboard**: action names are translated to keyboard keys (gamepad buttons are ignored); when a window
@@ -66,34 +74,34 @@ game only advances on step); once you open the page in a browser, commands go to
 
 ## 2b. A scripted playthrough, and three kinds of check
 ```
-npx threedog state pos=0,0 time=12:00     # known start
-npx threedog hold moveForward 1.5         # walk (real key path, advances 1.5 s)
-npx threedog press interact               # one key press (~0.117 s)
-npx threedog step 2                       # let things happen
-npx threedog js "engine.player.position.x > 1"   # state assertion: read the ✓ true / false
-npx threedog snap after-walk              # only now look at pixels
+threedog state pos=0,0 time=12:00     # known start
+threedog hold moveForward 1.5         # walk (real key path, advances 1.5 s)
+threedog press interact               # one key press (~0.117 s)
+threedog step 2                       # let things happen
+threedog js "engine.player.position.x > 1"   # state assertion: read the ✓ true / false
+threedog snap after-walk              # only now look at pixels
 ```
 The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`, `{ "step": … }`, `{ "expect": { path: value } }` (section 9; no `hold` there).
 - **State checks** (`op`, `expect`, `describe`, `js`): fast and exact, but they skip input. They prove rules, not that the player can reach them.
 - **Simulated-input checks** (`press`, `hold`, `engine.input.simulate`): bridge key events through the game's input path, never a physical keyboard/mouse. `verify` prints `Layers: direct N, simulated-input N, real-browser-input 0 (not verified), visual 0`, then an **Evidence** block (each check's layer and what it asserted), a fixed **NOT proven** line (pointer lock and mouse look, real GPU/visuals, real FPS) and **Coverage** (ops run vs defined, refused ops counted as run and marked; modules in three groups: tested = an op ran, indirect = no op but describe section compared / save part changed / events fired, untested; lists capped at 10 with "+N more"; uses `engine.catalog()`). `threedog scenario` prints the same Coverage block; the full lists are in `--json` (`data.evidence.coverage`, `data.coverage`). Not yet covered: content ids (defined vs touched).
-- **Visual checks** (`snap`, `shot --look`): the only ones that see the look (exposure, color, UI overlap). Slowest; take them last.
+- **Visual checks** (`snap`, `shot`): the only ones that see the look (exposure, color, UI overlap). Slowest; take them last.
 
 ## 3. Windows / PowerShell notes
-- **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `npx threedog state "pos=1,-8"` (the bridge
+- **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `threedog state "pos=1,-8"` (the bridge
   reports an error and shows this tip when pos is not two numbers).
-- Wrap the whole js / eval expression in **double quotes** and use single quotes for strings inside: `npx threedog js "engine.vars.counter('score')"`.
+- Wrap the whole js / eval expression in **double quotes** and use single quotes for strings inside: `threedog js "engine.vars.counter('score')"`.
   PowerShell expands `$variables` inside double quotes; to pass `$` literally wrap the whole thing in single quotes.
 - **Write a command on a single line**: a multi-line here-string passed to a native command often silently returns nothing in PowerShell. Put several
-  statements on one line separated by semicolons, or write them to a file and use `npx threedog js --file script.js` (no quoting or newline worries).
+  statements on one line separated by semicolons, or write them to a file and use `threedog js --file script.js` (no quoting or newline worries).
 - Some terminal sandboxes (Bash) block commands containing the word `eval`: use `js`, not `eval`.
 - Paths containing Chinese characters are fine; inside the game folder you can omit `-w`.
 
 ## 3b. Speed, a session, and checks in one call
 
-Where the time goes: `npx` itself costs about 2.5 s on Windows (npm starts, resolves the bin) before threedog runs. Measured on the engine example, per command: `npx threedog describe` 3.2 s; `node node_modules/@threedog/tools/bin/threedog.mjs describe` 0.5 s; with a session 0.4 s (node start alone is 0.27 s).
+Where the time goes: `npx` itself costs about 2.5 s on Windows (npm starts, resolves the bin) before threedog runs. Measured on the engine example, per command: `threedog describe` 3.2 s; `node node_modules/@threedog/tools/bin/threedog.mjs describe` 0.5 s; with a session 0.4 s (node start alone is 0.27 s).
 
 - For a many-step test call the bin directly (`node node_modules/@threedog/tools/bin/threedog.mjs ...`, or `node_modules/.bin/threedog`) instead of `npx`.
-- `npx threedog session` starts a background process that serves later commands; it exits after 10 idle minutes (`--minutes N`), `session stop` ends it. Commands behave identically with or without it.
+- `threedog session` starts a background process that serves later commands; it exits after 10 idle minutes (`--minutes N`), `session stop` ends it. Commands behave identically with or without it.
 - `threedog js --file steps.js`: put the whole test in one file and run it once. Inside: `assert(cond, msg)`, `expect(v).toBe(x)` (also `toEqual`, `toBeCloseTo(x, tol)`, `toBeGreaterThan`), `step(seconds)`, `log(...)`, and `engine`. The output is only the failures and one summary line, exit code 1 on failure, so ten steps cost one round trip and a few tokens:
 
 ```js
@@ -108,7 +116,7 @@ A game's own state (score, number of targets, crops) is not in `describe` by def
 ```js
 engine.describe.add('range', () => ({ score, targets: targets.length }));   // the returned handle's .remove() cancels it
 ```
-After that `npx threedog describe range` shows it, and `describeText()` includes it too. The name must not collide with a core field (player, time...)
+After that `threedog describe range` shows it, and `describeText()` includes it too. The name must not collide with a core field (player, time...)
 or a module name; if the callback throws, only this item shows `{ error }` and the rest are unaffected.
 **Large games write their systems as modules** (see 14-custom-module.md) and use the module's `describe(e, ctx)` hook: the return value likewise goes
 into `describe().<module name>`, and `ctx.near()` can report "things nearby".
@@ -129,8 +137,8 @@ A baseline is the gameplay part of `engine.describe()` saved as JSON (`<workspac
 reordered `nearby` is not a change. A difference comes out as text, e.g. `player.x: 10 -> 14 (changed 4, tolerance 0.5)` or `nearby[Cow]: added {...}`.
 
 ```
-npx threedog snap-describe save market-noon --only player,quests,nearby     # write / overwrite the baseline
-npx threedog snap-describe diff market-noon --only player,quests,nearby     # compare the running page with it (exit code 1 if different)
+threedog snap-describe save market-noon --only player,quests,nearby     # write / overwrite the baseline
+threedog snap-describe diff market-noon --only player,quests,nearby     # compare the running page with it (exit code 1 if different)
 ```
 Options: `--only a,b.c` (compare just these fields; dotted paths allowed), `--ignore x.y` (extra fields to skip), `--tolerance 1`. Use the same
 `--only` for save and diff.
@@ -144,22 +152,23 @@ Update after an intended change: `threedog test <name> --update-snapshots` (writ
 Review the JSON diff in git before committing. Take a screenshot only when the look changed.
 
 ## 8. Errors carry a code, a fix and a doc page
-Every error the engine raises by name carries a stable **code**: `err.code`, `err.fix` (what to do) and `err.docs` (pages to read), and its message
-ends with `[code]` (e.g. `clock.every(seconds): ... [clock-interval]`), so logs show it too. Other known classes (missing `world()`, non-plain world
-data, duplicate ids, unknown option / name, module order, asset 404, ...) get the code of the hint whose pattern matches. Dev text adds `Code: …`
+Every error and warning the engine raises carries a stable **code**: `err.code`, `err.fix` (what to do) and `err.docs` (pages to read), and its message
+ends with `[code]` (e.g. `clock.every(seconds): ... [clock-interval]`), so logs show it too. Messages the engine does not write (JavaScript's
+`Cannot read properties of undefined`, `... is not a function`, a frozen definition, a browser resource 404) get the code of the hint whose pattern matches. Dev text adds `Code: …`
 (when the message has no tag), `Possible cause: …` and `Read: recipes/…, api/…`. The same data shows in `engine.error`
 (`{ where, message, code, fix, docs }`), the first line of `describeText()`, `.threedog/errors.log` and `threedog errors`. Tables:
 `core/errorCodes.js` (`ERROR_CODES`: code -> fix, doc pages; a code never changes meaning) and `core/errorHints.js` <!-- r18-ignore-line -->
-(`ERROR_HINTS`: pattern, cause, doc pages; `codedError(code, message)` builds a coded error). To cover a new class append an entry
-(a pattern class also needs a sample message in the engine repository's `packages/tools/tests/ai-tools.mjs`).
+(`ERROR_HINTS`: pattern, cause, doc pages, only for messages the engine does not write; `codedError(code, message)` builds a coded error).
+A new engine error gets an `ERROR_CODES` entry;
+a new pattern class also needs a sample message in the engine repository's `packages/tools/tests/ai-tools.mjs`.
 
 ## 9. Reusable scenarios
 `engine.applyState({ time, weather, pos, ... })` (also URL parameters) sets up a scenario in one call; `engine.defineState(name, params)` names a
 combination so tests and scenarios reuse it.
 
 ## 10. MCP server: Claude Code, Cursor and other MCP clients
-`npx threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
-`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `style_palette`, `style_compare`, `scenario`, `verify`, `reload`, `resume`;
+`threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
+`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `style_palette`, `style_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check` and `art_list`;
 tests/mcp.mjs fails when this list and the server's tools differ) and returns the same text as the
 command line; `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `style_palette` and `style_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
 (or start `npm run dev` yourself; a tool call without a server answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As
@@ -167,14 +176,13 @@ with the command line, the `op` and `step` tools change the current session and 
 
 Claude Code (in the game folder; in the engine repository add `-w name` after `mcp`):
 ```
-claude mcp add threedog -- npx threedog mcp
+claude mcp add threedog -- node node_modules/@threedog/tools/bin/threedog.mjs mcp
 ```
 Cursor, `.cursor/mcp.json` in the game folder: <!-- r18-ignore-line -->
 ```
-{ "mcpServers": { "threedog": { "command": "npx", "args": ["threedog", "mcp"] } } }
+{ "mcpServers": { "threedog": { "command": "node", "args": ["node_modules/@threedog/tools/bin/threedog.mjs", "mcp"] } } }
 ```
-On native Windows, wrap npx in cmd: `claude mcp add threedog -- cmd /c npx threedog mcp` (Cursor: `"command": "cmd", "args": ["/c", "npx", "threedog", "mcp"]`).
-Faster and the same on every OS: point it at the installed bin with plain node, from the project folder: `claude mcp add threedog -- node node_modules/@threedog/tools/bin/threedog.mjs mcp` (the server starts once per session, so npx only costs at start, but node also avoids `cmd /c`). `npm run new-game` writes a `.mcp.json` like this into the new game, so opening the game folder in Claude Code picks it up.
+Plain node is the same on every OS (no `cmd /c` on Windows). The server starts once per session. `npm run new-game` writes a `.mcp.json` like this into the new game, so opening the game folder in Claude Code picks it up.
 
 The `js` tool (arbitrary code in the page) is off by default; `threedog mcp --allow-js` enables it, for development only. Other options: `-w name`
 (workspace), `--page /<page>.html` (page path).

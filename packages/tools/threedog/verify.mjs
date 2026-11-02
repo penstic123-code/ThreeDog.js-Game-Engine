@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { runScenario, scenarioFiles, readScenario } from '../scenario.mjs';
 import { errorMark, errorsSince } from './errorlog.mjs';
+import { oneLine } from '../lib/oneline.mjs';
 import { ENGINE, TOOLS, rel } from '../paths.mjs';
 import { pageMark, pageCoverage, NOT_PROVEN, checkEvidence, coverage, evidenceText } from './evidence.mjs';
 
@@ -82,7 +83,7 @@ export async function verify(driver, dir, name) {
   const codes = [...new Set([...bad.map(r => r.detail), ...pageErrors.map(r => r.message)].flatMap(t => [...String(t).matchAll(/\[([a-z][\w-]*)\]/g)].map(m => m[1])))];
   const related = relatedTests(dir, codes), rerun = `threedog test "scenario: ${sc.name ?? name}"`;
   const why = bad.length ? `FAIL at step ${failedAt}: ${bad[0].label} → ${bad[0].detail}`.slice(0, 260)
-    : pageErrors.length ? `FAIL: the checks passed but the page logged ${pageErrors.length} error${pageErrors.length > 1 ? 's' : ''} during the run (E${pageErrors[0].id}: ${pageErrors[0].message.split('\n')[0].slice(0, 100)})`
+    : pageErrors.length ? `FAIL: the checks passed but the page logged ${pageErrors.length} error${pageErrors.length > 1 ? 's' : ''} during the run (E${pageErrors[0].id}: ${oneLine(pageErrors[0].message)})`
       : `PASS (${res.length} checks, all ${steps.length} steps ran; no real browser input verified)`;
   const lc = layerCounts(layers), layerLine = `Layers: direct ${lc.direct}, simulated-input ${lc['simulated-input']}, real-browser-input 0 (not verified), visual 0`;
   const text = [`${ok ? '✓' : '✗'} verify ${name}: ${why}`, `Tested: ${tested.join(' · ') || 'nothing but the scenario setup'}`, `Not tested: ${notTested.join(' · ')}`, layerLine, evidenceText(rows, cov),
@@ -94,7 +95,7 @@ export async function verify(driver, dir, name) {
 export async function scenarioReport(driver, dir, name) {
   const { res, rawCov, bad, checked, pageErrors } = await runMeasured(driver, dir, name), cov = coverage(rawCov, [...checked]), ok = !bad.length && !pageErrors.length;
   const head = bad.length ? bad.slice(0, 3).map(r => `✗ ${r.label} → ${r.detail}`).join('\n') : pageErrors.length
-    ? `✗ scenario ${name}: the checks passed but the page logged ${pageErrors.length} error(s) during the run (E${pageErrors[0].id}: ${pageErrors[0].message.split('\n')[0].slice(0, 100)})`
+    ? `✗ scenario ${name}: the checks passed but the page logged ${pageErrors.length} error(s) during the run (E${pageErrors[0].id}: ${oneLine(pageErrors[0].message)})`
     : `✓ scenario ${name}: ${res.length} checks passed`;
   return { ok, text: head + '\n' + evidenceText([], cov, { checks: false }), data: { scenario: name, passed: ok, checks: res, coverage: cov, pageErrors } };
 }

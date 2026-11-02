@@ -17,16 +17,21 @@
 import { describeText } from './describeText.js';
 import { inspect, explain } from './Inspect.js';
 import { inspectScene } from './InspectScene.js';
+import { inspectMaterials } from './InspectMaterials.js';
+import { inspectPerf } from './InspectPerf.js';
 import { codedError } from './errorHints.js';
 import { r1 } from './math.js';
 import { describeRender } from './describeRender.js';
 import { describeLook } from './look/report.js';
+import { describeOwned } from './owned.js';
 import { describeScene } from './thingOps.js';
+import { describeHolds } from './holds.js';
+import { renamedFields } from './validate.js';
 
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
 const RELATIVE = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];   // relative to the camera heading
-const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'look']);
+const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'look', 'owned']);
 const ACTIONS_MAX = 8;   // what the player can do now, with why not: saves the AI a guess for a few dozen characters   // the core's own fields
 const sector = a => Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8;
 
@@ -60,7 +65,8 @@ export function describeApi(e) {
   };
   /** Text of describe(): a summary by default; { path: 'world' } one part as JSON; { full: true } everything (see describeText.js) */
   const text = ({ full, path, ...opts } = {}) => describeText(api(opts), { full, path });
-  const inspectApi = Object.assign((at, opts) => inspect(e, at, opts), { scene: opts => inspectScene(e, opts) });
+  const inspectApi = Object.assign((at, opts) => inspect(e, at, opts), { scene: opts => inspectScene(e, opts),
+    materials: opts => inspectMaterials(e, opts), perf: opts => inspectPerf(e, opts) });
   return { describe: api, describeText: text, inspect: inspectApi, explain: q => explain(e, q) };
 }
 
@@ -71,12 +77,6 @@ function pendingModules(e) {
   return Object.keys(out).length ? { moduleStates: out } : {};
 }
 
-/** Everyone who holds the engine still or takes something over, in one shape: { pause|freeze|camera|debugView: [{ owner, at }] } (empty kinds left out) */
-function heldBy(e) {
-  const all = { pause: e._pausers, freeze: e._freezers, camera: e._cameraClaims, debugView: e.debug?._view };
-  return Object.fromEntries(Object.entries(all).map(([k, c]) => [k, c?.owners() ?? []]).filter(([, o]) => o.length));
-}
-
 /** Build the state object. radius: how far counts as "nearby"; extras: those registered by describe.add */
 function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
   const p = e.player?.position, center = at || p || e.focus, cam = e.camera;
@@ -84,10 +84,14 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
   const out = {
     ready: e.ready,
     error: e.error,                                    // gameplay error in dev / tests (gameplay is frozen)
+    ...(e._unhandled ? { unhandled: e._unhandled } : {}),   // dev: first promise rejection nobody caught, and how many followed (errors.js)
     disabledModules: [...e.disabledModules],           // presentation modules disabled after an error
     ...pendingModules(e),                              // { moduleStates } while a module is initializing or failed
     loading: e.loading.view(),                         // what is pending / failed and whether it blocks the start (Loading.js)
-    time: { elapsed: r1(e.elapsed), paused: e.paused, frozen: e.frozen, headless: e.headless, run: e.runState, heldBy: heldBy(e) },
+    time: { elapsed: r1(e.elapsed), paused: e.paused, frozen: e.frozen, ...(e.frozen ? { frozenBy: e.stacks.get('freeze').names() } : {}), headless: e.headless, run: e.runState,
+      channels: e.time.describe(), rate: e.clock.rate },
+    holds: describeHolds(e),                        // who holds pause / freeze / camera / input / other stacks (holds.js)
+    ...(e._wraps && Object.keys(e._wraps.describe()).length ? { wraps: e._wraps.describe() } : {}),   // engine.wrap: { 'inventory.add': [owners, outermost first] }
     player: p ? {
       x: r1(p.x), y: r1(p.y), z: r1(p.z),
       ground: e.groundType(p.x, p.z),
@@ -97,14 +101,16 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
       running: e.player.state === 'run',
       jumping: e.player.state === 'jump' || e.player.state === 'fall',
     } : null,
-    camera: { type: null, x: r1(cam.position.x), y: r1(cam.position.y), z: r1(cam.position.z),
+    // projection: engine.camera is an EngineCamera (core/engineCamera.js) that a rig may switch to orthographic; said here so the switch is never hidden
+    camera: { type: null, projection: cam.orthoSize ? 'orthographic' : 'perspective', ...(cam.orthoSize ? { orthoSize: r1(cam.orthoSize) } : {}), x: r1(cam.position.x), y: r1(cam.position.y), z: r1(cam.position.z),
       focus: { x: r1(e.focus.x), z: r1(e.focus.z) }, override: e.cameraOverride?.owner ?? null },
     nearbyRadius: radius,
     nearby: [],
-    ui: { windows: [...e.openWindows], inputLocked: !e.input.enabled, inputContexts: e.input.contexts, dialogue: null, parts: e.ui.describe() },   // windows include full-screen UI parts (title); parts: default / custom / off
+    ui: renamedFields({ windows: [...e.openWindows], inputLocked: !e.input.enabled, dialogue: null, parts: e.ui.describe() }, { inputContexts: 'describe().holds.input' }, 'describe().ui'),   // windows include full-screen UI parts (title); parts: default / custom / off
     cutscene: null,
     modules: [...e.modules.keys()],
     scene: describeScene(e),                           // engine.add / world things: counts by save tier and what will not survive a load (thingOps.js)
+    owned: describeOwned(e),                           // every property the engine writes on its own and who writes it now (owned.js)
     look: describeLook(e),                             // every look part key, its value and who set it (look/report.js)
     render: describeRender(e),                         // renderer / post / lights and who set each (describeRender.js)
     perf: {

@@ -78,8 +78,8 @@ export const specs = [
         const boom = O.run('test.boom');
         const err = engine.error && { where: engine.error.where, ops: engine.error.ops, frozen: engine.frozen };
         const halted = O.run('shop.buy', { shop: 'a', item: 'b' });
-        engine.error = null; engine.unfreeze('error');
-        engine.freeze('menu'); let seen; O.define('test.peek', { run: (e, a, ctx) => { seen = ctx.frozen; } }); const pk = O.run('test.peek'); engine.unfreeze('menu');
+        engine.error = null; engine.stacks.get('freeze').release('error');
+        engine.freeze('menu'); let seen; O.define('test.peek', { run: (e, a, ctx) => { seen = ctx.frozen; } }); const pk = O.run('test.peek'); engine.stacks.get('freeze').release('menu');
         for (const n of ['shop.buy', 'test.noReason', 'test.canWrites', 'test.loop', 'test.boom', 'test.peek']) O.defs.delete(n);
         h.remove();
         return { errs, boom, err, halted, pk, seen };
@@ -137,7 +137,7 @@ export const specs = [
         engine.saves.save('guard'); engine.saves.load('guard'); quiet.load = n() - reported.length;
         await engine.applyState({ time: '10:00' }); quiet.apply = n() - reported.length;
         console.warn = orig;
-        engine.resume();
+        engine._resume();
         return { quiet, warns: reported };
       });
       check('[guard] fixed step, op, save load and applyState write without a warning', Object.values(r.quiet).every(n => n === 0), JSON.stringify(r.quiet));
@@ -188,7 +188,7 @@ export const specs = [
         let typo = null;
         try { engine.content.load({ dialogues: { opst: { nodes: { start: { text: 'z', choices: [{ text: 'go', do: { op: ['test.cuont'] } }] } } } } }); } catch (e) { typo = e.message; }
         hd.remove();
-        engine.resume();
+        engine._resume();
         return { used, key: key && `${key.source}/${key.phase}/${key.args.id}`, click: click && click.source, gone, chose: chose && `${chose.args.index}/${chose.ok}`, line, noDlg, t1, t2, t3, n, shown, hidden, typo, acts, actText };
       });
       check('[guard] pressing E runs interaction.use (source player, phase fixed) with the interaction id; the prompt click runs it too', r.key === 'player/fixed/test-lever' && r.click === 'player' && r.used.length === 2, JSON.stringify(r));
@@ -289,18 +289,18 @@ export const specs = [
         ];
         const s = O.run('test.s'), o = O.run('test.o'), c = O.can('test.o');
         const lst = O.list({ available: true }).find(x => x.name === 'test.o');
-        const hist = O.recent('test.o').at(-1).code; let trap = ''; try { void s.reason; } catch (e) { trap = e.code; }
+        const hist = O.recent('test.o').at(-1).code; const noReason = !('reason' in s);
         hs.forEach(h => h.remove());
         const t0 = E.tick; let at = -1;
         const p = E.nextFixed(() => { at = E.tick; return 7; });
         const before = at; E.step(2);
         const val = await p;
-        const was = E.paused; E.pause('a'); E.pause('b'); E.resume('a');
-        const stillPaused = E.paused; E.resume('b');
-        const wasOwner = E.paused; E.pause('x'); E.resume('y'); const kept = E.paused; E.resume('x'); E.paused = was;
-        return { s: { ...s, trap }, o, c, lstFacts: lst?.facts, hist, before, at, t0, val, stillPaused, wasOwner, kept };
+        const was = E.paused; E.pause('a'); E.pause('b'); E._resume('a');
+        const stillPaused = E.paused; E._resume('b');
+        const wasOwner = E.paused; E.pause('x'); E._resume('y'); const kept = E.paused; E._resume('x'); E.paused = was;
+        return { s: { ...s, noReason }, o, c, lstFacts: lst?.facts, hist, before, at, t0, val, stillPaused, wasOwner, kept };
       });
-      check('string failure normalized: code only (reason is a trap), facts {}, nextActions []', r.s.code === 'noMoney' && r.s.trap === 'renamed-api' && Object.keys(r.s.facts).length === 0 && r.s.nextActions.length === 0, JSON.stringify(r.s));
+      check('string failure normalized: code only (no reason field), facts {}, nextActions []', r.s.code === 'noMoney' && r.s.noReason && Object.keys(r.s.facts).length === 0 && r.s.nextActions.length === 0, JSON.stringify(r.s));
       check('structured failure carries facts and nextActions through run, can, list; history keeps the code', r.o.code === 'noMoney' && r.o.facts.need === 5 && r.o.nextActions[0].op === 'test.s' && r.c.facts.need === 5 && r.lstFacts?.need === 5 && r.hist === 'noMoney', JSON.stringify(r));
       check('nextFixed runs at the next fixed step and resolves with the value', r.before === -1 && r.at === r.t0 + 1 && r.val === 7, JSON.stringify([r.before, r.at, r.t0, r.val]));
       check('pause owners: resume by another owner does not unpause; all owners must resume', r.stillPaused === true && r.kept === true, JSON.stringify([r.stillPaused, r.wasOwner, r.kept]));

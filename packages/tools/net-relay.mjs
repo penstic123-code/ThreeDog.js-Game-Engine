@@ -14,16 +14,18 @@ const PORT = Number(process.argv[2] || process.env.PORT || 8787);
 const MAX = 1 << 20;   // 1 MB per message: a snapshot of a big world fits; anything larger is likely abuse
 const rooms = new Map();   // room -> { host, peers: Map id -> socket, keys: Map key -> id, next }
 
-const server = createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('threedog net relay: connect with WebSocket\n'); });
+// the room count (never the names: a room name is its only password) lets an operator see that rooms close again
+const server = createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`threedog net relay: connect with WebSocket (${rooms.size} room(s) open)\n`); });
 server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key'];
   if (!key) return socket.destroy();
   const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
   const url = new URL(req.url, 'http://x'), name = url.pathname.slice(1) || 'default';
-  const room = rooms.get(name) ?? rooms.set(name, { host: null, peers: new Map(), keys: new Map(), next: 0 }).get(name);
   const conn = wrap(socket);
+  // only a host creates a room: a guest knocking on an empty name must not leave an entry behind (every random name would stay in memory forever)
   if (url.searchParams.has('host')) {
+    const room = rooms.get(name) ?? rooms.set(name, { host: null, peers: new Map(), keys: new Map(), next: 0 }).get(name);
     if (room.host) { conn.send({ closed: 'roomTaken' }); return conn.close(); }
     room.host = conn;
     conn.send({ hello: { id: 0 } });
@@ -31,7 +33,8 @@ server.on('upgrade', (req, socket) => {
     conn.onClose = () => { room.host = null; for (const p of room.peers.values()) { p.send({ closed: 'hostLeft' }); p.close(); } rooms.delete(name); };
     return;
   }
-  if (!room.host) { conn.send({ closed: 'noHost' }); return conn.close(); }
+  const room = rooms.get(name);
+  if (!room?.host) { conn.send({ closed: 'noHost' }); return conn.close(); }
   const asked = url.searchParams.get('key');
   const id = room.keys.get(asked) ?? ++room.next, secret = room.keys.has(asked) ? asked : randomBytes(12).toString('hex');
   room.keys.set(secret, id);
@@ -42,15 +45,18 @@ server.on('upgrade', (req, socket) => {
   conn.onMessage = d => room.host?.send({ from: id, msg: d?.msg });   // the relay stamps `from`; whatever the guest wrote is only `msg`
   conn.onClose = () => { if (room.peers.get(id) !== conn) return; room.peers.delete(id); room.host?.send({ leave: id }); };
 });
+// silent sockets: the host learns about a guest whose link died (leave) instead of waiting minutes for TCP; only sockets that use the heartbeat
+const live = new Set(), SILENT = 15000;
+setInterval(() => { const t = Date.now(); for (const c of live) if (c.beats && t - c.seen > SILENT) { live.delete(c); c.close(); } }, SILENT / 3).unref();
 server.listen(PORT, () => console.log(`threedog net relay on ws://localhost:${PORT}/<room>`));
 
 /** A tiny RFC 6455 connection: text frames, ping / pong, close. Enough for JSON messages between browsers. */
 function wrap(socket) {
-  let buf = Buffer.alloc(0), parts = [], closed = false;
+  let buf = Buffer.alloc(0), parts = [], partsLen = 0, closed = false;
   const c = {
-    onMessage: null, onClose: null,
+    onMessage: null, onClose: null, seen: Date.now(), beats: false,
     send(obj) { if (!closed) socket.write(frame(0x1, Buffer.from(JSON.stringify(obj)))); },
-    close() { if (closed) return; closed = true; socket.end(frame(0x8, Buffer.alloc(0))); c.onClose?.(); },
+    close() { if (closed) return; closed = true; live.delete(c); socket.end(frame(0x8, Buffer.alloc(0))); c.onClose?.(); },
   };
   socket.on('data', chunk => {
     buf = Buffer.concat([buf, chunk]);
@@ -68,14 +74,21 @@ function wrap(socket) {
       if (op === 0x8) return c.close();
       if (op === 0x9) { socket.write(frame(0xA, data)); continue; }
       if (op === 0xA) continue;
+      // the cap is per message, not per frame: without it endless continuation frames (each under MAX) would grow parts without bound
+      partsLen += data.length;
+      if (partsLen > MAX) return c.close();
       parts.push(data);
       if (!fin) continue;
-      const text = Buffer.concat(parts).toString('utf8'); parts = [];
+      const text = Buffer.concat(parts).toString('utf8'); parts = []; partsLen = 0;
       let d; try { d = JSON.parse(text); } catch { continue; }
+      c.seen = Date.now();
+      // heartbeat (transports.js): answered here, never forwarded; a socket that pinged once and then went silent is dropped by the sweep below
+      if (d?.ping) { c.beats = true; c.send({ pong: 1 }); continue; }
       c.onMessage?.(d);
     }
   });
-  socket.on('close', () => { if (!closed) { closed = true; c.onClose?.(); } });
+  socket.on('close', () => { if (!closed) { closed = true; live.delete(c); c.onClose?.(); } });
+  live.add(c);
   socket.on('error', () => socket.destroy());
   return c;
 }

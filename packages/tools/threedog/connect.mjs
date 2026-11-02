@@ -40,6 +40,8 @@ export function bridgeDriver(dir, { page } = {}) {
     evaluate: (src, arg) => call({ op: 'eval', src, arg }),
     screenshot: async () => Buffer.from(await call({ op: 'shot' }), 'base64'),
     reload: () => call({ op: 'reload' }),
+    /** Close the headless browser the bridge opened (if any); resolves true when one was open */
+    closeHeadless: () => call({ op: 'close-headless' }),
   };
 }
 

@@ -1,6 +1,6 @@
 # openWorld() preset — installs the open-world world and environment modules in one go
 
-- `openWorld(opts: OpenWorldOptions) → ModuleDef[]` — Open-world preset: world, terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only). camera is required (the bundle picks no camera feel). Every part takes false or its own options: openWorld({ seed: 7, camera: 'follow', rigid: false }). Add gameplay modules yourself
+- `openWorld(opts: OpenWorldOptions) → ModuleDef[]` — Open-world preset: world, terrain, vegetation, calendar, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug (dev only). camera is required (the bundle picks no camera feel). Every part takes false or its own options: openWorld({ seed: 7, camera: 'follow', rigid: false }). Add gameplay modules yourself
 - Options `OpenWorldOptions`:
   - `seed?: number` Terrain random seed
   - `viewChunks?: number` View distance (in chunks)
@@ -14,6 +14,7 @@
   - `world?: Part<typeof world>`
   - `terrain?: Part<typeof terrain>`
   - `vegetation?: Part<typeof vegetation>`
+  - `calendar?: Part<typeof calendar>`
   - `sky?: Part<typeof sky>`
   - `water?: Part<typeof water>`
   - `collision?: Part<typeof collision>`

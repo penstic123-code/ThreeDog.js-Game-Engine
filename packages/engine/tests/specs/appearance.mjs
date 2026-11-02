@@ -78,12 +78,14 @@ void main(){
   float n = threedogNoise(d.xz / (d.y + 0.3) * 3.0 + time * 0.01);
   return vec4(mix(shade, lit, n) * uTint, smoothstep(1.0 - cover, 1.0, n));
 }`;
-        const cust = make({ glsl, uniforms: { uTint: new THREE.Color(1, 0.5, 0.5), uPaper: new THREE.Texture() } });
+        const hook = (h) => { const x = make({}); if (x.error) return x; try { x.e.look.sky.patch('clouds', h); } catch (err) { x.e.dispose(); return { error: err.message }; } return { e: x.e, mat: x.e.sky.dome.material }; };
+        const cust = hook({ glsl, uniforms: { uTint: new THREE.Color(1, 0.5, 0.5), uPaper: new THREE.Texture() } });
         const ct = shot(cust.mat, 0.9);
         out.custom = { err: ct.err, differs: ct.px !== ref, hasUniform: !!cust.e.sky.uniforms.uTint };
         out.errKind = make({ kind: 'cumulous' }).error;
-        out.errGlsl = make({ glsl: 'float x;' }).error;
-        out.errUniform = make({ glsl, uniforms: { uBad: 'red' } }).error;
+        out.errGlsl = hook('float x;').error;
+        out.errUniform = hook({ glsl, uniforms: { uBad: 'red' } }).error;
+        out.errStyle = make({ glsl }).error;
         rt.dispose();
         return out;
       });
@@ -93,9 +95,10 @@ void main(){
       check('horizon / opacity / fade / noise 参数各自改变画面', r.horizon && r.opacity && r.fade && r.noise, JSON.stringify([r.horizon, r.opacity, r.fade, r.noise]));
       check("kind: 'cumulus' 编译通过、画面不同于默认", r.cumulus.err === '' && r.cumulus.differs, JSON.stringify(r.cumulus));
       check('cumulus 受光随太阳方向变化', r.cumulusSun);
-      check('自定义 glsl + uniforms（含贴图）编译通过、画面不同，uniform 在 sky.uniforms 里', r.custom.err === '' && r.custom.differs && r.custom.hasUniform, JSON.stringify(r.custom));
+      check('look.sky.patch(clouds, { glsl, uniforms })（含贴图）编译通过、画面不同，uniform 在 sky.uniforms 里', r.custom.err === '' && r.custom.differs && r.custom.hasUniform, JSON.stringify(r.custom));
       check('kind 写错：报错并给出可选值与相近名', /kind 'cumulous'.*'plane' \| 'cumulus'.*did you mean 'cumulus'/.test(r.errKind), r.errKind);
-      check('glsl 没定义 threedogClouds：报错给出函数签名', /must be GLSL that defines `vec4 threedogClouds\(vec3 dir/.test(r.errGlsl), r.errGlsl);
+      check('hook 没定义 threedogClouds：报错给出函数签名', /threedogClouds\(vec3 dir/.test(r.errGlsl || ''), r.errGlsl);
+      check("style.sky.clouds.glsl 不是选项：报错指向 look.sky.patch('clouds')", /look\.sky\.patch\('clouds'/.test(r.errStyle || ''), r.errStyle);
       check('uniforms 类型不支持：报错说明可用类型', /uniforms\.uBad must be a number/.test(r.errUniform), r.errUniform);
     },
   },

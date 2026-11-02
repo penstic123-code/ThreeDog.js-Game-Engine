@@ -3,8 +3,12 @@
 
 
 /** Wait for the engine to be ready (right after the page opens / reloads, commands arrive first) */
+// Same rule as the node-side wait (wait-engine.mjs): an uncaught error while there is no engine ends the wait at once and is quoted
+// (window.__threedogUncaught is kept by the dev error relay, vite/vite-error-relay.js); the "no engine" text only when nothing threw.
 export const READY = async () => {
-  for (let i = 0; i < 600 && !window.engine?.stateApplied; i++) await new Promise(r => setTimeout(r, 100));
+  const threw = () => !window.engine && window.__threedogUncaught?.length;
+  for (let i = 0; i < 600 && !window.engine?.stateApplied && !threw(); i++) await new Promise(r => setTimeout(r, 100));
+  if (threw()) throw new Error('the page threw before the engine existed: ' + window.__threedogUncaught.at(-1).slice(0, 400));
   if (!window.engine?.stateApplied) throw new Error('no ready engine in the page (is this a game page?)');
   return window.engine;
 };
@@ -13,22 +17,40 @@ export const READY = async () => {
  * One-line scenario: player position / time and weather / nearby / quest (runs in the page). Picks only what best tells "what is going on now"; ask describe
  * for details
  */
-const BRIEF = e => {
+export const BRIEF = e => {
   const d = e.describe(), p = d.player, t = d.time, w = d.weather, flags = [];
   if (d.cutscene) flags.push('in cutscene');
   if (d.ui?.dialogue) flags.push('in dialogue');
   if (d.ui?.windows?.length) flags.push('windows open ' + d.ui.windows.map(x => x.id || x).slice(0, 2).join(', '));
-  if (d.error) flags.push('engine error ' + String(d.error).slice(0, 60));
+  // engine.error is an object { where, message, code, at } (core/errors.js): String() of it printed "engine error [object Object]"
+  if (d.error) flags.push(`engine error ${d.error.code ? `[${d.error.code}] ` : ''}${d.error.where}: ${(m => m.length > 400 ? m.slice(0, 200) + ' … ' + m.slice(-197) : m)(String(d.error.message))}${d.error.at ? ` (${d.error.at})` : ''}`);
   if (d.loading?.failed?.length) flags.push('load failed ' + d.loading.failed.map(f => f.name).slice(0, 3).join(', ') + ' (threedog loading)');
   const l1 = [p && `Player (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) ${p.inWater ? 'in water' : 'on ' + (p.groundName || p.ground || 'ground')}`,
-    t && `${t.clock} day ${t.day}`, w?.label, ...flags].filter(Boolean).join(' · ');
+    t?.clock != null && `${t.clock}${t.day != null ? ' day ' + t.day : ''}`, w?.label, ...flags].filter(Boolean).join(' · ');
   const near = (d.nearby || []).slice(0, 3).map(n => `${n.name} ${n.dist} m${n.use ? ' (interactable)' : ''}`).join(', ');
   const q = d.quests?.active?.[0];
   return [l1, near && 'Nearby: ' + near, q && `Quest: ${q.title}: ${q.step}`].filter(Boolean);
 };
 
+/**
+ * What bears on a picture, printed under every `threedog shot` and `threedog snap` (one formatter for both): time and day / night, weather,
+ * the camera with its focus, and a page error or failed load if any. Why not describeText: a ~15-line state block after every picture buried
+ * the look lines; the rest is one command away (threedog describe). Self-contained: it is serialized into the page.
+ */
+export const PICTURE = e => {
+  const d = e.describe(), t = d.time, w = d.weather, c = d.camera, r = v => Math.round(v * 10) / 10;
+  const err = d.error && `engine error ${d.error.code ? `[${d.error.code}] ` : ''}${d.error.where}: ${String(d.error.message).slice(0, 200)}`;
+  return [
+    t?.clock != null && `Time: ${t.clock}${t.day != null ? `, day ${t.day}` : ''}${t.isDay != null ? (t.isDay ? ', daytime' : ', night') : ''}`,
+    w && `Weather: ${w.name ?? w.label}${w.progress < 1 ? `, changing (${Math.round(w.progress * 100)}%)` : ''}`,
+    c && `Camera: ${c.type}${c.override ? ` (override ${c.override})` : ''}, position (${r(c.x)}, ${r(c.y)}, ${r(c.z)})${c.focus ? `, focus (${r(c.focus.x)}, ${r(c.focus.z)})` : ''}`,
+    err, d.loading?.failed?.length && 'load failed ' + d.loading.failed.map(f => f.name).slice(0, 3).join(', ') + ' (threedog loading)',
+    'More: threedog describe (--full for the state summary)',
+  ].filter(Boolean);
+};
+
 /** The page's run state after a step or test command: running / title-frozen / test-paused / paused(by owners) / loading (engine.runState) */
-const RUN = e => { const r = e.runState; return 'Run state: ' + (r.state === 'paused' ? `paused(by ${r.by.join(', ')})` : r.state) + (r.state === 'test-paused' && !e.headless ? ' (threedog resume restores real-time running)' : ''); };
+const RUN = e => { const r = e.runState; return 'Run state: ' + (r.state === 'paused' ? `paused(by ${r.owners.join(', ')})` : r.state) + (r.state === 'test-paused' && !e.headless ? ' (threedog resume restores real-time running)' : ''); };
 
 /**
  * Value at a describe path: 'player.x', 'nearby[0].name', 'player.position' (-> { x, y, z }). The ONE parser: describe <path> and a scenario's
@@ -41,7 +63,8 @@ export const atPath = (obj, path) => String(path).split(/\.|(?=\[)/).filter(Bool
 const page = fn => `async a => { const engine = await (${READY})(); return (${fn})(a, engine, ${BRIEF}, ${RUN}, ${atPath}); }`;
 /** Only waits for window.engine to exist: `loading` must answer while start() is still running or stuck */
 const ATTACHED = async () => {
-  for (let i = 0; i < 300 && !window.engine?.loading; i++) await new Promise(r => setTimeout(r, 100));
+  for (let i = 0; i < 300 && !window.engine?.loading && !window.__threedogUncaught?.length; i++) await new Promise(r => setTimeout(r, 100));
+  if (!window.engine && window.__threedogUncaught?.length) throw new Error('the page threw before the engine existed: ' + window.__threedogUncaught.at(-1).slice(0, 400));
   if (!window.engine?.loading) throw new Error('no engine in the page (is this a game page? main.js should set window.engine = engine before start())');
   return window.engine;
 };
@@ -98,38 +121,46 @@ const PAGE = {
     return [`Skipped ${a.desc}` + (v === null || v === undefined ? '' : ' → ' + JSON.stringify(v).slice(0, 80)), ...brief(e).slice(0, 2), run(e)].join('\n');
   },
   state: async (a, e, brief) => { await e.applyState(a.params); e.step(1 / 60); return brief(e).slice(0, 2).join('\n'); },
-  eval: async (a, e) => {
-    const AsyncFunction = (async () => {}).constructor;   // the function body is async, so await works directly inside
-    let v;
-    try { v = await new AsyncFunction('engine', 'return (' + a.expr + ')')(e); }   // try it as an expression first
-    catch (err) { if (!(err instanceof SyntaxError)) throw err; v = await new AsyncFunction('engine',
-      a.expr)(e); }   // otherwise as statements (multi-line needs its own return)
-    if (v === undefined) return '(no return value)';
-    try { return JSON.stringify(v, (k, x) => typeof x === 'function' ? '[function]' : x, 1).slice(0, a.max); } catch { return String(v).slice(0, a.max); }
-  },
-  // steps: a script that checks things (js --file steps.js). Globals: engine, assert(cond, msg), expect(v).toBe/toEqual/toBeCloseTo/toBeGreaterThan(x, msg),
-  // step(seconds = 1/60) (pauses the real-time loop first, like the step command), log(...). A failed check is recorded and the script goes on;
-  // a throw ends it and counts as one failure. Returns the records; steps.mjs prints them.
+  // js / eval and checks scripts (js --file steps.js) share this one function, so both see the same globals: engine, step(seconds = 1/60) (pauses the
+  // real-time loop first, like the step command), log(...), assert(cond, msg), expect(v, msg).toBe/toEqual/toBeCloseTo/toBeGreaterThan(x, msg).
+  // Checks mode (the script calls assert / expect, steps.mjs): a failed check is recorded and the script goes on; a throw ends it and counts as one
+  // failure; returns the records, steps.mjs prints them. Plain mode (a.plain): the source is tried as an expression first, a throw propagates, and the
+  // return value comes back as JSON text cut at a.max.
   steps: async (a, e) => {
-    const AsyncFunction = (async () => {}).constructor, res = [], logs = [];
+    const AsyncFunction = (async () => {}).constructor, res = [], logs = [];   // the function body is async, so await works directly inside
     const show = v => { try { return JSON.stringify(v); } catch { return String(v); } };
     const rec = (ok, msg, detail) => { res.push({ ok, msg: msg || 'check ' + (res.length + 1), detail: ok ? '' : detail }); };
     const assert = (c, msg) => rec(!!c, msg, 'assert failed');
-    const expect = v => ({
-      toBe: (x, m) => rec(Object.is(v, x), m, `expected ${show(x)}, got ${show(v)}`),
-      toEqual: (x, m) => rec(show(v) === show(x), m, `expected ${show(x)}, got ${show(v)}`),
-      toBeCloseTo: (x, tol = 0.01, m) => rec(Math.abs(v - x) <= tol, m, `expected ${x} ± ${tol}, got ${show(v)}`),
-      toBeGreaterThan: (x, m) => rec(v > x, m, `expected > ${show(x)}, got ${show(v)}`),
+    // the message goes on the matcher (expect(v).toBe(x, msg)) or on expect (expect(v, msg).toBe(x)); the matcher's wins
+    const expect = (v, em) => ({
+      toBe: (x, m) => rec(Object.is(v, x), m ?? em, `expected ${show(x)}, got ${show(v)}`),
+      toEqual: (x, m) => rec(show(v) === show(x), m ?? em, `expected ${show(x)}, got ${show(v)}`),
+      toBeCloseTo: (x, tol = 0.01, m) => rec(Math.abs(v - x) <= tol, m ?? em, `expected ${x} ± ${tol}, got ${show(v)}`),
+      toBeGreaterThan: (x, m) => rec(v > x, m ?? em, `expected > ${show(x)}, got ${show(v)}`),
     });
     const step = (s = 1 / 60) => { e.pause('threedog', { kind: 'test' }); e.step(s, { render: false }); e.step(1 / 60); };
     const log = (...x) => logs.push(x.map(y => typeof y === 'string' ? y : show(y)).join(' '));
+    const run = body => new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', body)(e, assert, expect, step, log);
+    if (a.plain) {
+      let v;
+      try { v = await run('return (' + a.src + ')'); }   // try it as an expression first
+      catch (err) { if (!(err instanceof SyntaxError)) throw err; v = await run(a.src); }   // otherwise as statements (multi-line needs its own return)
+      let text = '(no return value)';
+      if (v !== undefined) {
+        try { text = JSON.stringify(v, (k, x) => typeof x === 'function' ? '[function]' : x, 1).slice(0, a.max); } catch { text = String(v).slice(0, a.max); }
+      }
+      return { logs, text };
+    }
     let value, threw = null;
-    try { value = await new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', a.src)(e, assert, expect, step, log); }
+    try { value = await run(a.src); }
     catch (err) { threw = String(err?.message ?? err); }
     return { res, logs, threw, value: value === undefined ? undefined : show(value)?.slice(0, 300) };
   },
-  resume: (a, e, brief, run) => { e.resume('threedog'); return 'Real-time running resumed\n' + run(e); },
-  settled: async (a, e) => { await e.ui.settled?.(); return true; },   // fading UI parts (the loading screen) finished: snap waits for it
+  resume: (a, e, brief, run) => { e._resume('threedog'); return 'Real-time running resumed\n' + run(e); },
+  // fading UI parts (the loading screen) finished: snap waits for it. Then, on a paused page (headless, step-driven), draw the current state once
+  // without advancing game time: at tick 0 nothing had been drawn yet and snap read a black canvas (shot steps one frame before reading; the
+  // same rule here, minus the game time, because snap must not change the running game)
+  settled: async (a, e) => { await e.ui.settled?.(); if (e.paused) e._render(1 / 60); return true; },
   raw: (a, e) => e.describe(),   // the whole describe() object, compared in node (describe-snapshot.mjs)
   // op: raw key=value strings are converted by the op's args shape (n=2 -> 2, position=3,0,-2 -> [3, 0, -2]);
   // runs as source 'bridge' between steps, so no game time passes
@@ -159,8 +190,11 @@ const PAGE = {
     return [shown.join(' · ') || 'Nothing on offer right now', freeLine].filter(Boolean).join('\n');
   },
   brief: (a, e, brief) => brief(e).join('\n'),
+  // a source string, not a function: PICTURE is spliced in here because the page wrapper only passes brief / run / at
+  picture: `(a, e) => (${PICTURE})(e).join('\\n')`,
   catalog: (a, e) => ({ data: e.catalog(a.id ?? (a.find ? { find: a.find } : undefined)), ids: [...e.modules.keys()], ops: [...e.ops.defs.keys()] }),
   inspect: (a, e) => {
+    if (a.at === 'materials' || a.at === 'perf') return e.inspect[a.at]().text;   // threedog inspect materials | perf (engine.inspect.materials / perf)
     const r = e.inspect(a.at), args = x => Object.entries(x || {}).map(([k, v]) => ` ${k}=${v}`).join('');
     return [`${r.actor} at (${r.at.x}, ${r.at.z}) · near: ${r.near.slice(0, 4).map(n => `${n.name} ${n.dist} m`).join(', ') || 'nothing'}`,
       r.ops.map(o => `${o.ok ? '✓' : '✗'} ${o.op}${args(o.args)}`

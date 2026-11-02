@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Camera look-up test</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#202022}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  #help{position:fixed;left:12px;top:12px;color:#ddd;font:13px system-ui;background:rgba(0,0,0,.5);padding:6px 10px;border-radius:6px;z-index:5}
+  #help a{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="help">Follow camera look-up: flat ground, roof, wall. Click to lock, move the mouse up.</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

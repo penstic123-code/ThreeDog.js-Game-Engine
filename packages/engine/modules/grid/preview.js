@@ -6,10 +6,10 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { screenToGround } from '../../core/screenToGround.js';
 import { warnOnce } from '../../core/validate.js';
+import { failure } from '../../core/opsFail.js';
 
-// tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot); a style pack may override them
+// tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot); a style may override them
 const OK = 0xe0e0e0, BAD = 0x3a3a3a;
-const STRINGS = { 'zh-CN': { 'grid.rotate': '旋转' }, en: { 'grid.rotate': 'Rotate' } };
 const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview cannot be turned by input. Bind it yourself (engine.input.define("{a}", ["KeyR"])), pass rotateKeys: ["KeyR"] / ...presets.keys.gridRotate, or pass rotate: false and call pv.rotate() from your own control';
 
 /** Default look: a flat translucent box over the footprint @internal */
@@ -50,19 +50,19 @@ export function makePreview(e, grids, opts) {
   const g = grids._must(grid), rule = grids._rule(item);
   // the engine binds no key itself: the rotate action comes from the game (input.define / bindings) or from rotateKeys (e.g. presets.keys.gridRotate)
   if (rotate && !e.input.actions.has(rotate)) {
-    if (rotateKeys?.length) { e.i18n.add(STRINGS); e.input.define(rotate, rotateKeys, 'grid.rotate'); }
+    if (rotateKeys?.length) { e.input.define(rotate, rotateKeys, 'grid.rotate'); }
     else warnOnce(NO_KEY.replaceAll('{a}', rotate));
   }
   const part = look === false ? null : typeof look === 'function' ? look(e) : boxLook(e);
   const h = {
     /** target cell or null (nothing under the pointer) */ cell: null,
     rotation: opts.rotation ?? 0,
-    ok: false, reason: 'noTarget',
+    /** why it cannot be placed: 'noTarget' or the grid.can() code; null when ok */ ok: false, code: 'noTarget',
     /** Turn by quarter turns (the rotate action does this too) */
     rotate(n = 1) { h.rotation = (((h.rotation + n) % 4) + 4) % 4; },
     /** Run grid.place with the shown cell and rotation; returns the op result */
     place(fields) {
-      if (!h.cell) return { ok: false, reason: 'noTarget' };
+      if (!h.cell) return failure('noTarget');
       return e.ops.run('grid.place', { grid, item, cell: h.cell, rotation: h.rotation, ...(fields ? { fields } : {}) });
     },
     /** Remove the preview (cancel convention: safe to call again) */
@@ -72,12 +72,12 @@ export function makePreview(e, grids, opts) {
       if (rotate && e.input.actions.has(rotate) && e.input.pressed(rotate)) h.rotate(1);
       const p = target(e, from, g);
       h.cell = p ? g.toCell(p) : null;
-      if (!h.cell) { h.ok = false; h.reason = 'noTarget'; part?.hide?.(); return; }
+      if (!h.cell) { h.ok = false; h.code = 'noTarget'; part?.hide?.(); return; }
       const r = g.can(item, h.cell, { rotation: h.rotation });
-      h.ok = r === true; h.reason = r === true ? null : r;
+      h.ok = r === true; h.code = r === true ? null : r;
       const [w, d] = h.rotation & 1 ? [rule.size[1], rule.size[0]] : rule.size;
       part?.update?.({ grid, item, cell: h.cell, rotation: h.rotation, cells: g.footprint(h.cell, rule.size, h.rotation),
-        center: g.toWorld(h.cell, rule.size, h.rotation), size: [w * g.cell, d * g.cell], ok: h.ok, reason: h.reason });
+        center: g.toWorld(h.cell, rule.size, h.rotation), size: [w * g.cell, d * g.cell], ok: h.ok, code: h.code });
     },
   };
   grids._previews.add(h);

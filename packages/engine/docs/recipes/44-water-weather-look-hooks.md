@@ -14,8 +14,9 @@ water: {
 }
 ```
 - `depthColor` replaces `color` (opacity stays). `'view'` is a fresnel-style blend by the view angle, `'wave'` blends by the wave height; neither
-  needs a depth texture. `curve` bends the blend (above 1 keeps more of the shallow color).
-- `foam` uses the same wave height as the vertices: `start` / `end` are fractions of the peak height (`glsl.waveMax`, default 0.29) where
+  needs a depth texture. `curve` bends the blend (above 1 keeps more of the shallow color). A color left out is a neutral gray (light for
+  `shallow`, dark for `deep`): the engine picks no water color, so set both.
+- `foam` uses the same wave height as the vertices: `start` / `end` are fractions of the peak height (the `wave` hook's `waveMax`, default 0.29) where
   foam begins and is full. Foam is opaque even on transparent water. All numbers are uniforms (`engine.water.material.uniforms.uFoamStart.value`).
 - **Shore foam is not built in.** An accurate foam line where water meets land needs the distance to the ground under each pixel: a depth
   pre-pass (a `DepthTexture` render target of the scene without water) or a terrain height lookup, both cost a full extra pass or a texture
@@ -27,17 +28,16 @@ water: {
 
 ## Water: replace the wave or the surface function (GLSL)
 ```js
-water: {
-  uniforms: { uBands: 4, uDeep: [0.05, 0.2, 0.4] },                // numbers, colors, [x, y(, z, w)] arrays, textures; in both stages
-  glsl: {
-    wave: `float threedogWaterWave(vec3 p, float t) {               // p = world position * waveScale, t = time * waveSpeed
+// style.water: { uniforms: { uBands: 4, uDeep: [0.05, 0.2, 0.4] } }   numbers, colors, [x, y(, z, w)] arrays, textures; in both stages
+// the GLSL goes through the look hooks only (style.water.glsl / water({ glsl }) throw and name them):
+engine.look.water.patch('wave', {
+    glsl: `float threedogWaterWave(vec3 p, float t) {               // p = world position * waveScale, t = time * waveSpeed
       return sin(p.x * 0.5 + t) * 0.2 + sin(p.z * 0.8 - t * 1.3) * 0.1; }`,   // height before waveHeight
     waveMax: 0.3,                                                   // its peak: foam and depthColor 'wave' divide by it
-    surface: `vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) {
+});
+engine.look.water.patch('surface', `vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) {
       float b = floor(facing * uBands) / uBands;                    // toon bands by view angle
-      return vec4(mix(uDeep, vec3(0.4, 0.8, 0.9), b), base.a); }`,
-  },
-}
+      return vec4(mix(uDeep, vec3(0.4, 0.8, 0.9), b), base.a); }`);
 ```
 - `wave` replaces only the vertex motion; the rest of the built-in water stays. Copying the default
   (`modules/water/surface.js`, `WAVE`) draws pixel for pixel the same.

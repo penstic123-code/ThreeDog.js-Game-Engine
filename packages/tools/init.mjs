@@ -1,37 +1,50 @@
-// threedog init [name]: turn the current folder into a game outside this repository (after `npm install threedog @threedog/tools ...`).
-// Flags as new-game: --example (the sample overlay), --style empty|<path-or-package>. Copies the new-game template (templates/game) without overwriting anything that exists, merges package.json (type, scripts, dependencies),
+// threedog init [folder]: turn a folder into a game outside this repository (after `npm install threedog @threedog/tools ...`). The folder is the
+// argument (created when missing; the game is named after it) or, without one, the current folder.
+// Flags as new-game: --open-world (generated ground, sky, follow camera, player), --example (the sample overlay, implies --open-world). Copies the new-game template (templates/game) without overwriting anything that exists, merges package.json (type, scripts, dependencies),
 // and writes .mcp.json so Claude Code opened in this folder finds the threedog MCP server by itself (plain node: no npx start-up, no `cmd /c`).
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, basename, resolve, relative, sep } from 'node:path';
 import { TOOLS } from './paths.mjs';
-import { parseArgs, applyStyleDeps, copyTemplates } from './lib/scaffold.mjs';
+import { parseArgs, applyDeps, copyTemplates } from './lib/scaffold.mjs';
 
-const dir = process.cwd();
+const USAGE = 'Usage: threedog init [folder] [--open-world] [--example]   (folder: where the game goes, default the current folder)';
 const parsed = parseArgs(process.argv.slice(2), process.env);
-if (parsed.error) { console.error(parsed.error + '\nUsage: npx threedog init [name] [--example] [--style empty|<path-or-package>]'); process.exit(1); }
-const name = (parsed.name ?? basename(dir)).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'game';
+if (parsed.error) { console.error(parsed.error + '\n' + USAGE); process.exit(1); }
+// 为什么参数是路径：以前它只当名字用，`threedog init .demo/town-farm` 在仓库根把 18 个文件写进了根目录，还合并了根的 package.json
+const dir = resolve(parsed.name ?? '.');
+// A package.json with "workspaces" is a repository root, not a game: the game's files and scripts would be mixed into the repo
+const pkgPath = join(dir, 'package.json');
+const pkg = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, 'utf8')) : null;
+if (pkg?.workspaces) { console.error(`✗ ${dir} is a repository root (its package.json has "workspaces"), not a game folder. Name the game's own folder: threedog init games/my-game\n${USAGE}`); process.exit(1); }
+mkdirSync(dir, { recursive: true });
+const name = basename(dir).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'game';
 const opts = { ...parsed, name };
 const made = [], kept = [];
 
-// The template layers (clean base; --example overlays the sample); a file that already exists is kept; package.json is merged below
+// The template layers (blank base; --open-world / --example overlay it); a file that already exists is kept; package.json is merged below
 const r = copyTemplates(dir, opts, { skipPackage: true });
 made.push(...r.made); kept.push(...r.kept);
 
-// package.json: keep what the folder has, add only what is missing (the style choice decides the style dependencies)
+// package.json: keep what the folder has, add only what is missing (the open-world choice adds its dependency)
 const tpl = JSON.parse(readFileSync(join(TOOLS, 'templates', 'game', 'package.json'), 'utf8'));
-const pkgPath = join(dir, 'package.json');
-const pkg = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, 'utf8')) : { name, version: '0.1.0', private: true };
-pkg.type ??= 'module';
-pkg.scripts = { ...tpl.scripts, ...pkg.scripts };
-pkg.dependencies = { ...applyStyleDeps(tpl.dependencies, opts.style), ...pkg.dependencies };
-writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+const out = pkg ?? { name, version: '0.1.0', private: true };
+out.type ??= 'module';
+out.scripts = { ...tpl.scripts, ...out.scripts };
+out.dependencies = { ...applyDeps(tpl.dependencies, opts), ...out.dependencies };
+writeFileSync(pkgPath, JSON.stringify(out, null, 2) + '\n');
 
 const mcp = join(dir, '.mcp.json');
 if (!existsSync(mcp)) {
-  writeFileSync(mcp, JSON.stringify({ mcpServers: { threedog: { command: 'node', args: ['node_modules/@threedog/tools/bin/threedog.mjs', 'mcp'] } } }, null, 2) + '\n');
+  // The tools running this command, when they are installed at or above the game (npm workspaces hoist them to the repo root's node_modules);
+  // otherwise the game's own node_modules (npx from a cache: the game installs its own copy next)
+  const nmParent = resolve(TOOLS, '..', '..', '..');
+  const bin = TOOLS.split(sep).includes('node_modules') && (dir === nmParent || dir.startsWith(nmParent + sep))
+    ? relative(dir, join(TOOLS, 'bin', 'threedog.mjs')).replaceAll('\\', '/') : 'node_modules/@threedog/tools/bin/threedog.mjs';
+  writeFileSync(mcp, JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [bin, 'mcp'] } } }, null, 2) + '\n');
   made.push(mcp);
 } else kept.push(mcp);
 
 const short = p => p.slice(dir.length + 1).replaceAll('\\', '/');
-console.log(`✓ threedog init: ${made.length} files written, package.json merged${kept.length ? `, ${kept.length} existing files kept (${kept.slice(0, 5).map(short).join(', ')}${kept.length > 5 ? ', …' : ''})` : ''}`);
-console.log('Next: npm install  →  npm run dev  →  open Claude Code in this folder (it asks once to trust the threedog MCP server in .mcp.json)');
+const where = relative(process.cwd(), dir).replaceAll('\\', '/');
+console.log(`✓ threedog init${where ? ' ' + where : ''}: ${made.length} files written, package.json ${pkg ? 'merged' : 'created'}${kept.length ? `, ${kept.length} existing files kept (${kept.slice(0, 5).map(short).join(', ')}${kept.length > 5 ? ', …' : ''})` : ''}`);
+console.log(`Next: ${where ? `cd ${where}  →  ` : ''}npm install  →  npm run dev  →  open Claude Code in this folder (it asks once to trust the threedog MCP server in .mcp.json)`);

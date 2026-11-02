@@ -16,7 +16,8 @@
 // Rule: animation is presentation; gameplay timing must not read it. The mixer advances per frame (dropped frames, step's frameEvery or a disposed model all skew it),
 // so hit windows, stun and cooldowns count in fixed steps, and sync(state, t) is how that gameplay time reaches the pose: the clip never runs ahead or ends by itself.
 import * as THREE from 'three';
-import { warnOnce, warnMissing, missingText, checkOptions } from './validate.js';
+import { warnOnce, warnMissing, missingText } from './validate.js';
+import { readParams, keysSchema, isOptions } from './params.js';
 
 // Config keys: a typo (loops: false, state: {...}) would silently play the wrong thing, so both levels are checked like any other options
 const CONFIG_KEYS = ['fade', 'states', 'transitions', 'params'];
@@ -36,7 +37,7 @@ export class Animator {
   /** mappedIn (from Assets.animate): { label, states } when part of the mapping came from the manifest, so fix texts point at the data, not at code */
   constructor(engine, root, config = {}, mappedIn = null) {
     // config is the code's options merged over the manifest mapping, so name both places a typo can be in
-    checkOptions(mappedIn ? `assets.animate() / ${mappedIn.label}` : 'assets.animate()', config, CONFIG_KEYS);
+    readParams(mappedIn ? `assets.animate() / ${mappedIn.label}` : 'assets.animate()', keysSchema(CONFIG_KEYS), config);
     const { fade = 0.25, states = {}, transitions = {}, params = {} } = config;
     this.engine = engine;
     this._mappedIn = mappedIn;
@@ -64,7 +65,7 @@ export class Animator {
   }
   /** Dev check at build time: the same problems check() returns, minus the game's action list (the Animator does not know it). */
   _check() {
-    for (const [st, def] of Object.entries(this.states)) checkOptions(`assets.animate() ${this._where(st)}`, def, STATE_KEYS);
+    for (const [st, def] of Object.entries(this.states)) if (isOptions(def)) readParams(`assets.animate() ${this._where(st)}`, keysSchema(STATE_KEYS), def);
     for (const p of this._problems()) warnOnce(p);
   }
   /** Where a state is written: the manifest entry when the mapping came from there (data), else the code's states. */

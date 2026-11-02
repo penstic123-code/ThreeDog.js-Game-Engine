@@ -40,11 +40,26 @@ export function makeNoise(seed) {
 const RULE = { perChunk: 100, minHeight: -Infinity, maxHeight: Infinity, maxSlope: 0.6, cluster: 'none', scale: [0.8, 1.2], stretch: [1, 1], sink: 0.1,
   tintJitter: 0.1, tints: [], salt: 0, biomes: null, collider: 0, avoidFlat: true };
 
+// Explicit placements (rule.positions: [[x, z], [x, z, scale, yaw], ...]) bucketed by chunk once per rule object and chunk size: the worker keeps
+// one rule object per species and the main thread keeps sp.rule, so a long list is sorted once, not on every chunk load
+const BUCKETS = new WeakMap();
+function bucketsOf(rule, CHUNK) {
+  let b = BUCKETS.get(rule);
+  if (b && b.chunk === CHUNK) return b.map;
+  const map = new Map();
+  rule.positions.forEach((p, i) => { const k = Math.floor(p[0] / CHUNK) + ',' + Math.floor(p[1] / CHUNK); let l = map.get(k); if (!l) map.set(k, l = []); l.push(i); });
+  BUCKETS.set(rule, b = { chunk: CHUNK, map });
+  return map;
+}
+
 /**
  * Placement over one ground. chunk: edge length (m); seed: placement seed; surface / slope / typeAt (x, z): the ground;
  * skip(x, z): true where nothing may grow (edited terrain cells, flattened plots when the rule says avoidFlat), optional.
  * place(cx, cz, rule, density) returns instance matrices (column-major, chunk-local x / z), instance colors, collision circles (world x, z, radius)
- * and stable ids (the attempt index, independent of density).
+ * and stable ids (the attempt index, independent of density; with rule.positions the index in that list).
+ * rule.positions replaces the random attempts: every listed spot in this chunk gets one instance at the ground height (scale / yaw from the entry
+ * or the rule's random ranges); the scatter filters (perChunk, chance, cluster, heights, slope, biomes, avoidFlat) and density do not apply --
+ * the game already chose the spot. skip still applies: dug or raised ground loses what grew there either way.
  */
 export function makePlacer({ chunk: CHUNK, seed, surface, slope, typeAt, fbm, skip = null, flat = null }) {
   const SEED = seed | 0;
@@ -52,10 +67,39 @@ export function makePlacer({ chunk: CHUNK, seed, surface, slope, typeAt, fbm, sk
     const r = { ...RULE, ...rule };
     const base = Math.imul(cx, 92821) ^ Math.imul(cz, 68917) ^ SEED ^ Math.imul(r.salt + 1, 40503), rnd = stream();
     const ox = cx * CHUNK, oz = cz * CHUNK;
-    const attempts = Math.round(r.perChunk * density);
+    const listed = rule?.positions ? bucketsOf(rule, CHUNK).get(cx + ',' + cz) ?? [] : null;
+    const attempts = listed ? listed.length : Math.round(r.perChunk * density);
     const m = new Float32Array(attempts * 16), c = new Float32Array(attempts * 3), k = new Float32Array(r.collider ? attempts * 3 : 0), ids = new Uint32Array(attempts);
     let n = 0;
-    for (let a = 0; a < attempts; a++) {
+    // one instance at local (lx, lz) on height h; s / yaw null = drawn from the rule's ranges. The same code for both paths, so a listed plant
+    // gets the same sink, stretch, tints and collider as a scattered one
+    const put = (id, lx, lz, h, s0, yaw0) => {
+      const s = s0 ?? r.scale[0] + rnd() * (r.scale[1] - r.scale[0]);
+      const sy = s * (r.stretch[0] + rnd() * (r.stretch[1] - r.stretch[0]));
+      const yaw = yaw0 ?? rnd() * Math.PI * 2, co = Math.cos(yaw), si = Math.sin(yaw);
+      const o = n * 16;
+      m[o] = co * s; m[o + 1] = 0; m[o + 2] = -si * s; m[o + 3] = 0;
+      m[o + 4] = 0; m[o + 5] = sy; m[o + 6] = 0; m[o + 7] = 0;
+      m[o + 8] = si * s; m[o + 9] = 0; m[o + 10] = co * s; m[o + 11] = 0;
+      m[o + 12] = lx; m[o + 13] = h - r.sink * s; m[o + 14] = lz; m[o + 15] = 1;
+      const jt = r.tintJitter;
+      let tr = 1 - jt / 2 + rnd() * jt, tg = 1 - jt / 2 + rnd() * jt, tb = 1 - jt / 2 + rnd() * jt;
+      const pick = rnd(); let acc = 0;
+      for (const t of r.tints) { acc += t.chance; if (pick < acc) { tr = t.color[0]; tg = t.color[1]; tb = t.color[2]; break; } }
+      c[n * 3] = tr; c[n * 3 + 1] = tg; c[n * 3 + 2] = tb;
+      if (r.collider) { k[n * 3] = ox + lx; k[n * 3 + 1] = oz + lz; k[n * 3 + 2] = r.collider * s; }
+      ids[n] = id;
+      n++;
+    };
+    if (listed) for (const i of listed) {
+      const p = rule.positions[i], wx = p[0], wz = p[1];
+      rnd.seed(SEED ^ Math.imul(r.salt + 1, 40503) ^ Math.imul(i + 1, 0x9E3779B1));   // per entry, not per chunk: an entry looks the same whichever chunk size
+      if (skip?.(wx, wz)) continue;
+      const h = surface(wx, wz);
+      if (!Number.isFinite(h)) continue;   // off a shaped terrain's outline: no ground to stand on
+      put(i, wx - ox, wz - oz, h, p[2] ?? null, p[3] ?? null);   // stable id: the index in rule.positions
+    }
+    else for (let a = 0; a < attempts; a++) {
       rnd.seed(base ^ Math.imul(a + 1, 0x9E3779B1));
       const lx = rnd() * CHUNK, lz = rnd() * CHUNK, wx = ox + lx, wz = oz + lz;
       if (skip?.(wx, wz)) continue;   // dug, raised or painted ground: what grew there is gone
@@ -70,22 +114,7 @@ export function makePlacer({ chunk: CHUNK, seed, surface, slope, typeAt, fbm, sk
       if (h < r.minHeight || h > r.maxHeight || sl > r.maxSlope) continue;
       if (r.biomes) { const b = typeAt(wx, wz, h, sl); const w = r.biomes[b]; if (!w || rnd() > w) continue; }
       if (r.avoidFlat && flat?.(wx, wz)) continue;
-      const s = r.scale[0] + rnd() * (r.scale[1] - r.scale[0]);
-      const sy = s * (r.stretch[0] + rnd() * (r.stretch[1] - r.stretch[0]));
-      const yaw = rnd() * Math.PI * 2, co = Math.cos(yaw), si = Math.sin(yaw);
-      const o = n * 16;
-      m[o] = co * s; m[o + 1] = 0; m[o + 2] = -si * s; m[o + 3] = 0;
-      m[o + 4] = 0; m[o + 5] = sy; m[o + 6] = 0; m[o + 7] = 0;
-      m[o + 8] = si * s; m[o + 9] = 0; m[o + 10] = co * s; m[o + 11] = 0;
-      m[o + 12] = lx; m[o + 13] = h - r.sink * s; m[o + 14] = lz; m[o + 15] = 1;
-      const jt = r.tintJitter;
-      let tr = 1 - jt / 2 + rnd() * jt, tg = 1 - jt / 2 + rnd() * jt, tb = 1 - jt / 2 + rnd() * jt;
-      const pick = rnd(); let acc = 0;
-      for (const t of r.tints) { acc += t.chance; if (pick < acc) { tr = t.color[0]; tg = t.color[1]; tb = t.color[2]; break; } }
-      c[n * 3] = tr; c[n * 3 + 1] = tg; c[n * 3 + 2] = tb;
-      if (r.collider) { k[n * 3] = wx; k[n * 3 + 1] = wz; k[n * 3 + 2] = r.collider * s; }
-      ids[n] = a;   // stable id: attempt index. Independent of density under one seed (density only sets how many attempts), felled-tree records rely on it
-      n++;
+      put(a, lx, lz, h, null, null);   // stable id: attempt index. Independent of density under one seed (density only sets how many attempts), felled-tree records rely on it
     }
     return { m: m.slice(0, n * 16), c: c.slice(0, n * 3), k: k.slice(0, r.collider ? n * 3 : 0), ids: ids.slice(0, n), n };
   };

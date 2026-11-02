@@ -24,8 +24,10 @@ export const specs = [
         engine.timeline.skip(); engine.pause();
         const raw = await engine.checkSkip(30);                              // 跳过不跑近处模拟：玩家/NPC 位置、world.step 必然不同，应被报告
         const ign = await engine.checkSkip(30, { ignore: ['parts.world', 'parts.random'] });
-        return { ok: raw.ok, diffs: raw.diffs, ign };
+        engine.freeze('t-refuse'); const ref = await engine.checkSkip(30); engine.stacks.get('freeze').release('t-refuse');
+        return { ok: raw.ok, diffs: raw.diffs, ign, refused: { ok: ref.ok, code: ref.code, diffs: ref.diffs.length, noReason: !('reason' in ref) } };
       });
+      check('冻结时 checkSkip 以 failure 拒绝：code frozen，只有 code 没有 reason', r.refused.ok === false && r.refused.code === 'frozen' && r.refused.diffs === 1 && r.refused.noReason, JSON.stringify(r.refused));
       check('checkSkip 有结果结构', typeof r.ok === 'boolean' && Array.isArray(r.diffs), JSON.stringify(r));
       check('近处模拟的差异被报告（带路径）', r.ok === false && r.diffs.every(d => d.path.startsWith('parts.')), JSON.stringify(r.diffs.slice(0, 3)));
       check('忽略 world 后时间类状态一致', r.ign.ok, JSON.stringify(r.ign.diffs.slice(0, 5)));

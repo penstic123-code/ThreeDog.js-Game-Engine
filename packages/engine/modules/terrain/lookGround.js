@@ -14,10 +14,12 @@ const isObj = v => (v && typeof v === 'object' ? null : 'must be an object');
 
 /**
  * @param {any} e @param {any} w the ChunkManager
- * @param {{ cfg: () => any, setCfg: (c: any) => void, game: Record<string, any> }} h the module's current terrain config, and what terrain({...}) itself passed (written as owner 'terrain()')
+ * @param {{ cfg: () => any, setCfg: (c: any) => void, game: Record<string, any> }} h (game.effects: terrain({ effects }) for its material) the module's current terrain config, and what terrain({...}) itself passed (written as owner 'terrain()')
  */
 export function defineGroundLook(e, w, h) {
   const st = e.style.terrain ?? {}, cfg0 = h.cfg();
+  // materials handed over with replace(m, { effects: false }): drawn as given, no cloud / season / detail patch (keyed by the material or function)
+  const bare = new WeakSet();
   const rebuild = 'rebuild';
   const part = defineLookPart(e, {
     id: 'ground', group: 'surface', module: 'terrain', object: () => w.terrainMat, applyAtStart: false, docs: ['recipes/52-look.md'],
@@ -33,7 +35,8 @@ export function defineGroundLook(e, w, h) {
     style: () => ({ colors: st.colors, biomeColors: st.biomeColors, steep: st.steep, variation: st.variation, shading: st.config?.shading, detail: st.detail, [REPLACE]: st.material }),
     read: () => ({}),
     hooks: { detail: { signature: 'vec4 threedogDetailSample(vec2 p)  // rgb + height 0-1', scope: ['fragment'], example: "engine.look.ground.patch('detail', glsl)" } },
-    replace: { accepts: 'a Material, or (engine) => Material; null gives the style\'s back', loses: ['the style\'s terrain material (cloud shadows and season tint are added to the new one)'] },
+    replace: { accepts: 'a Material, or (engine) => Material; null gives the style\'s back. { effects: false }: used as is, no engine patch', loses: ['the style\'s terrain material (cloud shadows, season tint and detail are added to the new one unless effects: false)'],
+      options: ['effects'], withOptions: (impl, o) => { if (impl && typeof impl === 'object' || typeof impl === 'function') (o.effects === false ? bare.add(impl) : bare.delete(impl)); } },
     applyReplace: () => material(), applyHook: () => material(),
     apply(v, changed) {
       if (changed.has('detail')) material();
@@ -50,11 +53,12 @@ export function defineGroundLook(e, w, h) {
   const given = {};
   for (const k of GEN) if (h.game[k] !== undefined) given[k] = h.game[k];
   if (h.game.material !== undefined) given[REPLACE] = h.game.material;
+  if (h.game.material && h.game.effects === false) bare.add(h.game.material);   // terrain({ material, effects: false }): the same record replace(m, { effects: false }) keeps
   if (Object.keys(given).length) part.write('terrain()', given);
   /** Rebuild the ground material from the resolved replace / detail, then every chunk picks it up */
   function material() {
     const impl = part.value(REPLACE) ?? null;
-    w.terrainMat = terrainMaterial(typeof impl === 'function' ? impl(e) : impl, e);
+    w.terrainMat = terrainMaterial(typeof impl === 'function' ? impl(e) : impl, e, { effects: !(impl && bare.has(impl)) });
     w.rebuild();
   }
   return part;

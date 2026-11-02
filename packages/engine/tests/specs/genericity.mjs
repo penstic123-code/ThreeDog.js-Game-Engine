@@ -54,7 +54,7 @@ export const specs = [
         C.load({ pickups: [{ id: 'g-pk-low', item, x: x + 3, z, floor: 0 }, { id: 'g-pk-top', item, x: x + 4, z }] });
         out.pickups = [engine.world.get('g-pk-low')?.position.y - lift, engine.world.get('g-pk-top')?.position.y - lift].map(v => Math.round(v * 100) / 100).join('/');
         engine.ground = old;
-        engine.resume();
+        engine._resume();
         return out;
       });
       check('without floor / y a position stays { x, z } (top layer, as before)', !r.plain.includes('"y"'), r.plain);
@@ -74,6 +74,8 @@ export const specs = [
         const subs = ['quest:part', 'quest:fail', 'quest:done'].map(n => engine.events.on(n, d => evs.push(`${n}:${d.id}${d.part !== undefined ? '#' + d.part : ''}`)));
         const notify = Q.notify; Q.notify = m => said.push(m.type);
         const markers = () => engine.hud.markers.filter(m => m.o.label?.startsWith?.('hold')).map(m => m.o.label).sort().join();
+        // 进度只经公开的 list() 读：state(id) 是方法、只给 step / done 这些，parts 不外露（内部 _progress 不许测试直接摸）
+        const partsOf = (id, step) => Q.list().find(q => q.id === id).steps[step].parts.map(x => x.done).join();
         let reward = 0, failed = 0;
         engine.ops.allow(() => {
           Q.define('g-defend', { title: 'defend', steps: [
@@ -84,11 +86,11 @@ export const specs = [
           out.group = Q.list().find(q => q.id === 'g-defend').steps[1];
           out.m0 = markers();
           V.setFlag('gA'); Q.check();
-          out.m1 = markers(); out.mid = Q.isActive('g-defend') && Q.state['g-defend'].parts.join();
+          out.m1 = markers(); out.mid = Q.isActive('g-defend') && partsOf('g-defend', 1);
           out.explain = engine.explain({ quest: 'g-defend' }).text;
           V.setFlag('gB'); Q.check();
           out.done = Q.isDone('g-defend') && reward === 1;
-          out.after = Q.list().find(q => q.id === 'g-defend').steps[1].parts.map(x => x.done).join();
+          out.after = partsOf('g-defend', 1);
           // fail, then take it again
           Q.define('g-order', { title: 'order', steps: [{ text: 'deliver', done: e => e.vars.flag('gDelivered') }], fail: e => e.vars.flag('gLate'), onFail: () => failed++ });
           Q.start('g-order'); V.setFlag('gLate'); Q.check();
@@ -96,7 +98,7 @@ export const specs = [
           V.setFlag('gLate', false); Q.start('g-order'); out.retry = Q.isActive('g-order') && !Q.isFailed('g-order');
           // content: the same shapes as data
           engine.content.load({ quests: { 'g-c': { title: 'c', steps: [{ all: [{ text: 'x', done: { flag: 'gX' } }, { text: 'y', done: { flag: 'gY' }, optional: true }] }], fail: { flag: 'gZ' }, onFail: { setFlag: 'gZZ' } } } });
-          Q.start('g-c'); V.setFlag('gY'); Q.check(); out.cPart = Q.state['g-c'].parts.join();
+          Q.start('g-c'); V.setFlag('gY'); Q.check(); out.cPart = partsOf('g-c', 0);
           V.setFlag('gZ'); Q.check(); out.cFail = Q.isFailed('g-c') && V.flag('gZZ');
         });
         const errs = [];
@@ -104,7 +106,7 @@ export const specs = [
           try { Q.define('g-bad', def); errs.push(null); } catch (e) { errs.push(e.message); }
         out.errs = errs;
         Q.notify = notify; for (const s of subs) s.remove();
-        engine.resume();
+        engine._resume();
         out.said = said.join(); out.evs = evs.join();
         return out;
       });
@@ -152,7 +154,7 @@ export const specs = [
         try { new I.constructor(engine, { pick: 'closest' }); } catch (e) { bad = e.message; }
         out.bad = bad;
         for (const h of [front, back, far, harvest]) h.remove();
-        engine.resume();
+        engine._resume();
         out.used = used.join();
         return out;
       });
@@ -193,7 +195,7 @@ export const specs = [
         out.back = I.pick()?.id;
         for (const h of [atCart, atPlayer, zone, op]) h.remove();
         engine.ops.allow(() => engine.world.remove('g-cart'));
-        engine.resume();
+        engine._resume();
         return out;
       });
       check('default actor is the player', r.def && r.player === 'g-at-player' && r.enteredAsPlayer === 0, JSON.stringify(r));
@@ -203,14 +205,14 @@ export const specs = [
   },
   {
     // a calendar the game does not ask for must not appear: a soulslike or a shooter gets no seasons and no season:change, ever
-    name: 'genericity: sky calendar is the game\'s (no seasons by default, seasons of their own length, a time of day that never moves)',
+    name: 'genericity: the calendar is the game\'s (no seasons by default, seasons of their own length, a time of day that never moves)',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip(); engine.pause();
-        const Sky = engine.sky.constructor, fog = engine.scene.fog, made = [];
-        // a second Sky on the same engine, only to read its calendar: its dome comes off the scene and the real fog goes back
-        const make = o => { const s = new Sky(engine, o); s.dome.removeFromParent(); engine.scene.fog = fog; made.push(s); return s; };
+        const Cal = engine.calendar.constructor, made = [];
+        // a second Calendar on the same engine, only to read it (not installed: nothing steps it but the test)
+        const make = o => { const s = new Cal(engine, o); made.push(s); return s; };
         const out = {}, changes = [];
         const off = engine.events.on('season:change', n => changes.push(n));
         const none = make({ dayLength: 1 });
@@ -229,7 +231,7 @@ export const specs = [
         try { make({ seasons: 'spring' }); } catch (err) { out.badSeasons = err.message; }
         try { make({ dayLength: 0 }); } catch (err) { out.badDay = err.message; }
         off.remove();
-        for (const s of made) { s.dome.geometry.dispose(); s.dome.material.dispose(); s._sched.dispose(); }
+        for (const s of made) s._sched.dispose();
         return out;
       });
       check('[guard] no seasons unless named: 100 days pass, season null, no season:change', r.none.season === null && r.none.idx === -1 && r.none.changes === 0 && r.none.day === 101 && r.none.progress === 0 && r.none.dayOf === 0, JSON.stringify(r.none));
@@ -240,7 +242,7 @@ export const specs = [
     },
   },
   {
-    // the game's weather table is the whole list: a type it does not have can never be switched to, and the style pack cannot add one
+    // the game's weather table is the whole list: a type it does not have can never be switched to, and the style cannot add one
     name: 'genericity: weather types are the game\'s table (no built-ins mixed in, own fields blend, no particles without rain or snow)',
     url: '/',
     async run({ check, ev }) {

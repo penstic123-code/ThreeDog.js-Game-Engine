@@ -3,12 +3,12 @@
 //   describeText({ path: 'world.byKind' }) one part of describe() as JSON (a dotted path)
 //   describeText({ full: true })          every nearby thing and every module's full data
 // describe() itself (the object) is always complete.
-// Always English, whatever the locale: it is developer output, not player-facing. Ground and weather names come from the
-// describe result (groundName / weather.label, via the string tables) so no style pack's names are hardcoded here.
+// Always English, whatever the locale: it is developer output, not player-facing. Ground and weather are named by their ids
+// (ground / weather.name), not the translated groundName / weather.label: under a zh-CN game those printed "默认" in an English line.
 const STRINGS = {
   head: '[Game state] running {s} s{flags}',
   actions: 'Can do (engine.ops): {list}',
-  error: '[Error, gameplay frozen] {where}: {message}',
+  error: '[Error, gameplay frozen] {where}: {message}', errorAt: ' ({at})',
   errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled presentation modules (they threw): {list}',
   paused: ', paused', headless: ', headless', notReady: ', still loading',
   waiting: 'Loading: {waiting} ({pending} pending, {done}/{total} done)', loadFailed: 'Load failed{blocked}: {list}', blocked: ' (start blocked)',
@@ -43,7 +43,7 @@ const STRINGS = {
   noPath: 'describe() has no "{path}"; top-level keys: {keys}',
   none: 'none',
   state: { idle: 'standing', walk: 'walking', run: 'running', jump: 'jumping', fall: 'falling', swim: 'swimming' },
-  kind: { npc: 'NPC', pickup: 'pickup', interactable: 'interactable', trigger: 'trigger', entity: 'entity' },
+  kind: { npc: 'NPC', pickup: 'pickup', interactable: 'interactable', trigger: 'trigger' },
   dir: { N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest' },
   rel: { front: 'ahead', 'front-right': 'ahead right', right: 'right', 'back-right': 'behind right', back: 'behind', 'back-left': 'behind left', left: 'left',
     'front-left': 'ahead left' },
@@ -88,7 +88,7 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   if (path) return atPath(d, path);
   const L = [], t = d.time;
   const flags = (t.paused ? STRINGS.paused : '') + (t.headless ? STRINGS.headless : '') + (d.loading.done ? '' : STRINGS.notReady);
-  if (d.error) L.push(fmt(STRINGS.error, d.error)
+  if (d.error) L.push(fmt(STRINGS.error, d.error) + (d.error.at ? fmt(STRINGS.errorAt, d.error) : '')
     + (d.error.fix ? fmt(STRINGS.errorHint, { code: d.error.code, fix: d.error.fix, docs: d.error.docs.join(', ') }) : ''));
   L.push(fmt(STRINGS.head, { s: t.elapsed, flags }));
   const ld = d.loading;
@@ -101,15 +101,15 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day
     : STRINGS.night }));
   const w = d.weather;
-  if (w) L.push(fmt(STRINGS.weather, { name: w.label ?? w.name, rain: n1(w.rain), snow: n1(w.snow), fog: n1(w.fog),
+  if (w) L.push(fmt(STRINGS.weather, { name: w.name, rain: n1(w.rain), snow: n1(w.snow), fog: n1(w.fog),
     changing: w.progress < 1 ? fmt(STRINGS.changing, { pct: Math.round(w.progress * 100) }) : '',
     shown: w.rainVisible || w.snowVisible ? fmt(STRINGS.weatherShown,
       { what: [w.rainVisible && STRINGS.rainShown, w.snowVisible && STRINGS.snowShown].filter(Boolean).join(', ') }) : '' }));
   const p = d.player;
   const water = p?.inWater ? STRINGS.inWater : STRINGS.dry;
-  L.push(p ? fmt(STRINGS.player, { ...p, ground: p.groundName ?? p.ground, water, state: tr('state', p.state) }) : STRINGS.noPlayer);
+  L.push(p ? fmt(STRINGS.player, { ...p, ground: p.ground, water, state: tr('state', p.state) }) : STRINGS.noPlayer);
   const c = d.camera;
-  L.push(fmt(STRINGS.camera, { type: tr('camType', c.type), x: c.x, y: c.y, z: c.z, fx: c.focus.x, fz: c.focus.z, over: c.override
+  L.push(fmt(STRINGS.camera, { type: tr('camType', c.type) + (c.projection === 'orthographic' ? ` (orthographic, ${c.orthoSize} m tall)` : ''), x: c.x, y: c.y, z: c.z, fx: c.focus.x, fz: c.focus.z, over: c.override
     ? fmt(STRINGS.override, { owner: c.override }) : '' }));
   const pl = c.pointerLock;   // state machine from lockView (camera/common.js); only cameras with click-to-lock report a line
   if (pl?.configured) L.push(fmt(STRINGS.pointerLock, { state: pl.state + (pl.lastFailure ? ` (${pl.lastFailure.reason}, ${pl.lastFailure.agoSec} s ago)` : '')

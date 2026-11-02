@@ -5,15 +5,15 @@ export class Layer {
     name: string;
     /**
      * Data of a cell, or undefined. Read only (frozen in dev builds): change it with set / clear / updateAll
-     * @example farm.layer('soil').get([3, 5])?.watered
+     * @example field.layer('zone').get([3, 5])?.buildable
      * @param {[number, number]} cell
      * @returns {Record<string, any> | undefined}
      */
     get([i, j]: [number, number]): Record<string, any> | undefined;
     /**
      * Merge fields into a cell's data (created if empty); a field set to null / undefined is deleted, and a cell left with no fields is cleared. Returns the data
-     * @example farm.layer('soil').set([3, 5], { tilled: true, watered: true })
-     * @example farm.layer('soil').set([3, 5], { watered: null })   // dry this one cell
+     * @example field.layer('zone').set([3, 5], { buildable: true, powered: true })
+     * @example field.layer('zone').set([3, 5], { powered: null })   // unpower this one cell
      * @param {[number, number]} cell
      * @param {Record<string, any>} patch
      * @returns {Record<string, any> | undefined}
@@ -27,7 +27,7 @@ export class Layer {
     clear([i, j]: [number, number]): void;
     /**
      * Non-empty cells, optionally only those in an area (min corner + size), in i then j order
-     * @example farm.layer('soil').query([0, 0], [4, 4]).filter(c => c.data.watered).length
+     * @example field.layer('zone').query([0, 0], [4, 4]).filter(c => c.data.powered).length
      * @param {[number, number]} [cell]
      * @param {[number, number]} [size]
      * @returns {{ cell: [number, number], data: Record<string, any> }[]}
@@ -39,7 +39,7 @@ export class Layer {
     /**
      * Change every non-empty cell at once (call it inside an op, e.g. a daily reset). fn may edit the data it gets (a copy) in place;
      * returning null clears the cell, returning an object replaces the data. A cell left with no fields is cleared
-     * @example farm.layer('soil').updateAll(d => { delete d.watered; })
+     * @example field.layer('zone').updateAll(d => { delete d.powered; })
      * @param {(data: Record<string, any>, cell: [number, number]) => any} fn
      * @returns {number} cells left
      */

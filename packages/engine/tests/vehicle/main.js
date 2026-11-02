@@ -18,7 +18,7 @@ const mover = new URLSearchParams(location.search).get('mover') || 'simple';
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Vehicle test' } }, adaptiveResolution: false });
 engine.use(world(), sky({ time: 0.45 }), collision(), rigid(), followCamera(), characters({ npcs: false, ...presets.keys.brake }), interactions({ ...presets.interactions.nearest }), level({ scene: root }));
 
-// Car: body + four wheels (wheels are children of the body; addVehicle makes them follow suspension and steering)
+// Car: body + four wheels (wheels are children of the body; addWheeled makes them follow suspension and steering)
 function makeCar() {
   const car = new THREE.Group(); car.name = 'car';
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 3.6), grey(0x666666)); body.position.y = 0.3; car.add(body);
@@ -47,6 +47,6 @@ window.makeRig = () => {
 engine.events.on('engine:ready', () => {
   engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: 0, z: 0 }, mover });
   const { car, wheels } = makeCar();
-  window.car = engine.rigid.addVehicle(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 16, height: 2 } });
+  window.car = engine.rigid.addWheeled(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 16, height: 2 } });
 });
 engine.start();

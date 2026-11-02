@@ -25,9 +25,10 @@
 //
 // Events: music:change { from, to }, music:stinger { name }
 
-import { checkOptions, warnMissing, warnOnce } from '../../core/validate.js';
+import { warnMissing, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { pickTrack, evaluateRules } from './rules.js';
+import { codedError } from '../../core/errorHints.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
 
@@ -70,7 +71,7 @@ export class Music {
     // (createEngine({ audio: { music: { tracks } } }) names are checked by engine.audio.contentPack; music({ tracks }) ones here)
     const code = new Set(Object.keys(opts.tracks || {}));
     engine.audio.onPack((key, pack) => {
-      for (const name of Object.keys(pack.music.tracks)) if (code.has(name)) throw new Error(`music track '${name}' is defined both in music({ tracks }) `
+      for (const name of Object.keys(pack.music.tracks)) if (code.has(name)) throw codedError('music-track', `music track '${name}' is defined both in music({ tracks }) `
         + `and in content ${pack.from}. One name, one place: keep it in one of them [audio-name-clash]`);
       this.addTracks(pack.music.tracks);
       this._packRules.set(key, { from: pack.from, rules: pack.music.rules });
@@ -91,7 +92,7 @@ export class Music {
   addTracks(map) {
     for (const [name, v] of Object.entries(map)) {
       const tr = typeof v === 'string' ? { url: v } : { ...v };
-      if (tr.url == null && !tr.stems?.length) throw new TypeError(`music track '${name}' needs url or stems, e.g. { url: '/music/${name}.ogg' }`);
+      if (tr.url == null && !tr.stems?.length) throw codedError('music-track', `music track '${name}' needs url or stems, e.g. { url: '/music/${name}.ogg' }`, TypeError);
       this.tracks.set(name, tr);
     }
     return this;
@@ -214,7 +215,7 @@ export class Music {
    * @returns {this}
    */
   rules(list, opts = {}) {
-    checkOptions('music.rules()', opts, ['hold', 'fade', 'interval']);
+    readParams('music.rules()', keysSchema(['hold', 'fade', 'interval']), opts);
     this._base = list ? [...list] : null;
     this._ruleOpts = opts;
     this._setRules();
@@ -222,9 +223,9 @@ export class Music {
   }
   /** @internal the live rule list: the game's rules, then every content pack's (null = no rules at all) */
   _setRules() {
-    for (const r of this._base || []) checkOptions('music.rules() rule', r, RULE_KEYS);
+    for (const r of this._base || []) readParams('music.rules() rule', keysSchema(RULE_KEYS), r);
     // a pack's rule names its pack in the message, so a typo points at the right data file
-    for (const p of this._packRules.values()) for (const r of p.rules) checkOptions(`content ${p.from} audio.music.rules rule`, r, RULE_KEYS);
+    for (const p of this._packRules.values()) for (const r of p.rules) readParams(`content ${p.from} audio.music.rules rule`, keysSchema(RULE_KEYS), r);
     const all = [...(this._base || []), ...[...this._packRules.values()].flatMap(p => p.rules)];
     this._rules = all.length || this._base ? all : null;
     this._candidate = undefined; this._candidateT = 0; this._ruleT = 0;
@@ -290,5 +291,7 @@ export function music(opts = {}) {
       return m;
     },
     frame(dt) { m.frame(dt); },
+    // the same state the tests read (music.state) plus why nothing may sound: audio still locked (ready false, the track waits in pending), rules on, ducked by dialogue
+    describe() { return { ...m.state, ready: m.ready, ruled: m.ruled, ducked: !!m._duck, tracks: m.tracks.size }; },
   };
 }

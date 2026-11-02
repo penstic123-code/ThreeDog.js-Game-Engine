@@ -8,7 +8,8 @@ import { codedError, coded } from './errorHints.js';
 
 /** Types an op arg may use: plain data only. Two meanings of 'id' on purpose: as a module param it is any string; as an op arg it must also be a world record id (checked in dev by opsCheck) */
 export const OP_TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any'];
-export const TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any', 'object', 'array', 'function'];
+// 'color': 0xRRGGBB or '#rrggbb' (a model generator's params, shown as a color picker in the dev panel); not an op arg type
+const TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any', 'object', 'array', 'function', 'color'];
 const SPEC_KEYS = ['type', 'default', 'min', 'max', 'values', 'desc', 'optional'];
 const isPos = v => Array.isArray(v) && (v.length === 2 || v.length === 3) && v.every(Number.isFinite);
 /** type name -> value check (op args use the first seven: plain data only) */
@@ -16,13 +17,21 @@ export const CHECK = {
   string: v => typeof v === 'string', number: v => Number.isFinite(v), int: v => Number.isInteger(v), bool: v => typeof v === 'boolean',
   position: isPos, id: v => typeof v === 'string', any: () => true, object: v => !!v && typeof v === 'object' && !Array.isArray(v),
   array: Array.isArray, function: v => typeof v === 'function',
+  color: v => (Number.isInteger(v) && v >= 0 && v <= 0xffffff) || (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)),
 };
 const STRINGS = {
   badType: "{where}: {key} has type '{type}'; use one of {list} (add ? for optional, e.g. 'int?', or { type: 'int', default: 1 })",
   badSpec: '{where}: {key} has unknown schema field {field}{hint}; schema fields: ' + SPEC_KEYS.join(', '),
   badDefault: '{where}: the default of {key} ({got}) does not fit its own schema: {why}',
   wrong: '{where}: {key} {why}',
+  notOptions: '{where}: the options argument must be an object { … }, got {got}. API convention: a position is one argument, and size and the like go in the options object',
 };
+// 为什么缓存：公开 API（collision.addCircle、particles.emit …）每次调用都走 readParams，同一个 schema 对象只解析一次；
+// 每次新写的字面量 schema 不进缓存（WeakMap 按对象认，用完即回收），只是多解析一遍
+const parsed = new WeakMap(), keyCache = new WeakMap();
+/** Is o an options object (not a number, string, array, Three.js object or vector)? Data checks use it where a field may also be a name or a list */
+export const isOptions = o => !!o && typeof o === 'object' && !Array.isArray(o) && !o.isObject3D && !o.isVector3 && !o.isColor;
+const parsedOf = (where, schema) => { let s = parsed.get(schema); if (!s) { s = parseSchema(where, schema); parsed.set(schema, s); } return s; };
 
 /** Parse one field spec ('int?' or { type, default, ... }) into { type, optional, default?, min?, max?, values?, desc? }; throws on a bad spec */
 export function parseSpec(where, key, spec, err = codedError.bind(null, 'engine-misuse')) {
@@ -76,7 +85,7 @@ export function schemaInfo(shape) {
   if (!shape) return null;
   const out = {};
   for (const key in shape) {
-    const s = shape[key], o = { type: s.type };
+    const s = shape[key], o = /** @type {Record<string, any>} */ ({ type: s.type });
     if (s.optional) o.optional = true;
     for (const f of ['default', 'min', 'max', 'values', 'desc']) if (s[f] !== undefined && typeof s[f] !== 'function') o[f] = s[f];
     out[key] = o;
@@ -99,7 +108,13 @@ export function schemaInfo(shape) {
  * };
  */
 export function readParams(where, schema, opts = {}) {
-  const shape = parseSchema(where, schema), err = msg => codedError('module-params', msg);
+  const shape = parsedOf(where, schema), err = msg => codedError('module-params', msg);
+  if (opts != null && !isOptions(opts)) {
+    // 选项位置传了数字 / 字符串 / 数组：多半是旧的按位置传参写法。和未知键同一条规矩（开发时抛错，发布版提示一次后当没传）
+    const msg = fmt(STRINGS.notOptions, { where, got: JSON.stringify(opts) ?? typeof opts });
+    if (DEV) throw err(msg);
+    warnOnce(coded('module-params', msg)); opts = {};
+  }
   const out = withDefaults(defaultsOf(shape), opts ?? {});   // checked in every build: it runs once per factory call, and a wrong option is a bug anywhere
   const keys = Object.keys(shape);
   for (const key of Object.keys(out)) if (!shape[key]) {
@@ -125,7 +140,10 @@ export function readParams(where, schema, opts = {}) {
  * @param {Record<string, any>} [defaults] defaults shown in the catalog (not applied: the module's own code still does that)
  * @param {Record<string, any>} [specs]
  */
-export function keysSchema(keys, defaults = {}, specs = {}) {
+export function keysSchema(keys, defaults, specs) {
+  // 只有键表时按数组对象缓存：模块顶层的 KEYS 常量每次调用拿到同一个 schema，readParams 的解析缓存也就命中（热路径如 particles.emit 不重复解析）
+  if (!defaults && !specs) { let s = keyCache.get(keys); if (!s) keyCache.set(keys, s = keysSchema(keys, {}, {})); return s; }
+  defaults ??= {}; specs ??= {};
   const out = {};
   for (const k of keys) out[k] = specs[k] ?? (defaults[k] !== undefined ? { type: 'any', default: defaults[k] } : 'any?');
   return out;

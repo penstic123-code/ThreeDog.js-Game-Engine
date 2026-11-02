@@ -21,7 +21,7 @@ Real physics, Rapier (rigid() module, needs collision)
 - `rigid.impulse(entry: RigidEntry, impulse: Vec3Like)` — Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5])
 - `rigid.setPosition(entry: RigidEntry, position: PositionLike)` — Teleport to position (velocity is zeroed)
 - `rigid.groundReady(position: PositionLike) → boolean` — Is the physics ground under position built (always true without chunked terrain; with mover: 'rapier' and not yet built, 'simple' is used temporarily)
-- `rigid.addVehicle(mesh: Object3D, opts: VehicleOptions) → Vehicle | null` — Turn a model into a drivable car (Rapier vehicle controller); remove it with vehicle.remove() (anyone inside gets out first). Returns null if not ready
+- `rigid.addWheeled(mesh: Object3D, opts: VehicleOptions) → Vehicle | null` — Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out first). Returns null if not ready. Boats, mounts and mechs are the game's own objects with the same seat interface
 - Properties:
   - `ready: boolean` Is the physics engine ready (downloaded and initialized at start())
   - `bodies: RigidEntry[]` All physics bodies
@@ -34,6 +34,7 @@ Real physics, Rapier (rigid() module, needs collision)
 
 ## Data structures
 - **RigidBodyOptions** Parameters for adding a physics body
+  - `id?: string` Stable id (e.g. the world record id): saves keep this body's pose, rotation, velocities and sleep under it, and a load hands them back to the body with this id, also one built after the load. Without an id the body is not saved. Unique among live bodies and vehicles
   - `mass?: number` Mass (kilograms), default 1
   - `friction?: number` Friction, default 0.7
   - `restitution?: number` Restitution 0–1, default 0.1
@@ -41,7 +42,8 @@ Real physics, Rapier (rigid() module, needs collision)
   - `angularDamping?: number` Angular damping, default 0.1
   - `fixed?: boolean` Fixed in place (only blocks other things)
 - **RigidEntry** (extends Handle) A physics body (the handle returned by addBox / addBall / addHull)
-  - `body: any` Rapier rigid body (translation(), mass(), setLinvel()…)
+  - `id?: string` The id it was added with (saves name it by this), undefined without one
+  - `body: any` Rapier rigid body (translation(), mass(), setLinvel()…); newGame / a load rebuild the world, so read entry.body again instead of keeping it
   - `collider: any` Rapier collider
   - `mesh: Object3D` The matching three.js model (position is written by physics every step)
   - `object: Object3D` Same as mesh (the name consistent with player.object, ent.object)
@@ -51,15 +53,16 @@ Real physics, Rapier (rigid() module, needs collision)
   - `angularDamping: number`
   - `wet?: boolean`
   - `remove()` — Remove this rigid body (the model was passed in by you and is not deleted; call engine.remove(entry.object) when done). Casting / receiving shadows follows the model's own castShadow / receiveShadow
-- **VehicleOptions** Parameters of rigid.addVehicle()
-  - `id?: string` Stable id (default 'vehicle1', 'vehicle2'... in creation order): saves name the player's vehicle by it; give one when the creation order varies
+- **VehicleOptions** Parameters of rigid.addWheeled()
+  - `id?: string` Stable id (default 'vehicle1', 'vehicle2'... in creation order): saves name the player's vehicle and the vehicle's body state by it; give one when the creation order varies
   - `wheels: VehicleWheel[]` Wheels (at least 3)
   - `mass?: number` Mass (kilograms)
   - `engineForce?: number` Throttle force, default 800
   - `brakeForce?: number` Brake force, default 20
   - `maxSteer?: number` Max steering angle (radians), default 0.5
   - `suspension?: { rest?: number; stiffness?: number; damping?: number }` Suspension: rest natural length (meters), stiffness, damping
-  - `seat?: Vec3Like` Seat (relative to the body, meters): the player gets out beside it
+  - `seats?: Vec3Like[]` Seat positions relative to the body (meters): the first drives, the rest ride; each gets out beside its own seat. Default one at the body center
+  - `hideDriver?: boolean` Hide whoever sits in it, default true; false keeps riders visible on their seats, turning with the vehicle (bikes, open carts, karts)
   - `camera?: { distance?: number; height?: number }` Camera distance and height while driving (meters)
   - `size?: number[]` Body collision box size [width, height, depth] (meters); if omitted, taken from the model's bounding box (wheels excluded)
   - `friction?: number` Tire grip, default 1.5
@@ -70,15 +73,14 @@ Real physics, Rapier (rigid() module, needs collision)
   - `steer?: boolean`
   - `drive?: boolean`
   - `object?: Object3D`
-- **Vehicle** (extends RigidEntry) A vehicle (returned by rigid.addVehicle, faces the model's +Z). player.enter(vehicle) gets in; with interactions installed, press the interact key nearby to get in / out
-  - `id: string` Stable id (rigid.addVehicle({ id })); saves name the player's vehicle by it
+- **Vehicle** (extends RigidEntry, Rideable) A vehicle (returned by rigid.addWheeled, faces the model's +Z). player.enter(vehicle) gets in; with interactions installed, press the interact key nearby to get in / out
+  - `id: string` Stable id (rigid.addWheeled({ id })); saves name the player's vehicle by it
   - `object: Object3D` Body model (the mesh you passed in)
   - `body: any` Rapier rigid body
   - `controller: any` Rapier vehicle controller (DynamicRayCastVehicleController)
   - `wheels: VehicleWheel[]`
-  - `speed: number` Current speed (m/s)
-  - `driver: Character | null` Who is driving (null if nobody)
-  - `camera?: { distance?: number; height?: number }` Camera parameters while driving
-  - `drive(throttle: number, steer: number, brake?: number)` — Controls: throttle -1..1, steer -1..1 (right is positive), brake 0–1
-  - `seatPosition() → Vector3` — World position of the seat
-  - `exitPosition() → Vector3` — Where to get out (outside the door on the driver's side, world coordinates)
+  - `seats: number`
+  - `passengers: Character[]`
+  - `hideDriver: boolean`
+  - `seatPosition(seat?: number) → Vector3` — World position of a seat (default 0, the driver's)
+  - `exitPosition(seat?: number) → Vector3` — Where to get out of a seat (outside the door on that seat's side, world coordinates)

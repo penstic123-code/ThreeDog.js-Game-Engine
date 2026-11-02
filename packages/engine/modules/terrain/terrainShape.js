@@ -7,6 +7,7 @@
 // A cell with all four corners > 0 is ground, all four <= 0 is void; a mixed cell is cut along straight lines whose ends sit where the mask
 // crosses 0 on the cell edges (linear interpolation). Two chunks compute a shared edge from the same two grid values, so the cut is seamless.
 import { compilePure } from '../../core/threadPure.js';
+import { grayAt } from '../../core/grayMap.js';
 
 // corner loop a(0,0) b(1,0) d(1,1) c(0,1): counter-clockwise in (x, z); polygons keep that winding
 const LX = [0, 1, 1, 0], LZ = [0, 0, 1, 1];
@@ -15,6 +16,16 @@ const LX = [0, 1, 1, 0], LZ = [0, 0, 1, 1];
  * @param {any} S the shape config (functions already source text or functions; an image mask carries data)
  * @param {{ CELL: number, NOISE: any, key: (i: number, j: number) => number, hash: Function, fbm: Function }} ctx
  */
+/**
+ * Walk the edges of a cut-cell polygon P (flat [x, z, tag, x, z, tag, ...], closed): fn(ax, az, bx, bz, k) per edge a -> b, k = a's index.
+ * fn returning true stops the walk; returns whether it stopped. The one edge loop inPoly (here) and the island builder's clip share.
+ */
+export function forEdges(P, fn) {
+  const n = P.length;
+  for (let k = 0; k < n; k += 3) if (fn(P[k], P[k + 1], P[(k + 3) % n], P[(k + 4) % n], k)) return true;
+  return false;
+}
+
 export function makeShape(S, { CELL, NOISE, key, hash, fbm }) {
   const pure = (v, label) => (typeof v === 'function' || typeof v === 'string' ? compilePure(v, label).call : null);
   const userMask = pure(S.mask, 'terrain({ shape: { mask } })');
@@ -69,12 +80,7 @@ export function makeShape(S, { CELL, NOISE, key, hash, fbm }) {
     return [L];
   }
   function inPoly(P, fx, fz) {
-    const n = P.length;
-    for (let k = 0; k < n; k += 3) {
-      const ax = P[k], az = P[k + 1], bx = P[(k + 3) % n], bz = P[(k + 4) % n];
-      if ((bx - ax) * (fz - az) - (bz - az) * (fx - ax) < -1e-9) return false;
-    }
-    return true;
+    return !forEdges(P, (ax, az, bx, bz) => (bx - ax) * (fz - az) - (bz - az) * (fx - ax) < -1e-9);
   }
   /** Is there ground at (x, z) (the same cut the mesh is built from) */
   function has(x, z) {
@@ -99,10 +105,4 @@ function sample(M, x, z) {
   const u = (x - cx0) / sx + 0.5, v = (z - cz0) / sz + 0.5;
   if (u < 0 || u > 1 || v < 0 || v > 1) return -th;
   return grayAt(M, u, v) - th;
-}
-/** Bilinear read of a gray image { data, width, height } at u, v in 0..1 (height maps share it) */
-export function grayAt(M, u, v) {
-  const fx = u * (M.width - 1), fz = v * (M.height - 1), i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
-  const at = (a, b) => M.data[Math.min(M.height - 1, b) * M.width + Math.min(M.width - 1, a)];
-  return at(i, j) * (1 - tx) * (1 - tz) + at(i + 1, j) * tx * (1 - tz) + at(i, j + 1) * (1 - tx) * tz + at(i + 1, j + 1) * tx * tz;
 }

@@ -7,19 +7,19 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip(); engine.pause();
-        const sky = engine.sky, out = {};
-        let n18 = 0; const at18 = engine.sky.at('18:00', () => n18++);
-        sky.timeOfDay = (17 + 59 / 60) / 24; engine.step(0.05, { render: false });
+        const cal = engine.calendar, out = {};
+        let n18 = 0; const at18 = engine.calendar.at('18:00', () => n18++);
+        cal.timeOfDay = (17 + 59 / 60) / 24; engine.step(0.05, { render: false });
         engine.saves.save('d-clock');
         engine.step(10, { render: false });
         out.at = n18;
         engine.saves.load('d-clock'); engine.step(0.05, { render: false });
         out.noReplay = n18 === 1;
         at18.remove();
-        let days = 0; const daily = engine.sky.daily(() => days++);
-        engine.clock.timeScale = 60; sky.timeOfDay = 0.5; engine.step(0.05, { render: false });
+        let days = 0; const daily = engine.calendar.daily(() => days++);
+        engine.mod('clock.rate', { owner: 'test', set: 60 }); cal.timeOfDay = 0.5; engine.step(0.05, { render: false });
         engine.step(18, { render: false });   // a day is 360 game seconds ÷ 60x = 6 seconds per day
-        out.daily = days; daily.remove(); engine.clock.timeScale = 1;
+        out.daily = days; daily.remove(); engine.mod('clock.rate', { owner: 'test', set: 1 });
         return out;
       });
       check('at(18:00): step(10) from 17:59 fires once', r.at === 1, r.at);
@@ -64,9 +64,9 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const c = engine.content, sky = engine.sky;
-        sky.timeOfDay = 0.8; const late = c.test({ timeAfter: '18:00' });
-        sky.timeOfDay = 0.5; const early = c.test({ timeAfter: '18:00' });
+        const c = engine.content, cal = engine.calendar;
+        cal.timeOfDay = 0.8; const late = c.test({ timeAfter: '18:00' });
+        cal.timeOfDay = 0.5; const early = c.test({ timeAfter: '18:00' });
         c.condition('dAlways', { ref: 'any', test: () => true });
         let ran = 0; if (!engine.ops.defs.has('d.effect')) engine.ops.define('d.effect', { run: (e, a) => { ran += a.v === 'x' ? 1 : 0; } }); c.run({ op: ['d.effect', { v: 'x' }] });
         const W = engine.world, props = W.query({ kind: 'prop' }), built = props.filter(p => W.view(p.id)), solid = props.filter(p => p.collide);
@@ -112,7 +112,7 @@ export const specs = [
         const tick = () => new Promise(r => setTimeout(r, 0));
         const it = engine.interactions.items.find(i => i.label === '传送到另一个台子');
         const target = engine.level.marker('marker_gate_b').position;
-        it.onUse();
+        it.onUse(it.object, { actor: engine.actor });
         for (let i = 0; i < 30; i++) { engine.step(0.05, { render: false }); await tick(); }
         const p = engine.player.position;
         return Math.hypot(p.x - target.x, p.z - target.z);
@@ -193,18 +193,18 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.timeline.skip(); engine.pause();
-        const sky = engine.sky;
+        const cal = engine.calendar;
         let on = null, calls = 0;
-        sky.timeOfDay = 0.5; engine.step(0.05, { render: false });
-        const range = engine.sky.between('18:00', '06:00', { on: () => { on = true; calls++; }, off: () => { on = false; calls++; } });
+        cal.timeOfDay = 0.5; engine.step(0.05, { render: false });
+        const range = engine.calendar.between('18:00', '06:00', { on: () => { on = true; calls++; }, off: () => { on = false; calls++; } });
         const out = { noon: on };
-        sky.timeOfDay = (17 + 59 / 60) / 24; engine.step(0.05, { render: false }); out.before = on;
+        cal.timeOfDay = (17 + 59 / 60) / 24; engine.step(0.05, { render: false }); out.before = on;
         engine.step(10, { render: false }); out.after = on;
         const n = calls; engine.step(1, { render: false }); out.noRepeat = calls === n;
         engine.saves.save('d-between');
         await engine.applyState({ time: '12:00' }); out.rewound = on;
         await engine.saves.load('d-between'); out.loaded = on;   // the 'save:loaded' event (sky re-aligns its ranges) fires when the Promise settles
-        sky.timeOfDay = 0.1; engine.step(0.05, { render: false }); out.night = on;
+        cal.timeOfDay = 0.1; engine.step(0.05, { render: false }); out.night = on;
         range.remove();
         return out;
       });
@@ -215,30 +215,30 @@ export const specs = [
     },
   },
   {
-    name: 'D 时间概念：钟点定时在 sky、倍速改变时游戏秒与天空钟点同步（固定步秒不变）',
+    name: 'D 时间概念：钟点定时在 calendar、倍速改变时游戏秒与日历钟点同步（固定步秒不变）',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip(); engine.pause();
-        const sky = engine.sky, out = { moved: !engine.clock.at && !engine.clock.between && !engine.clock.daily && !engine.clock.onSeason };
-        const dl = sky.dayLength;
+        const cal = engine.calendar, out = { moved: !engine.clock.at && !engine.clock.between && !engine.clock.daily && !engine.clock.onSeason };
+        const dl = cal.dayLength;
         const run = scale => {
-          engine.clock.timeScale = scale; sky.timeOfDay = 0.25;
-          const n0 = engine.clock.now, t0 = sky.timeOfDay; let fixed = 0;
+          engine.mod('clock.rate', { owner: 'test', set: scale }); cal.timeOfDay = 0.25;
+          const n0 = engine.clock.now, t0 = cal.timeOfDay; let fixed = 0;
           const h = engine.onFixed(dt => { fixed += dt; });
           engine.step(2, { render: false }); h.remove();
-          return { game: engine.clock.now - n0, sky: sky.timeOfDay - t0, fixed };
+          return { game: engine.clock.now - n0, sky: cal.timeOfDay - t0, fixed };
         };
         out.x1 = run(1); out.x10 = run(10);
-        let nowt = 0; const s = engine.sky.onSeason('summer', () => nowt++);
-        sky.day = sky.daysPerSeason; sky.timeOfDay = 0.999; engine.clock.timeScale = 60; engine.step(0.05, { render: false }); s.remove();
-        engine.clock.timeScale = 1; out.season = sky.season; out.seasonHits = nowt; out.dl = dl;
+        let nowt = 0; const s = engine.calendar.onSeason('summer', () => nowt++);
+        cal.day = cal.daysPerSeason; cal.timeOfDay = 0.999; engine.mod('clock.rate', { owner: 'test', set: 60 }); engine.step(0.05, { render: false }); s.remove();
+        engine.mod('clock.rate', { owner: 'test', set: 1 }); out.season = cal.season; out.seasonHits = nowt; out.dl = dl;
         return out;
       });
       check('clock no longer has at / between / daily / onSeason', r.moved);
-      check('timeScale=1: 2 fixed-step seconds = 2 game seconds = sky advances 2/dayLength days', Math.abs(r.x1.game - 2) < 0.05 && Math.abs(r.x1.sky - 2 / r.dl) < 0.002 && Math.abs(r.x1.fixed - 2) < 0.05, JSON.stringify(r.x1));
-      check('timeScale=10: fixed-step seconds stay 2; game seconds and sky time of day run 10x faster', Math.abs(r.x10.fixed - 2) < 0.05 && Math.abs(r.x10.game - 20) < 0.5 && Math.abs(r.x10.sky - 20 / r.dl) < 0.01, JSON.stringify(r.x10));
-      check('sky.onSeason fires on entering summer', r.season === 'summer' && r.seasonHits === 1, JSON.stringify([r.season, r.seasonHits]));
+      check('rate 1: 2 fixed-step seconds = 2 game seconds = sky advances 2/dayLength days', Math.abs(r.x1.game - 2) < 0.05 && Math.abs(r.x1.sky - 2 / r.dl) < 0.002 && Math.abs(r.x1.fixed - 2) < 0.05, JSON.stringify(r.x1));
+      check('rate 10: fixed-step seconds stay 2; game seconds and sky time of day run 10x faster', Math.abs(r.x10.fixed - 2) < 0.05 && Math.abs(r.x10.game - 20) < 0.5 && Math.abs(r.x10.sky - 20 / r.dl) < 0.01, JSON.stringify(r.x10));
+      check('cal.onSeason fires on entering summer', r.season === 'summer' && r.seasonHits === 1, JSON.stringify([r.season, r.seasonHits]));
     },
   },
   {
@@ -267,15 +267,17 @@ export const specs = [
     },
   },
   {
-    name: 'D 对话通用：节点 data 自定义字段传给界面件和 dialogue:line；lock:false 不锁输入、自己往下走、不打断正在读的对话；写错键报错指向 data',
+    name: 'D 对话通用：节点 data 自定义字段传给界面件和 dialogue:line；气泡通道不锁输入、到时自己结束、和主对话同时在、NPC 用 npc.talk 走气泡；写错键报错指向 data',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.timeline.skip(); engine.pause();
         const d = engine.dialogue, lines = [];
+        let typo = '';
         const { warns } = await __t.warns(() => {
           d.define('d-gen', { start: { text: 'Hi', data: { portrait: 'fisher', mood: 'tired' }, next: 'b' }, b: { text: 'Bye', choices: [{ text: 'ok', data: { icon: 'x' } }] } });
-          d.define('d-typo', { start: { text: 'x', portrait: 'p' } });
+          // 节点里写了不认识的键：开发时 define 就抛错（readParams 规矩），信息指向 data 字段
+          try { d.define('d-typo', { start: { text: 'x', portrait: 'p' } }); } catch (e) { typo = e.message; }
         });
         engine.events.on('dialogue:line', x => lines.push(x));
         d.start('d-gen'); engine.step(1, { render: false });
@@ -283,26 +285,39 @@ export const specs = [
         engine.ops.run('dialogue.advance'); engine.step(1, { render: false });
         o.choiceData = document.querySelector('.threedog-dlg-opts button')?.textContent;
         d.end();
-        // a passing line: input stays free, the line ends by itself holdSeconds after typing
-        const p = d.say('Reloading!', { speaker: 'Mira', lock: false });
+        // a bubble line: input stays free, it ends by itself after its seconds
+        const p = d.say('Reloading!', { speaker: 'Mira', channel: 'bubble', at: engine.player.root, seconds: 2 });
         engine.step(1, { render: false });
-        o.barkInput = !engine.input.contexts.includes('dialogue'); o.locks = engine.input.contexts.slice(1); o.barkLock = engine.describe().ui.dialogue?.lock;
+        o.barkInput = !engine.input.contexts.includes('dialogue'); o.locks = engine.input.contexts.slice(1); o.barkShown = engine.describe().ui.bubbles?.[0]?.text;
         let ended = false; p.then(() => { ended = true; });
         engine.step(0.5, { render: false }); await null; o.earlyEnd = ended;
-        engine.step(3, { render: false }); await null; await null; o.barkEnded = ended && !d.active;
-        // a passing line does not cut into a locking dialogue
-        d.start('d-gen'); let skipped = false;
-        await d.say('Hey!', { lock: false }).then(() => { skipped = true; });
-        o.kept = skipped && d.active?.speaker === 'd-gen'; d.end();
-        o.warn = warns.find(x => /portrait/.test(x));
+        engine.step(3, { render: false }); await null; await null; o.barkEnded = ended && !d.bubbles().length;
+        // a bubble never cuts into the main dialogue: both run at once
+        d.start('d-gen');
+        const hey = d.say('Hey!', { channel: 'bubble', seconds: 1 });
+        engine.step(0.2, { render: false });
+        o.kept = d.active?.speaker === 'd-gen' && d.bubbles().length === 1; hey.stop(); d.end();
+        // an NPC's interact op npc.talk with channel 'bubble': its script plays over its head, input stays free, busy clears when the lines end
+        d.define('d-bark', { start: { text: 'Fresh fish!' } });
+        engine.npcs.add({ id: 'd-bark', name: 'Seller', interact: { op: 'npc.talk', args: { channel: 'bubble' } }, position: { x: 2, z: 2 }, schedule: [] });
+        engine.step(0.2, { render: false });
+        const talked = engine.ops.run('npc.talk', { npc: 'd-bark', channel: 'bubble' });
+        engine.step(0.2, { render: false });
+        o.npcTalk = { ok: talked.ok, code: talked.code, active: !!d.active, bubble: d.bubbles()[0]?.text, locked: engine.input.contexts.includes('dialogue'), busy: engine.world.get('d-bark').busy };
+        o.npcBubble = talked.ok && !d.active && o.npcTalk.bubble === 'Fresh fish!' && !o.npcTalk.locked && o.npcTalk.busy;
+        engine.step(6, { render: false }); await null; await null;
+        o.npcBubbleDone = !d.bubbles().length && !engine.world.get('d-bark').busy;
+        engine.npcs.remove('d-bark');
+        o.typo = typo; o.warns = warns;
         return o;
       });
       check('节点 data 原样随 dialogue:line 发出（含 script / node / speaker）', r.line0?.data?.portrait === 'fisher' && r.line0.script === 'd-gen' && r.line0.node === 'start' && r.locked, JSON.stringify(r.line0));
       check('默认对话框照常画出带数字键的选项', r.choiceData === '1. ok', r.choiceData);
-      check('lock:false 不加输入锁、describe 标 lock:false', r.barkInput && r.barkLock === false, JSON.stringify(r));
-      check('lock:false 的台词打完后过 holdSeconds 自己结束', !r.earlyEnd && r.barkEnded, JSON.stringify(r));
-      check('lock:false 不打断正在读的对话（直接结束自己）', r.kept, JSON.stringify(r));
-      check('节点写了不认识的键：警告并指向 data', /data: \{/.test(r.warn || ''), r.warn);
+      check('气泡不加输入锁、describe().ui.bubbles 列出它', r.barkInput && r.barkShown === 'Reloading!', JSON.stringify(r));
+      check('气泡到 seconds 自己结束', !r.earlyEnd && r.barkEnded, JSON.stringify(r));
+      check('气泡和主对话同时在，互不打断', r.kept, JSON.stringify(r));
+      check('NPC 的 npc.talk { channel: bubble }：台词在头顶、不锁输入，说完 busy 清掉', r.npcBubble && r.npcBubbleDone, JSON.stringify(r));
+      check('节点写了不认识的键：开发时报错并指向 data，没有另外的警告', /portrait/.test(r.typo) && /data: \{/.test(r.typo) && !r.warns.some(w => /portrait/.test(w)), JSON.stringify([r.typo, r.warns]));
     },
   },
   {
@@ -368,7 +383,7 @@ export const specs = [
         const inside = t.inside;
         t.remove(); t.remove();
         sub.remove();
-        engine.resume();   // fades follow real-time frames: while paused it would wait forever
+        engine._resume();   // fades follow real-time frames: while paused it would wait forever
         let threw = false;
         try { await engine.flow.transition(() => { throw new Error('d-test'); }, { fade: 0.01, autosave: false }); } catch { threw = true; }
         await new Promise(r => { const h = engine.onFixed(() => { h.remove(); r(); }); });   // context pops apply on the next fixed step
@@ -397,7 +412,7 @@ export const specs = [
         engine.step(2, { render: false });
         await Promise.resolve();
         const frozen = { quest: engine.quests.isDone('dFrozen'), timeline: ended || !engine.timeline.playing };
-        engine.unfreeze('d-test');
+        engine.stacks.get('freeze').release('d-test');
         engine.step(1, { render: false });
         for (let i = 0; i < 5; i++) await Promise.resolve();
         const after = { quest: engine.quests.isDone('dFrozen'), timeline: ended };

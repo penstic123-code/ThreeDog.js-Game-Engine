@@ -21,7 +21,8 @@ engine.grids.define('bed',   { size: [2, 1], kind: 'furniture', fields: { model:
 engine.grids.define('shed',  { size: [3, 2], ground: ['grass', 'dirt'], flat: 0.2 });       // engine.groundType must match; max 0.2 m height difference
 engine.grids.define('crate', { size: [1, 1], can: (e, { cell }) => (cell[1] > 2 ? true : 'tooCloseToRoad') });   // your own rule
 ```
-Coordinates: `board.toCell(pos)` -> `[i, j]`, `board.toWorld(cell, size?, rotation?)` -> footprint center on the ground, `board.snap(pos)`,
+Coordinates: `board.toCell(pos)` -> `[i, j]`, `board.toWorld(cell, size?, rotation?)` -> footprint center on the ground as a plain `{ x, y, z }` (not a Vector3:
+`obj.position.copy(board.toWorld(c))`), `board.snap(pos)`,
 `board.inside(cell)`, `board.footprint(cell, size, rotation)`.
 Cell `[0, 0]` starts at `origin`. A footprint is anchored at its min corner; `rotation` is quarter turns (0-3), odd turns swap width and depth.
 
@@ -30,11 +31,13 @@ Cell `[0, 0]` starts at `origin`. A footprint is anchored at its min corner; `ro
 engine.ops.run('grid.place', { grid: 'room', item: 'bed', cell: [4, 4], rotation: 1 });   // { ok, value: record id } or { ok: false, code, facts, nextActions }
 engine.ops.run('grid.move',  { id: 'furniture-3', cell: [6, 2], rotation: 0 });          // its own cells do not block it; grid: 'room' moves it to another grid
 engine.ops.run('grid.remove', { id: 'furniture-3' });                                     // value { item, kind }: put it back in the bag yourself
-board.can('tower', [3, 5]);                                                              // ask only: true or a reason string
+board.can('tower', [3, 5]);                                                              // ask only: true or a failure code string
 ```
-Failure codes: `outOfBounds` `occupied` `wrongGround` `notFlat` `not<Field>` (from a layer rule: `notTilled`) `noGrid` `idTaken` `unknown` `notPlaced`, or
-your `can` reason.
-Show them through i18n (`engine.t('grid.' + r.code)`; `grid.can()` returns the same names as a plain string); `engine.explain({ grid: { grid: 'room', item: 'bed', cell: [4, 4] } }).text` says which cell
+Failure codes: `outOfBounds` `occupied` `wrongGround` `notFlat` `not<Field>` (from a layer rule: `notTilled`) `noGrid` `idTaken` `unknown` `notPlaced`
+`badFields` (fields that set id / kind / grid / position / rot, which the placement owns), or your `can` code.
+Show them through i18n (`engine.t('grid.' + r.code)`; `grid.can()` returns the same names as a plain string). The engine ships the `grid.<code>`
+player text of its own codes (zh-CN and en; override a line with `engine.i18n.add`); codes the game makes, a layer rule's `not<Field>` and your
+`can` codes, need their own `grid.<code>` line through `engine.i18n.add`. `engine.explain({ grid: { grid: 'room', item: 'bed', cell: [4, 4] } }).text` says which cell
 and which record is in the way.
 A placed record looks like `{ id, kind, position, rot, ...fields, grid: { id: 'room', cell: [4, 4], size: [2, 1], rotation: 1, item: 'bed' } }`. Give
 it a look with `world.present(kind, ...)` as usual (`rot` is the yaw in radians).
@@ -44,6 +47,20 @@ To build several things at once, call `grid.place` from your own op (`build.wall
 holds every placed thing once and can never disagree with itself.
 **Don't go around it** (dev): the `grid` field of a placed record is frozen (editing it in place throws); `world.set / add` outside an op trigger the
 ops guard; a record added by hand that overlaps another is reported and the cell stays with the first.
+
+**Occupancy layers and levels.** An item takes cells in its own occupancy layer (`occupy`, default `'main'`), so things in different layers share
+a cell and two in one layer do not; `level` is a storey (integer, default 0) with its own cells.
+```js
+engine.grids.define('tile', { occupy: 'floor' });                  // floor tiles, rugs, paint marks
+engine.grids.define('lamp', { occupy: 'wall' });                   // wall-hung things
+engine.grids.define('sofa', { size: [2, 1] });                     // 'main': a sofa stands on a tile, a second sofa there is 'occupied'
+engine.ops.run('grid.place', { grid: 'room', item: 'sofa', cell: [2, 2], level: 1 });   // upstairs: y = (grid y or the ground) + 1 * levelHeight
+room.at([2, 2], { occupy: 'floor', level: 0 }); room.stack([2, 2]);  // one layer's record id; every layer's on that cell { floor, main }
+```
+`grids.add(name, { y, levelHeight })`: `y` fixes level 0's height (default: the ground under each cell), `levelHeight` is meters per level (default 3);
+ground type and flatness are checked only on level 0 of a grid that follows the ground. The record keeps `grid.occupy` / `grid.level` when not the
+defaults. The cell <-> world math is one replaceable pair, `grids.add(name, { mapping: { toCell(x, z) => [i, j], center([i, j]) => [x, z] } })`,
+used by `toCell`, `toWorld`, tiles and flatness (footprints stay rectangles of cells).
 
 ## 3. Layers: per-cell state (soil, creep, paint)
 ```js
@@ -55,7 +72,7 @@ engine.ops.define('plot.water', { args: { cell: 'any' },
   can: (e, { cell }) => (soil.get(cell)?.tilled ? true : 'notTilled'),
   run: (e, { cell }) => soil.set(cell, { watered: true }) });
 engine.ops.define('plot.dry',   { run: () => soil.updateAll(d => { delete d.watered; }) });   // bulk change; return null from fn to clear a cell
-engine.sky.at('06:00', () => engine.ops.run('plot.dry'));                                      // daily reset is the game's job
+engine.calendar.at('06:00', () => engine.ops.run('plot.dry'));                                      // daily reset is the game's job
 ```
 `get(cell)`, `set(cell, patch)` (merge; a field set to null is deleted), `clear(cell)`, `query(cell?, size?)` -> `[{ cell, data }]`, `updateAll(fn)`, `count`.
 Writes are saved gameplay state: do them inside an op or a fixed step (the guard reports anything else). Data must be plain values.
@@ -64,9 +81,9 @@ Cells that exist from the start go in content: `content/grids.js` <!-- r18-ignor
 (or `grids.add(name, { layers })`). They are the baseline: a save keeps only cells changed from it, so editing the content later still reaches old saves.
 
 **Tiles.** The game gives a layer its colors: `plot.layer('soil', { tiles: { look: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
-(what the data means is gameplay, so no style pack ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its
+(what the data means is gameplay, so no style ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its
 height (slopes, ramps, level meshes).
-`tiles: { colors: { watered: 0x5b3d2a, tilled: 0x8a6243 } }` is the same as `look` from a table (first truthy field wins) and wins over a style pack's `style.grid.tiles`; `plot.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
+`tiles: { colors: { watered: 0x5b3d2a, tilled: 0x8a6243 } }` is the same as `look` from a table (first truthy field wins) and wins over a style's `style.grid.tiles`; `plot.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
 (engine, layer) => ({ update(cells), dispose() }) }` is your own view. Options are read when the layer is first created.
 
 ## 4. Preview
@@ -74,16 +91,16 @@ height (slopes, ramps, level meshes).
 engine.input.define('place', ['Mouse0'], 'Place');                          // gameplay reads input actions, not pointer.clicked (recipe 26)
 const pv = engine.grids.preview({ grid: 'board', item: 'tower', ...presets.keys.gridRotate });   // under the pointer; from: 'front' = the cell in front of the player
 engine.onFrame(() => {
-  if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + (r.code ?? r.reason))); }   // reason only for 'noTarget'
+  if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.code)); }   // 'noTarget' or a grid.place code
 });
 pv.remove();                                                                // leave build mode
 ```
 The engine binds no key: `...presets.keys.gridRotate` (or `rotateKeys: ['KeyR']`) defines the action `rotate` on R, or bind that action yourself with
 `input.define`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns
-it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.reason` (the `can` answer)
+it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.code` (the `can` answer, `'noTarget'` with no cell, null when ok)
 are readable every frame.
 Colors come from `style.grid.ok / bad / previewOpacity`. `look: false` hides the default box; `look: (engine) => ({ update(view), hide(), dispose()
-})` draws your own (`view = { cells, center, size, rotation, ok, reason }`).
+})` draws your own (`view = { cells, center, size, rotation, ok, code }`).
 
 ## 5. Baked data vs state the player changes
 Anything the player can change in play must be runtime state, never baked into generated height or ground-type data: a tilled plot (farming), a dug or mined
@@ -104,4 +121,4 @@ engine.ops.define('plot.dig', { args: { cell: 'any' },
 Undo with `paint: null` and `raise`. The test "player-changed ground" (`tests/specs/terrain-edit.mjs`) runs this pattern: save, then load into a fresh engine.
 
 ## 6. Verify
-`engine.describe().grids` -> `{ room: { occupied, items: { bed: 1 }, layers: {} }, plot: { ..., layers: { soil: 30 } } }`. Tests: `npx threedog test "grid:"`.
+`engine.describe().grids` -> `{ room: { occupied, items: { bed: 1 }, layers: {} }, plot: { ..., layers: { soil: 30 } } }`. Tests: `threedog test "grid:"`.

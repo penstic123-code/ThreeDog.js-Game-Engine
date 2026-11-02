@@ -6,6 +6,7 @@
 // Side: each rim segment is pushed down by side.depth (flat outward normal, side.ground color). Bottom (optional): every top vertex again,
 // side.depth + bottom.depth lower, winding reversed; a second band of wall joins the side to it. Vertex order: top, side, bottom -- `top`
 // and `solid` count vertices so the texture-shading material covers only the top and collision leaves the bottom out.
+import { forEdges } from './terrainShape.js';
 
 /** Unit normal of triangle a, b, q into o (buildChunk's flat triangles use it too) */
 export function faceN(ax, ay, az, bx, by, bz, qx, qy, qz, o) {
@@ -23,12 +24,12 @@ export function makeIslandBuilder({ CHUNK, RES, CELL, gridH, faceColor, paintCol
   const WHITE = [1, 1, 1];
   // keep the part of convex polygon P on one side of the cell diagonal (s >= 0 for sign 1, s <= 0 for sign -1)
   function clip(P, d, sign) {
-    const s = (fx, fz) => sign * (d ? fz - fx : 1 - fx - fz), out = [], n = P.length;
-    for (let k = 0; k < n; k += 3) {
-      const ax = P[k], az = P[k + 1], bx = P[(k + 3) % n], bz = P[(k + 4) % n], sa = s(ax, az), sb = s(bx, bz);
+    const s = (fx, fz) => sign * (d ? fz - fx : 1 - fx - fz), out = [];
+    forEdges(P, (ax, az, bx, bz, k) => {
+      const sa = s(ax, az), sb = s(bx, bz);
       if (sa >= 0) out.push(ax, az, P[k + 2]);
       if ((sa > 0 && sb < 0) || (sa < 0 && sb > 0)) { const t = sa / (sa - sb); out.push(ax + (bx - ax) * t, az + (bz - az) * t, 0); }
-    }
+    });
     return out;
   }
 

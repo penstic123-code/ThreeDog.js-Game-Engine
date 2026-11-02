@@ -27,7 +27,7 @@ engine.assets.manifest({ name: 'heroes', models: { hero: { url: '/models/hero.gl
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });   // no clips / animation in code
 engine.assets.mapping(engine.player.anim.root);                                     // after whenReady: the entry's mapping, or null
 ```
-A character's default names (`Idle`, `Walk`...) never shadow a mapped state, and the entry's `fade` beats the style pack's.
+A character's default names (`Idle`, `Walk`...) never shadow a mapped state, and the entry's `fade` beats the style's.
 
 - A clip name also matches the part after the last `|`: Blender / FBX2glTF exports `CharacterArmature|Idle`, you write `Idle`.
 - Dev checks: a state whose clip is not in the model warns at `assets.animate()` with the available clip names and where to fix it
@@ -48,6 +48,15 @@ engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero,
 engine.player.playAction('Wave');                                   // one-shot clip (skipped if the clip doesn't exist); returns to the previous state when done
 engine.player.anim.state;                                           // current state name
 ```
+**The game's own states** (crouch, climb, glide, dash, roll) go on top of the built-in ones through the `states` option, without taking the mover
+over: it runs after the mover's state each step and returns a state name or null (keep the built-in `facts.base`); the clip comes from `clips`
+like any other state, a speed change stays `engine.mod('move.speed')`.
+```js
+createPlayer({ ...presets.player.thirdPerson, model: hero, clips: { crouch: 'Crouch', glide: 'Glide' },
+  states: (c, f) => f.grounded && engine.input.down('crouch') ? 'crouch' : !f.grounded && f.vy < 0 && gliding ? 'glide' : null });
+```
+Deep water follows `water`: `'swim'` (default), `'block'` (never enters), `'wade'` (walks the bottom), or `(c, { depth }) => mode` per spot;
+`character:water { in, mode, depth }` fires on each change.
 For smooth walk/run blending, use `animation` instead of `clips` and write a `move` blend tree (when the model has no walk/run states, move is used
 automatically; the `speed` parameter is in m/s):
 ```js
@@ -57,7 +66,7 @@ engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero, ani
   jump: { clip: 'Jump', loop: false },
 } } });
 ```
-The default transition time comes from the style pack's `style.character.animation.fade`.
+The default transition time comes from the style's `style.character.animation.fade`.
 
 **By asset name.** `model` also takes the name of a registered model asset: a file model, or a procedural builder. The character is built at once
 with a gray capsule; when the asset loads, a skeleton-correct copy replaces it under the same root, so position, facing, state, collision and the
@@ -79,12 +88,11 @@ engine.assets.manifest(assets);
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' });
 engine.npcs.add({ id: 'fisher', model: 'humanoid', colors: { body: 0x4f6d8f } });   // per-character part colors
 ```
-- **Colors**: the humanoid's parts use material roles `cloth`, `skin`, `trousers`, `hair`, so any style pack tints every humanoid
+- **Colors**: the humanoid's parts use material roles `cloth`, `skin`, `trousers`, `hair`, so any style tints every humanoid
   (`style: [basePack, { materials: { cloth: { color: 0x3a6ea5 } } }]`); `colors: { body, skin, legs, hair }` recolors one character.
 - **Your own procedural body**: a builder that returns an Object3D with `root.userData.rig = { body: 'hips', head: 'head', joints: ['armL'],
   limbs: [{ joint: 'legL', offset: 0, amp: 0.9, kind: 'leg' }] }` (object names, so it survives copies and baking) animates like the humanoid; mark
   meshes `userData.part = 'body'` for `colors`. A hand-built one-off passes `{ rig }` instead ([02-npc](02-npc.md)).
-- The old `style.character.create` / `.model` / `.colors` throw `renamed-api` ([52-look](52-look.md#renamed-in-02)).
 
 ## 4. Non-character objects (a dog, a windmill, a door)
 ```js

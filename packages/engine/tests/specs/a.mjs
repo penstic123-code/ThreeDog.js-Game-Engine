@@ -135,21 +135,34 @@ export const specs = [
     },
   },
   {
-    name: 'A: warning for per-frame overridden props (ownedProps)',
+    name: '[guard] A: defineOwned: an outside write makes the engine yield (value stays, one warning), exemptions are per object',
     url: '/tests/a/',
     async run({ page, check, ev }) {
       const warns = [];
       page.on('console', m => { if (m.type() === 'warning' && m.text().includes('test.light')) warns.push(m.text()); });
-      await ev(() => {
-        const light = { intensity: 1 }, own = threedogTest.ownedProps('test.light.intensity', () => light.intensity, 'hint');
-        const frame = () => { own.check(); light.intensity = 1; own.mark(); };   // what a module does each frame: check, write, mark
+      const r = await ev(() => {
+        const { defineOwned, allowOwned } = threedogTest, light = { intensity: 1 }, door = { open: 0 };
+        const L = { manual: "engine.look.lights.manual('test')" };
+        const own = defineOwned(engine, { id: 'test.light.intensity', part: 'testPart', key: 'test', read: () => light.intensity, write: v => { light.intensity = v; }, objects: [light], levels: L });
+        const frame = () => own.drive(1);   // what a module does each frame: check, write unless taken, mark
         frame(); frame();
-        light.intensity = 9; frame(); frame();      // game edits it directly: one warning
-        light.intensity = 9; frame();               // edited again: no repeat
-        threedogTest.allowOwned('timeline'); light.intensity = 5; frame(); threedogTest.allowOwned('timeline', false);   // no warning while exempted
+        // a tween on ANOTHER object must not exempt this one (the old exemption switched every check off)
+        allowOwned('door-tween', [door]); light.intensity = 9; frame(); allowOwned('door-tween', false);
+        const yielded = own.mode, kept = light.intensity;
+        light.intensity = 7; frame();   // the game owns it now: no write, no second warning
+        own.manual(false); frame();     // handed back: the engine writes again
+        const back = light.intensity;
+        allowOwned('light-tween', [light]); light.intensity = 5; frame(); allowOwned('light-tween', false);   // exempted while animated
+        const tweened = own.mode;
+        engine._owned.delete('test.light.intensity');
+        let noManual = ''; try { defineOwned(engine, { id: 'test.nomanual', part: 'testPart', read: () => 0 }); } catch (err) { noManual = err.message; }
+        return { yielded, kept, back, tweened, after7: 7, noManual };
       });
-      await new Promise(r => setTimeout(r, 200));
-      check('direct edit warns once, does not repeat, and stays silent when exempted', warns.length === 1, warns.join(' | '));
+      await new Promise(res => setTimeout(res, 200));
+      check('outside write: engine yields, the value stays', r.yielded === 'yielded' && r.kept === 9, JSON.stringify(r));
+      check('exactly one warning, quoting the takeover call', warns.length === 1 && warns[0].includes("engine.look.lights.manual('test')") && warns[0].includes("manual('test', false)"), warns.join(' | '));
+      check('defineOwned without levels.manual throws at define time (the warning always leads with a takeover call)', /levels\.manual is required/.test(r.noManual), r.noManual);
+      check('hand back: the engine writes again; a tween on the object is exempt (no yield)', r.back === 1 && r.tweened === 'engine', JSON.stringify(r));
     },
   },
   {

@@ -19,14 +19,14 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [06-clock-events](docs/recipes/06-clock-events.md): Scheduling events on the game clock
 - [07-flow-scenes-pause](docs/recipes/07-flow-scenes-pause.md): Scene transitions and pause (flow)
 - [08-weather-sky](docs/recipes/08-weather-sky.md): Add weather or change the sky
-- [09-style-pack](docs/recipes/09-style-pack.md): Changing the art / writing a style pack
+- [09-style-pack](docs/recipes/09-style-pack.md): The game's style folder: changing the art
 - [10-blender-level](docs/recipes/10-blender-level.md): Importing Blender models and levels
 - [11-vehicles](docs/recipes/11-vehicles.md): Vehicles and boarding
 - [12-navmesh](docs/recipes/12-navmesh.md): Navigation mesh (nav)
 - [13-animation](docs/recipes/13-animation.md): Animation state machine (skeletal animation)
 - [14-custom-module](docs/recipes/14-custom-module.md): Custom module
 - [15-perf](docs/recipes/15-perf.md): Performance investigation (F3, budget, profile, describe().perf)
-- [16-dev-bridge](docs/recipes/16-dev-bridge.md): Dev bridge: operate the running game from the terminal (npx threedog describe / step / press / op...)
+- [16-dev-bridge](docs/recipes/16-dev-bridge.md): Dev bridge: operate the running game from the terminal (threedog describe / step / press / op...)
 - [18-world](docs/recipes/18-world.md): World data: things that must be saved, grow, and keep changing while far away
 - [19-shooting-picking](docs/recipes/19-shooting-picking.md): Shooting and picking (cast a ray from the screen center or the mouse position, with any camera)
 - [20-content-actions-save](docs/recipes/20-content-actions-save.md): Content vocabulary, key actions in actions.js, saving and loading at startup
@@ -60,3 +60,5 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [51-capability-catalog](docs/recipes/51-capability-catalog.md): Capability catalog: ask what the game can do before reading docs
 - [52-look](docs/recipes/52-look.md): 52 Change any look: `engine.look`
 - [53-ground-up-close](docs/recipes/53-ground-up-close.md): The ground up close: options and diagnosis
+- [54-three-idioms](docs/recipes/54-three-idioms.md): Plain three.js in this engine
+- [55-mods-time-wrap](docs/recipes/55-mods-time-wrap.md): Shared quantities, time channels and wrapping module methods

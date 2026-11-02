@@ -9,14 +9,13 @@
 // Push is capped (strength m/s * dt), stronger with more overlap, then constrained by engine.collision (if installed) so NPCs are not pushed into walls.
 // With nav({ crowd: true }) the Recast agents decide and this adds nothing. Only near NPCs with a model; far NPCs are simulated from data without per-NPC
 // avoidance (too costly).
-import { checkOptions } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
+import { Cells } from '../../core/cells.js';
 
 const KEYS = ['on', 'radius', 'strength'];
 // push direction is rotated ~25° to the right: two NPCs meeting head-on each swerve to their own right instead of deadlocking in a line
 const COS = 0.906, SIN = 0.423;
 const Q = 1048576;   // rounding scale before summing (2^20)
-
-const cellKey = (x, z) => (x + 1048576) * 2097152 + z + 1048576;
 
 /**
  * Push from one neighbour (offset (dx, dz) from me, distance d, wanted separation min), rounded and added to acc; exactly overlapping picks the direction by
@@ -37,14 +36,22 @@ export class NpcAvoid {
     this.strength = 3;      // max push speed (m/s)
     this._acc = { x: 0, z: 0 };
     /** @internal ids of NPCs that have a model now (NPCManager keeps it): only they take part, so far NPCs cost nothing per step */ this.built = new Set();
-    this._ids = [];
-    this._start = new Map();   // id → { k: simulation step count, x, z }: position at the start of this step
-    // fine grid index for this step (cell size = min distance of two NPCs, query 3x3 cells): the world grid is 32 m per cell, so hundreds of NPCs in one or two
-    // cells would make per-pair distance checks too costly
-    this._gridN = -1; this._head = new Map(); this._next = new Int32Array(64); this._items = []; this._gx = new Float64Array(64); this._gz = new Float64Array(64);
-    engine.events.on('world:remove', ({ id }) => this._start.delete(id));
-    // after load the simulation step count returns to the saved value, so the old grid is stale
-    engine.events.on('world:load', () => { this._start.clear(); this._gridN = -1; });
+    // id → { id, rec, k, x, z, position, n }: x, z = where its own step started (stamped on step k); position = where it was filed for step n (the stamp, or
+    // where it stood before moving), what neighbours read
+    this._start = new Map();
+    // the shared xz index (core/cells.js) with cells the size of the minimum distance of two NPCs, so a query looks at 3x3 cells. Not world's record index:
+    // that one is 32 m per cell (hundreds of NPCs in one or two cells would make per-pair checks too costly) and holds positions as they move during the step,
+    // while every push must read the step-start ones
+    this._grid = null; this._gridN = -1; this._filed = new Set();
+    this._q = null; this._qRec = null;   // the NPC being pushed, for the query callback (built once, no closure per push)
+    this._onNear = (o, d2) => {
+      const own = this._q, rec = this._qRec;
+      if (o.rec === rec || d2 >= this._min2 || (o.rec.zone != null && rec.zone != null && o.rec.zone !== rec.zone)) return;
+      shove(this._acc, own.x - o.position.x, own.z - o.position.z, Math.sqrt(d2), this._min, rec.id < o.id ? 1 : -1);
+    };
+    engine.events.on('world:remove', ({ id }) => { const s = this._start.get(id); if (s) { this._grid?.delete(s); this._filed.delete(s); this._start.delete(id); } });
+    // after load the simulation step count returns to the saved value, so the old index is stale
+    engine.events.on('world:load', () => { this._start.clear(); this._filed.clear(); this._grid?.clear(); this._gridN = -1; });
   }
 
   /**
@@ -58,7 +65,7 @@ export class NpcAvoid {
   set(opts) {
     this._gridN = -1;
     if (typeof opts === 'boolean') { this.on = opts; return this; }
-    checkOptions('engine.npcs.avoid.set()', opts, KEYS);
+    readParams('engine.npcs.avoid.set()', keysSchema(KEYS), opts);
     this.on = opts.on ?? true;
     if (opts.radius !== undefined) this.radius = opts.radius;
     if (opts.strength !== undefined) this.strength = opts.strength;
@@ -68,29 +75,33 @@ export class NpcAvoid {
   /** This NPC's simulation step starts: record the start position (called from the near entry in NPC.js, before behaviours change the position) */
   stamp(rec) {
     if (!this.on) return;
-    const n = this.engine.world.steps, p = rec.position;
+    const s = this._entry(rec);
+    s.k = this.engine.world.steps; s.x = rec.position.x; s.z = rec.position.z;
+  }
+  _entry(rec) {
     let s = this._start.get(rec.id);
-    if (!s) this._start.set(rec.id, s = { k: n, x: p.x, z: p.z });
-    else { s.k = n; s.x = p.x; s.z = p.z; }
+    if (!s) this._start.set(rec.id, s = { id: rec.id, rec, k: -1, x: 0, z: 0, position: { x: 0, z: 0 }, n: -1 });
+    s.rec = rec;   // a load replaces record objects
+    return s;
   }
 
   /**
-   * On the first avoid of this step, put model-bearing NPCs into the fine grid by their step-start positions (each NPC then queries only the surrounding 3x3
-   * cells)
+   * On the first avoid of this step, file model-bearing NPCs by their step-start positions: the stamp for one that already ran this step, else where it
+   * stands (it has not moved yet this step). Entries move cell only when they cross one, so a crowd costs a lookup each, not a rebuild and a sort.
+   * Neighbour visiting order does not matter: pushes are summed as rounded integers
    */
-  _build(W, n, min) {
-    const head = this._head, items = this._items, ids = this._ids;
-    ids.length = 0; for (const id of this.built) ids.push(id);
-    ids.sort();   // by id: model build order depends on frames, the push order must not
-    items.length = 0;
-    for (const id of ids) { const o = W.get(id); if (o && W.view(id)) items.push(o); }
-    head.clear(); this._gridN = n;
-    if (items.length > this._next.length) { this._next = new Int32Array(items.length * 2); this._gx = new Float64Array(items.length * 2); this._gz = new Float64Array(items.length * 2); }
-    for (let i = 0; i < items.length; i++) {
-      const o = items[i], s = this._start.get(o.id), q = s && s.k === n ? s : o.position, c = cellKey(Math.floor(q.x / min), Math.floor(q.z / min));
-      this._gx[i] = q.x; this._gz[i] = q.z;
-      this._next[i] = head.get(c) ?? -1; head.set(c, i);
+  _file(W, n, min) {
+    if (this._grid?.size !== min) { this._grid = new Cells(min); this._filed.clear(); }
+    const G = this._grid, filed = this._filed;
+    this._gridN = n;
+    for (const id of this.built) {
+      const o = W.get(id); if (!o || !W.view(id)) continue;
+      const s = this._entry(o);
+      const q = s.k === n ? s : o.position;
+      s.position.x = q.x; s.position.z = q.z;
+      s.n = n; G.put(s); filed.add(s);
     }
+    for (const s of filed) if (s.n !== n) { G.delete(s); filed.delete(s); }   // model gone since last step
   }
 
   /** Push ch (the rec's model) apart; call after ch.move, edits ch.root.position x, z directly */
@@ -99,21 +110,14 @@ export class NpcAvoid {
     if (!this.on || e.nav?.crowd) return;
     const n = W.steps, own = this._start.get(rec.id), r = this.radius ?? e.movement.radius, min = 2 * r;
     if (!own || own.k !== n) return;   // did not enter via NPC.js (goTo called directly): no avoidance
-    if (this._gridN !== n) this._build(W, n, min);
-    const head = this._head, nx = this._next, items = this._items, gx = this._gx, gz = this._gz, min2 = min * min;
+    if (this._gridN !== n) this._file(W, n, min);
     // accumulate integers: float addition depends on order and neighbour order changes after load; rounded integer addition is exact and order-independent
     const acc = this._acc; acc.x = acc.z = 0;
-    const cx = Math.floor(own.x / min), cz = Math.floor(own.z / min);
-    for (let x = cx - 1; x <= cx + 1; x++) for (let z = cz - 1; z <= cz + 1; z++) {
-      for (let i = head.get(cellKey(x, z)) ?? -1; i >= 0; i = nx[i]) {
-        const o = items[i], dx = own.x - gx[i], dz = own.z - gz[i], d2 = dx * dx + dz * dz;
-        if (o === rec || d2 >= min2 || (o.zone != null && rec.zone != null && o.zone !== rec.zone)) continue;
-        shove(acc, dx, dz, Math.sqrt(d2), min, rec.id < o.id ? 1 : -1);
-      }
-    }
-    const pl = e.player;
+    this._q = own; this._qRec = rec; this._min = min; this._min2 = min * min;
+    this._grid.forEach(own, min, this._onNear);
+    const pl = e.player, ox = own.x, oz = own.z;
     if (pl?.root) {   // the player is an obstacle: only the NPC yields, the player position belongs to the mover
-      const q = pl.root.position, m = r + (pl.radius ?? r), dx = own.x - q.x, dz = own.z - q.z, d = Math.hypot(dx, dz);
+      const q = pl.root.position, m = r + (pl.radius ?? r), dx = ox - q.x, dz = oz - q.z, d = Math.hypot(dx, dz);
       if (d < m) shove(acc, dx, dz, d, m, 1);
     }
     const ax = acc.x / Q, az = acc.z / Q;

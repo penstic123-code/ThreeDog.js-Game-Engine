@@ -1,5 +1,5 @@
 // Quests module: made of steps, each with a completion condition (function), checked every half second (game time, in the fixed step; not checked while
-// frozen/paused). Press J by default to open the quest log.
+// frozen/paused). The game's key (quests({ keys }) or presets.keys.quests; none built in) opens the quest log. What a replacement must provide: quests.contract.js.
 //
 // quests.define('first-photo', {
 //   title: '第一张照片', desc: '…',
@@ -18,8 +18,8 @@
 // The log window is the UI part 'questLog' (questLog.js): replace it or turn it off with engine.ui.set('questLog', ...) (recipes/26-ui-parts.md).
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
-import { checkOptions, warnMissing, DEV, moduleKeys } from '../../core/validate.js';
-import { readParams } from '../../core/params.js';
+import { warnMissing, DEV, moduleKeys } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
@@ -34,7 +34,8 @@ export class Quests {
   constructor(engine, { action = 'quests', keys, pad, checkInterval = 0.5, notify = true } = {}) {
     this.engine = engine;
     this.defs = new Map();
-    this.state = {};       // id -> { step, done, failed?, parts? (parts done in the current parallel step), got? (parts met in finished parallel steps) }
+    /** @internal id -> { step, done, failed?, parts? (parts done in the current parallel step), got? (parts met in finished parallel steps) }; read it with state(id) */
+    this._progress = {};
     /** @internal saved progress of quests not defined yet (content loaded after the save): applied by define(), written back unchanged meanwhile */ this._saved = {};
     this._t = 0;
     this.action = action; this.checkInterval = checkInterval;
@@ -62,36 +63,36 @@ export class Quests {
    */
   define(id, def) {
     const at = `quests.define('${id}')`;
-    checkOptions(at, def, ['title', 'desc', 'steps', 'reward', 'fail', 'onFail']);
+    readParams(at, keysSchema(['title', 'desc', 'steps', 'reward', 'fail', 'onFail']), def);
     for (const s of def.steps || []) {
       if (!s.all && (typeof s.done !== 'function' || s.optional !== undefined)) throw codedError('quest-step', `${at}: a step needs done (a function), or all: [parts] for parallel goals; optional goes on a part inside all`);
-      checkOptions(`${at} steps`, s, s.all ? ['id', 'text', 'all'] : ['id', 'text', 'done', 'target']);
-      for (const p of s.all || []) checkOptions(`${at} parallel part`, p, ['id', 'text', 'done', 'target', 'optional']);
+      readParams(`${at} steps`, keysSchema(s.all ? ['id', 'text', 'all'] : ['id', 'text', 'done', 'target']), s);
+      for (const p of s.all || []) readParams(`${at} parallel part`, keysSchema(['id', 'text', 'done', 'target', 'optional']), p);
       if (s.all && !s.all.some(p => !p.optional)) throw codedError('quest-step', `${at}: a parallel step needs at least one part without optional: true, or it would finish at once`);
     }
     const ids = (def.steps || []).map((_, i) => stepId(def, i)), dup = ids.find((x, i) => ids.indexOf(x) !== i);
     if (dup != null) throw codedError('quest-step', `${at}: two steps have the id '${dup}'; step ids must be unique (saves find a step by it)`);
     this.defs.set(id, def);
-    if (id in this._saved) { this.state[id] = fromSaved(id, def, this._saved[id]); delete this._saved[id]; this.win.refresh(); }
+    if (id in this._saved) { this._progress[id] = fromSaved(id, def, this._saved[id]); delete this._saved[id]; this.win.refresh(); }
     return this;
   }
   /** @internal save part data: progress by step ids, plus saved quests not defined yet */
   _save() {
     const state = { ...this._saved };
-    for (const [id, s] of Object.entries(this.state)) { const d = this.defs.get(id); if (d) state[id] = toSaved(d, s); }
+    for (const [id, s] of Object.entries(this._progress)) { const d = this.defs.get(id); if (d) state[id] = toSaved(d, s); }
     return { state };
   }
   /** @internal */
   _load(d) {
-    this.state = {}; this._saved = {};
-    for (const [id, q] of Object.entries(d?.state || {})) { const def = this.defs.get(id); if (def) this.state[id] = fromSaved(id, def, q); else this._saved[id] = q; }
+    this._progress = {}; this._saved = {};
+    for (const [id, q] of Object.entries(d?.state || {})) { const def = this.defs.get(id); if (def) this._progress[id] = fromSaved(id, def, q); else this._saved[id] = q; }
     this.win.refresh();
   }
   /**
    * Quest list (for custom UI): unfinished first. A parallel step has parts [{ text, target, done, optional }]; its text defaults to the required parts joined.
    */
   list() {
-    return Object.entries(this.state).filter(([id]) => this.defs.has(id)).sort((a, b) => a[1].done - b[1].done).map(([id, s]) => {
+    return Object.entries(this._progress).filter(([id]) => this.defs.has(id)).sort((a, b) => a[1].done - b[1].done).map(([id, s]) => {
       const d = this.defs.get(id), live = !s.done && !s.failed;
       return { id, title: d.title, desc: d.desc, done: s.done, failed: !!s.failed, steps: d.steps.map((st, i) => {
         const now = live && i === s.step, row = { text: st.text, target: st.target, done: s.done || i < s.step, current: now };
@@ -106,9 +107,9 @@ export class Quests {
   }
   start(id) {
     if (!this.defs.has(id)) { warnMissing('quest', id, [...this.defs.keys()]); return; }
-    if (this.state[id] && !this.state[id].failed) return;   // a failed quest may be taken again (a daily order, a retry)
+    if (this._progress[id] && !this._progress[id].failed) return;   // a failed quest may be taken again (a daily order, a retry)
     DEV && this.engine.ops.guard('quests.start');
-    this.state[id] = { step: 0, done: false };
+    this._progress[id] = { step: 0, done: false };
     this._say('start', id, this.engine.t('quests.new', { title: this.defs.get(id).title }));
     this.engine.events.emit('quest:start', { id });
     this.win.refresh();
@@ -118,23 +119,49 @@ export class Quests {
     if (this.notify === true) toast(this.engine, text, { kind: 'quest' });
     else if (typeof this.notify === 'function') this.notify({ type, id, text });
   }
-  isDone(id) { return !!this.state[id]?.done; }
-  isActive(id) { const s = this.state[id]; return !!s && !s.done && !s.failed; }
-  isFailed(id) { return !!this.state[id]?.failed; }
+  /**
+   * One quest's progress as plain values: { step (index of the current step), steps (how many), done, failed, active } or null when it has not started.
+   * A copy: change progress with start / advance, never by writing it.
+   * @param {string} id
+   */
+  state(id) {
+    const s = this._progress[id], d = this.defs.get(id);
+    return s && d ? { step: s.step, steps: d.steps.length, done: !!s.done, failed: !!s.failed, active: !s.done && !s.failed } : null;
+  }
+  /**
+   * Finish the current step by hand (a step the game completes from its own code: a cutscene ended, a boss fell) and go on; the last step completes the
+   * quest (reward, quest:done). The step's done() is not asked. Returns false when the quest is not active.
+   * @param {string} id
+   */
+  advance(id) {
+    const s = this._progress[id], d = this.defs.get(id), e = this.engine;
+    if (!s || !d || s.done || s.failed) return false;
+    DEV && e.ops.guard('quests.advance');
+    s.step++; delete s.parts; e.events.emit('quest:step', { id, step: s.step });
+    this._finishOrSay(id, s, d, true);
+    return true;
+  }
+  /** @internal after steps moved: complete the quest at the end, else announce the new step */
+  _finishOrSay(id, s, d, advanced) {
+    if (s.step >= d.steps.length) {
+      s.done = true; d.reward?.(this.engine);
+      this._say('done', id, this.engine.t('quests.done', { title: d.title })); this.engine.events.emit('quest:done', { id });
+    } else if (advanced) this._say('step', id, stepText(d.steps[s.step]));
+    if (advanced) this.win.refresh();
+  }
+  isDone(id) { return !!this._progress[id]?.done; }
+  isActive(id) { const s = this._progress[id]; return !!s && !s.done && !s.failed; }
+  isFailed(id) { return !!this._progress[id]?.failed; }
 
   check() {
     const e = this.engine;
-    for (const [id, s] of Object.entries(this.state)) {
+    for (const [id, s] of Object.entries(this._progress)) {
       if (s.done || s.failed) continue;
       const d = this.defs.get(id); if (!d) continue;
       if (d.fail?.(e)) { this._fail(id, s, d); continue; }
       let advanced = false;
       while (s.step < d.steps.length && this._stepDone(id, s, d.steps[s.step])) { DEV && e.ops.guard('quests.advance'); s.step++; delete s.parts; advanced = true; e.events.emit('quest:step', { id, step: s.step }); }
-      if (s.step >= d.steps.length) {
-        s.done = true; d.reward?.(this.engine);
-        this._say('done', id, this.engine.t('quests.done', { title: d.title })); this.engine.events.emit('quest:done', { id });
-      } else if (advanced) this._say('step', id, stepText(d.steps[s.step]));
-      if (advanced) this.win.refresh();
+      this._finishOrSay(id, s, d, advanced);
     }
   }
   /** @internal Plain step: its condition. Parallel step: tick off parts as they are met (each stays done); done when no required part is left */
@@ -186,7 +213,7 @@ export function quests(opts = {}) {
     frame(dt, e) { toggleOnKey(e, q.win, q.action); },
     // engine.explain({ quest: id }): where a quest is stuck, so the AI need not read every done() function
     explain: { quest(e, id) {
-      const d = q.defs.get(id), s = q.state[id];
+      const d = q.defs.get(id), s = q._progress[id];
       if (!d) return { ok: false, text: `quest '${id}' is not defined (defined: ${[...q.defs.keys()].join(', ') || 'none'})` };
       if (!s) return { ok: false, text: `quest '${id}' has not started (quests.start('${id}') or a content start effect)` };
       if (s.done) return { ok: true, text: `quest '${id}' is done` };

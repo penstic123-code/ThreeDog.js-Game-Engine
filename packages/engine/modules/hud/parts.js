@@ -1,14 +1,20 @@
 // Default HUD UI parts (hud.marker, hud.counter, hud.bar). hud/index.js keeps the logic (targets, projection, edge arrows, quest sync)
 // and hands each part plain data; a game replaces any of them with engine.ui.set('hud.counter', ...) or turns it off with false.
 // Look: CSS classes .threedog-hud .threedog-hud-stats .threedog-hud-marker .threedog-hud-arrow .threedog-hud-counter .threedog-hud-bar;
-//   colors --threedog-hud-bg/fg/accent (style pack style.ui.hudBg...); layout is plain CSS, so style.ui.css moves the stats column, sizes, fonts.
+//   colors --threedog-hud-bg/fg/accent (style.ui.hudBg...); layout is plain CSS, so style.ui.css moves the stats column, sizes, fonts.
 //   Inner HTML: style.ui.templates.hudMarker / hudCounter / hudBar (data, { esc, t }) => HTML.
 import { esc, placeAt } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 
 export const CSS = `
 .threedog-hud{position:fixed;inset:0;pointer-events:none;z-index:12;font:13px/1.4 var(--threedog-font);color:var(--threedog-hud-fg)}
-.threedog-hud-stats{position:absolute;left:calc(12px + env(safe-area-inset-left,0px));top:calc(12px + env(safe-area-inset-top,0px));display:flex;flex-direction:column;gap:6px}
+.threedog-hud-stats{position:absolute;display:flex;flex-direction:column;gap:6px;--hx:calc(12px + env(safe-area-inset-left,0px));--hy:calc(12px + env(safe-area-inset-top,0px))}
+.threedog-hud-top-left,.threedog-hud-left,.threedog-hud-bottom-left{left:var(--hx)}
+.threedog-hud-top-right,.threedog-hud-right,.threedog-hud-bottom-right{right:calc(12px + env(safe-area-inset-right,0px));align-items:flex-end}
+.threedog-hud-top,.threedog-hud-bottom{left:50%;transform:translateX(-50%);align-items:center}
+.threedog-hud-top-left,.threedog-hud-top,.threedog-hud-top-right{top:var(--hy)}
+.threedog-hud-bottom-left,.threedog-hud-bottom,.threedog-hud-bottom-right{bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+.threedog-hud-left,.threedog-hud-right{top:50%;transform:translateY(-50%)}
 .threedog-hud-counter,.threedog-hud-bar{background:var(--threedog-hud-bg);border-radius:8px;padding:4px 10px;min-width:120px}
 .threedog-hud-bar-track{height:6px;border-radius:3px;background:var(--threedog-line);overflow:hidden;margin-top:3px}
 .threedog-hud-bar-fill{height:100%;width:calc(var(--threedog-hud-fill,0) * 100%);background:var(--threedog-hud-accent)}
@@ -20,9 +26,9 @@ export const CSS = `
 `;
 
 /**
- * Declare the default HUD parts. layer / stats are hud's containers (created only when some default part is in use).
+ * Declare the default HUD parts. layer / column(anchor) are hud's containers (created only when some default part is in use).
  * @param {Engine} e
- * @param {() => { layer: HTMLElement, stats: HTMLElement }} root
+ * @param {() => { layer: HTMLElement, column(anchor?: string): HTMLElement }} root
  * @returns {void}
  */
 export function defineHudParts(e, root) {
@@ -50,25 +56,32 @@ export function defineHudParts(e, root) {
     };
   }, { multi: true });
 
+  // a counter / bar lives in the column of its anchor; a changed anchor moves the element there
+  const place = (el, d) => { const col = root().column(d.anchor ?? 'top-left'); if (el.parentNode !== col) col.appendChild(el); };
+
   e.ui.define('hud.counter', () => {
-    const el = document.createElement('div'); el.className = 'threedog-hud-counter'; root().stats.appendChild(el);
+    const el = document.createElement('div'); el.className = 'threedog-hud-counter';
     return {
       el,
       update(d) {
+        place(el, d);
         const t = tpl('hudCounter');
         if (t) el.innerHTML = t(d, tools);
-        else el.textContent = `${d.icon ?? ''} ${d.label ?? d.id} ${d.value ?? 0}${d.max != null ? ' / ' + d.max : ''}`.trim();
+        // value is a number (a count, with max: 2 / 5) or text (a time '08:30', a quest step): one counter for both, no second widget.
+        // No value = the label alone: a status line that has no number yet must not read "0"
+        else el.textContent = [d.icon, d.label ?? d.id, d.value == null ? null : d.max != null ? `${d.value} / ${d.max}` : d.value].filter(x => x != null && x !== '').join(' ');
       },
       dispose() { el.remove(); },
     };
   }, { multi: true });
 
   e.ui.define('hud.bar', () => {
-    const el = document.createElement('div'); el.className = 'threedog-hud-bar'; root().stats.appendChild(el);
+    const el = document.createElement('div'); el.className = 'threedog-hud-bar';
     let label;
     return {
       el,
       update(d) {
+        place(el, d);
         const t = tpl('hudBar');
         if (t) { el.innerHTML = t(d, tools); return; }
         if (label !== d.label) { label = d.label; el.innerHTML = `${d.label ? `<span>${esc(d.label)}</span>` : ''}<div class="threedog-hud-bar-track"><div class="threedog-hud-bar-fill"></div></div>`; }

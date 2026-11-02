@@ -14,7 +14,7 @@
 // At startup start() waits for everything registered within radius to finish building before the loading screen goes away. The grid cell size cellSize is
 // shared with hlod.
 /** @import { StreamEntryOptions, StreamHandle, StreamSource, StreamSourceOptions } from '../types/core' */
-import { checkOptions } from './validate.js';
+import { readParams, keysSchema } from './params.js';
 import { xzOf } from './math.js';
 import { reportError } from './errors.js';
 import { codedError } from './errorHints.js';
@@ -69,7 +69,7 @@ export class Stream {
    * @example engine.stream.add({ position: [40, 0, 12], radius: 6, build: () => makeHouse() });
    */
   add(def) {
-    checkOptions('stream.add()', def, KEYS);
+    readParams('stream.add()', keysSchema(KEYS), def);
     const [x, z] = xzOf(def.position);
     /** @type {any} */
     const h = { def, x, z, object: null, built: false, want: false, cell: null, remove: () => this._remove(h) };
@@ -106,7 +106,7 @@ export class Stream {
    * @experimental
    */
   source(position, opts = {}) {
-    checkOptions('stream.source()', opts, SOURCE_KEYS);
+    readParams('stream.source()', keysSchema(SOURCE_KEYS), opts);
     if (opts.detail != null && opts.detail !== 'full' && opts.detail !== 'simple') throw codedError('stream-option', SOURCE_STRINGS.detail.replace('{got}', JSON.stringify(opts.detail)));
     const s = new Source(this, position, opts);
     this._sources.add(s); this._version++;
@@ -126,7 +126,7 @@ export class Stream {
    * @experimental
    */
   async teleport(position, opts = {}) {
-    checkOptions('stream.teleport()', opts, ['radius', 'move', 'timeout']);
+    readParams('stream.teleport()', keysSchema(['radius', 'move', 'timeout']), opts);
     const e = this.engine, s = this.source(position, { radius: opts.radius ?? 64, name: 'teleport' }), limit = opts.timeout ?? 60;
     let waited = 0;
     const watch = e.onFrame(dt => {

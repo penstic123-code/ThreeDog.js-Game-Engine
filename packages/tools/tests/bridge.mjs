@@ -33,8 +33,16 @@ export async function run({ check, browser }) {
     check('after start .threedog/dev.json is written (port + token)', dev.port && dev.token?.length >= 16);
 
     // 2. Headless fallback page (no real browser connected)
+    // snap first, before anything stepped: a paused page had drawn nothing yet and snap saved a black picture (r4 G11)
+    const s0 = await threedog('snap', 'tick0'), lum0 = +(/Look: luminance ([\d.]+)/.exec(s0.out)?.[1] ?? 0);
+    check('snap at tick 0 draws the page before reading (not black)', s0.code === 0 && lum0 > 0.02, s0.out.slice(0, 300));
     const d = (await threedog('describe'));
     const startClock = (await threedog('describe', 'time.clock')).out.replace(/"/g, '');
+    // toasts on the headless page live on the stepped time (r4 G10): shown, step past their time, then snap -> gone (after startClock: reload must find the initial clock)
+    const toastCount = async () => +(await threedog('eval', "document.querySelectorAll('.threedog-toast').length")).out.replace(/[^\d]/g, '');
+    await threedog('eval', "engine.ui.get('toast').show({ text: 'r4 toast', kind: 'info', ms: 2000 }); 1");
+    const t1 = await toastCount(); await threedog('step', '3'); const snapT = await threedog('snap', 'toast-step'), t2 = await toastCount();
+    check('a toast expires with threedog step (stepped time) before snap', t1 >= 1 && t2 === 0 && snapT.code === 0, JSON.stringify({ t1, t2 }));
     check('describe: compact plus the state line', d.code === 0 && d.out.includes('Player') && d.out.split('\n').length <= 4 && d.out.length < 600
       && /Headless page paused, tick \d+/.test(d.out), d.out);
     check('describe --full: the full text', (await threedog('describe', '--full')).out.includes('[Game state]'));
@@ -61,6 +69,14 @@ export async function run({ check, browser }) {
     writeFileSync(script, 'const a = 20;\nconst b = await Promise.resolve(1);\nreturn a + b;\n');
     check('js alias / --file: reads a multi-line script from a file', (await threedog('js', '1 + 2')).out === '✓ 3' && (await threedog('js',
       '--file', script)).out === '✓ 21' && (await threedog('eval', '--file', 'nope.js')).out.includes('Script file not found'));
+    // plain js and checks scripts get the same globals (step / log / assert / expect); a failed expect shows its message in both forms
+    writeFileSync(script, 'const t = engine.elapsed;\nstep(0.5);\nlog("stepped");\nreturn +(engine.elapsed - t).toFixed(1) > 0.4;\n');
+    const plainJs = await threedog('js', '--file', script);
+    check('js without checks: step() and log() exist, the return value is printed', plainJs.code === 0 && plainJs.out === '· stepped\n✓ true', plainJs.out);
+    writeFileSync(script, 'expect(1, "on expect").toBe(2);\nexpect(1).toBe(3, "on matcher");\nassert(false, "on assert");\nexpect(1).toBe(1);\n');
+    const checks = await threedog('js', '--file', script);
+    check('js checks: expect(v, msg) and expect(v).toBe(x, msg) failures print the message', checks.code === 1 && checks.out.startsWith('✗ 3 of 4 checks failed')
+      && checks.out.includes('#1 on expect → expected 2, got 1') && checks.out.includes('#2 on matcher') && checks.out.includes('#3 on assert'), checks.out);
     rmSync(script, { force: true });
     const rawClock = async () => +(await threedog('eval', 'engine.elapsed')).out.replace('✓ ', ''),
       tp0 = await rawClock(); await threedog('press', 'KeyJ', '--for', '0.02'); const tp1 = await rawClock();
@@ -112,13 +128,26 @@ export async function run({ check, browser }) {
     const png = join(dir, '.threedog/shots/bridge-test.png');
     check('snap: writes a PNG', snap.code === 0 && existsSync(png) && statSync(png).size > 1000 && readFileSync(png).subarray(1,
       4).toString() === 'PNG', snap.out);
+    // [guard] a picture through the bridge runs the same look check as threedog shot (the demos skipped it by screenshotting another way)
+    check('snap: prints the look check of the live page (Look: numbers), --no-look skips it', /\nLook: luminance [\d.]+/.test(snap.out)
+      && !/Look:/.test((await threedog('snap', 'bridge-test', '--no-look')).out), snap.out);
+    const sh = await threedog('snap', '--help'), sx = await threedog('snap', '--nope');
+    check('snap --help prints usage, an unknown flag lists the valid ones, neither saves a file', sh.code === 0 && sh.out.startsWith('Usage: threedog snap')
+      && sx.code === 1 && sx.out.includes('--width') && !existsSync(join(dir, '.threedog/shots/--help.png')) && !existsSync(join(dir, '.threedog/shots/--nope.png')),
+      sh.out + ' | ' + sx.out);
+    const absShot = join(tmpdir(), `threedog-bridge-snap-${process.pid}.png`), relShot = join(dir, '.threedog/rel-snap.png');
+    const sa = await threedog('snap', absShot), sr = await threedog('snap', '.threedog/rel-snap');
+    check('snap path: absolute used as given, relative gets .png only when it has no extension', sa.code === 0 && existsSync(absShot)
+      && existsSync(relShot) && !existsSync(relShot + '.png') && !/undefined/.test(sa.out), sa.out + ' | ' + sr.out);
+    for (const f of [absShot, relShot]) rmSync(f, { force: true });
     (await threedog('errors'));   // move the cursor to now first
     (await threedog('eval', "setTimeout(() => { throw new Error('bridge test deliberate error'); }, 0)"));
     const er = await until(async () => { const r = await threedog('errors'); return r.out.includes('deliberate') && r; })
       || { out: '(no error arrived)', code: 0 };
     check('errors: reads the new error, the next read is empty',
       er.code === 1 && er.out.includes('bridge test deliberate error') && (await threedog('errors')).out.includes('No new errors'), er.out);
-    (await threedog('eval', "setTimeout(() => { throw new Error('world data must be plain values (number, string): x is a function'); }, 0)"));
+    // 引擎自己的错误都带 "[code]" 标签（W4 起一种失败形状），提示按标签查 ERROR_CODES，不再靠猜消息文字；这里照引擎的写法带上 [world-plain]
+    (await threedog('eval', "setTimeout(() => { throw new Error('world data must be plain values (number, string): x is a function [world-plain]'); }, 0)"));
     const er2 = await until(async () => { const r = await threedog('errors'); return r.out.includes('plain values') && r; }) || { out: '(no error arrived)' };
     const lt1 = await threedog('errors', 'latest'), lt2 = await threedog('errors', 'latest'), cur = /Cursor E(\d+)/.exec(lt1.out)?.[1];
     const sn0 = await threedog('errors', '--since', String(Math.max(0, +cur - 2))), sn1 = await threedog('errors', '--since', cur ?? '0');

@@ -3,6 +3,7 @@
 // Why in the engine: only the engine knows which effects are neighbors in a slot; the effects themselves stay plain data + GLSL.
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { codedError } from '../core/errorHints.js';
 /** @import { PostFuse } from './PostFX' */
 
 const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
@@ -23,7 +24,7 @@ export class FusedPass extends Pass {
     for (const e of items) {
       const f = e._def.fuse;
       for (const [u, type] of Object.entries(f.uniforms ?? {})) {
-        if (u in uniforms) throw new Error(`post effect '${e.name}': fuse uniform '${u}' is already taken by ${owner[u] ?? 'the engine'}; prefix your uniform names with the effect name`);
+        if (u in uniforms) throw codedError('post-effect', `post effect '${e.name}': fuse uniform '${u}' is already taken by ${owner[u] ?? 'the engine'}; prefix your uniform names with the effect name`);
         uniforms[u] = { value: EMPTY[type]?.() ?? null }; owner[u] = `'${e.name}'`;
         decl.push(`uniform ${type} ${u};`);
       }
@@ -39,7 +40,7 @@ export class FusedPass extends Pass {
   refresh() {
     const u = this.material.uniforms;
     for (const e of this.items) for (const [k, v] of Object.entries(e._def.fuse.values?.(e.params) ?? {})) {
-      if (!(k in u)) throw new Error(`post effect '${e.name}': fuse.values() returned '${k}', which fuse.uniforms does not declare`);
+      if (!(k in u)) throw codedError('post-effect', `post effect '${e.name}': fuse.values() returned '${k}', which fuse.uniforms does not declare`);
       u[k].value = v;
     }
   }
@@ -77,7 +78,7 @@ export function checkDepthOrder(chain) {
   let swapped = null;
   for (const e of chain) {
     if (e._def?.needsDepth && swapped)
-      throw new Error(`post effect '${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers, so the depth it would read is not the scene's; ` +
+      throw codedError('post-effect', `post effect '${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers, so the depth it would read is not the scene's; ` +
         `give '${e.name}' a lower order or an earlier slot than '${swapped}', or turn one of them off`);
     if (e._impl.needsSwap && !e._impl.keepsDepth) swapped ??= e.name;
   }

@@ -28,7 +28,7 @@ window.threedogBake = async ({ only, index }) => {
     const { key } = await fetch('/__threedog/cache/key', { method: 'POST', body: JSON.stringify({ name: it.name, src, params }) }).then(r => r.json());
     if (old?.exists && old.key === key && JSON.stringify(old.params ?? null) === JSON.stringify(params)) { out.push({ ...base, status: 'same' }); continue; }
     const t0 = performance.now(), v = await it.build(...(params == null ? [] : [params]));
-    const buf = await toGLB(v);
+    const buf = await toGLB(v, undefined, it.name);
     out.push({ ...base, status: 'baked', key, src, params, source: it.source, ms: Math.round(performance.now() - t0), data: b64(buf) });
   }
   return out;

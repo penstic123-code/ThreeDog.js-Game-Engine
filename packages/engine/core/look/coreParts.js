@@ -1,25 +1,46 @@
 // look.tone, lights, clouds.
-// look.tone = renderer tone mapping and exposure, look.lights = the engine's placeholder sun + hemisphere, look.cloudShadow = the cloud-shadow patch.
+// look.tone = renderer exposure (the curve is written once at creation, then plain three.js), look.lights = the engine's placeholder sun + hemisphere, look.cloudShadow = the cloud-shadow patch.
 // Why here and not in sceneMethods: the 0.2 renames (recipe 52) now write the 'game' layer, and the style values
 // are the 'style' layer, so describe().look / describe().render can say who set a value instead of guessing from start values.
 import * as THREE from 'three';
 import { defineLookPart } from './part.js';
+import { defineOwned } from '../owned.js';
+import { warnOnce } from '../validate.js';
+import { codedError } from '../errorHints.js';
+
+const ONCE = 'The engine writes toneMapping once, at createEngine (style.toneMapping, else AgX), and never again, so your write stays';
+
+const NO_DRIVER = "look.lights {k}: a function value is evaluated every frame by a time-of-day module; nothing drives {k} now (no sky, sky({ sun / hemisphere: false }), or look.lights.manual(...)), so it is ignored. Install sky(), or set a number / color";
+import { useRoomEnvironment, dropRoomEnvironment } from '../../render/lights.js';
 
 /** style.toneMapping names -> three constants */
 export const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
-const toneName = v => Object.keys(TONE).find(k => TONE[k] === v) ?? String(v);
+/** three's toneMapping constant -> the style name ('agx'), or the number as text for one outside TONE (CustomToneMapping...) */
+export const toneName = v => Object.keys(TONE).find(k => TONE[k] === v) ?? String(v);
+
+/**
+ * The curve written once at creation: the style's toneMapping name, else AgX for the baseline (none without it).
+ * AgX over ACES for the baseline: it rolls bright values off to white without ACES's hue shifts (saturated colors drifting to yellow / cyan)
+ * and extra contrast, so whatever colors a game adds later keep their hue; a style picks its own curve
+ */
+function toneMappingOf(name, baseline) {
+  if (name == null) return baseline ? THREE.AgXToneMapping : THREE.NoToneMapping;
+  if (!(name in TONE)) throw codedError('style-value', `style.toneMapping must be one of ${Object.keys(TONE).map(k => `"${k}"`).join(', ')}; got ${JSON.stringify(name)}. ` +
+    'Any other three curve: engine.renderer.toneMapping = THREE.<Name>ToneMapping after createEngine');
+  return TONE[name];
+}
 
 /**
  * Exposure over the day: [[time 0-1, exposure], ...] sorted by time, wrapping across midnight (after the last row it blends back to the first),
- * or (sky) => number. Returns the per-frame function, null for a plain number (set once); throws on anything else
+ * or ({ time, weather, season, state, sky }) => number (core/look/state.js). Returns the per-frame function of that context, null for a plain number (set once); throws on anything else
  */
 export function exposureDriver(v) {
   if (typeof v === 'number') return null;
   if (typeof v === 'function') return v;
   const ok = Array.isArray(v) && v.length > 0 && v.every((k, i) => Array.isArray(k) && typeof k[0] === 'number' && typeof k[1] === 'number' && k[0] >= 0 && k[0] <= 1 && (i === 0 || k[0] > v[i - 1][0]));
-  if (!ok) throw new Error(`exposure must be a number, [[time 0-1, exposure], ...] sorted by time (e.g. [[0, 1.6], [0.5, 1], [0.8, 1.3]]) or (sky) => number; got ${JSON.stringify(v)}`);
-  return sky => {
-    const t = sky.timeOfDay, n = v.length;
+  if (!ok) throw codedError('style-value', `exposure must be a number, [[time 0-1, exposure], ...] sorted by time (e.g. [[0, 1.6], [0.5, 1], [0.8, 1.3]]) or ({ time, state }) => number; got ${JSON.stringify(v)}`);
+  return ctx => {
+    const t = ctx.time, n = v.length;
     let i = -1; for (let k = 0; k < n; k++) if (v[k][0] <= t) i = k;
     const a = v[i < 0 ? n - 1 : i], b = v[(i + 1) % n];   // before the first row or after the last: the segment across midnight
     const span = (b[0] - a[0] + 1) % 1 || 1, f = ((t - a[0] + 1) % 1) / span;
@@ -29,57 +50,116 @@ export function exposureDriver(v) {
 const badExposure = v => { try { exposureDriver(v); return null; } catch (err) { return err.message; } };
 
 /**
- * Register look.tone and look.lights. owned: false when the game passed its own renderer: then the style's tone values are not applied at start
- * (the renderer is the game's), but a later look.tone.set still writes it.
- * @param {any} e @param {{ owned: boolean }} o
+ * Write the tone curve once and register look.tone and look.lights. owned: false when the game passed its own renderer: then neither the style's
+ * curve nor its exposure is applied at start (the renderer is the game's), but a later look.tone.set({ exposure }) still writes exposure.
+ * baseline: the engine's own renderer, under every style (user decision 2026-11-02). The engine defaults are then a technical render baseline
+ * instead of "off": AgX tone mapping, soft sun shadows, a neutral generated environment, a dimmer hemisphere (the environment adds ambient too).
+ * Not art: a pack still picks every color, and one that wants none of it says so (style.toneMapping: 'none', look.lights sun.shadow false / env.intensity 0).
+ * Why under every pack: a pack that never mentioned tone mapping or an environment rendered flatter than a plain, well-set-up three.js scene.
+ * @param {any} e @param {{ owned: boolean, baseline?: boolean }} o
  */
-export function defineCoreLook(e, { owned }) {
+export function defineCoreLook(e, { owned, baseline = false }) {
   const r = e.renderer;
+  const B = 'technical render baseline under every style (not art), so plain three.js materials look as they would in a well-set-up three.js scene';
+  // Tone mapping is not a look param (user decision 2026-11-03, plan 2026-11-02 section 3): it is a render baseline the engine writes once here,
+  // at creation, and never again. A game changes it with plain three.js (engine.renderer.toneMapping = THREE.ACESFilmicToneMapping) and nothing
+  // overwrites it, because no engine code writes toneMapping after this line; a wrapper param would be a second road to the same property.
+  if (owned) r.toneMapping = toneMappingOf(e.style.toneMapping, baseline);
   defineLookPart(e, {
     id: 'tone', group: 'atmosphere', module: 'core', object: () => e.renderer, applyAtStart: owned, docs: ['recipes/52-look.md'],
     params: {
-      mapping: { type: 'string', values: Object.keys(TONE), default: 'none', neutral: true, cost: 'recompile', desc: 'tone mapping curve; changing it recompiles each material once' },
-      exposure: { type: 'any', default: 1, neutral: true, cost: 'uniform', check: badExposure, desc: 'a number, day keyframes [[time 0-1, exposure], ...] or (sky) => number (a time-of-day module evaluates it each frame)' },
+      exposure: { type: 'any', default: 1, neutral: true, fn: true, cost: 'uniform', check: badExposure, desc: 'a number, day keyframes [[time 0-1, exposure], ...] or ({ time, weather, season, state, sky }) => number (a time-of-day module evaluates it each frame)' },
     },
-    style: () => (owned ? { mapping: e.style.toneMapping, exposure: e.style.exposure } : {}),
-    read: () => ({ mapping: toneName(r.toneMapping), exposure: e.exposureDriver ? undefined : r.toneMappingExposure }),
+    // the old curve key gets the plain three.js line instead of a bare "unknown key" (normalize runs before the key check, write.js)
+    normalize: p => { if (p && 'mapping' in p) throw codedError('look-param', `look.tone.set(): there is no mapping key; the curve is plain three.js: engine.renderer.toneMapping = THREE.AgXToneMapping (or ACESFilmic / Neutral / No / Custom). ${ONCE}`); return p; },
+    style: () => (owned ? { exposure: e.style.exposure } : {}),
+    read: () => ({ exposure: e.exposureDriver ? undefined : r.toneMappingExposure }),
     apply(v, changed) {
-      if (changed.has('mapping')) r.toneMapping = TONE[v.mapping];   // three recompiles each material on its next draw (tone mapping is part of its program)
       if (changed.has('exposure')) {
         // keyframes / a function become exposureDriver, which a time-of-day module (sky) evaluates each frame; core knows no time of day
         e.exposureDriver = exposureDriver(v.exposure);
         if (typeof v.exposure === 'number') r.toneMappingExposure = v.exposure;
       }
     },
-    noPatch: "custom tone curves (three's CustomToneMapping) are not offered yet; pick a curve with look.tone.set({ mapping: 'aces' })",
-    noReplace: 'to own tone mapping completely, pass your own renderer: createEngine({ renderer }) (recipes/50)',
+    // plain three.js always works: the curve itself is three's renderer.toneMapping, so the error shows that instead of saying it is impossible
+    noPatch: "look.tone has no GLSL hook and no curve param; the curve is plain three.js: engine.renderer.toneMapping = THREE.ACESFilmicToneMapping, or " +
+      "THREE.CustomToneMapping and replace the CustomToneMapping function in THREE.ShaderChunk.tonemapping_pars_fragment (before the first render). The engine never writes toneMapping after createEngine",
+    noReplace: 'to own tone mapping completely, set engine.renderer.toneMapping yourself (the engine writes it only once, at creation) ' +
+      'or pass your own renderer: createEngine({ renderer }) (recipes/50)',
   });
 
-  const { sun, hemi } = e.lights;
+  const { sun, hemi } = e.lights, scene = e.scene;
   const off = "look.lights.set({ sun: { intensity: 0 } }) (or hemi), or createEngine({ lights: false }) and light the world with your own three.js lights";
   const why = 'placeholder light so a scene without a sky module (and the gray placeholders) is never black; an installed sky drives it from style.sky.keyframes instead';
   defineLookPart(e, {
     id: 'lights', group: 'atmosphere', module: 'core', object: () => e.lights, docs: ['recipes/52-look.md'],
     params: {
-      'sun.intensity': { type: 'number', default: 2, min: 0, cost: 'uniform', why, off },
-      'sun.color': { type: 'any', default: '#ffffff', neutral: true, cost: 'uniform', desc: 'any THREE.Color input' },
-      'hemi.intensity': { type: 'number', default: 1.2, min: 0, cost: 'uniform', why, off },
-      'hemi.color': { type: 'any', default: '#ffffff', neutral: true, cost: 'uniform', desc: 'sky color of the hemisphere light' },
-      'hemi.ground': { type: 'any', default: '#555555', cost: 'uniform', why: 'darker ground color, so faces turned down read darker than faces turned up', off: "look.lights.set({ hemi: { ground: '#ffffff' } })" },
+      'sun.intensity': { type: 'number', default: 2, min: 0, fn: true, cost: 'uniform', why, off },
+      'sun.color': { type: 'any', default: '#ffffff', fn: true, neutral: true, cost: 'uniform', desc: 'any THREE.Color input' },
+      'hemi.intensity': { type: 'number', default: baseline ? 0.6 : 1.2, min: 0, fn: true, cost: 'uniform', why, off },
+      'hemi.color': { type: 'any', default: '#ffffff', fn: true, neutral: true, cost: 'uniform', desc: 'sky color of the hemisphere light' },
+      'hemi.ground': { type: 'any', default: '#555555', fn: true, cost: 'uniform', why: 'darker ground color, so faces turned down read darker than faces turned up', off: "look.lights.set({ hemi: { ground: '#ffffff' } })" },
+      // on (true / 0.5) for the baseline (the engine's own renderer, any style); off (false / 0) only when the game passed its own renderer
+      'sun.shadow': { type: 'bool', default: baseline, cost: 'recompile', desc: 'the engine sun casts soft shadows (2048 map, 60 m box following engine.focus without a sky module); also needs createEngine({ shadows }) on',
+        why: B, off: 'look.lights.set({ sun: { shadow: false } }) or createEngine({ shadows: false })' },
+      'env.intensity': { type: 'number', default: baseline ? 0.5 : 0, min: 0, cost: 'uniform',
+        desc: "neutral room environment (three's RoomEnvironment through PMREM, generated, no asset) as scene.environment; 0 = none. Only written while scene.environment is empty or this map: your own scene.environment, or a sky's look.env, wins. Under a sky it is the room map's share (0..1) of the style's ambient column, the hemisphere light gets the rest: one diffuse budget (describe().look.env.source)",
+        why: B + '; PBR (Standard / Physical) materials need an environment to reflect, or metals render black', off: 'look.lights.set({ env: { intensity: 0 } })' },
     },
     read: () => ({ 'sun.intensity': sun.intensity, 'hemi.intensity': hemi.intensity }),
     apply(v, changed) {
       // undefined = a style driver (sky) writes this key every frame: leave it to the driver
-      const set = (k, fn) => { if (changed.has(k) && v[k] !== undefined) fn(v[k]); };
+      // a function value (({ time, state }) => ...) is evaluated by the sky each frame (applyTop with the frame context); without a sky nothing calls it
+      const set = (k, fn) => { if (!changed.has(k) || v[k] === undefined) return; if (typeof v[k] === 'function') { if (!e.look.lights.driven(k)) warnOnce(NO_DRIVER.replace('{k}', k)); return; } fn(v[k]); };
       set('sun.intensity', x => { sun.intensity = x; });
       set('sun.color', x => sun.color.set(x));
       set('hemi.intensity', x => { hemi.intensity = x; });
       set('hemi.color', x => hemi.color.set(x));
       set('hemi.ground', x => hemi.groundColor.set(x));
+      set('sun.shadow', x => { sun.castShadow = x && e.shadows !== false; });
+      set('env.intensity', x => {
+        const ours = e._roomEnv?.texture;
+        if (scene.environment && scene.environment !== ours) return;   // the game's or the sky's map: never overwritten
+        // built only once a material reads it (render/lights.js useRoomEnvironment): createEngine no longer pays the PMREM prefilter up front
+        if (x > 0) useRoomEnvironment(e, x); else { dropRoomEnvironment(e); if (ours) scene.environment = null; }
+      });
     },
     noPatch: 'lights have no shader of their own; how surfaces take light is look.surface (lighting / ramp)',
-    noReplace: "to light the world yourself, turn the engine lights off: createEngine({ lights: false }), or sky({ sun: 'manual' | false })",
+    noReplace: "to light the world yourself, turn the engine lights off: createEngine({ lights: false }), or sky({ sun: false }); to write the engine sun yourself: engine.look.lights.manual('sun')",
   });
+}
+
+/**
+ * look.view: the camera and the drawing buffer as the engine touches them on its own. No params: the only verb is manual(), which takes
+ * camera.far (raised by fog distance / terrain view range), the pixel ratio (adaptive resolution) or the camera pose (a camera module) for the game.
+ * Why a part with nothing to set: these writes need a home for manual() and describe().owned.
+ * @param {any} e
+ */
+/**
+ * Every engine write of camera.fov (settings menu slider, camera modules) goes through here: it yields to a fov the game set itself (owned 'camera.fov').
+ * @param {any} e @param {number} v
+ */
+export function setFov(e, v) { e._setFov(v); }
+
+export function defineViewLook(e) {
+  defineLookPart(e, {
+    id: 'view', group: 'screen', module: 'core', object: () => e.camera, docs: ['recipes/52-look.md'],
+    noPatch: 'the view has no shader; for your own camera use engine.takeCamera(owner)',
+    noReplace: "to place the camera yourself use const cam = engine.takeCamera('me') (cam.remove() gives it back); " +
+      "to stop the engine changing camera.far, camera.fov or the pixel ratio: engine.look.view.manual('far' | 'fov' | 'pixelRatio')",
+  });
+  const cam = () => e.camera;
+  e._oFar = defineOwned(e, { id: 'camera.far', part: 'view', key: 'far', read: () => cam().far, objects: [e.camera],
+    write: v => { cam().far = v; cam().updateProjectionMatrix(); }, levels: { manual: "engine.look.view.manual('far')" } });
+  e._oPixelRatio = defineOwned(e, { id: 'pixelRatio', part: 'view', key: 'pixelRatio', read: () => e.renderer.getPixelRatio(), objects: [e.renderer],
+    levels: { manual: "engine.look.view.manual('pixelRatio')", set: 'engine.setPixelRatio(1.5)' } });
+  // fov: the settings menu slider and camera modules (first person / rts / fixed shots, and restoring the fov at uninstall) write it.
+  // They all go through e._setFov, so a game that sets camera.fov itself (a zoom, a cutscene) is not undone by the next camera switch.
+  e._oFov = defineOwned(e, { id: 'camera.fov', part: 'view', key: 'fov', read: () => cam().fov, objects: [e.camera],
+    write: v => { if (cam().fov !== v) { cam().fov = v; cam().updateProjectionMatrix(); } }, levels: { manual: "engine.look.view.manual('fov')" } });
+  /** @internal every engine write of camera.fov (settings menu, camera modules): yields to the game's own value */
+  e._setFov = (/** @type {number} */ v) => e._oFov.drive(v);
+  e._oFar.mark(); e._oPixelRatio.mark(); e._oFov.mark();
 }
 
 /**

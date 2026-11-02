@@ -13,9 +13,11 @@ const CACHE = '/__threedog/cache/';
 const STALE = 'The generator code for "{name}" has changed, so it is built from code now; run npm run bake once it is final';
 const NO_CACHE = '[cache] the dev server has no threedog model cache (a plain Vite server without the threedog plugin): code-generated models are built every time. Use the vite config of the game template (threedog gameConfig) to cache them';
 
+const CACHE_ERR = '[cache] the threedog model cache could not key "{name}" ({why}), so code-generated models are built every time; the vite config is fine, the dev server log has the cause';
+
 // A dev / preview server answers a missing path with its index.html (status 200): treat an HTML answer for an asset as "not found"
-const NOT_THERE = 'not found (404: the server sent an HTML page instead, so the file is not at this path)';
-const isHtml = res => /text\/html/i.test(res.headers.get('content-type') || '');
+export const NOT_THERE = 'not found (404: the server sent an HTML page instead, so the file is not at this path)';
+export const isHtml = res => /text\/html/i.test(res.headers.get('content-type') || '');
 
 /** Error with the failing URL and HTTP status (status 0 = network / CORS / not an HTTP failure) */
 export class LoadError extends Error {
@@ -83,8 +85,20 @@ export async function loadGltf(assets, url, task) {
   return gltf;
 }
 
+/** Textures made in code and registered by name: makeMaterial keeps their own wrap / repeat unless the spec writes one (render/surface.js) */
+export const CODE_TEXTURES = new WeakSet();
+
 /** Load a texture (.ktx2 through KTX2Loader, .hdr through HDRLoader), apply the entry's options and upload it */
 export async function loadTexture(assets, e, task) {
+  // a texture made in code, registered by name (manifest textures: { brick: () => makeBrick() } or { brick: myTexture }): used as made,
+  // its own colorSpace / wrap / repeat untouched (the game chose them); a function runs once per entry, `this` like a model generator
+  if (e.opts.build || e.opts.texture) {
+    task.phase('build');
+    const t = e.opts.texture ?? await e.opts.build.call({ palette: assets.engine.style.palette, engine: assets.engine });
+    if (!t?.isTexture) throw new LoadError(`the texture generator returned ${t === null ? 'null' : typeof t}, not a THREE.Texture`, { url: null });
+    CODE_TEXTURES.add(t);
+    return t;
+  }
   task.phase('download');
   const ktx = /\.ktx2(\?|$)|^data:image\/ktx2/i.test(e.url);
   const hdr = /\.hdr(\?|$)/i.test(e.url);   // Radiance HDR (environment lighting): float data in linear color
@@ -159,7 +173,7 @@ export function placeholder(type, engine) {
   return null;   // sound: silence; font: the next family in style.ui.font (the system font)
 }
 
-/** Code-generated model: baked file -> dev cache -> build now (see Assets.cached); returns { scene, animations, geometry? } */
+/** Code-generated model: baked file -> dev cache -> build now (Assets.cached, internal); returns { scene, animations, geometry? } */
 export async function generated(assets, name, build, params, task) {
   const wrap = v => v.isBufferGeometry
     ? { geometry: v, scene: new THREE.Mesh(v, makeMaterial('default', { vertexColors: !!v.attributes.color }, assets.engine)), animations: [] }
@@ -172,16 +186,29 @@ export async function generated(assets, name, build, params, task) {
   if (!DEV_SERVER) return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params));
   // In dev: ask the dev server for the current hash of this generator (with its file and imports)
   // a plain Vite dev server without threedog's plugin answers with index.html: no cache then, build now (said once)
-  const info = await fetch(CACHE + 'key', { method: 'POST', body: JSON.stringify({ name, src: String(build), params: ctx.palette ? [params ?? null, ctx.palette] : params ?? null }) }).then(r => r.json()).catch(() => null);
-  if (!info) { warnOnce(coded('asset-cache', NO_CACHE)); return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params)); }
+  // Three answers, three messages: JSON = the cache; an HTML page = no threedog plugin (NO_CACHE); a plugin error status (403 not same-origin,
+  // 500 the key could not be computed) = the plugin is there and said why. Why: every failure used to read "no model cache" even with the
+  // template's own vite config, which sent the AI to a config that was already right
+  let info = null, why = null;
+  try {
+    const r = await fetch(CACHE + 'key', { method: 'POST', body: JSON.stringify({ name, src: String(build), params: ctx.palette ? [params ?? null, ctx.palette] : params ?? null }) });
+    const text = await r.text();
+    if (r.ok && !/^\s*</.test(text)) info = JSON.parse(text);
+    else if (!r.ok) why = `${r.status}${text ? ': ' + text.slice(0, 160) : ''}`;
+  } catch (err) { why = String(err?.message ?? err); }
+  if (!info) {
+    warnOnce(coded('asset-cache', why ? CACHE_ERR.replace('{name}', name).replace('{why}', why) : NO_CACHE), why ? 'asset-cache-err' : undefined);
+    return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params));
+  }
   if (bakedOk) {
     if (baked.source === 'file' || baked.key === info.key) return file(BASE + 'models/baked/' + baked.file);
     warnOnce(coded('asset-cache', STALE.replace('{name}', name)));
   }
   if (info.hit) return file(CACHE + info.key + '.glb');
   const t0 = performance.now(), v = await build.call(ctx, params);   // measure：build time
-  if (performance.now() - t0 >= assets.cacheMinMs)   // measure
-    toGLB(v, assets.engine).then(buf => fetch(CACHE + info.key + '.glb', { method: 'PUT', body: buf })).catch(err => warnOnce(coded('asset-cache', '[cache] could not store a built model in .threedog/cache (' + err.message + '); it is built again next time')));
+  // { build, cache: false } in the manifest: never stored (a material the GLB round trip cannot keep, see Baked.js)
+  if (performance.now() - t0 >= assets.cacheMinMs && assets.entries.get(name)?.opts.cache !== false)   // measure
+    toGLB(v, assets.engine, name).then(buf => fetch(CACHE + info.key + '.glb', { method: 'PUT', body: buf })).catch(err => warnOnce(coded('asset-cache', '[cache] could not store a built model in .threedog/cache (' + err.message + '); it is built again next time')));
   return wrap(v);
 }
 /** Bake manifest public/models/baked/index.json (empty if missing) */

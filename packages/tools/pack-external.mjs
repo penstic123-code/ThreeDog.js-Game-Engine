@@ -4,7 +4,7 @@
 //   2. types: a // @ts-check file with a three.js method typo, a wrong vector argument type and an engine option typo gives exactly those
 //      three tsc errors; the correct main.js gives none (skipLibCheck off, so the engine's own declarations are checked too)
 //   3. vite build + vite preview of a minimal game: page opens, engine.ready, no 4xx/5xx (Workers, wasm, decoders, assets), no console errors
-//   4. the threedog CLI works in that project: map (GAMEMAP with package-relative paths), check, test (smoke), dev + one bridge command;
+//   4. the threedog CLI works in that project: map (GAMEMAP with package-relative paths), check, test (smoke), examples pull, dev + one bridge command;
 //      the project is the new-game template (packages/tools/templates/game + templates/example), so the template installs, checks, runs and builds outside the repo
 //   6. the engine alone, installed from a local folder with npm install --install-links (a plain link would skip its dependencies):
 //      nothing unpublished is pulled in (no @threedog/* or file:/workspace: dependency), one copy of three, and a plain vite config builds
@@ -19,27 +19,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { pathToFileURL } from 'node:url';
-import { ENGINE, TOOLS, styleDir, addonDir } from './paths.mjs';
+import { ENGINE, TOOLS, addonDir } from './paths.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { npm as npmRun } from './lib/proc.mjs';
 import { newGamePage } from './browser.mjs';
-import { copyTemplate, engineAlone, vendored, packageContents } from './lib/pack-cases.mjs';
+import { copyTemplate, usePost, engineAlone, vendored, packageContents } from './lib/pack-cases.mjs';
+import { applyDeps } from './lib/scaffold.mjs';
 
-const MAIN = `// @ts-check
-import { createEngine, presets, openWorld, THREE } from 'threedog';
-import lowpoly from '@threedog/style-lowpoly';
-import { terrainPreset } from '@threedog/terrain-noise';
-
-const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('view'));
-const engine = createEngine({ canvas, style: lowpoly });
-engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset() }));
-engine.characters.createPlayer({ ...presets.player.thirdPerson });
-const up = new THREE.Vector3(0, 1, 0).normalize();
-engine.camera.lookAt(up);
-/** @type {any} */ (window).engine = engine;
-await engine.start();
-`;
-// The engine alone (step 6): no style pack installed, so neutral placeholders and flat ground
+// The engine alone (step 6): no style given, so neutral placeholders and flat ground
 const SOLO_MAIN = `// @ts-check
 import { createEngine, openWorld, THREE } from 'threedog';
 
@@ -110,17 +97,22 @@ export async function packExternal({ check, browser, keep = false }) {
   let server;
   try {
     // 1. pack and look at the contents
-    const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), style = pack(styleDir('lowpoly'), tmp), terrainPkg = pack(addonDir('terrain-noise'), tmp), postPkg = pack(addonDir('post-effects'), tmp);
-    packageContents(check, { eng, tools, style, terrainPkg });
+    const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), terrainPkg = pack(addonDir('terrain-noise'), tmp), postPkg = pack(addonDir('post-effects'), tmp);
+    packageContents(check, { eng, tools, terrainPkg });
 
     // 2. a fresh project that installs the tarballs like a user would
     mkdirSync(app);
+    // The dependencies are the template's own (as new-game --example writes them), each threedog / @threedog/* range swapped for its tarball.
+    // Why not a hand-written list: a package the template's code or docs use but its package.json forgot (post-effects once) would then
+    // install here by accident and only fail for a real standalone game. The style.post use below needs @threedog/post-effects from that list.
+    const tarballs = { threedog: eng, '@threedog/tools': tools, '@threedog/terrain-noise': terrainPkg, '@threedog/post-effects': postPkg };
+    const tplDeps = applyDeps(JSON.parse(readFileSync(join(TOOLS, 'templates', 'game', 'package.json'), 'utf8')).dependencies, { openWorld: true });
+    const deps = Object.fromEntries(Object.entries(tplDeps).map(([n, r]) => [n, tarballs[n] ? `file:../${tarballs[n].filename}` : r]));
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'threedog-external-check', private: true, type: 'module',
       scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' },
-      dependencies: { threedog: `file:../${eng.filename}`, '@threedog/style-lowpoly': `file:../${style.filename}`,
-        '@threedog/terrain-noise': `file:../${terrainPkg.filename}`, '@threedog/post-effects': `file:../${postPkg.filename}`, three: '~0.187.0' },
-      devDependencies: { '@threedog/tools': `file:../${tools.filename}` } }, null, 2));
+      dependencies: { ...deps, three: '~0.187.0' } }, null, 2));
     copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
+    usePost(app);   // style.post: [bloom()] as the docs show it, so types, build and the preview page need the template's post-effects dependency
     writeFileSync(join(app, 'bad.js'), BAD);
     writeFileSync(join(app, 'tsconfig.strict.json'), JSON.stringify(TSCONFIG, null, 2));
     writeFileSync(join(app, 'tsconfig.bad.json'), JSON.stringify({ extends: './tsconfig.strict.json', include: ['bad.js'] }));
@@ -147,6 +139,11 @@ export async function packExternal({ check, browser, keep = false }) {
     check('cli: threedog check passes (game checks only)', chk.code === 0 && /GAMEMAP\.md is up to date/.test(chk.out), chk.out.split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | ') || chk.out.slice(-300));
     const ty = await cli(app, 'types');
     check('cli: threedog types passes with the template tsconfig.json (game sources, lib ESNext, skipLibCheck)', ty.code === 0, ty.out.split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | ') || ty.out.slice(-300));
+    // examples ship in the engine tarball and pull from node_modules/threedog into the game (examples.mjs, game mode of paths.mjs)
+    const shipped = ['examples/pullable.json', 'examples/techniques/contact-shadows/contactShadows.js'].every(f => eng.files.some(x => x.path === f));
+    const pull = await cli(app, 'examples', 'pull', 'contact-shadows'), pulled = join(app, 'techniques/contact-shadows/contactShadows.js');
+    check('cli: threedog examples pull copies a technique from the installed package into techniques/<name>/ and prints the import line',
+      shipped && pull.code === 0 && existsSync(pulled) && /applyContactShadows/.test(pull.out), pull.out.slice(-300));
     if (browser) {
       // the browser build that matches the playwright version npm just installed (a no-op when it is already there), as a user's first run does
       const pw = node([join(app, 'node_modules/playwright/cli.js'), 'install', 'chromium'], app);

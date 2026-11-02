@@ -1,4 +1,5 @@
-// Input contexts (like Unity's Action Maps): a stack of named groups of actions. The top context shadows lower ones that bind the same key;
+import { codedError } from './errorHints.js';
+// Input contexts. Like Unity Action Maps: a stack of named groups of actions. The top context shadows lower ones that bind the same key;
 // an opaque context (the default) blocks everything below it, a `pass` context lets unrelated actions through. Menus, dialogue, cutscenes and
 // full-screen UI push an opaque context instead of "locking input", so there is one mechanism, not two.
 // Changes take effect at the start of the next fixed step (before the input snapshot), so a key pressed in step N never acts in both the old and the new context.
@@ -14,8 +15,10 @@ export function initContexts(input) {
 }
 
 /** @internal */
-export function pushContext(input, name, { pass = false } = {}) {
-  const entry = { name, pass };
+export function pushContext(input, name, { pass = false, owner = name } = {}) {
+  // owner: who pushed it (describe().holds.input, runState.blockedBy), so "why can't I move" names a system, not only a context
+  if (typeof owner !== 'string' || !owner) throw codedError('input-owner', `input.push('${name}', { owner }): owner must be a non-empty string, e.g. input.push('${name}', { owner: 'shop-menu' })`, TypeError);
+  const entry = { name, pass, owner };
   let gone = false;
   input._pendingCtx.push({ add: entry });
   return {

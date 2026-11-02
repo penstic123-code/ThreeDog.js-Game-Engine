@@ -1,10 +1,10 @@
 // Ambience module: a rule table of background sounds. Each rule names a sound from audio.sounds and says when and how loud it plays:
 //
 //   createEngine({ audio: {
-//     sounds: { wind: 'synth', cave: '/sfx/cave-drip.ogg', crows: ['/sfx/crow1.ogg', '/sfx/crow2.ogg'] },
+//     sounds: { wind: {}, cave: 'caveDrip', crows: ['crow1', 'crow2'] },   // play rules; the sounds are asset names (files or synths)
 //     ambience: [
 //       { sound: 'wind', volume: e => 0.1 + (e.weather?.current.wind ?? 0) * 0.1 },   // a loop; volume may be a function of the moment
-//       { sound: 'cave', when: { zone: 'cave' }, volume: 0.6, fade: 2 },             // condition keys: zone (triggers), time (sky), weather, state
+//       { sound: 'cave', when: { zone: 'cave' }, volume: 0.6, fade: 2 },             // condition keys: zone (triggers), time (calendar), weather, state
 //       { sound: 'crows', when: { time: 'day' }, every: [4, 12] },                  // every: a one-shot at random gaps instead of a loop
 //     ] } });
 // The same rules as data in a content pack (audio: { ambience }): measures instead of functions, e.g.
@@ -13,12 +13,15 @@
 //   engine.use(ambience());          // openWorld() installs it
 //
 // The engine plays nothing unless a rule asks. Built-in synths (wind, rain, water, birds, crickets) are registered silent and only play
-// when the game's audio.sounds names them ('synth'). A rule that is off fades out and its loop stops, so unused rules cost nothing.
+// when the game's audio.sounds names them (wind: {}). A rule that is off fades out and its loop stops, so unused rules cost nothing.
 // Timing of one-shots only affects sound (not gameplay), so it uses Math.random and carries // presentation.
 
 import * as THREE from 'three';
-import { checkOptions } from '../../core/validate.js';
+
+import { builtInSounds } from '../../core/assetManifest.js';
 import { readParams, keysSchema } from '../../core/params.js';
+import { codedError, coded } from '../../core/errorHints.js';
+import { warnOnce } from '../../core/validate.js';
 /** @import { ModuleDef, AmbienceRule } from '../../types/core' */
 /** @import { AmbienceOptions } from '../../types/gameplay' */
 const RULE_KEYS = ['sound', 'when', 'volume', 'fade', 'every', 'bus'];
@@ -51,8 +54,8 @@ export class Ambience {
    * @example const h = engine.ambience.add({ sound: 'storm-wind', when: { weather: 'storm' }, volume: 0.5 });
    */
   add(rule) {
-    checkOptions('ambience rule', rule, RULE_KEYS);
-    if (typeof rule.sound !== 'string') throw new TypeError(`ambience rule needs sound: a name from audio.sounds, got ${JSON.stringify(rule.sound)}. Example: { sound: 'wind', volume: 0.3 }`);
+    readParams('ambience rule', keysSchema(RULE_KEYS), rule);
+    if (typeof rule.sound !== 'string') throw codedError('ambience-rule', `ambience rule needs sound: a name from audio.sounds, got ${JSON.stringify(rule.sound)}. Example: { sound: 'wind', volume: 0.3 }`, TypeError);
     const slot = { rule, voice: null, level: 0, offT: 0, next: rule.every ? gap(rule) : 0 };
     this._rules.push(slot);
     return { remove: () => { slot.voice?.stop(rule.fade ?? 1); this._rules = this._rules.filter(s => s !== slot); } };
@@ -108,7 +111,7 @@ export class Ambience {
   _step(s, dt) {
     const r = s.rule, a = this.engine.audio, fade = r.fade ?? 1;
     if (s.failed) return;   // its file failed to load: retrying every check would refetch it ~4 times a second forever. Reloading the rules (rules(), a pack loaded again, a page reload) tries again
-    if (s.voice?.failed) { s.failed = true; s.voice = null; console.warn(`[threedog] ambience: sound '${r.sound}' failed to load, its rule stays silent until the rules are loaded again. Fix the file path / asset name in audio.sounds`); return; }
+    if (s.voice?.failed) { s.failed = true; s.voice = null; warnOnce(coded('load-failed', `[threedog] ambience: sound '${r.sound}' failed to load, its rule stays silent until the rules are loaded again. Fix the file path / asset name in audio.sounds`)); return; }
     const on = a.matches(r.when, this);
     s.level = on ? Math.max(0, a.volumeOf(r.volume, this)) : 0;
     if (r.every) {
@@ -128,7 +131,7 @@ export class Ambience {
   }
 }
 
-// ---------- built-in synths (silent until the game's audio.sounds names them, e.g. wind: 'synth') ----------
+// ---------- built-in synths (sound assets, silent until the game's audio.sounds names them, e.g. wind: {}) ----------
 /** A filtered noise loop with an optional slow wobble on its level (wind gusts) */
 function noiseLoop(audio, out, filters, wobble = 0) {
   const ctx = audio.ctx, src = ctx.createBufferSource(), mix = ctx.createGain(), nodes = [src];
@@ -174,7 +177,7 @@ export function ambience(opts = {}) {
   let a = null;
   return { name: 'ambience', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late', presentation: true,
     install(e) {
-      for (const [name, fn] of Object.entries(SYNTHS)) e.audio.register(name, fn, { builtIn: true, bus: 'ambience' });
+      builtInSounds(e.assets, SYNTHS, { bus: 'ambience' });   // sound assets wind / rain / water / birds / crickets, silent until audio.sounds names them
       a = new Ambience(e, opts);
       // measures for data rules (content packs hold no functions). Each reads the listener position itself: music rules call them too,
       // and ambience refreshes this.position only while it has rules of its own
@@ -182,5 +185,10 @@ export function ambience(opts = {}) {
       e.audio.measure('altitude', () => { const p = a._listen(); return Math.max(0, e.surface(p.x, p.z)); });
       return a;
     },
-    frame(dt) { a.update(dt); } };
+    frame(dt) { a.update(dt); },
+    // "is the rain sound on here" without listening: the rules whose condition holds now, with their target volume; failed = files that did not load
+    describe() {
+      const on = a.info.filter(r => r.on).map(r => ({ sound: r.sound, volume: r.volume })), failed = a._rules.filter(s => s.failed).map(s => s.rule.sound);
+      return { rules: a._rules.length, on, ...(failed.length ? { failed } : {}) };
+    } };
 }

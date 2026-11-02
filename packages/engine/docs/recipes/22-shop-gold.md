@@ -88,7 +88,7 @@ export default {
   `transfer` moves exactly that piece with its data, and `e.inventory.container(shop).get(item)` reads the data for a price
   (`def.price * data.durability / 100`).
 - Show a failure reason to the player through your own i18n string (`e.t('shop.' + r.code)`); the engine shows nothing itself.
-- `npx threedog ops` lists what can be bought right now if you add `offers` (see recipe 23); `npx threedog op shop.buy shop=shop-trader item=medkit`
+- `threedog ops` lists what can be bought right now if you add `offers` (see recipe 23); `threedog op shop.buy shop=shop-trader item=medkit`
   buys from the terminal.
 
 ## 4. Gold HUD

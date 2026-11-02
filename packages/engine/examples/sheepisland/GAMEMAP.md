@@ -12,7 +12,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 ## Engine modules (engine.use)
 
 - createEngine: { style, saveKey: 'threedog-sheepisland', ui: { loading: { title: 'sheep island' } } }
-- openWorld preset ({ camera: fixedCamera(), terrain: island, water: false, rigid: false, ambience: false, sky: { ...pr…) → world, terrain, vegetation, sky, weather, collision, characters, settings, debug
+- openWorld preset ({ camera: fixedCamera(), terrain: island, water: false, rigid: false, ambience: false, calendar: { …) → world, terrain, vegetation, calendar, sky, weather, collision, characters, settings, debug
 - content
 
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
@@ -20,12 +20,13 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
 - terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
 - vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
-- sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
+- calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
+- sky: `node_modules/threedog/docs/recipes/38-environment-look-hooks.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
-- content: `node_modules/threedog/docs/recipes/01-new-game.md` · `node_modules/threedog/docs/api/content.md`
+- content: `node_modules/threedog/docs/recipes/30-templates.md` · `node_modules/threedog/docs/api/content.md`
 
 Not used yet (check these before writing the system yourself):
 
@@ -41,13 +42,14 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
+| assets.js | 6 | The asset packs this game registers (main.js: engine.assets.manifest(packs)). Kept in their own fil… |
 | content/index.js | 7 |  |
 | content/props.js | 20 |  |
 | content/templates.js | 6 |  |
 | content/vegetation.js | 9 |  |
-| main.js | 72 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
+| main.js | 73 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
 | params.js | 26 | URL parameters of the sheep island page. Import this file first in main.js: it rewrites word values… |
-| style/index.js | 80 | sheepisland: a style pack, LOOKS ONLY (recipes/09-style-pack.md, 35-style-from-reference.md), start… |
+| style/index.js | 80 | sheepisland: this game's style, LOOKS ONLY (recipes/09-style-pack.md, 35-style-from-reference.md), … |
 | style/models.js | 60 | sheepisland procedural models: a round tree, a sheep, a wheat tuft. Built in code, no files; regist… |
 | views.js | 10 | Named camera positions of the sheep island. Same name = same framing every time, so two screenshots… |
 
@@ -71,7 +73,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 (none)
 
-## Object templates (content/templates.js; placed with props { template }, spawned with engine.spawn)
+## Object templates (content/templates.js; placed with props { template }, spawned with engine.content.spawn)
 
 | Template | Model | Collide | Interact (op / label) | Container | State (defaults) | Instances |
 |---|---|---|---|---|---|---|
@@ -98,10 +100,10 @@ Code that breaks saves or manages world models: none (rule R33).
 ## Saves
 
 - Save prefix saveKey: threedog-sheepisland
-- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `npx threedog catalog` (saves per module)
+- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `threedog catalog` (saves per module)
 
-## Style pack keys
+## Style keys
 
-- Style pack: none (all neutral fallback look)
+- Style: none (all neutral fallback look)
 - Models (asset names): wheatTuft, roundTree, sheep
 - Vegetation (content/vegetation.js): wheat

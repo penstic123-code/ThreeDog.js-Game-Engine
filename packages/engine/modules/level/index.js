@@ -56,13 +56,16 @@
 // scenes built in code (scene) cannot be saved, loading does not switch level -- to support cross-level loading, register the builder in the assets manifest
 // and use level({ url: name }).
 // Event: level:loaded { root, markers, spawn }
-// Look: the level module draws nothing itself, the scene looks entirely like your model, so it does not read the style pack.
+// Look: the level module draws nothing itself, the scene looks entirely like your model, so it does not read the style.
 import * as THREE from 'three';
 import { buildHeightfield } from './heightfield.js';
 import { toast } from '../../ui/UI.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { MARKER_RE, levelNodes } from './nodes.js';
 import { worldTrimeshes, colliderBoxes } from './geometry.js';
+import { warnOnce } from '../../core/validate.js';
+import { coded } from '../../core/errorHints.js';
+import { reportError } from '../../core/errors.js';
 
 const STRINGS = {
   'zh-CN': { 'level.loadFailed': '关卡加载失败：{url}', 'level.noScene': '关卡模块需要 url 或 scene 参数' },
@@ -123,7 +126,7 @@ export function level(opts = {}) {
       if (typeof urlOrScene === 'string') {
         current = urlOrScene;
         try { process(await e.assets.model(urlOrScene)); }
-        catch (err) { console.error(err); toast(e, e.t('level.loadFailed', { url: urlOrScene }), { kind: 'error' }); }
+        catch (err) { reportError(e, err, `level.load('${urlOrScene}')`, { soft: true }); toast(e, e.t('level.loadFailed', { url: urlOrScene }), { kind: 'error' }); }
       } else process(urlOrScene);
       loaded();
     },
@@ -225,9 +228,15 @@ export function level(opts = {}) {
     async init(engine) {
       if (scene) return loaded();
       if (url) return api.load(url);
-      console.warn(engine.t('level.noScene'));
+      warnOnce(coded('level-node', engine.t('level.noScene')));
       loaded();
     },
     isReady() { return done; },
+    // which level is up and what it gave: a wrong path shows as file set but markers 0 / walk 0, a code-built scene as file null
+    describe() {
+      const s = api.spawn, r = v => Math.round(v * 10) / 10;
+      return { file: current, ready: done, markers: Object.keys(api.markers).length, walkMeshes: walkMeshes.length, removers: removers.length,
+        spawn: { x: r(s.x), y: r(s.y), z: r(s.z) } };
+    },
   };
 }

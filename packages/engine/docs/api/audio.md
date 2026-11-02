@@ -1,15 +1,14 @@
 # engine.audio (Audio) — engine.audio: buses, sounds by name, ducking
 
-- `audio.addBus(name: string, level?: number)` — Add a bus of your own (routed to master). It gets a settings slider like the others (label key settings.vol.<name>). Example: `engine.audio.addBus('voice', 1); engine.audio.sfx('line-01', { bus: 'voice' });`
+- `audio.addBus(name: string, opts?: { level?: number; owner?: string }) → { owner?: string; remove(): void }` — Add a bus of your own (routed to master). It gets a settings slider like the others (label key settings.vol.<name>) until the handle is removed (the one give-back form, like every other handle). A name that is already a bus throws: two owners of one bus could not both remove it. Example: `const voice = engine.audio.addBus('voice', { level: 1 }); engine.audio.sfx('line-01', { bus: 'voice' }); voice.remove();`
 - `audio.setVolume(bus: string, v: number)` — Set a bus volume 0-1 ('master' for the total). Example: `engine.audio.setVolume('music', 0.3);`
 - `audio.duck(levels: Record<string, number>, opts?: { fade?: number }) → { remove(fade?: number): void }` — Lower buses until the handle is removed (dialogue, pause menu, a cutscene). Several ducks stack (their levels multiply). Example: `const d = engine.audio.duck({ music: 0.3, ambience: 0.5 }); engine.events.once('dialogue:end', () => d.remove());`
-- `audio.register(name: string, synthFn: SynthFn, opts?: { builtIn?, bus?, params? })` — Register a synthesized sound: synthFn(audio, params, out) connects its nodes to `out` and returns its length in seconds (or { stop(time) } for a loop). Plays for sounds entries that name it ('synth' or { synth: name }); a name with no sounds entry plays it too unless builtIn (engine modules pass builtIn: true so their synths stay silent until the game asks). Example: `engine.audio.register('ding', (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; });`
-- `audio.condition(name: string, test: (value: any, e: any) => boolean) → { remove(): void }` — Add a condition key for music / ambience rule lists: `when: { [name]: value }` calls test(value, engine). Modules add theirs (sky: time, weather: weather, triggers: zone); the engine has `state` (engine.audio.state). Example: `engine.audio.condition('inside', v => engine.vars.flag('indoors') === v);`
-- `audio.measure(name: string, fn: (e: any) => number) → { remove(): void }` — Add a measure: a number rule data compares (`when: { daylight: { gt: 0.15 } }`; gt / gte / lt / lte) and adds up (`volume: { add: { wind: 0.08 } }`). sky adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both. Example: `engine.audio.measure('danger', e => e.vars.counter('alarm') / 10);   // data: when: { danger: { gt: 0.5 } }`
+- `audio.condition(name: string, test: (value: any, e: any) => boolean) → { remove(): void }` — Add a condition key for music / ambience rule lists: `when: { [name]: value }` calls test(value, engine). Modules add theirs (calendar: time, weather: weather, triggers: zone); the engine has `state` (engine.audio.state). Example: `engine.audio.condition('inside', v => engine.vars.flag('indoors') === v);`
+- `audio.measure(name: string, fn: (e: any) => number) → { remove(): void }` — Add a measure: a number rule data compares (`when: { daylight: { gt: 0.15 } }`; gt / gte / lt / lte) and adds up (`volume: { add: { wind: 0.08 } }`). calendar adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both. Example: `engine.audio.measure('danger', e => e.vars.counter('alarm') / 10);   // data: when: { danger: { gt: 0.5 } }`
 - `audio.value(name: string) → number | undefined` — The current value of a measure (debug, tests); undefined when none is registered under that name
 - `audio.matches(when: AudioCondition | undefined, ...extra: any[]) → boolean` — Does a rule's `when` hold now? An object needs every key to hold (condition keys, or measure comparisons); a function gets (engine, ...extra); missing = always. Example: `engine.audio.matches({ time: 'night', zone: 'forest', rain: { lt: 0.2 } });`
 - `audio.volumeOf(volume: AudioVolume | undefined, ...extra: any[]) → number` — A rule's volume now: a number, a function (engine, ...extra), or data { base, add: { measure: factor }, min, max }; missing = 1. Example: `engine.audio.volumeOf({ base: 0, add: { rain: 0.22 } });   // 0.22 in full rain`
-- `audio.sfx(name: string, opts?: { volume?, pitch?, at?, bus?, loop?, params?, … }) → SoundHandle | null` — Play a sound by name from audio.sounds (file, variants, or a synth). Returns a SoundHandle (stop, fade, setPosition), or null when it is silent: not configured, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops. Example: `engine.audio.sfx('hit', { at: enemy.root, volume: 0.8 });`
+- `audio.sfx(name: string, opts?: { volume?, pitch?, at?, bus?, loop?, params?, … }) → SoundHandle | null` — Play a sound by name: its audio.sounds rule (src / variants, volume, bus...), or with no rule the asset pack sound of that name (file or synth function from assets.manifest({ sounds })). Returns a SoundHandle (stop, fade, setPosition), or null when it is silent: not configured, a built-in synth the game did not name, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops. Example: `engine.audio.sfx('hit', { at: enemy.root, volume: 0.8 });`
 - `audio.noiseBurst(opts?: { dur?, type?, freq?, vol?, bus?, out?, … })` — Synth building block: a burst of filtered noise (footsteps, shutter, rain, thunder). dur seconds, freq Hz, vol 0-1; out: the node to connect to (a synth's `out`), else the named bus
 - `audio.tone(opts?: { freq?, to?, dur?, vol?, type?, bus?, … })` — Synth building block: a short tone (bird call, notification). freq/to Hz, dur seconds, pan -1..1; out as in noiseBurst. Example: `engine.audio.tone({ freq: 660, to: 880, dur: 0.15, bus: 'ui' });`
 - `audio.load(url: string) → Promise<any>` — Download and decode an audio file (cached). A sound name registered in an asset pack (manifest sounds) loads that file as an engine.loading task, so sounds entries and music tracks may name assets instead of paths
@@ -17,7 +16,6 @@
 - Properties:
   - `ctx: any` The browser AudioContext (exists only after the first click)
   - `levels: Record<string, number>` Volume per bus 0-1 ('master' is the total). Every key is a bus: levels: { voice: 1 } adds a 'voice' bus
-  - `config: import("../../core").AudioConfig` The game's sound config from createEngine({ audio }); sounds and footsteps also hold content packs' (copies: the game's object is never changed). Content packs' ambience / music rules go to ambience() / music(), not here
   - `buses: Record<string, any>` Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks
   - `state: string | null` The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules)
   - `master: any` The master GainNode (every bus ends here)
@@ -26,17 +24,16 @@
   - `info: { running, state, levels, ducks, voices }` What is playing (for describe and tests): bus levels, the duck multiplier per bus, live voices per sound name
 
 ## Data structures
-- **AudioConfig** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio). Not part of a style pack
-  - `sounds?: Record<string, SoundSource>` Sound name -> file / variants / 'synth' / SoundDef
+- **AudioConfig** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio). Not part of a style
+  - `sounds?: Record<string, SoundSource>` Sound name -> play rule: an asset sound name / path, variants, or SoundDef
   - `ambience?: AmbienceRule[]` ambience() rule table
   - `music?: { tracks?, rules?, fade?, duckDialogue?, duckFade?, hold?, … }` music() defaults: tracks, rules, fade seconds, duckDialogue (how low the music bus ducks during dialogue; default false = no duck)
   - `footsteps?: Record<string, string>` Ground type (terrain groundType or level material name) -> sound name; 'water' while swimming; default for unmapped types (else 'footstep')
   - `levels?: Record<string, number>` Volume per bus 0-1, default { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 }; an extra key adds a bus
-- **SoundDef** One sounds entry in full form. src: a file or variants (random, no immediate repeat); synth: a registered synth name (default: the entry's own name)
+- **SoundDef** One sounds rule in full form: how a sound plays, never what it is made of (that is the asset manifest's: a file or a synth function). src: an asset pack sound name or a path, or variants (random, no immediate repeat); default: the asset of the rule's own name
   - `src?: string | string[]`
-  - `synth?: string`
-  - `params?: Record<string, any>` Passed to the synth (merged over its registered defaults)
-  - `bus?: AudioBus` Bus it plays on (default 'sfx', or the synth's registered bus)
+  - `params?: Record<string, any>` Passed to a synth source (merged over the manifest entry's params)
+  - `bus?: AudioBus` Bus it plays on (default 'sfx', or the built-in synth's own bus)
   - `volume?: number`
   - `pitch?: number` Playback rate multiplier (1 = as recorded); synths get it as params.pitch
   - `jitter?: { volume?: number; pitch?: number }` Random spread per play, as a fraction: { pitch: 0.08 } = +-8%

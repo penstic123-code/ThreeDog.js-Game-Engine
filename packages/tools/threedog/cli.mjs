@@ -5,13 +5,16 @@
 //   threedog describe -w my-farm        pick a workspace (or just run it inside the game directory)
 //   --page /tests/city/index.html              pick the page path (default: the real page that last got focus, otherwise a headless /)
 import { pickWorkspace } from '../paths.mjs';
+import { pagePath as pageArg } from '../lib/cli-args.mjs';
 
 const [cmd, ...argv] = process.argv.slice(2);
 const fail = text => { console.log(text); process.exit(1); };
 
 let dir, args;
-try { ({ dir, args } = pickWorkspace(argv)); } catch (e) { fail('✗ ' + e.message); }
-const pi = args.indexOf('--page'), pagePath = pi >= 0 ? args.splice(pi, 2)[1] : undefined;
+// live: at the repo root (no workspace around the current folder) talk to the one running dev server instead of falling back to the engine example
+try { ({ dir, args } = pickWorkspace(argv, { live: true })); } catch (e) { fail('✗ ' + e.message); }
+let pagePath;
+try { const pi = args.indexOf('--page'); pagePath = pi >= 0 ? pageArg(args.splice(pi, 2)[1]) : undefined; } catch (e) { fail('✗ ' + e.message); }
 // --json: the unified result (the same object the MCP server returns as structuredContent) instead of the text
 const ji = args.indexOf('--json'), asJson = ji >= 0 && !!args.splice(ji, 1);
 

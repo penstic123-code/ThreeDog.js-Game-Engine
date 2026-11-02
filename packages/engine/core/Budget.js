@@ -8,7 +8,7 @@
 /** @import { Handle } from '../types/common' */
 /** @import { BudgetLimits, BudgetReport, BudgetTagStat } from '../types/world' */
 import { coded } from './errorHints.js';
-import { fmt } from './validate.js';
+import { fmt, warnOnce } from './validate.js';
 import { r1 } from './math.js';
 import { SHADOW_TYPES } from './shadowTypes.js';
 import * as THREE from 'three';
@@ -25,6 +25,7 @@ const WINDOW = 300;                       // how many recent frames the frame-ra
 /** Cost stages of bringing a background result into the frame, in the order a chunk goes through them */
 const STAGES = ['transit', 'build', 'collider', 'upload', 'stream'];
 const EMA = 0.1;   // per-frame smoothing, the same factor chunkApplyMs always used
+const COMPILES_KEPT = 20;   // compile-stall frames remembered by ApplyCost.compiles
 
 /**
  * engine.budget.cost: where the main thread pays for background results (terrain chunks, vegetation, colliders, stream builds), split in stages.
@@ -41,6 +42,9 @@ export class ApplyCost {
     for (const k of STAGES) this.t[k] = { n: 0, totalMs: 0, maxMs: 0, frameMs: 0, bytes: 0, _cur: 0 };
     /** @internal */ this._fresh = 0;
     /** @internal */ this._base = -1;
+    /** Frames in which three.js compiled new shader programs (the last COMPILES_KEPT): { at (page time s), programs (new), ms (render ms of that frame over the usual) } */
+    this.compiles = [];
+    /** @internal */ this._programs = -1;
   }
   /** @internal Add ms to a stage (bytes: payload size, transit only) */
   add(stage, ms, bytes = 0) {
@@ -58,11 +62,20 @@ export class ApplyCost {
     const t = r.terrain, bytes = t ? t.pos.byteLength + t.nor.byteLength + t.col.byteLength + t.uv.byteLength : 0;
     this.add('transit', Math.max(0, performance.now() - t0 - (r.ms ?? 0)), bytes);   // measure
   }
-  /** @internal One render finished (ms): a frame that drew new objects pays the upload, the others set the baseline. Also rolls the per-frame smoothing */
-  rendered(ms) {
+  /** @internal One render finished (ms): a frame that drew new objects pays the upload, the others set the baseline. Also rolls the per-frame smoothing.
+   * programs: renderer.info.programs.length after it; when it grew, three.js compiled shaders in this render (a compile stall, kept in compiles)
+   * @returns {boolean} true when this render compiled shaders (adaptive resolution skips such frames) */
+  rendered(ms, programs = -1, at = 0) {
+    const compiled = programs > this._programs && this._programs >= 0;
+    if (compiled) {
+      this.compiles.push({ at: r1(at), programs: programs - this._programs, ms: r1(Math.max(0, ms - Math.max(0, this._base))) });
+      if (this.compiles.length > COMPILES_KEPT) this.compiles.shift();
+    }
+    if (programs >= 0) this._programs = programs;
     if (this._fresh) { if (this._base >= 0) this.add('upload', Math.max(0, ms - this._base)); this._fresh = 0; }
     else this._base = this._base < 0 ? ms : this._base + (ms - this._base) * EMA;
     for (const k of STAGES) { const s = this.t[k]; s.frameMs += (s._cur - s.frameMs) * EMA; s._cur = 0; }
+    return compiled;
   }
   /**
    * Per stage: n results, totalMs, maxMs of one result, frameMs (smoothed ms per frame), bytes (transit only)
@@ -75,7 +88,7 @@ export class ApplyCost {
     return out;
   }
   /** Forget what was counted so far (to measure one scene on its own) */
-  reset() { for (const k of STAGES) Object.assign(this.t[k], { n: 0, totalMs: 0, maxMs: 0, frameMs: 0, bytes: 0, _cur: 0 }); }
+  reset() { for (const k of STAGES) Object.assign(this.t[k], { n: 0, totalMs: 0, maxMs: 0, frameMs: 0, bytes: 0, _cur: 0 }); this.compiles = []; }
 }
 
 /** engine.budget: performance budget (turned on by createEngine({ budget }) or enable(); off by default, costs nothing). */
@@ -96,7 +109,6 @@ export class Budget {
     /** Cost of applying background results, split in stages (see ApplyCost) */
     this.cost = new ApplyCost();
     for (const k of STAGES) this.metric('apply' + k[0].toUpperCase() + k.slice(1) + 'Ms', () => this.cost.t[k].frameMs);
-    /** @internal */ this._warned = new Set();
     /** @internal */ this._frustum = new THREE.Frustum();
     /** @internal */ this._m = new THREE.Matrix4();
   }
@@ -133,9 +145,8 @@ export class Budget {
     this._t = 0;
     const r = this._last = this._evaluate();
     for (const o of r.over) {
-      if (this._warned.has(o.category)) continue;
-      this._warned.add(o.category);
-      console.warn(coded('budget-over', fmt(STRINGS.over, { ...o, dir: LOWER.has(o.category) ? STRINGS.min : STRINGS.max, top: o.top.map(t => `${t.tag} ${t.drawCalls}`).join(', ') })));
+      // once per category: the measured value changes every second, so the text alone would repeat
+      warnOnce(coded('budget-over', fmt(STRINGS.over, { ...o, dir: LOWER.has(o.category) ? STRINGS.min : STRINGS.max, top: o.top.map(t => `${t.tag} ${t.drawCalls}`).join(', ') })), 'budget-over\0' + o.category);
     }
   }
   /** Budget report; null when off. In the real-time loop it returns the last second's result; in step() mode it is computed on demand @returns {BudgetReport | null} */
@@ -154,11 +165,11 @@ export class Budget {
     const mods = Object.entries(s.modules).map(([tag, v]) => ({ tag, ms: (v.init ?? 0) + (v.ready ?? 0) })).sort((a, b) => b.ms - a.ms);
     const top = mods.slice(0, 3);
     if (startupMs != null && s.totalMs > startupMs) {
-      console.warn(coded('budget-over', fmt(STRINGS.startup, { value: s.totalMs, limit: startupMs, top: top.map(t => `${t.tag} ${t.ms}`).join(', ') })));
+      warnOnce(coded('budget-over', fmt(STRINGS.startup, { value: s.totalMs, limit: startupMs, top: top.map(t => `${t.tag} ${t.ms}`).join(', ') })));
       over.push({ category: 'startupMs', value: s.totalMs, limit: startupMs, top });
     }
     if (moduleMs != null) for (const m of mods) if (m.ms > moduleMs) {
-      console.warn(coded('budget-over', fmt(STRINGS.module, { name: m.tag, value: m.ms, limit: moduleMs })));
+      warnOnce(coded('budget-over', fmt(STRINGS.module, { name: m.tag, value: m.ms, limit: moduleMs })));
       over.push({ category: 'moduleMs', value: m.ms, limit: moduleMs, top: [m] });
     }
     return over;

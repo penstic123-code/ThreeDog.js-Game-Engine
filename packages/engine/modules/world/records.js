@@ -1,9 +1,11 @@
 // World record mutations (add / rest / orphans / set / remove): the bodies behind the World methods of the same names. World.js keeps the public
 // JSDoc and signatures; these functions take the world as `w` and reach its internals the same way sim.js / views.js / persist.js do.
-import { DEV, checkOptionsArg, fmt } from '../../core/validate.js';
+import { DEV, fmt } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { checkPlain } from './persist.js';
 import { putPos, centerOf } from './pos.js';
 import { claimId } from '../../core/things.js';
+import { codedError } from '../../core/errorHints.js';
 
 export const STRINGS = {
   noKind: 'world.add() needs a kind (what sort of thing this is), e.g. world.add({ kind: "crate", position: [0, 0, 0] })',
@@ -15,10 +17,10 @@ export const STRINGS = {
 
 export function addRecord(w, def, opts) {
   DEV && w.engine.ops.guard('world.add');
-  if (!def?.kind) throw new Error(STRINGS.noKind);
-  if (DEV) { checkOptionsArg('world.add(def, opts)', opts, ['initial', 'save']); checkPlain({ ...def, position: undefined }, def.kind); }
+  if (!def?.kind) throw codedError('world-add', STRINGS.noKind);
+  if (DEV) { readParams('world.add(def, opts)', keysSchema(['initial', 'save']), opts); checkPlain({ ...def, position: undefined }, def.kind); }
   const { id: given, kind, position, ...rest } = def, initial = !!opts?.initial;
-  if (initial && given == null) throw new Error(fmt(STRINGS.initialId, { kind }));
+  if (initial && given == null) throw codedError('world-add', fmt(STRINGS.initialId, { kind }));
   const id = given ?? `${kind}#${++w._seq}`, have = w.records.get(id), p = { x: 0, y: 0, z: 0 };
   if (position) putPos('world.add()', position, p);
   const rec = { id, kind, position: p, ...rest };
@@ -29,7 +31,7 @@ export function addRecord(w, def, opts) {
     if (w._removed.has(id)) return null;
     return w._insert(w._fromBase(id, w._base.get(id)), true);
   }
-  if (have) throw new Error(fmt(STRINGS.dupId, { id }));
+  if (have) throw codedError('world-id', fmt(STRINGS.dupId, { id }));
   claimId(w.engine, id);
   if (opts?.save === false) w._unsaved.add(id);
   if (DEV) w._origin.set(id, { spawned: { op: w.engine.ops.running, tick: w.engine.tick } });   // who made it (inspect / pick)
@@ -55,7 +57,7 @@ export function orphanIds(w) {
 export function setRecord(w, id, patch) {
   DEV && w.engine.ops.guard('world.set');
   const rec = w._need(id, 'set');
-  if (DEV) { if ('id' in patch || 'kind' in patch) throw new Error(fmt(STRINGS.setKey, { id })); checkPlain({ ...patch, position: undefined }, id); }
+  if (DEV) { if ('id' in patch || 'kind' in patch) throw codedError('world-add', fmt(STRINGS.setKey, { id })); checkPlain({ ...patch, position: undefined }, id); }
   const { position, ...rest } = patch;
   Object.assign(rec, rest);
   if (position) w.move(id, position);

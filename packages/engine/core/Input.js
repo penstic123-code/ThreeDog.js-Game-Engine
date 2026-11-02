@@ -24,8 +24,8 @@
 //   gameplay (fire, attack) must not read it; bind a Mouse0 action instead
 
 /** @import { Pointer, Autopilot } from '../types/core' */
-import { coded } from './errorHints.js';
-import { warnMissing, warnOnce } from './validate.js';
+import { coded, codedError } from './errorHints.js';
+import { warnMissing, warnOnce, missingText } from './validate.js';
 import { touchButton } from './inputTouch.js';
 import { bindPointer } from './inputPointer.js';
 import { pollPad, keyLabel } from './inputPad.js';
@@ -138,9 +138,16 @@ export class Input {
 
   /**
    * Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key
-   * @example engine.input.simulate('jump'); engine.step(1 / 60); engine.input.simulate('jump', false)
+   * and holds it until simulate(action, false), so the player walks like with a held key. Takes action names (moveForward, moveLeft, run, interact, ...;
+   * engine.input.actions lists them), not keys; an unknown name throws unknown-name with the closest one
+   * @param {string} action @param {boolean} [down]
+   * @example engine.input.simulate('moveForward'); engine.step(1); engine.input.simulate('moveForward', false)
    */
-  simulate(action, down = true) { this._known(action); const k = this.keysOf(action)[0]; if (k) { if (down) this._keyDown(k, this.lastDevice); else this._keyUp(k); } }
+  simulate(action, down = true) {
+    // throws (reading only warns): a driver pressing a wrong name would otherwise "succeed" with nothing moving, and a script rarely shows warnings
+    if (!this.actions.has(action)) throw codedError('unknown-name', `engine.input.simulate('${action}'): ${missingText('action', action, [...this.actions.keys()])}`);
+    const k = this.keysOf(action)[0]; if (k) { if (down) this._keyDown(k, this.lastDevice); else this._keyUp(k); }
+  }
   _keyDown(code, device) {
     if (this.keys.has(code) || this._muted.has(code)) return;
     this.keys.add(code); this.justPressed.add(code); this._accP.add(code); this.lastDevice = device;
@@ -163,7 +170,7 @@ export class Input {
   /** Key name shown in the UI, e.g. "E" @param {string} action @returns {string} */
   label(action) { return keyLabel(this, action); }
   /** Which copy to read: the snapshot inside fixed steps, this frame's latest state elsewhere @internal */
-  _has(action, set) { this._known(action); if (!readableMap(this).get(action)) return false; const S = (this._inFixed ? this._fx : this._live)[set]; return this.keysOf(action).some(k => S.has(k)); }
+  _has(action, set) { this._known(action); if (!readableMap(this).get(action) || this._gated(action)) return false; const S = (this._inFixed ? this._fx : this._live)[set]; return this.keysOf(action).some(k => S.has(k)); }
   /** Held (a snapshot of this step in fixed, the latest state in frame) @param {string} action @returns {boolean} */
   down(action) { return this._has(action, 'keys'); }
   /**
@@ -191,7 +198,8 @@ export class Input {
    * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., {
    * context }); menu keys: pressedRaw.
    * @param {string} name e.g. 'vehicle', 'menu', 'build' (the base context is 'gameplay')
-   * @param {{ pass?: boolean }} [opts]
+   * owner (default the name) is who pushed it, listed in describe().holds.input
+   * @param {{ pass?: boolean, owner?: string }} [opts]
    * @returns {{ name: string, remove(): void }} remove() pops it (safe to call twice)
    * @example const h = engine.input.push('vehicle', { pass: true });   // vehicle-context actions (brake) work, and shadow gameplay actions on the same key
    *   h.remove();
@@ -199,6 +207,26 @@ export class Input {
   push(name, opts) { return pushContext(this, name, opts); }
   /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
   get contexts() { return this._stack.map(c => c.name); }
+  /**
+   * Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read)
+   * @returns {{ context: string, owner: string, pass: boolean }[]}
+   */
+  get holders() { return this._stack.slice(1).map(c => ({ context: c.name, owner: c.owner, pass: c.pass })); }
+  /**
+   * Close one action while anyone holds its gate (stun: no jump; a tutorial: no attack yet), without a whole input context. Same rules as every
+   * engine.mod stack (it is the stack 'input.gate', one entry per owner and action): only the owner opens it, { for } ends it by itself.
+   * A closed action reads as not down / pressed / released; describe().holds.gates lists the owners.
+   * @param {string} action @param {string | { owner?: string, for?: number, clock?: string }} [owner] default 'game'
+   * @returns {{ owner: string, remove(): void }}
+   * @example const stun = engine.input.gate('jump', { owner: 'stun', for: 1.5 });   // no jumping for 1.5 s; stun.remove() reopens it early
+   */
+  gate(action, owner = 'game') {
+    this._known(action);
+    const o = typeof owner === 'string' ? { owner } : owner;
+    return this.engine.mod('input.gate', { ...o, id: action });
+  }
+  /** @internal true while someone holds this action's gate */
+  _gated(action) { const g = this._gateStack ??= this.engine.stacks?.has('input.gate') ? this.engine.stacks.get('input.gate') : null; return !!g && g.size(action) > 0; }
   /**
    * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean}
    */

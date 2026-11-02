@@ -1,5 +1,9 @@
 # Ops: one entry point for what players and NPCs do (engine.ops)
 
+**In this recipe**: 1. Define and run · 2. Who calls it, and when · 3. Built-in ops · 4. Read the log · 5. The guard · 6. Testing ·
+7. Scenario tests · 8. Inspect and explain · 9. Randomness · 10. Property tests · 11. Structured failures, nextFixed, and who paused ·
+12. Failing in run, atomic ops, revision
+
 **What is an op**: one discrete thing an actor decides to do: buy, talk, attack, roll, fire, reload, craft, build, demolish. Write one with
 `engine.ops.define`; every caller (key press, UI button, dialogue choice, dev bridge, test, later replay and network peers) runs it with `engine.ops.run`.
 **What is not an op**: continuous input (stick, look, aim while moving) and simulation (hunger, crop growth, burning, bullets in flight). Those stay
@@ -47,7 +51,7 @@ Rules that keep ops replayable and network-ready:
 | A key in a module's `fixed` (attack, roll, fire) | `e.ops.run('combat.roll', { dir }, { source: 'player' })` | `fixed` / `player` |
 | A UI button or click | `engine.ops.run('shop.buy', args)` | `between` / `player` |
 | Dialogue choices, triggers, quest rewards in content | `do: { op: ['shop.buy', { shop: 'shop-bakery', item: 'bread' }] }`, `if: { can: ['shop.buy', {...}] }` | inherits the caller |
-| Dev bridge | `npx threedog op shop.buy shop=shop-bakery item=bread` / `npx threedog ops` | `between` / `bridge` |
+| Dev bridge | `threedog op shop.buy shop=shop-bakery item=bread` / `threedog ops` | `between` / `bridge` |
 | Enemy AI in `world.simulate` | `e.ops.run('combat.attack', { kind: 'light' }, { actor: rec.id })` | `fixed` / `game` |
 
 `run` is synchronous and returns at once. Between fixed steps it counts as "after step N", which replays the same. Ops still run while gameplay is
@@ -80,7 +84,7 @@ A thrown `run` freezes gameplay in dev / tests and `engine.error` names `ops.run
 
 ## 5. The guard (dev)
 Saved gameplay state (`world.add/set/move/remove`, containers and the inventory, `vars`, quest start / advance) may change only while loading, inside
-a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `npx threedog js`) prints once
+a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `threedog js`) prints once
 per place:
 `[engine] gameplay state changed outside a fixed step or an op: world.set, called at ...`. Fix: turn the write into an op and `engine.ops.run` it, or
 move simulation into `fixed`. `npm test` lists every place in `.threedog/ops-guard.log`.
@@ -94,11 +98,13 @@ A test runs the op directly instead of walking, pressing keys and waiting for ty
 engine.ops.run('shop.buy', { shop: 'shop-bakery', item: 'bread', n: 2 }, { source: 'test' });
 // check engine.inventory.count('bread'), and engine.ops.recent('shop.buy').at(-1).code on failure
 ```
-Keep one `press` test per key to prove "key -> op" itself works (the history shows `interaction.use` after `press interact`).
+Keep one `press` test per key to prove "key -> op" itself works (the history shows `interaction.use` after `press interact`). Set up the scene
+(move the player, the time, the weather) with `await engine.applyState({ pos: '40,-20', time: '18:30' })`: setup is not gameplay, so it passes the
+ops guard, while a bare `player.placeAt` in a test warns.
 
 ## 7. Scenario tests: a test written as data
-Put `<workspace>/tests/scenarios/<name>.json` in the engine package or a game; `npx threedog test` runs each file as the item `scenario: <name>`, and
-`npx threedog scenario <name>` runs one on the page under `npm run dev`.
+Put `<workspace>/tests/scenarios/<name>.json` in the engine package or a game; `threedog test` runs each file as the item `scenario: <name>`, and
+`threedog scenario <name>` runs one on the page under `npm run dev`.
 ```json
 { "name": "barter: buy until sold out", "url": "/", "state": { "pos": "@fisher", "cutscene": "skip" },
   "steps": [
@@ -126,8 +132,8 @@ engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text
 // text: 'shop.buy {...} cannot run now: noMoney (Not enough gold)'; detail: 'last attempt at tick 812 (player, player): noMoney' (+ recent, events)
 engine.explain({ quest: 'first-light' }).text;   // 'quest ... waits on step 2/3 "...": its done() returns false'
 ```
-Other keys come from modules: add `explain: { myKey(e, value, query) { return { ok, text }; } }` to the module definition. Dev bridge: `npx threedog
-inspect [id | x,z]`, `npx threedog explain op shop.buy shop=bakery item=bread`, `npx threedog explain quest first-light`.
+Other keys come from modules: add `explain: { myKey(e, value, query) { return { ok, text }; } }` to the module definition. Dev bridge: `threedog
+inspect [id | x,z]`, `threedog explain op shop.buy shop=bakery item=bread`, `threedog explain quest first-light`.
 
 Why did this event fire? In dev set `engine.events.traceSize = 200` (default 0 = off, no cost). Every emitted event then records its cause: `engine.events.trace('item:add').at(-1)`
 is `{ id, tick, name, parent: 'op:shop.buy#12', chain: ['op:shop.buy#12'] }`; a parent is `ev:<id>` (a handler of that event emitted it) or `op:<name>#<seq>` (the
@@ -153,7 +159,7 @@ const r = engine.ops.run('shop.buy', {});   // r.ok === false, r.code === 'noMon
 ```
 `engine.nextFixed(fn)` runs `fn` at the start of the next fixed step and returns a Promise of its value, so a UI click or a promise callback can safely write gameplay state: `await engine.nextFixed(() => engine.ops.run('door.open', { id: 'gate' }))`. It is built on `engine.commits` and waits while frozen or loading.
 
-Tests that call `engine.pause(owner)` / `engine.resume(owner)` name themselves (default `'game'`). The loop stays paused until every owner has resumed; `resume('b')` while only `'a'` paused is ignored with a dev warning (`pause-owner`), so one helper cannot unpause another's pause.
+Tests that pause name themselves (default `'game'`) and end their own pause with the handle: `const p = engine.pause('my-test'); ... p.remove()`. The loop stays paused until every owner has removed theirs, so one helper cannot unpause another's pause
 
 ## 12. Failing in run, atomic ops, revision
 `run` can fail like `can`: return or throw `{ ok: false, code, facts, nextActions }` (a value that merely has a `code` field is not a failure; `ok: false` is required). `facts` is an object (`{ need: 5 }`) or a list of `{ id, field, actual, expected? }` naming the record and field that were wrong. The engine never invents `nextActions`; only the op definition declares them. Every result carries `revision` (`engine.ops.revision`), a counter bumped once per committed op: "did anything change since I looked" is one compare.
@@ -172,4 +178,4 @@ What atomic covers, honestly: it copies the save parts that declared `saves.regi
 
 Causal trace (`events.traceSize > 0`, recipe 06): failed ops are noted as `op:<name>` with their `code`; `collision.lineClear(a, b, { who })` as `sight` (blocked lines always, clear ones for the focused object only); NPC state changes as `npc:state`. A game's behavior notes its own mode switch with `engine.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } })`; `events.traceFocus('guard-1')` makes one object verbose.
 
-Atomic details: a rolled-back run still bumps `ops.revision` (it only goes up, never back to an old number) and its committed nested ops show in `ops.recent()` as `ok: false` with code `rolledBack`. `after` hooks run in commit order (nested first, then the outer op) once the outermost atomic op ends. The rollback does not run `afterLoad` and mutes the events its loads would emit, so atomic state must be plain data. Failed results have no `reason`: reading it throws `renamed-api` and points to `code`.
+Atomic details: a rolled-back run still bumps `ops.revision` (it only goes up, never back to an old number) and its committed nested ops show in `ops.recent()` as `ok: false` with code `rolledBack`. `after` hooks run in commit order (nested first, then the outer op) once the outermost atomic op ends. The rollback does not run `afterLoad` and mutes the events its loads would emit, so atomic state must be plain data. Failed results name what went wrong in `code` (there is no `reason` field).

@@ -11,7 +11,8 @@ export class Threads {
     /**
      * A lane of workers running one script. create must contain the literal new Worker(new URL('./file.js', import.meta.url), { type: 'module' }) so bundlers find the file.
      * local builds the same handler on the main thread (used when there are no workers).
-     * @param {{ create: () => Worker, local: () => (msg: any) => any, max?: number }} opts
+     * timeout (ms, default 20000, 0 = never): a busy worker silent that long counts as crashed and its open tasks finish on the main thread (one warning, code threads-crash).
+     * @param {{ create: () => Worker, local: () => (msg: any) => any, max?: number, timeout?: number }} opts
      * @returns {Lane}
      * @example
      * const lane = engine.threads.lane({ create: () => new Worker(new URL('./chunkWorker.js', import.meta.url), { type: 'module' }), local: chunkHandler });
@@ -21,6 +22,7 @@ export class Threads {
         create: () => Worker;
         local: () => (msg: any) => any;
         max?: number;
+        timeout?: number;
     }): Lane;
     /**
      * A typed array other threads can read without a copy: on a SharedArrayBuffer when shared, else an ordinary one (postMessage then copies it).
@@ -52,6 +54,7 @@ declare class Lane {
     threads: any;
     create: any;
     local: any;
+    timeout: number;
     max: number;
     /** @type {{ w: Worker, busy: number }[]} */ workers: {
         w: Worker;

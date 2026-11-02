@@ -59,7 +59,7 @@ class DofPass extends Pass {
  *   focus, range, falloff in meters; maxBlur in device pixels
  * @returns {PostEffect}
  */
-export function dof({ focus = 10, range = 2, falloff = 20, maxBlur = 6, enabled = false, order = 5 } = {}) {
+export function dof({ focus = 10, range = 2, falloff = 20, maxBlur = 6, enabled, order = 5 } = {}) {
   const update = (pass, p) => { const u = pass.material.uniforms; u.uFocus.value = p.focus; u.uRange.value = p.range; u.uFalloff.value = p.falloff; u.uMaxBlur.value = p.maxBlur; };
   return { name: 'dof', slot: 'hdr', order, enabled, costly: true, needsDepth: true, params: { focus, range, falloff, maxBlur },
     create: ({ camera, params }) => { const pass = new DofPass(camera); update(pass, params); return pass; }, update };

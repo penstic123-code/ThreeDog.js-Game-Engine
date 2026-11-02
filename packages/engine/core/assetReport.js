@@ -11,7 +11,7 @@ const SRGB = THREE.SRGBColorSpace, LINEAR = THREE.NoColorSpace;
 const sanitize = n => String(n ?? '').replace(/\s/g, '_').replace(/[[\].:/]/g, '');
 
 /** Color-space problems of one texture used in the given slots: [] when fine */
-export function colorSpaceIssues(tex, slots) {
+function colorSpaceIssues(tex, slots) {
   const out = [], cs = tex.colorSpace || LINEAR;
   const color = slots.filter(s => COLOR_SLOTS.includes(s)), data = slots.filter(s => DATA_SLOTS.includes(s));
   if (color.length && data.length) out.push(`used as both color (${color}) and data (${data}): one texture has one color space`);

@@ -49,8 +49,8 @@ export const specs = [
           untilled, tilled, plantedAt: engine.world.get(tilled.value)?.plantedAt, grass, stone, d };
       }, setup.toString());
       check('[guard] placing on a taken cell is refused (same cell and a 2x1 footprint overlapping it)', r.a.ok && r.twice.code === 'occupied' && r.overlap.code === 'occupied', JSON.stringify([r.a, r.twice, r.overlap]));
-      check('[guard] a 2x1 item turned a quarter occupies two cells along z; the record keeps grid { cell, size, rotation, item }',
-        r.turned[0] === r.bed.value && r.turned[1] === r.bed.value && r.turned[2] === null && r.kind === 'furniture' && JSON.stringify(r.recGrid) === '{"id":"farm","cell":[3,3],"size":[2,1],"rotation":1,"item":"bed"}', JSON.stringify(r));
+      check('[guard] a 2x1 item turned a quarter occupies two cells along z; the record keeps grid { cell, rotation, item } (size lives in the rule)',
+        r.turned[0] === r.bed.value && r.turned[1] === r.bed.value && r.turned[2] === null && r.kind === 'furniture' && JSON.stringify(r.recGrid) === '{"id":"farm","cell":[3,3],"rotation":1,"item":"bed"}', JSON.stringify(r));
       check('outOfBounds past the edge; explain names the occupier', r.oob.code === 'outOfBounds' && /occupied at cell \[3,4\] by furniture#\d+ \(bed\)/.test(r.explainText), r.explainText);
       check('grid.move frees the old cells and takes the new ones; grid.remove frees its cell',
         r.moved.ok && r.afterMove[0] === null && r.afterMove[1] === r.bed.value && r.afterMove[2] === r.bed.value && r.removed.ok && r.freed === null, JSON.stringify(r));
@@ -110,7 +110,7 @@ export const specs = [
         for (let k = 0; k < pos.count; k++) worst = Math.max(worst, Math.abs(pos.getY(k) - 0.03 - engine.surface(pos.getX(k), pos.getZ(k))));
         const ys = [pos.getY(0), pos.getY(pos.count - 1)];
         // preview on the farm, target from a function (cell [3, 3])
-        engine.style.grid = { ok: 0x00ff00, bad: 0xff0000 };   // this page has no style pack: give the preview its two colors
+        engine.style.grid = { ok: 0x00ff00, bad: 0xff0000 };   // this page has no style: give the preview its two colors
         const farm = G.get('farm'), st = engine.style.grid;
         const pv = G.preview({ grid: 'farm', item: 'bed', rotateKeys: ['KeyR'], from: () => ({ x: -6.5, z: -6.5 }) });
         engine.step(1 / 30, { render: false });
@@ -119,19 +119,19 @@ export const specs = [
         const turned = pv.rotation, size = [box.scale.x, box.scale.z].map(v => Math.round(v * 100) / 100);
         const placed = pv.place();
         engine.step(1 / 30, { render: false });
-        const after = { ok: pv.ok, reason: pv.reason, color: box.material.color.getHex() };
+        const after = { ok: pv.ok, code: pv.code, noReason: !('reason' in pv), color: box.material.color.getHex() };
         pv.remove();
         // the engine binds no key itself: a preview whose rotate action is unbound leaves it unbound (and only warns)
         const pv2 = G.preview({ grid: 'farm', item: 'bed', rotate: 'unboundRot', from: () => null }); engine.step(1 / 30, { render: false });
         const unbound = !engine.input.actions.has('unboundRot'); pv2.remove();
-        engine.resume();
+        engine._resume();
         return { unbound, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
       }, setup.toString());
       check('[guard] tiles: one quad per cell, every corner on engine.surface + lift (a level ramp, no terrain module)', r.tiles === 6 && r.worst < 1e-3 && r.ys[1] > r.ys[0] + 1, JSON.stringify(r));
       check('preview: target cell from the function, green from style.grid.ok', JSON.stringify(r.first) === '{"cell":[3,3],"ok":true}' && r.okColor === r.st.ok, JSON.stringify(r));
       check('preview: the rotate action turns it (2x1 box becomes 1x2), place() runs grid.place with the shown rotation', r.turned === 1 && r.size[0] < r.size[1] && r.placed.ok && r.at === r.placed.value, JSON.stringify(r));
       check('[guard] preview binds no rotate key by itself (needs rotateKeys or your own binding)', r.unbound, JSON.stringify(r));
-      check('preview turns red (style.grid.bad) on the now occupied cell; stop() removes it', !r.after.ok && r.after.reason === 'occupied' && r.after.color === r.st.bad && r.gone, JSON.stringify(r.after));
+      check('preview turns red (style.grid.bad) on the now occupied cell; stop() removes it', !r.after.ok && r.after.code === 'occupied' && r.after.noReason && r.after.color === r.st.bad && r.gone, JSON.stringify(r.after));
     },
   },
   {
@@ -149,6 +149,82 @@ export const specs = [
       }, setup.toString());
       check('during play the cell is tilled and the crate occupies its cell', !!r.during.soil?.tilled && !!r.during.at, JSON.stringify(r));
       check('after newGame the layer is empty and the crate is gone', r.soil === null && r.count === 0 && r.at === null && !r.rec, JSON.stringify(r));
+    },
+  },
+  {
+    // 为什么：占用层以前抄进记录（rec.grid.occupy），而 grid.move 的 can() 读物品规则当前的 occupy；内容更新给物品加了 occupy 后，
+    // 旧存档的记录按旧层建索引、按新层做判断，两边对不上。现在占用层只从物品规则推出（规则没定义的才看记录），只有一处真相。
+    name: 'grid: a placed item\'s occupancy layer comes from its current rule (content that later adds occupy reads old saves the way can() does)',
+    url: URL,
+    async run({ check, ev }) {
+      const r = await ev(async (src) => {
+        const G = await (0, eval)(src)(), farm = G.get('farm');
+        const run = (n, a) => engine.ops.run(n, a, { source: 'test' });
+        G.define('rug', { size: [1, 1] });   // old content: a rug takes the main layer
+        const rug = run('grid.place', { grid: 'farm', item: 'rug', cell: [6, 1] }).value;
+        engine.saves.save('grid-occ');
+        G.define('rug', { size: [1, 1], occupy: 'floor' });   // new content: rugs lie on the floor layer
+        engine.saves.load('grid-occ');
+        const out = { onFloor: farm.at([6, 1], { occupy: 'floor' }) === rug, mainFree: farm.at([6, 1]) === null };
+        out.crate = run('grid.place', { grid: 'farm', item: 'crate', cell: [6, 1] });   // a crate on the rug: different layers
+        out.move = run('grid.move', { id: rug, cell: [6, 2] });
+        out.movedFloor = farm.at([6, 2], { occupy: 'floor' }) === rug;
+        G.define('rug', { size: [1, 1], occupy: 'wall' });   // redefined while placed: the index follows at once
+        out.wall = farm.at([6, 2], { occupy: 'wall' }) === rug;
+        out.recOccupy = engine.world.get(rug).grid.occupy ?? null;
+        for (const id of [rug, out.crate.value]) if (id) run('grid.remove', { id });
+        G.define('rug', { size: [1, 1] });
+        return out;
+      }, setup.toString());
+      check('[guard] after loading, the rug sits in the layer its rule names now (floor), not the one copied at placing', r.onFloor && r.mainFree, JSON.stringify(r));
+      check('[guard] a crate may stand on it, grid.move keeps it on the floor layer, redefining the item moves the index along', r.crate.ok && r.move.ok && r.movedFloor && r.wall, JSON.stringify(r));
+      check('a named item\'s record does not store occupy (the rule is the one place it lives)', r.recOccupy === null, JSON.stringify(r));
+    },
+  },
+  {
+    name: "grid: a placed item's footprint comes from its current rule (content that resizes an item reads old saves with the new size)",
+    url: URL,
+    async run({ check, ev }) {
+      const r = await ev(async (src) => {
+        const G = await (0, eval)(src)(), farm = G.get('farm');
+        const run = (n, a) => engine.ops.run(n, a, { source: 'test' });
+        G.define('plank', { size: [1, 1] });
+        const id = run('grid.place', { grid: 'farm', item: 'plank', cell: [1, 6] }).value;
+        engine.saves.save('grid-size');
+        G.define('plank', { size: [2, 1] });   // new content: planks are two cells long
+        engine.saves.load('grid-size');
+        const out = { wide: farm.at([2, 6]) === id, recSize: engine.world.get(id).grid.size ?? null };
+        run('grid.remove', { id });
+        G.define('plank', { size: [1, 1] });
+        return out;
+      }, setup.toString());
+      check('[guard] after loading, the plank occupies the two cells its rule names now, and its record stores no size copy', r.wide && r.recSize === null, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'grid: a placed item the content no longer defines is kept, takes no cells and warns once (no crash)',
+    url: URL,
+    async run({ check, ev }) {
+      const r = await ev(async (src) => {
+        const G = await (0, eval)(src)(), farm = G.get('farm');
+        const run = (n, a) => engine.ops.run(n, a, { source: 'test' });
+        const warns = [], warn = console.warn;
+        console.warn = (...a) => { warns.push(String(a[0])); warn(...a); };
+        G.define('stool', { size: [1, 1] });
+        const id = run('grid.place', { grid: 'farm', item: 'stool', cell: [1, 6] }).value;
+        engine.saves.save('grid-orphan');
+        G._defs.delete('stool');   // new content: the stool is gone
+        let threw = null;
+        try { engine.saves.load('grid-orphan'); } catch (e) { threw = e.message; }
+        const out = { threw, kept: !!engine.world.get(id), free: farm.at([1, 6]) === null, warned: warns.some(w => w.includes('grid-orphan')) };
+        console.warn = warn;
+        G.define('stool', { size: [1, 1] });   // defined again: it takes its cell back
+        out.back = farm.at([1, 6]) === id;
+        run('grid.remove', { id });
+        return out;
+      }, setup.toString());
+      check('[guard] loading does not throw, the record stays, its cell is free, a grid-orphan warning names it', !r.threw && r.kept && r.free && r.warned, JSON.stringify(r));
+      check('defining the item again brings its cell back', r.back, JSON.stringify(r));
     },
   },
 ];

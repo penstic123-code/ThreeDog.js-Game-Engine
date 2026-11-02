@@ -1,18 +1,19 @@
 // @ts-check
 // __NAME__: open-world starter template — a player on generated terrain, a few apples and one searchable stash. Write gameplay ideas in DESIGN.md.
 // main.js holds rules only (modules, ops, state, presentation). Everything placed in the level is content: content/templates.js + content/props.js (rule R33).
-import { createEngine, THREE, presets, openWorld, followCamera, interactions, inventory, content, hud } from 'threedog';
-__STYLE_IMPORT__
+import { createEngine, presets, openWorld, followCamera, interactions, inventory, pickups, content, hud } from 'threedog';
+import style from './style/index.js';   // the game's own style: empty for now (gray placeholders); fill it, recipes 09 and 52
 import { terrainPreset } from '@threedog/terrain-noise';   // optional: a terrain generator (the engine ships none)
 import data from './content/index.js';
+import packs from './assets.js';
 
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), __STYLE_OPT__ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
-// openWorld installs the world and environment (terrain, vegetation, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
-// More you can add: dialogue() quests({ ...presets.keys.quests }) entities() triggers() timeline() particles() music() photo({ ...presets.keys.photo }) grids(), usage in node_modules/threedog/docs/api/<module>.md
-engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, sky: presets.calendar.cycle }), interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), content(), hud());
+const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
+// openWorld installs the world and environment (terrain, vegetation, calendar, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
+// More you can add (installed above: interactions inventory pickups content hud): dialogue() quests({ ...presets.keys.quests }) triggers() timeline() particles() music() photo({ ...presets.keys.photo }) grids(), usage in node_modules/threedog/docs/api/<module>.md
+engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, calendar: presets.calendar.cycle }), interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), pickups(), content(), hud());
 
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 });   // the terrain is generated: find a flat spot as "home". home is a Vector3, use home.x / home.z, not home[0]
-engine.assets.manifest({ models: { crate: () => new THREE.BoxGeometry(1, 0.8, 0.8).translate(0, 0.4, 0) } });   // a model is a name content uses; here a gray box (a generator returning geometry). Add GLB files the same way: { name, base, models }
+engine.assets.manifest(packs);   // assets.js: the names content uses (crate, a gray box made in code); add GLB files and sounds there the same way
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: home });   // no model: a gray capsule body (recipe 13 for a model)
 engine.content.load(data, { places: { home } });   // in content/, place things relative to home with { place: 'home', x, z }
 

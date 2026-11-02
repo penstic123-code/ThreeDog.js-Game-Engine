@@ -25,7 +25,7 @@ export type EaseName =
   | 'inBack' | 'outBack' | 'inOutBack'
   | 'outElastic' | 'outBounce';
 export type Ease = EaseName | ((t: number) => number);
-/** A few known names (with autocomplete), other strings are accepted too (a style pack is a plain object, its strings are not treated as fixed values) */
+/** A few known names (with autocomplete), other strings are accepted too (a style is a plain object, its strings are not treated as fixed values) */
 export type Loose<T extends string> = T | (string & {});
 /**
  * Handle: returned by every "add / register / listen / attach" API (events.on, onFrame, clock.after, collision.addBox, interactions.add, rays.addStatic…),

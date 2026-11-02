@@ -12,7 +12,7 @@ working example is `examples/action/` (page `/action.html`, about 150 lines of r
 | Attack, damage, enemy hit, death | ops with `can` / `run` (recipe 23), so keys, the dev bridge, MCP, tests and the AI run one rule | `player.attack`, `enemy.damage`, `enemy.attack`, `player.die` |
 | Enemy AI (chase, face, strike) | `engine.world.simulate(kind, { near })`, a fixed step per near record; it strikes with `ops.run(..., { actor: rec.id })` | `world.simulate('slime', ...)` |
 | Gameplay keys | content `actions` (`attack: { keys: ['Mouse0', 'KeyF'] }`), read with `input.pressed` in `onFixed` | `onFixed` runs `player.attack` |
-| Drop | `engine.inventory.spawnPickup(item, at, { id })` inside the death op; E picks it up through `interactions` | `${id}-drop` |
+| Drop | `engine.pickups.spawn(at, { give: item, id })` inside the death op; E picks it up through `interactions`, into the bag of whoever presses | `${id}-drop` |
 | HUD, death screen, retry, save keys | `onFrame`: `hud.bar`, `toast`, `engine.session.newGame()` | the frame hook |
 
 ## 2. Rules that keep it replayable
@@ -29,5 +29,38 @@ working example is `examples/action/` (page `/action.html`, about 150 lines of r
 `followCamera({ ...presets.camera.overShoulder })` locks the mouse on a click. While locked, mouse buttons still arrive as `Mouse0`..`Mouse4` keys, so
 `attack: { keys: ['Mouse0'] }` works in both states. The click that takes the lock is itself a `Mouse0` press and swings once; a game that does not
 want that ignores attacks until the `page:pointerlock` event reports `locked: true`. `presets.player.aim` turns the player toward where the camera
-looks, so a swing goes where you aim. Without a style pack the room and enemy are gray (`?style=none`); colors come from a style part
+looks, so a swing goes where you aim. Without a style the room and enemy are gray (`?style=none`); colors come from a style part
 (`examples/action/look.js`).
+
+## 4. Movement: jumps, speed effects, bullet time, platforms, falling
+```js
+createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 });                       // double jump: the same jump key twice
+engine.player.launch(16, { owner: 'pad' });                                          // a jump pad / spring
+engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 });       // haste for 5 s; no id = every character (mud, wind)
+engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });            // bullet time: enemies on channel 'enemies' at 35%
+engine.onFixed(dt => moveShots(dt), { channel: 'enemies' });                        // your own enemy logic on the same slowed dt
+engine.characters.support(liftMesh);                                                 // a moving platform: move liftMesh any way, riders follow
+engine.player.mover = 'manual'; /* a cutscene, your own physics */ engine.player.mover = 'simple';   // take over, give back
+```
+- **Jumps** (all public, no private fields): `jump()` is buffered for `jumpBuffer` s (default 0.12) and uses coyote time (`coyoteTime`); in the air it is an
+  air jump while `maxJumps` allows, at `airJumpSpeed` (default `jumpSpeed`). `jump({ air: false })` = ground only. `addJumps(n)` / `resetJumps()` for
+  pickups and wall touches, `launch(speed, { owner })` for jump pads (emits `character:launch`), `jumpState()` reads `{ grounded, coyoteLeft,
+  bufferLeft, jumpsUsed, jumpsLeft, vy }`. `character:jump` carries `{ air, index }`. Writing `player.vy` yourself is fine: it is an impulse.
+- **Speed, gravity, jump height, can-jump**: the fields (`player.speed = 6`) are the game's base values; effects go through `engine.mod('move.speed' |
+  'move.runSpeed' | 'move.gravity' | 'move.jumpSpeed' | 'move.canJump', { owner, id?, set | add | mul | clamp, for? })`, so stamina (run = walk), haste
+  x1.2 and mud x0.6 combine and end in any order. `player.stat('speed')` reads the result. A stun: `engine.mod('move.canJump', { owner: 'stun', id:
+  'player', set: 0, for: 0.8 })`. `move()` takes no speed argument; the direction's length (0-1) scales the speed.
+- **Bullet time / time channels**: a character the engine drives moves and animates on `character.channel` (player `'player'`, NPCs `'world'`), so
+  `engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35 })` slows NPCs added with `npcs.add({ channel: 'enemies' })` (far ones too) and
+  `onFixed(fn, { channel: 'enemies' })` code; `clock.after(1, 'poison:tick', data, { channel: 'enemies' })` slows a timer with them. The player keeps
+  full speed unless you mod `'time.player'`. Your own `player.move(x, z, run, dt)` uses the dt you pass. Effects end in any order (recipe 55).
+- **Platforms**: `characters.support(object, { id?, safe?, carry?: 'position' | 'position+yaw', inherit? })` returns `{ id, remove() }`. The rider
+  compares the platform's matrix with the one it recorded, so it does not matter whether the platform moves in your `onFixed` before or after the
+  player, in a timeline or in physics. `player.support` says what it stands on (`kind: 'ground' | 'platform' | 'collider' | 'water' | null`, the
+  platform's `velocity`); jumping off keeps the platform's speed until landing. With `mover: 'rapier'` give the platform a collider as well.
+- **Falling out**: `createPlayer({ ..., fall: { belowY: -20 } })` fires `character:fall { character, safe, preventDefault() }` once and puts the player
+  back on `player.safeGround` (the last spot it stood still on safe, unmoving ground; saved). Take hp in the listener; `preventDefault()` to handle it yourself.
+- **Your own controller**: `mover: 'manual'` = you write the position; `move()` then only updates `grounded`, `support` (platforms still carry),
+  `safeGround` and the fall check. Switch at any time (`player.mover = 'manual'` / `'simple'`): a cutscene, a grapple, a ladder.
+- **Knockback / dashes**: `player.push(vx, vz, seconds)`. Writing `player.velocity` or `player.vy` is an impulse: the mover keeps integrating from
+  it next step (horizontal velocity is then steered back toward the input), so it never fights you; for full control use `mover: 'manual'`.

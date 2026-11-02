@@ -4,7 +4,7 @@
 // Criteria: in packages/engine/, a constant whose name contains STRINGS (or an alias such as const S = XX_STRINGS) with an object-literal initializer that is not the { 'zh-CN': …, en: … } multi-language shape;
 //   walk up the syntax tree from table.key (continuing through wrappers like fmt(…)) to the statement; passing any of these "player-visible" places → warning:
 //   arguments of toast(…) / alert(…) / createTextNode(…) / makeWindow(…); right-hand sides of .textContent / .innerHTML / .innerText / .title / .placeholder assignments;
-//   values of label / title / talkLabel / prompt fields. Passing console.* / warnOnce stops the walk (dev hints may be in one language only).
+//   values of label / title / prompt fields. Passing console.* / warnOnce stops the walk (dev hints may be in one language only).
 // Limitation: only the same statement; text stored in a variable and shown elsewhere is not followed (e.g. a describe text built up and left to the caller to show).
 import { ts, parse, visit, engineFiles, lineOf } from './_lib.mjs';
 
@@ -12,7 +12,7 @@ import { ts, parse, visit, engineFiles, lineOf } from './_lib.mjs';
 const ALLOW = [];
 const SINK_CALL = /(^|\.)(toast|alert|createTextNode|makeWindow|setTitle|setLabel)$/;
 const SINK_PROP = /^(textContent|innerHTML|innerText|title|placeholder)$/;
-const SINK_FIELD = /^(label|title|talkLabel|prompt)$/;
+const SINK_FIELD = /^(label|title|prompt)$/;
 /** Walk up from table.key to the statement; return a description when a "player-visible" place is passed */
 function sinkOf(n) {
   for (let c = n, p = n.parent; p && !ts.isStatement(p); c = p, p = p.parent) {

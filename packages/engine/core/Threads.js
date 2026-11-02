@@ -10,6 +10,7 @@
 // shared: true when the page is cross-origin isolated (COOP/COEP headers); then array() hands out SharedArrayBuffer-backed arrays every worker reads without a copy.
 import { compilePure, pureHandler } from './threadPure.js';
 import { codedError, coded } from './errorHints.js';
+import { warnOnce } from './validate.js';
 
 const STRINGS = { crashed: '[threads] a worker failed ({msg}); its lane now runs on the main thread (same code, slower)',
   transfer: 'lane.run(): the worker died after this task moved its buffers (transfer), so it cannot rerun on the main thread with the same data; send it again',
@@ -28,8 +29,10 @@ function threadCount(v = 'auto') {
  */
 class Lane {
   /** @internal construct through engine.threads.lane() (the class stays in the declarations because lane() returns it) */
-  constructor(threads, { create, local, max = Infinity }) {
+  constructor(threads, { create, local, max = Infinity, timeout = 20000 }) {
     this.threads = threads; this.create = create; this.local = local;
+    // A worker that never answers (stuck loop, lost message) would leave its tasks pending forever; past this many ms without any reply it counts as crashed
+    this.timeout = timeout; this._watch = 0;
     this.max = Math.min(threads.size, max);
     /** @type {{ w: Worker, busy: number }[]} */ this.workers = [];
     this.handler = null;          // the main-thread handler, built when first needed
@@ -46,6 +49,8 @@ class Lane {
         const slot = { w: this.create(), busy: 0 };
         slot.w.onmessage = e => this._reply(slot, e.data);
         slot.w.onerror = e => { e.preventDefault?.(); this._crash(e.message || 'error'); };
+        // a reply that cannot be deserialized never reaches onmessage, so its task would hang: same fallback as a crash
+        slot.w.onmessageerror = () => this._crash('a reply could not be deserialized');
         for (const m of this.bcast.values()) slot.w.postMessage({ id: 0, data: m });
         this.workers.push(slot);
       }
@@ -53,15 +58,15 @@ class Lane {
   }
   _reply(slot, { id, data, error }) {
     const t = this.tasks.get(id); if (!t) return;
-    this.tasks.delete(id); slot.busy--;
+    this.tasks.delete(id); slot.busy--; slot.last = performance.now();   // wall-clock: the worker watchdog counts real time
     if (error) t.rej(new Error(error)); else t.res(data);
   }
   /** A worker died: stop them all and finish every open task on the main thread (results are the same, only slower); a task that transferred buffers rejects instead (its data is gone) */
   _crash(msg) {
     if (!this.workers.length && this.handler) return;
-    console.warn(coded('threads-crash', STRINGS.crashed.replace('{msg}', msg)));
+    warnOnce(coded('threads-crash', STRINGS.crashed.replace('{msg}', msg)));
     for (const s of this.workers) s.w.terminate();
-    this.workers = []; this.max = 0;
+    this.workers = []; this.max = 0; clearTimeout(this._watch); this._watch = 0;
     for (const [id, t] of this.tasks) { this.tasks.delete(id); if (t.moved) t.rej(codedError('threads-transfer', STRINGS.transfer)); else this._runLocal(t.msg).then(t.res, t.rej); }
   }
   _local() {
@@ -83,11 +88,24 @@ class Lane {
     let slot = this.workers[0];
     for (const s of this.workers) if (s.busy < slot.busy) slot = s;
     const id = ++this._id;
-    slot.busy++;
+    // the clock counts from the last reply (or from going busy), not per task: tasks queued behind a long one are not stuck
+    if (!slot.busy++) slot.last = performance.now();   // wall-clock
+    this._arm();
     return new Promise((res, rej) => {
       this.tasks.set(id, { msg, res, rej, slot, moved: !!transfer?.length });
       slot.w.postMessage({ id, data: msg }, transfer || []);
     });
+  }
+  // One timer per lane while tasks are open: a busy worker silent for longer than timeout -> _crash (its tasks finish on the main thread)
+  _arm() {
+    if (this._watch || !(this.timeout > 0)) return;
+    this._watch = setTimeout(() => {   // wall-clock
+      this._watch = 0;
+      const now = performance.now();   // wall-clock
+      const stuck = this.workers.find(s => s.busy > 0 && now - s.last >= this.timeout);
+      if (stuck) this._crash(`no reply for ${this.timeout} ms`);
+      else if (this.tasks.size) this._arm();
+    }, this.timeout / 2);
   }
   /**
    * Send setup data to every worker (no reply). With a key, a later broadcast of the same key replaces it for workers started afterwards.
@@ -101,7 +119,7 @@ class Lane {
     if (this.handler) this.handler(structuredClone(msg));
   }
   /** Stop the workers; open tasks never settle */
-  dispose() { for (const s of this.workers) s.w.terminate(); this.workers = []; this.tasks.clear(); this.max = 0; this.threads.lanes.delete(this); }
+  dispose() { clearTimeout(this._watch); for (const s of this.workers) s.w.terminate(); this.workers = []; this.tasks.clear(); this.max = 0; this.threads.lanes.delete(this); }
 }
 
 /**
@@ -121,7 +139,8 @@ export class Threads {
   /**
    * A lane of workers running one script. create must contain the literal new Worker(new URL('./file.js', import.meta.url), { type: 'module' }) so bundlers find the file.
    * local builds the same handler on the main thread (used when there are no workers).
-   * @param {{ create: () => Worker, local: () => (msg: any) => any, max?: number }} opts
+   * timeout (ms, default 20000, 0 = never): a busy worker silent that long counts as crashed and its open tasks finish on the main thread (one warning, code threads-crash).
+   * @param {{ create: () => Worker, local: () => (msg: any) => any, max?: number, timeout?: number }} opts
    * @returns {Lane}
    * @example
    * const lane = engine.threads.lane({ create: () => new Worker(new URL('./chunkWorker.js', import.meta.url), { type: 'module' }), local: chunkHandler });

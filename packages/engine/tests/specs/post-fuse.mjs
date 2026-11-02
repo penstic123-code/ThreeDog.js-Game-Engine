@@ -27,7 +27,7 @@ export const specs = [
         late.remove(); hs[2].remove(); hs[3].remove(); hs[0].remove();
         out.sceneErr = err(() => L.add({ name: 'fz', slot: 'scene', fuse: { glsl: '' } }));
         out.dupErr = err(() => { const a = L.add(vignette({ enabled: true })); L.add({ name: 'v2', slot: 'ldr', enabled: true, fuse: { uniforms: { uVigStrength: 'float' }, glsl: '' } }); });
-        L.clear('game');
+        L._clear('game');
         out.dupGone = !p.get('v2');
         p.render(0.016);
         out.clean = p.list().length;
@@ -127,11 +127,18 @@ export const specs = [
     },
   },
   {
-    name: '[守] lowpoly 后期迁到 post-effects：风格里的 bloom / ao / outline 与 post-effects 的是同一份，渲染像素与迁移前逐字节相同',
+    name: '[守] 风格里的 bloom / ao / outline 就是 post-effects 导出的那份（同一种 pass、同样的 slot / order）；dof 与 outline 同开像素不变',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const { THREE, lowpoly } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext(), sz = R.getSize(new THREE.Vector2()), W = 96, H = 72, out = {};
+        // 钉住色调：渲染基线（AgX、中性房间环境 0.5）在每个风格包下都开着，会改掉每个像素；下面 dof 的黄金值取自基线之前，
+        // 守的是"dof 让出深度前后同一份效果"，不是基线长什么样，所以关掉基线再比（重新取值就只能证明"和现在的自己一样"）。
+        // 另外基线下有一处已知差异：scene.background 是纯色时，直接渲染不做色调映射，走 post 链时 OutputPass 会把它 AgX 一遍，
+        // 不开 MSAA 时下面 dof 的 blurred 会把整片天空的色差也算进去（2357 里约 2248 是背景），不是 dof 糊得多
+        // 色调曲线是纯 three.js（引擎只在创建时写一次），直接改 renderer.toneMapping，结束时还原
+        const tm0 = R.toneMapping; R.toneMapping = THREE.NoToneMapping;
+        const pin = [{ remove: () => { R.toneMapping = tm0; } }, engine.look.lights.set({ env: { intensity: 0 } }, { owner: 'pixelPin' })];
         R.setSize(W, H, false); p.setAntialias(false);
         // 自己搭一个固定的场景（城市页面里的东西每次载入位置不同），隐藏原有内容
         const sc = engine.scene, cam = engine.camera, hidden = sc.children.map(c => [c, c.visible]); hidden.forEach(([c]) => { c.visible = false; });
@@ -142,12 +149,6 @@ export const specs = [
         const mine = [box, ball, floor, lamp, amb]; sc.add(...mine);
         const bg0 = sc.background, fog0 = sc.fog; sc.background = new THREE.Color(0x88aacc); sc.fog = null;
         const cp = cam.position.clone(), cq = cam.quaternion.clone(); cam.position.set(0, 4, 9); cam.lookAt(0, 1, 0); cam.updateMatrixWorld();
-        const hash = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); let h = 2166136261, nz = 0; for (const v of b) { h = Math.imul(h ^ v, 16777619); nz += v > 0; } return (h >>> 0) + '/' + nz; };
-        let seed = 12345; const rnd = Math.random; Math.random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;   // GTAO 的噪声纹理用 Math.random
-        p.render(0.016); out.none = hash();
-        for (const [k, o] of [['bloom', { threshold: 0.5, strength: 0.5 }], ['ao', {}], ['outline', { mode: 'depth' }], ['outlineBoth', { mode: 'both', offLayer: 29 }]]) {
-          const name = k.replace('Both', ''), def = lowpoly.post.find(e => e.name === name), h = L.add({ ...def, enabled: true, params: { ...def.params, ...o } }); p.render(0.016); out[k] = [hash(), hash()]; h.remove();
-        }
         // dof 与 outline 同时开：dof 把场景深度写进自己的输出（gl_FragDepth），outline 在它后面仍读到真深度；线的位置只取决于深度，所以有无 dof 应一致
         const Ef = threedogTest.postEffects, bytes = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
         const dist = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n++; return n; };
@@ -160,22 +161,87 @@ export const specs = [
           out.dof[aa] = { err: dOn.err ?? dOff.err ?? d.err, hash: d.px && (() => { let h = 2166136261; for (const v of d.px) h = Math.imul(h ^ v, 16777619); return h >>> 0; })(),
             blurred: dist(d.px, plain), linesPlain: dist(on.px, off.px), linesWithDof: dOn.px && dist(dOn.px, dOff.px), passes: [d.n, on.n, dOn.n] };
         }
-        Math.random = rnd; sc.remove(...mine); sc.background = bg0; sc.fog = fog0; hidden.forEach(([c, v]) => { c.visible = v; }); cam.position.copy(cp); cam.quaternion.copy(cq);
+        pin.forEach(h => h.remove());
+        sc.remove(...mine); sc.background = bg0; sc.fog = fog0; hidden.forEach(([c, v]) => { c.visible = v; }); cam.position.copy(cp); cam.quaternion.copy(cq);
         R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
-        const E = threedogTest.postEffects, mine2 = { bloom: E.bloom(), ao: E.ao(), outline: E.outline() };
-        out.meta = lowpoly.post.map(e => [e.name, e.slot, e.order, e.costly === true, e.needsDepth === true].join());
-        // 不再比 create.toString()：构建后两份代码被各自压缩成不同的变量名，文本必然不同；"同一份"由下面的逐字节像素哈希保证
-        out.same = lowpoly.post.every(e => e.slot === 'hdr' && typeof mine2[e.name].create === 'function') && out.meta.join('|') === 'outline,hdr,10,false,true|ao,hdr,20,true,false|bloom,hdr,30,true,false';
+        // 结构对照，不比像素：风格写的 bloom() / ao() / outline() 每次调用都是新对象（create 是新箭头函数），所以比它们造出的 pass 是不是
+        // post-effects 那一种、slot / order / costly / needsDepth 一致。像素哈希只能守一次性迁移，换一台机器或升级 three 就失效
+        const E = threedogTest.postEffects, ctx = { scene: sc, camera: cam, width: 8, height: 8 };
+        const passOf = e => { const pass = e.create({ ...ctx, params: { ...e.params } }); const C = pass.constructor; pass.dispose?.(); return C; };
+        const meta = e => [e.name, e.slot, e.order, e.costly === true, e.needsDepth === true].join();
+        out.meta = lowpoly.post.map(e => [meta(e), meta(E[e.name]())]);
+        out.sameClass = lowpoly.post.map(e => [e.name, typeof E[e.name] === 'function' && passOf(e) === passOf(E[e.name]())]);
         return out;
       });
-      // 黄金值取自迁移前（效果还在 lowpoly 包里）的代码：固定场景 96x72，软件渲染，ao 的噪声纹理用固定随机数
-      const g = { none: '815777726', bloom: '1311936383', ao: '1234133979', outline: '169695992', outlineBoth: '3597909715' }, got = k => (Array.isArray(r[k]) ? r[k][0] : r[k]).split('/')[0];
       const dd = r.dof, goldDof = { false: '3391731882', true: '342418655' };
       check('dof 与 outline 同时开不报错（不论 MSAA），链是 4 个 pass（场景 + dof + outline + 输出），没有多出的 pass', [false, true].every(a => !dd[a].err && dd[a].passes.join() === '3,3,4'), JSON.stringify(dd));
       check('dof 后面的 outline 画出的线与没有 dof 时一样多（位置只取决于深度）', [false, true].every(a => dd[a].linesPlain > 20 && Math.abs(dd[a].linesWithDof - dd[a].linesPlain) <= dd[a].linesPlain * 0.02), JSON.stringify(dd));
       check('dof 单开的像素与让出深度之前逐字节相同，且确实糊了画面', [false, true].every(a => String(dd[a].hash) === goldDof[a] && dd[a].blurred > 100), JSON.stringify(dd));
-      check('lowpoly 的 bloom / ao / outline 就是 post-effects 导出的那份（名字 slot order 与旧值一致）', r.same === true, JSON.stringify(r.meta));
-      check('渲染像素与迁移前逐字节相同（none / bloom / ao / outline depth / outline both+offLayer 的哈希）', Object.keys(g).every(k => got(k) === g[k]), JSON.stringify(r));
+      check('风格的 bloom / ao / outline 造出的 pass 与 post-effects 导出的同一种', r.sameClass.length === 3 && r.sameClass.every(([, ok]) => ok), JSON.stringify(r.sameClass));
+      check('slot / order / costly / needsDepth 与 post-effects 的定义一致', r.meta.length === 3 && r.meta.every(([a, b]) => a === b), JSON.stringify(r.meta));
+    },
+  },
+  {
+    // render/PostFX.js _direct: a Color background (or none: the clear color) is a clear, which three never tone-maps; the composer tone-maps it in OutputPass
+    name: '[guard] a THREE.Color background or the clear color is the same pixel with effects on / off and MSAA on / off (tone-mapped on both paths)',
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE, ShaderPass, CopyShader } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, S = engine.scene, gl = R.getContext();
+        const sz = R.getSize(new THREE.Vector2()), aa = p._aa, bg = S.background, W = 32, H = 24;
+        const shown = S.children.filter(o => o.visible); for (const o of shown) o.visible = false;
+        R.setSize(W, H, false); p.setSize(W, H);
+        const col = new THREE.Color(0x88ccff); S.background = col;
+        const px = () => { p.render(0.016); const b = new Uint8Array(4); gl.readPixels(W >> 1, H >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [...b.slice(0, 3)]; };
+        const out = { tone: R.toneMapping };
+        p.setAntialias(false); out.direct = px(); out.directActive = p.active;
+        p.setAntialias(true); out.msaa = px();
+        const h = L.add({ name: 'bgcopy', slot: 'ldr', enabled: true, create: () => new ShaderPass(CopyShader) });
+        p.setAntialias(false); out.effect = px();
+        p.setAntialias(true); out.both = px();
+        h.remove();
+        const tm = R.toneMapping; R.toneMapping = THREE.NoToneMapping; p.setAntialias(false); out.noTone = px(); R.toneMapping = tm;
+        // no background: the renderer's clear color, same four combinations
+        const cc = R.getClearColor(new THREE.Color()), ca = R.getClearAlpha(); S.background = null; R.setClearColor(col, 1);
+        out.clear = [];
+        for (const [fx, msaa] of [[false, false], [false, true], [true, false], [true, true]]) {
+          const hh = fx ? L.add({ name: 'bgcopy', slot: 'ldr', enabled: true, create: () => new ShaderPass(CopyShader) }) : null;
+          p.setAntialias(msaa); out.clear.push(px()); hh?.remove();
+        }
+        R.setClearColor(cc, ca); S.background = col;
+        { const c = col.clone().convertLinearToSRGB(); out.raw = [c.r, c.g, c.b].map(v => Math.round(v * 255)); }
+        out.restored = S.background === col;
+        S.background = bg; for (const o of shown) o.visible = true;
+        p.setAntialias(aa); R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
+        return out;
+      });
+      const d = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+      check('Color background: direct (no effects, MSAA off) = MSAA on = an effect on = both (within 2 levels)', !r.directActive && d(r.direct, r.msaa) <= 2 && d(r.direct, r.effect) <= 2 && d(r.direct, r.both) <= 2, JSON.stringify(r));
+      check('no background (clear color): direct = MSAA on = an effect on = both = the Color background pixel (within 2 levels)', r.clear.every(c => d(c, r.direct) <= 2), JSON.stringify(r.clear));
+      check('it is tone-mapped on the direct path too (differs from the raw sRGB color; tone mapping off gives the raw color); scene.background is restored', r.tone !== 0 && d(r.direct, r.raw) > 4 && d(r.noTone, r.raw) <= 1 && r.restored, JSON.stringify(r));
+    },
+  },
+  {
+    // the check that keeps games off the internal field: what post.object() / targets() hand out is the composer the engine renders with,
+    // and the engine still owns it (a chain change rebuilds passes over whatever the game did)
+    name: '[guard] post.object() / targets(): the live composer and its render targets, read-only; the engine still rebuilds the chain',
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { ShaderPass, CopyShader } = threedogTest, p = engine.post, L = engine.look.post, out = {};
+        const h = L.add({ name: 'readcopy', slot: 'ldr', enabled: true, create: () => new ShaderPass(CopyShader) });
+        p.render(0.016);
+        const c = p.object(), t = p.targets();
+        out.same = !!c && c === p.composer && t.renderTarget1 === c.renderTarget1 && t.renderTarget2 === c.renderTarget2 && t.readBuffer === c.readBuffer;
+        out.frozen = Object.isFrozen(t);
+        out.hasPass = c.passes.some(x => x instanceof ShaderPass);
+        c.passes = [];                         // a game write: the next chain change puts the engine's list back
+        h.remove(); const h2 = L.add({ name: 'readcopy2', slot: 'ldr', enabled: true, create: () => new ShaderPass(CopyShader) });
+        out.rebuilt = c.passes.length > 1; h2.remove();
+        return out;
+      });
+      check('object() is the composer the engine renders with; targets() its render targets (frozen view)', r.same && r.frozen, JSON.stringify(r));
+      check('the chain shows the added pass; a game write to passes is replaced on the next chain change (engine owns it)', r.hasPass && r.rebuilt, JSON.stringify(r));
     },
   },
 ];

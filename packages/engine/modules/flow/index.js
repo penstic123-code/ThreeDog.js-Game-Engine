@@ -1,4 +1,5 @@
-// Game flow: states (title, playing, paused, game over...) and scene transitions (fade out → swap scene → fade in).
+// Game flow: states and scene transitions.
+// States: title, playing, paused, game over...; transitions: fade out, swap scene, fade in.
 //   engine.use(flow());                               // built-in 'playing' (default) and 'paused' (freezes gameplay + locks input)
 //   engine.flow.define('title', { enter: e => showTitle(), exit: e => hideTitle(), freeze: true, lockInput: true, music: 'title' });
 //   engine.flow.go('paused');  engine.flow.state      // 'paused'
@@ -7,7 +8,7 @@
 // Don't use engine.pause() (it stops rendering too; tests only). While frozen: fixed step, module fixed hooks, game clock, quest checks, timeline wait/tween all stop.
 // engine.session.newGame / load / quit move flow too: back to the start state when a playthrough ends, then 'playing' when the next starts.
 // Esc is not handled here: back goes through the UI focus stack (ui/Focus.js), and opens the settings menu when the stack is empty. Events: flow:change { from, to }, flow:transition { phase: 'start' | 'end' }.
-import { checkOptions, warnMissing } from '../../core/validate.js';
+import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { fadeScreen } from '../../ui/UI.js';
 /** @import { ModuleDef } from '../../types/core' */
@@ -24,11 +25,11 @@ const FLOW_PARAMS = keysSchema(['start']);
  */
 export function flow(opts = {}) {
   readParams('flow', FLOW_PARAMS, opts);
-  let e = null, chain = Promise.resolve(), held = null;
+  let e = null, chain = Promise.resolve(), held = null, frozen = null;
   const states = new Map([['playing', {}], ['paused', { freeze: true, lockInput: true }]]);
   // turn freeze / input lock on or off for one state
   const hold = (def, on) => {
-    if (def.freeze) on ? e.freeze('flow') : e.unfreeze('flow');
+    if (def.freeze) { if (on) frozen ??= e.freeze('flow'); else { frozen?.remove(); frozen = null; } }
     if (def.lockInput) { if (on) held ??= e.input.push('flow'); else { held?.remove(); held = null; } }
   };
   // wait until all modules are isReady() (checked per engine frame, so step() advances it too)
@@ -41,7 +42,7 @@ export function flow(opts = {}) {
     /** True while a scene transition is running */
     transitioning: false,
     /** Define a state: { enter(e, from), exit(e, to), freeze, lockInput, music } */
-    define(name, def) { checkOptions(`flow.define('${name}')`, def, STATE_KEYS); states.set(name, def); return api; },
+    define(name, def) { readParams(`flow.define('${name}')`, keysSchema(STATE_KEYS), def); states.set(name, def); return api; },
     /** Switch state */
     go(name) {
       const to = states.get(name);
@@ -58,7 +59,7 @@ export function flow(opts = {}) {
     },
     /** Scene transition: lock input → fade out → fade music → (autosave: 'auto' saves slot 'auto') → fn() → wait for modules ready → fade in → unlock. Repeated calls are queued */
     transition(fn, o = {}) {
-      checkOptions('flow.transition()', o, ['fade', 'lockInput', 'music', 'autosave']);
+      readParams('flow.transition()', keysSchema(['fade', 'lockInput', 'music', 'autosave']), o);
       const { fade = 0.5, lockInput = true, music = 'fade', autosave = false } = o;
       const run = async () => {
         api.transitioning = true;

@@ -11,7 +11,7 @@ export const name = 'content-check: audio in content (data only, sounds by asset
 const FILES = {
   'main.js': '\n',
   'content/audio.js': `export default {
-    sounds: { wind: 'synth', door: '/sfx/door.ogg', hit: ['hit1', 'hit2'] },
+    sounds: { wind: {}, old: 'synth', door: '/sfx/door.ogg', hit: ['hit1', 'hit2'] },
     ambience: [
       { sound: 'wind', volume: { base: 0.05, add: { wind: 0.08 }, max: 0.5 } },
       { sound: 'wind', when: e => true },
@@ -35,6 +35,7 @@ export async function run({ check }) {
     check('a measure comparison outside gt / gte / lt / lte is an error', has(/when\.daylight of ambience rule #3/), all);
     check('an unknown volume key is an error', has(/volume of ambience rule #3 has an unknown key "cap"/), all);
     check('a rule playing a sound the table does not define warns', warnings.some(w => /ambience rule #4 plays "nope"/.test(w)), all);
-    check('data-only rules, asset names and footsteps pass', errors.length === 4, errors.join('\n'));
+    check("[guard] the old 'synth' rule is an error pointing at the manifest", has(/audio\.sounds\.old uses the old synth form/), all);
+    check('data-only rules, asset names and footsteps pass', errors.length === 5, errors.join('\n'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

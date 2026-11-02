@@ -1,16 +1,16 @@
-// Content loader: hands the plain data in the game's content/*.js to the engine (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger
-// zones, props).
+// Content loader: game data files into the engine.
+// It hands the plain data in content/*.js to the modules (items, pickups, vegetation, NPCs, dialogues, quests, key actions, trigger zones, props).
 //   engine.use(content());
 //   engine.assets.manifest(yourAssets);                      // models content names (an asset pack; content never holds paths or code)
 //   engine.content.load(data, { places: { home: { x, z } } });  // or several packs at once: load([base, dlc, level]) (packs.js)
 // Condition/effect vocabulary is in rules.js. Games add condition words (content/rules.js, or content.condition(name, { test }) in code);
 // a game's own actions are ops, called from content with { op: ['noun.verb', args] } and tested with { can: [...] }.
 // Op names used in content are checked when the game becomes ready (did you mean...).
-// Templates (content/templates.js): reusable objects placed from props.js ({ template, x, z }) or engine.spawn; see templates.js.
+// Templates (content/templates.js): reusable objects placed from props.js ({ template, x, z }) or engine.content.spawn; see templates.js.
 // Props (content/props.js) and pickups (pickups.js) are stored in engine.world (requires world(); openWorld() includes it; see props.js for the stable id
 // rule),
 // models and collision are built only near the focus; move / remove with engine.world.move / remove, saved with the save. Procedural models of vegetation and
-// props go through engine.assets.cached (name = model name):
+// props go through core/namedModel.js protoOf (name = model name; the same path pickups and vegetation use):
 // baked files from npm run bake are read from file, otherwise cached automatically in dev. Models arrive asynchronously: the loading screen of start() waits
 // for them (isReady) before the game counts as ready.
 // Repeated load: a quest's startOn and a trigger's enter/exit effects do not attach listeners twice (the later load overrides the same name).
@@ -28,6 +28,10 @@ import { templateOf, spawnTemplate, placeTemplate } from './templates.js';
 import { packsOf } from './packs.js';
 import { placeY } from '../../core/ground.js';
 import { IdCheck } from './ids.js';
+import { PLACEMENT_FIELDS } from './rules.js';
+import { placementShape, fieldsShape } from './fields.js';
+import { schemaInfo } from '../../core/params.js';
+import { codedError } from '../../core/errorHints.js';
 
 export function content() {
   let e = null, places = {};
@@ -36,14 +40,16 @@ export function content() {
   const st = {
     triggers: {}, subs: null, startOn: new Map(), ops: new Set(), kinds: {},
     templates: new Map(), templateViews: new Set(),   // template name -> frozen definition; names whose presenter is registered
+    templateSims: new Set(),                          // names whose world.simulate (stages / update) is registered
     templateSrc: new Map(),                           // dev: template name -> 'content/templates.js:12'
+    templateFields: new Map(),                        // template name -> parsed state fields (fields.js), for placement checks and content.fields()
     levelPlace: name => !!name && !(name in places) && !!e.level?.marker(name),
     wait: p => { pending.add(p); p.catch(err => reportError(e, err, 'content model', { soft: true })).finally(() => pending.delete(p)); },
   };
   const conds = new Map(Object.entries(CONDITIONS).map(([k, d]) => [k, { ...d, test: BUILTIN_TESTS[k] }]));
   const effects = new Map(Object.entries(EFFECTS).map(([k, d]) => [k, { ...d, run: BUILTIN_RUNS[k] }]));
   // convert content notation to runtime values by ref (clock time -> fraction, place -> { x, z })
-  const norm = (ref, v) => ref === 'clock' ? parseClock(v, e.sky?.hoursPerDay ?? 24) : ref === 'position' ? api.where(typeof v === 'string' ? { place: v } : v) : v;
+  const norm = (ref, v) => ref === 'clock' ? parseClock(v, e.calendar?.hoursPerDay ?? 24) : ref === 'position' ? api.where(typeof v === 'string' ? { place: v } : v) : v;
 
   const api = {
     /** All vegetation models are ready and the models of nearby world data such as props are built (world.ready) */
@@ -68,24 +74,37 @@ export function content() {
     },
     /** Register a condition word: condition('timeAfter', { ref: 'clock', desc, test: (e, value) => ... }) */
     condition(name, def) { conds.set(name, def); return api; },
-    /** Whether a condition holds (object = all listed items hold, array = every item holds, function = called directly) */
-    test(c) {
+    /**
+     * Whether a condition holds (object = all listed items hold, array = every item holds, function = called directly as fn(e, { actor })).
+     * actor: whose bag { has } / { lacks } look in (default: the running op's actor, else engine.actor), so a net peer's dialogue checks the peer's bag.
+     * @example engine.content.test({ has: { berry: 3 } }, { actor: 'peer-2' })
+     * @param {any} c
+     * @param {{ actor?: string }} [opts]
+     */
+    test(c, { actor = e.ops.actor } = {}) {
       if (!c) return true;
-      if (typeof c === 'function') return !!c(e);
+      const ctx = { actor };
+      if (typeof c === 'function') return !!c(e, ctx);
       return list(c).every(x => Object.entries(x).every(([k, v]) => {
         const d = conds.get(k);
         if (!d) { warnMissing('condition', k, [...conds.keys()]); return false; }
-        return !!d.test(e, norm(d.ref, v), v);
+        return !!d.test(e, norm(d.ref, v), v, ctx);
       }));
     },
-    /** Run an effect (object, array or function) */
-    run(a) {
+    /**
+     * Run an effect (object, array or function fn(e, { actor })). actor: whose bag { give } / { take } change (default: the running op's actor, else
+     * engine.actor), so a reward lands in the bag of whoever earned it.
+     * @param {any} a
+     * @param {{ actor?: string }} [opts]
+     */
+    run(a, { actor = e.ops.actor } = {}) {
       if (!a) return;
-      if (typeof a === 'function') return a(e);
+      const ctx = { actor };
+      if (typeof a === 'function') return a(e, ctx);
       for (const x of list(a)) for (const [k, v] of Object.entries(x)) {
         const d = effects.get(k);
         if (!d) { warnMissing('effect', k, [...effects.keys()]); continue; }
-        d.run(e, norm(d.ref, v), v);
+        d.run(e, norm(d.ref, v), v, ctx);
       }
     },
     /**
@@ -96,10 +115,51 @@ export function content() {
      */
     template(name) { return templateOf(st, name); },
     /**
+     * Place a new instance of a content template at runtime (a gameplay change: call it inside an op or a fixed step); saved whole.
+     * Returns the world record (kind = template name; without fields.id the id is numbered `<template>#<n>`, e.g. 'chest#3').
+     * at is a ground position ({ x, z }, [x, y, z] or an object); fields may set id, rot, scale, y (height above ground), items (container start goods)
+     * and the template's state fields (stage too, for a template with stages).
+     * @example engine.ops.define('chest.build', { run: (e, { x, z }) => e.content.spawn('chest', { x, z }, { items: { stick: 3 } }).id });
+     * @param {string} name
+     * @param {any} at
+     * @param {{ id?: string, rot?: number, scale?: number, y?: number, items?: Record<string, number>, [state: string]: any }} [fields]
+     * @returns {import('../world/World.js').WorldRecord}
+     */
+    spawn(name, at, fields) { return spawnTemplate(e, st, name, at, fields); },
+    /**
      * @internal A level-model node with the custom property template: an authored instance with id `<level>/<node>` (level module).
      * entry is a props-style entry ({ template, id, x, z, floor, rot, scale, state fields }); origin = { level, node }
      */
     placeNode(entry, zone, origin) { placeTemplate(e, api, st, entry, 0, zone, null, origin); },
+    /**
+     * The fields one content entry may have, in the core/params.js format ({ key: { type, optional?, default?, min?, max?, values?, desc? } }):
+     * what an editor panel lists and what content-check validates against (one table, rules.js PLACEMENT_FIELDS + the template / kind `fields`).
+     * name: a template name (its placement fields plus its state fields; default = the value in state), an engine entry shape
+     * ('props', 'props.template', 'props.grid', 'pickups', 'views'), a game kind with fields (content/rules.js kinds), or a world record id
+     * (answers for the shape that record came from).
+     * @example engine.content.fields('crop').stage   // { type: 'int', optional: true, default: 0, min: 0, max: 4 }
+     * @example engine.content.fields('props').rot    // { type: 'number', optional: true, desc: 'facing around the vertical axis, radians' }
+     * @param {string} name
+     * @returns {Record<string, { type: string, optional?: boolean, default?: any, min?: number, max?: number, values?: any[], desc?: string }>}
+     */
+    fields(name) {
+      if (st.templates.has(name)) {
+        const state = st.templates.get(name).state ?? {}, own = schemaInfo(st.templateFields.get(name));
+        for (const k in own) own[k].default = structuredClone(state[k]);   // the default is the state value: written once, in state
+        return { ...schemaInfo(placementShape('props.template')), ...own };
+      }
+      if (PLACEMENT_FIELDS[name]) return schemaInfo(placementShape(name));
+      const kind = st.kinds[name];
+      if (kind?.fields) {
+        const { shape, problems } = fieldsShape(`kind '${name}'`, kind.fields);
+        if (problems.length) throw codedError('content-misuse', problems.join('; '));
+        return schemaInfo(shape);
+      }
+      const rec = e.world?.get(name);
+      if (rec) return api.fields(rec.kind === 'prop' ? 'props' : rec.kind === 'pickup' ? 'pickups' : rec.kind);
+      const known = [...st.templates.keys(), ...Object.keys(PLACEMENT_FIELDS), ...Object.keys(st.kinds).filter(k => st.kinds[k]?.fields)];
+      throw codedError('unknown-name', `content.fields: ${missingText('field table', name, known)} (a template name, ${Object.keys(PLACEMENT_FIELDS).join(' / ')}, a game kind with fields, or a world record id)`);
+    },
     /** @internal dev: where a template is defined ('content/templates.js:12'), null if unknown */
     templateSource(name) { return st.templateSrc.get(name) ?? null; },
     /** Place name -> position { x, z } plus y when the place has a height (level markers, places given with y); null if not found */
@@ -116,7 +176,7 @@ export function content() {
      */
     where(p) {
       const base = p.place ? api.place(p.place) : null;
-      if (p.place && !base) throw new Error(`Place "${p.place}" not found: give its coordinates in the places of content.load, or add this marker to the level`);
+      if (p.place && !base) throw codedError('content-place', `Place "${p.place}" not found: give its coordinates in the places of content.load, or add this marker to the level`);
       const x = (base?.x ?? 0) + (p.x ?? 0), z = (base?.z ?? 0) + (p.z ?? 0), floor = p.floor ?? base?.y;
       if (floor === undefined && p.y === undefined) return { x, z };
       return { x, y: placeY(e, `content.where(${JSON.stringify(p.place ?? { x: p.x, z: p.z })})`, x, z, floor) + (p.y ?? 0), z };
@@ -126,21 +186,13 @@ export function content() {
   };
   return {
     name: 'content', label: 'Content',
-    optional: ['level', 'sky', 'inventory', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions', 'grids', 'rigid'],
+    optional: ['level', 'calendar', 'inventory', 'pickups', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions', 'grids', 'rigid'],
     install(engine) {
       e = engine;
       engine.explainWith(contentExplain);
-      /**
-       * Place a new instance of a content template at runtime (a gameplay change: call it inside an op or a fixed step); saved whole.
-       * Returns the world record (kind = template name). at is a ground position ({ x, z }, [x, y, z] or an object);
-       * fields may set id, rot, scale, y (height above ground), items (container start goods) and the template's state fields.
-       * Installed by content(), so it exists once the content module is used.
-       * @example engine.ops.define('chest.build', { run: (e, { x, z }) => e.spawn('chest', { x, z }, { items: { stick: 3 } }).id });
-       */
-      e.spawn = (name, at, fields) => spawnTemplate(e, st, name, at, fields);
       // content may name ops that main.js defines after load: check once everything is set up, and again for loads after that
       const check = () => {
-        for (const name of st.ops) if (!e.ops.defs.has(name)) throw new Error(`content: ${missingText('op', name, [...e.ops.defs.keys()])} (used in { op } / { can })`);
+        for (const name of st.ops) if (!e.ops.defs.has(name)) throw codedError('unknown-name', `content: ${missingText('op', name, [...e.ops.defs.keys()])} (used in { op } / { can })`);
       };
       e.events.on('engine:ready', check);
       st.checkOps = () => { if (e.ready) check(); };

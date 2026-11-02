@@ -56,11 +56,11 @@ export const specs = [
     async run({ page, check, ev, frames }) {
       await open(page, '?time=dusk&weather=%E9%9B%A8&view=%E5%AE%A4%E5%86%85&env=1');
       await frames(3);
-      let r = await ev(() => { engine.step(1 / 30, { render: true }); return { view: engine.describe().styletest.view, env: engine.sky.environment?.source, t: engine.sky.timeOfDay, w: engine.weather.name }; });
+      let r = await ev(() => { engine.step(1 / 30, { render: true }); return { view: engine.describe().styletest.view, env: engine.sky.environment?.source, t: engine.calendar.timeOfDay, w: engine.weather.name }; });
       check('黄昏 18:30、中文天气词「雨」、中文机位名「室内」、环境照明开', Math.abs(r.t - 18.5 / 24) < 0.01 && r.view === 'room' && r.env === 'sky' && r.w === 'rain', JSON.stringify(r));
       await open(page, '?style=none&time=night&weather=snow&view=water');
       await frames(3);
-      r = await ev(() => { engine.step(1 / 30, { render: true }); return { d: engine.describe().styletest, t: engine.sky.timeOfDay }; });
+      r = await ev(() => { engine.step(1 / 30, { render: true }); return { d: engine.describe().styletest, t: engine.calendar.timeOfDay }; });
       check('style=none：不带风格包也能渲染，仍是水面机位、夜里', r.d.style === 'none' && r.d.view === 'water' && r.t > 0.9, JSON.stringify(r));
       const warns = [];
       page.on('console', m => { if (m.type() === 'warning') warns.push(m.text()); });
@@ -115,18 +115,6 @@ export const specs = [
       check('页面里有明确提示（点名 tweakpane 和 npm install），页面本身照常运行，没有工作台', /tweakpane/.test(r.note) && /npm install/.test(r.note) && !r.bench && r.view === 'overview', JSON.stringify(r));
     },
     expectErrors: /tweakpane|Failed to load resource|net::ERR_FAILED/i,
-  },
-  {
-    name: '[守] 工作台导出格式：literal 把颜色打成 0xrrggbb、数字取 3 位、键名按需加引号',
-    url: '/styletest.html',
-    async run({ check }) {
-      const { literal, putAt, hexOf, numOf } = await import('../../examples/styletest/overrides.js');
-      const o = {}; putAt(o, ['palette', 'pine'], 0xa07a2e); putAt(o, ['exposure'], 1.23456); putAt(o, ['ui', 'accent'], '#7fd3ff'); putAt(o, ['sky', 'environment'], null); putAt(o, ['a-b', 'c'], 1);
-      const src = literal(o, new Set(['palette.pine']));
-      check('颜色 0xa07a2e、数字 1.235、字符串带引号、null、带连字符的键加引号', src.includes('pine: 0xa07a2e,') && src.includes('exposure: 1.235,') && src.includes('accent: "#7fd3ff",') && src.includes('environment: null,') && src.includes('"a-b": {'), src);
-      check('可以直接当 JS 求值', new Function('return ' + src)().palette.pine === 0xa07a2e, src);
-      check('hexOf / numOf 互逆，rgba 字符串原样通过', numOf(hexOf(0x95c45e)) === 0x95c45e && numOf('rgba(1,2,3,.5)') === 'rgba(1,2,3,.5)');
-    },
   },
   {
     name: '[守] threedog shot styletest --view：页面名简写、view 并入文件名、describe 里是对应机位',

@@ -22,7 +22,7 @@ Light pool: many light sources, a fixed number of real lights (lightPool() modul
   - `name?: string` Name shown in lightPool.usage()
   - `type?: 'point' | 'spot'` 'point' (default) or 'spot' (needs lightPool({ spot: n }))
   - `color?: ColorLike` Light color, default white
-  - `intensity?: number` three.js intensity at full strength, default 1; 0 = off (it gives its light away)
+  - `intensity?: number` three.js intensity, default 1; 0 = off (gives its light away). With decay 2 a surface d m away gets intensity / d^2: pick it for the distance to what it lights (one that pools on a street 4 m below blows a wall 1 m away to white). Example values are no targets: threedog shot / snap name a light that glares.
   - `distance?: number` three.js light distance (range, meters), default 10; also the scale of the distance score
   - `decay?: number` three.js decay, default 2
   - `priority?: number` Weight in the choice, default 1: 3 = picked over a 1 three times as bright at the same distance (a quest lamp, a muzzle flash)
@@ -32,6 +32,7 @@ Light pool: many light sources, a fixed number of real lights (lightPool() modul
   - `target?: PositionLike | null` Spot aim: a position or an Object3D it follows; default straight down
   - `flicker?: ((time: number, index: number) => number) | null` Brightness factor each frame (time = presentation seconds, index = the source's number): (t, i) => 0.85 + 0.15 * Math.sin(t * 13 + i)
   - `glow?: Material | Object3D | null` Stand-in shown while the source has no real light: a halo Sprite / Mesh (its material's opacity) or an emissive material (emissiveIntensity) scaled from its value at add() down to 0 as the real light fades in. Give each source its own material
+  - `dusk?: boolean | number` Follow the time of day with look.materials.glow's daylight curve (shared): true = glow's default dusk, a number = the daylight (0..1) below which the source fades in. Off by day (its light goes to lit sources, its stand-in dims too). Default false: lit at any hour. Needs calendar() or sky()
 - **LightSourcePatch** What lightPool.add().set(patch) can change (type and castShadow are fixed when added)
   - `position?: PositionLike` New position, or an Object3D to follow
   - `name?: string`
@@ -45,6 +46,7 @@ Light pool: many light sources, a fixed number of real lights (lightPool() modul
   - `target?: PositionLike | null`
   - `flicker?: ((time: number, index: number) => number) | null`
   - `glow?: Material | Object3D | null`
+  - `dusk?: boolean | number`
 - **LightSource** Handle returned by lightPool.add()
   - `light: Object3D | null` The real light lighting this source now, null while it has none
   - `weight: number` How much of its light it has now, 0-1

@@ -1,6 +1,6 @@
 # Performance comparison (PERF)
 
-> Numbers come from a cloud environment without a GPU (Chromium + SwiftShader software rendering, 1280x720, pixel ratio 1). Use them only for
+> Sections 1-5 come from a cloud environment without a GPU (Chromium + SwiftShader software rendering, 1280x720, pixel ratio 1; section 6 is a real GPU). Use them only for
 **relative comparison**; they do not represent real-device frame rates.
 > Reproduce: `node packages/tools/perf.mjs [frames]` (default 60 frames; it builds first, then opens
 > `packages/engine/tests/perf/index.html` in a headless browser; both are in the engine repository, not the npm package).
@@ -28,7 +28,7 @@ The average is capped by the display refresh rate, so this shows headroom exists
     a hemisphere light, `renderer.render` every frame.
   - `engine`: the same scene inside `createEngine()` (**no modules installed**), running the same sequence as the real-time loop each frame: fixed
     step -> frame hooks (including stream/jobs) -> render -> budget sampling -> afterRender.
-  - `world`: `openWorld()` plus the gameplay modules it used to bundle (interactions, dialogue, inventory, quests, timeline, triggers, entities,
+  - `world`: `openWorld()` plus the gameplay modules (interactions, dialogue, inventory, quests, timeline, triggers,
     particles, hud; debug panel, music and ambience off), with the same seed, the same flat ground and the same vegetation as the open-world example,
     without NPCs/quests or other content; `engine.profile()` times `fixed/frame/afterRender` for each module.
   - `props`: `n` repeated props over 4 models placed through `world.present`, with a directional shadow; `batch=0` turns `engine.batching` off (section 3c).
@@ -67,9 +67,8 @@ Whole frame 3.99 ms, of which rendering (submitting draw commands) 2.97 ms; 74 d
 | terrain (chunk streaming, LOD, frustum) | 0.04 | 0.06 |
 | weather | 0.02 | < 0.01 |
 | characters / interactions / particles | 0.01 each | < 0.01-0.01 |
-| triggers, entities, quests, timeline, water, dialogue, settings, hud, inventory | 0 | < 0.01 |
+| triggers, quests, timeline, water, dialogue, settings, hud, inventory | 0 | < 0.01 |
 
-(photo is no longer installed by openWorld by default, so it is not in the table.)
 Conclusion: module logic totals about 0.9 ms/frame (a quarter of the frame), and the biggest part is still Rapier; every item rose together with the
 slower whole frame (slower machine), and no single module became slower.
 particles: group X once measured 0.21 ms/frame, and this run alone it is 0.01. The world scene has no particle effects (no emit/attach); particles per
@@ -104,8 +103,8 @@ back restores 93.
 `npm run perf -- --only=props`: 3000 repeated props over 4 models (a lamp of 2 meshes, a fence, a crate, an AC unit; 3750 meshes), each a world record
 presented as a clone of its model, spread over about 143 x 143 m (16 cells of 64 m), one directional light with shadows, 60 frames, headless Chromium
 with ANGLE SwiftShader
-on the user's Windows machine (perf.mjs now launches with `--use-angle=swiftshader`: plain `--use-gl=swiftshader` no longer starts WebGL there, which
-is why section 5 shows 0 draw calls).
+on the user's Windows machine (plain `--use-gl=swiftshader` does not start WebGL there, which is why section 5 shows 0 draw calls; perf.mjs has since
+moved to the hardware GPU when headless reaches one, so later runs of this table are GPU numbers: the first output line names the renderer).
 
 | | CPU ms/frame | Render ms/frame | Draw calls (incl. shadow) | Shadow draw calls | Batches | Instances |
 |---|---|---|---|---|---|---|
@@ -119,6 +118,10 @@ The batching bookkeeping itself costs about 0.46 ms/frame with 3000 batched obje
 256-object round robin that looks for parts changed behind its back). With nothing repeating it only checks a few transforms.
 
 ## 4. Open to playable (engine.startup)
+
+> Dated: the tables below predate the 2026-11-02 cold-start change (no scene render before ready, `compileAsync` for the real render target, the
+> room environment built only when a material reads it, Rapier / Recast loading from install). After it a test game measured 2.9 s cold start with
+> 2.46 s of long tasks before ready (Radeon 780M, headless); the open-world rows have not been remeasured.
 
 | Example | Open to playable ms | start() to playable ms | Asset preload ms | First-screen chunks (terrain ready) ms | Slowest module |
 |---|---|---|---|---|---|
@@ -200,11 +203,36 @@ sampling the ground raster (water / slope, cached 5 s) and the batches that came
 fewer are late.
 threads 0 costs a little more than the sync loop (batch building plus the raster), so `findPath` stays the call for one-off paths.
 
+## 6. Load budget (`threedog stress`), 2026-11-02
+
+**Machine: `ANGLE (AMD, AMD Radeon 780M Graphics (0x00001900) Direct3D11 vs_5_0 ps_5_0, D3D11)`** (AMD Ryzen 7 integrated GPU, headless Chromium on
+the hardware GPU), 1280x720, pixel ratio 1, 30 frames per step, medians. Other headless browsers were running on the machine at the same time: expect
+10-20% noise. The same machine's discrete GPU (RTX 5060) is measured separately by the user (key B on the WebGPU compare page); add its row here.
+
+Each axis alone on the neutral page `tests/stress/` (gray ground, the engine's default lights, 400 boxes under the light / shadow / post axes). frame =
+CPU + waiting for the GPU to finish, no overlap: an upper bound of the real frame. "≈" is log-interpolated between the two steps around the crossing.
+
+| Axis (unit) | Fits 16.7 ms | Fits 33 ms | CPU / GPU / frame ms at the 16.7 ms load | Stopped by |
+|---|---|---|---|---|
+| triangles (1M-triangle tiles, few draws) | ≈ 45M | ≈ 100M | 0.6 / 10.1 / 11.9 | 33 ms |
+| draw calls (separate meshes, one material) | ≈ 2400 | ≈ 4800 | 8.6 / 4.5 / 13.1 | 33 ms |
+| instances (one InstancedMesh of boxes) | ≈ 3.2M | ≈ 7.3M | 0.3 / 15.0 / 16.6 | 33 ms |
+| point + spot lights (no shadow) | ≥ 128 | ≥ 128 | 2.3 / 10.3 / 13.6 | shader compile fails at 256 (uniform limit) |
+| shadow-casting spot lights (1024²) | ≥ 8 | ≥ 8 | 2.7 / 2.8 / 6.6 | shader compile fails at 16 (texture units) |
+| sun shadow map size | ≈ 9700² (8192² fits) | ≈ 13000² | 2.7 / 2.8 / 6.3 at 8192² | 33 ms (16384²: 45 ms GPU) |
+| overlapping full-view transparent quads | ≈ 58 | ≈ 113 | 0.4 / 8.2 / 9.3 | 33 ms |
+| point particles (4 px, additive) | ≈ 1.7M | ≈ 3.8M | 0.3 / 14.6 / 15.8 | 33 ms |
+| post effects, cumulative: bloom, vignette, grain, lut, chromatic, outline, ao, dof | 7 (all but dof) | all 8 (17.1 ms) | 4.1 / 9.7 / 15.0 | ladder end |
+| skinned characters (24 bones, 2352 triangles, own mixer) | ≈ 230 | ≈ 440 | 4.9 / 2.7 / 9.2 | 33 ms |
+
+Reading it: on this iGPU draw calls and skinned characters are CPU-bound (main thread), everything else is GPU-bound; ao (GTAO) is the costliest
+single post effect (+5 ms GPU, it redraws the scene for normals). Real scenes combine axes, so take a game's limit well below one axis' crossing.
+
 ## Limitations
 
 - SwiftShader does the GPU's work on the CPU, but WebGL commands are submitted asynchronously: "render ms" in the tables is mostly the time three.js
   spends traversing the scene + submitting commands, and **does not include** the time to actually draw pixels. Fragment-heavy things (shadow map
-  resolution, bloom, ambient occlusion, transparent overdraw) show no difference here; check them on a real device with the F3 panel.
+  resolution, bloom, ambient occlusion, transparent overdraw) show no difference here; measure them with `threedog stress` on the GPU (section 6).
 - Noise: the same configuration run repeatedly can differ by 10-30%; draw no conclusion from smaller differences.
 - The `world` mode has no NPCs, pickups or other content, so it has fewer draw calls than the open-world example; to see the example itself, open
   `npm run dev` and run the stress test with F3.

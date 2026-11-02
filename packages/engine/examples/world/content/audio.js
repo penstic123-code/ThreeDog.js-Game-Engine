@@ -1,14 +1,14 @@
-// This game's sounds, as content data (content.load reads the audio table): sounds are the game's, not the style pack's. 'synth' plays the
-// engine's synthesized sound; any other string is a sound name from an asset pack (engine.assets.manifest({ sounds })); anything omitted is silent.
+// How this game's sounds play, as content data (content.load reads the audio table): sounds are the game's, not the style's. Each rule names
+// a sound asset (engine.assets.manifest({ sounds }): a file or a synth; the engine modules' own synths are registered under their names); anything omitted is silent.
 // Data only, so no functions: conditions compare measures (daylight from sky, rain / snow / wind from weather, nearWater / altitude from ambience).
-const step = surface => ({ synth: 'footstep', params: { surface } });
+const step = surface => ({ src: 'footstep', params: { surface } });
 
 export default {
   sounds: {
     // footsteps per surface (built-in footstep synth); a file version: 'step.grass': ['grass-1', 'grass-2'] (asset pack sound names)
     'step.grass': step('grass'), 'step.sand': step('sand'), 'step.rock': step('rock'), 'step.snow': step('snow'), 'step.water': step('water'),
-    shutter: 'synth', thunder: 'synth',
-    wind: 'synth', rain: 'synth', water: 'synth', birds: 'synth', crickets: 'synth',   // ambience synths (ambience() module)
+    shutter: {}, thunder: {},   // built-in synth assets of photo() / weather(), played with default rules
+    wind: {}, rain: {}, water: {}, birds: {}, crickets: {},   // ambience synths (ambience() module)
   },
   // Ambience rule table: while `when` holds the sound plays at `volume`; `every` makes it a one-shot at random gaps
   ambience: [

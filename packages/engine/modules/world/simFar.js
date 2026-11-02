@@ -37,9 +37,10 @@ export class FarFlights {
     s.key = kind + '#' + ++this.defs;
     if (T.size) T.pureLane().broadcast({ def: s.key, src: s.pure.src, label }, 'def:' + s.key);
   }
-  add(e, s, dt) {
+  /** dt: real seconds this turn covers (bookkeeping); d: the dt far gets (dt on the kind's time channel, sim.scaled) */
+  add(e, s, dt, d = dt) {
     let b = this.open.get(s); if (!b) this.open.set(s, b = []);
-    b.push([e, dt]);
+    b.push([e, dt, d]);
   }
   /** End of the far pass: send each kind's batch */
   flush() {
@@ -49,7 +50,7 @@ export class FarFlights {
   send(s, items) {
     const engine = this.sim.w.engine, T = engine.threads;
     // copies taken now: what far sees is the record as of this step, whatever happens to it during the flight
-    const f = { s, items, snaps: items.map(([e, dt]) => [structuredClone(e.rec), dt]), results: null };
+    const f = { s, items, snaps: items.map(([e, , d]) => [structuredClone(e.rec), d]), results: null };
     for (const [e, dt] of items) e.flight = { f, from: e.last - dt };
     const t = engine.commits.request({ lag: FAR_LAG, apply: r => this.apply(f, r), fallback: () => f.snaps.map((_, i) => this.compute(f, i)) });
     // a failed worker run is ignored: the fallback runs the same code here at the due step and throws the same (clear) error

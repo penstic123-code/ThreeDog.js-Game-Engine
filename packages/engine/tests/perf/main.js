@@ -7,9 +7,10 @@
 // window.bench.run(frames, { move }) → { cpuMs, renderMs, drawCalls, triangles, shadowRenders, shadowCalls, modules }
 // Under software rendering (cloud swiftshader) GPU time counts as CPU time, so use the numbers only for relative comparison.
 import * as THREE from 'three';
-import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, quests, timeline, triggers, entities, particles,
-  hud, level, sky, weather, water, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial } from '../../index.js';
+import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, pickups, quests, timeline, triggers, particles,
+  hud, level, calendar, sky, weather, water, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial, grids } from '../../index.js';
 import { patchMaterial, copyPatches } from '../../render/patches.js';
+import { SLOTS } from '../../render/slots.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
 import { defineLookPart } from '../../core/look/part.js';
@@ -119,7 +120,7 @@ if (mode === 'native') {
     headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, post: mode === 'world' ? { bloom: false } : undefined,
     saveKey: 'perf-' + mode });
   if (mode === 'city') {
-    engine.use(level({ scene: block() }), sky({ time: 0.45, dayLength: 360 }), weather(presets.weather.temperate), hlod(),
+    engine.use(level({ scene: block() }), calendar({ time: 0.45, dayLength: 360 }), sky(), weather(presets.weather.temperate), hlod(),
       settings({ freezeWorld: true, storageKey: 'perf-city-settings' }));
     aim(engine.camera);
   } else if (mode === 'world') {
@@ -133,12 +134,12 @@ if (mode === 'native') {
     const mods = openWorld({ camera: 'follow', seed: 1337, terrain: { ...terrainPreset(), ...(q.get('shading') && { shading: q.get('shading') }) }, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
       weather: presets.weather.temperate, debug: false, ambience: false });
     // The preset only builds the world; add back the gameplay modules it used to bundle so timings stay comparable with earlier runs (music stays off)
-    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }),
-      quests({ ...presets.keys.quests }), timeline(), triggers(), entities(), particles(), hud());
+    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), pickups(),
+      quests({ ...presets.keys.quests }), timeline(), triggers(), particles(), hud());
     const geo = m => [].concat(m).length > 1 ? lowpolyModels[m[0]](...m.slice(1)) : lowpolyModels[m]();
     for (const [name, v] of Object.entries(vegetationDefs)) {
       const { model, lod, ...rest } = v;
-      engine.vegetation.add(name, { geometry: geo(model), lodGeometry: lod ? geo(lod) : undefined, ...rest });
+      engine.vegetation.define(name, { geometry: geo(model), lodGeometry: lod ? geo(lod) : undefined, ...rest });
     }
     engine.assets.manifest(lowpolyAssets);
     engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });
@@ -191,7 +192,7 @@ if (mode === 'native') {
       engine.player.placeAt({ x: pl.x + dist, z: pl.z });
       cost.reset();
       let frames = 0, sum = 0, worst = 0, worstPhases = null, last = -1;
-      engine.resume();
+      engine._resume();
       const t0 = performance.now();
       await new Promise(res => {
         const poll = () => {
@@ -211,5 +212,5 @@ if (mode === 'native') {
   engine.start();
 }
 window.bench = bench;
-window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector, defineLookPart };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
+  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, calendar, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector, defineLookPart, world, grids, particles };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

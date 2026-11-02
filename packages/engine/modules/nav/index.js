@@ -13,6 +13,8 @@
 import { readParams, keysSchema } from '../../core/params.js';
 import { xzOf } from '../../core/math.js';
 import { navSearch } from './navPath.js';
+import { warnOnce } from '../../core/validate.js';
+import { coded } from '../../core/errorHints.js';
 
 const NAV_PARAMS = keysSchema(['cellSize', 'agentRadius', 'agentHeight', 'maxClimb', 'maxSlope', 'tileSize', 'crowd', 'debug']);
 
@@ -21,7 +23,7 @@ export function nav(opts = {}) {
   const { cellSize = 0.3, tileSize = 32, crowd = false, debug = false } = opts;
   // agent size defaults come from engine.movement (filled at install); opts values override them
   let agentRadius, agentHeight, maxClimb, maxSlope;
-  let e = null, lib = null, gen = null, pending = false, version = -1;
+  let e = null, lib = null, gen = null, pending = false, version = -1, wasm = null;   // wasm: the recast import + init begun at install
   const obstacles = new Map();   // collision-module collider → Recast obstacle (big boxes are cut into several pieces)
 
   const api = {
@@ -81,7 +83,7 @@ export function nav(opts = {}) {
       cs: cellSize, ch, tileSize, expectedLayersPerTile: 4, maxObstacles: 1024,
       walkableSlopeAngle: maxSlope, walkableHeight: Math.ceil(agentHeight / ch), walkableClimb: Math.ceil(maxClimb / ch), walkableRadius: Math.ceil(agentRadius / cellSize),
     });
-    if (!r.success) { console.warn('nav: ' + r.error); return; }
+    if (!r.success) { warnOnce(coded('nav-build', 'nav: ' + r.error)); return; }
     api.tileCache = r.tileCache; api.navMesh = r.navMesh;
     api.query = new lib.NavMeshQuery(r.navMesh);
     if (crowd) api.crowd = new lib.Crowd(r.navMesh, { maxAgents: 128, maxAgentRadius: agentRadius * 2 });
@@ -139,11 +141,13 @@ export function nav(opts = {}) {
       ({ agentRadius = mv.radius, agentHeight = mv.height, maxClimb = mv.stepHeight, maxSlope = mv.maxSlope } = opts);
       api.agent = { radius: agentRadius, height: agentHeight, maxClimb, maxSlope };
       e.events.on('level:loaded', () => { if (lib) build(); else pending = true; });
+      // fetch and compile the WASM from install on, so it loads while the page builds the world instead of inside start()'s module inits
+      wasm = Promise.all([import('@recast-navigation/core'), import('@recast-navigation/generators')]).then(async ([l, g]) => { await l.init(); return [l, g]; });
+      wasm.catch(() => {});   // a failure is reported by init (which awaits the same promise), not as an unhandled rejection here
       return api;
     },
     async init() {
-      [lib, gen] = await Promise.all([import('@recast-navigation/core'), import('@recast-navigation/generators')]);
-      await lib.init();
+      [lib, gen] = await wasm;
       if (pending) await build();
     },
     isReady() { return !!lib && !pending; },

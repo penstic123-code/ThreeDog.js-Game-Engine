@@ -12,7 +12,7 @@ engine.catalog('shop.buy');        // one op: args schema, reasons, can / offers
 engine.catalog({ find: 'throw' }); // the short list filtered by id, label, op or save name
 engine.catalog('core');            // what the engine registered itself (time.skip, clock, random...); 'game': what game code registered outside modules
 ```
-From the dev bridge: `npx threedog catalog`, `npx threedog catalog shop`, `npx threedog catalog --find buy` (`--json` for the data). The bridge prints the
+From the dev bridge: `threedog catalog`, `threedog catalog shop`, `threedog catalog --find buy` (`--json` for the data). The bridge prints the
 same data and adds the files: `source` (where `name: 'shop'` or `define('shop.buy'` is written), `api` (the generated api page), `recipes` and
 `examples` that use `engine.shop`. The MCP server has one `catalog` tool with the same arguments.
 
@@ -57,7 +57,7 @@ The schema types are those of op args plus `object`, `array` and `function` (opt
 time hooks; a `fixed` hook without `skip` is listed under problems (recipe 49).
 
 ## 5. "How do I get this effect": `threedog how`
-`npx threedog how "rain"` scores the words of the task against the AI.md task rows and the recipe headings with their first sentence, and prints the
+`threedog how "rain"` scores the words of the task against the AI.md task rows and the recipe headings with their first sentence, and prints the
 top five: the API in the row, the recipe path with section (`recipes/08-weather-sky.md §1`) and a one-line snippet. It reads the docs only, so it works with no page
 and prints the same list every run. When a dev page runs it adds up to three live catalog modules whose name matches the first English word. Words match at a word
 start (`rain` does not hit `terrain`). No hit means rephrase, or read AI.md.

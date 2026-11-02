@@ -17,7 +17,15 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
   const promise = new Promise(res => { done = res; });
   ch._walk?.remove();   // one walk per character: the newer order wins
   let onLoad = null, handle = null;
-  const finish = status => { if (!hook) return; hook.remove(); hook = null; onLoad?.remove(); if (ch._walk === handle) ch._walk = null; done({ status }); };
+  // speed is a move.speed entry for the walk (not a speed argument to move): haste / mud modifiers still apply on top, and it ends with the walk
+  const sped = speed != null ? e.mod('move.speed', { owner: 'walkTo', id: ch.modId, set: speed }) : null;
+  const runMod = sped && run ? e.mod('move.runSpeed', { owner: 'walkTo', id: ch.modId, set: speed }) : null;
+  const finish = status => {
+    if (!hook) return; hook.remove(); hook = null; onLoad?.remove(); if (ch._walk === handle) ch._walk = null;
+    finishMods();
+    done({ status });
+  };
+  function finishMods() { sped?.remove(); runMod?.remove(); }
   const dist = (p, x, z) => Math.hypot(p.x - x, p.z - z);
   // points the character is already at or past (a later point is closer) would make it turn back, so drop them
   const skipPassed = (x, z) => {
@@ -31,9 +39,10 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
     skipPassed(x, z);
     return true;
   };
-  if (!solve()) { queueMicrotask(() => done({ status: 'noPath' })); return Object.assign(promise, { remove() {} }); }
+  if (!solve()) { finishMods(); queueMicrotask(() => done({ status: 'noPath' })); return Object.assign(promise, { remove() {} }); }
   onLoad = e.events.on('save:loaded', () => finish('cancelled'));
-  hook = e.onFixed(dt => {
+  hook = e.onFixed(() => {
+    const dt = e.time.dt(ch.channel, ch.modId);   // the character's time channel: bullet time slows a walk too
     const [gx, gz] = xzOf(target), [x, z] = xzOf(ch.root.position);
     if (Math.hypot(gx - x, gz - z) <= arrive) { ch.move(0, 0, false, dt); return finish('arrived'); }
     skipPassed(x, z);
@@ -51,7 +60,7 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
     heading += Math.abs(diff) <= step ? diff : Math.sign(diff) * step;
     // slow down while the body is still turning toward the point, so it does not overshoot sideways
     const align = Math.max(0.2, Math.cos(Math.min(Math.abs(diff), Math.PI / 2)));
-    ch.move(Math.sin(heading), Math.cos(heading), run, dt, (speed ?? (run ? ch.runSpeed : ch.speed)) * align);
+    ch.move(Math.sin(heading) * align, Math.cos(heading) * align, run, dt);   // the direction's length scales the speed
   });
   handle = Object.assign(promise, { remove() { finish('cancelled'); } });
   return ch._walk = handle;

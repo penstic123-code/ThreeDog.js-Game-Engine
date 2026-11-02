@@ -132,7 +132,7 @@ export const specs = [
       const r = await ev(() => {
         const order = engine.moduleOrder, at = n => order.indexOf(n);
         const pairs = [['timeline', 'cameraRig'], ['weather', 'sky'], ['sky', 'water'], ['interactions', 'dialogue'],
-          ['interactions', 'entities'], ['particles', 'hud'], ['settings', 'hud'], ['hud', 'characters'], ['characters', 'music']];
+          ['particles', 'hud'], ['settings', 'hud'], ['hud', 'characters'], ['characters', 'music']];
         const wrong = pairs.filter(([a, b]) => at(a) >= 0 && at(b) >= 0 && at(a) > at(b)).map(p => p.join(' should precede '));
         const err = fn => { try { fn(); return null; } catch (e) { return e.message; } };
         engine.use({ name: 's1x', after: ['s1y'] });

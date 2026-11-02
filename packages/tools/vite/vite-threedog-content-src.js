@@ -1,14 +1,15 @@
 // "Defined in content/props.js:14": tags each content module with its own line table, so engine.inspect / engine.pick can name the file and line
 // of an authored entry (edit that line to change the level for good; runtime ops change only the session).
 // Dev and test builds only (npm run dev, npm test / shot / perf): a production build is untouched, so the table costs nothing in a release.
-// Transform (files `<anything>/content/<name>.js`, outside node_modules): for `export default <array | object literal>` and `export const x = <literal>`,
+// Transform (files `<anything>/content/<name>.js` or `content/<kind>/<part>.js`, outside node_modules): for `export default <array | object literal>` and `export const x = <literal>`,
 //   append `(globalThis.__threedogSrc ??= new WeakMap()).set(<value>, { file, line, at: { <index | key>: line } })`.
 //   The table lives in a WeakMap keyed by the exported object itself: no enumerable keys are added, so content-check, JSON and equality are untouched.
 //   Entries after a spread (`...more`) or a value built by code (`Array.from(...)`, a loop) get the line of the export (it points at the generator).
 // The engine reads it at content load (modules/content/ids.js srcOf) and records id → 'file:line' (engine.world.origin).
 import { relative } from 'node:path';
 
-const CONTENT_RE = /[\\/]content[\\/][^\\/]+\.js$/;
+// content/<kind>.js and the parts of a folder kind, content/<kind>/<part>.js (joined by the engine's contentParts)
+const CONTENT_RE = /[\\/]content[\\/](?:[^\\/]+[\\/])?[^\\/]+\.js$/;
 
 /** Line number (1-based) of each character offset: binary search over line starts */
 function lineIndex(code) {

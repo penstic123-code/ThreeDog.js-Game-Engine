@@ -2,10 +2,10 @@
 // Finds places in the engine that break the three hard rules (see packages/engine/docs/AI.md and .claude/rules/). Errors (✗) must be fixed; warnings
 //   (!) need a human look.
 //   ✗ core (packages/engine/core) imports a module
-//   ✗ new material created directly in the engine, examples and games (packages/engine/examples/, games/) or style packs (packages/engine/styles/)
-//   (use makeMaterial('purpose', {...}) so the style pack decides the look)
+//   ✗ new material created directly in engine code (core, modules, render, ui; use makeMaterial('purpose', {...}) so the style decides the
+//   engine's own look). Games, examples and styles are not checked: `new THREE.*Material` there is plain three.js and always fine
 //   ✗ Chinese text hard-coded in engine code (developer-facing text is English; player-facing text goes in the locale tables via engine.t())
-//   ! non-neutral colors in the engine (the fallback color should be gray; real colors belong in the style pack)
+//   ! non-neutral colors in the engine (the fallback color should be gray; real colors belong in the style)
 //   ! a module imports another module's internal file (go through the public engine.xxx API or events)
 //   ✗ a module has no display name module.<name> in the I18n core table (used by the loading screen)
 // It also runs the rules in packages/tools/rules/R*.mjs one by one (described at the top of each file), with output grouped by rule, then the
@@ -13,22 +13,30 @@
 // In a game installed from npm (paths.mjs MODE 'game') only the game-side checks run: materials in game code, the rules marked game: true (doc
 //   references, doc sizes), GAMEMAP up to date, content validation and types. The engine's own checks run in the monorepo.
 //   npm run check -- --rule R4,R8   run only these rules (skips the hard-rule checks above and the generator checks below)
-//   npm run check -- --all          list all warnings (by default only the first 15 per rule)
-//   npm run check -- --verbose      extra rule info (for example which checkOptions R6 skipped)
+//   npm run check                   errors in full, warnings as one count line per rule
+//   npm run check -- --verbose      list the warnings (the first 15 per rule) and extra rule info (for example which checkOptions R6 skipped)
+//   npm run check -- --all          list every warning
+//   npm run check -- -w <game>      scoped to one game (also when run from inside a game folder): only its problems are printed and set the exit
+//                                   code; other games and the engine are one count line each
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import * as P from './paths.mjs';
 import { walk as walkAll } from './lib/text.mjs';
+import { checkScope } from './lib/scope.mjs';
 
 const { TOOLS } = P;
 // Exceptions: the debug panel is a dev tool; the string-table files are where text lives
 const DEV_ONLY = [/modules\/debug\//];
 const STRING_TABLE_FILES = [/strings\.js$/, /core\/I18n\.js$/];
-// Allowed cross-module imports (small shared helpers)
-const ALLOWED_CROSS = [];
-// Files allowed to create materials directly (path regex): the material factory itself, and style packs (they are where the art lives,
-// so a pack may hand makeMaterial any three.js material); games and examples still go through makeMaterial so a style swap restyles them
+// Allowed cross-module imports: [importing module, target path prefix, why]. Only worker-safe files that the owning module itself states are
+// shared with a worker: the module's public entry (Collision.js, nav/index.js) imports core/math.js and with it three.js, which a worker must not load
+const ALLOWED_CROSS = [
+  ['characters', 'collision/grid.js', 'the path worker (characters/pathJob.js) rebuilds the collider grid with the same code collision uses'],
+  ['characters', 'nav/navPath.js', 'the path worker runs the one navmesh search on its imported copy of the mesh (navPath.js says so)'],
+];
+// Engine files allowed to create materials directly (path regex): the material factory itself, and styles (they are where the art lives,
+// so a pack may hand makeMaterial any three.js material). Only engine code is scanned (files below); games and examples are free to `new` materials
 const MATERIAL_OK = [new RegExp(`^${P.ENGINE_REL}/render/materials\\.js$`), new RegExp(`^${P.STYLES_REL}/`)];
 const DIRECT_MATERIAL = /new THREE\.Mesh(Lambert|Phong|Standard|Physical|Toon|Basic)Material/;
 
@@ -70,7 +78,7 @@ for (const file of files) {
     }
     // 4. non-neutral colors
     if (!devOnly) for (const m of code.matchAll(/0x([0-9a-fA-F]{6})\b/g)) if (!isGrey(parseInt(m[1],
-      16))) warnings.push(`${at}  non-gray fallback color 0x${m[1]} (real colors belong in the style pack)`);
+      16))) warnings.push(`${at}  non-gray fallback color 0x${m[1]} (real colors belong in the style)`);
     // 5. cross-module imports of internal files
     if (mod) for (const m of code.matchAll(/from\s+['"]\.\.\/(?!\.\.\/)([^'"]+)['"]/g)) {
       const target = m[1];
@@ -79,14 +87,8 @@ for (const file of files) {
   });
 }
 
-// Examples and games: only check for direct new materials
-for (const file of [...new Set(P.gameDirs().flatMap(walk))]) {
-  const rel = P.rel(file);
-  if (MATERIAL_OK.some(r => r.test(rel))) continue;
-  readFileSync(file, 'utf8').split('\n').forEach((raw, i) => {
-    if (!/^\s*(\*|\/\*|\/\/)/.test(raw) && DIRECT_MATERIAL.test(stripComments(raw))) errors.push(`${rel}:${i + 1}  creates a material directly, use makeMaterial('purpose', {...})`);
-  });
-}
+// Games and examples are not checked for direct materials here: a game's art is its own. R40 (bypass hints) warns when a hand-set color
+// keeps a model from following the style, and can be switched off.
 
 // Every module needs a display name module.<name> (used by the loading screen; the module's label is only a fallback)
 const i18nCore = MONO ? readFileSync(P.abs(P.I18N_CORE_REL), 'utf8') : '';
@@ -99,44 +101,47 @@ for (const file of files.filter(f => P.under(P.rel(f), P.MODULES_REL))) {
 }
 
 const argv = process.argv.slice(2);
-// check -w <game>: only that game's checks (content validation + GAMEMAP up to date); the engine's hard rules and the whole-repo checks are skipped
-const wi = argv.findIndex(a => a === '-w' || a === '--workspace');
-if (wi >= 0) {
-  const wsDir = P.findWorkspace(argv[wi + 1]);
-  if (!wsDir) { console.log(`workspace "${argv[wi + 1]}" not found. Available: ${P.workspaces().map(P.rel).join(', ')}`); process.exit(1); }
-  const w = ['-w', argv[wi + 1]];
-  let bad = 0;
-  for (const r of await Promise.all([['gamemap.mjs', '--check', ...w], ['content-check.mjs', ...w]].map(([f, ...a]) => new Promise(res => {
-    const c = spawn(process.execPath, [join(TOOLS, f), ...a]); let out = '';
-    c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d); c.on('close', code => res({ out, code }));
-  })))) { process.stdout.write(r.out); if (r.code) bad++; }
-  console.log(`
-check -w ${P.rel(wsDir)}: ${bad ? 'FAILED' : 'passed'} (content + GAMEMAP only; run plain npm run check before committing engine changes)`);
-  process.exit(bad ? 1 : 0);
-}
+// Scoped check (lib/scope.mjs): -w <game>, or run from inside a game folder. Every check still runs, but only that game's errors and warnings are
+// printed and decide the exit code; other games and the engine are one count line each. Plain check at the repo root stays repo-wide.
+const scope = checkScope(argv);
 const ruleArg = argv.includes('--rule') ? argv[argv.indexOf('--rule') + 1] : undefined;
 if (argv.includes('--rule') && !ruleArg) { console.log('Usage: npm run check -- --rule R4,R8'); process.exit(1); }
 const onlyRules = ruleArg ? ruleArg.toUpperCase().split(',') : null;
+// the file of an "<file>:<line>  message" / "<file>  message" entry
+const fileOf = s => s.match(/^[^\s:]+/)[0];
+const keep = (list, level) => scope ? list.filter(s => scope.mine(fileOf(s)) || void scope.other(fileOf(s), level)) : list;
+const myErrors = onlyRules ? [] : keep(errors, 'error'), myWarnings = onlyRules ? [] : keep(warnings, 'warn');
 if (!onlyRules) {
-  for (const e of errors) console.log('✗ ' + e);
-  for (const w of warnings) console.log('! ' + w);
-  console.log(`\n${errors.length} errors, ${warnings.length} warnings (${files.length} files checked)`);
+  for (const e of myErrors) console.log('✗ ' + e);
+  // warnings: one count line unless --verbose / --all (the same rule as the rule warnings, rules/index.mjs)
+  if (argv.includes('--verbose') || argv.includes('--all')) for (const w of myWarnings) console.log('! ' + w);
+  else if (myWarnings.length) console.log(`hard rules: ${myWarnings.length} warning${myWarnings.length > 1 ? 's' : ''} (details: --verbose)`);
+  console.log(`\n${myErrors.length} errors, ${myWarnings.length} warnings (${scope ? `hard rules, ${scope.rel}` : `${files.length} files checked`})`);
 }
 
 // Rules packages/tools/rules/R*.mjs (directory: RULES_REL in paths.mjs)
 const { runRules } = await import('./rules/index.mjs');
-const ruleErrors = await runRules({ only: onlyRules, all: argv.includes('--all'), verbose: argv.includes('--verbose'), game: !MONO });
-if (onlyRules) process.exit(ruleErrors ? 1 : 0);
+const ruleErrors = await runRules({ only: onlyRules, all: argv.includes('--all'), verbose: argv.includes('--verbose'), game: !MONO, scope });
 
-// Generated docs and game maps up to date; game content validation; types. Run in parallel, printed in a fixed order
-const SUB = MONO ? [['gentypes.mjs', '--check'], ['codemap.mjs', '--check'], ['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs'], ['apidoc.mjs', '--check']]
-  : [['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs']];
+// Generated docs and game maps up to date; game content validation; types. Run in parallel, printed in a fixed order.
+// Scoped: that game's GAMEMAP, content and types (types.mjs filters to the game and hands back its other counts); the engine generators only add to
+// the engine count (types.mjs covers the generated declarations)
+const w = scope ? ['-w', scope.rel] : [];
+const SUB = onlyRules ? [] : MONO && !scope ? [['gentypes.mjs', '--check'], ['codemap.mjs', '--check'], ['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs'], ['apidoc.mjs', '--check']]
+  : [['gamemap.mjs', '--check', ...w], ['content-check.mjs', ...w], ['types.mjs', ...w, ...(scope ? ['--tally-json'] : [])]];
+const ENGINE_SUB = scope && MONO && !onlyRules ? [['codemap.mjs', '--check'], ['apidoc.mjs', '--check']] : [];
 const runSub = ([file, ...args]) => new Promise(res => {
   const c = spawn(process.execPath, [join(TOOLS, file), ...args]);
   let out = '';
   c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
   c.on('close', code => res({ out, code }));
 });
-let bad = errors.length + ruleErrors;
-for (const r of await Promise.all(SUB.map(runSub))) { process.stdout.write(r.out); if (r.code) bad++; }
+let bad = myErrors.length + ruleErrors;
+const [mine, eng] = await Promise.all([Promise.all(SUB.map(runSub)), Promise.all(ENGINE_SUB.map(runSub))]);
+for (const r of mine) { process.stdout.write(scope ? scope.absorb(r.out) : r.out); if (r.code) bad++; }
+for (const r of eng) if (r.code) scope.engine(1);
+if (scope) {
+  console.log(`\ncheck ${scope.rel}: ${bad ? 'FAILED' : 'passed'} (only this workspace's problems count; run plain npm run check at the root before committing engine changes)`);
+  for (const line of scope.summary()) console.log(line);
+}
 process.exit(bad ? 1 : 0);

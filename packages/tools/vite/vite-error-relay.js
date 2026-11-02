@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync, appendFileSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path';
 import { hintText } from 'threedog/error-hints';   // the engine's hint table (plain data), through its public subpath
 import { isLocalRequest, readBody } from './local.js';
+import { oneLine } from '../lib/oneline.mjs';
 
 const ENDPOINT = '/__threedog/error', MAX_BODY = 64 * 1024, MAX_ITEMS = 200;
 /** Page-sent text marked as data in the log (an AI reading errors.log must not take it for instructions) */
@@ -37,12 +38,15 @@ const CLIENT = `(() => {
     if (!navigator.sendBeacon?.('${ENDPOINT}', body)) fetch('${ENDPOINT}', { method: 'POST', body, keepalive: true }).catch(() => {});
   };
   setInterval(flush, 300); addEventListener('pagehide', flush);
+  // uncaught errors kept on the page too: the dev bridge's wait (threedog/pageFns.mjs READY) stops at once on one instead of waiting a minute
+  const uncaught = window.__threedogUncaught = [];
   addEventListener('error', e => {
     const el = e.target;
     if (el && el !== window && el.tagName) return push('resource', 'Failed to load <' + el.tagName.toLowerCase() + '> ' + (el.src || el.href || ''));
+    uncaught.push(String(e.message));
     push('error', e.message, e.error && e.error.stack, e.filename ? e.filename + ':' + e.lineno + ':' + e.colno : '');
   }, true);
-  addEventListener('unhandledrejection', e => { const r = e.reason; push('rejection', 'Unhandled rejection: ' + (r && r.message || fmt(r)), r && r.stack); });
+  addEventListener('unhandledrejection', e => { const r = e.reason; uncaught.push(String(r && r.message || fmt(r))); push('rejection', 'Unhandled rejection: ' + (r && r.message || fmt(r)), r && r.stack); });
   for (const level of __LEVELS__) {
     const orig = console[level];
     console[level] = function (...args) { orig.apply(this, args); const err = args.find(a => a instanceof Error); push(level, args.map(fmt).join(' '), (err || new Error()).stack); };
@@ -91,7 +95,7 @@ export default function errorRelay({ warn = true, logFile = '.threedog/errors.lo
 
       setInterval(() => {   // summarize repeats
         for (const s of seen.values()) if (s.pending) {
-          const line = `[browser ${LABEL[s.it.type]} ×${s.pending}, ${s.total} total] ${clock(Date.now())} same as above: ${s.it.msg.split('\n')[0].slice(0, 120)}${s.src ? ' (' + s.src + ')' : ''}`;
+          const line = `[browser ${LABEL[s.it.type]} ×${s.pending}, ${s.total} total] ${clock(Date.now())} same as above: ${oneLine(s.it.msg)}${s.src ? ' (' + s.src + ')' : ''}`;
           print(s.it, DIM(line)); write(line + '\n'); s.pending = 0;
         }
       }, 2000).unref();

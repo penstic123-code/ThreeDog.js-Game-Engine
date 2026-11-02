@@ -3,7 +3,7 @@
 // An aid to judging, not a replacement for looking: every number is one narrow view of the picture, none is a quality score.
 // Both pictures are read through the same pipeline (pixels.mjs) at the same size, so the numbers are comparable.
 import { resolve } from 'node:path';
-import { openImage, hsl, luma, opaque, laplacianVariance } from './pixels.mjs';
+import { openImage, writeSideBySide, hsl, luma, opaque, laplacianVariance } from './pixels.mjs';
 import { averageColor, dominantColors } from './palette.mjs';
 
 const SIDE = 512;   // both pictures are brought to this longest side (or the region's own size when smaller)
@@ -44,14 +44,16 @@ const mapRegion = (r, from, to) => ({ x: Math.round(r.x * to.width / from.width)
 
 /**
  * Compare a screenshot with a reference. opts: region (reference pixels; the screenshot gets the same fractions of its own size),
- * refRegion / shotRegion (each in its own pixels, win over region).
+ * refRegion / shotRegion (each in its own pixels, win over region). out: PNG path for the side-by-side picture (reference left, screenshot right).
  */
-export async function compareImages(refFile, shotFile, { region, refRegion, shotRegion } = {}) {
+export async function compareImages(refFile, shotFile, { region, refRegion, shotRegion, out } = {}) {
   const ref = await openImage(refFile), shot = await openImage(shotFile).catch(async e => { await ref.close(); throw e; });
   try {
     const rr = refRegion ?? region ?? { x: 0, y: 0, w: ref.width, h: ref.height };
     const sr = shotRegion ?? (region ? mapRegion(region, ref, shot) : { x: 0, y: 0, w: shot.width, h: shot.height });
-    const k = Math.min(1, SIDE / Math.max(rr.w, rr.h)), size = [Math.max(3, Math.round(rr.w * k)), Math.max(3, Math.round(rr.h * k))];
+    // One shared size no larger than either region: upscaling the smaller picture blurs it (a 540 px shot against a 1080 px reference read at the
+    // reference's size measured about 10x less detail), so both go down to the smaller one's scale and detail compares like with like
+    const k = Math.min(1, SIDE / Math.max(rr.w, rr.h), sr.w / rr.w, sr.h / rr.h), size = [Math.max(3, Math.round(rr.w * k)), Math.max(3, Math.round(rr.h * k))];
     const [A, B] = [await ref.read(rr, { size }), await shot.read(sr, { size })];
     const a = measure(A.data, A.w, A.h), b = measure(B.data, B.w, B.h);
     const gray = x => x.average.saturation < 0.1;
@@ -67,8 +69,18 @@ export async function compareImages(refFile, shotFile, { region, refRegion, shot
     };
     const notes = [`both pictures read at ${size[0]}×${size[1]}`];
     if (ref.width * ref.height !== shot.width * shot.height || ref.width !== shot.width) notes.push(`sizes differ (reference ${ref.width}×${ref.height}, screenshot ${shot.width}×${shot.height}): both regions scaled to the same size`);
+    if (rr.w !== sr.w || rr.h !== sr.h) notes.push(`resolutions differ: detail is measured at the smaller picture's scale (${size[0]}×${size[1]}, neither is enlarged)`);
+    notes.push('regions are matched by position only: a feature that sits elsewhere in the screenshot (camera moved, object shifted) shows up as large hue / color differences; cut the same content with --ref-region / --shot-region');
     if (Math.abs(rr.w / rr.h / (sr.w / sr.h) - 1) > 0.05) notes.push('the two regions have different aspect ratios: the screenshot is stretched to the reference shape; use --ref-region / --shot-region to cut the same content');
+    let sideBySide = null;
+    if (out) {   // same height for both, each keeps its own region's shape (so differently shaped regions are not stretched here); capped so the file stays small
+      const H = Math.min(720, Math.max(rr.h, sr.h)), wOf = r => Math.max(1, Math.round(r.w * H / r.h));
+      const [L, R] = [await ref.read(rr, { size: [wOf(rr), H] }), await shot.read(sr, { size: [wOf(sr), H] })];
+      const got = await writeSideBySide(L, R, ['reference', 'screenshot'], out);
+      sideBySide = { file: resolve(out), size: [got.w, got.h] };
+    }
     return {
+      sideBySide,
       reference: { file: resolve(refFile), size: [ref.width, ref.height], region: rr, ...a },
       screenshot: { file: resolve(shotFile), size: [shot.width, shot.height], region: sr, ...b },
       diff, summary: sentence(diff, a, b), notes,
@@ -98,6 +110,7 @@ export function formatCompare(r) {
     row('average', `${A.average.hex}`, `${B.average.hex}`, D.averageHueShift === null ? 'hue n/a (nearly gray)' : `hue ${sgn(D.averageHueShift)}°`),
     row('main color', `${A.main.hex}`, `${B.main.hex}`, `${D.main.hue === null ? 'hue n/a' : `hue ${sgn(D.main.hue)}°`}, sat ${sgn(D.main.saturation)}, light ${sgn(D.main.lightness)}`),
     ...r.notes.map(n => `  note: ${n}`),
+    ...(r.sideBySide ? [`side by side (reference left, screenshot right): ${r.sideBySide.file} ${r.sideBySide.size.join('×')} - open this one image and look at both`] : []),
     r.summary, r.note,
   ].join('\n');
 }

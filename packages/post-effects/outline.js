@@ -113,7 +113,7 @@ function apply(pass, p) {
  *   offLayer: objects with this three.js layer enabled get no outline (costs one extra render of just those objects; null = off)
  * @returns {PostEffect}
  */
-export function outline({ color = 0x222222, thickness = 1, strength = 0.8, mode = 'depth', fadeWithDistance = true, wobble = 0, offLayer = null, enabled = false, order = 10 } = {}) {
+export function outline({ color = 0x222222, thickness = 1, strength = 0.8, mode = 'depth', fadeWithDistance = true, wobble = 0, offLayer = null, enabled, order = 10 } = {}) {
   return { name: 'outline', slot: 'hdr', order, enabled, needsDepth: true, costly: mode !== 'depth', params: { color, thickness, strength, mode, fadeWithDistance, wobble, offLayer },
     create: ({ scene, camera, params }) => { const pass = new OutlinePass(scene, camera, params); apply(pass, params); return pass; },
     update: apply };

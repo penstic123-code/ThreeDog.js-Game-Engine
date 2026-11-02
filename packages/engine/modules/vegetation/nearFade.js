@@ -4,6 +4,7 @@
 // no extra draw call or shader program per frame (the patch is part of the material's one program), the sway of the wind patch is scaled with it, and the
 // shadow pass shrinks the same way. The band ends where the ring can first end, so a clump is already gone when its chunk drops out.
 import * as THREE from 'three';
+import { codedError } from '../../core/errorHints.js';
 
 const PARS = 'uniform vec2 uNearFade; uniform vec3 uNearFadeCenter;';
 const VERTEX = `
@@ -28,12 +29,12 @@ export function fadeBand(fade, nearOnly, maxRing, chunk) {
   if (fade === false || (fade === undefined && !nearOnly)) return null;
   // the ring is guaranteed to reach maxRing x chunk in every direction (the player may stand at a chunk edge), so end the fade there
   const end = fade?.end ?? maxRing * chunk, start = fade?.start ?? end * 0.65;
-  if (!(end > 0) || !(start >= 0) || start >= end) throw new Error(`vegetation fade: need 0 <= start < end (metres), got start ${start}, end ${end}`);
+  if (!(end > 0) || !(start >= 0) || start >= end) throw codedError('vegetation-option', `vegetation fade: need 0 <= start < end (metres), got start ${start}, end ${end}`);
   return { start, end };
 }
 
 /** The shader patch plus the uniform objects (move center each frame) @param {{ start: number, end: number }} band */
 export function nearFadePatch(band) {
   const uniforms = { uNearFade: { value: new THREE.Vector2(band.start, band.end) }, uNearFadeCenter: { value: new THREE.Vector3() } };
-  return { patch: { name: 'nearFade', cacheKey: 'v1', shadow: true, uniforms, glsl: { vertex: { pars: PARS, begin_vertex: VERTEX } } }, uniforms };
+  return { patch: { name: 'nearFade', cacheKey: 'v1', shadow: true, uniforms, slot: 'position', pars: PARS, glsl: VERTEX }, uniforms };
 }

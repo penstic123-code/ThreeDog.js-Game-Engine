@@ -29,14 +29,14 @@ export const specs = [
           () => chest.add('rock#1'), () => I.define('a#b', {}), () => chest.setData('nope#9', {}), () => chest.add('rag', 1, { data: [1] })]) {
           try { f(); errs.push(null); } catch (e) { errs.push(e.message); }
         }
-        const coreEv = []; engine.events.on('item:add', e => coreEv.push(e.id)); I.add('rag', 1, { silent: true });
+        const coreEv = []; engine.events.on('item:add', e => coreEv.push(e.container + ':' + e.id)); I.add('rag', 1, { silent: true }); I.container('chest-ev').add('rag', 1);
         return { same, a, b, full, afterAdd, t1, m2, m3, log, errs, coreEv, chest2: I.container('chest-2').count('stick'), bagList: I.list().map(x => x.id + x.count).join(), cap: I.capacity, cap2: I.container('chest-3').capacity };
       }));
       check('container() with the same id returns the same one; add returns the key and spreads over slots of stack size; full slots reject', r.same && r.a === 'rock' && r.b === 'rock' && r.full === false
         && r.afterAdd.rock === 12 && r.afterAdd.slots === 3 && r.afterAdd.room === 3 && r.afterAdd.roomStick === 0, JSON.stringify(r));
       check('Container contents stay out of the player bag; transfer returns the amount actually moved', r.afterAdd.playerRock === 0 && r.t1.moved === 4 && r.t1.chest === 8 && r.t1.bag === 4 && r.t1.slots === 2, JSON.stringify(r.t1));
       check('transfer stacks into the target; moves only what the source has', r.m2 === 1 && r.chest2 === 2 && r.m3 === 4, JSON.stringify({ m2: r.m2, m3: r.m3, chest2: r.chest2 }));
-      check('Listener handle: records add / remove, receives nothing after remove(); container changes do not emit item:add', r.log.some(e => e[0] === 'remove' && e[1] === 'rock' && e[2] === 4) && !r.log.some(e => e[1] === 'rag') && r.coreEv.join() === 'rag', JSON.stringify({ log: r.log, core: r.coreEv }));
+      check('Listener handle: records add / remove, receives nothing after remove(); every container emits item:add naming itself', r.log.some(e => e[0] === 'remove' && e[1] === 'rock' && e[2] === 4) && !r.log.some(e => e[1] === 'rag') && r.coreEv.join() === 'player:rag,chest-ev:rag', JSON.stringify({ log: r.log, core: r.coreEv }));
       check('Bad arguments throw with a fix hint', r.errs.every(Boolean) && /create it first with inventory\.container/.test(r.errs[0]) && /capacity/.test(r.errs[2]) && /cannot be removed/.test(r.errs[3])
         && /not an entry key/.test(r.errs[5]) && /reserved for entry keys/.test(r.errs[6]) && /no entry with that key/.test(r.errs[7]) && /plain object/.test(r.errs[8]), JSON.stringify(r.errs));
       check('No slot limit unless set (player bag and new containers)', r.cap === Infinity && r.cap2 === Infinity && r.bagList.endsWith('rag1'), r.bagList);
@@ -253,8 +253,8 @@ export const specs = [
         const take = engine.ops.run('interaction.use', { id: rec.id });
         const back = I.list().find(e => e.id === 'blade');
         // auto pickup: no key, taken in the fixed step when the player is within its radius
-        I.spawnPickup('coin', [p.x + 0.5, 0, p.z], { count: 4, auto: true, radius: 3 });
-        engine.step(0.3, { render: false }); engine.resume();
+        engine.pickups.spawn([p.x + 0.5, 0, p.z], { give: 'coin', count: 4, auto: true, radius: 3 });
+        engine.step(0.3, { render: false }); engine._resume();
         return { opened, rows, entries, afterClicks, notUsable, drop: drop.ok, recData: rec?.data, take: take.ok, back: back && back.data, coins: I.count('coin'),
           coinLeft: engine.world.query({ kind: 'pickup', where: r => r.item === 'coin' }).length, ui: engine.ui.describe().inventory };
       });

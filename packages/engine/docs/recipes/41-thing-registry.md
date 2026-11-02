@@ -34,7 +34,7 @@ Judged in this order (`thing.saved`):
 | `engine` | managed by an engine module | its module's business | direct changes (the module rewrites them) |
 
 Only transform, visibility and removal are saved for `code` objects; colours and materials belong to Style and are not saved. To keep something made
-during play, make it a template and create it inside an op with `engine.spawn(name, at)`: a record is saved whole.
+during play, make it a template and create it inside an op with `engine.content.spawn(name, at)`: a record is saved whole.
 
 ## 3. Change it: thing.set / thing.remove (ops, undoable)
 ```js
@@ -65,7 +65,7 @@ the override applies the moment `engine.add(obj, { id })` runs. One that never c
 
 ## 6. One id, everything: explain() and the three kinds of change
 ```js
-engine.thing('chest-home').explain();    // CLI: npx threedog thing chest-home (MCP: thing); the same JSON
+engine.thing('chest-home').explain();    // CLI: threedog thing chest-home (MCP: thing); the same JSON
 // { id, kind, owner, definition: { at: 'content/props.js:14', template, templateAt, level?, node?, spawned? }, model, materials: [{ role, name, from, keys }],
 //   state, rules: { blocksMovement, pickable, interact, height }, ops: [{ op, desc, args }], saved: { tier, keeps, loses }, change: {…}, overrides? }
 ```
@@ -76,7 +76,7 @@ engine.thing('chest-home').explain();    // CLI: npx threedog thing chest-home (
 | Kind | How | Lasts |
 |---|---|---|
 | Game state (a chest opens, a door moves) | an op: `ops.run('chest.toggle', { id })`, `thing.set`, `thing.remove` (section 3) | by the thing's save tier |
-| Permanent edit (another model, place, material role) | content entry: `npx threedog content set <id> <field> <json>` (below); template or `engine.add` line: edit the file:line `explain().change.permanent` prints; then reload | forever |
+| Permanent edit (another model, place, material role) | content entry: `threedog content set <id> <field> <json>` (below); template or `engine.add` line: edit the file:line `explain().change.permanent` prints; then reload | forever |
 | Diagnostic override ("show me without it") | `engine.debug.override(owner, id, { visible: false, material: 'flat' \| 'wire', apply })` | until `handle.remove()` / `engine.debug.clear(owner)`; never saved |
 
 ```js
@@ -87,7 +87,11 @@ h.remove(); engine.debug.clear('ai-session');   // clear removes every override 
 ```
 `apply(obj)` may return its undo function: any other look (a view mode) uses the same owner mechanism. Overrides do not touch game state, ops or saves.
 
-`npx threedog content set cabin x=12 z=3 place=home --in props` sets several fields in one call (one write, one check, all or nothing; a bare word is a string). `npx threedog content set cabin x 12 --in props` writes a permanent change into the content entry (`-w game` or `--dir folder` picks the game; `--dry` only shows it). It edits just that
-value in place (comments and spacing stay), adds the field when missing, runs the content check (reverting if it fails) and tells you to reload. Fields are the content file's names
-(`x`, `z`, `y`, `rot`, `scale`, `template`, `place`, `model`), not the record's `position`; the value is JSON (`'"home"'` for a string). It refuses, and says why, for an entry built
-by code (loop, spread, computed value) or an id matching several entries (`--in props`). A placed entry wins over a template or npc of the same name.
+`threedog content set cabin x=12 z=3 place=home --in props` writes a permanent change into the content entry: several fields in one call (one write, one check, all or nothing;
+values are JSON, a bare word is a string; `-w game` or `--dir folder` picks the game; `--dry` only shows it). It edits just that value in place (comments and spacing stay), adds the
+field when missing, checks the one file it wrote (reverting if that fails; the full check stays `npm run check`) and tells you to reload. `--expect x=5` refuses the write when the
+file no longer has the value you saw (someone else changed it). `content add props id=crate-7 template=crate x=1 z=2` appends one entry at the end (always with an id;
+`--file content/props/town.js` picks the part of a folder kind) and `content remove <id>` deletes one. Fields are the content file's names
+(`x`, `z`, `y`, `rot`, `scale`, `template`, `place`, `model`), not the record's `position`. It refuses, and says why with the line, for an entry built
+by code (loop, spread, computed value), an id matching several entries (`--in props`), or an add / remove that would shift entries whose id is their position. A placed entry wins over a template or npc of the same name.
+It finds the file through `.threedog/content-index.json` (written by the content check; rebuilt when an id is not where it says), so a write reads only that one file however many there are.

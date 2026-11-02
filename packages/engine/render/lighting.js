@@ -5,12 +5,35 @@
 // follow a toon ramp (a toon ramp is the better tool there); cloud shadows are not "shadow" for shadowTint.
 // All values are uniforms: materials differing only in numbers or colors share one program (the cacheKey holds which features are on).
 import * as THREE from 'three';
-import { checkOptions } from '../core/validate.js';
+import { readParams, keysSchema, isOptions } from '../core/params.js';
 import { hashText } from './effects.js';
 import { declareUniforms } from './uniformDecl.js';
+import { codedError } from '../core/errorHints.js';
 
 const KEYS = ['wrap', 'shadowTint', 'rim', 'glsl', 'uniforms'];
 const lum = 'vec3(0.2126, 0.7152, 0.0722)';
+
+// Callable (#include <threedog_lighting> in your own ShaderMaterial; the patch below calls the same functions, so the math lives once).
+// Plain inputs, no uniforms and no three internals: nl = dot(normal, sunDir), shadow 1 lit / 0 shadowed, viewDir from the surface to the eye.
+//   vec3 threedogWrapDiffuse(float nl, float wrap, vec3 lightColor, float shadow, vec3 albedo)   half-lambert light beyond plain Lambert
+//   vec3 threedogShadowTint(vec3 ambient, vec3 tint, float strength, float soft, float nl, float shadow)   ambient with the shaded side's hue moved
+//   vec3 threedogRim(vec3 normal, vec3 viewDir, vec3 color, float strength, float power, float shadowSide, float nl)   edge light to add
+// Why: a game's own shader should get the style's light shaping by calling it, not by having the engine patch its material.
+const LIGHTING_CHUNK = `#ifndef THREEDOG_LIGHTING
+#define THREEDOG_LIGHTING
+vec3 threedogWrapDiffuse(float nl, float wrap, vec3 lightColor, float shadow, vec3 albedo){
+  return ( max( ( nl + wrap ) / ( 1.0 + wrap ), 0.0 ) - max( nl, 0.0 ) ) * lightColor * shadow * 0.3183098861837907 * albedo;
+}
+vec3 threedogShadowTint(vec3 ambient, vec3 tint, float strength, float soft, float nl, float shadow){
+  float k = ( 1.0 - shadow * smoothstep( 0.0, soft, nl ) ) * strength;
+  vec3 hue = tint / max( dot( tint, ${lum} ), 0.001 );
+  return mix( ambient, ambient * hue, k );
+}
+vec3 threedogRim(vec3 normal, vec3 viewDir, vec3 color, float strength, float power, float shadowSide, float nl){
+  return color * ( pow( 1.0 - clamp( dot( normal, viewDir ), 0.0, 1.0 ), power ) * mix( 1.0, 1.0 - clamp( nl, 0.0, 1.0 ), shadowSide ) * strength );
+}
+#endif`;
+Object.assign(THREE.ShaderChunk, { threedog_lighting: LIGHTING_CHUNK });   // the same registry effects.js fills
 
 // Functions need getShadow and the light uniforms, which exist only after these includes: they go after shadowmap_pars_fragment
 const SUN = `float threedogSunShadow(){
@@ -35,40 +58,38 @@ const SUN = `float threedogSunShadow(){
  * @returns {import('./patches.js').ShaderPatch}
  */
 export function lightingPatch(o, label = 'lighting') {
-  checkOptions(label, o, KEYS);
+  if (isOptions(o)) readParams(label, keysSchema(KEYS), o);
   const { wrap, shadowTint: st, rim } = o;
-  if (o.glsl && !/void\s+threedogLighting\s*\(/.test(o.glsl)) throw new Error(`${label}.glsl must define \`void threedogLighting(inout ReflectedLight light, vec3 normal, vec3 viewDir, vec3 sunDir, float sunShadow, vec3 albedo)\`: normal and viewDir are in view space, sunDir points to the sun, sunShadow is 1 lit / 0 in shadow (1 without shadows); change light.directDiffuse / indirectDiffuse (the lights are already summed)`);
-  if (st && st.color === undefined) throw new Error(`${label}.shadowTint needs a color: { color: shadowColor, strength: 0.6 }`);
-  if (rim && rim.color === undefined) throw new Error(`${label}.rim needs a color: { color: rimColor, strength: 0.4, power: 3 }`);
+  if (o.glsl && !/void\s+threedogLighting\s*\(/.test(o.glsl)) throw codedError('material-option', `${label}.glsl must define \`void threedogLighting(inout ReflectedLight light, vec3 normal, vec3 viewDir, vec3 sunDir, float sunShadow, vec3 albedo)\`: normal and viewDir are in view space, sunDir points to the sun, sunShadow is 1 lit / 0 in shadow (1 without shadows); change light.directDiffuse / indirectDiffuse (the lights are already summed)`);
+  if (st && st.color === undefined) throw codedError('material-option', `${label}.shadowTint needs a color: { color: shadowColor, strength: 0.6 }`);
+  if (rim && rim.color === undefined) throw codedError('material-option', `${label}.rim needs a color: { color: rimColor, strength: 0.4, power: 3 }`);
   const own = declareUniforms(label + '.uniforms', o.uniforms);
   const u = { ...own.uniforms };
-  let pars = `uniform float uLitWrap; uniform vec3 uLitShadowColor; uniform vec2 uLitShadow; uniform vec3 uLitRimColor; uniform vec3 uLitRim;\n${own.decl}`;
+  let pars = `uniform float uLitWrap; uniform vec3 uLitShadowColor; uniform vec2 uLitShadow; uniform vec3 uLitRimColor; uniform vec3 uLitRim;\n#include <threedog_lighting>\n${own.decl}`;
   let code = '#if NUM_DIR_LIGHTS > 0\n  float tdSun = threedogSunShadow(); vec3 tdL = directionalLights[ 0 ].direction; float tdNL = dot( normal, tdL );\n';
   if (o.glsl) code += '  threedogLighting( reflectedLight, normal, normalize( vViewPosition ), tdL, tdSun, diffuseColor.rgb );\n';
   else {
     if (wrap !== undefined) {
       // half-lambert: the diffuse term (n.l + w) / (1 + w); only the part beyond plain Lambert is added, with the sun's color and shadow
-      code += '  reflectedLight.directDiffuse += ( max( ( tdNL + uLitWrap ) / ( 1.0 + uLitWrap ), 0.0 ) - max( tdNL, 0.0 ) ) * directionalLights[ 0 ].color * tdSun * RECIPROCAL_PI * diffuseColor.rgb;\n';
+      code += '  reflectedLight.directDiffuse += threedogWrapDiffuse( tdNL, uLitWrap, directionalLights[ 0 ].color, tdSun, diffuseColor.rgb );\n';
       u.uLitWrap = { value: wrap };
     }
     if (st) {
       // 1 - lit: in the shadow map, or turned away from the sun (soft = how wide the terminator is, in n.l). The hue moves, the brightness stays.
       const c = new THREE.Color(st.color);
-      code += `  { float tdK = ( 1.0 - tdSun * smoothstep( 0.0, uLitShadow.y, tdNL ) ) * uLitShadow.x;
-    vec3 tdHue = uLitShadowColor / max( dot( uLitShadowColor, ${lum} ), 0.001 );
-    reflectedLight.indirectDiffuse = mix( reflectedLight.indirectDiffuse, reflectedLight.indirectDiffuse * tdHue, tdK ); }\n`;
+      code += '  reflectedLight.indirectDiffuse = threedogShadowTint( reflectedLight.indirectDiffuse, uLitShadowColor, uLitShadow.x, uLitShadow.y, tdNL, tdSun );\n';
       u.uLitShadowColor = { value: c }; u.uLitShadow = { value: new THREE.Vector2(st.strength ?? 0.5, Math.max(st.soft ?? 0.3, 0.001)) };
     }
     if (rim) {
       // fresnel-like edge light, added to the ambient part; shadowSide 1 = only on the side facing away from the sun
-      code += '  reflectedLight.indirectDiffuse += uLitRimColor * ( pow( 1.0 - clamp( dot( normal, normalize( vViewPosition ) ), 0.0, 1.0 ), uLitRim.y ) * mix( 1.0, 1.0 - clamp( tdNL, 0.0, 1.0 ), uLitRim.z ) * uLitRim.x );\n';
+      code += '  reflectedLight.indirectDiffuse += threedogRim( normal, normalize( vViewPosition ), uLitRimColor, uLitRim.x, uLitRim.y, uLitRim.z, tdNL );\n';
       u.uLitRimColor = { value: new THREE.Color(rim.color) }; u.uLitRim = { value: new THREE.Vector3(rim.strength ?? 0.4, rim.power ?? 3, rim.shadowSide ?? 0) };
     }
   }
   code += '#endif';
   for (const n of ['uLitWrap', 'uLitShadowColor', 'uLitShadow', 'uLitRimColor', 'uLitRim']) u[n] ??= { value: n === 'uLitWrap' ? 0 : n === 'uLitShadow' ? new THREE.Vector2() : n === 'uLitRim' ? new THREE.Vector3() : new THREE.Color() };
   const key = o.glsl ? 'g' + hashText(o.glsl) : `${wrap !== undefined ? 'w' : ''}${st ? 's' : ''}${rim ? 'r' : ''}`;
-  return { name: 'lighting', cacheKey: key, uniforms: u, glsl: { fragment: { pars, shadowmap_pars_fragment: (o.glsl ? o.glsl + '\n' : '') + SUN, lights_fragment_end: code } } };
+  return { name: 'lighting', cacheKey: key, uniforms: u, pars, glsl: { lightsPars: (o.glsl ? o.glsl + '\n' : '') + SUN, lighting: code } };
 }
 
 // ---------- toon ramp ----------
@@ -82,7 +103,7 @@ const rampCache = new Map();
  * @returns {THREE.DataTexture}
  */
 export function rampTexture(ramp, soften = 0) {
-  if (!Array.isArray(ramp) || ramp.length < 2) throw new Error('toon ramp must be an array of at least 2 grays or colors, dark to light, e.g. ramp: [0.35, 0.7, 1] or three colors');
+  if (!Array.isArray(ramp) || ramp.length < 2) throw codedError('material-option', 'toon ramp must be an array of at least 2 grays or colors, dark to light, e.g. ramp: [0.35, 0.7, 1] or three colors');
   const key = JSON.stringify([ramp, soften]);
   if (rampCache.has(key)) return rampCache.get(key);
   const cols = ramp.map(v => typeof v === 'number' && v <= 1 ? new THREE.Color(v, v, v) : new THREE.Color(v));

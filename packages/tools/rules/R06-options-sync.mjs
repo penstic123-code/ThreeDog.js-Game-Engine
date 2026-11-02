@@ -16,6 +16,8 @@
 // unused").
 // C. Retired option names (one word per meaning): an options interface field named padKeys / brakePadKeys (→ pad / brakePad), viewDistance
 //    (chunks → viewChunks) or range (a distance → radius) → error.
+//    Rest pattern: constructor(engine, { a, b = 1, ...rest }) { checkOptions('x()', rest, []) } checks only what is left after the destructure,
+//    so the destructured names (a, b) count as known keys too.
 // Limitation: A only understands known-key arrays resolvable in the same file (literals, ...constants, ...Object.keys(constant)); B ignores variable shadowing
 // and cannot see reads in a game repo.
 import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, objectKeys, constInit, dtsProgram, dtsFiles, abs, P } from './_lib.mjs';
@@ -49,7 +51,9 @@ function typeTools() {
     return any ? names : null;
   }
   const isObj = t => !!fields(t);
-  return { indexFns, engineType, prop, elem, sigs, fields, isObj, checker };
+  /** An object parameter, including an open one ({ [k: string]: any }, whose fields() is null): the fallback must stop at it, not skip to a later parameter */
+  const isObjLike = t => isObj(t) || !!checker.getIndexInfosOfType(nn(t)).length;
+  return { indexFns, engineType, prop, elem, sigs, fields, isObj, isObjLike, checker };
 }
 
 /** label → { base, steps: [{call}|{prop}], tail: [fields…] } */
@@ -79,7 +83,7 @@ function resolveParamType(T, label, paramIndex) {
     if (!sig) return null;
     if (!last) { t = sig.getReturnType(); continue; }
     const params = sig.getParameters().map(x => T.checker.getTypeOfSymbol(x));
-    t = paramIndex != null && params[paramIndex] && T.isObj(params[paramIndex]) ? params[paramIndex] : params.find(T.isObj);
+    t = paramIndex != null && params[paramIndex] && T.isObj(params[paramIndex]) ? params[paramIndex] : params.find(T.isObjLike);
   }
   for (const f of p.tail) { if (!t) return null; t = T.prop(T.elem(t), f); t = t && T.elem(t); }
   return t || null;
@@ -106,6 +110,20 @@ function schemaKeys(sf, node, depth = 0) {
   return { vals: r.keys, complete: r.complete };
 }
 
+/** Names destructured next to `...name` in the enclosing function's parameters (the keys a rest-checked object has already lost) */
+function restSiblings(call, arg) {
+  if (!arg || !ts.isIdentifier(arg)) return [];
+  let fn = call.parent;
+  while (fn && !ts.isFunctionLike(fn)) fn = fn.parent;
+  for (const p of fn?.parameters ?? []) {
+    if (!ts.isObjectBindingPattern(p.name)) continue;
+    const els = p.name.elements;
+    if (!els.some(el => el.dotDotDotToken && ts.isIdentifier(el.name) && el.name.text === arg.text)) continue;
+    return els.filter(el => !el.dotDotDotToken).map(el => (el.propertyName ?? el.name).getText());
+  }
+  return [];
+}
+
 function partA(out, stats) {
   const T = typeTools();
   for (const f of engineFiles()) {
@@ -114,13 +132,14 @@ function partA(out, stats) {
       const fnName = ts.isCallExpression(n) ? n.expression.getText() : '';
       if ((fnName !== 'checkOptions' && fnName !== 'readParams') || n.arguments.length < 3) return;
       const isParams = fnName === 'readParams';   // readParams('sky', SCHEMA, opts): the label is the factory call 'sky()'
-      const label = isParams ? n.arguments[0].getText().slice(1, -1) + '()' : n.arguments[0].getText().slice(1, -1);
+      const raw = n.arguments[0].getText().slice(1, -1);   // a public API entry already names its call (grids.add(name), style.sky.fog); a module factory is only its name
+      const label = isParams && !raw.includes('(') && !raw.includes('.') ? raw + '()' : raw;
       const known = isParams ? schemaKeys(sf, n.arguments[1]) : stringArray(sf, n.arguments[2]);
       const t = resolveParamType(T, label, paramIndexOf(n, isParams ? 2 : 1));
       const dts = t && T.fields(t);
       if (!dts) { stats.skipped.push(`${f}:${lineOf(n)} ${label}`); return; }
       stats.matched++;
-      const js = new Set(known.vals);
+      const js = new Set([...known.vals, ...restSiblings(n, n.arguments[isParams ? 2 : 1])]);
       const allow = k => ALLOW_KEYS.some(([l, kk]) => l === label && kk === k);
       const onlyDts = [...dts].filter(k => !js.has(k) && !allow(k));
       const onlyJs = [...js].filter(k => !dts.has(k) && !allow(k));

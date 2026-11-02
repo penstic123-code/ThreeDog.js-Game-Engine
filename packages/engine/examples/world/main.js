@@ -1,11 +1,12 @@
 // Open-world example (slow photography life): riverside cabin + an old fisherman who walks by the clock + pickups, quests, weather, photos, saves.
 // This file only holds rules: installing engine modules, computing place coordinates, handing content/ to the engine, ops and presentation.
 // The level is content: the cabin, props, physics props, items, NPCs, dialogues, quests and vegetation all live in content/ (rule R33).
-import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, quests, photo, timeline, triggers, entities, particles, music, hud, createTerrain, toast } from '../../index.js';
-import lowpoly, { assets as lowpolyAssets } from '@threedog/style-lowpoly';   // optional package: a style pack (looks) and an asset pack (procedural models)
+import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, pickups, quests, photo, timeline, triggers, particles, music, hud, createTerrain, toast } from '../../index.js';
+import style from './style/index.js';   // this game's look (style/); its asset pack (procedural trees, rocks, the humanoid body) is registered from assets.js
+import packs from './assets.js';
 import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';   // optional package: the terrain generator (world shape, not a look)
 import data from './content/index.js';
-import { cabin, BODIES } from './models.js';
+import { BODIES } from './models.js';
 
 // ---------- 0. Pick a flat spot as home ----------
 // Preview the terrain with the same seed, find a good spot, then tell the engine to flatten it
@@ -17,11 +18,11 @@ for (let r = 0; r < 3000; r += 10) {
   if (h > 4 && h < 10 && preview.slope(x, z) < 0.2 && riverAt(x, z, preview.noise) === 0) { home = { x, z }; break; }
 }
 
-// core + style pack + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
+// core + style + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
+const engine = createEngine({ canvas: document.getElementById('view'), style, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
 // opt-in presets: four seasons and temperate weather (the engine assumes neither)
-engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, sky: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
-  interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), quests({ ...presets.keys.quests }), photo({ ...presets.keys.photo }), timeline(), triggers(), entities(), particles(), music({ duckDialogue: 0.35 }), hud(),   // gameplay modules: not in the preset, this game uses them all
+engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, calendar: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
+  interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), pickups(), quests({ ...presets.keys.quests }), photo({ ...presets.keys.photo }), timeline(), triggers(), particles(), music({ duckDialogue: 0.35 }), hud(),   // gameplay modules: not in the preset, this game uses them all
   content());
 
 // ---------- 1. Places: nearest riverside to the cabin (fisherman goes there in the morning, barrel floats there) ----------
@@ -34,12 +35,11 @@ search: for (let r = 10; r < 400; r += 4) {
 }
 
 // ---------- 2. Cabin: placed by content/props.js (template 'cabin'); its model is built in code and registered by name ----------
-engine.assets.manifest(lowpolyAssets);                  // asset pack: the trees, rocks and flowers content names (pine, rock, ['flower', color])
-engine.assets.manifest({ name: 'world', models: { cabin } });
+engine.assets.manifest(packs);   // assets.js: the lowpoly trees / rocks / flowers and this game's cabin
 // Presentation that follows the clock: chimney smoke while the cabin's model is built, doorway lamp on 18:00-06:00
 // (sky.between re-aligns after start, load, applying a scenario, or rewinding time)
 let lampOn = false, smoke = null, smokeOn = null;
-engine.sky.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
+engine.calendar.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
 engine.onFrame(() => {
   const view = engine.world.view('cabin');
   if (smokeOn !== view) { smoke?.remove(); smoke = view && engine.particles.attach('smoke', view.getObjectByName('chimney')); smokeOn = view; }
@@ -48,7 +48,7 @@ engine.onFrame(() => {
 });
 
 // ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, templates, props, physics props, custom conditions) ----------
-engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });   // body: lowpoly's humanoid asset
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });   // body: the humanoid asset from style/
 engine.content.load(data, { places: { home, river, water: waterSpot } });   // content names models only; the asset packs above resolve them
 
 // Show the film count at the top left (hud counter)
@@ -78,7 +78,7 @@ engine.photo.canTake = () => engine.inventory.has('film') || 'noFilm';   // the 
 engine.events.on('photo:denied', () => toast(engine, '没有胶卷了'));
 engine.events.on('photo:taken', () => {
   engine.inventory.remove('film');
-  const t = engine.sky.timeOfDay;
+  const t = engine.calendar.timeOfDay;
   if (t > 17 / 24 && t < 19 / 24) engine.vars.bump('sunsetPhotos');
 });
 const strip = document.getElementById('strip');
@@ -111,7 +111,7 @@ engine.events.on('engine:ready', () => {
       const [mesh, add, opts] = BODIES[rec.shape]();
       mesh.position.copy(rec.position);
       mesh.castShadow = mesh.receiveShadow = true;   // rigid bodies do not change the model's shadow settings
-      mesh.userData.body = engine.rigid[add](mesh, opts);
+      mesh.userData.body = engine.rigid[add](mesh, { ...opts, id: rec.id });   // id: the save keeps its rotation and velocity, not only the position
       return mesh;
     },
     dispose(rec, mesh) { if (engine.rigid.world) mesh.userData.body?.remove(); engine.remove(mesh); },   // after engine.dispose the physics world is already gone

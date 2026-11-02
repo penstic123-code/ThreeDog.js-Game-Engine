@@ -6,7 +6,7 @@ import { warnOnce, fmt } from '../../core/validate.js';
 const STRINGS = {
   full: 'Container {box} has no room for {id} (capacity {cap} slots, maxWeight {mw}): add returns false. Raise capacity / maxWeight, or remove something first',
   partial: 'Only {fit} of {n} {id} fit in container {box} (stack {stack} per slot, capacity {cap} slots, maxWeight {mw}); add still returns the entry key. Raise capacity / maxWeight or the item\'s stack',
-  badRow: "container '{box}': dropped a saved entry that is not { id: string, count: whole number > 0, data?: plain object } ({got}); the save was edited by hand or is damaged",
+  badRow: "container '{box}': dropped a saved entry that is not { id: string, count: whole number 1..2^53-1, data?: plain object } ({got}); the save was edited by hand or is damaged",
 };
 // order-independent signature: entries with equal data stack together whatever the key order
 export const sig = v => v === undefined ? '' : v && typeof v === 'object'
@@ -38,7 +38,7 @@ export function acceptsFrom(b, src, item, n) {
 }
 
 export function putIn(b, id, n, data, key, silent) {
-  const def = b.inv.item(id), say = !silent && b._player, t = (k, p) => b.inv.engine.t(k, p);
+  const def = b.inv.item(id), say = !silent && b._local, t = (k, p) => b.inv.engine.t(k, p);
   const fit = Math.min(n, b._room(id, data)), info = { box: b.id, id, n, fit, stack: def.stack, cap: b.capacity, mw: b.maxWeight };
   if (fit <= 0) { if (say) toast(b.inv.engine, t('inventory.full'), { kind: 'item' }); warnOnce(fmt(STRINGS.full, info)); return false; }
   if (fit < n) warnOnce(fmt(STRINGS.partial, info));
@@ -53,7 +53,7 @@ export function loadEntries(b, list) {
   b._entries = [];
   for (const r of Array.isArray(list) ? list : []) {
     const key = r?.key ?? r?.id;
-    if (typeof r?.id !== 'string' || !Number.isInteger(r.count) || r.count <= 0 || typeof key !== 'string' || !plain(r.data)) { warnOnce(fmt(STRINGS.badRow, { box: b.id, got: JSON.stringify(r) })); continue; }
+    if (typeof r?.id !== 'string' || !Number.isSafeInteger(r.count) || r.count <= 0 || typeof key !== 'string' || !plain(r.data)) { warnOnce(fmt(STRINGS.badRow, { box: b.id, got: JSON.stringify(r) })); continue; }
     b.inv._known(r.id);   // an id the game no longer defines warns like add() does
     b._entries.push({ key, id: r.id, count: r.count, data: freeze(r.data), sig: sig(r.data) });
   }

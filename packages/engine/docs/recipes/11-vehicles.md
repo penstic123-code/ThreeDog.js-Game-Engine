@@ -24,13 +24,13 @@ function makeCar() {
 engine.events.on('engine:ready', () => {
   const { car, wheels } = makeCar();
   car.position.set(10, engine.surface(10, 0) + 1.5, 0);                // place it slightly above the ground and let it drop
-  const v = engine.rigid.addVehicle(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 14, height: 2 } });
+  const v = engine.rigid.addWheeled(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 14, height: 2 } });
   window.car = v;                                                     // handy for tests and the console
 });
 ```
-`addVehicle` options: `id` stable id (default `vehicle1`, `vehicle2`... in creation order; give one when that order varies), `wheels` (at least 3),
+`addWheeled` options: `id` stable id (default `vehicle1`, `vehicle2`... in creation order; give one when that order varies), `wheels` (at least 3),
 `mass` in kg, `engineForce` throttle force, `brakeForce`, `maxSteer` in radians, `suspension: { rest, stiffness, damping }`,
-`seat` seat position, `camera` camera distance/height while driving, `size` body collision box (by default the model's bounding box, wheels excluded),
+`seats` seat positions (the first drives, the rest ride; each exits on its own side), `hideDriver` (default true; false keeps riders visible on their seats: bikes, karts, open carts), `camera` camera distance/height while driving, `size` body collision box (by default the model's bounding box, wheels excluded),
 `friction` grip, `exitOffset` how far from the side of the body the player lands when exiting (meters, default 0.8).
 Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.castShadow = true` yourself if you want a shadow.
 
@@ -40,13 +40,48 @@ Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.cas
   it doesn't compete with jumping) brakes, and without one the engine warns once; press E again to exit.
 - Saving: the player save records which vehicle the player is in (its `id`); loading an on-foot save while driving exits the vehicle first, and
   loading a driving save puts the player back in the car.
-- Code: `engine.player.enter(v)`, `engine.player.exit()`; `engine.player.vehicle` is the vehicle being driven (null when on foot); `v.driver` is who is driving.
+- Code: `engine.player.enter(v)`, `engine.player.exit()`; `engine.player.vehicle` is the vehicle being driven (null when on foot); `v.driver` is who is driving, `v.passengers` who rides, `character.seat` the seat (0 drives; a second `enter` takes a free passenger seat, which does not steer).
 - NPCs/scripts driving: `v.drive(throttle -1..1, steer -1..1 (right is positive), brake 0-1)`; the last values set are used on every fixed step.
 - Events: `vehicle:enter`, `vehicle:exit` (`{ character, vehicle }`). Removal: `v.remove()` (anyone inside exits first; the model stays,
   `engine.remove(car)` deletes it).
 - Native objects: `v.body` (Rapier rigid body), `v.controller` (vehicle controller), `v.speed` (m/s, negative when reversing).
 
-## 3. Verify
+## 3. Rigid bodies: saves, joints, determinism
+This section covers every `engine.rigid` body (crates, balls, hulls, vehicles), not only cars.
+
+**Saves.** A body added with an `id` (`rigid.addBox(mesh, { id: rec.id })`; vehicles always have one) is saved with its pose, rotation,
+velocities and sleep, and a load gives that state back to the body with the same id, also when it is built after the load (a world presenter's
+`build`). A body without an id is not saved: after a load it is wherever its record (or your code) puts it, upright and at rest.
+
+**Joints** (hinges, doors, ropes, chains) are plain Rapier on engine bodies; the engine has no wrapper:
+```js
+const R = engine.rigid, J = R.R.JointData;
+const post = R.addBox(postMesh, { fixed: true }), door = R.addBox(doorMesh, { mass: 8 });
+// hinge on the post's right edge, turning around Y; anchors are in each body's local space
+const hinge = R.world.createImpulseJoint(J.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
+hinge.setLimits(-1.5, 1.5);
+// rope: the weight hangs at most 2 m below the hook
+R.world.createImpulseJoint(J.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), hook.body, weight.body, true);
+```
+`R.world` is the Rapier world and `entry.body` the Rapier body. newGame and a load rebuild the physics world. Joints between engine bodies
+(`addBox` / `addBall` / `addHull` / `addWheeled`, or `rigid.playerBody`) are re-created between the rebuilt bodies with their settings
+(`setLimits`, motors), and your joint object keeps working. A joint to a body made with `world.createRigidBody` is dropped with a `rigid-misuse`
+warning: make anchors with `addBox(mesh, { fixed: true })`. Joints are not saved: create them where you create their bodies (a presenter's
+`build`). Removing a body removes its joints (Rapier does that).
+
+**Determinism**, the one place this is stated (replay, `engine.step`, saves and net link here):
+- Same build, same machine, same inputs and the same number of fixed steps give bit-identical bodies, in a fresh page and at any frame rate.
+  Physics only advances in fixed steps. Test: `npm test -- "rigid determinism"`: stacked boxes knocked over, a rolling ball, a driving car, the
+  `mover: 'rapier'` player, two fresh pages, `frameEvery` 1 / 2 / 4.
+- A load restores each saved body exactly. Rapier's contact and warm-start caches and its solver order are not saved, so the run after a load
+  is not bit-identical to the run that went on without the load. A toppling stack can end some centimetres away (measured: 0.24 m after 1.5 s).
+  Bodies at rest stay at rest. Bit-identical continuation would need `world.takeSnapshot()`, which includes the terrain colliders (about 650 KB
+  for the open world's 9 chunks) and is not used.
+- Across machines: the engine uses `@dimforge/rapier3d-compat`, which Rapier does not promise to be cross-platform deterministic (that is the
+  separate `rapier3d-deterministic` build). Two machines can drift apart. The net module does not depend on matching physics: the host owns the
+  state, and physics is not synced (each machine simulates its own bodies).
+
+## 4. Verify
 - In a test (no real key presses): `engine.player.enter(car); engine.input.autopilot = { x: 0, y: 1 }; engine.step(3)`,
   then `describe().player.vehicle.speed` is above 0 and the car has moved; after `engine.player.exit()`, `engine.player.vehicle` is null and the
   player stands outside the door.

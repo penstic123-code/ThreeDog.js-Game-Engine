@@ -5,6 +5,7 @@
 // clone and GLB export and object references do not; so a procedural builder and a baked / hand-made GLB with those names animate the same way.
 import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
+import { copyPatches } from '../../render/patches.js';
 import { warnOnce } from '../../core/validate.js';
 
 /** Warned once when no model gives the character a body */
@@ -40,7 +41,7 @@ export function tintParts(root, colors) {
   root.traverse(o => {
     const c = o.isMesh ? colors[o.userData.part] : null;
     if (c == null || !o.material?.color) return;
-    o.material = o.material.clone(); o.material.color.set(c);
+    o.material = copyPatches(o.material, o.material.clone()); o.material.color.set(c);   // the tinted copy keeps wind / cloud / pack shader patches
   });
 }
 

@@ -28,6 +28,8 @@ export class Events {
     /** How many history entries to keep, default 200; 0 records nothing */
     this.historySize = 200;
     /** @internal >0 while an atomic rollback reloads state: emit does nothing */ this.muted = 0;
+    /** @internal set while a save part loads (saveApply.js): a listener that throws is collected here instead of reported, so the load fails and
+     *  rolls back; reported on its own, the load would carry on half-applied (a world:load listener that throws mid-load froze the game) */ this._catch = null;
     /** Cause trace ring size, default 0 = off (no cost). Set e.g. 200 in dev to record which event or op caused which follow-up event; read with trace() */
     this.traceSize = 0;
     /** @internal trace ring: arrival order until full, then _th marks the oldest */ this._trace = []; this._th = 0; this._tid = 0; this._cur = null; this._focus = null;
@@ -126,7 +128,7 @@ export class Events {
     const s = this.map.get(name); if (!s) { if (this.traceSize > 0) this._note(name); return; }
     const prev = this._cur;
     if (this.traceSize > 0) this._cur = `ev:${this._note(name)}`;   // handlers run under this event: what they emit names it as parent
-    try { for (const fn of [...s]) { try { fn(...args); } catch (err) { if (this.onError) this.onError(name, err); else console.error(`[event ${name}]`, err); } } }
+    try { for (const fn of [...s]) { try { fn(...args); } catch (err) { if (this._catch) this._catch.push({ name, err }); else if (this.onError) this.onError(name, err); else console.error(`[event ${name}]`, err); } } }
     finally { this._cur = prev; }
   }
   /** @internal trace entries old -> new */

@@ -2,7 +2,6 @@
 //   set({ 'rain.color', 'rain.speed', 'snow.size', 'lightning.brightness', overcastColor ... })   rebuilds that field's particle system once (a few ms)
 //   patch('rain.vertex' | 'rain.fragment' | 'snow.vertex' | 'snow.fragment', glsl)             the WHOLE shader text, not a function (see shaders.js)
 //   replace({ rain: spec, ash: spec })   spec = the keys of style.weather.rain or { create(engine, { area, count }) => { object, update } }; null gives back
-// The old engine.weather call with a field name was renamed in 0.2 (it throws): use replace({ [field]: spec }).
 // Why the shader stays whole (decision #9): the rain / snow shaders move vertices and size points; a function hook would hide most of that.
 import { defineLookPart, REPLACE } from '../../core/look/part.js';
 import { warnOnce } from '../../core/validate.js';

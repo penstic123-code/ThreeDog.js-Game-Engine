@@ -1,9 +1,11 @@
 // Part of content validation (called by content-check.mjs): containers, vegetation, templates, props, renames. ctx holds the helper functions of the main file.
 import { pathToFileURL } from 'node:url';
-import { abs, CONTENT_IDS_REL } from '../paths.mjs';
+import { abs, CONTENT_IDS_REL, CONTENT_STAGES_REL } from '../paths.mjs';
 
 // the engine's id formulas (index ids of pickups / template instances), so the ids checked here are the ids a load produces
 const { pickupId, templateId } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
+// the engine's stages rules: a stages list the engine would throw on is an error here, before the game runs
+const { stagesProblems } = await import(pathToFileURL(abs(CONTENT_STAGES_REL)).href);
 
 /** ctx: { c, items, err, checkModel, checkPos, isObj, known } */
 export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, known }) {
@@ -36,6 +38,9 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
     else checkModel('templates', `template ${name}`, m);
     if (t?.collide !== undefined && ![false, 'box', 'circle'].includes(t.collide)) err('templates', `collide of template ${name} can only be 'box', 'circle' or false`);
     if (t?.interact && typeof t.interact.op !== 'string') err('templates', `interact of template ${name} needs op (the op name run with { id } when used)`);
+    for (const m of stagesProblems(`template ${name}`, t?.stages)) err('templates', m);
+    if (Array.isArray(t?.stages)) t.stages.forEach((s, i) => { const sm = [s?.model].flat()[0]; if (typeof sm === 'string') checkModel('templates', `template ${name} stages[${i}]`, sm); });
+    if (t?.canGrow !== undefined && !t?.stages) err('templates', `template ${name}: canGrow only applies with stages (it holds the current stage while false)`);
   }
 
   // 12. Renames: every target is an id some entry defines (else the saved state moves into nothing); no source is still defined (else the rename
@@ -64,7 +69,6 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
       if (p?.template) { if (!templates[p.template]) err('props', `${where} uses template ${p.template}, which templates.js does not define (existing: ${known(templates)})`); }
       else if (!m) err('props', `${where} has no model (the model name), or a template`);
       else checkModel('props', where, m);
-      if (p?.collide !== undefined && ![false, 'box', 'circle'].includes(p.collide)) err('props', `collide of ${where} can only be 'box', 'circle' or false`);
       checkPos('props', where, p);
     });
   }

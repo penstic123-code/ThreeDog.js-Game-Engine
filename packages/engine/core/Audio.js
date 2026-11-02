@@ -1,26 +1,32 @@
 // Audio core: buses (master, music, sfx, ambience, ui + the game's own), sounds by name, ducking, and the condition table for rule lists.
 // Sounds are the game's: createEngine({ audio: { sounds, ambience, music, footsteps, levels } }) or a content pack's audio table (contentPack,
-// audioRules.js), merged into engine.audio.config. The engine ships none and plays nothing the game did not ask for: modules register built-in
-// synths with { builtIn: true }, silent until audio.sounds names them. A sound src may be a file or a sound name from an asset pack.
+// audioRules.js), merged into engine.audio.config. Where a sound comes from is the asset manifest's job (assets.manifest({ sounds: { step:
+// '/sfx/step.ogg', ding: synthFn } }): a file or a synth function, used by name); audio.sounds only says how it plays (src, variants, volume, bus...).
+// The engine plays nothing the game did not ask for: modules register their synths as built-in sound assets, silent until audio.sounds names them.
 // Usage: recipes/31-audio.md.
 // Browsers only allow sound after the first click/keypress; this waits for it automatically.
 
 /** @import { SynthFn, SoundDef, AudioCondition, AudioVolume } from '../types/core' */
 import { codedError } from './errorHints.js';
-import { missingText, warnOnce, checkOptions } from './validate.js';
-import { SoundHandle, playSound, placeListener, synthNoise, synthTone, loadSound, playFile } from './audioVoice.js';
+import { missingText, warnOnce } from './validate.js';
+import { readParams, keysSchema } from './params.js';
+import { SoundHandle, playSound, placeListener, synthNoise, synthTone, loadSound, playFile, soundDef } from './audioVoice.js';
 import { matchesWhen, volumeOf, checkRuleName, packAudio, applyDucks, audioInfo } from './audioRules.js';
-const AUDIO_KEYS = ['levels', 'sounds', 'ambience', 'music', 'footsteps'];
+// createEngine({ audio }) 的 schema：未知键开发时抛错带 did-you-mean。对象 / 数组默认值不放这里：放了会被所有引擎共用同一个对象
+const AUDIO_PARAMS = { levels: 'object?', sounds: 'object?', ambience: 'array?', music: 'object?', footsteps: 'object?' };
+// music 里的值形状多（duckDialogue 是数字或 false），这里只管键名拼写；值由 music() 自己查
+const MUSIC_PARAMS = keysSchema(['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);
+const BUS_PARAMS = { level: { type: 'number', default: 1, min: 0, desc: 'bus volume 0-1' }, owner: 'string?' };
+const DUCK_PARAMS = { fade: { type: 'number', default: 0.3, min: 0, desc: 'fade seconds both ways' } };
 const DEFAULT_LEVELS = { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 };
 
 /** engine.audio: buses, sounds by name, ducking. Sfx play by name from the game's audio.sounds (file, variants or synth). */
 export class Audio {
   /** @internal */
   constructor(engine, opts = {}) {
-    checkOptions('createEngine({ audio })', opts, AUDIO_KEYS);
-    const { levels = {}, sounds = {}, ambience = [], music = {}, footsteps = {} } = opts;
+    const { levels = {}, sounds = {}, ambience = [], music = {}, footsteps = {} } = readParams('createEngine({ audio })', AUDIO_PARAMS, opts);
     // a typo (trakcs) would just play nothing
-    checkOptions('createEngine({ audio: { music } })', music, ['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);
+    readParams('createEngine({ audio: { music } })', MUSIC_PARAMS, music);
     /** @internal */ this.engine = engine;
     /** The browser AudioContext (exists only after the first click) @type {any} */
     this.ctx = null;
@@ -31,13 +37,13 @@ export class Audio {
      * Content packs' ambience / music rules go to ambience() / music(), not here
      * @type {import('../types/core').AudioConfig}
      */
+    for (const [n, v] of Object.entries(sounds)) soundDef(n, v);   // the old synth forms fail here, at createEngine, not at the first play
     this.config = { sounds: { ...sounds }, ambience, music, footsteps: { ...footsteps } };
     /** Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks @type {Record<string, any>} */
     this.buses = {};
     /** The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules) @type {string | null} */
     this.state = null;
     /** @internal */ this.buffers = new Map();
-    /** @internal */ this.synths = new Map();
     /** @internal */ this.conditions = new Map([['state', v => [].concat(v).includes(this.state)]]);
     /** @internal name -> (engine) => number: values rule data compares ({ daylight: { gt: 0.15 } }) and data volumes add up */
     this.measures = new Map();
@@ -96,14 +102,23 @@ export class Audio {
 
   /**
    * Add a bus of your own (routed to master). It gets a settings slider like the others (label key settings.vol.<name>)
+   * until the handle is removed (the one give-back form, like every other handle). A name that is already a bus throws: two owners of one bus
+   * could not both remove it.
    * @param {string} name
-   * @param {number} [level]
-   * @returns {this}
-   * @example engine.audio.addBus('voice', 1); engine.audio.sfx('line-01', { bus: 'voice' });
+   * @param {{ level?: number, owner?: string }} [opts] level 0-1 (1)
+   * @returns {{ owner?: string, remove(): void }}
+   * @example const voice = engine.audio.addBus('voice', { level: 1 }); engine.audio.sfx('line-01', { bus: 'voice' }); voice.remove();
    */
-  addBus(name, level = 1) {
-    if (!(name in this.levels)) { this.levels[name] = level; if (this.ctx) this._makeBus(name); }
-    return this;
+  addBus(name, opts = {}) {
+    const { level, owner } = readParams('audio.addBus()', BUS_PARAMS, opts);
+    if (name === 'master' || name in this.levels) throw codedError('engine-misuse', `audio.addBus('${name}'): '${name}' is already a bus (${Object.keys(this.levels).join(', ')}); use it by name, or remove the handle that added it first`);
+    this.levels[name] = level; if (this.ctx) this._makeBus(name);
+    return { owner, remove: () => {
+      if (!(name in this.levels)) return;
+      delete this.levels[name];
+      this.buses[name]?.disconnect(); this._duckNodes[name]?.disconnect();   // 正在这条总线上响的声音随节点一起断开（总线没了，声音不该还出声）
+      delete this.buses[name]; delete this._duckNodes[name];
+    } };
   }
   /**
    * Set a bus volume 0-1 ('master' for the total)
@@ -126,9 +141,8 @@ export class Audio {
    * @example const d = engine.audio.duck({ music: 0.3, ambience: 0.5 }); engine.events.once('dialogue:end', () => d.remove());
    */
   duck(levels, opts = {}) {
-    checkOptions('audio.duck()', opts, ['fade']);
     for (const b of Object.keys(levels)) if (b === 'master' || !(b in this.levels)) this._bus(b);
-    const { fade = 0.3 } = opts, entry = { levels };
+    const { fade } = readParams('audio.duck()', DUCK_PARAMS, opts), entry = { levels };
     this._ducks.add(entry); this._applyDucks(fade);
     return { remove: (f = fade) => { if (this._ducks.delete(entry)) this._applyDucks(f); } };
   }
@@ -136,23 +150,8 @@ export class Audio {
   _applyDucks(fade) { applyDucks(this, fade); }
 
   /**
-   * Register a synthesized sound: synthFn(audio, params, out) connects its nodes to `out` and returns its length in seconds
-   * (or { stop(time) } for a loop). Plays for sounds entries that name it ('synth' or { synth: name }); a name with no sounds entry
-   * plays it too unless builtIn (engine modules pass builtIn: true so their synths stay silent until the game asks).
-   * @param {string} name
-   * @param {SynthFn} synthFn
-   * @param {{ builtIn?: boolean, bus?: string, params?: Record<string, any> }} [opts] bus: default bus ('sfx'); params: default params
-   * @returns {this}
-   * @example engine.audio.register('ding', (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; });
-  */
-  register(name, synthFn, opts = {}) {
-    checkOptions('audio.register()', opts, ['builtIn', 'bus', 'params']);
-    this.synths.set(name, { fn: synthFn, builtIn: !!opts.builtIn, bus: opts.bus, params: opts.params || {} }); return this;
-  }
-
-  /**
    * Add a condition key for music / ambience rule lists: `when: { [name]: value }` calls test(value, engine). Modules add theirs
-   * (sky: time, weather: weather, triggers: zone); the engine has `state` (engine.audio.state).
+   * (calendar: time, weather: weather, triggers: zone); the engine has `state` (engine.audio.state).
    * @param {string} name
    * @param {(value: any, e: any) => boolean} test
    * @returns {{ remove(): void }}
@@ -161,7 +160,7 @@ export class Audio {
   condition(name, test) { checkRuleName(this, name, false); this.conditions.set(name, test); return { remove: () => this.conditions.delete(name) }; }
   /**
    * Add a measure: a number rule data compares (`when: { daylight: { gt: 0.15 } }`; gt / gte / lt / lte) and adds up (`volume: { add: { wind: 0.08 } }`).
-   * sky adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both
+   * calendar adds daylight, weather rain / snow / wind, ambience nearWater / altitude. A name is a condition or a measure, not both
    * @param {string} name
    * @param {(e: any) => number} fn
    * @returns {{ remove(): void }}
@@ -199,6 +198,7 @@ export class Audio {
    * @param {any} data
    */
   contentPack(key, from, data) {
+    for (const [n, v] of Object.entries(data?.sounds || {})) soundDef(n, v);   // same early check for a content pack's rules
     const p = packAudio(this, data, from);
     Object.assign(this.config.sounds, p.sounds); Object.assign(this.config.footsteps, p.footsteps);
     const pack = { from, ambience: p.ambience, music: p.music };
@@ -212,8 +212,9 @@ export class Audio {
   }
 
   /**
-   * Play a sound by name from audio.sounds (file, variants, or a synth). Returns a SoundHandle (stop, fade, setPosition), or null when it is
-   * silent: not configured, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops.
+   * Play a sound by name: its audio.sounds rule (src / variants, volume, bus...), or with no rule the asset pack sound of that name (file or synth
+   * function from assets.manifest({ sounds })). Returns a SoundHandle (stop, fade, setPosition), or null when it is silent: not configured, a
+   * built-in synth the game did not name, audio still locked, or held back by the sound's cooldown. Over its `voices` limit the oldest voice stops.
    * @param {string} name
    * @param {{ volume?: number, pitch?: number, at?: any, bus?: string, loop?: boolean, params?: Record<string, any>, fadeIn?: number }} [opts]
    *   at: a position or an Object3D to follow (3D sound); params: extra synth params

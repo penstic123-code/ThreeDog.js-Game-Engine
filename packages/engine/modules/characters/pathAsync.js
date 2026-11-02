@@ -5,6 +5,7 @@
 // if that changed before it lands, it is recomputed here on the current state, so threads on / off / slow / crashed give identical paths.
 import { xzOf } from '../../core/math.js';
 import { solveBatch, pathHandler, astarDefaults, RES, TILE, tileOf } from './pathJob.js';
+import { codedError } from '../../core/errorHints.js';
 
 /** Steps between sending a batch and its answers taking effect (4 = 67 ms): enough for a worker round trip, short enough that an NPC barely waits */
 const PATH_LAG = 4;
@@ -23,7 +24,7 @@ export class AsyncPaths {
     this.tiles = new Map();             // 'tx:tz' -> { data, trees, at }
   }
   request(from, to, done, o = {}) {
-    if (typeof done !== 'function') throw new Error(NO_DONE);
+    if (typeof done !== 'function') throw codedError('character-option', NO_DONE);
     const [sx, sz] = xzOf(from), [gx, gz] = xzOf(to);
     const h = { sx, sz, gx, gz, o, done, canceled: false, remove() { h.canceled = true; } };
     this.queue.push(h);

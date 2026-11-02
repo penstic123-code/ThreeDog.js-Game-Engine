@@ -12,6 +12,7 @@ import { Views } from './views.js';
 import { Sim } from './sim.js';
 import { initState, mixInternals } from './state.js';
 import { putPos, centerOf } from './pos.js';
+import { codedError } from '../../core/errorHints.js';
 
 const STRINGS = {
   anchor: 'world.anchor must be null, an Object3D, a Vector3 / { x, z } or [x, y, z]; got {got}',
@@ -58,7 +59,7 @@ export class World {
   get anchor() { return this._anchor; }
   set anchor(a) {
     const ok = a == null || a.isObject3D || (Array.isArray(a) ? a.length === 3 && a.every(Number.isFinite) : Number.isFinite(a.x) && Number.isFinite(a.z));
-    if (!ok) throw new Error(fmt(STRINGS.anchor, { got: JSON.stringify(a) }));
+    if (!ok) throw codedError('world-option', fmt(STRINGS.anchor, { got: JSON.stringify(a) }));
     this._anchor = a ?? null;
   }
 
@@ -185,6 +186,11 @@ export class World {
    */
   view(id) { return this._v.map.get(id)?.obj ?? null; }
   /**
+   * @internal Tear down this record's model now and build it again on the next refresh (a content template stage that names another model).
+   * The record is untouched; safe to call from a present update (the views loop tolerates the entry going away).
+   */
+  rebuild(id) { this._v.unview(id); this._v.dirty = true; }
+  /**
    * All models that should exist near the stream sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to
    * wait yourself, await world.whenReady @type {boolean}
    */
@@ -205,17 +211,21 @@ export class World {
    * far(rec, dt): farther away, once every farEvery seconds; dt is the seconds accumulated since the last simulation (can catch up a long time at once); on the
    * far → near step, far runs first to pay back the owed time.
    * With only far (crops), near also advances via far; with only near, far records are not simulated and owed time is not made up.
-   * Both dt are accumulated fixed-step seconds (not multiplied by clock.timeScale). For things measured in game clock (grows over days) store engine.clock.now
-   * and compare.
+   * Both dt are accumulated real (fixed-step) seconds (not multiplied by clock.rate). For things measured in game clock (grows over days) store engine.clock.now
+   * and compare. channel: a time channel name (or rec => name) the kind lives on; then both dt are multiplied by that channel's speed (and the record's
+   * engine.time.local stack), so bullet time on 'enemies' slows near and far records alike (NPCs use it with their own channel).
    * radius defaults to the present radius ('view' widened by 1.25), or world.radius without present; may also be a function.
+   * fullRadius + nearEvery (tiers, for crowds): records within fullRadius m (number or function) run near every step; the rest of the near zone runs near
+   * once every nearEvery seconds, dt being the seconds since its last turn (deterministic: turns go by hashed id and step count, saved).
    * worker: true (experimental) runs far in engine.threads workers (batched per step, written back 4 steps later, bit-identical with threads off). far must
    * then be self-contained:
    * it is recompiled from source and sees only (rec, dt) and globals like Math; an outside variable throws naming it (threads on or off alike).
    * @example engine.world.simulate('zombie', { near: (rec, dt) => chase(rec, dt), far: (rec, dt) => wander(rec, dt), farEvery: 2 })
+   * @example engine.world.simulate('slime', { near: chase, far: wander, channel: 'enemies' })   // engine.mod('time.enemies', { mul: 0.35, for: 2 }) slows them
    * @example engine.world.simulate('crop', { far: (rec, dt) => { rec.growth = Math.min(1, rec.growth + dt / 600); }, worker: true })
    * @param {string} kind
    * @param {{ near?: (rec: WorldRecord, dt: number, obj: any) => void, far?: (rec: WorldRecord, dt: number) => void, farEvery?: number, radius?: number | (()
-   * => number), worker?: boolean }} opts
+   * => number), fullRadius?: number | (() => number), nearEvery?: number, worker?: boolean, channel?: string | ((rec: WorldRecord) => string) }} opts
    * @returns {{ remove(): void }}
    */
   simulate(kind, opts) { return this._s.simulate(kind, opts); }

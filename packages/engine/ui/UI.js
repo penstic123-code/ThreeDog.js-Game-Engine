@@ -1,5 +1,5 @@
 // UI base. The engine provides only structure and behavior (windows open/close, toasts pop up); the look is fully replaceable:
-//   1. Colors, fonts, radii: variables in the style pack's style.ui (bg, fg, accent...), turned into CSS variables --threedog-* on engine.uiRoot
+//   1. Colors, fonts, radii: variables in the style's style.ui (bg, fg, accent...), turned into CSS variables --threedog-* on engine.uiRoot
 //   2. Layout details: style.ui.css is placed after every engine and module default, so it overrides the .threedog-* classes
 //   3. Whole window content: style.ui.templates.<window name>(data, helpers) returns HTML and replaces the default layout
 //
@@ -8,6 +8,8 @@ import * as THREE from 'three';
 import { vec3 } from '../core/math.js';
 import { uiFocus } from './Focus.js';
 import { injectUICSS } from './theme.js';
+import { codedError } from '../core/errorHints.js';
+import { uiAfter } from '../core/uiClock.js';
 /** @import { Engine } from '../types/core' */
 /** @import { PositionLike, Object3D } from '../types/common' */
 /** @import { UIWindow, WindowOptions, ScreenPoint } from '../types/gameplay' */
@@ -29,7 +31,7 @@ export const iconHTML = def => def?.iconUrl ? `<img src="${esc(def.iconUrl)}" al
  * @example toast(engine, 'Saved', { kind: 'save' })
  */
 export function toast(engine, text, { kind = 'info', ms = 2600 } = {}) {
-  if (!engine?.ui) throw new Error(`toast(engine, text): the engine comes first, e.g. toast(engine, ${JSON.stringify(String(engine ?? ''))}).`);
+  if (!engine?.ui) throw codedError('ui-misuse', `toast(engine, text): the engine comes first, e.g. toast(engine, ${JSON.stringify(String(engine ?? ''))}).`);
   engine.ui.get('toast')?.show({ text, kind, ms });
 }
 
@@ -46,13 +48,16 @@ export function toastPart(engine) {
     show({ text, ms = 2600 }) {
       if (!box) { box = document.createElement('div'); box.className = 'threedog-ui threedog-toasts'; engine.uiRoot.appendChild(box); }
       const t = document.createElement('div'); t.className = 'threedog-toast'; t.textContent = text; box.appendChild(t);
-      setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, ms);   // wall-clock: a message stays readable while gameplay is paused
+      // the page's own time (core/uiClock.js): wall clock in the game, so it goes away while gameplay is paused; the stepped time on a headless
+      // page. The 400 ms is the CSS fade; removal is on the same clock, so a stepped page never captures a half-faded message
+      uiAfter(engine, ms, () => { t.style.opacity = '0'; });
+      uiAfter(engine, ms + 400, () => t.remove());
     },
     dispose() { box?.remove(); box = null; },
   };
 }
 
-// When the style pack has style.ui.templates[id](data, { esc, t, icon }), it replaces the default content.
+// When the style has style.ui.templates[id](data, { esc, t, icon }), it replaces the default content.
 // Opening pushes onto the UI focus stack (uiFocus): Esc goes only to the top window / dialogue / cutscene, see Focus.js.
 /**
  * A toggleable window
@@ -80,7 +85,7 @@ export function makeWindow(engine, opts) {
     toggle(on = w.hidden) {
       if (on === !w.hidden) return;
       w.hidden = !on;
-      if (on) { ctx = engine.input.push('win-' + id); focus = uiFocus(engine).push('win-' + id, { cancel: onCancel || (() => api.toggle(false)) }); }
+      if (on) { ctx = engine.input.push('win-' + id); focus = uiFocus(engine).push('win-' + id, { cancel: onCancel || (() => api.toggle(false)), nav: () => w }); }
       else { ctx?.remove(); ctx = null; focus?.remove(); focus = null; }
       api.refresh();
       engine.events.emit(on ? 'ui:open' : 'ui:close', id);

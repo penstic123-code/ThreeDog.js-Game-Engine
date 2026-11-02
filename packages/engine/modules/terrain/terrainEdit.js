@@ -3,9 +3,11 @@
 // the same maps (so engine.surface / slope / groundType and collision see an edit at once); each worker job carries the edits around its chunk,
 // so a chunk generated later -- or regenerated after the player walked away and back -- comes out edited, identically with threads on or off.
 // Loaded chunks around an edit are rebuilt on the spot (mesh, vegetation, collision token); a worker result built before the edit is dropped.
-import { checkOptions, DEV } from '../../core/validate.js';
+import { DEV, fmt } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/params.js';
 import { xzOf } from '../../core/math.js';
 import { updateColorMap } from './terrainTexture.js';
+import { codedError } from '../../core/errorHints.js';
 
 const EDIT_KEYS = ['radius', 'shape', 'raise', 'lower', 'flatten', 'paint'];
 const STRINGS = {
@@ -15,7 +17,6 @@ const STRINGS = {
   num: 'terrain.edit(): {k} must be a finite number, got {got}',
   paint: "terrain.edit(): paint must be a ground type name such as 'tilled', or null to give the cells back their generated type; got {got}",
 };
-const fmt = (s, o) => s.replace(/\{(\w+)\}/g, (_, k) => o[k]);
 const unkey = k => [Math.floor(k / 100000) - 50000, (k % 100000) - 50000];
 
 /** @internal owned by ChunkManager (engine.terrain.edits) */
@@ -33,13 +34,13 @@ export class TerrainEdits {
 
   edit(position, o = {}) {
     DEV && this.e.ops.guard('terrain.edit');
-    checkOptions('terrain.edit()', o, EDIT_KEYS);
+    readParams('terrain.edit()', keysSchema(EDIT_KEYS), o);
     const ops = ['raise', 'lower', 'flatten'].filter(k => o[k] != null);
-    if (!ops.length && !('paint' in o)) throw new Error(STRINGS.none);
-    if (ops.length > 1) throw new Error(STRINGS.many);
-    for (const k of [...ops, 'radius']) if (o[k] != null && !Number.isFinite(o[k])) throw new Error(fmt(STRINGS.num, { k, got: o[k] }));
-    if (o.shape != null && o.shape !== 'circle' && o.shape !== 'square') throw new Error(fmt(STRINGS.shape, { got: JSON.stringify(o.shape) }));
-    if ('paint' in o && o.paint !== null && typeof o.paint !== 'string') throw new Error(fmt(STRINGS.paint, { got: JSON.stringify(o.paint) }));
+    if (!ops.length && !('paint' in o)) throw codedError('terrain-option', STRINGS.none);
+    if (ops.length > 1) throw codedError('terrain-option', STRINGS.many);
+    for (const k of [...ops, 'radius']) if (o[k] != null && !Number.isFinite(o[k])) throw codedError('terrain-option', fmt(STRINGS.num, { k, got: o[k] }));
+    if (o.shape != null && o.shape !== 'circle' && o.shape !== 'square') throw codedError('terrain-option', fmt(STRINGS.shape, { got: JSON.stringify(o.shape) }));
+    if ('paint' in o && o.paint !== null && typeof o.paint !== 'string') throw codedError('terrain-option', fmt(STRINGS.paint, { got: JSON.stringify(o.paint) }));
     const T = this.mgr.T, C = T.CELL, [x, z] = xzOf(position), r = o.radius ?? C / 2, sq = o.shape === 'square';
     // off the outline of terrain({ shape }) there is no ground to dig or paint; near the rim the grid points just outside still move,
     // because the rim's height is interpolated from them. The outline itself is not editable
@@ -110,9 +111,7 @@ export class TerrainEdits {
     const veg = this.e.vegetation;
     if (veg) for (const sp of veg.list()) {
       if (sp.nearOnly && !c.veg[sp.name]) continue;   // detail not loaded here; when it is, its job carries the edits
-      const r = T.place(c.cx, c.cz, sp.rule, m.density), old = c.veg[sp.name];
-      if (!r.n && old) { c.group.remove(old); old.dispose(); delete c.veg[sp.name]; }
-      m._applyVeg(c, sp.name, r);
+      m._applyVeg(c, sp.name, T.place(c.cx, c.cz, sp.rule, m.density));   // an empty result drops the old mesh inside vegetation.mount
     }
     c.colToken = {}; c.level = -1; c.detailDone.clear();   // edits can change what grows here: re-ask for the near-only species   // new token: the physics module rebuilds this chunk's collision
   }

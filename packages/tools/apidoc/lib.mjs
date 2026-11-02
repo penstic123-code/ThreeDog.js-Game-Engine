@@ -226,14 +226,14 @@ export const idx = [];            // packages/engine/docs/API.md
 
 // Data structures attached to each page
 export const STRUCTS = {
-  engine: ['Handle', 'StateParams', 'StartupReport'], sky: ['SkyAtOptions', 'SkyBetweenOptions'],
+  engine: ['Handle', 'StateParams', 'StartupReport'], calendar: ['CalendarAtOptions', 'CalendarBetweenOptions'],
     collision: ['CircleColliderOptions', 'BoxColliderOptions'], budget: ['BudgetLimits', 'BudgetReport', 'BudgetOver'],
   audio: ['AudioConfig', 'SoundDef', 'AmbienceRule'], rays: ['RaycastOptions', 'RayHit'], stream: ['StreamEntryOptions', 'StreamHandle'], saves: ['SaveProvider'],
   assets: ['AssetManifest', 'AnimatorOptions', 'AnimatorState', 'Animator'],
   dialogue: ['DialogueScript', 'DialogueNode', 'DialogueChoice', 'DialogueState'],
   characters: ['NPCOptions', 'ScheduleStop', 'ScheduleEntry', 'PlayerOptions', 'CharacterOptions', 'FindSpawnOptions'],
   inventory: ['ItemDef', 'PickupOptions', 'PickupHandle'], quests: ['QuestDef', 'QuestStep'], triggers: ['TriggerOptions', 'Trigger'],
-  entities: ['EntityDef', 'EntityStage', 'EntityInteract', 'EntitySpawnData', 'Entity'], particles: ['ParticleOptions', 'ParticleEmitter'],
+  particles: ['ParticleOptions', 'ParticleEmitter'],
   interactions: ['InteractionOptions'], rigid: ['RigidBodyOptions', 'RigidEntry', 'VehicleOptions', 'VehicleWheel', 'Vehicle'],
   flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker'],
   hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource', 'LightPoolUsage'], water: ['WaterBodyOptions', 'WaterBody'],

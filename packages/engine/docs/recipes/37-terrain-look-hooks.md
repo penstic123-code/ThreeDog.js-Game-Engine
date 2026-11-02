@@ -14,7 +14,7 @@ computed per pixel into a per-chunk image, the mesh stays as coarse as you like.
 ## 1. `shading: 'texture'` (and `colorResolution`)
 ```js
 engine.use(terrain({ ...terrainPreset(), shading: 'texture', colorResolution: 128 }));
-// or as a look of a style pack:  terrain: { config: { shading: 'texture', colorResolution: 128 }, colors, biomeColors, ... }
+// or as a look of a style:  terrain: { config: { shading: 'texture', colorResolution: 128 }, colors, biomeColors, ... }
 ```
 - A worker computes a `(colorResolution + 2)^2` RGBA image per chunk with the same rules as the vertex colors (`faceColor`: ground type from your
   `groundType`, `biomeColors` two-color noise blend, `steep` slope colors, `style.terrain.variation` blend / jitter / patches, painted cells).

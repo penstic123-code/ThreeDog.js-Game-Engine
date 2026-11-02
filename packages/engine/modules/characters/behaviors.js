@@ -3,6 +3,7 @@
 // Like npcSim.js it keeps no state of its own: wander target and pause live in rec.mind (plain values), so it continues after model teardown or loading.
 import { warnOnce } from '../../core/validate.js';
 import { advance, nearStep, goTo, settle } from './npcSim.js';
+import { codedError } from '../../core/errorHints.js';
 
 const NO = 'no NPC behavior named "{name}". Registered: {known}. Register a custom behavior first: engine.npcs.behavior("{name}", { near(rec, dt, npc) { … }, far(rec, dt) { … } })';
 const noBehavior = (name, map) => NO.replace(/\{name\}/g, name).replace('{known}', [...map.keys()].join(', '));
@@ -10,7 +11,7 @@ const noBehavior = (name, map) => NO.replace(/\{name\}/g, name).replace('{known}
 /** Behavior registry: name -> { near, far } (code, not saved; data only stores the name) */
 export class Behaviors extends Map {
   /** Throw if the name is not registered, listing the registered ones */
-  check(name) { if (!this.has(name)) throw new Error(noBehavior(name, this)); }
+  check(name) { if (!this.has(name)) throw codedError('npc-behavior', noBehavior(name, this)); }
   /** The behavior this record uses now; if the name is not registered (game has not registered it after loading), warn once and skip */
   of(rec) { const b = this.get(rec.behavior); if (!b) warnOnce(noBehavior(rec.behavior, this)); return b; }
   addBuiltin(e, W) { for (const [n, b] of Object.entries(builtinBehaviors(e, W))) this.set(n, b); }

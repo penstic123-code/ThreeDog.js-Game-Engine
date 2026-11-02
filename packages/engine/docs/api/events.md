@@ -26,24 +26,29 @@
 - `settings:change` [values: Record<string, any>] A value in the settings menu changed (the argument is all setting values)
 - `water:add` [body: WaterBody] A water body was added
 - `water:remove` [body: WaterBody] A water body was removed
-- `day:start` [day: number] A new day (the argument is the day number, starting at 1; needs the sky module)
+- `day:start` [day: number] A new day (the argument is the day number, starting at 1; needs the calendar module)
 - `season:change` [season: string] Season changed (the argument is the season name, e.g. 'autumn')
+- `mod:end` [{ target: string; owner: string; id: string | null }] A mod with `for` ran out (engine.mod(target, { owner, for })): target is the quantity's name, id the record for per-record ones
 - `time:skip` [{ seconds: number }] engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran
 - `weather:lightning` [] Lightning strike (weather module)
 - `weather:change` [change: { from: string; to: string }] engine.weather.set switched to another weather name (once, when the blend starts; setting the same name again does not fire)
 - `camera:shot` [CameraShotEvent] The fixed-shot camera switched shots
 - `camera:change` [{ kind: string; previous: string }] engine.setCamera switched the camera kind; settings that belong to the camera (sensitivity, invert Y, field of view) are re-applied on it
-- `character:jump` [{ character: Character }] A character jumped
+- `character:jump` [{ character: Character; air: boolean; index: number }] A character jumped
+- `character:launch` [{ character: Character; speed: number; owner: string }] 
+- `character:fall` [{ character: Character; safe: Vector3 | null; preventDefault(): void… 
 - `character:model` [{ character: Character; model: Object3D }] A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set)
 - `character:land` [{ character: Character; impact: number }] A character landed; impact is the landing speed (m/s), the larger the harder the fall
+- `character:water` [{ character: Character; in: boolean; mode: string; depth: number }] A character went into or out of deep water (water option): in true on entering, mode what the water option did there ('swim' / 'block' / 'wade', or what the function returned)
 - `dialogue:start` [speaker: string] Dialogue started; the argument is the dialogue script name
 - `dialogue:line` [{ script: string; node: string; speaker: string; text: string; data:… A dialogue line started (after its do ran): data is the node's own fields (portrait, voice...), {} when none. Use it for voice, portraits, camera shots without replacing the UI part
+- `dialogue:bubble` [{ speaker: string; text: string; at: any }] A bubble line started showing (the bubble channel: lines over their speakers while play goes on); at is what it is attached to, null = a screen line
 - `dialogue:end` [speaker: string] Dialogue ended; the argument is the dialogue script name
-- `item:add` [ItemEvent] An item was added to the inventory
-- `item:remove` [ItemEvent] An item was removed from the inventory
-- `container:add` [ContainerEvent] An item was added to a non-player container (chest, corpse...); container is the container id
-- `container:remove` [ContainerEvent] An item was removed from a non-player container
-- `item:pickup` [PickupEvent] An item on the ground was picked up
+- `item:add` [ItemEvent] An item was added to a container (any bag or chest: container names it, actor says who did it)
+- `item:remove` [ItemEvent] An item was removed from a container (container names it, actor says who did it)
+- `pickup:take` [PickupEvent] A pickup was taken off the ground (pickup = world id, item = its item id or null for a give function, actor = who took it)
+- `interaction:hold` [{ id: string; action: string; seconds: number }] A hold interaction started (the key went down on it); seconds is its hold
+- `interaction:interrupt` [{ id: string; action: string; reason: string; progress: number }] A hold interaction stopped before it completed: 'released' / 'tooFar' / 'disabled' / 'removed' / 'inputLocked'
 - `item:use` [ItemUseEvent] An item was used through the inventory.use op (after use ran)
 - `quest:start` [{ id: string }] A quest started
 - `quest:step` [{ id: string; step: number }] A quest moved to the next step; step is the new step index (starting at 0)
@@ -57,10 +62,7 @@
 - `level:loaded` [LevelLoadedEvent] Level finished loading
 - `timeline:start` [{ id: number }] A cutscene started
 - `timeline:end` [{ id: number; skipped: boolean }] A cutscene ended; skipped tells whether it was skipped
-- `entity:spawn` [Entity] An entity was spawned
-- `entity:remove` [Entity] An entity was removed
-- `entity:state` [EntityStateEvent] A state value of an entity changed
-- `entity:stage` [EntityStageEvent] An entity entered a new growth stage
+- `template:stage` [TemplateStageEvent] A content template instance entered a new stage by growing (templates with stages)
 - `ground:change` [{ x0: number; z0: number; x1: number; z1: number }] The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale
 - `terrain:void` [{ who: any; position: { x: number; y: number; z: number } }] terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides
 - `vegetation:remove` [VegetationRemoveEvent] A vegetation instance was chopped / removed
@@ -81,8 +83,8 @@
 - `net:result` [{ seq: number; name: string; ok: boolean; code: string | null; value… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
 - `engine:error` [EngineError] A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error)
 - `module:disabled` [{ name: string; message: string }] A presentation module errored and was disabled (the game continues)
-- `vehicle:enter` [{ character: Character; vehicle: Vehicle }] A character boarded a vehicle
-- `vehicle:exit` [{ character: Character; vehicle: Vehicle }] A character exited a vehicle
+- `vehicle:enter` [{ character: Character; vehicle: Rideable }] A character boarded a vehicle
+- `vehicle:exit` [{ character: Character; vehicle: Rideable }] A character exited a vehicle
 - `flow:change` [{ from: string; to: string }] Game flow state changed
 - `flow:transition` [{ phase: 'start' | 'end' }] Scene transition: phase 'start' begins fading to black, 'end' finishes fading back in
 - `session:end` [] A playthrough ends (engine.session.newGame / load / quit), before the reset

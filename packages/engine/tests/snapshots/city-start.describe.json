@@ -9,12 +9,10 @@
  },
  "ui": {
   "dialogue": null,
-  "inputContexts": [
-   "gameplay"
-  ],
   "inputLocked": false,
   "parts": {
    "dialogue": "default",
+   "dialogue.bubble": "default",
    "loading": "default",
    "prompt": "default",
    "title": "off",
@@ -26,6 +24,7 @@
  "modules": [
   "world",
   "level",
+  "calendar",
   "sky",
   "collision",
   "rigid",

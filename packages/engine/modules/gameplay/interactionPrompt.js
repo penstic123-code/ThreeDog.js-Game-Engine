@@ -1,5 +1,5 @@
 // Default 'prompt' UI part: the "E · Talk" label that follows the nearest interaction. Interactions picks the target and projects it to the screen;
-// this only draws { x, y, text } and turns a click into view.use() (the op interaction.use). Look: CSS class .threedog-prompt (style pack style.ui.css).
+// this only draws { x, y, text } and turns a click into view.use() (the op interaction.use). Look: CSS class .threedog-prompt (style.ui.css).
 import { injectUICSS, placeAt } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 /** @import { PromptView } from '../../types/gameplay' */
@@ -20,6 +20,9 @@ export function promptPart(engine) {
       cur = d;
       el.hidden = false;
       if (el.textContent !== d.text) el.textContent = d.text;
+      // a hold interaction: the fill is a background gradient on the same element (no extra node), look via CSS var --progress
+      if (d.progress != null) el.style.setProperty('--progress', String(d.progress)); else el.style.removeProperty('--progress');
+      el.classList.toggle('threedog-prompt-hold', d.progress != null);
       placeAt(el, d.x, d.y);
     },
     hide() { if (el) el.hidden = true; cur = null; },
