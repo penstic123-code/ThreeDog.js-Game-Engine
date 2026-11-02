@@ -36,7 +36,7 @@ const STRINGS = {
   type: "lightPool.add(): type must be 'point' or 'spot', got ",
   allShadow: 'lightPool({ point: {n}, shadows: {k} }): every point light casts shadows, so sources added without castShadow use shadow lights too (and cast). For plain lights next to the shadow ones give point more than shadows, e.g. lightPool({ point: {m}, shadows: {k} })',
   noSlot: "lightPool.add(): a '{type}' source but lightPool({ {type}: 0 }) has no {type} lights; give lightPool() a count, e.g. lightPool({ {type}: 2 })",
-  dusk: 'lightPool.add(): dusk is true (the glow default, {d}), false, or the daylight (0..1, above 0) below which the source fades in; got ',
+  dusk: 'lightPool.add(): dusk is true (the glow default, {d}), false, or the daylight (0..1; 0 = on only while daylight is 0) below which the source fades in; got ',
   noDay: 'lightPool: a source follows daylight (dusk) but nothing tells day from night, so it stays at its day value (off). Install calendar() (or sky())',
 };
 
@@ -146,7 +146,7 @@ export function lightPool(opts = {}) {
     for (const k of ['intensity', 'distance', 'decay', 'priority', 'angle', 'penumbra', 'flicker', 'target', 'name']) if (k in o) src[k] = o[k];
     if ('dusk' in o) {
       const d = o.dusk === true ? DUSK : o.dusk === false || o.dusk == null ? null : o.dusk;
-      if (d !== null && !(typeof d === 'number' && d > 0 && d <= 1)) throw codedError('look-param', STRINGS.dusk.replace('{d}', String(DUSK)) + JSON.stringify(o.dusk), TypeError);
+      if (d !== null && !(typeof d === 'number' && d >= 0 && d <= 1)) throw codedError('look-param', STRINGS.dusk.replace('{d}', String(DUSK)) + JSON.stringify(o.dusk), TypeError);
       src.dusk = d;
     }
     if ('glow' in o) { if (src.glow) setGlow(src, 1); src.glow = glowOf(o.glow); setGlow(src, src.slot ? 1 - src.slot.w : 1); }

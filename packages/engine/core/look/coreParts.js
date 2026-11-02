@@ -11,7 +11,7 @@ import { codedError } from '../errorHints.js';
 const ONCE = 'The engine writes toneMapping once, at createEngine (style.toneMapping, else AgX), and never again, so your write stays';
 
 const NO_DRIVER = "look.lights {k}: a function value is evaluated every frame by a time-of-day module; nothing drives {k} now (no sky, sky({ sun / hemisphere: false }), or look.lights.manual(...)), so it is ignored. Install sky(), or set a number / color";
-import { useRoomEnvironment, dropRoomEnvironment } from '../../render/lights.js';
+import { setRoomEnvironment } from '../../render/lights.js';
 
 /** style.toneMapping names -> three constants */
 export const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
@@ -102,9 +102,14 @@ export function defineCoreLook(e, { owned, baseline = false }) {
       // on (true / 0.5) for the baseline (the engine's own renderer, any style); off (false / 0) only when the game passed its own renderer
       'sun.shadow': { type: 'bool', default: baseline, cost: 'recompile', desc: 'the engine sun casts soft shadows (2048 map, 60 m box following engine.focus without a sky module); also needs createEngine({ shadows }) on',
         why: B, off: 'look.lights.set({ sun: { shadow: false } }) or createEngine({ shadows: false })' },
+      // two keys, one meaning each (render/lights.js refreshRoom): env.intensity is always the absolute scene.environmentIntensity, env.share
+      // only the sky's budget split. One key that changed meaning when a sky was installed made a game's 0.7 silently read as "70% of the ambient"
       'env.intensity': { type: 'number', default: baseline ? 0.5 : 0, min: 0, cost: 'uniform',
-        desc: "neutral room environment (three's RoomEnvironment through PMREM, generated, no asset) as scene.environment; 0 = none. Only written while scene.environment is empty or this map: your own scene.environment, or a sky's look.env, wins. Under a sky it is the room map's share (0..1) of the style's ambient column, the hemisphere light gets the rest: one diffuse budget (describe().look.env.source)",
+        desc: "neutral room environment (three's RoomEnvironment through PMREM, generated, no asset) as scene.environment, at this scene.environmentIntensity; 0 = none. Only written while scene.environment is empty or this map: your own scene.environment, or a sky's look.env, wins. Under a sky env.share applies instead, unless a game or style wrote env.intensity: then this value is written as it is (no time-of-day follow; the hemisphere light keeps the whole ambient budget)",
         why: B + '; PBR (Standard / Physical) materials need an environment to reflect, or metals render black', off: 'look.lights.set({ env: { intensity: 0 } })' },
+      'env.share': { type: 'number', default: baseline ? 0.5 : 0, min: 0, max: 1, cost: 'uniform',
+        desc: "under a sky only: the room map's share (0..1) of the style's ambient budget, following the time of day; the hemisphere light gets the rest (one diffuse budget, not a fill on top). 0 = no room map under the sky. Not read without a sky (env.intensity is) or once a game wrote env.intensity (describe().look.env.source.mode)",
+        why: B + '; under a sky the PBR environment is part of the ambient light of the day, so it dims at night', off: 'look.lights.set({ env: { share: 0 } })' },
     },
     read: () => ({ 'sun.intensity': sun.intensity, 'hemi.intensity': hemi.intensity }),
     apply(v, changed) {
@@ -117,12 +122,12 @@ export function defineCoreLook(e, { owned, baseline = false }) {
       set('hemi.color', x => hemi.color.set(x));
       set('hemi.ground', x => hemi.groundColor.set(x));
       set('sun.shadow', x => { sun.castShadow = x && e.shadows !== false; });
-      set('env.intensity', x => {
-        const ours = e._roomEnv?.texture;
-        if (scene.environment && scene.environment !== ours) return;   // the game's or the sky's map: never overwritten
-        // built only once a material reads it (render/lights.js useRoomEnvironment): createEngine no longer pays the PMREM prefilter up front
-        if (x > 0) useRoomEnvironment(e, x); else { dropRoomEnvironment(e); if (ours) scene.environment = null; }
-      });
+      if (changed.has('env.intensity') || changed.has('env.share')) {
+        // absolute: a game / style / debug layer wrote env.intensity (the engine's own default does not count), so under a sky the engine yields to it
+        const src = e.look?.lights?._source('env.intensity');
+        // the game's or the sky's map is never overwritten, and the map is built only once a material reads it (render/lights.js refreshRoom)
+        setRoomEnvironment(e, { base: v['env.intensity'], share: v['env.share'], absolute: !!src && src.layer !== 'engine' });
+      }
     },
     noPatch: 'lights have no shader of their own; how surfaces take light is look.surface (lighting / ramp)',
     noReplace: "to light the world yourself, turn the engine lights off: createEngine({ lights: false }), or sky({ sun: false }); to write the engine sun yourself: engine.look.lights.manual('sun')",

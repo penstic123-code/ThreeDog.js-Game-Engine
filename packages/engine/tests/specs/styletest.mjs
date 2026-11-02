@@ -119,11 +119,15 @@ export const specs = [
   {
     name: '[守] threedog shot styletest --view：页面名简写、view 并入文件名、describe 里是对应机位',
     url: '/styletest.html',
-    async run({ check }) {
+    async run({ check, page }) {
       const root = fileURLToPath(new URL('../../../..', import.meta.url));
       const r = spawnSync(process.execPath, ['packages/tools/bin/threedog.mjs', 'shot', 'styletest', '--view', 'room', '--time', 'dusk', '--weather', 'rain'], { cwd: root, encoding: 'utf8', timeout: 240000 });
       const out = r.stdout + r.stderr;
-      check('shot 成功，输出里 styletest 的 view=room', r.status === 0 && /styletest: view=room/.test(out), out.slice(-400));
+      // shot prints only the picture state (pageFns PICTURE), so the view is read from the page shot opens: the same query on this page
+      check('shot 成功，输出有机位行', r.status === 0 && /Camera: /.test(out), out.slice(-400));
+      await open(page, '?view=room');
+      const view = await page.evaluate(() => engine.describe().styletest.view);
+      check('view=room 时 describe 里 styletest 的机位是 room', view === 'room', view);
       const dir = fileURLToPath(new URL('../../.threedog/shots', import.meta.url));
       const file = existsSync(dir) && readdirSync(dir).find(f => f === 'styletest_tdusk_rain_view-room_w1.png');
       check('截图文件名带 view：styletest_tdusk_rain_view-room_w1.png', !!file, existsSync(dir) ? readdirSync(dir).join(', ') : 'no shots dir');

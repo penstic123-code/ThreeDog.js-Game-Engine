@@ -92,7 +92,7 @@ export const ERROR_CODES = {
       'reads. The message says which rule was broken.' },
   'renamed-field': {
     docs: ['MIGRATING-0.3.md'],
-    fix: 'A field of a result the engine returns was renamed in 0.3; the message names the new one (result .reason -> .code, runState.by -> .owners).' },
+    fix: 'A 0.2 name (a result field, a property, an option key) changed in 0.3; the message names the new form (result .reason -> .code, runState.by -> .owners, sky.timeOfDay -> engine.calendar.timeOfDay, clock.timeScale -> engine.mod("clock.rate"), dialogue { lock } -> channel: "bubble"). Checked in dev only.' },
   'pause-owner': {
     docs: ['recipes/23-ops.md', 'api/engine.md'],
     fix: 'const p = engine.pause(owner); ... p.remove() ends that owner pause; the loop resumes only when every owner has removed theirs.' },

@@ -2,8 +2,8 @@ import { codedError } from '../core/errorHints.js';
 // Semantic patch slots: the one table that says where a patch's code goes. A patch names a slot ('position', 'color', 'lighting'...),
 // this table maps the slot to a GLSL injection point today (a three.js `#include <chunk>` plus before / after / replace) and, in the
 // WebGPU phase, to a NodeMaterial property (`node`, informational until then: docs/plans/2026-11-03-webgpu-phase2.md §2.2).
-// 为什么要一张表：补丁、引擎自带效果（风吹 / 云影 / 季节 / 细节 / 光照 / CSM）、报错信息和 recipe 43 的表都从这里读，
-// 第二阶段只填 node 这一栏，补丁本身不用改；锚点字符串只在这里出现一次，不会散落在各个效果里各写各的。
+// Why one table: patches, built-in effects (wind / cloud shadow / season / detail / lighting / CSM), error messages and the recipe 43 table all read from here,
+// phase 2 fills only the node column and patches need no change; the anchor strings appear once here, not scattered across effects each writing their own.
 // Raw anchors (`glsl: { vertex|fragment: { <chunk>: code } }`) stay as the expert exit: plain three.js knowledge, WebGL only.
 /** @typedef {{ stage: 'vertex' | 'fragment', anchor: string, at: 'after' | 'before' | 'replace', shadowOnly?: boolean, scope: string, meaning: string, node: string }} Slot */
 
@@ -108,7 +108,7 @@ export function toAnchors(p) {
     used.add(s.stage);
   }
   if (p.pars != null) {
-    // pars 放在每个 stage 的第一个键：和手写锚点写法 { pars, <chunk>: code } 的 JSON 一样，cacheKey 的"同键同代码"检查才认得出是同一段
+    // pars goes first in each stage: same JSON as the hand-written anchor form { pars, <chunk>: code }, so the cacheKey "same key, same code" check recognizes it as the same piece
     const put = (st, text) => { glsl[st] = { pars: text, ...glsl[st] }; };
     if (typeof p.pars === 'string') for (const st of used) put(st, p.pars);
     else if (isObj(p.pars)) for (const st of /** @type {const} */ (['vertex', 'fragment'])) { if (p.pars[st]) put(st, p.pars[st]); }

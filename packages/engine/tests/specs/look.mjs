@@ -67,9 +67,9 @@ export const specs = [
         const he = L.env.replace('sky', { owner: 'cave' }), hi = L.env.set({ intensity: 0.4 }, { owner: 'cave' }); engine.step(0.1);
         out.env = [info().env['@replace'].writer, info().env.intensity.writer, !!engine.scene.environment, engine.scene.environmentIntensity];
         he.remove(); hi.remove(); engine.step(0.1);
-        // 去掉游戏的 env 层后回到风格值；风格没给 env 时场景回到渲染基线的中性房间环境（look.lights env.intensity，每个风格包下都在，
-        // 不想要的包写 env.intensity 0），而不是"没有环境"——否则关掉天空的环境图会让 PBR 金属突然变黑
-        const roomOn = L.lights.value('env.intensity') > 0;
+        // 去掉游戏的 env 层后回到风格值；风格没给 env 时场景回到渲染基线的中性房间环境（天空下是 look.lights env.share，每个风格包下都在，
+        // 不想要的包写 env.share 0），而不是"没有环境"——否则关掉天空的环境图会让 PBR 金属突然变黑
+        const roomOn = L.lights.value('env.share') > 0;
         out.envBack = [(L.env.value('@replace') ?? null) === e0, e0 ? !!engine.scene.environment : engine.scene.environment === (roomOn ? engine._roomEnv?.texture : null), info().env.intensity.writer];
         engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); out.envAlias = info().env['@replace'].writer; engine.look.env.replace(false); L.env._clear('game');
         // clouds

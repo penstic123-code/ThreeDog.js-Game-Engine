@@ -103,13 +103,13 @@ export const specs = [
         const ext = await err(engine.audio.load('/nope/missing-sound.ogg'));
         const bare = await err(engine.audio.load('nope-missing-sound'));
         const before = engine.describe().unhandled ?? null;
-        engine.audio.play('/nope/uncaught-a.ogg'); engine.audio.play('/nope/uncaught-b.ogg');   // the game forgot to catch: two rejections
+        engine.audio.play('/nope/uncaught-a.ogg'); engine.audio.play('/nope/uncaught-b.ogg');   // the game forgot to catch: two rejections (either 404 may come back first)
         await __t.until(() => (engine._unhandled?.count ?? 0) >= 2, 5000).catch(() => {});
         return { ext, bare, before, after: engine.describe().unhandled ?? null, frozen: engine.frozen };
       });
       check('404 file: asset-load with the path', r.ext?.code === 'asset-load' && /missing-sound\.ogg/.test(r.ext.message), JSON.stringify(r.ext));
       check('dev server HTML answer: asset-load says not found, not "Unable to decode"', r.bare?.code === 'asset-load' && /nope-missing-sound/.test(r.bare.message) && /not found|404/.test(r.bare.message), JSON.stringify(r.bare));
-      check('uncaught rejection: describe().unhandled has the first error and counts the rest, gameplay not frozen', !r.before && r.after?.code === 'asset-load' && /uncaught-a/.test(r.after.message) && r.after.count === 2 && !r.frozen, JSON.stringify(r));
+      check('uncaught rejection: describe().unhandled has the first error and counts the rest, gameplay not frozen', !r.before && r.after?.code === 'asset-load' && /uncaught-[ab]/.test(r.after.message) && r.after.count === 2 && !r.frozen, JSON.stringify(r));
     },
   },
 ];

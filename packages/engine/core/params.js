@@ -26,8 +26,8 @@ const STRINGS = {
   wrong: '{where}: {key} {why}',
   notOptions: '{where}: the options argument must be an object { … }, got {got}. API convention: a position is one argument, and size and the like go in the options object',
 };
-// 为什么缓存：公开 API（collision.addCircle、particles.emit …）每次调用都走 readParams，同一个 schema 对象只解析一次；
-// 每次新写的字面量 schema 不进缓存（WeakMap 按对象认，用完即回收），只是多解析一遍
+// Why cache: public APIs (collision.addCircle, particles.emit ...) call readParams on every call; the same schema object is parsed once;
+// a literal schema written fresh each call is not cached (WeakMap keys by object, collected after use), it is just parsed once more
 const parsed = new WeakMap(), keyCache = new WeakMap();
 /** Is o an options object (not a number, string, array, Three.js object or vector)? Data checks use it where a field may also be a name or a list */
 export const isOptions = o => !!o && typeof o === 'object' && !Array.isArray(o) && !o.isObject3D && !o.isVector3 && !o.isColor;
@@ -110,7 +110,7 @@ export function schemaInfo(shape) {
 export function readParams(where, schema, opts = {}) {
   const shape = parsedOf(where, schema), err = msg => codedError('module-params', msg);
   if (opts != null && !isOptions(opts)) {
-    // 选项位置传了数字 / 字符串 / 数组：多半是旧的按位置传参写法。和未知键同一条规矩（开发时抛错，发布版提示一次后当没传）
+    // A number / string / array in the options slot: most likely the old positional-argument style. Same rule as unknown keys (throw in dev, warn once in release and treat as not passed)
     const msg = fmt(STRINGS.notOptions, { where, got: JSON.stringify(opts) ?? typeof opts });
     if (DEV) throw err(msg);
     warnOnce(coded('module-params', msg)); opts = {};
@@ -141,7 +141,7 @@ export function readParams(where, schema, opts = {}) {
  * @param {Record<string, any>} [specs]
  */
 export function keysSchema(keys, defaults, specs) {
-  // 只有键表时按数组对象缓存：模块顶层的 KEYS 常量每次调用拿到同一个 schema，readParams 的解析缓存也就命中（热路径如 particles.emit 不重复解析）
+  // With only a key table, cache by the array object: a module-level KEYS constant gives the same schema on every call, so the readParams parse cache hits too (hot paths like particles.emit do not re-parse)
   if (!defaults && !specs) { let s = keyCache.get(keys); if (!s) keyCache.set(keys, s = keysSchema(keys, {}, {})); return s; }
   defaults ??= {}; specs ??= {};
   const out = {};

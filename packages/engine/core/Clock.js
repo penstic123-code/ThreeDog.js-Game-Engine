@@ -12,7 +12,7 @@
 // Which time to use for what: the table in recipes/06-clock-events.md. All timers return a handle { remove() }.
 // A timer callback that throws is a gameplay error (errors.js: frozen with engine.error in dev); the other timers still run.
 import { reportError } from './errors.js';
-import { warnOnce } from './validate.js';
+import { warnOnce, renamed } from './validate.js';
 import { codedError } from './errorHints.js';
 import { saveValues } from './saveValues.js';
 
@@ -24,6 +24,8 @@ const STRINGS = {
     'To pass time use engine.skip({ seconds }) (timers fire in order, everything catches up); the value you wrote is kept',
 };
 
+// 0.2 timeScale removed: assigning used to silently do nothing (calendar speed unchanged); in dev both read and write throw and point to the new path (core/validate.js renamed, not installed in release)
+const OLD = renamed('engine.clock', { timeScale: "engine.clock.rate to read it and engine.mod('clock.rate', { owner, set }) to change it (h.remove() gives it back)" });
 export class Clock {
   constructor(engine) {
     this.engine = engine;
@@ -56,12 +58,8 @@ export class Clock {
   set now(v) { warnOnce(STRINGS.nowWrite); this._now = v; }
   /** Calendar seconds per world-channel second (default 1; 0 stops the calendar). Read-only: engine.mod('clock.rate', { owner, set }) changes it */
   get rate() { return this._rate.value(); }
-  /** @internal 写 rate 要走 mod（几个拥有者叠加不互相覆盖），直接赋值给出新写法而不是一句看不懂的 TypeError */
+  /** @internal writing rate must go through mod (several owners stack without overwriting each other); a direct assignment gets the new form instead of an opaque TypeError */
   set rate(v) { throw codedError('mod-owner', `engine.clock.rate is read-only: engine.mod('clock.rate', { owner, set: ${v} }) changes it (h.remove() gives it back)`); }
-  /** @internal 0.2 的 timeScale 已删：赋值以前静默无效（日历速度没变），现在报错指路 */
-  get timeScale() { throw codedError('mod-owner', "engine.clock.timeScale was removed: read engine.clock.rate; change it with engine.mod('clock.rate', { owner, set })"); }
-  /** @internal */
-  set timeScale(v) { throw codedError('mod-owner', `engine.clock.timeScale was removed: engine.mod('clock.rate', { owner, set: ${v} }) (read engine.clock.rate)`); }
   /** Calendar seconds per real second right now = rate x the world channel's speed (the calendar and far NPCs advance by it) */
   get speed() { return this._rate.value() * this.engine.time.scale('world'); }
   /**
@@ -128,3 +126,4 @@ export class Clock {
   /** @internal a callback that throws is a gameplay error; the other timers still run */
   _call(t) { try { t.fn(); } catch (err) { reportError(this.engine, err, STRINGS.where); } }
 }
+OLD.on(Clock.prototype);

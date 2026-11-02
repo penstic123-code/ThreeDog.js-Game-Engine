@@ -4,6 +4,7 @@ Characters: createPlayer() (characters() module)
 
 - Options `CharactersOptions`:
   - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
+  - `npcTiers?: { fullRadius: number; nearEvery: number }` Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts)
   - `brakeKeys?: string[]` Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix); presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump)
   - `brakePad?: string[]` Gamepad button for braking, none by default; presets.keys.brake has ['PadLT']
 
@@ -157,6 +158,7 @@ Characters: createPlayer() (characters() module)
 - `npcs.add(opts: NPCOptions) → NPC` — Add an NPC, returns a handle
 - `npcs.remove(npc: NPC | string) → boolean` — Delete an NPC (pass a handle, id or name): the data is deleted, and the model and dialogue interaction are torn down together. Returns false if not found
 - `npcs.behavior(name: string, impl: { near?, far? })` — Register an NPC behavior: near(rec, dt, npc) once per fixed step when nearby, far(rec, dt) simulated from the data when far (dt is accumulated seconds); selected through behavior in the data
+- `npcs.tiers(opts: { fullRadius, nearEvery } | null)` — Near tiers for large crowds, off by default (every near NPC walks every fixed step). With tiers, NPCs within fullRadius m of the focus walk every step; the rest of the near zone takes a turn once every nearEvery seconds with the accumulated dt (deterministic, save-safe). On screen such NPCs move in visible jumps, so only turn this on for crowds of hundreds. tiers(null) turns it off. Example: `engine.npcs.tiers({ fullRadius: 30, nearEvery: 4 / 60 })`
 - `npcs.get(idOrName: string) → NPC | undefined` — Find by id or name (id first)
 - `npcs.character(id: string) → Character | null` — The current character model of an NPC, null if none
 - Properties:

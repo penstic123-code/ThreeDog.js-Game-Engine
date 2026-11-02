@@ -1,6 +1,8 @@
 // 0.3 发布前最后一批（第 4 轮真实 demo 复测）引擎运行时修复的守护测试。每条对应一个条目（W5 / W6 / D1 / G2；G11 的守护在 packages/tools/tests/bridge.mjs），
 // 测的是"不许绕开"的那条路：例如 lightPool 的 dusk 必须走 lookGlow 的同一条日光曲线，而不是自己再算一遍。
 
+import { ROOM_RADIANCE } from '../../render/lights.js';
+
 export const specs = [
   {
     // W5：lightPool 的光源可选跟随昼夜（dusk），与 look.materials.glow 共用 render/lookGlow.js 的曲线；默认不跟随（白天也亮的灯照样亮）
@@ -16,19 +18,25 @@ export const specs = [
         const halo = new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: 2 });
         const lamp = P.add({ x: cam.x, y: cam.y + 1, z: cam.z }, { name: 'r4-lamp', intensity: 50, priority: 100, dusk: true, glow: halo });
         const torch = P.add({ x: cam.x, y: cam.y + 1, z: cam.z - 1 }, { name: 'r4-torch', intensity: 50, priority: 100 });
+        // dusk 0 = on only while daylight is 0 (no fade); the glow rule accepts the same 0
+        const darkHalo = new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: 2 });
+        const dark = P.add({ x: cam.x, y: cam.y + 1, z: cam.z + 1 }, { name: 'r4-dark', intensity: 50, priority: 200, dusk: 0, glow: darkHalo });
+        let glow0 = null; try { engine.look.materials.glow('r4-ref0', { night: 1, dusk: 0, owner: 'r4-0' }).remove(); } catch (err) { glow0 = String(err.message); }
         const at = t => {
           engine.calendar.timeOfDay = t; engine.step(1);
           const d = engine.calendar.daylight;
           return { d, lamp: lamp.light ? +lamp.light.intensity.toFixed(2) : 0, lampW: lamp.weight, torch: torch.light ? +torch.light.intensity.toFixed(2) : 0,
-            halo: halo.emissiveIntensity, want: +(50 * ref.emissiveIntensity).toFixed(2) };
+            halo: halo.emissiveIntensity, want: +(50 * ref.emissiveIntensity).toFixed(2), dark: dark.weight, darkHalo: darkHalo.emissiveIntensity };   // 灯池权重 1 = 满亮；替身发光跟同一条曲线
         };
-        const night = at(0.95), noon = at(0.5);
+        const night = at(0.95), noon = at(0.5), dusk = at(0.27);
         let bad = null; try { P.add({ x: 0, y: 0, z: 0 }, { dusk: 2 }); } catch (err) { bad = String(err.message); }
-        return { night, noon, bad };
+        return { night, noon, dusk, bad, glow0 };
       } catch (err) { return { err: String(err.stack) }; } });
       if (r.err) { check('runs without error', false, r.err); return; }
       check('at night the dusk lamp holds a light at intensity x glow\'s night factor', r.night.lampW === 1 && Math.abs(r.night.lamp - r.night.want) < 0.05 && r.night.want > 0, JSON.stringify(r.night));
       check('at noon the dusk lamp is off (no light, stand-in dimmed with it), the plain torch still lit', r.noon.lamp === 0 && r.noon.lampW === 0 && r.noon.halo === 0 && r.noon.torch > 0, JSON.stringify(r.noon));
+      check('dusk 0: lit when daylight is 0, off while any daylight is left (dusk) and at noon; glow takes dusk 0 too',
+        r.night.d === 0 && (r.night.dark === 1 || r.night.darkHalo === 2) && r.dusk.d > 0 && r.dusk.dark === 0 && r.dusk.darkHalo === 0 && r.noon.dark === 0 && r.glow0 === null, JSON.stringify({ night: r.night, dusk: r.dusk, glow0: r.glow0 }));
       check('a dusk outside 0..1 throws naming the forms', /dusk is true/.test(r.bad ?? ''), String(r.bad));
     },
   },
@@ -104,22 +112,21 @@ export const specs = [
     },
   },
   {
-    // 底光：天空下风格的 ambient 列是全部漫反射补光预算，room 环境图和半球光分摊它（look.lights env.intensity = 环境图那份），
+    // 底光：天空下风格的 ambient 列是全部漫反射补光预算，room 环境图和半球光分摊它（look.lights env.share = 环境图那份），
     // 不能再在半球光之上额外加一层。守的是"和"：环境图折成半球光单位（x PI x ROOM_RADIANCE）+ 半球光 = ambient 列 x 天空色亮度
-    name: 'r4 fill: under a sky the room map and the hemisphere light share one ambient budget (env.intensity = the map share)',
+    name: 'r4 fill: under a sky the room map and the hemisphere light share one ambient budget (env.share = the map share)',
     url: '/night-lights.html?threedog-headless',
     async run({ check, ev }) {
-      const r = await ev(async () => { try {
-        const { ROOM_RADIANCE } = { ROOM_RADIANCE: 1.05 };   // render/lights.js 的同一个数（页面是打包后的，取不到模块）；改了那里这里会失败
+      const r = await ev(async (ROOM_RADIANCE) => { try {
         const s = engine.scene, h = engine.lights.hemi, lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
         const at = (t, share) => {
-          engine.look.lights.set({ env: { intensity: share } }); engine.calendar.timeOfDay = t; engine.step(0.2);
+          engine.look.lights.set({ env: { share } }); engine.calendar.timeOfDay = t; engine.step(0.2);
           const room = s.environment && s.environmentIntensity;   // 0 份额时没有环境图
           return { hemi: h.intensity, env: room ? s.environmentIntensity : 0, envAsHemi: (room ? s.environmentIntensity : 0) * Math.PI * ROOM_RADIANCE, hemiLum: lum(h.color) };
         };
         const noon = at(0.5, 0.5), night = at(0.95, 0.5), noonAllHemi = at(0.5, 0), noonAllMap = at(0.5, 1);
         return { noon, night, noonAllHemi, noonAllMap };
-      } catch (err) { return { err: String(err.stack) }; } });
+      } catch (err) { return { err: String(err.stack) }; } }, ROOM_RADIANCE);   // render/lights.js 的同一个数（node 这边导入，传进页面）
       if (r.err) { check('runs without error', false, r.err); return; }
       const near = (a, b) => Math.abs(a - b) <= 0.03 * Math.max(a, b, 1e-6);
       const total = x => x.hemi * x.hemiLum + x.envAsHemi;   // 半球光单位下的漫反射补光总量

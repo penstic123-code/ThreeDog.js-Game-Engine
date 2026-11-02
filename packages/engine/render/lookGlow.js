@@ -28,9 +28,13 @@ function matcher(match) {
 
 /** Daylight 0..1: calendar first (gameplay day / night), else the drawn sun; null when nothing tells day from night */
 export const daylightOf = e => { const d = e.calendar?.daylight ?? e.sky?.daylight; return typeof d === 'number' ? d : null; };
-/** 0 by day, 1 at night for one rule's dusk (daylight below which it fades in); null daylight -> 0 (the day value is kept) */
+/**
+ * 0 by day, 1 at night for one rule's dusk (daylight below which it fades in); null daylight -> 0 (the day value is kept). dusk 0 has no fade:
+ * on only while daylight is 0 (a cave mushroom that glows only in full dark); the d / dusk curve would divide by zero there
+ */
 export function nightOf(d, dusk) {
   if (d === null) return 0;
+  if (dusk === 0) return d > 0 ? 0 : 1;
   const t = Math.min(1, Math.max(0, d / dusk));
   return 1 - t * t * (3 - 2 * t);   // smoothstep: no visible kink when the fade starts or ends
 }
@@ -105,7 +109,7 @@ export function addGlowVerb(e, part) {
     const { night, day = 0, dusk = DUSK, owner, ...rest } = o;
     const extra = Object.keys(rest)[0];
     if (extra) throw part._lacks('glow', `unknown option ${extra} (options: night, day, dusk, owner)`, `Call it as look.materials.${SIG}`);
-    if (typeof dusk !== 'number' || !(dusk > 0 && dusk <= 1)) throw part._lacks('glow', `dusk is the daylight (0..1, above 0) below which the glow fades in; got ${JSON.stringify(dusk)}`, `Call it as look.materials.${SIG}`);
+    if (typeof dusk !== 'number' || !(dusk >= 0 && dusk <= 1)) throw part._lacks('glow', `dusk is the daylight (0..1; 0 = only while daylight is 0) below which the glow fades in; got ${JSON.stringify(dusk)}`, `Call it as look.materials.${SIG}`);
     if (typeof night !== 'number' || typeof day !== 'number') throw part._lacks('glow', `night and day are emissiveIntensity numbers, e.g. { night: 2, day: 0 } (an example value: a near-white emissive color clips to white well below it, a saturated one reads as light; judge with threedog shot, docs/recipes/52-look.md "Night glow"); got ${JSON.stringify({ night, day })}`, `Call it as look.materials.${SIG}`);
     // a string names its rule (a second glow('window') replaces the first); a Material / filter gets its own key so two never overwrite each other
     const key = KEY + t.label + (typeof match === 'string' ? '' : `#${++seq}`);

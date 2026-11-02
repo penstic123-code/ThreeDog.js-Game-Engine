@@ -91,7 +91,7 @@ function clash(list, p) {
   const mine = replaced(p);
   for (const q of others) if (replaced(q).some(k => mine.includes(k)))
     return `patches '${q.name}' and '${p.name}' both replace one chunk; keep one, or add code before / after it`;
-  // 去掉 slots.js 的标记注释再比：同一段代码用插槽写和用锚点写只差标记里的 slot=，生成的程序一样，不算"同 cacheKey 不同代码"
+  // strip slots.js's marker comments before comparing: the same code written with slots or anchors differs only by slot= in the marker and generates the same program, so it is not "same cacheKey, different code"
   const key = p.name + '=' + (p.cacheKey ?? ''), code = JSON.stringify(p.glsl ?? {}).replace(/\/\/ threedog:(begin|end)[^\\"]*/g, '');
   if (CODE.has(key) && CODE.get(key) !== code)
     return `patch '${p.name}' produced different GLSL under the same cacheKey '${p.cacheKey ?? ''}'; put every value that changes the code into cacheKey`;
@@ -152,9 +152,9 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
   let list = LISTS.get(m);
   if (!list) {
     LISTS.set(m, list = []);
-    // 游戏自己的 onBeforeCompile / customProgramCacheKey：打补丁前就有的，和打补丁后才赋值的，都存在这里、先跑（用户决定 5，2026-11-02）。
-    // 为什么用实例访问器而不是警告：以前游戏后赋值 `m.onBeforeCompile = fn` 会静默盖掉包装函数，风吹/云影/季节全丢；
-    // 警告了 AI 也只能照抄成链式写法，多一步没必要。现在赋值只换"游戏那一段"，引擎补丁照旧接在后面，两者都生效。
+    // the game's own onBeforeCompile / customProgramCacheKey: those there before patching and those assigned after patching are all kept here and run first (user decision 5, 2026-11-02).
+    // Why an instance accessor instead of a warning: before, a game assigning `m.onBeforeCompile = fn` later silently overwrote the wrapper, losing wind / cloud shadow / season;
+    // with a warning an AI could only copy it into the chained form, an extra step for nothing. Now assignment replaces only "the game's part", engine patches still follow, and both apply.
     let game = m.onBeforeCompile, gameKey = Object.hasOwn(m, 'customProgramCacheKey') ? m.customProgramCacheKey : null;
     const own = game !== PROTO_COMPILE;
     const wrapper = function (shader, renderer) { if (game && game !== PROTO_COMPILE) game.call(this, shader, renderer); apply(shader, list, m, renderer); };
@@ -163,7 +163,7 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
     Object.defineProperty(m, 'customProgramCacheKey', { configurable: true, enumerable: false, get: () => key, set(fn) { gameKey = fn; m.needsUpdate = true; } });
     m.addEventListener('dispose', () => dropShadow(m));
   }
-  // 槽位写法在入口处换成锚点写法（一份内部表示），后面的冲突 / 影子 / cacheKey 检查对两种写法一样；派生（copyPatches / 影子材质）的已换过
+  // slot form is converted to anchor form at the entry (one internal representation), so the later conflict / shadow / cacheKey checks are the same for both forms; derived ones (copyPatches / shadow material) are already converted
   for (const p of deriving ? patches : withProviders(patches, list).map(toAnchors)) {
     const bad = deriving ? '' : clash(list, p);
     if (bad) {
@@ -186,9 +186,9 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
   return m;
 }
 
-// 补丁读了引擎补丁带来的 varying（vThreedogWorld 来自 'world'）却没写 needs，以前直接编译失败、报 undeclared identifier，
-// 看不出要写 needs: { patches: ['world'] }。提供者只有一个、加上它不改别的画面，所以自动补在它前面（没写 needs 的开发期提示一次），
-// 写了 needs 的也一样补：applyEffects / look.materials.patch / 风格包各路入口都经过这里，不用各自记得加 'world'。
+// A patch read a varying that an engine patch brings (vThreedogWorld comes from 'world') without writing needs; it used to fail compiling with undeclared identifier,
+// with no hint to write needs: { patches: ['world'] }. There is a single provider and adding it changes nothing else visible, so it is added automatically before the patch (dev warns once when needs was not written),
+// and also when needs was written: applyEffects / look.materials.patch / style-pack entries all pass through here, so none has to remember to add 'world'.
 const reads = (p, name) => new RegExp(`\\b${name}\\b`).test(JSON.stringify([p.glsl ?? '', p.pars ?? '']));
 /** patches with every engine patch they read from (by needs.patches or by the varyings their code uses) inserted before them, once */
 function withProviders(patches, list) {
@@ -233,9 +233,9 @@ let hotRev = 0;
  */
 export function replacePatchCode(materials, old, neu) {
   const changed = new Set(), seen = new Set();
-  // 只走补丁代码已知的形状：glsl / pars / shadowVertex 是字符串，或纯对象（槽位、vertex / fragment、chunk 名 -> 字符串或 { before, after, replace }），
-  // 最多三层。为什么不递归每个对象字段：今天 toAnchors 已把 glsl 换成只含字符串的新对象，但内部表示一变（比如把 uniforms 带进来），
-  // Object3D / 相机（parent <-> children 成环）就会让热重载栈溢出，还会触发 getter。非纯对象（three 的类实例）和 uniforms 键一律不进
+  // only walk shapes the patch code is known to use: glsl / pars / shadowVertex are strings, or plain objects (slots, vertex / fragment, chunk name -> string or { before, after, replace }),
+  // at most three levels. Why not recurse into every object field: today toAnchors already turned glsl into a new object holding only strings, but if the internal representation changes (e.g. uniforms brought in),
+  // an Object3D / camera (parent <-> children cycle) would overflow the stack on hot reload, and also trigger getters. Non-plain objects (three class instances) and uniforms keys are never entered
   const swap = (o, k, depth = 0) => {
     const v = o[k];
     if (typeof v === 'string') { if (!v.includes(old)) return false; o[k] = v.replaceAll(old, neu); return true; }
@@ -284,8 +284,8 @@ export function copyPatches(from, to) {
 }
 
 // ---------- which materials the engine made ----------
-// 为什么要记：自动效果（季节、云影、风吹、级联阴影的列表）只该落在引擎自己造的材质上（用户决定 3，2026-11-02）；游戏 `new` 的材质要效果就自己
-// applyEffects 选择加入。用 WeakSet 不用 userData：userData 会被 clone 带走、导出 glTF 时写进文件，一个游戏材质 clone 了引擎材质就会被误认。
+// Why record: automatic effects (season, cloud shadow, wind, cascaded-shadow list) should land only on materials the engine made (user decision 3, 2026-11-02); a game `new` material that wants effects must call
+// applyEffects to opt in. WeakSet, not userData: userData is carried by clone and written into the file on glTF export, so a game material cloned from an engine one would be mistaken for it.
 const MADE = new WeakSet();
 /**
  * Record a material as engine-made (makeMaterial, terrain, vegetation clones, water); returns it.
@@ -322,7 +322,7 @@ function shadowMaterial(material, kind) {
   let byKind = shadowMats.get(material);
   if (!byKind) shadowMats.set(material, byKind = {});
   if (kind in byKind) return byKind[kind];
-  // shadowPosition 槽的代码只进影子材质，替掉同一补丁的 position 代码（影子要和颜色不同步时用）
+  // shadowPosition slot code goes only into the shadow material, replacing the same patch's position code (use when the shadow must differ from the color pass)
   const moving = LISTS.get(material).filter(p => p.shadow).map(p => ({ ...p, needs: { data: p.needs?.data }, conflicts: undefined,
     glsl: { vertex: p.shadowVertex ? { ...p.glsl?.vertex, ...p.shadowVertex } : p.glsl?.vertex } }));
   // three copies side, alphaTest, map and clipping from the drawn material onto the depth material on every draw

@@ -24,7 +24,7 @@ removed in 0.3) throws in a dev build with a did-you-mean list, and warns once i
 
 An options object passed as a number, string or array (the old positional style) is refused the same way.
 
-## 2. Time of day, days and seasons moved to `calendar()` `[sky-option]` `[calendar-option]`
+## 2. Time of day, days and seasons moved to `calendar()` `[sky-option]` `[renamed-field]`
 
 `sky()` now only draws a time; the clock of the world (time of day, day count, seasons, clock-time timers, their save) is the new
 `calendar()` module, `engine.calendar`. `openWorld()` installs it for you; a game that lists modules itself must add it.
@@ -42,8 +42,8 @@ engine.calendar.timeOfDay = 0.5;
 ```
 
 - `sky({ dayLength | day | daysPerSeason | seasons | hoursPerDay })` throws `[sky-option]` and names `calendar()`.
-- Reading or writing any calendar member on the sky (`engine.sky.timeOfDay / day / season / seasons / daysPerSeason / dayOfSeason /
-  totalDays / at / daily / ...`) throws `[calendar-option]` naming `engine.calendar.<same>`. `sky.isDay / daylight` stay: the drawn sun.
+- Reading or writing a calendar member on the sky (`engine.sky.timeOfDay / day / season / seasons / daysPerSeason / dayOfSeason /
+  totalDays / at / daily / ...`) throws `[renamed-field]` in dev naming `engine.calendar.<same>`. `sky.isDay / daylight` stay: the drawn sun.
 - `sky({ time })` without a calendar is a fixed drawn time (a game with no day cycle, a single mood). With `calendar()` installed it throws
   `[sky-option]`: give the time to `calendar({ time })`.
 - `applyState({ season })` needs `calendar()` `[sky-option]`.
@@ -69,7 +69,7 @@ engine.events.on('pickup:take', e => score(e));   // { pickup, item, count, acto
   (use `pickups.spawn(position, { give })`, `pickups.nearest(item)`).
 - `give` is required. *silent:* a pickup handle's `id` is now its world record id (it used to be the item id); `worldId` is gone.
 - Content `pickups` without `pickups()` installed throws `[module-needs]`.
-- `style.pickup.model` throws `[module-params]` (style.pickup holds `color / size / lift` only). The shape is an asset model by name: the item's `model`, else an asset named
+- `style.pickup.model` throws `[renamed-field]` in dev (style.pickup holds `color / size / lift` only). The shape is an asset model by name: the item's `model`, else an asset named
   `pickup:<item>`, else one named `pickup` (put them in the game's `assets.js`).
 - Events `container:add` / `container:remove` are gone: `item:add` / `item:remove` now fire for every container and carry `container` and
   `actor`. *silent:* a listener that assumed "the player's bag" must filter on `e.container` (or use `inventory.of(actor)`).
@@ -99,7 +99,7 @@ const p = engine.pause('menu'); /* ... */ p.remove();
 const f = engine.freeze('title'); /* ... */ f.remove();
 ```
 
-- Reading or writing `engine.clock.timeScale`, or writing `engine.clock.rate`, throws `[mod-owner]` naming `engine.mod('clock.rate', { owner, set })`.
+- Reading or writing `engine.clock.timeScale` throws `[renamed-field]` in dev, writing `engine.clock.rate` throws `[mod-owner]`; both name `engine.mod('clock.rate', { owner, set })`.
 - `engine.resume / unfreeze` → `TypeError`; chaining on the return of `pause` / `freeze` is gone (they return `{ owner, remove() }`).
 - Every handle ends with `remove()` (`pause`, `freeze`, the new `engine.mod` and `input.gate`, `audio.addBus`, `defineState`...). `defineState()` returns a handle now,
   so `engine.defineState(a).defineState(b)` is a `TypeError`.
@@ -183,7 +183,7 @@ Content-check now reads model names from the game's `assets.js`; without one, co
 | `import { entities }`, `engine.entities`, `entity:*` events | content templates with `stages` (`template:stage` event) | import fails at load |
 | `engine.spawn(name, at, fields)` | `engine.content.spawn(name, at, fields)` | `TypeError` |
 | `quests.state[id]` | `quests.state(id)` (a copy) | *silent* `undefined` |
-| `dialogue.say / start({ lock: false })` | `{ channel: 'bubble', at }` | `[module-params]` (any unknown option too) |
+| `dialogue.say / start({ lock: false })` | `{ channel: 'bubble', at }` | dev: `[renamed-field]` (any other unknown option: `[module-params]`) |
 | `triggers({ debug })`, `triggers.add({ debug })`, `triggers.setDebug()` | `engine.debug.view('triggers')` | `[module-params]` / `TypeError` |
 | `trade()`, `grid.check / preview / place`, op result `.reason` | `.code` (plus `facts`, `nextActions`) | dev: `[renamed-field]` |
 | `describe().ui.inputContexts` | `describe().holds.input` | dev: `[renamed-field]` |
@@ -214,8 +214,9 @@ callbacks keep working. Content item words (`has`, `give`, `take`) act on the ba
 These are new defaults, not errors. Check the game's look after upgrading (`threedog shot`, which now prints the look numbers after every shot)
 and set the value back with `engine.look` if the game had tuned around the old behavior.
 
-- The neutral room environment under a sky shares the style's ambient column with the hemisphere light (`look.lights` `env.intensity` = its
-  share, 0..1) instead of adding a fill on top: shadows by day and nights on PBR materials are darker; raise the ambient column if a pack relied on
+- The neutral room environment under a sky shares the style's ambient column with the hemisphere light (`look.lights` `env.share` = its
+  share, 0..1) instead of adding a fill on top. `env.intensity` stays the absolute `scene.environmentIntensity`, also under a sky (written as
+  given: fixed, not following the day): shadows by day and nights on PBR materials are darker; raise the ambient column if a pack relied on
   the extra fill. A direct write to `scene.environment` / `environmentIntensity` is kept.
 - Sun shadow bias is a few centimeters in world terms (it was large enough to cut the contact shadow of things standing on the ground).
   A game that saw shadow acne before and raised the bias should re-check; set it with `engine.look.shadow.set({ ... })`.

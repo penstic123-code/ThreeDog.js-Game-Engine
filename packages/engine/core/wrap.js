@@ -66,7 +66,7 @@ export class Wraps {
       slots.set(method, slot);
       // one installed function for the whole chain: it reads slot.list each call, so add / remove never re-wraps and order stays the list order
       target[method] = function wrapped(...args) {
-        // 调用开始时拍快照：链里某个包装在调用中 remove() 自己或别人时，splice 会挪下标，直接读 slot.list 会跳过或重复调用一层
+        // snapshot at call start: when a wrapper in the chain remove()s itself or another during the call, splice shifts indexes, and reading slot.list directly would skip or repeat a layer
         const list = slot.list.slice();
         const call = (i, a) => i < 0 ? slot.base.apply(this, a) : list[i].fn.call(this, (...b) => call(i - 1, b), ...a);
         return call(list.length - 1, args);

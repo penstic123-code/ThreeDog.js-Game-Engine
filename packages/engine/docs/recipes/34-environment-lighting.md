@@ -9,12 +9,12 @@ engine.look.env.set({ intensity: 0.8 });
 engine.look.env.replace('hdr/studio.hdr'); engine.look.env.set({ intensity: 1, rotation: Math.PI / 2 });   // an HDR / panorama asset (equirectangular)
 engine.look.env.set({ intensity: 0.5 });                  // fields given change, the rest stay
 engine.look.env.replace(myPmremTarget);                  // your own map: a PMREM target / texture is used as is, a Texture (equirect) or CubeTexture is prefiltered; never disposed by the engine
-engine.look.env.replace(false);                           // sky map off, GPU memory released; the room map of look.lights env.intensity (0 = none) is back
+engine.look.env.replace(false);                           // sky map off, GPU memory released; the room map of look.lights env.share (under a sky; env.intensity without one, 0 = none) is back
 engine.sky.environment;                                         // { source, intensity, rotation, interval, builds } or null
 ```
 A pack gives defaults in `sky.environment` (same fields, plus `low`), the game overrides with `sky({ environment: {...} })` or at run time with
 `look.env.replace(...)` / `look.env.set(...)`. `low: false` turns it off on low-tier devices; any other `low` object replaces fields there.
-Removing a game layer (`h.remove()`) falls back to the pack's env, and with none to the render baseline's neutral room map (`look.lights` `env.intensity`, 0.5 under every pack), not to no environment; a pack that wants none sets `env.intensity: 0`.
+Removing a game layer (`h.remove()`) falls back to the pack's env, and with none to the render baseline's neutral room map (`look.lights` `env.share` of the ambient under a sky, `env.intensity` without one; 0.5 under every pack), not to no environment; a pack that wants none sets `env.share: 0` and `env.intensity: 0`.
 
 ## Sources
 - `'sky'`: the dome is rendered into a cube and prefiltered with `PMREMGenerator`. It is rebuilt only when the sky colors, sun direction or cloud

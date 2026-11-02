@@ -64,14 +64,14 @@ export const specs = [
         E.step(0.1, { render: false });
         const d = E.calendar.daylight, ss = (x, k) => { const t = Math.min(1, Math.max(0, x / k)); return 1 - t * t * (3 - 2 * t); };
         let bad = '';
-        try { E.look.materials.glow('lamp', { night: 1, dusk: 0 }); } catch (err) { bad = err.message; }
+        try { E.look.materials.glow('lamp', { night: 1, dusk: -0.1 }); } catch (err) { bad = err.message; }
         const out = { d, win: win.emissiveIntensity, sign: sign.emissiveIntensity, wantWin: ss(d, 0.3), wantSign: ss(d, 1), bad };
         E.dispose();
         return out;
       });
       check('17:00 is between day and night (daylight strictly inside 0..1)', r.d > 0 && r.d < 1, String(r.d));
       check('the default rule follows dusk 0.3, the sign its own dusk 1', Math.abs(r.win - r.wantWin) < 1e-9 && Math.abs(r.sign - r.wantSign) < 1e-9 && r.sign > r.win, JSON.stringify(r));
-      check('dusk 0 throws and says what dusk is', /dusk is the daylight/.test(r.bad), r.bad);
+      check('a negative dusk throws and says what dusk is (0 is allowed: on only in full dark)', /dusk is the daylight/.test(r.bad), r.bad);
     },
   },
   {

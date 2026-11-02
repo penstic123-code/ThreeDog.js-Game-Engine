@@ -3,8 +3,8 @@
 //
 // const fisher = engine.npcs.add({
 //   id: 'fisher', name: '老渔夫', colors: { body: 0x4f6d8f },
-//   schedule: [ { at: '06:00', position: [10, 0, 20] },   // 早上 6 点去河边（at 也可写 0–1 时刻）
-//               { at: '13:00', position: [40, 0, -5] } ], // 中午回家
+//   schedule: [ { at: '06:00', position: [10, 0, 20] },   // go to the river at 6 am (at can also be a 0–1 time of day)
+//               { at: '13:00', position: [40, 0, -5] } ], // back home at noon
 //   interact: { op: 'npc.talk' },                        // the interact key nearby runs this op (npc.talk = dialogue, script defaults to the NPC id)
 // });
 //   interact: { label: 'Trade', op: 'shop.open', args: { shelf: 'fish' } }   // any op: open a shop, hand in, recruit; the op gets { npc: id, ...args }
@@ -53,6 +53,10 @@ const STRINGS = {
     + 'Give each different NPC its own id, e.g. npcs.add({ id: "{name}_2", name: "{name}", … }); to update an existing NPC, add again with the same id',
 };
 const KIND = 'npc';
+const TIER_PARAMS = {
+  fullRadius: { type: 'number', min: 0, desc: 'NPCs within this many meters of the focus walk every fixed step' },
+  nearEvery: { type: 'number', min: 0, desc: 'seconds between turns of the near NPCs farther out (they get the accumulated dt)' },
+};
 // Params that cannot go into saves: kept in memory only, used when building the model
 const RUNTIME_KEYS = ['model', 'animation', 'clips'];
 const NPC_KEYS = [...CHARACTER_KEYS, 'id', 'initial', 'zone', 'name', 'schedule', 'interact', 'pathStep', 'repath', 'arriveDistance',
@@ -128,6 +132,7 @@ export class NPCManager {
     /** Near NPCs avoid each other (on by default): avoid.set(false) turns it off, see npcAvoid.js */
     this.avoid = new NpcAvoid(engine);
     /** @internal */ this._b = new Behaviors();   // behavior name -> { near, far } (code, not saved)
+    /** @internal */ this._tiers = null;   // { fullRadius, nearEvery } from tiers(), null = every near NPC every step
     /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (to detect same names in dev)
   }
   get world() { const W = this.engine.world; if (!W) throw codedError('world-missing', STRINGS.noWorld); return W; }
@@ -145,14 +150,11 @@ export class NPCManager {
     });
     this._b.addBuiltin(e, W);
     defineTalk(e, this);
-    W.simulate(KIND, {
+    /** @internal what world.simulate gets for NPCs; tiers() adds fullRadius / nearEvery on top and registers again */
+    this._sim = {
       // near and far both run on the NPC's time channel (character.channel, else npcs.add({ channel })): world.simulate scales both dt by it
       // (far dt, accumulated over farEvery steps, at the channel's speed now; exact in engine.skip, whose segments end where a speed changes)
       channel: rec => this.character(rec.id)?.channel ?? npcChannel(rec),
-      // tiers: NPCs within half the world radius walk every step; the rest of the near zone (still on screen, models up to 1.25x the radius) takes a turn every
-      // 4 steps with 4 steps of dt. A crowd of hundreds otherwise paid pathing, mover, ground and avoidance for each NPC every step
-      fullRadius: () => W.radius * 0.5,
-      nearEvery: 4 / 60,
       near: (rec, dt) => {
         // self-heal: after loading, dialogue and bubbles are gone (session end drops both without onEnd), so do not stand still forever.
         // A bubble talk (npc.talk channel 'bubble') runs with no main dialogue, so bubbles still showing keep it busy too
@@ -165,7 +167,23 @@ export class NPCManager {
         const ch = this.character(rec.id);   // already far but the model is not torn down yet: let the model catch up with the data
         if (ch) { ch.placeAt(rec.position); ch.loadMotion(rec.motion); }
       },
-    });
+    };
+    this._register();
+  }
+  /** @internal (re)register NPC simulation with world: world.simulate replaces the earlier registration of the same kind */
+  _register() { this.world.simulate(KIND, this._tiers ? { ...this._sim, ...this._tiers } : this._sim); }
+
+  /**
+   * Near tiers for large crowds (off by default: every near NPC walks every fixed step). With tiers, NPCs within fullRadius m of the focus walk every step;
+   * the rest of the near zone takes a turn once every nearEvery seconds with the seconds since its last turn (world.simulate's fullRadius / nearEvery,
+   * deterministic and save-safe). Why off by default: a tiered NPC on screen moves in visible jumps and collides with a longer step; that trade is the
+   * game's to make for a crowd of hundreds, not the engine's. Also characters({ npcTiers }) at install; tiers(null) turns them off.
+   * @param {{ fullRadius: number, nearEvery: number } | null} opts
+   */
+  tiers(opts) {
+    this._tiers = opts ? readParams('npcs.tiers', TIER_PARAMS, opts) : null;
+    if (this._ready) this._register();
+    return this;
   }
 
   /**

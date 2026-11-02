@@ -64,7 +64,7 @@
 - [`engine.particles`](api/particles.md) particles() Particles: define has emit attach count clear
 - [`engine.settings`](api/settings.md) settings() Settings menu: get set preset define addSection removeSection open close toggle resetBindings rebind actionList …
 - [`engine.music`](api/music.md) music() Background music: addTracks play stop stinger rules override pick
-- [`engine.characters`](api/characters.md) characters() Characters: findSpawn createPlayer moveInput support removePlayer findPath findPathAsync; Character, NPC; engine.npcs: list add remove behavior get character avoid (behavior and avoid: see recipes/02-npc)
+- [`engine.characters`](api/characters.md) characters() Characters: findSpawn createPlayer moveInput support removePlayer findPath findPathAsync; Character, NPC; engine.npcs: list add remove behavior tiers get character avoid (behavior and avoid: see recipes/02-npc)
 - [`engine.interactions`](api/interactions.md) interactions() Interaction prompts: add get
 - [`engine.dialogue`](api/dialogue.md) dialogue() Dialogue: define start say bubbles end
 - [`engine.inventory`](api/inventory.md) inventory() Inventory: of define item count has list get add remove trade setData container …

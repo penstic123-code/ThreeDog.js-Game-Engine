@@ -40,7 +40,7 @@ import { vec3 } from '../../core/math.js';
 import { Effect, NEUTRAL, KEYS } from './effect.js';
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
-// 每个公开入口一份 schema（未知键开发时抛错带 did-you-mean）。效果参数值的形状多（数字或 [min, max]、颜色），只查键名
+// one schema per public entry (unknown keys throw in dev with did-you-mean). Effect param values come in many shapes (number or [min, max], color), so only key names are checked
 const FX_PARAMS = keysSchema(KEYS);
 const EMIT_PARAMS = { count: { type: 'number', default: 10, min: 0, desc: 'particles in this burst' }, overrides: 'any?' };   // overrides: null is allowed (no override)
 const ATTACH_PARAMS = { rate: { type: 'number', optional: true, min: 0, desc: 'particles per second (default: the effect rate)' }, offset: 'any?', overrides: 'any?' };

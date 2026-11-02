@@ -113,7 +113,7 @@ export class Grids {
   define(name, rule) {
     readParams(`grids.define('${name}')`, keysSchema(['size', 'kind', 'occupy', 'ground', 'layer', 'flat', 'fields', 'can']), rule);
     this._defs.set(name, { size: [1, 1], ...rule });
-    // 占用层从规则推出（_ruleOf），所以改了已摆放物品的规则，索引要跟着重建，不然 at() 和 can() 又各说各的
+    // the occupancy layer is derived from rules (_ruleOf), so changing a placed item's rule must rebuild the index, or at() and can() disagree again
     if (this._byId.size) this._rebuild();
   }
   /** @internal a placed record's rule: its item's current rule when that item is defined, else the record's own size / occupy (inline rules, items this content no longer has) */
@@ -158,7 +158,7 @@ export class Grids {
     const p = rec.grid, g = this._grids.get(p.id);
     if (DEV && !Object.isFrozen(p)) freeze(p);
     if (!g) return;
-    // 尺寸和占用层读规则而不是记录：grid.move 的 can() 也读规则，两边同源，内容后来改了物品的 size / 加了 occupy 时旧存档不会按旧格子占位
+    // size and occupancy layer read the rule, not the record: grid.move's can() reads the rule too, same source on both sides, so old saves do not occupy by the old cells when content later changed an item's size / added occupy
     const keys = [], rule = this._ruleOf(p), occupy = rule.occupy ?? MAIN, level = p.level ?? 0;
     // an item this content no longer defines has no size to occupy (a named record stores none): the record stays in the save, takes no cells
     if (!rule.size) { if (DEV) warnOnce(coded('grid-orphan', fmt(STRINGS.orphan, { grid: g.name, id: rec.id, item: p.item }))); this._byId.set(rec.id, { g, keys }); return; }

@@ -26,7 +26,8 @@ import { describeLook } from './look/report.js';
 import { describeOwned } from './owned.js';
 import { describeScene } from './thingOps.js';
 import { describeHolds } from './holds.js';
-import { renamedFields } from './validate.js';
+import { renamed } from './validate.js';
+const OLD_UI = renamed('describe().ui', { inputContexts: 'describe().holds.input' });
 
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
@@ -106,7 +107,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at } = {}, extras) {
       focus: { x: r1(e.focus.x), z: r1(e.focus.z) }, override: e.cameraOverride?.owner ?? null },
     nearbyRadius: radius,
     nearby: [],
-    ui: renamedFields({ windows: [...e.openWindows], inputLocked: !e.input.enabled, dialogue: null, parts: e.ui.describe() }, { inputContexts: 'describe().holds.input' }, 'describe().ui'),   // windows include full-screen UI parts (title); parts: default / custom / off
+    ui: OLD_UI.on({ windows: [...e.openWindows], inputLocked: !e.input.enabled, dialogue: null, parts: e.ui.describe() }),   // windows include full-screen UI parts (title); parts: default / custom / off
     cutscene: null,
     modules: [...e.modules.keys()],
     scene: describeScene(e),                           // engine.add / world things: counts by save tier and what will not survive a load (thingOps.js)

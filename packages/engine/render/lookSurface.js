@@ -33,10 +33,10 @@ const liveOf = e => LIVE.get(e) ?? LIVE.set(e, new Map()).get(e);
 /** The last Material made per role, per engine (look.materials.object(role)); kept here so materials.js never touches the part's fields */
 const MADE = new WeakMap();
 const madeOf = e => MADE.get(e) ?? MADE.set(e, new Map()).get(e);
-// 活键的优先级（§5.1）：手设 > 这次 makeMaterial 调用传的 > look.materials.set > 风格包。
-// 为什么记在每个材质上：以前活键写到该角色的**所有**材质，makeMaterial('wood', { color }) 传的颜色、游戏后来 m.color.set() 的颜色，
-// 换风格包或 look.materials.set 一下就被盖掉，游戏不知道"为什么改了没用"。现在：调用自己传的键永远跳过；引擎上次写的值记下来，
-// 下次写前发现值变了 = 游戏手设过，跳过它并警告一次（这块材质归游戏，P1 的"让开"，按材质而不是按角色）。
+// Live-key priority (§5.1): hand-set > passed in this makeMaterial call > look.materials.set > style pack.
+// Why record on each material: before, live keys were written to ALL materials of the role, so a color passed by makeMaterial('wood', { color }) or later set by the game with m.color.set(),
+// got overwritten on a style pack change or look.materials.set, and the game could not tell "why did my change not stick". Now: keys passed by the call itself are always skipped; the value the engine last wrote is remembered,
+// and if it differs before the next write = the game hand-set it, so skip it and warn once (this material belongs to the game, P1 "step aside", per material rather than per role).
 const REC = new WeakMap();   // material -> { call: Set(keys this makeMaterial call passed), seen: Map(prop -> value the engine last left there) }
 const snap = v => (v?.isColor ? v.getHex() : v);
 

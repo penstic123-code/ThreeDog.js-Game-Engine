@@ -19,7 +19,7 @@
 // Advancing and picking a choice are the ops dialogue.advance and dialogue.choose { index } (recipes/23-ops.md): keys, the cursor, clicks, the dev bridge and
 // tests all run them, so a choice's do (which may change gameplay state) always runs inside a logged op.
 import { uiFocus } from '../../ui/UI.js';
-import { warnMissing, warnOnce } from '../../core/validate.js';
+import { warnMissing, warnOnce, renamed } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { dialogueBox } from './dialogueBox.js';
 import { codedError } from '../../core/errorHints.js';
@@ -35,12 +35,9 @@ const STR = {
 };
 const checkChannel = c => { if (!CHANNELS.includes(c)) throw codedError('module-params', STR.channel.replace('{got}', c)); };
 const SAY_KEYS = ['speaker', 'node', 'channel', 'at', 'seconds', 'queue', 'onCancel'], START_KEYS = ['channel', 'at', 'onCancel'];
-// 0.2 的 lock: false 现在是 channel: 'bubble'；不拦的话旧代码会静默走主通道并锁住输入（行为反了），所以先点名新写法，再走通用的未知键检查
-const LOCK = "dialogue.{fn}({ lock }) was removed: a line that does not lock input is { channel: 'bubble', at } (main, the default, always locks)";
-const readLine = (fn, keys, o) => {
-  if (o && typeof o === 'object' && 'lock' in o) throw codedError('module-params', LOCK.replace('{fn}', fn));
-  return readParams(`dialogue.${fn}`, keysSchema(keys), o ?? {});
-};
+// 0.2 lock: false is now channel: 'bubble'; if not caught, old code would silently take the main channel and lock input (the opposite behavior), so name the new form first, then run the generic unknown-key check
+const OLD_LINE = renamed('dialogue.say / start options', { lock: "{ channel: 'bubble', at } for a line that does not lock input (main, the default, always locks)" });
+const readLine = (fn, keys, o) => readParams(`dialogue.${fn}`, keysSchema(keys), OLD_LINE.check(o) ?? {});
 
 export class Dialogue {
   constructor(engine, { charsPerSecond = 40, advanceActions, choiceKeys = true, holdSeconds = 2 } = {}) {

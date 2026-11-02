@@ -161,7 +161,7 @@ function wander(rec, dt) {
   order and loading; when near records affect each other, running continuously and saving then loading give bit-identical results).
 - **Near tiers** for crowds: `simulate(kind, { near, fullRadius: 25, nearEvery: 4 / 60 })` runs records within `fullRadius` every step and the rest of
   the near zone once every `nearEvery` seconds, handing it the seconds since its last turn. Turns go by hashed id and step count (saved), so loading a
-  save between turns gives the same result. NPCs use it (full rate within half of `world.radius`); leave it off for enemies whose every step matters.
+  save between turns gives the same result. NPCs use it only when the game opts in (`engine.npcs.tiers({ fullRadius, nearEvery })`); leave it off for enemies whose every step matters.
 - Far: records are bucketed by id and taken in turns (one round every `farEvery` seconds), at most `world.farMaxPerTick` records per fixed step
   (default 500); the rest queue for the next step, and dt keeps accumulating without loss. It counts records, not milliseconds, so the result does not
   depend on how fast the machine is.

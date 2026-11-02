@@ -23,7 +23,7 @@ export class UrlState {
     this.pending = null;       // URL parameters (used by start())
     this.applied = false;      // URL parameters are fully applied (npm run shot waits for it)
   }
-  /** 返回句柄：和别的注册一样只有 remove() 一种撤销写法；同名重定义后旧句柄的 remove() 不会删掉新的 */
+  /** Returns a handle: like other registrations there is only remove() to undo; after a same-name redefinition the old handle's remove() will not delete the new one */
   define(name, params, { owner } = {}) {
     this.states.set(name, params);
     return { owner, remove: () => { if (this.states.get(name) === params) this.states.delete(name); } };

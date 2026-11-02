@@ -2,9 +2,10 @@
 // Each is a named stack (core/stacks.js: 'pause' and 'freeze' kind any, 'camera' kind top), so they follow the same owner rules as every shared quantity:
 // engine.freeze('menu') is engine.mod('freeze', { owner: 'menu' }) with the loop's side effects added (ending the last pause restarts the loop).
 // One entry per mechanism: the handle's remove() ends a pause / freeze (there is no engine.resume / engine.unfreeze).
-import { warnOnce, renamedFields } from './validate.js';
+import { warnOnce, renamed } from './validate.js';
 import { coded } from './errorHints.js';
 import { ownerArgs } from './stacks.js';
+const OLD_RUN_STATE = renamed('runState', { by: '.owners (and .blockedBy)' });
 
 // The pause / freeze handle is { owner, remove() } only: no chaining, so a pause is ended in exactly one way.
 function handle(owner, remove) { return { owner, remove }; }
@@ -91,7 +92,7 @@ export const holdMethods = {
     const blockedBy = (this.input?.holders ?? []).filter(h => !h.pass).map(h => h.context);
     if (F.has('error')) blockedBy.push('error');
     if (lv?.blocked) blockedBy.push('loading');
-    return renamedFields({ state, owners, blockedBy }, { by: '.owners (and .blockedBy)' }, 'runState');   // 0.2 的 runState.by 读旧名报错
+    return OLD_RUN_STATE.on({ state, owners, blockedBy });   // 0.2 runState.by: reading the old name throws
   },
 
   // ---------- camera takeover ----------

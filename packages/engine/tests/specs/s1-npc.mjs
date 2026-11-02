@@ -276,14 +276,23 @@ export const specs = [
     },
   },
   {
-    // guard for near tiers (world.simulate({ fullRadius, nearEvery }), NPCs use them): the outer part of the near zone takes turns by hashed id, so time is
+    // guard for near tiers (world.simulate({ fullRadius, nearEvery }); NPCs use them only after engine.npcs.tiers(), off by default): the outer part of the near zone takes turns by hashed id, so time is
     // conserved, a save taken between turns loads into the same turns and dts, and tiered NPCs still get where they are going
-    name: 'S1 NPC near tiers: outer records run every nearEvery with the accumulated dt (no time lost), save between turns → load gives identical results, tiered NPCs arrive and match after reload (open world)',
+    name: 'S1 NPC near tiers: NPCs untiered by default; with npcs.tiers outer records run every nearEvery with the accumulated dt (no time lost), save between turns → load gives identical results, tiered NPCs arrive and match after reload (open world)',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.pause();
         const W = engine.world, h = engine.player.position.clone();
+        // default (no tiers): an NPC as far out as the tiered ones below still walks every step
+        engine.npcs.behavior('tick', { near: rec => { rec.mind.n++; } });
+        engine.npcs.add({ id: 'tn-def', name: 'tn-def', position: { x: h.x + 42, z: h.z }, behavior: 'tick', mind: { n: 0 } });
+        engine.step(1 / 60, { render: false });
+        const d0 = W.get('tn-def').mind.n, ds0 = W.steps; engine.step(1, { render: false });
+        const def = { n: W.get('tn-def').mind.n - d0, steps: W.steps - ds0 };
+        engine.npcs.remove('tn-def');
+        let badTiers = ''; try { engine.npcs.tiers({ fullRadius: 20, nearEvry: 0.1 }); } catch (err) { badTiers = err.message; }
+        engine.npcs.tiers({ fullRadius: W.radius * 0.5, nearEvery: 4 / 60 });   // a game with a big crowd opts in
         W.simulate('tierk', { near: (rec, dt) => { rec.n++; rec.t += dt; }, fullRadius: 10, nearEvery: 4 / 60 });
         W.add({ id: 'tk-in', kind: 'tierk', position: { x: h.x + 4, z: h.z }, n: 0, t: 0 });
         for (let i = 0; i < 6; i++) W.add({ id: 'tk-out' + i, kind: 'tierk', position: { x: h.x + 20 + i, z: h.z + 3 }, n: 0, t: 0 });
@@ -305,9 +314,11 @@ export const specs = [
         await engine.saves.load('s1-tier');
         engine.step(10, { render: false });
         const b = snap();
-        return { a, b, steps, inN: inn.n, outN: out.n - t0.outN, inT: inn.t - t0.in, outT: out.t - t0.out, arrived, arrive: W.get('tn0').arriveDistance };
+        return { def, badTiers, a, b, steps, inN: inn.n, outN: out.n - t0.outN, inT: inn.t - t0.in, outT: out.t - t0.out, arrived, arrive: W.get('tn0').arriveDistance };
       });
       const sec = r.steps / 60;
+      check('default (no npcs.tiers): an NPC far out in the near zone runs every step', r.def.n === r.def.steps && r.def.steps >= 59, JSON.stringify(r.def));
+      check('npcs.tiers with a misspelt key throws naming it', /nearEvry/.test(r.badTiers), r.badTiers);
       check('inner record runs every step', r.inN === r.steps + 60, JSON.stringify(r));
       check('outer records run about once every 4 steps', Math.abs(r.outN - r.steps / 4) <= 1, JSON.stringify(r));
       check('outer records lose no time (dt accumulates to the elapsed seconds, within one turn)', Math.abs(r.outT - sec) <= 4 / 60 + 1e-6 && Math.abs(r.inT - sec) < 1e-6, JSON.stringify(r));

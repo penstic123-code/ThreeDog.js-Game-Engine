@@ -13,10 +13,12 @@
 // hold: seconds turns the press into "keep it down": the engine counts progress on fixed steps and interrupts it on release, leaving reach, disabled or
 // locked input, in one place, so no game re-writes a hold timer per verb; the prompt part gets progress 0-1 to draw.
 // approach: true walks the actor's character there first (walkTo), then uses it: point-and-click, "talk to the shopkeeper across the room".
-// Finding candidates goes through the shared xz index (core/cells.js) instead of measuring every interaction each frame: one on a world record's model
-// (NPC, pickup, template) is found through world.forEachNear by its record's position, which moves with it; one at a fixed position sits in a Cells of its
-// own; only one following a free Object3D (a vehicle, a hand-placed mesh) or reaching very far is measured every pass. Candidates are then measured exactly
-// and ties go to the earlier added, so a pick equals a full scan of every item.
+// Finding candidates goes through one shared xz index (core/cells.js) keyed by each item's actual world position, instead of measuring every interaction
+// each frame. Before a pick pass reads it, items that follow an object are re-filed if they moved: for an object straight under the scene (models, pickups,
+// hand-placed meshes) the check is its local position against the last one seen, so a still crowd costs a few compares; a nested one (a part of a vehicle)
+// is measured. Why the actual position and not the world record's: a game may move a record's model away from its record, and the item must be found where
+// it stands. Only items with an unbounded reach (radius Infinity) sit in a plain list, measured every pick. Candidates are then measured exactly and ties go
+// to the earlier added, so a pick equals a full scan of every item.
 import * as THREE from 'three';
 import { worldToScreen } from '../../ui/UI.js';
 import { promptPart } from './interactionPrompt.js';
@@ -32,9 +34,9 @@ const FACING_COS = 0.5;
 const APPROACH_ARRIVE = 1.2;   // approach: meters from the target the walk stops at (inside the default 2.5 m reach, outside a body's radius)
 const AIM_WIDTH = 0.75;   // 'aim': meters the object may sit off the screen-center ray (an object is a vertical segment from its base up to its prompt height)
 const V = new THREE.Vector3(), W = new THREE.Vector3(), O = new THREE.Vector3(), D = new THREE.Vector3();
-// index: reach above FAR is measured every pass (the query circle would cover too many cells); a record's model may stand up to SLACK m (xz) from its record
-// between a fixed step moving the record and the frame placing the model, so record queries reach that much further
-const FAR = 64, SLACK = 2, FIX_CELL = 16;
+// index cell edge (m): a few times the usual reach, so a query circle touches one to four cells; a far larger reach still works (cells.js scans all cells
+// when the circle covers more cells than exist)
+const CELL = 8;
 
 const SETUP_FIX = "e.g. engine.use(interactions({ ...presets.interactions.nearest })) (import { presets } from 'threedog'), or interactions({ pick: 'nearest' | 'facing' | 'aim' | fn, keys: ['KeyE'] })";
 
@@ -56,16 +58,18 @@ export class Interactions {
      */
     this.pickMode = pick;
     this.items = [];
-    /** @internal where each item is found: _free measured every pass, _fixed (fixed positions) and _byRec (record id → items on its model) through indexes */
-    this._free = []; this._fixed = new Cells(FIX_CELL); this._byRec = new Map(); this._fixR = 0; this._recR = 0;
+    /** @internal _cells: every item with a finite reach, at its world position; _wide: the unbounded ones; _moving: the indexed ones that follow an object */
+    this._cells = new Cells(CELL); this._wide = []; this._moving = [];
+    /** @internal reach -> how many indexed items have it, so the query radius (the largest reach) drops back when the far-reaching one is removed */
+    this._radii = new Map(); this._maxR = 0;
+    /** @internal the pass the index was last brought up to date in */ this._fresh = 0;
     /** @internal candidates of the current query (reused) */ this._cand = [];
-    this._onFixed = en => { this._cand.push(en.it); };
-    this._onRec = rec => { const l = this._byRec.get(rec.id); if (l) for (let i = 0; i < l.length; i++) this._cand.push(l[i]); };
+    this._onCell = en => { this._cand.push(en.it); };
     /** The interaction the prompt shows (best over all actions), null if none */
     this.current = null;
     /** One best interaction per action this frame ([{ action, id, label }]) for a prompt that lists several keys */
     this.options = [];
-    this._actions = new Set();
+    /** @internal action -> how many items use it, kept on add / remove, so a pass does not walk every item to list them */ this._actions = new Map();
     this._seq = 0; this._order = 0;
     /** @internal non-zero during one fixed() / update() pass: each item's world position is computed once per pass, not once per action */ this._pass = 0;
     this._passes = 0;
@@ -108,40 +112,61 @@ export class Interactions {
     if (!target?.isObject3D) { object = new THREE.Object3D(); vec3(target, object.position); }
     // a fixed position never moves: its world position is known now; an object is measured once per pass (_at)
     const it = { id, object, label, radius, action, onUse, enabled, height, hold, approach: !!approach, _p: new THREE.Vector3(), _at: target?.isObject3D ? -1 : Infinity,
-      _n: this._order++, _in: 'free', _rec: target?.isObject3D ? this.engine.world?.buildingId ?? null : null, _en: null };
+      _n: this._order++, _en: null, _ix: null, _lx: NaN, _lz: NaN, _par: undefined };
     if (!target?.isObject3D) it._p.copy(object.position);
     this.items.push(it);
-    if (!target?.isObject3D && radius <= FAR) {
-      it._in = 'fixed'; it._en = { id: '#' + it._n, position: it._p, it };
-      this._fixed.put(it._en); if (radius > this._fixR) this._fixR = radius;
-    } else this._free.push(it);   // a record's model waits here until world shows it as that record's view (_promote)
-    return { remove: () => { this.items = this.items.filter(x => x !== it); this._unindex(it); if (this.current === it) this.current = null; } };
+    this._index(it);
+    return { remove: () => { if (it._gone) return; it._gone = true; this.items = this.items.filter(x => x !== it); this._unindex(it); if (this.current === it) this.current = null; } };
+  }
+  /** @internal File a new item: unbounded reach in the plain list, else in the cells (a followed one is placed for real on the next refresh) */
+  _index(it) {
+    this._actions.set(it.action, (this._actions.get(it.action) ?? 0) + 1);
+    if (it.radius === Infinity) { this._wide.push(it); return; }
+    // a fixed one is filed at its position; a followed one at its own xz (_ix), apart from _p, the exact per-pass measurement
+    it._en = { id: '#' + it._n, position: it._at === Infinity ? it._p : (it._ix = { x: NaN, z: NaN }), it };
+    if (it._at === Infinity) this._cells.put(it._en); else { this._moving.push(it); this._fresh = 0; }
+    this._radii.set(it.radius, (this._radii.get(it.radius) ?? 0) + 1);
+    if (it.radius > this._maxR) this._maxR = it.radius;
   }
   /** @internal */
   _unindex(it) {
-    if (it._in === 'fixed') this._fixed.delete(it._en);
-    else if (it._in === 'rec') { const l = this._byRec.get(it._rec); l.splice(l.indexOf(it), 1); if (!l.length) this._byRec.delete(it._rec); }
-    else { const i = this._free.indexOf(it); if (i >= 0) this._free.splice(i, 1); }
-    it._in = null;
+    const a = this._actions.get(it.action) - 1;
+    if (a) this._actions.set(it.action, a); else this._actions.delete(it.action);
+    if (!it._en) { const i = this._wide.indexOf(it); if (i >= 0) this._wide.splice(i, 1); return; }
+    this._cells.delete(it._en); it._en = null;
+    if (it._at !== Infinity) { const m = this._moving, i = m.indexOf(it); m[i] = m[m.length - 1]; m.pop(); }
+    const n = this._radii.get(it.radius) - 1;
+    if (n) this._radii.set(it.radius, n);
+    else { this._radii.delete(it.radius); if (it.radius === this._maxR) { this._maxR = 0; for (const r of this._radii.keys()) if (r > this._maxR) this._maxR = r; } }
   }
-  /** @internal An item on a record's model root moves to the record index once world shows that model (its root stands where the record is) */
-  _promote(it, i) {
-    const f = this._free; f[i] = f[f.length - 1]; f.pop();
-    it._in = 'rec';
-    let l = this._byRec.get(it._rec); if (!l) this._byRec.set(it._rec, l = []); l.push(it);
-    if (it.radius > this._recR) this._recR = it.radius;
+  /**
+   * @internal Bring followed items' index positions up to date, once per pass. An object straight under the scene root (or loose) whose local x / z are
+   * what they were last time has not moved in the index: skipped after two compares (a pickup bobbing up and down costs nothing). Otherwise its world
+   * xz is taken (through the parent's matrix when that parent is the root; measured for a nested one, whose ancestors may have moved, every pass) and it
+   * is re-filed when its cell changed. Assumes the scene root itself is not moved or tilted (moving the whole scene moves nothing relative to the player).
+   */
+  _refresh() {
+    if (this._fresh === this._pass) return;
+    this._fresh = this._pass;
+    const m = this._moving;
+    for (let i = 0; i < m.length; i++) {
+      const it = m[i], o = it.object, par = o.parent, l = o.position, ix = it._ix;
+      const flat = o.matrixAutoUpdate && (!par || !par.parent);
+      if (flat && par === it._par && l.x === it._lx && l.z === it._lz) continue;
+      if (!flat) { o.getWorldPosition(V); ix.x = V.x; ix.z = V.z; }
+      else if (!par) { ix.x = l.x; ix.z = l.z; }
+      else { const e = par.matrixWorld.elements; ix.x = e[0] * l.x + e[4] * l.y + e[8] * l.z + e[12]; ix.z = e[2] * l.x + e[6] * l.y + e[10] * l.z + e[14]; }
+      it._lx = l.x; it._lz = l.z; it._par = flat ? par : undefined;   // a nested one is measured again next pass
+      this._cells.put(it._en);
+    }
   }
   /** @internal Fill _cand with every item that may be within reach of pos (a superset; callers measure each exactly) */
   _gather(pos, action) {
-    const C = this._cand, f = this._free, Wd = this.engine.world;
+    const C = this._cand, w = this._wide;
     C.length = 0;
-    for (let i = f.length - 1; i >= 0; i--) {   // backwards: promoting swaps the last one into i
-      const it = f[i];
-      if (it._rec !== null && it.radius <= FAR && Wd?.view(it._rec) === it.object) this._promote(it, i);
-      else if (action === undefined || it.action === action) C.push(it);
-    }
-    if (this._fixR) this._fixed.forEach(pos, this._fixR, this._onFixed);
-    if (this._recR && Wd) Wd.forEachNear(pos, this._recR + SLACK, this._onRec);
+    this._refresh();
+    if (this._maxR) this._cells.forEach(pos, this._maxR, this._onCell);
+    for (let i = 0; i < w.length; i++) C.push(w[i]);
     if (action !== undefined) { let k = 0; for (let i = 0; i < C.length; i++) if (C[i].action === action) C[k++] = C[i]; C.length = k; }
     return C;
   }
@@ -151,6 +176,8 @@ export class Interactions {
 
   /** The interaction actor would use now for action (any action when omitted), by the pick mode; null if none in range. @internal */
   pick(actor = this.engine.actor, action) {
+    // outside a fixed / frame pass (an op from a test or the dev bridge): a pass of its own, so the index is brought up to date for this pick too
+    if (!this._pass) { this._pass = ++this._passes; try { return this.pick(actor, action); } finally { this._pass = 0; } }
     const e = this.engine, p = e.actorPosition(actor);
     if (!p) return null;
     const pos = W.set(p.x, p.y ?? 0, p.z), mode = this.pickMode;
@@ -210,10 +237,8 @@ export class Interactions {
     const inp = this.engine.input;
     if (!inp.enabled) { if (this._hold) this._interrupt('inputLocked'); return; }
     this._pass = ++this._passes;
-    this._actions.clear();
-    for (const it of this.items) this._actions.add(it.action);
     if (this._hold) this._tickHold(dt);
-    for (const a of this._actions) {
+    for (const a of this._actions.keys()) {
       if (!inp.pressed(a) || this._hold) continue;
       const b = this.pick(undefined, a);
       if (!b) continue;
@@ -249,8 +274,6 @@ export class Interactions {
   /** @internal */
   _update() {
     this.options.length = 0;
-    this._actions.clear();
-    for (const it of this.items) this._actions.add(it.action);
     const best = this.current = this._actions.size > 1 ? this._perAction() : this.pick();
     if (best && this._actions.size === 1) this.options.push({ action: best.action, id: best.id, label: labelOf(best, this.engine.actor) });
     const input = this.engine.input;
@@ -267,7 +290,7 @@ export class Interactions {
   /** @internal Several actions: fill options, return the default action's pick (else the first found) for the prompt */
   _perAction() {
     let main = null, first = null;
-    for (const a of this._actions) {
+    for (const a of this._actions.keys()) {
       const b = this.pick(undefined, a);
       if (!b) continue;
       this.options.push({ action: a, id: b.id, label: labelOf(b, this.engine.actor) });

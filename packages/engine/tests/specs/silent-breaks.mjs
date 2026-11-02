@@ -4,7 +4,8 @@
 //   2. 搬去日历的字段（从日历契约推出来的整张表，不是手写名单）在 sky 上读写都报错；
 //   3. 改名的结果字段（失败结果 .reason、runState.by、describe().ui.inputContexts）走同一个 renamedFields，读旧名报 renamed-field；
 //   4. style.pickup 只认 color / size / lift，0.2 的 model 报未知键。
-// clock.timeScale 的守卫在 Node 里跑：packages/tools/tests/time-channels.mjs。
+// 全部走 core/validate.js 的 renamed（一张改名表 + 一个帮手，只在开发时装），报 renamed-field 并点名新写法；clock.timeScale 也在这里
+// （Node 里不是开发模式，packages/tools/tests/time-channels.mjs 只守 clock.rate 只读）。
 const PAGE = '/tests/threads/';
 export const specs = [
   {
@@ -21,13 +22,15 @@ export const specs = [
         out.lockStart = err(() => E.dialogue.start('nobody', 'start', null, { lock: false }));
         out.typo = err(() => E.dialogue.say('hi', { chanel: 'bubble' }));
         out.bubble = err(() => E.dialogue.say('hi', { channel: 'bubble', seconds: 1 }));
-        // every calendar contract field / method / option (and Calendar getter) except what the sky draws itself
-        // the page is a build (no raw module files to import), so the test lists the contract's names; the sky derives its list from the contract
+        // the names that moved from the 0.2 sky to the calendar (the sky lists them explicitly; a new calendar name is not banned on the sky)
         const names = ['timeOfDay', 'day', 'dayLength', 'hoursPerDay', 'clock', 'seasons', 'season', 'seasonIndex', 'seasonProgress', 'totalDays',
           'at', 'between', 'daily', 'onSeason', 'untilMark', 'daysPerSeason', 'dayOfSeason'];
-        out.skyRead = names.filter(k => !/calendar-option .*engine\.calendar\./.test(err(() => E.sky[k])));
+        out.skyRead = names.filter(k => !/renamed-field .*engine\.calendar\./.test(err(() => E.sky[k])));
         out.skyWrite = err(() => { E.sky.seasons = ['a']; });
         out.skyOwn = { isDay: typeof E.sky.isDay, daylight: typeof E.sky.daylight };
+        out.timeScaleRead = err(() => E.clock.timeScale);
+        out.timeScaleWrite = err(() => { E.clock.timeScale = 60; });
+        out.rate = E.clock.rate;
         E.ops.define('sb.fail', { can: () => 'noMoney', run() {} });
         const res = E.ops.run('sb.fail', {});
         out.res = { ok: res.ok, code: res.code, keys: Object.keys(res).join(), reason: err(() => res.reason) };
@@ -41,17 +44,18 @@ export const specs = [
         F.dispose();
         return out;
       });
-      check('dialogue.say({ lock }) throws and names channel bubble', /module-params .*channel: 'bubble'/.test(r.lockSay), r.lockSay);
-      check('dialogue.start(..., { lock }) throws and names channel bubble', /module-params .*channel: 'bubble'/.test(r.lockStart), r.lockStart);
+      check('dialogue.say({ lock }) throws and names channel bubble', /renamed-field .*channel: 'bubble'/.test(r.lockSay), r.lockSay);
+      check('dialogue.start(..., { lock }) throws and names channel bubble', /renamed-field .*channel: 'bubble'/.test(r.lockStart), r.lockStart);
       check('a dialogue option typo throws (readParams, did-you-mean)', /module-params .*chanel/.test(r.typo), r.typo);
       check('a valid bubble line still plays', r.bubble === 'no throw', r.bubble);
-      check('every calendar field read on the sky throws calendar-option naming engine.calendar', r.skyRead.length === 0, JSON.stringify(r.skyRead));
-      check('writing sky.seasons throws', /calendar-option/.test(r.skyWrite), r.skyWrite);
+      check('every name that moved to the calendar, read on the sky, throws renamed-field naming engine.calendar', r.skyRead.length === 0, JSON.stringify(r.skyRead));
+      check('writing sky.seasons throws', /renamed-field/.test(r.skyWrite), r.skyWrite);
+      check("clock.timeScale read and write throw renamed-field naming engine.mod('clock.rate'); the rate is unchanged", /renamed-field .*engine\.mod\('clock\.rate'/.test(r.timeScaleRead) && /renamed-field .*engine\.mod\('clock\.rate'/.test(r.timeScaleWrite) && r.rate === 1, JSON.stringify([r.timeScaleRead, r.timeScaleWrite, r.rate]));
       check("the sky's own drawn isDay / daylight still read", r.skyOwn.isDay === 'boolean' && r.skyOwn.daylight === 'number', JSON.stringify(r.skyOwn));
       check('a failed result: .code reads, .reason throws renamed-field naming .code, JSON keys unchanged', r.res.code === 'noMoney' && /renamed-field .*\.code/.test(r.res.reason) && !r.res.keys.includes('reason'), JSON.stringify(r.res));
       check('runState.by throws renamed-field naming .owners', /renamed-field .*owners/.test(r.by) && r.owners, r.by);
       check('describe().ui.inputContexts throws naming describe().holds.input, not in JSON', /renamed-field .*holds\.input/.test(r.ui) && !r.uiJson, r.ui);
-      check('style.pickup.model throws as an unknown style.pickup key', /module-params .*style\.pickup.*model/.test(r.pickup), r.pickup);
+      check('style.pickup.model throws renamed-field naming the asset model path', /renamed-field .*style\.pickup.*'model'.*asset model/.test(r.pickup), r.pickup);
     },
   },
   {

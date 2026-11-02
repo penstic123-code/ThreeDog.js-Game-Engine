@@ -1,6 +1,6 @@
 {
   "name": "@threedog/tools",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Tools shared by the engine and games: the threedog command line, vite preset, test runner, rules, doc generators, bake",
   "license": "MIT",
   "repository": {
@@ -50,7 +50,7 @@
     "vite"
   ],
   "peerDependencies": {
-    "threedog": "^0.2.0",
+    "threedog": "^0.3.0",
     "@gltf-transform/cli": "^4.5.1",
     "tweakpane": "^4.0.5"
   },

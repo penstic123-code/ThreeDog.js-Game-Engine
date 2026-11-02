@@ -1,9 +1,9 @@
 // Shader errors naming the patch and slot.
 // Design: docs/plans/done/2026-11-02-look-architecture.md §4g.
-// 为什么：补丁代码被注入到 three 的着色器中间，原报错只给"第 812 行"，AI 看不出是哪个补丁写错的。注入时 slots.js 的 mark() 在每段代码
-// 前后加了 `// threedog:begin patch=x slot=y` / `// threedog:end`，这里按报错行号往上找最近的 begin 标记，报出补丁名和插槽。
-// three 自带钩子 renderer.debug.onShaderError：设了它，three 就不再自己打印，所以这里把原报错也完整打出来（plain three.js 的信息一条不少）。
-// 游戏自己设过 onShaderError 的，不覆盖。
+// Why: patch code is injected into the middle of three's shader, and the original error gives only "line 812", so an AI cannot tell which patch is wrong. On injection slots.js's mark() adds
+// `// threedog:begin patch=x slot=y` / `// threedog:end` before and after each piece; here, going up from the error line number, find the nearest begin marker and report the patch name and slot.
+// three has a hook renderer.debug.onShaderError: once set, three no longer prints on its own, so the original error is printed in full here too (nothing from plain three.js is lost).
+// if the game set onShaderError itself, do not override it.
 const BEGIN = /^\s*\/\/ threedog:begin patch=(\S+) slot=(\S+)/, END = /^\s*\/\/ threedog:end/;
 // a GLSL file served by the vite preset's threedog-live plugin (shader hot reload, render/hotGlsl.js): `// threedog:begin file=<path>`
 const FILE = /^\s*\/\/ threedog:begin file=(\S+)/;
@@ -62,7 +62,7 @@ export function nameShaderErrors(renderer) {
     for (const [stage, sh] of /** @type {const} */ ([['vertex', vs], ['fragment', fs]])) {
       const log = gl.getShaderInfoLog(sh) || '';
       if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) && !log.trim()) continue;
-      // 解释之后总附上完整原日志：解释只挑 `ERROR: n:m:` 行，警告和别的行会丢；文件头答应过"原报错一条不少"
+      // always append the full original log after the explanation: the explanation picks only `ERROR: n:m:` lines and drops warnings and others; the file header promised "no line of the original error is lost"
       const why = explainShaderError(stage, gl.getShaderSource(sh) || '', log);
       parts.push(why ? `${why}\n[threedog] ${stage} shader log:\n${log.trim()}` : `[threedog] ${stage} shader: ${log.trim()}`);
     }

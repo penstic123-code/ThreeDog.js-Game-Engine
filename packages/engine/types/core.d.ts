@@ -163,6 +163,12 @@ export interface EventMap extends GameEvents {
   'template:stage': [TemplateStageEvent];
   /** The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale */
   'ground:change': [{ x0: number; z0: number; x1: number; z1: number }];
+  /**
+   * rigid: newGame / a load rebuilt the physics world (a fresh page for physics) and the engine's bodies are back (entry.body is the rebuilt Rapier
+   * body; bodies maps the ids given to addBox / addBall / addHull / addWheeled). The old world's joints were freed with it: re-create the game's
+   * joints here (recipes/11-vehicles.md, Joints). Not emitted while a vehicle exists (the world is kept then, joints included)
+   */
+  'rigid:rebuilt': [{ world: any; player: any; bodies: Record<string, any> }];
   /** terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides */
   'terrain:void': [{ who: any; position: { x: number; y: number; z: number } }];
   /** A vegetation instance was chopped / removed */
@@ -1243,7 +1249,7 @@ export interface LookMaterials extends LookPart<Record<string, Record<string, an
   /**
    * Materials matching `match` (a material role or material.name such as 'window', one Material, or (material) => boolean) get emissiveIntensity
    * `night` at night and `day` by day, faded in as daylight (calendar, else sky) drops below `dusk` (default 0.3, a starting value: raise it
-   * for signs that come on early, lower it for things that only glow in full dark). Finds models built later (templates, streamed
+   * for signs that come on early, lower it for things that only glow in full dark; 0 = on only while daylight is 0). Finds models built later (templates, streamed
    * cells) after each scene change; the emissive color stays the game's. remove() gives each material its own emissiveIntensity back.
    * describe().look.materials lists each rule and how many materials it found
    * @example engine.look.materials.glow('window', { night: 2 });
@@ -1328,7 +1334,7 @@ export interface LookPart<P = Record<string, any>> {
 export interface LookTone { exposure: number | Array<[number, number]> | ((t: number) => number) }
 export interface LookLightSide { color?: ColorLike; intensity?: number; /** sun only: cast soft shadows (no style: on) */ shadow?: boolean; /** hemi only */ ground?: ColorLike }
 /** env: the neutral generated room environment (scene.environment) the no-style baseline uses; 0 = none */
-export interface LookLights { sun: LookLightSide | 'manual' | false; hemi: LookLightSide | 'manual' | false; env: { intensity: number } }
+export interface LookLights { sun: LookLightSide | 'manual' | false; hemi: LookLightSide | 'manual' | false; env: { intensity?: number; share?: number } }
 /** The map itself is the replace slot: look.env.replace('sky' | Texture | null) */
 export interface LookEnv { intensity: number; rotation: number; interval: number }
 export interface LookFog { kind: string; color: ColorLike | 'horizon'; density: number; near: number; far: number; height: number; falloff: number; enabled: boolean }

@@ -52,11 +52,11 @@ function solvePath(e, from, to, o) {
   return detailed ? res : res.path;
 }
 
-const CHARACTERS_PARAMS = keysSchema(['npcs', 'brakeKeys', 'brakePad']);
+const CHARACTERS_PARAMS = keysSchema(['npcs', 'npcTiers', 'brakeKeys', 'brakePad']);
 
 export function characters(opts = {}) {
   readParams('characters', CHARACTERS_PARAMS, opts);
-  const { npcs = true, brakeKeys, brakePad } = opts;   // no brake key by default: characters({ ...presets.keys.brake }) or the game's own
+  const { npcs = true, npcTiers, brakeKeys, brakePad } = opts;   // no brake key by default: characters({ ...presets.keys.brake }) or the game's own
   // the player's per-step drive / per-frame animation: set by createPlayer, run by this module's own fixed / frame hooks (not engine.onFixed), so a game
   // onFixed sees the same player position whether it was registered before or after createPlayer (phase 'early' = before the move, 'late' = after)
   let mgr = null, paths = null, disposePlayer = null, drivePlayer = null, animatePlayer = null;
@@ -65,10 +65,11 @@ export function characters(opts = {}) {
     name: 'characters', params: CHARACTERS_PARAMS, options: opts, label: 'Characters', before: ['rigid'], noSkip: 'fixed only flushes path requests; schedules read the calendar clock', optional: ['cameraRig', 'calendar', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
     install(e) {
       e.i18n.add(STRINGS);
-      // move.* 在装模块时就定义：文档示例在 setup 里先 engine.mod('move.speed', …) 再造角色，只靠第一个 Character 定义会报 unknown-name
+      // move.* are defined at module install: doc examples call engine.mod('move.speed', …) in setup before creating a character, and relying on the first Character's definition would give unknown-name
       moveStacks(e);
       builtInSounds(e.assets, { footstep: footstepSynth });   // sound asset 'footstep', silent until audio.sounds names it (step.grass: { src: 'footstep', params })
-      if (npcs) { mgr = new NPCManager(e); e.npcs = mgr; }
+      if (npcs) { mgr = new NPCManager(e); e.npcs = mgr; if (npcTiers) mgr.tiers(npcTiers); }
+      else if (npcTiers) throw codedError('module-params', 'characters({ npcTiers }) needs NPCs: drop npcs: false, or drop npcTiers');
       paths = new AsyncPaths(e);
       e.events.on('ground:change', b => paths.dropTiles(b));   // dug or raised ground: resample the path rasters there
       e.events.on('level:loaded', () => paths.tiles.clear());   // another level: none of the cached rasters describe it
@@ -143,7 +144,10 @@ export function characters(opts = {}) {
          * @example const player = engine.characters.createPlayer({ ...presets.player.none, cameraFollow: true }); engine.onFixed(dt => player.move(0, 0, false,
          * dt))
          */
-        createPlayer(opts = {}) {
+        // creating the player is setup (a game does it after loading its model, or on level:loaded), not a gameplay action: the ops guard lets its writes through
+        createPlayer(opts = {}) { return e.ops.allow(() => api._createPlayer(opts)); },
+        /** @internal */
+        _createPlayer(opts) {
           readParams('characters.createPlayer()', keysSchema([...CHARACTER_KEYS, 'spawn', 'jumpKeys', 'runKeys', 'control', 'cameraFollow']), opts);
           const control = opts.control;
           if (control === undefined) throw codedError('player-control', DEV_STRINGS.noControl);

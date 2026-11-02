@@ -64,6 +64,7 @@
 - `timeline:end` [{ id: number; skipped: boolean }] A cutscene ended; skipped tells whether it was skipped
 - `template:stage` [TemplateStageEvent] A content template instance entered a new stage by growing (templates with stages)
 - `ground:change` [{ x0: number; z0: number; x1: number; z1: number }] The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale
+- `rigid:rebuilt` [{ world: any; player: any; bodies: Record<string, any> }] rigid: newGame / a load rebuilt the physics world (a fresh page for physics) and the engine's bodies are back (entry.body is the rebuilt Rapier body; bodies maps the ids given to addBox / addBall / addHull / addWheeled). The old world's joints were freed with it: re-create the game's joints here (recipes/11-vehicles.md, Joints). Not emitted while a vehicle exists (the world is kept then, joints included)
 - `terrain:void` [{ who: any; position: { x: number; y: number; z: number } }] terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides
 - `vegetation:remove` [VegetationRemoveEvent] A vegetation instance was chopped / removed
 - `vegetation:restore` [VegetationRemoveEvent] A vegetation instance was restored

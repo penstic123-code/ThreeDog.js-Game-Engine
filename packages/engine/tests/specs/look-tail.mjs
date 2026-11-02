@@ -195,13 +195,13 @@ export const specs = [
   },
   {
     // 关掉天空的环境图时，回到 look.lights 的房间环境图（基线 PBR 金属不变黑），而不是空
-    name: '[guard] env: turning the sky environment off brings back the room map of look.lights env.intensity; batching says what it did',
+    name: '[guard] env: turning the sky environment off brings back the room map of look.lights env.share; batching says what it did',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
         engine.pause();
-        const hL = engine.look.lights.set({ env: { intensity: 0.7 } }, { owner: 'envTest' });
+        const hL = engine.look.lights.set({ env: { share: 0.7 } }, { owner: 'envTest' });
         engine.look.env.replace('sky', { owner: 'envTest' });
         engine.step(0.05); if (engine.sky._env) engine.sky._env.deferred = true; engine.sky._envFrame(1e4);
         const skyMap = engine.scene.environment;
@@ -216,7 +216,7 @@ export const specs = [
         out.batch = engine.batching.stats;
         return out;
       });
-      check('the sky map was there, then replace(false) put the room map back at look.lights env.intensity (x the ambient scale of the hour)', r.skyMap && r.room && r.scale > 0 && Math.abs(r.i - 0.7 * r.scale) < 1e-6, JSON.stringify(r));
+      check('the sky map was there, then replace(false) put the room map back at look.lights env.share (x the ambient scale of the hour)', r.skyMap && r.room && r.scale > 0 && Math.abs(r.i - 0.7 * r.scale) < 1e-6, JSON.stringify(r));
       check('that is the engine\'s own write: env stays engine-owned (no yield)', r.by === 'engine', JSON.stringify(r));
       check('describe().batching / batching.stats carries the note (raycast, opt out, off) while anything is batched',
         r.batch.batches > 0 && /batching\.item\(hit\.object, hit\.instanceId\)/.test(r.batch.note) && /userData\.batch = false/.test(r.batch.note), JSON.stringify(r.batch));

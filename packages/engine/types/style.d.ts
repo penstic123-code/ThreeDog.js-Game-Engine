@@ -168,6 +168,15 @@ export interface StyleSky {
   /** Star grid resolution (cells per unit of view direction), default 260: larger means smaller and more numerous stars */
   starScale?: number;
   /**
+   * What the sky dims for every game unless the style says no (each default true; false turns that one off, the rest stay). The one place these
+   * look decisions are switched:
+   * - tint: a sky.tint color (weather grey, a cave tint) dims with the sky's own light, so a grey rain tint stays dark at night. false: the tint
+   *   keeps its full color at any hour (a fantasy sky that stays bright at night)
+   * - stars: stars fade with the weather's cloud cover, not only behind drawn clouds. false: stars shine through an overcast / rainy sky
+   * @example style.sky.dim = { stars: false }   // or sky({ dim: { tint: false } })
+   */
+  dim?: { tint?: boolean; stars?: boolean };
+  /**
    * Gradient curve from horizon to zenith, default 0.55 (color = mix(horizon, zenith, elevation^curve), mixed in linear light, then tone mapped
    * and exposed like the scene). The keyframe zenith shows only high up: a level camera (55 deg fov) sees the lowest ~25 deg, where a warm
    * horizon and a deep-blue zenith mix to a gray-lavender (desert R4: e8d4a8 / 1858c8 read as #9b99bd at the frame's top). Lower curve = more

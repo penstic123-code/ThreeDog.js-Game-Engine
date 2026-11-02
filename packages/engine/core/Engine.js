@@ -41,8 +41,8 @@ import { probeMethods } from '../render/probes.js';
 import { headlessSettled } from './headlessLoad.js';
 import { codedError } from './errorHints.js';
 // createEngine() options: one schema for the unknown-key check (dev throws with did-you-mean, release warns once), the plain defaults and
-// engine.catalog('core').params. 为什么键全是 any：很多选项接受几种形状（post 是列表或对象、shadows 是开关或档位名），值由读它的代码自己查；
-// 对象 / 数组默认值留在下面的解构里（放进 schema 会让所有引擎共用同一个对象）。
+// engine.catalog('core').params. Why every key is any: many options take several shapes (post is a list or object, shadows is a switch or a level name), and the code that reads them checks the value;
+// object / array defaults stay in the destructuring below (in the schema all engines would share one object).
 /** @internal */
 export const ENGINE_PARAMS = keysSchema(['canvas', 'style', 'shadows', 'shadowType', 'antialias', 'post', 'pixelRatio', 'adaptiveResolution', 'targetFps', 'ui', 'audio',
   'fov', 'near', 'fogFar',

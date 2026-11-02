@@ -23,7 +23,7 @@ function gameRootOf(dir) {
   }
 }
 
-// Windows 路径不分大小写：cwd 的盘符大小写可能和 realpath 不同，比较前统一
+// Windows paths are case-insensitive: the cwd drive letter case may differ from realpath, so normalize before comparing
 const norm = p => process.platform === 'win32' ? p.toLowerCase() : p;
 const within = (p, dir) => norm(p) === norm(dir) || norm(p).startsWith(norm(dir) + sep);
 /** Whether a folder is one of this monorepo's own workspaces (the root, packages/*, games/*), so commands there run in monorepo mode */
@@ -39,8 +39,8 @@ const monorepoOwns = d => d === MONO || within(d, join(MONO, 'packages')) || wit
  *   docRef(p)  how generated game docs cite an engine file: `node_modules/threedog/<p>`, valid in both layouts
  */
 export function project(cwd = process.cwd()) {
-  // 为什么先找离 cwd 最近的游戏根：从 monorepo 的工具跑命令时，以前一律当成 monorepo，放在仓库里别处（如 .demo/x）或仓库外的游戏，
-  // npm run dev / check 都作用到了外层（"dev: packages/engine"），游戏自己的检查从没跑过。monorepo 自己的工作区（根、packages/*、games/*）仍是 monorepo
+  // Why look for the nearest game root to cwd first: running a command from the monorepo's tools used to always count as the monorepo, so a game elsewhere in the repo (e.g. .demo/x) or outside it
+  // npm run dev / check acted on the outer one ("dev: packages/engine") and the game's own checks never ran. The monorepo's own workspaces (root, packages/*, games/*) are still the monorepo
   const game = gameRootOf(cwd);
   const root = MONO && (!game || monorepoOwns(game)) ? MONO : game ?? resolve(cwd);
   let engineDir;

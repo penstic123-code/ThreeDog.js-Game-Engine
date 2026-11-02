@@ -15,7 +15,7 @@ import { codedError } from '../../core/errorHints.js';
 // Options sky() accepts: time (the fixed time of day drawn without a calendar) + look overrides of style.sky
 const SKY_OPTIONS = ['time', 'keyframes', 'groundTint', 'sunSize', 'sunGlow', 'sunBrightness', 'moonBrightness',
   'moonSize', 'moonColor', 'clouds', 'starDensity', 'starScale', 'gradientCurve', 'skybox', 'shadow', 'orbitTilt', 'orbitSway', 'environment',
-  'sun', 'hemisphere', 'fog', 'layers', 'backdrop'];
+  'sun', 'hemisphere', 'fog', 'layers', 'backdrop', 'dim'];
 const SKY_PARAMS = keysSchema(SKY_OPTIONS);   // keys only: the values take several shapes (time: 'HH:MM' | 0-1), Sky checks them
 const CAL_KEYS = ['dayLength', 'day', 'daysPerSeason', 'seasons', 'hoursPerDay'];
 const STRINGS = {

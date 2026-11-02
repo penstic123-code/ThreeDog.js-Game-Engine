@@ -20,9 +20,9 @@ import { vec3, xzOf } from '../../core/math.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { cellsChanged } from '../../core/streamCells.js';
 import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
-import { syncTerrain, syncTrees, treesChanged, syncGroundTrees, syncStatics, syncLevel, recordLocks, carryBody, carryCollider, recordJoints, forgetJoints, carryJoints } from './sync.js';
+import { syncTerrain, syncTrees, treesChanged, syncGroundTrees, syncStatics, syncLevel, recordLocks, carryBody, carryCollider } from './sync.js';
 import { codedError, coded } from '../../core/errorHints.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce, DEV } from '../../core/validate.js';
 // Params of addBox / addBall / addHull
 const PHYSICS = { physics: true };   // stream source filter (shared, not rebuilt every step)
 const BODY_KEYS = ['id', 'mass', 'friction', 'restitution', 'damping', 'angularDamping', 'fixed'];
@@ -75,7 +75,6 @@ export class RigidBodies {
     this.gen = (this.gen ?? 0) + 1;
     this.world = new R.World({ x: 0, y: this.gravity, z: 0 });
     this.world.timestep = 1 / 60;
-    recordJoints(this);   // joints the game makes on this world are re-created by _fresh (sync.js)
     // Player capsule (kinematic: the character controller decides position; physics only pushes other things away)
     this.playerBody = this.world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased());
     const pc = this.playerCapsule;
@@ -91,7 +90,9 @@ export class RigidBodies {
    * crate pushed the same way after newGame landed a few millimetres off the fresh-page result (durability audit). The world is rebuilt: the
    * player capsule first, every body still here (bodies of world records were already removed by the load and come back with their views) at its
    * pose with no velocity, and terrain / tree / static colliders on the next step, the order a fresh page builds them in. What the game wrote on a
-   * body or collider itself (gravityScale, axis locks, ccd, dominance, sensor, groups, enabled) is carried onto the rebuilt one (carryBody / carryCollider in sync.js), and impulse joints it made between engine bodies are re-created (carryJoints). Movers'
+   * body or collider itself (gravityScale, axis locks, ccd, dominance, sensor, groups, enabled) is carried onto the rebuilt one (carryBody / carryCollider in sync.js). Joints are not carried: Rapier has no getters for a joint's
+   * whole description (rope length, motor settings), and copying one would mean patching Rapier. The game re-creates its own joints on rigid:rebuilt,
+   * emitted once the bodies are back (the coordination point); a dev warning names a game whose joints vanished with no re-creation. Movers'
    * character controllers are freed with the old world (World.free frees them; movers/rapier.js sees the new gen and builds new ones).
    * Vehicles hold a controller built for one world: with a vehicle present only the bodies are stopped and put to sleep (no rebuild).
    */
@@ -101,9 +102,8 @@ export class RigidBodies {
       for (const b of this.bodies) { const y = b.body; y.setLinvel({ x: 0, y: 0, z: 0 }, false); y.setAngvel({ x: 0, y: 0, z: 0 }, false); y.resetForces(false); y.resetTorques(false); if (y.isDynamic()) y.sleep(); }
       return;
     }
-    const old = this.world, R = this.R, joints = this._joints, oldPlayer = this.playerBody.handle;
+    const old = this.world, R = this.R, hadJoints = old.impulseJoints.len();
     this._newWorld();
-    const moved = new Map([[oldPlayer, this.playerBody]]);   // old body handle -> rebuilt body: what carryJoints reattaches the game's joints to
     this.terrain.clear(); this.trees.clear(); this.groundTrees.clear(); this.statics.clear();
     this._staticVersion = -1; this._levelVersion = undefined; this._levelColliders = [];
     this._srcMemo = null; this._srcPending = false; this._syncT = 0; this._anchors = []; this._treeMemo = [];
@@ -118,12 +118,14 @@ export class RigidBodies {
       carryBody(b, ob, b.body); carryCollider(oc, b.collider);
       // b.enabled stays: it is the engine's own freeze flag (no ground under it), which the step loop compares with; a game's setEnabled(false) was carried
       b.wet = false; b._void = false;
-      moved.set(ob.handle, b.body);
     }
-    // hinges, ropes, chains the game made between engine bodies come back between the rebuilt ones (sync.js); others would be lost: say so
-    const lost = carryJoints(this, old, joints, moved);
-    if (lost) warnOnce(coded('rigid-misuse', `rigid: ${lost} joint(s) were dropped by newGame / load: a joint is carried only between bodies made with rigid.addBox / addBall / addHull / addWheeled (or the player body). For an anchor use rigid.addBox(mesh, { fixed: true }) instead of world.createRigidBody, or re-create the joint on session:end / world:load`));
     old.free();
+    // the old world's joints (every one is the game's: the engine makes none) went with it. The game re-creates them here, between the rebuilt bodies
+    const bodies = {};
+    for (const b of this.bodies) if (b.id != null) bodies[b.id] = b.body;
+    this.engine.events.emit('rigid:rebuilt', { world: this.world, player: this.playerBody, bodies });
+    // checked on the next step, not here: on a load, a presenter's build re-adds its bodies (and their joints) after world:load
+    if (DEV && hadJoints) this._jointsGone = hadJoints;
   }
 
   // ---------- Add bodies ----------
@@ -210,7 +212,6 @@ export class RigidBodies {
   /** Delete the body (called by entry.remove()); the model stays */
   _remove(entry) {
     const i = this.bodies.indexOf(entry); if (i < 0) return;
-    forgetJoints(this, entry.body);   // Rapier removes the body's joints with it
     this.world.removeRigidBody(entry.body); this.bodies.splice(i, 1);
   }
   /** Push: impulse vector v (Vector3 / [x, y, z] / { x, y, z }) */
@@ -276,6 +277,10 @@ export class RigidBodies {
     }
     syncStatics(this);
     syncLevel(this);
+    if (this._jointsGone) {   // dev only (set in _fresh): the old world had the game's joints and nothing re-created one since the rebuild
+      if (!this.world.impulseJoints.len()) warnOnce(coded('rigid-misuse', `rigid: ${this._jointsGone} joint(s) were freed with the old physics world by newGame / load and none was re-created. The engine rebuilds the world and does not copy joints: re-create them in a rigid:rebuilt listener ({ world }), between entry.body of the rebuilt bodies (recipes/11-vehicles.md, Joints)`));
+      this._jointsGone = 0;
+    }
     // player capsule follows the player (the rapier mover computes collision and writes the position itself); turned off while driving to avoid colliding with
     // the car
     if (e.player) this.playerBody.setNextKinematicTranslation({ x: focus.x, y: focus.y, z: focus.z });

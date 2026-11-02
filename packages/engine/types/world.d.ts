@@ -680,7 +680,7 @@ export interface LightSourceOptions {
    */
   glow?: Material | Object3D | null;
   /**
-   * Follow the time of day with look.materials.glow's daylight curve (shared): true = glow's default dusk, a number = the daylight (0..1) below which
+   * Follow the time of day with look.materials.glow's daylight curve (shared): true = glow's default dusk, a number = the daylight (0..1; 0 = on only while daylight is 0) below which
    * the source fades in. Off by day (its light goes to lit sources, its stand-in dims too). Default false: lit at any hour. Needs calendar() or sky()
    */
   dusk?: boolean | number;

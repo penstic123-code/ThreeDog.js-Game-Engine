@@ -12,9 +12,9 @@ import { missingText, warnOnce } from './validate.js';
 import { readParams, keysSchema } from './params.js';
 import { SoundHandle, playSound, placeListener, synthNoise, synthTone, loadSound, playFile, soundDef } from './audioVoice.js';
 import { matchesWhen, volumeOf, checkRuleName, packAudio, applyDucks, audioInfo } from './audioRules.js';
-// createEngine({ audio }) 的 schema：未知键开发时抛错带 did-you-mean。对象 / 数组默认值不放这里：放了会被所有引擎共用同一个对象
+// createEngine({ audio }) schema: unknown keys throw in dev with did-you-mean. Object / array defaults are not kept here: they would be shared by all engines as one object
 const AUDIO_PARAMS = { levels: 'object?', sounds: 'object?', ambience: 'array?', music: 'object?', footsteps: 'object?' };
-// music 里的值形状多（duckDialogue 是数字或 false），这里只管键名拼写；值由 music() 自己查
+// Values inside music come in many shapes (duckDialogue is a number or false), so only key spelling is checked here; music() checks the values itself
 const MUSIC_PARAMS = keysSchema(['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);
 const BUS_PARAMS = { level: { type: 'number', default: 1, min: 0, desc: 'bus volume 0-1' }, owner: 'string?' };
 const DUCK_PARAMS = { fade: { type: 'number', default: 0.3, min: 0, desc: 'fade seconds both ways' } };
@@ -116,7 +116,7 @@ export class Audio {
     return { owner, remove: () => {
       if (!(name in this.levels)) return;
       delete this.levels[name];
-      this.buses[name]?.disconnect(); this._duckNodes[name]?.disconnect();   // 正在这条总线上响的声音随节点一起断开（总线没了，声音不该还出声）
+      this.buses[name]?.disconnect(); this._duckNodes[name]?.disconnect();   // sounds still playing on this bus are cut with the node (bus gone, no sound should linger)
       delete this.buses[name]; delete this._duckNodes[name];
     } };
   }

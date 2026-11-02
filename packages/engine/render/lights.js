@@ -53,22 +53,45 @@ export function followFocus(e) {
   o.mark();
 }
 
+// The room map has two look.lights keys, one meaning each (they used to be one key whose meaning changed silently when a sky was installed):
+//   env.intensity  the absolute scene.environmentIntensity of the room map (no sky, or a game / style that wrote it under a sky)
+//   env.share      under a sky only: the room map's share (0..1) of the style's ambient budget; the hemisphere light gets the rest (roomShare)
+// Under a sky the share applies unless a game or style layer wrote env.intensity: then the engine yields and writes that value as it is (no
+// time-of-day follow, the hemisphere light carries the whole budget). e._roomBase / _roomShare / _roomAbs hold the keys, e._roomScale the sky's scale.
+const shareMode = e => e._roomScale != null && !e._roomAbs;
+/** environmentIntensity the room map gets now @param {any} e */
+const roomLevel = e => (shareMode(e) ? (e._roomShare ?? 0) * e._roomScale : (e._roomBase ?? 0));
+/** @param {any} e */
+const roomWanted = e => (shareMode(e) ? (e._roomShare ?? 0) > 0 : (e._roomBase ?? 0) > 0);
+
 /**
- * Ask for the neutral room environment as scene.environment at base intensity x (look.lights env.intensity, or a sky giving its map back).
- * What lands in scene.environmentIntensity is x times the time-of-day scale an installed sky sets (followRoomEnvironment; 1 without a sky).
- * Already built: set at once. Not built yet: only remembered, and syncRoomEnvironment builds it when some material in the scene reads
- * scene.environment. Why lazy: the PMREM prefilter costs ~0.6 s on a cold start (shader compiles), and a scene of Toon / Basic / Matcap /
- * shader materials never samples it, so it used to be paid at createEngine for nothing.
- * @param {any} e @param {number} x
+ * look.lights wrote env.intensity / env.share (absolute: env.intensity came from a game or style layer, not the engine default). Then refreshRoom.
+ * @param {any} e @param {{ base?: number, share?: number, absolute?: boolean }} o
  */
-export function useRoomEnvironment(e, x) {
-  e._roomBase = x;
-  if (e._roomEnv) { e.scene.environment = e._roomEnv.texture; e.scene.environmentIntensity = x * (e._roomScale ?? 1); e._roomWant = 0; markOwned(e, 'env'); return; }
-  e._roomWant = x;
+export function setRoomEnvironment(e, { base, share, absolute }) {
+  if (base !== undefined) e._roomBase = base;
+  if (share !== undefined) e._roomShare = share;
+  if (absolute !== undefined) e._roomAbs = absolute;
+  refreshRoom(e);
 }
 
 /**
- * The sky's scale of the room environment (null = none: no sky): environmentIntensity = env.intensity (the share) x scale, where scale is the
+ * Put the room map on or off at its level (roomLevel). Never overwrites someone else's scene.environment (the game's, or a sky's map).
+ * Built already: set at once. Not built yet: only remembered (_roomWant), and syncRoomEnvironment builds it when some material in the scene
+ * reads scene.environment. Why lazy: the PMREM prefilter costs ~0.6 s on a cold start (shader compiles), and a scene of Toon / Basic / Matcap /
+ * shader materials never samples it, so it used to be paid at createEngine for nothing.
+ * @param {any} e
+ */
+export function refreshRoom(e) {
+  const s = e.scene, ours = e._roomEnv?.texture;
+  if (s.environment && s.environment !== ours) { e._roomWant = 0; return; }
+  if (!roomWanted(e)) { e._roomWant = 0; if (ours && s.environment === ours) s.environment = null; return; }
+  if (e._roomEnv) { s.environment = ours; s.environmentIntensity = roomLevel(e); e._roomWant = 0; markOwned(e, 'env'); return; }
+  e._roomWant = 1;
+}
+
+/**
+ * The sky's scale of the room environment (null = none: no sky): in share mode environmentIntensity = env.share x scale, where scale is the
  * style's ambient now in environment units (sky/frame.js). Why: the room map is a fixed, evenly lit studio; under a sky it is part of the
  * ambient light of the day, so it dims with the sky's light or every PBR surface stays day-lit at night (demo finding 2026-11-02).
  * Writes scene.environmentIntensity only while the room map is the current environment; the caller (the sky) checks / marks its owned 'env' row.
@@ -76,8 +99,11 @@ export function useRoomEnvironment(e, x) {
  * @param {any} e @param {number | null} scale @param {boolean} [write]
  */
 export function followRoomEnvironment(e, scale, write = true) {
+  const was = shareMode(e);
   e._roomScale = scale;
-  if (write && isRoomEnvironment(e)) e.scene.environmentIntensity = (e._roomBase ?? 0) * (scale ?? 1);
+  // a sky came or went: the other key decides whether the map is on (also while it is not built yet: whether it is still wanted)
+  if (was !== shareMode(e) && (write || !isRoomEnvironment(e))) refreshRoom(e);
+  else if (write && isRoomEnvironment(e)) e.scene.environmentIntensity = roomLevel(e);
 }
 
 /** Whether scene.environment is the engine's room map now @param {any} e */
@@ -86,22 +112,24 @@ export const isRoomEnvironment = e => !!e._roomEnv && e.scene.environment === e.
 // How much diffuse light the room map gives at environmentIntensity 1: the mean linear luminance of a white Lambert / Standard sphere lit by
 // it alone (no tone mapping), averaged over six views (top 1.44, bottom 0.68, sides 0.76-1.07; three 0.187 RoomEnvironment, PMREM sigma 0.04).
 // A fact about three's room map, not a look value: it converts the style's ambient (hemisphere units) into an environment intensity, so the
-// room map and the hemisphere light can share one ambient budget (roomShare) instead of the map adding several times the ambient on top
+// room map and the hemisphere light can share one ambient budget (roomShare) instead of the map adding several times the ambient on top.
+// Guarded by the 'room radiance' test, which measures it again: a three.js upgrade that changes RoomEnvironment fails there, not in the picture
 export const ROOM_RADIANCE = 1.05;
 
 /**
- * Under a sky the style's ambient column is the whole diffuse fill. The room map takes this share of it (look.lights env.intensity, 0..1) and
- * the hemisphere light the rest; 0 while the room map is not the current environment (not built yet, a sky / game map, none), so the
- * hemisphere light then carries all of it. Why: with the map on top, a rainy-street noon got about four times the style's ambient, shadows
- * were 19% darker than lit ground instead of 56%, and turning the sun off changed the picture by 0.08 (R4 measure)
+ * Under a sky the style's ambient column is the whole diffuse fill. The room map takes this share of it (look.lights env.share, 0..1) and
+ * the hemisphere light the rest; 0 while the room map is not the current environment (not built yet, a sky / game map, none) or a game wrote
+ * env.intensity (an absolute fill on top: the engine yields), so the hemisphere light then carries all of it. Why: with the map on top, a
+ * rainy-street noon got about four times the style's ambient, shadows were 19% darker than lit ground instead of 56%, and turning the sun off
+ * changed the picture by 0.08 (R4 measure)
  * @param {any} e
  */
-export const roomShare = e => (isRoomEnvironment(e) ? Math.min(1, e._roomBase ?? 0) : 0);
+export const roomShare = e => (isRoomEnvironment(e) && shareMode(e) ? Math.min(1, e._roomShare ?? 0) : 0);
 
-/** The room map's base intensity (look.lights env.intensity) and whether it waits for a material that reads it (describe) @param {any} e */
-export const roomEnvironmentInfo = e => ({ base: e._roomBase ?? 0, pending: !!e._roomWant });
+/** The room map's keys and mode, and whether it waits for a material that reads it (describe) @param {any} e */
+export const roomEnvironmentInfo = e => ({ base: e._roomBase ?? 0, share: e._roomShare ?? 0, mode: shareMode(e) ? 'share' : 'absolute', pending: !!e._roomWant });
 
-/** Forget a pending room environment (env.intensity 0, dispose) @param {any} e */
+/** Forget a pending room environment (dispose) @param {any} e */
 export function dropRoomEnvironment(e) { e._roomWant = 0; }
 
 /**
@@ -116,7 +144,7 @@ const readsEnv = m => !!m && !m.envMap && (m.isMeshStandardMaterial || m.isMeshL
  * Called before each render and in start() before compiling: builds the pending room environment once a material that reads it is in the
  * scene. While it is pending, only objects that entered the scene since the last frame are looked at (core/sceneDelta.js: an add at any
  * depth, or mesh.material = x), so a quiet frame costs one size check. A game or sky map set meanwhile wins: the pending request is dropped
- * (the same "never overwrite someone else's scene.environment" rule look.lights env.intensity follows).
+ * (the same "never overwrite someone else's scene.environment" rule refreshRoom follows).
  * @param {any} e
  */
 export function syncRoomEnvironment(e) {
@@ -127,13 +155,13 @@ export function syncRoomEnvironment(e) {
   e._roomView.sync();
   if (!e._roomHit) return;
   e._roomView.remove(); e._roomView = null; e._roomHit = false;
-  s.environment = roomEnvironment(e); s.environmentIntensity = e._roomWant * (e._roomScale ?? 1); e._roomWant = 0;
+  s.environment = roomEnvironment(e); s.environmentIntensity = roomLevel(e); e._roomWant = 0;
   markOwned(e, 'env');   // the engine's own write: a sky watching scene.environment must not read it as the game taking over
 }
 
 /**
  * Neutral environment for PBR (three's RoomEnvironment prefiltered with PMREM; generated, no asset). Built once per engine on first use;
- * callers outside this file go through useRoomEnvironment so it is only built when something reads it.
+ * callers outside this file go through refreshRoom so it is only built when something reads it.
  * @param {any} e @returns {THREE.Texture}
  */
 function roomEnvironment(e) {

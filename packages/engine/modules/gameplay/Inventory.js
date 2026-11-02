@@ -117,7 +117,7 @@ export class Inventory {
    */
   define(id, def) {
     if (id.includes('#')) throw codedError('inventory-misuse', `inventory.define('${id}'): '#' is reserved for entry keys (sword#3); pick an id without it`);
-    // 形状只认资源里的模型名（和 content 同一条路）；以前的 mesh 函数不再读，写了就直接说怎么改，免得静悄悄变成灰盒
+    // shape only accepts a model name from assets (same path as content); the old mesh function is no longer read, and using it says how to fix it, instead of silently becoming a grey box
     if (def.mesh !== undefined) throw codedError('item-mesh', `inventory.define('${id}'): mesh is not an item field; register the shape in an asset pack (engine.assets.manifest({ models: { ${id}: fn } })) and write model: '${id}'`);
     checkOptions(`inventory.define('${id}')`, def, ['name', 'icon', 'iconUrl', 'desc', 'stack', 'color', 'weight', 'use', 'canUse', 'consume', 'model'], { loose: true });   // only near-miss spellings warn
     this.defs.set(id, freezeDef({ stack: this.defaultStack, name: id, ...def })); return this;   // shared by every entry of this item: read-only

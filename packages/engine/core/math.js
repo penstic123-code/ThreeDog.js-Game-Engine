@@ -1,4 +1,4 @@
-// Small shared helpers (used by several modules)
+// Small shared helpers
 import * as THREE from 'three';
 import { codedError } from './errorHints.js';
 

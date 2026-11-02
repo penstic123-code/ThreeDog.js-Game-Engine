@@ -127,7 +127,7 @@ export const specs = [
   {
     // guard for the shared xz index (core/cells.js) under interactions: picks must equal a full scan of every item (fixed, following an Object3D, on a
     // moving NPC or pickup model, ties to the earlier added), and a pick must not measure every far item again (the index is not bypassed)
-    name: '[guard] interactions index: nearest pick equals a full scan for fixed, followed, NPC and moved pickup items across 24 spots; ties go to the earlier added; far items are not measured per pick',
+    name: '[guard] interactions index: nearest pick equals a full scan for fixed, followed, NPC and moved pickup items across 24 spots; a model moved far from its record is found where it stands; ties go to the earlier added; far items are not measured per pick',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev, page }) {
       await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
@@ -165,14 +165,20 @@ export const specs = [
         }
         engine.player.placeAt({ x: tie.x, z: tie.z }); engine.step(1 / 30);
         const tieGot = I.pick()?.id;
+        // a record's model the game moved far from its record (the record stays): the item is found where the model stands, without a step in between
+        const mid = pk.find(id => engine.world.view(id)), pv = engine.world.view(mid), away = { x: h.x - 45, z: h.z - 45 };
+        pv.position.set(away.x + 0.4, engine.surface(away.x + 0.4, away.z), away.z);
+        engine.player.placeAt(away);
+        const moved = { got: I.pick()?.id ?? null, want: scan(), rec: engine.world.get(mid).position.x - pv.position.x, mid };
         // far from everything except the tie: a pick measures the followed objects and what the index finds near, not the 380 others
         let calls = 0; const gw = THREE.Object3D.prototype.getWorldPosition;
         THREE.Object3D.prototype.getWorldPosition = function (t) { calls++; return gw.call(this, t); };
         try { I.pick(); } finally { THREE.Object3D.prototype.getWorldPosition = gw; }
-        return { diffs, seen: [...seen], tieGot, calls };
+        return { diffs, seen: [...seen], tieGot, calls, moved };
       });
       check('nearest pick equals a full scan at every spot (fixed, followed, NPC, moved pickup)', r.diffs.length === 0, JSON.stringify(r.diffs));
       check('the spots really hit several kinds of item', r.seen.length >= 3, JSON.stringify(r.seen));
+      check('a pickup model moved 45+ m from its record is found where it stands (same as a full scan)', r.moved.got === r.moved.want && r.moved.want === r.moved.mid && Math.abs(r.moved.rec) > 2, JSON.stringify(r.moved));
       check('a tie goes to the earlier added', r.tieGot === 'ix-tie-a', JSON.stringify(r));
       check('a pick far from the crowd measures only followed objects and nearby candidates', r.calls <= 25, String(r.calls));
     },

@@ -119,7 +119,7 @@ export const specs = [
         const turned = pv.rotation, size = [box.scale.x, box.scale.z].map(v => Math.round(v * 100) / 100);
         const placed = pv.place();
         engine.step(1 / 30, { render: false });
-        const after = { ok: pv.ok, code: pv.code, noReason: !('reason' in pv), color: box.material.color.getHex() };
+        const after = { ok: pv.ok, code: pv.code, noReason: (o => { if (Object.keys(o).includes('reason')) return false; try { return o.reason === undefined; } catch (x) { return x.code === 'renamed-field'; } })(pv), color: box.material.color.getHex() };
         pv.remove();
         // the engine binds no key itself: a preview whose rotate action is unbound leaves it unbound (and only warns)
         const pv2 = G.preview({ grid: 'farm', item: 'bed', rotate: 'unboundRot', from: () => null }); engine.step(1 / 30, { render: false });

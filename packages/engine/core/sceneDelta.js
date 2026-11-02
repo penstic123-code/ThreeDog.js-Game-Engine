@@ -10,8 +10,8 @@
 //   misses nested adds. The hook wraps three's own method, changes nothing else and is installed once per page. An add whose parent
 //   chain does not reach a watched scene is ignored: a subtree built off-scene is visited whole when its root is attached.
 // - mesh.material = other on an object the scene has seen (watchMaterial, put on every object with a material as it enters): an own
-//   accessor on that one object; the object leaves and enters again. Swapping an entry inside a material array in place
-//   (mesh.material[1] = m) is not seen; assign a new array instead.
+//   accessor on that one object (calling the class's own material getter / setter when it has one); the object leaves and enters again.
+//   Swapping an entry inside a material array in place (mesh.material[1] = m) is not seen; assign a new array instead.
 // A visitor keeps its own per-object / per-material state (Maps, WeakMaps); nothing here holds an object after it left the scene.
 import * as THREE from 'three';
 
@@ -47,19 +47,37 @@ if (!P[KEY]) {
   };
 }
 
-/** Make `o.material = x` on this object count as it leaving and entering again (idempotent; three still reads and writes o.material as usual) */
+/** The accessor (get / set) `material` resolves to on this object or up its prototype chain, or null when it is a plain value */
+function materialAccessor(o) {
+  for (let p = o; p; p = Object.getPrototypeOf(p)) {
+    const d = Object.getOwnPropertyDescriptor(p, 'material');
+    if (d) return d.get || d.set ? d : null;
+  }
+  return null;
+}
+
+/**
+ * Make `o.material = x` on this object count as it leaving and entering again (idempotent; three still reads and writes o.material as usual).
+ * A plain Mesh keeps material as a value: the own accessor below stores it. A class with its own material accessor (troika-three-text
+ * derives the material it renders from the one assigned; other libraries do the same) keeps it: the own accessor calls the original getter
+ * and setter, so the library's logic still runs, and only adds the leave / enter around the set. Such a getter may return a derived
+ * material that is never === the one assigned, so there every set counts as a swap (one extra re-enter, harmless).
+ */
 function watchMaterial(o) {
   if (Object.prototype.hasOwnProperty.call(o, KEY)) return;
-  let mat = o.material;
+  if (Object.getOwnPropertyDescriptor(o, 'material')?.configurable === false) return;   // cannot be redefined: swaps on it are not seen
+  const acc = materialAccessor(o);
+  if (acc && !acc.set) return;   // getter only: assigning throws (strict mode) and nothing can swap it, so there is nothing to watch or to change
+  let mat = acc ? undefined : o.material;
   Object.defineProperty(o, KEY, { value: true });
   Object.defineProperty(o, 'material', {
     configurable: true, enumerable: true,
-    get() { return mat; },
+    get: acc ? function () { return acc.get?.call(this); } : function () { return mat; },
     set(m) {
-      if (m === mat) return;
+      if (!acc && m === mat) return;
       const t = trackerOf(o), was = t?.seen.has(o);
       if (was) t.left(o, false);   // leave sees the old material, so a visitor can drop what it counted for it
-      mat = m;
+      if (acc) acc.set.call(this, m); else mat = m;
       if (was) t.pending.add(o);
     },
   });

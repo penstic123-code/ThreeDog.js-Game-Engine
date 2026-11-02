@@ -95,8 +95,10 @@ also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (defaults and r
 `calendar()` option, not a style key).
 **Day and night brightness** come from two columns: sunlight intensity and ambient intensity. With no `sky.keyframes` the sky uses a neutral gray
 curve (night from 19:12 to 04:48, moonlight 0.4, ambient 0.35 against 3 / 1.2 at noon). The ambient column is the whole diffuse fill: the engine's neutral room
-environment (the light Standard / Lambert / Phong materials get from `scene.environment`) takes the share `look.lights` `env.intensity` (0..1) of
-it and the hemisphere light the rest, so a dark-night pack is dark on PBR surfaces too and the sun keeps its contrast by day. `describe().look.env.source` says which map lights
+environment (the light Standard / Lambert / Phong materials get from `scene.environment`) takes the share `look.lights` `env.share` (0..1) of
+it and the hemisphere light the rest, so a dark-night pack is dark on PBR surfaces too and the sun keeps its contrast by day. `env.intensity` keeps
+one meaning, the absolute `scene.environmentIntensity`: a game or pack that writes it under a sky gets that value as written (fixed, not following
+the day; the hemisphere light then keeps the whole budget, `describe().look.env.source.mode` `'absolute'`). `describe().look.env.source` says which map lights
 them (`room` / `sky` / `asset:<name>` / `game`) and `followsTime`; `look.env.replace('sky')` builds it from the dome instead (outdoor reflections
 show the sky, not a studio; it darkens by itself), an asset map is a fixed photo and does not follow. Check with `shot --time 12:00` and `--time 22:00`.
 The look of rain and snow is in `style.weather.rain / snow` (shape, density, shaders, the game's own particles: recipe 44).

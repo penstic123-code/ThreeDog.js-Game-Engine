@@ -285,7 +285,7 @@ export class Vegetation {
     if (sp?.density) r = thin(r, c.cx * this.host.CHUNK, c.cz * this.host.CHUNK, sp.density.at, sp.rule.salt);
     if (r.k && r.k.length) c.colliders[name] = r.k; else delete c.colliders[name];
     (c.collidersAll ||= {})[name] = c.colliders[name];   // original collision circles (before felled trees are filtered), for single-tree removal
-    // 一株不剩（地形挖过、densityMap 疏掉全部）：旧网格也要拆掉，否则碰撞已删、植物却悬在原处。在 mount 里处理，调用方（地形编辑、换地面）不用各自记得
+    // none left (terrain dug, densityMap thinned all): the old mesh must be torn down too, or collision is gone while plants hang in place. Handled in mount so callers (terrain edit, ground swap) need not remember
     if (r.n === 0) { if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); delete c.veg[name]; } return; }
     const t0 = performance.now();   // measure: the 'build' stage of engine.budget.cost
     const im = new THREE.InstancedMesh(sp.geometry, sp.material, r.n);

@@ -6,7 +6,7 @@
 // A hot reload re-runs the same file (same path, a ?t= query): that is one copy, not two, so the path without the query decides.
 import { coded } from './errorHints.js';
 
-export const VERSION = '0.2.1';   // kept equal to package.json by the "[guard] engine copies" spec
+export const VERSION = '0.3.0';   // kept equal to package.json by the "[guard] engine copies" spec
 
 const KEY = Symbol.for('threedog.engine.copies');
 

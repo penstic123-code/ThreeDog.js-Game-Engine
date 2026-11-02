@@ -15,6 +15,8 @@
 //   engine.sky.modifiers is the composite of the sky.* mod entries (read-only)
 // Skybox: style sky.skybox = '/textures/sky.jpg' (equirectangular panorama) replaces the gradient sky; brightness follows time
 import * as THREE from 'three';
+import { readParams } from '../../core/params.js';
+import { renamed } from '../../core/validate.js';
 import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome, loadSkybox } from './shader.js';
 import { shadowMethods, shadowFor, SKY_BIAS } from './shadow.js';
 import { defineSkyLook } from './lookSky.js';
@@ -28,8 +30,11 @@ import { codedError } from '../../core/errorHints.js';
 import { makeFog, setFogPatch, fogGameMaterials } from './fog.js';
 import { ownedRow } from '../../core/owned.js';
 import { parseClock } from '../../core/dayTime.js';
-import { Calendar } from '../calendar/Calendar.js';
-import calendarContract from '../calendar/contract.js';
+// style.sky.dim (types/style.d.ts StyleSky.dim): each look decision the sky makes for every game, on unless the style turns it off
+const DIM_PARAMS = {
+  tint: { type: 'bool', default: true, desc: 'a sky.tint color (weather grey, a cave tint) dims with the sky\'s own light, so a grey rain tint stays dark at night' },
+  stars: { type: 'bool', default: true, desc: 'stars fade with the weather\'s cloud cover (uCloud), not only behind drawn clouds' },
+};
 /** @import { Object3D, Vector3 } from '../../types/common' */
 /** @import { SkyOptions, SkyModifiers, SkyEnvironmentInfo } from '../../types/world' */
 /** @import { Handle } from '../../types/common' */
@@ -52,6 +57,9 @@ export class Sky {
     // the 0-1 scale the sky.tint color (weather grey) follows
     /** @internal */ this._lightPeak = Math.max(...this.kf.map(k => skyLight(k[1], k[2], k[5])));
     /** @internal the sky.tint color dimmed by the sky's light this frame (frame.js) */ this._tintLit = new THREE.Color();
+    // style.sky.dim: the look decisions the sky makes for every game unless the style turns them off (a fantasy sky can stay bright at night,
+    // keep its stars through clouds). Booleans, default on; one option form for both, documented in types/style.d.ts StyleSky.dim
+    /** @internal */ this.dim = readParams('style.sky.dim', DIM_PARAMS, st.dim ?? {});
     /** @internal */ this.groundTint = new THREE.Color(st.groundTint ?? 0x4a4a4a);
     const scene = engine.scene;
 
@@ -144,15 +152,26 @@ export class Sky {
 }
 // Mixed in from shadow.js and layers.js; methods the class already defines are kept
 for (const [k, f] of Object.entries({ ...shadowMethods, ...layerMethods, ...environmentMethods })) if (!Object.hasOwn(Sky.prototype, k)) Sky.prototype[k] = f;
-// Time moved to calendar(): reading or writing these on the sky used to be silent (a stray own property that controls nothing), so they throw.
-// 名单从日历契约（字段、方法、选项）和 Calendar 的 getter 推出来，不手写：日历以后多一个字段，这里自动跟上，不会漏成静默。
-// 天空自己也有的名字（isDay / daylight：画出来的太阳）跳过；time 是 sky({ time }) 固定时刻的选项名，不算搬走的
-const calendarKeys = new Set([...calendarContract.fields, ...calendarContract.api, ...Object.keys(calendarContract.options),
-  ...Object.entries(Object.getOwnPropertyDescriptors(Calendar.prototype)).filter(([, d]) => d.get).map(([k]) => k)]);
-for (const key of calendarKeys) {
-  if (key === 'time' || key in Sky.prototype) continue;
-  Object.defineProperty(Sky.prototype, key, {
-    get() { throw codedError('calendar-option', `sky.${key} moved to engine.calendar.${key} (the sky only draws the calendar's time)`); },
-    set() { throw codedError('calendar-option', `sky.${key} moved to engine.calendar.${key} (the sky only draws the calendar's time)`); },
-  });
-}
+// Time moved to calendar() in 0.3: reading or writing these on the sky used to be silent (a stray own property that controls nothing), so in dev
+// they throw naming engine.calendar. An explicit list of the names that actually moved (0.2's Sky had them): derived from the calendar contract
+// it would also ban every future calendar name on the sky. The sky's own drawn isDay / daylight are not in it
+renamed('engine.sky', Object.fromEntries(Object.entries({
+  timeOfDay: 'engine.calendar.timeOfDay',
+  day: 'engine.calendar.day',
+  dayLength: 'engine.calendar.dayLength',
+  daysPerSeason: 'engine.calendar.daysPerSeason',
+  hoursPerDay: 'engine.calendar.hoursPerDay',
+  seasons: 'engine.calendar.seasons',
+  season: 'engine.calendar.season',
+  seasonIndex: 'engine.calendar.seasonIndex',
+  seasonProgress: 'engine.calendar.seasonProgress',
+  dayOfSeason: 'engine.calendar.dayOfSeason',
+  totalDays: 'engine.calendar.totalDays',
+  clock: 'engine.calendar.clock',
+  scheduled: 'engine.calendar.scheduled',
+  at: 'engine.calendar.at',
+  between: 'engine.calendar.between',
+  daily: 'engine.calendar.daily',
+  onSeason: 'engine.calendar.onSeason',
+  untilMark: 'engine.calendar.untilMark'
+}).map(([k, v]) => [k, `${v} (the sky only draws the calendar's time)`]))).on(Sky.prototype);

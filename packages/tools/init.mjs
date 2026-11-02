@@ -10,7 +10,7 @@ import { parseArgs, applyDeps, copyTemplates } from './lib/scaffold.mjs';
 const USAGE = 'Usage: threedog init [folder] [--open-world] [--example]   (folder: where the game goes, default the current folder)';
 const parsed = parseArgs(process.argv.slice(2), process.env);
 if (parsed.error) { console.error(parsed.error + '\n' + USAGE); process.exit(1); }
-// 为什么参数是路径：以前它只当名字用，`threedog init .demo/town-farm` 在仓库根把 18 个文件写进了根目录，还合并了根的 package.json
+// Why the argument is a path: it used to be only a name, so `threedog init .demo/town-farm` wrote 18 files into the repo root and merged the root package.json
 const dir = resolve(parsed.name ?? '.');
 // A package.json with "workspaces" is a repository root, not a game: the game's files and scripts would be mixed into the repo
 const pkgPath = join(dir, 'package.json');

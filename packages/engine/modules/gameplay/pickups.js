@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce, renamed } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { copyData } from './Container.js';
 import { failure } from '../../core/opsFail.js';
@@ -26,7 +26,8 @@ import { codedError, coded } from '../../core/errorHints.js';
 
 const STRINGS = { 'zh-CN': { 'pickups.take': '捡起 {name}' }, en: { 'pickups.take': 'Pick up {name}' } };
 const SPAWN_KEYS = ['give', 'count', 'data', 'name', 'model', 'color', 'mesh', 'respawnSeconds', 'bob', 'id', 'initial', 'zone', 'radius', 'auto'];
-const STYLE_KEYS = ['color', 'size', 'lift'];   // style.pickup: looks only (the shape is an asset model, StylePack.pickup)
+const STYLE_KEYS = ['color', 'size', 'lift'];
+const OLD_STYLE = renamed('style.pickup', { model: "an asset model by name: the pickup's or item's model, else 'pickup:<item id>' / 'pickup' (style.pickup keeps color / size / lift)" });   // style.pickup: looks only (the shape is an asset model, StylePack.pickup)
 const NO_ACTORS = [];
 // A net host measures peers at the position they last sent (a few steps old): pickup.take allows this much beyond the radius so a fair press is not refused
 const NET_SLACK = 1;
@@ -180,8 +181,8 @@ function present(pk) {
   w.simulate('pickup', { near: wake, far: wake });
 }
 
-// 拾取物的形状只走一条路：资源里的模型名（和 content 的 props / 模板同一个 protoOf：文件或代码生成、缓存、bake、影子规则都一样）。
-// 名字的顺序：pickup 自己的 model → 物品定义的 model → 资源里叫 'pickup:<物品id>' 的 → 叫 'pickup' 的 → 中性灰盒占位（提示一次）。风格包不提供形状，只给 color / size / lift。
+// A pickup's shape goes one way only: a model name from assets (same protoOf as content props / templates: file or code-generated, cache, bake and shadow rules are identical).
+// Name order: the pickup's own model -> the item definition's model -> 'pickup:<item id>' in assets -> 'pickup' -> neutral grey-box placeholder (warns once). Style packs give no shape, only color / size / lift.
 const NO_PICKUP = "pickups: no model for '{item}', so it lies on the ground as a gray box (a placeholder). Register a model in an asset pack and name it: "
   + "pickups.spawn(p, { model: 'gem' }) / inventory.define('{item}', { model: 'gem' }), or call the model 'pickup:{item}' (this item) / 'pickup' (every pickup without its own)";
 const NO_NAME = "pickups: '{item}' has model '{model}', but no asset pack registers a model of that name (engine.assets.manifest({ models: { {model}: fn | '/models/{model}.glb' } })); using the gray placeholder box";
@@ -197,8 +198,8 @@ export function pickupModelName(e, item, model) {
 }
 /**
  * The model (built when near) + interaction for this pickup record @internal
- * 返回一个立刻可用的空组（交互、浮动、world 摆放都同步就绪），模型从 protoOf 异步拿到后挂进去：
- * 文件模型要下载、生成器可能读开发缓存，都不该让"附近有个可拾取物"晚一帧才出现。
+ * Returns an empty group that is usable at once (interaction, floating and world placement are ready synchronously); the model arrives from protoOf asynchronously and is attached then:
+ * file models must download and generators may read the dev cache, and none of that should make "a pickup nearby" appear a frame late.
  */
 function model(pk, rec) {
   const e = pk.engine, def = rec.item && e.inventory ? e.inventory.item(rec.item) : {}, st = e.style.pickup || {};
@@ -214,7 +215,7 @@ function model(pk, rec) {
     if (!name) box();
     else protoOf(e, pk, name).then(proto => {
       const o = proto.obj.clone();   // geometry / materials stay the prototype's (shadow flags were settled once there, as for content props)
-      // 生成器只给了几何体：换成 'pickup' 角色的材质、物品自己的颜色（同色共用一份）；给了完整 Object3D 的生成器 / 文件模型保持原样
+      // generator gave only geometry: swap in the 'pickup' role's material and the item's own color (same color shares one); generators that return a full Object3D / file models stay as they are
       if (proto.fromGeometry) /** @type {any} */ (o).material = pickupMaterial(pk, color, /** @type {any} */ (o).geometry);
       holder.add(o);
     }).catch(err => { warnOnce(`pickups: model '${name}' of '${rec.item ?? rec.id}' failed to build (${err?.message ?? err}); showing the gray placeholder box`); box(); });
@@ -284,8 +285,8 @@ export function pickups(opts = {}) {
     name: 'pickups', label: 'Pickups', params: PICKUP_PARAMS, options: o, requires: ['world'], optional: ['interactions', 'inventory', 'net'], stage: 'gameplay',
     noSkip: 'auto pickups are spatial; respawn follows the game clock',
     install(e) {
-      // 和 style.weather 同一条规矩：模块读的 style 段走 readParams，0.2 的 style.pickup.model（已不读）就不会静默无效
-      if (e.style.pickup) readParams('style.pickup', keysSchema(STYLE_KEYS), e.style.pickup);
+      // same rule as style.weather: style sections a module reads go through readParams; the 0.2 style.pickup.model (no longer read) names the new form first (in dev), never silently does nothing
+      if (e.style.pickup) readParams('style.pickup', keysSchema(STYLE_KEYS), OLD_STYLE.check(e.style.pickup));
       pk = new Pickups(e, opts); defineTake(e, pk); return pk;
     },
     fixed() { pk._auto(); },

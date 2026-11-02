@@ -41,7 +41,7 @@ export function makeSkyUniforms(st, engineUniforms) {
     uTime: engineUniforms.uTime, uCloud: engineUniforms.uCloud, uCloudCover: { value: st.clouds?.coverage ?? (st.clouds ? 1 : 0) },
     uCloudScale: { value: st.clouds?.scale ?? 0.35 }, uCloudSpeed: { value: new THREE.Vector2(...(st.clouds?.speed ?? [0.004, 0.002])) },
     uCloudColor: { value: new THREE.Color(st.clouds?.color ?? 0xf4f4f4) }, uCloudShade: { value: new THREE.Color(st.clouds?.shade ?? 0xaaaaaa) },
-    uStars: { value: st.starDensity ?? 0.0025 }, uStarScale: { value: st.starScale ?? 260 }, uCurve: { value: st.gradientCurve ?? 0.55 },
+    uStars: { value: st.starDensity ?? 0.0025 }, uStarCloudDim: { value: st.dim?.stars === false ? 0 : 1 }, uStarScale: { value: st.starScale ?? 260 }, uCurve: { value: st.gradientCurve ?? 0.55 },
   };
 }
 
@@ -70,7 +70,7 @@ export function loadSkybox(sky, name) {
 const vert = `varying vec3 vDir;
 void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
 export const domeFragment = (cl, x) => `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
-uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
+uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarCloudDim; uniform float uStarScale; uniform float uCurve;
 uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
 ${CLOUD_UNIFORM_DECL}
 ${cl.decl}${x.decl ? '\n' + x.decl : ''}
@@ -95,8 +95,8 @@ void main(){
   }
   // Stars sit behind the clouds (hidden where a cloud is drawn) and dim with the weather's cloud cover (uCloud): a rainy / overcast night has
   // no clear sky between the drawn clouds either, and a style with sparse cloud art must not show a starry sky in a storm. Relative to the
-  // weather value, no extra constant: uCloud 0 = every star, 1 = none
-  col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, 0.25, d.y) * (1.0 - clA) * (1.0 - clamp(uCloud, 0.0, 1.0)));${x.body}
+  // weather value, no extra constant: uCloud 0 = every star, 1 = none. style.sky.dim.stars false (uStarCloudDim 0) keeps them through the cover
+  col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, 0.25, d.y) * (1.0 - clA) * (1.0 - clamp(uCloud, 0.0, 1.0) * uStarCloudDim));${x.body}
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>

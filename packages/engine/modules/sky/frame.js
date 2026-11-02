@@ -82,7 +82,8 @@ export function updateSky(sky, focus) {
   // the sky's light now, 0-1 of its brightest keyframe row, read before any tint. Why: a sky.tint color (weather grey, a cave tint) is the color
   // under that brightest sky; lerping toward it as a fixed color turned a rainy night into a lit grey (#0d1628 -> #6b6b6d, R3). Dimmed by the
   // sky's own light it stays dark at night and is unchanged at the brightest row
-  const light = sky._lightPeak > 0 ? Math.min(1, skyLight(u.uTop.value, u.uHorizon.value, hemiI) / sky._lightPeak) : 1;
+  // sky. style.sky.dim.tint false keeps the tint at its full color at any hour (a style decision, not the engine's)
+  const light = !sky.dim.tint ? 1 : sky._lightPeak > 0 ? Math.min(1, skyLight(u.uTop.value, u.uHorizon.value, hemiI) / sky._lightPeak) : 1;
   if (M.tintAmount || M.horizonTintAmount) {
     const tint = sky._tintLit.copy(M.tint).multiplyScalar(light);
     if (M.tintAmount) u.uTop.value.lerp(tint, M.tintAmount);
@@ -117,7 +118,7 @@ export function updateSky(sky, focus) {
   }
   // the room environment is its share of the same budget, in the same units: ambient x the luminance of the sky color the hemi light takes
   // (a neutral white map must not light a dark-blue night white: desert demo R4), turned into an environment intensity by what the map gives
-  // at 1 (ROOM_RADIANCE; three's hemisphere light divides by PI, the environment does not). look.lights env.intensity is the share
+  // at 1 (ROOM_RADIANCE; three's hemisphere light divides by PI, the environment does not). look.lights env.share is the share
   sky._envFollow(amb * skyLight(u.uTop.value, u.uHorizon.value, 1) / (Math.PI * ROOM_RADIANCE));
   sky.engine.look.lights.applyTop(ctx);   // a game look.lights.set({ sun: { intensity } }) wins over the keyframes (look/part.js)
   const ex = sky.engine.exposureDriver;

@@ -820,6 +820,13 @@ export interface NPCManager {
    */
   behavior(name: string, impl: { near?: (rec: WorldRecord, dt: number, npc: NPC) => void; far?: (rec: WorldRecord, dt: number) => void }): this;
   /**
+   * Near tiers for large crowds, off by default (every near NPC walks every fixed step). With tiers, NPCs within fullRadius m of the focus walk every
+   * step; the rest of the near zone takes a turn once every nearEvery seconds with the accumulated dt (deterministic, save-safe). On screen such NPCs
+   * move in visible jumps, so only turn this on for crowds of hundreds. tiers(null) turns it off.
+   * @example engine.npcs.tiers({ fullRadius: 30, nearEvery: 4 / 60 })
+   */
+  tiers(opts: { fullRadius: number; nearEvery: number } | null): this;
+  /**
    * Nearby NPCs avoid each other (on by default): pushed apart to no less than the sum of their radii, the player counts as an obstacle (NPCs yield to
    * the player), then constrained back to walkable places by engine.collision; deterministic and cheap, with identical results after loading.
    * With nav({ crowd: true }) crowd takes over. Far NPCs (no model) do not avoid one by one. on / radius / strength are the current values.
@@ -903,6 +910,8 @@ export interface FindSpawnOptions { minH?: number; maxH?: number; maxSlope?: num
 export interface CharactersOptions {
   /** Whether to enable NPCs (engine.npcs), default true */
   npcs?: boolean;
+  /** Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts) */
+  npcTiers?: { fullRadius: number; nearEvery: number };
   /** Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix);
    *  presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump) */
   brakeKeys?: string[];

@@ -1,6 +1,6 @@
 // R42 engine shader patches go through the slot table (render/slots.js; docs/plans/done/2026-11-02-look-architecture.md §4e).
-// 为什么：插槽表是一张表，第二阶段（WebGPU）只给它填右栏；引擎自己的补丁要是直接写 `begin_vertex:` 这样的锚点，换后端时就漏一处，
-// 文档里的表也会和代码各说各的。所以两条都查：
+// Why: the slot table is a single table, and phase 2 (WebGPU) only fills its right column; if the engine's own patches wrote anchors like `begin_vertex:` directly, a backend switch would miss one place,
+// and the table in the docs would drift from the code. So both are checked:
 //   1. engine code (core / modules / render / ui / examples, not render/slots.js or render/patches.js) never uses a slot's three.js chunk
 //      name as an object key (the raw-anchor form `glsl: { fragment: { color_fragment: ... } }`); write `slot: 'color'` instead.
 //      Games are not scanned: the raw-anchor form is their documented exit.

@@ -53,6 +53,7 @@ export const ENGINE_EVENTS = [
   'timeline:end',
   'template:stage',
   'ground:change',
+  'rigid:rebuilt',
   'terrain:void',
   'vegetation:remove',
   'vegetation:restore',

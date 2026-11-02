@@ -136,9 +136,12 @@ export class Stream {
     });
     try {
       await s.whenReady;
-      if (opts.move) opts.move(position);
-      else if (e.player) e.player.placeAt(position);
-      else { const [x, z] = xzOf(position); e.focus.set(x, e.surface(x, z), z); }
+      // the move lands frames after the call (and after the op that asked for it has returned): it finishes that request, so the ops guard lets it through
+      e.ops.allow(() => {
+        if (opts.move) opts.move(position);
+        else if (e.player) e.player.placeAt(position);
+        else { const [x, z] = xzOf(position); e.focus.set(x, e.surface(x, z), z); }
+      });
     } finally { watch.remove(); s.remove(); }   // the player (or camera) source covers the place from now on
   }
 

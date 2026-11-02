@@ -162,8 +162,8 @@ export class Assets {
   modelNow(nameOrUrl, opts = {}) {
     const e = this.entries.get(nameOrUrl);
     if (e?.type === 'model' && e.value) return this._copy(e, e.value, opts);
-    // 为什么提示：代码生成的模型也要先 load 一次（开发时读烘焙缓存的 GLB，发布时读烘焙文件），所以没 await 过 model() 时这里是 null；
-    // 一次试玩里 world.present 只调 modelNow，模型从没出现、也没有任何说明。已经在加载中（promise 在）就不提示：那是正常的"还没好"
+    // Why warn: generated models also need one load() first (dev reads the baked-cache GLB, release reads the baked file), so before any await model() this is null;
+    // in one playtest world.present only called modelNow, the model never showed up and nothing said why. Already loading (promise present) = no warning: that is a normal "not ready yet"
     if (DEV && e?.type === 'model' && !e.promise) warnOnce(coded('asset-not-loaded', fmt(STRINGS.notLoaded, { name: nameOrUrl })));
     return null;
   }

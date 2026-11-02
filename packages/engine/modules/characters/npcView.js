@@ -61,7 +61,8 @@ export function defineTalk(e, m) {
       m.character(npc)?.face(e.actorPosition(ctx?.actor) ?? e.focus);
       // the bubble hangs on the NPC's model (no model built yet: its id, which dialogue resolves to a position)
       const opts = channel === 'bubble' ? { channel, at: m.character(npc)?.root ?? npc } : undefined;
-      e.dialogue.start(script ?? npc, 'start', () => { if (W.get(npc)) W.set(npc, { busy: false }); }, opts);
+      // the lines end later (a click, a bubble timer), outside this op: clearing busy finishes it, so the ops guard lets it through
+      e.dialogue.start(script ?? npc, 'start', () => { if (W.get(npc)) e.ops.allow(() => W.set(npc, { busy: false })); }, opts);
     },
     reasons: { noDialogue: 'The dialogue() module is not installed', unknown: 'No NPC with that id', talking: 'A dialogue is already running (bubble: this NPC is still talking)' },
   });

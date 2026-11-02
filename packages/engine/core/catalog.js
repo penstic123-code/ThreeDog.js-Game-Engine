@@ -123,7 +123,7 @@ function looseEntry(e, id) {
   const own = owned(e, id);
   return { id, kind: id, ops: own.op.map(n => opInfo(e, n, false)), saves: own.save.map(k => saveInfo(e, k)),
     queries: { describe: null, extra: own.describe.map(n => `describe().${n}`), api: [] }, problems: [],
-    // core 的参数就是 createEngine() 的选项：同一份 schema，用的值从 engine._createParams 读（和模块的 params 一个形状）
+    // core params are createEngine() options: same schema, values read from engine._createParams (same shape as module params)
     ...(id === 'core' ? { params: paramsOf({ name: 'core', params: ENGINE_PARAMS, options: e._createParams }) } : {}) };
 }
 

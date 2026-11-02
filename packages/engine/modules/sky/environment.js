@@ -8,9 +8,9 @@
 //   - envMapIntensity comes from scene.environmentIntensity and the lookup direction is turned by scene.environmentRotation.
 //   - Adding or removing scene.environment changes the program key of every Lambert material: one recompile at the switch, none after.
 //   - The hemisphere light adds on top of it (a sky's own map; the room map shares the ambient column with it instead, render/lights.js roomShare).
-// The sky builds no sky environment by default: the baseline is the neutral room environment (render/lights.js useRoomEnvironment), built
+// The sky builds no sky environment by default: the baseline is the neutral room environment (render/lights.js refreshRoom), built
 // lazily once a material that reads scene.environment is in the scene, and under a sky it is a share of the style's ambient (look.lights
-// env.intensity = the share, the hemisphere light gets the rest; ambient column x the hemi color's brightness x the weather's sky.ambient,
+// env.share = the share, the hemisphere light gets the rest; ambient column x the hemi color's brightness x the weather's sky.ambient,
 // frame.js / render/lights.js roomShare): one diffuse budget, not a second fill on top. Why it follows the day at all: a fixed room map lit every PBR
 // surface as by day at midnight (demo finding 2026-11-02). look.env.replace('sky' | asset) swaps in the sky's own map (the sky map darkens by
 // itself at night; an asset map is a fixed photo and does not follow).
@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { warnOnce } from '../../core/validate.js';
 import { defineLookPart, REPLACE } from '../../core/look/part.js';
 import { defineOwned } from '../../core/owned.js';
-import { useRoomEnvironment, dropRoomEnvironment, followRoomEnvironment, isRoomEnvironment, roomEnvironmentInfo } from '../../render/lights.js';
+import { refreshRoom, dropRoomEnvironment, followRoomEnvironment, isRoomEnvironment, roomEnvironmentInfo } from '../../render/lights.js';
 import { codedError } from '../../core/errorHints.js';
 
 const KEYS = ['source', 'intensity', 'rotation', 'interval'];
@@ -85,7 +85,7 @@ export function defineEnvLook(sky, env) {
 /**
  * describe().look.env.source: which map lights PBR now and whether it follows the time of day. Why: the old describe showed only
  * "intensity 1 (engine)", which read as "environment fine" while a fixed room map lit the street at midnight.
- * room = the engine's neutral generated map (look.lights env.intensity, x the sky's ambient curve); sky = built from the dome; asset / texture =
+ * room = the engine's neutral generated map (look.lights env.share x the sky's ambient curve, or the absolute env.intensity a game wrote); sky = built from the dome; asset / texture =
  * the game's map through look.env.replace; game = scene.environment written directly; none
  */
 function sourceInfo(sky) {
@@ -97,8 +97,13 @@ function sourceInfo(sky) {
       ...(value === 'sky' ? {} : { note: "a fixed map: it does not dim at night; look.env.replace('sky') follows the sky, or set look.env.set({ intensity }) from your own onFrame"}) };
   }
   const room = roomEnvironmentInfo(e);
-  if (isRoomEnvironment(e)) return { value: 'room', writer, followsTime: o.on, intensity, base: room.base,
-    note: o.on ? "neutral generated map, its share of the style's ambient (ambient keyframes x sky color; base = look.lights env.intensity = the share, the hemisphere light gets the rest)" : 'neutral generated map; the game took scene.environmentIntensity, so it no longer follows the day' };
+  if (isRoomEnvironment(e)) {
+    const share = room.mode === 'share';
+    return { value: 'room', writer, mode: room.mode, followsTime: o.on && share, intensity, ...(share ? { share: room.share } : { base: room.base }),
+      note: !o.on ? 'neutral generated map; the game took scene.environmentIntensity, so it no longer follows the day'
+        : share ? "neutral generated map, look.lights env.share of the style's ambient (ambient keyframes x sky color); the hemisphere light gets the rest"
+        : 'neutral generated map at the absolute look.lights env.intensity the game wrote (does not follow the day; the hemisphere light keeps the whole ambient)' };
+  }
   if (s.environment) return { value: 'game', writer, followsTime: false, intensity };
   return { value: room.pending ? 'room (built once a Standard / Lambert / Phong material is in the scene)' : 'none', writer, followsTime: room.pending };
 }
@@ -172,8 +177,8 @@ export const environmentMethods = {
     }).catch(err => warnOnce(err.message));
   },
 
-  // The game's own map (look.env.replace(texture)). 为什么不 PMREM 已经预滤过的：游戏给的 PMREM 结果（isPMREMTexture，three 0.187 已不导出 CubeUVReflectionMapping）直接用；
-  // 一张等距柱状图 / CubeTexture 由引擎预滤成一份新的（归引擎、换掉时释放），游戏的原贴图从不被 dispose，也不改它的 mapping 以外的参数
+  // The game's own map (look.env.replace(texture)). Why not PMREM an already prefiltered one: a PMREM result from the game (isPMREMTexture; three 0.187 no longer exports CubeUVReflectionMapping) is used as is;
+  // an equirect image / CubeTexture is prefiltered by the engine into a new one (engine-owned, released on replace); the game's original texture is never disposed, and none of its parameters other than mapping are touched
   _envFromTexture(t) {
     if (t.isPMREMTexture) { this._envSet({ texture: t, dispose() {} }); return; }
     this._pmrem ??= new THREE.PMREMGenerator(this.engine.renderer);
@@ -194,12 +199,11 @@ export const environmentMethods = {
     this._env?.target?.dispose();
     const e = this.engine, scene = e.scene;
     if (scene.environment === this._env?.target?.texture) {
-      // back to what look.lights says (env.intensity: the neutral room map of the render baseline, 0.5 under every style unless the style sets 0), not to "nothing": the room
+      // back to what look.lights says (the room map of the render baseline at env.share / env.intensity), not to "nothing": the room
       // map was replaced by the sky's, and switching the sky's off must not leave PBR metals black where they were lit before
-      const x = e.look?.lights?.value('env.intensity');
       // engine.dispose runs this from the sky's dispose hook: clear it then, never rebuild the room map that core frees right after
       scene.environment = null;
-      if (x > 0 && !e.disposed) useRoomEnvironment(e, x); else dropRoomEnvironment(e);   // set at once when built, else when a material reads it
+      if (!e.disposed) refreshRoom(e); else dropRoomEnvironment(e);   // set at once when built, else when a material reads it
       this._oEnv?.mark();   // the engine's own write, not the game's
     }
     this._env = null;

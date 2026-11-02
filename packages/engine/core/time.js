@@ -41,7 +41,7 @@ export class Time {
         const timers = (Array.isArray(d?.timers) ? d.timers : []).filter(t => { if (Number.isFinite(t?.due) && typeof t.event === 'string') return true; v.drop('timers[]', t); return false; });
         v.done();
         d = { channels: chans, timers };
-        // 存档里有、但游戏还没定义的频道（读档后才 channel('enemies')）：先记下，channel() 定义时补上，和 stacks 的 _pending 同一做法；否则它的 now 和事件定时丢了
+        // in the save but not yet defined by the game (channel('enemies') only after load): note it down, fill in when channel() defines it, same as stacks' _pending; otherwise its now and event timing are lost
         this._pending = {};
         for (const [name, now] of Object.entries(d?.channels ?? {})) if (!this._ch.has(name))
           this._pending[name] = { now, timers: (d?.timers ?? []).filter(t => t.channel === name).map(({ due, event, data }) => ({ due, event, data })) };
@@ -63,7 +63,7 @@ export class Time {
     if (this._ch.has(name)) return this;
     if (parent != null && !this._ch.has(parent)) throw codedError('unknown-name', `engine.time.channel('${name}', { parent: '${parent}' }): no channel '${parent}'. Channels: ${this.channels().join(', ')}`);
     const saved = this._pending[name]; delete this._pending[name];
-    // now 先就位再定义速度栈：栈里存档的、按这个频道计时的条目恢复时按它的 now 算剩余时间
+    // put now in place before defining the speed stack: entries in the stack saved against this channel's clock restore the remaining time from its now
     this._ch.set(name, { name, parent, now: saved?.now ?? 0, timers: saved?.timers ?? [], manual: null });
     this.engine.stacks.define('time.' + name, { min: 0 });
     return this;
@@ -94,7 +94,7 @@ export class Time {
   dt(name, id) { return STEP * this.scale(name, id); }
   /**
    * Manual level: the engine stops computing this channel's speed from its stack; fn(id?) returns the speed (the game owns it) until the handle is removed.
-   * 为什么是句柄：交还和别处一样只有 handle.remove() 一种写法（以前的 manual(name, null) 是第二种，删了）；后来者接管时先来的句柄 remove() 不会误交还。
+   * Why a handle: giving back has only handle.remove(), like elsewhere (the old manual(name, null) was a second form, removed); when a later caller takes over, an earlier handle's remove() does not hand back by mistake.
    * @param {string} name @param {(id?: string) => number} fn @param {{ owner?: string }} [opts]
    * @returns {{ owner?: string, remove(): void }}
    */

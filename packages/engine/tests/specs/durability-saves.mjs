@@ -218,37 +218,54 @@ export const specs = [
     },
   },
   {
-    // joints are plain Rapier (no engine wrapper); newGame / a load rebuild the world, which used to drop them silently while both bodies came back
-    name: 'durability: newGame keeps the joints a game made with plain Rapier between engine bodies (rope, limited hinge); a joint to a raw body warns (open world) [guard]',
+    // joints are plain Rapier (no engine wrapper); newGame / a load rebuild the world and free them. The contract: rigid:rebuilt is where the game
+    // re-creates them (the engine does not patch Rapier to copy them); a game that does not listen gets one dev warning, not a silent loss
+    name: 'durability: a game that re-creates its joints on rigid:rebuilt keeps its rope and limited hinge after newGame; one that does not gets a warning (open world) [guard]',
     url: '/?threedog-headless',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const R = engine.rigid, RA = R.R, src = R.bodies.find(b => b.mesh?.isMesh)?.mesh;
         if (!src) return { none: true };
         const mk = (dx, dy, o) => { const m = new src.constructor(src.geometry, src.material); m.position.set(src.position.x + dx, src.position.y + dy, src.position.z); return R.addBox(m, { size: [1, 1, 1], ...o }); };
-        const anchor = mk(8, 12, { fixed: true }), weight = mk(8, 10);
-        const rope = R.world.createImpulseJoint(RA.JointData.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), anchor.body, weight.body, true);
-        const post = mk(12, 1.5, { fixed: true }), door = mk(13, 1.5);
-        const hinge = R.world.createImpulseJoint(RA.JointData.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
-        hinge.setLimits(-0.5, 0.5);
-        const raw = R.world.createRigidBody(RA.RigidBodyDesc.fixed().setTranslation(src.position.x + 16, src.position.y + 5, src.position.z)), loose = mk(16, 3);
-        R.world.createImpulseJoint(RA.JointData.spherical({ x: 0, y: 0, z: 0 }, { x: 0, y: 2, z: 0 }), raw, loose.body, true);
+        const anchor = mk(8, 12, { fixed: true, id: 'jt-anchor' }), weight = mk(8, 10), post = mk(12, 1.5, { fixed: true }), door = mk(13, 1.5);
+        const J = { rope: null, hinge: null };
+        const hang = () => {   // what the recipe tells a game to write: one function makes the joints, called at setup and on every rebuild
+          J.rope = R.world.createImpulseJoint(RA.JointData.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), anchor.body, weight.body, true);
+          J.hinge = R.world.createImpulseJoint(RA.JointData.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
+          J.hinge.setLimits(-0.5, 0.5);
+        };
+        hang();
+        let payload = null;
+        const off = engine.events.on('rigid:rebuilt', p => { payload = p; hang(); });
         const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
-        try { await engine.session.newGame(); } finally { console.warn = warn; }
-        const out = { joints: R.world.impulseJoints.len(), ropeValid: rope.isValid(), ropeEnds: rope.body1().handle === anchor.body.handle && rope.body2().handle === weight.body.handle,
-          limits: [hinge.limitsMin(), hinge.limitsMax()], warned: warns.some(w => w.includes('rigid-misuse') || w.includes('joint(s) were dropped')) };
-        door.body.applyTorqueImpulse({ x: 0, y: 20, z: 0 }, true);
-        engine.step(2, { describe: false, render: false });
-        const a = anchor.body.translation(), w = weight.body.translation(), dq = door.body.rotation();
-        out.awake = weight.enabled; out.hang = a.y - w.y; out.doorAngle = 2 * Math.asin(Math.min(1, Math.abs(dq.y)));
-        for (const b of [anchor, weight, post, door, loose]) { b.remove(); engine.remove(b.mesh); }
+        const warned = () => warns.some(w => w.includes('rigid-misuse') && w.includes('rigid:rebuilt'));
+        const out = {};
+        try {
+          await engine.session.newGame();
+          engine.step(1, { describe: false, render: false });
+          out.listenWarned = warned();
+          out.payload = !!payload && payload.world === R.world && payload.bodies['jt-anchor'] === anchor.body && payload.player === R.playerBody;
+          out.joints = R.world.impulseJoints.len(); out.ropeEnds = J.rope.body1().handle === anchor.body.handle && J.rope.body2().handle === weight.body.handle;
+          out.limits = [J.hinge.limitsMin(), J.hinge.limitsMax()];
+          door.body.applyTorqueImpulse({ x: 0, y: 20, z: 0 }, true);
+          engine.step(2, { describe: false, render: false });
+          const a = anchor.body.translation(), w = weight.body.translation(), dq = door.body.rotation();
+          out.awake = weight.enabled; out.hang = a.y - w.y; out.doorAngle = 2 * Math.asin(Math.min(1, Math.abs(dq.y)));
+          // a game that does not listen: its joints are gone after the rebuild and the next step warns once
+          off.remove();
+          await engine.session.newGame();
+          engine.step(1, { describe: false, render: false });
+          out.gone = R.world.impulseJoints.len(); out.silentWarned = warned();
+        } finally { console.warn = warn; }
+        for (const b of [anchor, weight, post, door]) { b.remove(); engine.remove(b.mesh); }
         return out;
       });
       check('the open world has a rigid mesh to clone (otherwise this guard tests nothing)', !r.none, JSON.stringify(r));
-      check('the rope and the hinge are in the rebuilt world, between the rebuilt bodies, through the same joint objects', r.joints === 2 && r.ropeValid && r.ropeEnds, JSON.stringify(r));
+      check('rigid:rebuilt carries the new world, the player body and the rebuilt bodies by id', r.payload, JSON.stringify(r));
+      check('the listening game has its rope and hinge in the rebuilt world, between the rebuilt bodies, and no warning', r.joints === 2 && r.ropeEnds && !r.listenWarned, JSON.stringify(r));
       check('the weight still hangs on the 2 m rope (did not fall 10 m)', r.awake && r.hang > 0.9 && r.hang < 3.1, JSON.stringify(r));
       check('the hinge keeps its limits (pushed hard, the door stops near 0.5 rad)', r.limits[0] === -0.5 && r.limits[1] === 0.5 && r.doorAngle < 0.6, JSON.stringify(r));
-      check('a joint to a body made with world.createRigidBody is dropped with a warning, not silently', r.warned, JSON.stringify(r));
+      check('a game that does not re-create its joints loses them with a dev warning naming rigid:rebuilt, not silently', r.gone === 0 && r.silentWarned, JSON.stringify(r));
     },
   },
   {

@@ -38,7 +38,7 @@ export async function vegetationModel(e, m) {
 }
 
 // One prototype per model name: a generator entry -> assets.cached (baked file / dev cache); a file entry -> assets.model. Content names models only (no paths).
-// 这是"代码做的模型按名字复用"的唯一入口：content 的 props / 模板 / 植被和地上的拾取物都从这里拿，所以缓存、bake、影子规则只有一套。
+// The only entry for "reuse a code-made model by name": content props / templates / vegetation and ground pickups all take it from here, so cache, bake and shadow rules exist once.
 const protos = new WeakMap();   // owner (engine.content, or the inventory for pickups) → Map(model key → Promise<{ obj, size, center, fromGeometry }>)
 const owners = new WeakMap();   // engine → Set(owner): a hot swap walks every owner's prototypes of a changed name
 /** Every prototype cache of this engine: [{ api, cache }] (cache: model key → Promise of the prototype). For core/assetHot.js @internal */

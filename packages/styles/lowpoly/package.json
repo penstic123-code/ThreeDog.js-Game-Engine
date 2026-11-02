@@ -1,6 +1,6 @@
 {
   "name": "@threedog/style-lowpoly",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Private, never published: re-exports the world example's look (packages/engine/examples/world/style) for the tests and older games in this repository",
   "license": "MIT",
@@ -25,8 +25,8 @@
     "*.d.ts"
   ],
   "peerDependencies": {
-    "threedog": "^0.2.0",
+    "threedog": "^0.3.0",
     "three": "^0.187.0",
-    "@threedog/post-effects": "^0.2.0"
+    "@threedog/post-effects": "^0.3.0"
   }
 }

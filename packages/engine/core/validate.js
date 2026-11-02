@@ -44,17 +44,25 @@ export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
 const warned = new Set();
 
 /**
- * Renamed fields of a plain data object the engine hands back (an op / trade / grid result, runState, describe()): in dev, reading an old name
- * throws [renamed-field] with the new one. Why one helper instead of per-field code: a renamed field reads `undefined` silently, so 0.2 code took
- * the wrong branch without a word; every such object goes through this one place. Non-enumerable, so JSON, spreads and Object.keys never see it.
- * @template {object} T @param {T} obj @param {Record<string, string>} renamed old name -> the new way to read it @param {string} where @returns {T}
+ * The one way a 0.2 name points to its 0.3 form: a rename table { oldName: 'the new form' } and this helper, made once per place (a module
+ * constant). In dev, reading or writing an old name on an object (.on(obj): a result, runState, describe(), or a class prototype) or passing
+ * it in an options bag (.check(opts)) throws [renamed-field] "<where>: 'old' is the 0.2 name, 0.3 uses <new form>". Release builds skip both
+ * (no accessor is defined, no key is looked at): they pay nothing. Why one helper: old names used to fail four different ways (dev-only result
+ * fields; hand-written accessors that threw in release too; a list derived from the calendar contract that would also ban any future calendar
+ * name on the sky; ad hoc option checks). The accessors are non-enumerable, so JSON, spreads and Object.keys never see the old name.
+ * @param {string} where what the names belong to ('result', 'engine.sky', 'dialogue.say / start options')
+ * @param {Record<string, string>} table old name -> the new form, in words a game can act on
+ * @returns {{ on<T extends object>(obj: T): T, check<T>(opts: T): T }}
+ * @example const OLD = renamed('runState', { by: '.owners (and .blockedBy)' }); return OLD.on({ state, owners });
  */
-export function renamedFields(obj, renamed, where) {
-  if (!DEV) return obj;
-  for (const [old, now] of Object.entries(renamed)) {
-    Object.defineProperty(obj, old, { enumerable: false, configurable: true, get() { throw codedError('renamed-field', `${where}.${old} was renamed: read ${now}`); } });
-  }
-  return obj;
+export function renamed(where, table) {
+  const fail = old => { throw codedError('renamed-field', `${where}: '${old}' is the 0.2 name, 0.3 uses ${table[old]}`); };
+  /** @type {PropertyDescriptorMap} */ const props = {};
+  for (const old in table) props[old] = { enumerable: false, configurable: true, get() { fail(old); }, set() { fail(old); } };
+  return {
+    on(obj) { if (DEV) Object.defineProperties(obj, props); return obj; },
+    check(opts) { if (DEV && opts && typeof opts === 'object') for (const old in table) if (old in opts) fail(old); return opts; },
+  };
 }
 
 /** Global switch (the validate option of createEngine) */
@@ -131,7 +139,7 @@ const isOptionsObject = o => !!o && typeof o === 'object' && !Array.isArray(o) &
 /**
  * Unknown keys in extensible data (item definitions, template instance state, material specs: objects where games add their own fields): warn once.
  * Options bags of public calls do not come here: they go through readParams (core/params.js), where an unknown key throws in dev with the
- * did-you-mean and warns once in a release build. 为什么分两条：选项拼错一定是 bug，该当场停下；可扩展数据里多出的字段可能是游戏自己的，只提示近似拼写（loose）。
+ * did-you-mean and warns once in a release build. Why two kinds: a misspelled option is always a bug and should stop on the spot; extra fields in extensible data may be the game's own, so only near-spellings are hinted (loose).
  * where is the origin (such as 'inventory.define()'), known are the keys the code reads. loose: report only near-misses.
  */
 export function checkOptions(where, opts, known, { loose = false } = {}) {

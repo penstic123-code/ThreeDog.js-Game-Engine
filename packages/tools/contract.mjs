@@ -27,7 +27,7 @@ export function contractEngine() {
     i18n: { add() {}, t: k => k, has: () => false },
     audio: { register() {}, sfx() {}, condition() {}, measure() {} },
     clock: { speed: 1, rate: 1, now: 0 },
-    // 资源名表：模块在 install 里登记内置资源（characters 的 'footstep' 合成音，builtInSounds 写 entries），真引擎总有 engine.assets
+    // asset name table: modules register built-in assets in install (characters' 'footstep' synthesized sound, builtInSounds writes entries), and a real engine always has engine.assets
     assets: { entries: new Map() },
     saves: { register: (key, def) => { saved.set(key, def); }, save() {}, _defs: saved },
     input: { actions: new Map(), define(a, keys) { this.actions.set(a, keys); }, touchButton() {}, pressed: () => false, pressedRaw: () => false, down: () => false,

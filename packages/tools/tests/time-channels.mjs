@@ -2,7 +2,8 @@
 //   - bullet time + haste + stopwatch + pause menu: all 24 orders of ending them give the formula's scale at every step
 //   - frozen: no channel moves and no `for` runs down; a plain onFixed dt is always 1 / 60
 //   - bullet time with 1.2 s left survives save -> load with 1.2 s left; skip across the end points ends them in the same order as stepping
-// The "no way around it" check: the clock has no timeScale and clock.rate has no setter (engine.mod('clock.rate') is the one way); writing clock.now warns once.
+// The "no way around it" check: clock.rate has no setter (engine.mod('clock.rate') is the one way); writing clock.now warns once. The 0.2 clock.timeScale
+// throws only in dev (core/validate.js renamed), so its guard is the browser test silent-breaks.
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
@@ -89,8 +90,6 @@ export async function run({ check }) {
     e.mod('time.world', { owner: 'slow-mo', mul: 0.5 }); const c1 = e.clock.now, p1 = e.time.now('player'); e.steps(60);
     check('the world channel slows the calendar and every child channel', near(e.clock.now - c1, 30, 1e-6) && near(e.time.now('player') - p1, 0.5, 1e-6));
     const code = fn => { try { fn(); return 'no throw'; } catch (x) { return x.code + ' ' + x.message; } };
-    // [守] 0.2 写 clock.timeScale 以前静默无效：现在读写都抛 mod-owner，并点名 engine.mod('clock.rate')
-    check('old clock.timeScale write throws and names engine.mod clock.rate', /^mod-owner .*engine\.mod\('clock\.rate'/.test(code(() => { e.clock.timeScale = 60; })) && e.clock.rate === 60, code(() => { e.clock.timeScale = 60; }));
     check('clock.rate is read-only: a write throws with the mod form and changes nothing', /^mod-owner .*engine\.mod\('clock\.rate'/.test(code(() => { e.clock.rate = 2; })) && e.clock.rate === 60, code(() => { e.clock.rate = 2; }));
   }
 

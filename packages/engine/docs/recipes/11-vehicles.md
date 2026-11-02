@@ -63,11 +63,23 @@ hinge.setLimits(-1.5, 1.5);
 // rope: the weight hangs at most 2 m below the hook
 R.world.createImpulseJoint(J.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), hook.body, weight.body, true);
 ```
-`R.world` is the Rapier world and `entry.body` the Rapier body. newGame and a load rebuild the physics world. Joints between engine bodies
-(`addBox` / `addBall` / `addHull` / `addWheeled`, or `rigid.playerBody`) are re-created between the rebuilt bodies with their settings
-(`setLimits`, motors), and your joint object keeps working. A joint to a body made with `world.createRigidBody` is dropped with a `rigid-misuse`
-warning: make anchors with `addBox(mesh, { fixed: true })`. Joints are not saved: create them where you create their bodies (a presenter's
-`build`). Removing a body removes its joints (Rapier does that).
+`R.world` is the Rapier world and `entry.body` the Rapier body. newGame and a load rebuild the physics world (physics starts over like a fresh
+page) and free the old world's joints with it; the engine does not copy them. It emits `rigid:rebuilt` once the bodies are back, and that is
+where a game re-creates its joints, with the same code that made them:
+```js
+function hang() {   // makes the joints; called after the bodies are added, and again after every rebuild
+  const h = R.world.createImpulseJoint(J.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
+  h.setLimits(-1.5, 1.5);
+  R.world.createImpulseJoint(J.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), hook.body, weight.body, true);
+}
+hang();
+engine.events.on('rigid:rebuilt', hang);   // { world, player, bodies }: bodies maps the ids you gave addBox / addBall / addHull
+```
+`entry.body` already points at the rebuilt body there; a joint object kept from before belongs to the freed world (hold the new one). A body
+the game made with `world.createRigidBody` is not rebuilt: make anchors with `addBox(mesh, { fixed: true })`. In development a `rigid-misuse`
+warning names a rebuild that dropped joints when none was re-created by the next step. Joints are not saved: on a load, bodies a presenter's
+`build` adds come back after the event, so create their joints in that `build`. With a vehicle present the world is kept (no event, joints
+stay). Removing a body removes its joints (Rapier does that).
 
 **Determinism**, the one place this is stated (replay, `engine.step`, saves and net link here):
 - Same build, same machine, same inputs and the same number of fixed steps give bit-identical bodies, in a fresh page and at any frame rate.

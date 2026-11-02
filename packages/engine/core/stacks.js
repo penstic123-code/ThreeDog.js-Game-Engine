@@ -74,8 +74,8 @@ export class Stack {
     const clock = o.clock ?? 'real';
     if (o.for != null && !(o.for >= 0 && Number.isFinite(o.for))) throw fail(`engine.mod('${this.name}', { for }): for is seconds >= 0 on clock '${clock}', got ${JSON.stringify(o.for)}`);
     const m = this._map(o.id, true);
-    // 再次 take：删掉旧条目再放新对象到末尾。为什么不原地改：原地改时 Map 顺序不变，'top' 的"最新者"和同层 set 的"最新者"都不是它；
-    // 而且旧句柄和新句柄指向同一个对象，旧句柄的 remove() 会把新值删掉。新对象让旧句柄的 _drop 比对不上，什么也不删。
+    // Taking again: delete the old entry and put the new object at the end. Why not edit in place: the Map order would not change, so neither the 'top' latest nor the same-layer set latest would be it;
+    // also the old and new handles would point at the same object, and the old handle's remove() would delete the new value. A new object makes the old handle's _drop not match, so it deletes nothing.
     m.delete(owner);
     const ent = { owner, id: o.id ?? null, at: this.all._at(), op, value, priority: pr, clock, until: o.for != null ? this.all._nowOf(clock) + o.for : null };
     m.set(owner, ent);

@@ -2,14 +2,14 @@
 
 The engine has not been released yet, so this log is not maintained before release. At release time it is written in one pass from git history and `docs/API.md`: "what changed, how a game upgrades", placed under the version heading.
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-11-03)
 
 WebGL renderer. Upgrade steps for a 0.2 game, most common first, with the error each old form now gives: [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).
 
 ### Breaking
 
 - Options: more option bags go through one schema (`readParams`): an unknown or removed option throws `[module-params]` in dev (release: warns once, ignored). This covers `createEngine`, `openWorld`, module factories, `npcs.add`, `createPlayer`, `triggers.add`, `addWheeled`, `audio.addBus`.
-- Calendar: time of day, days, seasons, clock-time timers and their save moved from `sky()` to the new `calendar()` module (`engine.calendar`). `sky({ dayLength | day | seasons | daysPerSeason | hoursPerDay })` throws `[sky-option]`; `engine.sky.timeOfDay / day / season / ...` throw `[calendar-option]`; `engine.sky.at / between / daily / onSeason` are gone. `openWorld` installs `calendar` (object form `calendar: {}`, was `sky: {}`).
+- Calendar: time of day, days, seasons, clock-time timers and their save moved from `sky()` to the new `calendar()` module (`engine.calendar`). `sky({ dayLength | day | seasons | daysPerSeason | hoursPerDay })` throws `[sky-option]`; `engine.sky.timeOfDay / day / season / ...` throw `[renamed-field]` in dev; `engine.sky.at / between / daily / onSeason` are gone. `openWorld` installs `calendar` (object form `calendar: {}`, was `sky: {}`).
 - Pickups: new `pickups()` module. `inventory.spawnPickup / nearestPickup` and `inventory({ pickupRadius, bobDistance })` are gone (`pickups.spawn(position, { give })`, `pickups({ radius, showDistance })`). Event `item:pickup` → `pickup:take`; `container:add / remove` removed (`item:add / remove` carry `container`, `actor`). Pickup handle `id` is the world record id. `style.pickup.model` is not read (the shape is an asset model by name). Content pickups need `pickups()` `[module-needs]`.
 - NPCs: `talk / talkLabel / talkRadius` → `interact: { op: 'npc.talk', label, radius, args }`.
 - Clock and holds: `engine.clock.timeScale` removed (`engine.mod('clock.rate', { owner, set })`; `clock.rate` is read-only). `engine.resume / unfreeze` removed: `pause` / `freeze` return `{ owner, remove() }` (no chaining). `defineState` returns a handle. `runState.by` → `runState.owners`.
@@ -22,13 +22,13 @@ WebGL renderer. Upgrade steps for a 0.2 game, most common first, with the error 
 - Removed: `entities` module, `engine.entities`, events `entity:spawn / remove / state / stage` (content templates with `stages`, event `template:stage`); `engine.spawn` (`engine.content.spawn`); `vegetation.add` (`vegetation.define`); `triggers({ debug })` / `setDebug` (`engine.debug.view('triggers')`); dialogue `lock` option (`channel: 'bubble'`).
 - Changed shapes: `quests.state` is a method `state(id)`; `trade()` and grid `check / preview / place` results use `code` (was `reason`) plus `facts`, `nextActions`; `describe().ui.inputContexts` → `describe().holds.input`.
 - The 0.2 rename stubs (`[renamed-api]` for `setExposure`, `setToneMapping`, `sky.setEnvironment / setShadow`, `weather.define`, `post.add / enable`, `look.clouds`, `cameraOverride`, views `pos`, `style.character`) are removed; those names are now plain `TypeError` / `undefined` (renamed result fields are the exception below: a dev-only error pointing at the new name, no compatibility).
-- 0.2 forms that used to do the wrong thing silently now throw naming the new form: `dialogue.say / start` options are checked (`lock` → `channel: 'bubble'`); `engine.clock.timeScale` and writing `clock.rate` → `[mod-owner]`; every calendar member read on `engine.sky` (the list comes from the calendar contract) → `[calendar-option]`; `style.pickup` keys are checked (`model` → `[module-params]`); in dev, reading a renamed result field (`.reason` of any failure, `runState.by`, `describe().ui.inputContexts`) → `[renamed-field]` (one helper, `core/validate.js`).
+- 0.2 names that used to do the wrong thing silently now throw `[renamed-field]` in dev naming the new form, all through one rename table helper (`renamed` in `core/validate.js`; release builds skip it): `dialogue.say / start({ lock })` → `channel: 'bubble'`; `engine.clock.timeScale` → `engine.mod('clock.rate')`; the names that moved from `engine.sky` to `engine.calendar` (an explicit list); `style.pickup.model`; result `.reason`, `runState.by`, `describe().ui.inputContexts`. Writing `clock.rate` throws `[mod-owner]` (it is read-only).
 
 ### Added
 
 - `calendar()` (`at / between / daily / onSeason / untilMark`, `isDay`, `daylight`) and `pickups()` modules, both in the `index.js` exports.
 - `engine.mod` / `engine.stacks`: owned, timed, saved modifiers for any quantity (`move.speed`, `clock.rate`, sky multipliers), event `mod:end`; `engine.time` channels; `onFixed(fn, { channel, phase })`; `onRender(fn)`; `engine.wrap(target, method, fn)`; `input.gate(action, owner)`, `input.push({ owner })`, `describe().holds`.
-- Look: `look.<part>.manual(keys)`, `look.state(patch)`, `look.shadow.include(material)`, `look.materials.glow` (emissive that follows daylight), `look.view`, `lights.env.intensity`, sun `shadow`, hemi `ground`; sky `top` / `horizon`; `replace(m, { effects: false })`; `terrain({ material, effects: false })`. `describe().owned` and `describe().look.<part>.<key>.writer` say who writes each value; the engine yields to a game's direct three.js write.
+- Look: `look.<part>.manual(keys)`, `look.state(patch)`, `look.shadow.include(material)`, `look.materials.glow` (emissive that follows daylight), `look.view`, `lights.env.intensity` / `lights.env.share`, sun `shadow`, hemi `ground`; sky `top` / `horizon`; `style.sky.dim: { tint, stars }` (default on; false keeps a sky.tint at full color at night, or stars through cloud cover); `replace(m, { effects: false })`; `terrain({ material, effects: false })`. `describe().owned` and `describe().look.<part>.<key>.writer` say who writes each value; the engine yields to a game's direct three.js write.
 - Shaders: named patch slots (`{ slot, pars, glsl }`), callable `#include <threedog_detail>` / `<threedog_lighting>`, uniforms `uSunDir`, `uDaylight`, `uTimeOfDay`; material texture slots (`{ texture, channel, repeat, wrap, colorSpace }`), `aoMap`, `lightMap`, screen projection.
 - Rendering: light probe bake scaffold (`engine.bakeProbes` / `loadProbes`); `bakeVertexAO`; post `ao({ radius, intensity })`; dev views `overdraw` / `shaderCost`, `debug.defineView`, `debug.reloadGlsl`, `debug.reloadAssets`; `inspect.materials()` / `inspect.perf()`.
 - Assets: `manifest([packs])`, `paramsOf / setParams` (hot swap), per-entry `cache: false`, `castShadow`, `receiveShadow`; textures as a Texture or factory; sounds as synth functions.
@@ -47,7 +47,7 @@ WebGL renderer. Upgrade steps for a 0.2 game, most common first, with the error 
 
 ### Changed defaults
 
-- Lighting (changes every game's default look under a sky): the style's ambient column is now the whole diffuse fill. The neutral room environment takes its share (`look.lights` `env.intensity`, 0..1, default 0.5) and the hemisphere light the rest; before, the room map added about four times the ambient on top, so sunlit and shaded faces looked alike (rainy-street noon: shadows 19% darker -> 50%). Packs tuned against the old fill may want a higher ambient column.
+- Lighting (changes every game's default look under a sky): the style's ambient column is now the whole diffuse fill. The neutral room environment takes its share (`look.lights` `env.share`, 0..1, default 0.5) and the hemisphere light the rest (`env.intensity` stays the absolute `scene.environmentIntensity`, also under a sky: a game's value is written as given); before, the room map added about four times the ambient on top, so sunlit and shaded faces looked alike (rainy-street noon: shadows 19% darker -> 50%). Packs tuned against the old fill may want a higher ambient column.
 - Post effects: a listed effect is on. `lut`, `grain`, `vignette`, `chromatic`, `dof`, `ao` and `outline` no longer default to `enabled: false` (placed in `style.post` they silently did nothing); pass `enabled: false` to list one off. `style check` counts on-effects by the same rule.
 - Lighting: under a sky the neutral room environment follows the sky's day curve (nights darker on PBR); sun shadow bias is a few centimeters in world terms (contact shadows); neutral sky keyframes hold night longer.
 - Post: on the low tier `look.post.set({ '<effect>.enabled': false })` turns off a costly effect the game added (it was a no-op). Photo bloom follows the game's post chain.
@@ -55,9 +55,12 @@ WebGL renderer. Upgrade steps for a 0.2 game, most common first, with the error 
 - Batching merges only engine-placed content; game meshes opt in with `userData.batch = true`.
 - i18n locale matched by language (`'zh'` → `'zh-CN'`); unknown locale warns once. `input.simulate` throws on an unknown action.
 - Cold start: nothing renders before ready; shaders compile for the real target.
+- NPCs: near tiers are off by default (every near NPC walks every fixed step; before, NPCs beyond half `world.radius` moved every 4th step in visible jumps). Large crowds opt in with `characters({ npcTiers: { fullRadius, nearEvery } })` or `engine.npcs.tiers(opts)`.
 
 ### Fixed
 
+- Interactions: an interaction on a model the game moved away from its world record is found where the model stands (was missed beyond 2 m). One xz index keyed by each item's world position, re-filed only when it moved.
+- Scene delta (cascades, fog, glow): a class with its own `material` accessor (troika-three-text) keeps it; the engine's material-swap hook calls the original getter / setter instead of shadowing them.
 - UI display timers (toasts) run on the page's own clock: wall clock in the game, the stepped time on a headless page, so `threedog step` then `snap` no longer shows every toast from the step.
 - Sky: stars sit behind the drawn clouds and dim with the weather's cloud cover (`uCloud`), so a rainy or overcast night shows no starry sky (without weather the default cover 0.25 leaves them at 75%).
 - Adaptive resolution changes the render scale before a frame draws, not after: the frame of the change was presented blank (a screenshot caught it black).
@@ -69,7 +72,7 @@ WebGL renderer. Upgrade steps for a 0.2 game, most common first, with the error 
 
 - 0.2 saves load. The calendar takes the old `sky` part (`movedFrom`); saved NPC `talk` fields become `interact`; the `world` part is version 5 (migrated on load). 0.2 builds refuse 0.3 saves as `'tooNew'`.
 - A save with a `null` part is refused as corrupt; a load error in any part, `world:load` listener or `afterLoad` rolls the game back.
-- Physics: new save part `rigid`. Bodies added with `addBox / addBall / addHull({ id })`, and every vehicle, save pose, rotation, velocities and sleep; a load restores them (before, a toppled crate came back upright and at rest, and a car stayed where it was at load time). Ids are unique across bodies and vehicles (`[rigid-misuse]`). Not synced by `net()`. newGame / load now re-create the impulse joints a game made between engine bodies (they were dropped silently) and warn about joints they cannot carry.
+- Physics: new save part `rigid`. Bodies added with `addBox / addBall / addHull({ id })`, and every vehicle, save pose, rotation, velocities and sleep; a load restores them (before, a toppled crate came back upright and at rest, and a car stayed where it was at load time). Ids are unique across bodies and vehicles (`[rigid-misuse]`). Not synced by `net()`. newGame / load rebuild the physics world and emit `rigid:rebuilt { world, player, bodies }` once the bodies are back: a game re-creates its own joints there (they used to vanish silently). In dev, a rebuild that dropped joints with none re-created by the next step warns `[rigid-misuse]`.
 
 ### Tools
 - `threedog snap` on a paused (step-driven) page draws the current state once before reading, without advancing game time: at tick 0 it saved a black picture.

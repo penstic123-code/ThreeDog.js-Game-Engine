@@ -48,6 +48,16 @@ export const specs = [
         const nested = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshPhongMaterial()); holder.add(nested);
         engine.step(1 / 30, { describe: false });
         const swapped = new THREE.MeshToonMaterial(); late.material = swapped; engine.step(1 / 30, { describe: false });
+        // a class with its own material accessor (troika-three-text style): its getter / setter still run, and the swap is still seen
+        class OwnMat extends THREE.Mesh {
+          get material() { this.gets = (this.gets ?? 0) + 1; return this._mat; }
+          set material(m) { this.sets = (this.sets ?? 0) + 1; this._mat = m; }
+        }
+        const txt = new OwnMat(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial()); engine.scene.add(txt); engine.step(1 / 30, { describe: false });
+        const libSets = txt.sets, libSwap = new THREE.MeshPhongMaterial(); txt.material = libSwap; const g0 = txt.gets; void txt.material;
+        engine.step(1 / 30, { describe: false });
+        out.lib = { setterRan: txt.sets === libSets + 1, getterRan: txt.gets > g0, stored: txt._mat === libSwap, csm: materialPatches(libSwap).join() };
+        engine.scene.remove(txt);
         out.walk = { quiet, nested: materialPatches(nested.material).join(), swapped: materialPatches(swapped).join(), total: sky.csm.view.walks - w0 };
         engine.scene.remove(holder);
         // 决定 4 方案 A：游戏自己 new 的内置受光材质也打（不打就 N 倍亮），describe().owned 点名；游戏的 ShaderMaterial 不悄悄打，警告给 include 原文
@@ -80,6 +90,8 @@ export const specs = [
       check('之后加进场景的受光材质下一帧自动接上 csm', r.late === 'csm', r.late);
       check('开启后不再整场景遍历（core/sceneDelta.js 只看新加的子树）：嵌套加进组里的网格、换掉的 mesh.material 下一帧接上 csm',
         r.walk.quiet === 0 && r.walk.nested === 'csm' && r.walk.swapped === 'csm' && r.walk.total === 0, JSON.stringify(r.walk));
+      check('类自带 material 访问器（如 troika-three-text）：引擎不覆盖它，原 getter / setter 照样执行，换材质下一帧仍接上 csm',
+        r.lib.setterRan && r.lib.getterRan && r.lib.stored && r.lib.csm === 'csm', JSON.stringify(r.lib));
       check('方案 A：游戏的 ShaderMaterial（lights: true）不被悄悄打，警告一次给 engine.look.shadow.include(mat)，include 后才打',
         r.shaderMat.before === '' && r.shaderMat.warned && r.shaderMat.after === 'csm', JSON.stringify(r.shaderMat));
       check('方案 A：被打补丁的游戏内置材质出现在 describe().owned["shadow.csm"]', r.ownedRow.includes('MeshStandardMaterial') && r.ownedRow.includes('MeshLambertMaterial'), JSON.stringify(r.ownedRow));

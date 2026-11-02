@@ -1,6 +1,6 @@
 // The first line of an error message, shortened for a one-line summary (the relay's repeat line, `threedog errors`, play / verify / wait results).
-// 为什么从中间省略而不是截尾：引擎报错把要求和代码写在句尾（"…ending at 1, no time repeated; got times [0, …, 0.88] [sky-option]"），
-// 截尾正好把"怎么改"截掉了（一次试玩里只剩 "…rows s"）。保留开头和结尾，中间用 … 代替。No imports: the vite relay loads it too.
+// Why elide from the middle instead of truncating the tail: engine errors put the requirement and the code at the end of the sentence ("…ending at 1, no time repeated; got times [0, …, 0.88] [sky-option]"),
+// truncating cuts off exactly the "how to fix" (one playtest was left with only "…rows s"). Keep head and tail, replace the middle with …. No imports: the vite relay loads it too.
 /** Longest summary line; engine messages are one sentence and fit */
 export const ONE_LINE_MAX = 400;
 /** First line of text; longer than max keeps the start and the end, joined by " … " */

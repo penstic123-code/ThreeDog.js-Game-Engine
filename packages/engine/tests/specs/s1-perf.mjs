@@ -36,8 +36,12 @@ export const specs = [
         for (let i = 0; i < handles.length; i += 3) handles[i].remove();   // remove a third, then compare again
         const afterRemove = compare();
         const time = f => { const t0 = performance.now(); for (let k = 0; k < 5; k++) for (const [x, z, range] of qs) f(x, z, range); return performance.now() - t0; };
-        const msLinear = time((x, z, range) => { for (const o of linear(x, z, range)); });
-        const msGrid = time((x, z, range) => { for (const o of C._grid.query(x, z, range)); });
+        // best of 3 alternating rounds: a busy machine (other browsers, GC) slows one round, not the fastest of each
+        let msLinear = Infinity, msGrid = Infinity;
+        for (let k = 0; k < 3; k++) {
+          msLinear = Math.min(msLinear, time((x, z, range) => { for (const o of linear(x, z, range)); }));
+          msGrid = Math.min(msGrid, time((x, z, range) => { for (const o of C._grid.query(x, z, range)); }));
+        }
         // real usage: resolve pushes the character out; equal results follow from equal callback sequences, so only check that it does not throw
         const p = { x: 3, z: 0 }; C.resolve(p, 0.4);
         g.forEachCollider = saved;
