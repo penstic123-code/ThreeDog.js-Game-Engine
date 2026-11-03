@@ -18,10 +18,10 @@ export async function checkModel(file, content) {
   return { file, level, materials: reviewMaterials(doc, core), stats: modelStats(doc, core), report: fileReport(doc, level) };
 }
 
-export async function runCheck(dir, args) {
-  const json = args.includes('--json'), strict = args.includes('--strict');
-  const ai = args.indexOf('--against'), againstFile = ai >= 0 ? args[ai + 1] : null;
-  const target = resolve(args.find((a, i) => !a.startsWith('-') && !(ai >= 0 && i === ai + 1)) ?? join(dir, 'art/models'));
+/** assets check: opt and the target come from the one parse in assets.mjs (paths.mjs cli), where a misspelled option fails */
+export async function runCheck(dir, opt, given) {
+  const json = !!opt.json, strict = !!opt.strict, againstFile = opt.against ?? null;
+  const target = resolve(given ?? join(dir, 'art/models'));
   if (!hasReader()) { console.error('✗ ' + NO_READER); return 1; }
   if (!existsSync(target)) { console.log(`✗ ${target} does not exist. Pass a .glb file or a folder, or put exports into art/models/.`); return 1; }
   const files = statSync(target).isDirectory() ? readdirSync(target).filter(f => /\.(glb|gltf)$/i.test(f)).map(f => join(target, f)) : [target];

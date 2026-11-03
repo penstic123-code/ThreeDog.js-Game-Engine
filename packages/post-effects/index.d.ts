@@ -14,9 +14,9 @@ export function chromatic(o?: { amount?: number; enabled?: boolean; order?: numb
 /** Depth of field (hdr, costly, reads scene depth; passes it on, so it can be on with outline when its order is lower, lines then stay sharp); meters / device pixels. On when listed (enabled: false lists it off); costly, so it still starts off on low-tier devices */
 export function dof(o?: { focus?: number; range?: number; falloff?: number; maxBlur?: number; enabled?: boolean; order?: number }): PostEffect;
 
-/** Bloom (glow around bright pixels; hdr, costly). Default enabled: on; costly, so it starts off on low-tier devices whatever enabled says (createEngine({ post: { bloom: true } }) forces it; threedog shot renders the high tier unless --tier low) */
+/** Bloom (glow around bright pixels; hdr, costly). Default enabled: on; costly, so it starts off on low-tier devices when a style plugin brings it (look.post.set({ bloom: true }) turns it on; threedog shot renders the high tier unless --tier low) */
 export function bloom(o?: { strength?: number; radius?: number; threshold?: number; enabled?: boolean; order?: number }): PostEffect;
-/** Ambient occlusion (soft contact shadows in corners; hdr, costly). On when listed (enabled: false lists it off); costly, so it still starts off on low-tier devices (createEngine({ post: { ao: true } }) forces it) */
+/** Ambient occlusion (soft contact shadows in corners; hdr, costly). On when added (enabled: false adds it off); costly, so from a style plugin it starts off on low-tier devices (look.post.set({ ao: true }) turns it on) */
 export function ao(o?: { radius?: number; intensity?: number; enabled?: boolean; order?: number }): PostEffect;
 /** Outline (hdr, reads scene depth). On when listed (enabled: false lists it off). mode 'depth' (default) = silhouettes, 'normal' = creases (extra scene render, costly), 'both'; wobble = line jitter in pixels; offLayer = objects with that three.js layer enabled get no lines (use OUTLINE_OFF_LAYER) */
 export function outline(o?: { color?: ColorLike; thickness?: number; strength?: number; mode?: 'depth' | 'normal' | 'both'; fadeWithDistance?: boolean; wobble?: number; offLayer?: number | null; enabled?: boolean; order?: number }): PostEffect;

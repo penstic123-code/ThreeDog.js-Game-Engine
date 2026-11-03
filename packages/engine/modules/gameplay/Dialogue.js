@@ -1,4 +1,5 @@
-// Dialogue module: data-driven dialogue (nodes + choices + conditions + callbacks), typewriter effect, confirm key advances, number keys pick choices.
+// Dialogue module: data-driven dialogue (nodes + choices + conditions + callbacks), typewriter effect, confirm advances, choices by
+// the cursor, clicks, or number keys when the game binds them (presets.bindings.dialogNumbers; the module binds no key).
 // Typing runs on game time (frame dt accumulation), so engine.step advances it deterministically. Two channels:
 //   main (default)  the conversation the player reads: locks game input and joins the UI focus stack (Esc won't open the settings menu; the key press that
 //                   opened it does not advance). Its choices take the UI choice cursor (menu keys / d-pad / stick + confirm, ui/Focus.js), number keys and clicks.
@@ -19,7 +20,7 @@
 // Advancing and picking a choice are the ops dialogue.advance and dialogue.choose { index } (recipes/23-ops.md): keys, the cursor, clicks, the dev bridge and
 // tests all run them, so a choice's do (which may change gameplay state) always runs inside a logged op.
 import { uiFocus } from '../../ui/UI.js';
-import { warnMissing, warnOnce, renamed } from '../../core/validate.js';
+import { warnMissing, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { dialogueBox } from './dialogueBox.js';
 import { codedError } from '../../core/errorHints.js';
@@ -36,24 +37,19 @@ const STR = {
 const checkChannel = c => { if (!CHANNELS.includes(c)) throw codedError('module-params', STR.channel.replace('{got}', c)); };
 const SAY_KEYS = ['speaker', 'node', 'channel', 'at', 'seconds', 'queue', 'onCancel'], START_KEYS = ['channel', 'at', 'onCancel'];
 // 0.2 lock: false is now channel: 'bubble'; if not caught, old code would silently take the main channel and lock input (the opposite behavior), so name the new form first, then run the generic unknown-key check
-const OLD_LINE = renamed('dialogue.say / start options', { lock: "{ channel: 'bubble', at } for a line that does not lock input (main, the default, always locks)" });
-const readLine = (fn, keys, o) => readParams(`dialogue.${fn}`, keysSchema(keys), OLD_LINE.check(o) ?? {});
+const readLine = (fn, keys, o) => readParams(`dialogue.${fn}`, keysSchema(keys), o ?? {});
 
 export class Dialogue {
-  constructor(engine, { charsPerSecond = 40, advanceActions, choiceKeys = true, holdSeconds = 2 } = {}) {
+  constructor(engine, { charsPerSecond = 40, advanceActions = ['confirm'], holdSeconds = 2 } = {}) {
     this.engine = engine;
     this.scripts = new Map();
     this.state = { get flags() { return engine.vars.flags; } };   // story flags = engine.vars.flags (autosaved)
     this.cps = charsPerSecond;
-    // default: confirm, plus interact when the game bound one (interact is not a core key any more, so it is only used if it exists)
-    /** @internal */ this._advDefault = advanceActions === undefined;
-    this.advanceActions = advanceActions ?? ['confirm', 'interact'];
+    // default: confirm only (a basic key). Other actions advance only when the game names them: advanceActions: ['confirm', 'interact']
+    this.advanceActions = advanceActions;
     this.holdSeconds = holdSeconds;
-    this.choiceKeys = choiceKeys;
     this.active = null;
     /** @internal the bubble channel */ this._bubbles = new Bubbles(this);
-    // choice keys are read only while the main dialogue runs (game input is locked then), so 1-9 stay free for weapons and hotbars the rest of the time
-    if (choiceKeys) for (let i = 1; i <= 9; i++) engine.input.define('choice' + i, ['Digit' + i, 'Numpad' + i], 'dialogue.choice');
   }
 
   define(speaker, nodes) {
@@ -66,7 +62,7 @@ export class Dialogue {
   /** Name of the script the main dialogue is playing (null when none). */
   get speaking() { return this.active?.speaker ?? null; }
   /**
-   * Say a one-off line (no define needed); the returned Promise resolves when it ends; .stop() ends it now (it resolves too); .id names a main-channel line.
+   * Say a one-off line (no define needed); the returned Promise resolves when it ends; .remove() ends it now (it resolves too, the cancel convention); .id names a main-channel line.
    * say('天快黑了。', { speaker: '老渔夫' }), or pass a node table: say({ start: {...}, ... }).
    * channel: 'bubble' = over at (an Object3D, a position, an actor id; none = a screen line) while the player keeps playing; seconds / queue: dialogueBubbles.js.
    * Ending the playthrough (engine.session) drops the line and leaves the Promise pending: code awaiting it belonged to the old playthrough and never runs.
@@ -80,11 +76,11 @@ export class Dialogue {
     let stop = () => {};
     const p = /** @type {any} */ (new Promise(res => {
       const done = () => { this.scripts.delete(id); res(); };
-      if (channel === 'bubble') { const run = this._playBubbles(id, node, done, { at, seconds, queue }); stop = () => run.stop(); return; }
+      if (channel === 'bubble') { const run = this._playBubbles(id, node, done, { at, seconds, queue }); stop = () => run.remove(); return; }
       this.start(id, node, done, { onCancel });
       stop = () => { if (this.active?.speaker === id) this.end(); };
     }));
-    p.id = id; p.stop = () => stop();
+    p.id = id; p.remove = () => stop();
     return p;
   }
 
@@ -106,7 +102,7 @@ export class Dialogue {
       cur.then(() => step(node.next || 'end'));
     };
     step(nodeId);
-    return { stop: () => { stopped || cur?.stop(); finish(); } };
+    return { remove: () => { stopped || cur?.remove(); finish(); } };
   }
 
   /**
@@ -122,7 +118,7 @@ export class Dialogue {
     if (channel === 'bubble') { this._playBubbles(speaker, nodeId, onEnd, { at }); return; }
     if (this.active) this.end();   // end a running dialogue normally first (runs its onEnd so NPCs don't hang)
     // join the UI focus stack (Esc swallowed unless onCancel; the choice cursor lives on this entry) and lock game input with an opaque context
-    this.active = { speaker, nodes, onEnd, focus: uiFocus(this.engine).push('dialogue', { cancel: onCancel }), ctx: this.engine.input.push('dialogue') };
+    this.active = { speaker, nodes, onEnd, focus: uiFocus(this.engine).push('dialogue', { cancel: onCancel }), ctx: this.engine.input.push('dialog', { owner: 'dialogue' }) };
     this.part = this.engine.ui.get('dialogue');
     this.part?.show();
     this.engine.events.emit('dialogue:start', speaker);
@@ -172,7 +168,7 @@ export class Dialogue {
     this._opts = opts.length ? opts : null;
     const label = c => typeof c.text === 'function' ? c.text(this.state, e) : c.text;
     // key: the first bound key only ('1', not '1/Numpad1'), so a rebound choice key shows its new name
-    this._choices = opts.map((c, i) => ({ text: label(c), key: this.choiceKeys && i < 9 ? e.input.label('choice' + (i + 1)).split('/')[0] : null, data: c.data ?? {} }));
+    this._choices = opts.map((c, i) => ({ text: label(c), key: i < 9 ? e.input.label('choice' + (i + 1)).split('/')[0] || null : null, data: c.data ?? {} }));
     // the choice cursor: the menu keys / d-pad / stick move it, confirm picks (the same op as a click or a number key); the part draws view.selected
     if (this._opts) a.focus.setNav({ count: () => this._choices.length, moved: () => this._draw(), confirm: i => e.ops.run('dialogue.choose', { index: i }, { source: 'player' }) });
     this._draw();
@@ -224,28 +220,31 @@ export class Dialogue {
     // just opened this frame (the press that opened it does not advance), or the choice cursor already used confirm this frame
     if (a.focus.fresh || a.focus.consumed) return;
     const input = this.engine.input, P = { source: 'player' };
-    if (this.advanceActions.some(x => (!this._advDefault || input.actions.has(x)) && input.pressedRaw(x))) ops.run('dialogue.advance', {}, P);
-    if (this.choiceKeys) for (let i = 1; i <= 9; i++) if (input.pressedRaw('choice' + i) && this.active && this._visible()[i - 1]) ops.run('dialogue.choose', { index: i - 1 }, P);
+    if (this.advanceActions.some(x => input.pressedRaw(x))) ops.run('dialogue.advance', {}, P);
+    for (let i = 1; i <= 9; i++) if (input.pressedRaw('choice' + i) && this.active && this._visible()[i - 1]) ops.run('dialogue.choose', { index: i - 1 }, P);
   }
 }
 
 const STRINGS = {
-  'zh-CN': { 'dialogue.continue': '{key} 继续 ▸', 'dialogue.choice': '选择选项' },
-  en: { 'dialogue.continue': '{key} to continue ▸', 'dialogue.choice': 'Choose option' },
+  'zh-CN': { 'module.dialogue': '对话', 'dialogue.continue': '{key} 继续 ▸', 'dialogue.choice': '选择选项' },
+  en: { 'module.dialogue': 'dialogue', 'dialogue.continue': '{key} to continue ▸', 'dialogue.choice': 'Choose option' },
 };
 
-const DIALOGUE_PARAMS = keysSchema(['charsPerSecond', 'advanceActions', 'choiceKeys', 'holdSeconds']);
+const DIALOGUE_PARAMS = keysSchema(['charsPerSecond', 'advanceActions', 'holdSeconds']);
 
 /** Dialogue module. Installs engine.dialogue; story flags engine.dialogue.state.flags are engine.vars.flags. Declares the UI parts 'dialogue' and 'dialogue.bubble'. */
 export function dialogue(opts = {}) {
   readParams('dialogue', DIALOGUE_PARAMS, opts);
   let d = null;
   return {
-    name: 'dialogue', params: DIALOGUE_PARAMS, options: opts, label: 'Dialogue', stage: 'gameplay', after: ['interactions'],
-    install(e) {
+    name: 'dialogue', type: 'rules', provides: ['dialogue'], params: DIALOGUE_PARAMS, options: opts, label: 'Dialogue', stage: 'gameplay', after: ['interactions'],
+    install(e, ctx) {
       e.i18n.add(STRINGS);
       d = new Dialogue(e, opts);
-      e.events.on('session:end', () => d._cancel());   // per-playthrough state (recipes/14-custom-module.md "Per-playthrough state")
+      // choice1..9 pick a choice by number: declared, never bound here (presets.bindings.dialogNumbers binds 1-9). Optional: the choice cursor
+      // (basic menu keys + confirm) and clicks pick choices without them. Context 'dialog', so 1-9 stay free for hotbars outside a conversation
+      for (let i = 1; i <= 9; i++) ctx.input.action('choice' + i, { context: 'dialog', label: 'dialogue.choice', optional: true });
+      ctx.track(e.events.on('session:end', () => d._cancel()));   // an open dialogue belongs to the playthrough that opened it
       e.ui.define('dialogue', dialogueBox);
       e.ui.define('dialogue.bubble', bubblePart, { multi: true });
       e.ops.define('dialogue.advance', {

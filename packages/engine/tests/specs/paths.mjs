@@ -56,6 +56,26 @@ const twin = async ({ useNav, n, crash = true, change = true }) => {
 
 export const specs = [
   {
+    name: '[guard] nav: engine.dispose() frees the Recast objects (navMesh / query / tileCache / crowd live in the WASM heap)',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, world, collision, characters, level, nav, THREE } = threedogThreads;
+        const g = new THREE.Group(), f = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial()); f.name = 'floor'; g.add(f);
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'nav-dispose' });
+        E.use(world(), collision(), characters({ npcs: false }), level({ scene: g }), nav());
+        await E.start();
+        for (let i = 0; i < 100 && !E.nav.ready; i++) await new Promise(res => setTimeout(res, 50));
+        const freed = [];
+        for (const k of ['navMesh', 'query', 'tileCache', 'crowd']) { const o = E.nav[k]; if (o?.destroy) { const d = o.destroy.bind(o); o.destroy = () => { freed.push(k); d(); }; } }
+        const N = E.nav, ready = N.ready;
+        E.dispose();
+        return { ready, freed, after: N.navMesh ?? null };
+      });
+      check('the navmesh was built, and engine.dispose() destroyed it and its query', r.ready && r.freed.includes('navMesh') && r.freed.includes('query') && r.after === null, JSON.stringify(r));
+    },
+  },
+  {
     name: 'paths: findPathAsync with A* -- threads 0 and 2 give identical paths on identical steps, also across a collider change and a worker crash (threads test page)',
     url: '/tests/threads/',
     expectErrors: /worker failed/,

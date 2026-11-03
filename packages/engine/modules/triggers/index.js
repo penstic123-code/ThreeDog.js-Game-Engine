@@ -27,15 +27,17 @@
 // Returned handle: { tag, inside, enabled, used, remove(), contains(p) }
 //
 // Events: trigger:enter / trigger:exit with { tag, trigger, who, id }. On removal (remove / clear) and at the end of a playthrough, zones still occupied send exit first (who is null)
-// A playthrough ending (engine.session newGame / load / quit) resets every zone: occupied ones exit, cooldowns clear, once zones are re-armed;
-// so the zone around the spawn point fires enter again in the new playthrough. Zones added during play belong to the game: wrap them in engine.session.track(h).
+// Saved: the 'triggers' save part keeps each zone's used (once) and remaining cooldown, keyed by tag and order among zones of that tag
+// ('door', 'door#1'; untagged: '(box)', '(cylinder)#2'). So a load restores them (a sprung trap stays sprung, a story zone never fires twice) and a
+// new game re-arms them. Any load (newGame / session.load / saves.load) also exits occupied zones, so the zone around where the player stands fires
+// enter again. Zones added during play belong to the game: wrap them in engine.session.track(h).
 //
 // Debug display: engine.debug.view('triggers') draws all trigger zones as wireframes, engine.debug.view('off') clears them. It is a debug view mode
 //   (core/debugView.js) and not a triggers option, so it works like every other "show me the hidden thing": one call, owner-scoped, said in describe().render.
 //   Look comes from style.triggers = { debugColor, debugOpacity } of the style; neutral gray if absent (a dev overlay: its line material is not a makeMaterial role).
-//   In dev builds F4 (action triggersDebug, rebindable) toggles that view; release builds bind no key unless triggers({ keys }) names one.
+//   The action triggersDebug toggles that view; it has no key of its own (presets.bindings.debug binds F4 with the debug panel's F3).
+import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
-import { DEV } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { Cells } from '../../core/cells.js';
 
@@ -47,12 +49,12 @@ const bySeqDesc = (a, b) => b._seq - a._seq;   // the order zones have always ru
 const ADD_KEYS = ['shape', 'position', 'radius', 'size', 'height', 'rotation', 'onEnter', 'onExit', 'onStay', 'once', 'enabled', 'tag', 'who', 'cooldown', 'userData'];
 
 const STRINGS = {
-  'zh-CN': { 'triggers.debug': '显示触发区' },
-  en: { 'triggers.debug': 'Show triggers' },
+  'zh-CN': { 'module.triggers': '触发区', 'triggers.debug': '显示触发区' },
+  en: { 'module.triggers': 'triggers', 'triggers.debug': 'Show triggers' },
 };
 
 export class Triggers {
-  constructor(engine, { action = 'triggersDebug', keys = DEV ? ['F4'] : [] } = {}) {
+  constructor(engine, { action = 'triggersDebug' } = {}, track) {
     this.engine = engine;
     this._list = [];
     this.action = action;
@@ -67,8 +69,7 @@ export class Triggers {
     this._seq = 0; this._stamp = 0;
     /** @internal the wireframe group while the debug view 'triggers' is on (null otherwise) */ this._view = null;
     engine.i18n.add(STRINGS);
-    /** @internal the debug toggle has a key */ this._keyed = keys.length > 0;
-    if (this._keyed) engine.input.define(action, keys, 'triggers.debug');
+    track(engine.input.action(action, { label: 'triggers.debug', optional: true, owner: 'triggers' }));   // a dev tool: silent while unbound
     /** @internal */ this._viewDef = engine.debug.defineView('triggers', { what: 'every trigger zone drawn as a wireframe over the real look (style.triggers.debugColor)', apply: scene => this._drawView(scene) });
   }
 
@@ -209,9 +210,26 @@ export class Triggers {
     } else if (!hit && t.inside) this._exit(t, null);
     else if (hit && t.inside) t.onStay?.(dt, t, hit, id);
   }
-  /** @internal session:end: occupied zones exit, cooldowns clear, once zones are armed again (recipes/14-custom-module.md "Per-playthrough state") */
-  _reset() {
-    for (const t of [...this._list]) { if (t.inside) this._exit(t, null); t._cool = 0; t.used = false; }
+  /** @internal each zone's save key: tag (or '(shape)') plus its order among zones with that label, so code that adds the same zones gets the same keys */
+  _keys() {
+    const n = new Map();
+    return this._list.map(t => { const l = t.tag || `(${t.shape})`, i = n.get(l) ?? 0; n.set(l, i + 1); return i ? `${l}#${i}` : l; });
+  }
+  /** @internal the 'triggers' save part: only zones that differ from a fresh one (used, or cooling down) */
+  _save() {
+    const keys = this._keys(), out = {};
+    this._list.forEach((t, i) => { if (t.used || t._cool > 0) out[keys[i]] = { used: t.used, cool: t._cool }; });
+    return out;
+  }
+  /** @internal occupied zones exit (who is null), then used / cooldown come from the save; zones the save does not name start fresh */
+  _load(d) {
+    for (const t of [...this._list]) if (t.inside) this._exit(t, null);
+    const keys = this._keys();
+    this._list.forEach((t, i) => {
+      const s = d?.[keys[i]];
+      t.used = !!s?.used; t._cool = Number.isFinite(s?.cool) ? s.cool : 0;
+      if (t._cool > 0) this._busy.add(t); else this._busy.delete(t);
+    });
   }
   _exit(t, who) {
     // id: who was inside (remembered at enter), so an exit says who left even though the position that left is gone
@@ -231,7 +249,7 @@ export class Triggers {
     g.name = 'triggers-debug';
     this._mat = new THREE.LineBasicMaterial({ color: st.debugColor ?? 0x9a9a9a, transparent: true, opacity: st.debugOpacity ?? 0.8, depthTest: false });   // debug overlay only
     for (const t of this._list) this._addDebugMesh(t);
-    scene.add(g);
+    scene.add(engineOwned('triggers', g));
     return () => {
       for (const t of this._list) t._mesh = null;
       g.traverse(o => o.geometry?.dispose());
@@ -254,7 +272,6 @@ export class Triggers {
 
 const TRIGGER_PARAMS = {
   action: { type: 'string', default: 'triggersDebug', desc: "input action that toggles the debug view 'triggers' (engine.debug.view)" },
-  keys: { type: 'array', optional: true, desc: "keys for that toggle (default ['F4'] in dev builds, none in release)" },
 };
 
 /** Trigger zone module. Provides engine.triggers once installed. Optional dependency: level (used by fromMarkers) */
@@ -262,17 +279,17 @@ export function triggers(opts = {}) {
   const o = readParams('triggers', TRIGGER_PARAMS, opts);
   let tr = null;
   return {
-    name: 'triggers', label: 'Triggers', params: TRIGGER_PARAMS, options: o, noSkip: 'zone enter/exit is re-evaluated on the next fixed step', optional: ['level'], stage: 'gameplay', after: ['interactions'],
-    install(e) {
-      tr = new Triggers(e, opts);
+    name: 'triggers', type: 'rules', label: 'Triggers', params: TRIGGER_PARAMS, options: o, noSkip: 'zone enter/exit is re-evaluated on the next fixed step', optional: ['level'], stage: 'gameplay', after: ['interactions'],
+    install(e, ctx) {
+      tr = new Triggers(e, opts, ctx.track);
       // audio rule condition { zone: 'cave' | ['cave', 'mine'] }: some trigger zone with that tag is occupied
-      e.audio.condition('zone', v => [].concat(v).some(tag => tr.byTag(tag).some(t => t.inside)));
-      e.events.on('session:end', () => tr._reset());
+      ctx.track(e.audio.condition('zone', v => [].concat(v).some(tag => tr.byTag(tag).some(t => t.inside))));
+      e.saves.register('triggers', { save: () => tr._save(), load: d => tr._load(d) });
       return tr;
     },
     fixed(dt) { tr.update(dt); },
     // the key toggles the same debug view an AI calls: no second display path to keep in step
-    frame(dt, e) { if (tr._keyed && e.input.pressed(tr.action)) e.debug.view(e.debug.viewState().mode === 'triggers' ? 'off' : 'triggers'); },
+    frame(dt, e) { if (e.input.pressed(tr.action)) e.debug.view(e.debug.viewState().mode === 'triggers' ? 'off' : 'triggers'); },
     dispose() { tr._viewDef.remove(); },   // turns the view off when it is the triggers one, and drops the mode
     describe(e, ctx) {
       for (const t of tr._list) if (t.enabled && !t.used) ctx.near(t, { name: t.tag || t.shape, kind: 'trigger', inside: t.inside });

@@ -15,6 +15,7 @@ export function inRange(t, from, to, hoursPerDay = 24) { return inFrac(t, parseC
 export const inFrac = (t, a, b) => (a <= b ? t >= a && t < b : t >= a || t < b);
 /** Fraction of a day 0-1 -> 'HH:MM' */
 export function formatClock(t, hoursPerDay = 24) {
-  const h = Math.floor(t * hoursPerDay), m = Math.floor((t * hoursPerDay - h) * 60);
+  // whole minutes with a hair of slack: 0.3 * 24 * 60 is 431.99999999999994 in floats, and flooring that showed 07:11 for 07:12
+  const all = Math.floor(t * hoursPerDay * 60 + 1e-6), h = Math.floor(all / 60), m = all % 60;
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }

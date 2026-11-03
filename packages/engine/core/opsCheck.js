@@ -2,7 +2,7 @@
 // Each message says what is wrong and how to write it, because the reader is usually an AI that will fix the call from the text alone.
 import { closest, fmt } from './validate.js';
 import { codedError } from './errorHints.js';
-import { parseSchema, whyBad, CHECK, OP_TYPES as TYPES } from './params.js';   // one type check for op args and module params
+import { parseSchema, whyBad, checkOf, OP_TYPES as TYPES } from './params.js';   // one type check for op args and module params
 
 export const SOURCES = ['player', 'game', 'bridge', 'test', 'replay', 'net'];
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
@@ -77,7 +77,7 @@ export function checkArgs(e, d, args) {
   for (const key in d.shape) {
     const s = d.shape[key], v = args[key];
     if (v === undefined) { if (!s.optional) throw devError(fmt(STRINGS.missing, { name, key, shape: shapeText })); continue; }
-    if (!CHECK[s.type](v)) throw devError(fmt(STRINGS.wrong, { name, key, type: s.type === 'position' ? '[x, y, z]' : s.type, got: JSON.stringify(v), shape: shapeText }));
+    if (!checkOf(s.type)(v)) throw devError(fmt(STRINGS.wrong, { name, key, type: s.type === 'position' ? '[x, y, z]' : s.type, got: JSON.stringify(v), shape: shapeText }));
     const range = whyBad(s, v);   // min / max / values of the full schema form
     if (range) throw devError(fmt(STRINGS.range, { name, key, why: range, shape: shapeText }));
     if (s.type === 'id' && e._things.sources.length && !e._things.source(v)) throw devError(fmt(STRINGS.noRecord, { name, key, id: v }));
@@ -89,7 +89,7 @@ export function argRange(d, args) {
   if (!d.shape || !args) return null;
   for (const key in d.shape) {
     const s = d.shape[key], v = args[key];
-    if (v === undefined || !CHECK[s.type](v)) { if (v !== undefined) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: s.type }] }; continue; }
+    if (v === undefined || !checkOf(s.type)(v)) { if (v !== undefined) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: s.type }] }; continue; }
     const why = whyBad(s, v);
     if (why) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: why }] };
   }

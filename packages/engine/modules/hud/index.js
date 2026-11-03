@@ -22,8 +22,8 @@ import { codedError } from '../../core/errorHints.js';
 /** @import { Hud, HudOptions } from '../../types/gameplay' */
 
 const STRINGS = {
-  'zh-CN': { 'hud.distance': '{m} 米' },
-  en: { 'hud.distance': '{m} m' },
+  'zh-CN': { 'module.hud': '目标指示', 'hud.distance': '{m} 米' },
+  en: { 'module.hud': 'objective markers', 'hud.distance': '{m} m' },
 };
 const MARKER_KEYS = ['label', 'icon', 'offscreen', 'distance', 'height'];
 const _size = new THREE.Vector2();
@@ -160,15 +160,15 @@ export function hud(opts = {}) {
   };
 
   return {
-    name: 'hud', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['inventory', 'pickups', 'content', 'level', 'quests'], stage: 'presentation', after: ['particles', 'settings'], presentation: true,
-    install(engine) {
+    name: 'hud', type: 'ui', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['inventory', 'pickups', 'content', 'level', 'quests'], stage: 'effects', after: ['particles', 'settings'],
+    install(engine, ctx) {
       e = engine;
       e.i18n.add(STRINGS);
       defineHudParts(e, containers);
-      for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'save:loaded', 'session:start']) e.events.on(ev, syncQuests);
-      // per-playthrough state (recipes/14-custom-module.md "Per-playthrough state"): quest markers belong to the old quests
-      e.events.on('session:end', () => { for (const m of quest.values()) m.remove(); quest.clear(); });
-      e.events.on('i18n:change', () => { for (const [id, it] of items) it.part?.update({ id, ...it.o }); });
+      for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'save:loaded', 'session:start']) ctx.track(e.events.on(ev, syncQuests));
+      // quest markers are derived from the quests save part: they belong to the old quests, and session:start / save:loaded rebuild them
+      ctx.track(e.events.on('session:end', () => { for (const m of quest.values()) m.remove(); quest.clear(); }));
+      ctx.track(e.events.on('i18n:change', () => { for (const [id, it] of items) it.part?.update({ id, ...it.o }); }));
       return api;
     },
     frame() { for (const m of api.markers) updateMarker(m); },

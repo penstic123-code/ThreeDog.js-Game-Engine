@@ -15,8 +15,8 @@ const cli = (cwd, ...args) => spawnSync(process.execPath, [join(TOOLS, 'bin', 't
 /** What paths.mjs decides from cwd: mode, root, the workspace with no -w and with the extra args */
 const resolveIn = (cwd, args = []) => {
   const src = `const p = await import(${JSON.stringify(pathToFileURL(join(TOOLS, 'paths.mjs')).href)});
-    let w; try { w = p.pickWorkspace(${JSON.stringify(args)}).dir; } catch (e) { w = 'ERR ' + e.message; }
-    console.log(JSON.stringify({ mode: p.MODE, root: p.ROOT, here: p.pickWorkspace([]).dir, w }));`;
+    let w; try { w = p.command(${JSON.stringify(args)}).dir; } catch (e) { w = 'ERR ' + e.message; }
+    console.log(JSON.stringify({ mode: p.MODE, root: p.ROOT, here: p.workspaceFor(undefined), w }));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', src], { cwd, encoding: 'utf8' });
   try { return JSON.parse(r.stdout.trim().split('\n').pop()); } catch { return { err: r.stderr }; }
 };

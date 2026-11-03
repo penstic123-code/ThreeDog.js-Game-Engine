@@ -2,13 +2,14 @@
 // results (terrain chunks, vegetation, colliders, GPU upload, stream builds) is split in stages and readable from describe().perf.apply and the budget.
 export const specs = [
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: 'PERF cpuMs：一帧 CPU 含 fixed/frame/render/afterRender 四段，Budget 采到的是本帧而不是上一帧',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const burn = ms => { const t = performance.now(); while (performance.now() - t < ms); };
         engine.budget.enable({});
-        engine.use({ name: 'perfburn', frame() { burn(3); }, afterRender() { burn(4); } });
+        engine.use({ name: 'perfburn', type: 'rules', frame() { burn(3); }, afterRender() { burn(4); } });
         const log = [], b = engine.budget, orig = b.sample;
         b.sample = function (dt) {   // the engine calls this once per real-time frame, after the afterRender hooks
           orig.call(this, dt);
@@ -29,6 +30,7 @@ export const specs = [
     },
   },
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: 'PERF 后台结果回到主线程：传输 / 建 three 对象 / 碰撞体 / GPU 上传按段计时，流式进入新区域能出一份数字',
     url: '/',
     async run({ check, ev }) {
@@ -56,6 +58,7 @@ export const specs = [
     },
   },
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: 'PERF 近处植被某种类在区块里一棵都没有时，结果应用后不会无限重发 detail 任务',
     url: '/',
     async run({ check, ev }) {

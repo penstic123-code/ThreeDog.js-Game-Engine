@@ -13,10 +13,10 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 
 ## Engine modules (engine.use)
 
-- createEngine: { style, ui: { loading: { title: 'action' } }, saveKey: 'threedog-action' }
+- createEngine: { bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...prese…
 - openWorld preset ({ camera: followCamera({ ...presets.camera.overShoulder, yaw: Math.PI }), terrain: false, vegetatio…) → world, calendar, sky, collision, characters, settings, debug
 - interactions ({ ...presets.interactions.nearest })
-- inventory ({ ...presets.keys.inventory })
+- inventory
 - pickups
 - content
 - hud
@@ -37,7 +37,7 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 
 Not used yet (check these before writing the system yourself):
 
-- quests: goals with steps, conditions and rewards: `quests({ ...presets.keys.quests })` (keys required), content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
+- quests: goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
 - grids: cell placement for farming and building: `grids()` (node_modules/threedog/docs/recipes/29-grid.md)
 
 ## Files

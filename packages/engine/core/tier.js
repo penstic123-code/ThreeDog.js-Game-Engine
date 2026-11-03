@@ -1,4 +1,4 @@
-// Device tier: Engine uses it at construction to pick default quality (low-end devices default to no bloom and lower render resolution).
+// Device tier: tool pages' forced tier, render scale per tier. Detection is render/backend.js tier() (the GPU name is read per renderer).
 //
 // Headless tool pages (shot, gallery, capture) pass ?threedog-tier=high|low. Why: the headless browser reports SwiftShader or the machine's
 // integrated GPU, so detection called every tool page "low" and costly post (ao, bloom) silently dropped out of the picture, which then did not
@@ -11,13 +11,12 @@ export function forcedTier(search = typeof location === 'undefined' ? '' : locat
   return TIERS.includes(t) ? t : null;
 }
 
-/** Roughly detect the device tier: phones and integrated GPUs count as low. Only sets defaults; the player can change it in settings. */
-export function detectTier(renderer) {
-  try {
-    if (matchMedia('(pointer: coarse)').matches) return 'low';
-    const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
-    const name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
-    if (/intel|uhd|iris|mali|adreno|powervr|swiftshader|llvmpipe|software/i.test(name)) return 'low';
-  } catch { /* cannot tell: assume high-end */ }
-  return 'high';
+/**
+ * Default render scale. High tier: the display scale up to 1.5. Low tier: at least 0.75 x display scale (1.5 on a 2x screen; a fixed 1 there
+ * would be an upscaled blurry picture), never above 1.5 or the display scale.
+ * @param {number} dpr @param {string} tier
+ */
+export function defaultPixelRatio(dpr, tier) {
+  const cap = Math.min(dpr, 1.5);
+  return tier === 'low' ? Math.min(cap, Math.max(1, +(0.75 * dpr).toFixed(2))) : cap;
 }

@@ -15,14 +15,12 @@ engine.onFixed(dt => moveEnemies(dt), { channel: 'enemies' });                  
 Details, only when you need them:
 - One entry per owner: the same owner modding again updates its entry. Ending one recomputes from the base and the entries left, so effects can end
   in any order (bullet time ending under a stopwatch never "restores" a stale value).
-- Combine order: entries sit in layers by `priority` (`'base'` 0 < `'game'` 100, the default < `'effect'` 200 < `'system'` 300 < `'debug'` 400, or a
-  number), lowest first; inside a layer the latest `set` replaces the value, then every `add` is summed in, every `mul` multiplies, every `clamp`
-  (`{ min, max }`) narrows. A higher layer's `set` hides everything below (a stopwatch `set: 0, priority: 'effect'` beats any slow-down). Two
-  different `set`s in one layer warn once: give one a higher priority.
+- Combine order and conflicts: `55-mods-time-wrap.md` (one layer table for every shared value; a stopwatch `set: 0, layer: 'effect'` beats any
+  slow-down; two owners `set` on one layer is an error in development).
 - `for: seconds` ends it by itself, counted on `clock`: `'real'` (default; real seconds, which stop while frozen, so a pause menu does not use up a
   bullet time) or a channel name (`clock: 'enemies'`: a slow that lasts 3 enemy seconds lasts longer in bullet time). Each end emits `mod:end`
   `{ target, owner, id }`. Saved with the time left; `engine.skip` ends them at the right point of the jump.
-- One record only: `engine.mod('time.local', { owner: 'stopwatch', id: 'slime_3', set: 0, priority: 'effect' })` (its speed = channel x local).
+- One record only: `engine.mod('time.local', { owner: 'stopwatch', id: 'slime_3', set: 0, layer: 'effect' })` (its speed = channel x local).
   `world.remove(id)` drops that record's entries.
 - Reading: `engine.time.scale('enemies', id?)`, `engine.time.now('enemies')`, `engine.clock.rate`; `describe().time.channels` lists speeds and
   holders. Saved: entries below `'system'`; `system` / `debug` ones (menus, debug panel) are screen state and are taken again after a load.
@@ -31,8 +29,13 @@ Details, only when you need them:
 - Order inside a fixed step: `onFixed(fn)` runs before the modules (player not moved yet), `onFixed(fn, { phase: 'late' })` after them. Stacks, `input.gate` and `engine.wrap` together: recipe 55.
 
 ## The time table (the single source; other docs link here)
-Three rulers, always named: **real seconds** (fixed-step seconds: the `dt` of a plain `onFixed` / module `fixed` / `world.simulate`, the N of
-`engine.step(N)`, `engine.elapsed`, `engine.time.real`; never scaled), **channel seconds** (`engine.time.now(ch)`, the `dt` of
+**One time source.** `engine.time` counts one thing, `engine.time.tick` (fixed steps run; `engine.tick` is the same number). Every other time is a
+read-only view of it, moved only by the engine, and always together: a fixed step, `engine.skip` and a new playthrough move or reset all of them.
+Read any view with `engine.time.now(name)`: `'real'`, `'ambient'`, `'calendar'` or a channel (`'world'`, `'player'`, your own).
+`'ambient'` (= `engine.uniforms.uTime`: wind, water, clouds) is the one view that keeps moving while gameplay is frozen.
+
+Three rulers, always named: **real seconds** (`engine.time.now('real')` = tick / 60; the `dt` of a plain `onFixed` / module `fixed` / `world.simulate`, the N of
+`engine.step(N)`; never scaled), **channel seconds** (`engine.time.now(ch)`, the `dt` of
 `onFixed(fn, { channel })`: real seconds x the channel's speed) and **calendar seconds** (`engine.clock.now` = world-channel seconds x
 `engine.clock.rate`). "Game time" is not a unit: always say one of them. **Time of day** (`engine.calendar.timeOfDay`, 0-1, the `calendar()` module) is derived
 from calendar seconds: one day = `calendar.dayLength` calendar seconds. **Frame seconds** (the `dt` of `onFrame` / module `frame`) are for presentation only.
@@ -40,12 +43,13 @@ from calendar seconds: one day = `calendar.dayLength` calendar seconds. **Frame 
 | Use it for | Time to use | Paused / frozen | `clock.rate` 2 (one real second at 60 Hz) |
 |---|---|---|---|
 | Movement, camera follow, physics (Rapier), AI steering | real seconds, or channel seconds for things bullet time should slow (`onFixed(fn, { channel })`) | stops | unchanged: speed in m/s stays the same |
-| Action judgement and action timelines (hit windows, invulnerability, "finish the swing"), cooldowns, hit-stop | a `mod` with `for` (hit-stop: `engine.mod('time.world', { owner: 'hitstop', set: 0, priority: 'system', for: 0.06 })`), or accumulate `dt` in `onFixed` | stops | unchanged: a 0.6 s swing is still 0.6 s |
+| Action judgement and action timelines (hit windows, invulnerability, "finish the swing"), cooldowns, hit-stop | a `mod` with `for` (hit-stop: `engine.mod('time.world', { owner: 'hitstop', set: 0, layer: 'system', for: 0.06 })`), or accumulate `dt` in `onFixed` | stops | unchanged: a 0.6 s swing is still 0.6 s |
 | `world.simulate` near / far, dialogue typing, cutscenes, `engine.step(N)` | real seconds | stops | unchanged |
 | Poison ticks, status effects, projectiles that bullet time should slow | channel seconds (`clock.after(s, 'ev', data, { channel })`, `for` + `clock: '<channel>'`) | stops | unchanged |
 | Crop / template stage growth, vegetation and pickup respawn, "ripe after 10 minutes" | calendar seconds (`clock.now`, `clock.after / every`; saved) | stops | twice as fast: growth that needs 600 calendar seconds is ripe after 300 real seconds |
 | Calendar, day, season, clock hours, lamps and shop doors (`calendar.at / between / daily / onSeason`) | time of day (`engine.calendar`, derived from calendar seconds) | stops | twice as fast: with `dayLength = 360` one hour (15 calendar seconds) passes in 7.5 real seconds |
-| UI animation and effects that follow the game (bobbing, sway) | `engine.elapsed` (real seconds) | stops | unchanged |
+| UI animation and effects that follow the game (bobbing, sway) | `engine.time.now('real')` | stops | unchanged |
+| Shader motion that should not stop behind a pause menu (wind, water) | `engine.time.now('ambient')` / `uniforms.uTime` | keeps running (unless `freeze(owner, { ambient: true })`) | unchanged |
 | Menu / HUD animation that must keep running while paused | frame seconds (`onFrame` `dt`) | keeps running | unchanged |
 | Toast and loading fade-out, music volume fades | wall-clock time (they never affect gameplay) | keeps running | unchanged |
 | `saves.autosave(minutes)` | real seconds of play (only while a playthrough runs: not on the title screen, not during newGame / load) | stops | unchanged |
@@ -56,10 +60,10 @@ but movement and cooldowns still run; a game that freezes the time of day that w
 timer or a `for`). Conversion: 1 hour = `dayLength / hoursPerDay` calendar seconds, 1 minute = `dayLength / (hoursPerDay x 60)` (24-hour day,
 `dayLength = 360`, as in `presets.calendar.cycle`: 1 hour = 15 calendar seconds). With `clock.rate` 10, `step(10)` advances 100 calendar
 seconds = 6.7 hours. The docs say "calendar seconds" and "N clock hours/minutes", never "game minutes".
-Real seconds and `engine.elapsed` are not saved; to keep a cooldown across a save, use a `mod` with `for` (saved with its time left) or store it in a
+Tick, real and ambient seconds are not saved (a new game or a session load starts them at 0, like a fresh page); channels and the calendar are; to keep a cooldown across a save, use a `mod` with `for` (saved with its time left) or store it in a
 world record. Don't use `setTimeout` / `setInterval` / `performance.now()` (they ignore pause, are not saved, and can't be tested with fast-forward).
 The engine itself runs on the fixed step except the wall-clock items in the table.
-"After how long / every how long" uses `engine.clock` (part of the core); "at what time every day / within a time window / when the season changes"
+"After how long / every how long" uses `engine.clock` (part of the core; one timer queue for every view: `{ channel: 'real' | '<channel>' }`, default calendar seconds; a removed timer never fires, not even later in the same step); "at what time every day / within a time window / when the season changes"
 uses `engine.calendar` (the `calendar()` module with a `dayLength`; at a fixed time of day these never fire).
 
 **The calendar is gameplay, the sky is a look.** `calendar()` owns the time of day, the day, seasons, the timers below and their save; NPC schedules,
@@ -129,8 +133,8 @@ What catches up, and how:
   included; kinds with only `near` are not made up. Growth and respawns measured with `clock.now` (template stages, pickups, vegetation, the crop example in
   recipe 18) are exact; a far function that accumulates dt matches stepping within one far turn (`world.farEvery`); schedule NPCs end at the same
   place within one far turn of walking.
-- Not run while skipping: `onFixed`, module `fixed` hooks, physics, near simulation. `engine.elapsed` and `engine.tick` do not move. Time channels
-  do: each by the skipped real seconds x its speed, so channel timers fire and `mod`s with `for` end in order (`mod:end` as often as when stepping). So anything that must advance during a sleep is measured in calendar seconds (`clock.now`) or lives in a world record with `far`.
+- Not run while skipping: `onFixed`, module `fixed` hooks, physics, near simulation. Every time view moves exactly as if stepped (tick, real,
+  ambient, each channel by the skipped real seconds x its speed, the calendar), so timers on any channel fire and `mod`s with `for` end in order (`mod:end` as often as when stepping). So anything that must advance during a sleep is measured in calendar seconds (`clock.now`) or lives in a world record with `far`.
 - Input is locked and gameplay frozen for the whole skip (keys pressed during the fade do nothing). With `fade: 0` (default) the time has moved when
   `skip` returns; with a fade the Promise resolves after the fade in, which needs frames (in a paused test keep calling `engine.step`).
 - A stopped calendar (`clock.rate` 0) skips as if at 1x. The jump itself is the op `time.skip { seconds }` (logged and replayable; it refuses `seconds <= 0`).

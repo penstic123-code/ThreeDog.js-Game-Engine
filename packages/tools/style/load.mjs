@@ -1,25 +1,30 @@
-// Find, import and merge a style for `threedog style check`: a pack name, a package name (@threedog/style-x), a folder or a file.
+// Find, import and merge a style for `threedog style check`: a style folder or file, or a game (folder or workspace name) whose style/ folder is meant.
+// A look is a folder, not a package, so there is no style name to look up: a path, or the game that owns the style/ folder.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, dirname, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ENGINE, rel, styleDir, styleName } from '../paths.mjs';
+import { ENGINE, rel, GAME_STYLE_DIR, findWorkspace } from '../paths.mjs';
 
 const engineUrl = p => import(pathToFileURL(join(ENGINE, p)).href);
 
+/** The workspace a bare name points at, or null (an ambiguous name throws in findWorkspace; here it just means "not this way") */
+const workspace = name => { try { return findWorkspace(name); } catch { return null; } };
+
 /** Entry file of a target string, or throws with the way out */
 export function resolveEntry(target) {
-  const tries = [resolve(target), ...(styleName(target) ? [styleDir(styleName(target))] : []), ...(/^[a-z0-9-]+$/.test(target) ? [styleDir(target)] : [])];
+  // order: the path itself (a style folder or file), then that path's style/ (a game folder, '.' inside a game), then a workspace's style/
+  const ws = workspace(target);
+  const tries = [resolve(target), join(resolve(target), GAME_STYLE_DIR), ...(ws ? [join(ws, GAME_STYLE_DIR)] : [])];
   for (const p of tries) {
     if (!existsSync(p)) continue;
     if (!statSync(p).isDirectory()) return p;
-    const pkg = existsSync(join(p, 'package.json')) ? JSON.parse(readFileSync(join(p, 'package.json'), 'utf8')) : {};
-    const main = join(p, pkg.main ?? 'index.js');
-    if (existsSync(main)) return main;
+    // a folder's entry is its index.js only (never package.json "main": in a game folder that would be main.js, not the look)
+    if (existsSync(join(p, 'index.js'))) return join(p, 'index.js');
   }
-  throw new Error(`no style found for "${target}": give a pack name (the folder name under packages/styles), a package (@threedog/style-x), a folder with index.js, or a .js file whose default export is the style`);
+  throw new Error(`no style found for "${target}": give a style folder with index.js (a game's ${GAME_STYLE_DIR}/), a .js file whose default export is the style, or a game (its folder or workspace name) to check its ${GAME_STYLE_DIR}/ folder`);
 }
 
-/** The .js files the pack is made of (an index.js entry: its folder, without node_modules; any other file: just itself), as { file, text } */
+/** The .js files the style is made of (an index.js entry: its folder, without node_modules; any other file: just itself), as { file, text } */
 export function sourcesOf(entry) {
   const files = [];
   const go = d => {

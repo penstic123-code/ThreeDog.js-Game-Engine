@@ -1,6 +1,6 @@
 # Shop and gold: buy, sell / consign, gold HUD, saving
 
-Requires modules `inventory({ ...presets.keys.inventory })` + `dialogue()` + `content()` (the gold HUD needs `hud()`). The engine has no "shop"
+Requires modules `inventory()` + `dialogue()` + `content()` (the gold HUD needs `hud()`). The engine has no "shop"
 module: gold is an ordinary item, a shelf is an ordinary container, and buying and selling are two small ops that dialogue choices (or your own shop
 window) run.
 
@@ -34,7 +34,7 @@ Buying and selling are things the player decides to do, so they are ops (`recipe
 player has the money; `transfer` returns how many actually moved, and money is charged only for those (a full inventory does not charge for nothing).
 **Consign**: the player puts something on the shelf, and the shelf pays when it accepts it.
 ```js
-// main.js (after engine.use(...inventory({ ...presets.keys.inventory })...))
+// main.js (after engine.use(...inventory()...))
 const price = (e, item) => e.inventory.item(item).price ?? 1;
 engine.ops.define('shop.buy', {
   args: { shop: 'string', item: 'string' },

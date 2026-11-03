@@ -11,7 +11,7 @@ const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 
 const wall = new THREE.Mesh(new THREE.BoxGeometry(24, 3, 1), grey(0x666666)); wall.name = 'col_wall'; wall.position.set(0, 1.5, 0); root.add(wall);
 const spawn = new THREE.Object3D(); spawn.name = 'spawn'; spawn.position.set(-6, 0, -8); root.add(spawn);
 
-const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Nav test' } }, adaptiveResolution: false,
+const engine = window.engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: document.getElementById('view'), ui: { loading: { title: 'Nav test' } }, adaptiveResolution: false,
   movement: new URLSearchParams(location.search).has('radius') ? { radius: +new URLSearchParams(location.search).get('radius') } : undefined });   // ?radius=0.6：tests the unified movement parameters
 engine.use(world(), collision(), followCamera(), characters(), level({ scene: root }), nav({ debug: true }));
 engine.events.on('engine:ready', () => {

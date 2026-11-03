@@ -1,4 +1,4 @@
-// R44 an engine module without a describe hook (systematize plan W8: describe everywhere)
+// R44 an engine module without a describe hook
 // Why: engine.describe() is how an AI checks a module did its job without a screenshot ("is the music playing", "how many bodies sleep").
 // A module that reports nothing is a blind spot: the AI has to guess or read three.js objects. So every module definition in packages/engine/modules
 // (an object literal with name: '...' and install) carries `describe`, a compact state the AI needs to verify behaviour (core/Describe.js header).

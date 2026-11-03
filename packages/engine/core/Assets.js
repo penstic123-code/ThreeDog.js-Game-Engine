@@ -37,8 +37,10 @@ import { registerManifest, paramValues } from './assetManifest.js';
 import { setParams } from './assetHot.js';
 import { schemaInfo } from './params.js';
 import { loadGrid } from './gridLoad.js';
+import { memory } from '../render/backend.js';
 
 const STRINGS = {
+  textureFailed: "{where}: texture '{name}' did not load ({msg}); {instead}. Register it (engine.assets.manifest({ textures: { name: 'file.png' } })) or check its URL",
   notLoaded: 'assets.modelNow(\'{name}\') is null: nothing has loaded that model yet (a code-built model is built, or read from the bake cache, on its first load too). Use `engine.assets.modelNow(\'{name}\') ?? await engine.assets.model(\'{name}\')`, or mark it preload: true in the manifest and await engine.assets.preload()',
   noFont: 'assets.font(\'{name}\'): no font named {name}{known}. Register the file in an asset pack: engine.assets.manifest({ fonts: { {name}: \'/fonts/{name}.woff2\' } })',
   sameName: 'model \'{name}\': the same name was used with two different generator functions, so the cache would mix them (keyed by name + params). Use a different name per model; if the result depends on outer variables, put them in params',
@@ -217,6 +219,24 @@ export class Assets {
   }
 
   /**
+   * Fetch a texture for something that already shows a stand-in (a gray detail map, a round particle dot, a flat water normal) and hand it over when
+   * it arrives: use(texture) runs on success. A failed load is one dev warning (load-failed) that names where the texture was wanted (`where`), the
+   * name and what shows instead (`instead`), and resolves false: the caller keeps its stand-in. An error thrown by use() itself is not a load failure
+   * and is not swallowed (the returned promise rejects with it). `opts` are texture()'s options ({ color: false } for data maps).
+   * Why one helper: engine code had the same .then(use).catch(warn) in seven places, each with its own wording (some named the slot, some only the
+   * loader's message), and a catch that also swallowed bugs inside use().
+   * @param {string} nameOrUrl
+   * @param {(texture: THREE.Texture) => void} use
+   * @param {{ where?: string, instead?: string, opts?: Record<string, any> }} [o]
+   * @returns {Promise<boolean>} true when use ran
+   * @example engine.assets.useTexture('ripples', t => { mat.normalMap = t; }, { where: 'pond.normalMap', instead: 'the surface stays flat', opts: { color: false } });
+   */
+  useTexture(nameOrUrl, use, { where = 'assets.useTexture', instead = 'the stand-in stays', opts } = {}) {
+    return this.texture(nameOrUrl, opts).then(t => { use(t); return true; },
+      err => { warnOnce(coded('load-failed', fmt(STRINGS.textureFailed, { where, name: nameOrUrl, msg: err?.message ?? String(err), instead }))); return false; });
+  }
+
+  /**
    * An image as grid data for sampleGrid (height map, moisture, density, walkable mask...): { data: Float32Array, width, height, bits }. Name or path.
    * PNG is read at full precision (8 or 16 bits, grayscale or color); jpg / webp give 8 bits. channel: 'r' (default) 'g' 'b' 'a' or 0-3.
    * range: [min, max] the pixel values map to (default [0, 1]; pass world units, e.g. [-5, 60] meters). bits: 8 reads only the high byte of a 16-bit file.
@@ -278,7 +298,7 @@ export class Assets {
     return g.geometry ?? skeletonClone(g.scene);
   }
   /** Current usage: number of geometries and textures in GPU memory */
-  get memory() { return { ...this.engine.renderer.info.memory }; }
+  get memory() { return memory(this.engine.renderer); }
 
   /**
    * Skeletal animation: returns the state machine (Animator.js); it runs per frame, so gameplay timing must not read it.

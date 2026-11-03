@@ -28,21 +28,21 @@ export const specs = [
         const out = {};
         let e = await make({});
         const changes = []; e.events.on('weather:change', c => changes.push(c));
-        e.weather.set('snow', 0.01); e.weather.set('snow', 0.01); run(e);
+        e.weather.set('snow', { seconds: 0.01 }); e.weather.set('snow', { seconds: 0.01 }); run(e);
         out.plain = [...tint(e, 'Foliage'), ...tint(e, 'Ground')]; out.changes = changes;
         e.dispose();
 
         e = await make({ weather: { snow: { cover: { foliage: 0x808080, ground: 0xffffff, strength: 0.8 } } } });
-        e.weather.set('snow', 0.01); run(e);
+        e.weather.set('snow', { seconds: 0.01 }); run(e);
         out.snowF = tint(e, 'Foliage'); out.snowG = tint(e, 'Ground');
-        e.weather.set('clear', 0.01); run(e);
+        e.weather.set('clear', { seconds: 0.01 }); run(e);
         out.melt = [...tint(e, 'Foliage'), ...tint(e, 'Ground')];
         e.dispose();
 
         // a 'mix' season (ground 50% to black) under full snow (80% to white): one mix of 90% to 0.889 gray
         e = await make({ seasons: { mode: 'mix', strength: 0.5, winter: { ground: 0x000000 } }, weather: { snow: { cover: { ground: 0xffffff, strength: 0.8 } } } },
           {}, { seasons: ['winter'] });
-        e.weather.set('snow', 0.01); run(e);
+        e.weather.set('snow', { seconds: 0.01 }); run(e);
         out.over = tint(e, 'Ground');
         e.dispose();
 
@@ -67,6 +67,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: 'style.sky.backdrop: flat background color (function per frame), dome hidden, fog follows; default sky untouched; wrong settings throw',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {

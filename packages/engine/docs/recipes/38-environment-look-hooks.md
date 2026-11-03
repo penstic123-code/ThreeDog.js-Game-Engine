@@ -21,7 +21,7 @@ so editing the three.js objects directly is overwritten (a dev warning says so).
 
 ```js
 engine.look.lights.set({ sun: { color: '#ffd0a0', intensity: 1.4 }, hemi: { intensity: 0.5 } }, { owner: 'dusk' });   // 1. override, any hour
-engine.mod('sky.sunLight', { owner: 'cave', mul: 0.3 });                                  // or a multiplier on top of the day cycle (recipe 52)
+engine.mod('look.lights.sun.intensity', { owner: 'cave', mul: 0.3 });                                  // or a multiplier on top of the day cycle (recipe 52)
 
 engine.look.lights.manual(['sun.intensity', 'sun.color']);   // 2. take over: the sky still aims the sun along the time of day and moves the shadow box
 engine.lights.sun.color.set(0xffd0a0); engine.lights.sun.intensity = 1.4;   // yours now, never overwritten
@@ -36,7 +36,7 @@ const torch = new THREE.PointLight(0xffa040, 6, 12); engine.add(torch);   // add
 - `createEngine({ lights: false })` goes one step further: the default sun and hemisphere are never put in the scene, `engine.lights.sun` / `hemi`
   stay as detached objects so nothing reads `undefined`. Use it for a scene lit entirely by your own lights.
 - Shadows: only the engine sun's shadow is managed (`engine.look.shadow.set`). Your own `castShadow` lights work as in three.js, each costing its
-  own shadow pass; `engine.setShadows(false)` turns theirs off too and restores them after.
+  own shadow pass; `look.shadow.set({ enabled: false })` turns theirs off too and restores them after.
 - Add or remove lights before `engine.start()`: a light count that changes mid-play recompiles every material (one long frame). Many lamps or
   torches: `lightPool({ point: 6 })` keeps a fixed number of real lights and moves them to the nearest sources (recipe 09, "Lights and stalls").
 
@@ -47,14 +47,14 @@ engine.look.fog.set({ kind: 'height', height: 2, falloff: 0.08, density: 0.03 })
 engine.look.fog.patch('fog', `vec4 threedogFog(vec3 c, float depth, vec3 p){
   float f = 1.0 - exp(-fogDensity * depth);
   return vec4(mix(c, vec3(1.0, 0.85, 0.7), f * 0.3), f); }`);              // warm far haze
-engine.look.fog.manual();                                                  // the exit: the sky stops writing scene.fog (or replace(new THREE.Fog(...)))
+engine.look.fog.manual();                                                  // the exit: the sky stops writing scene.fog (or assign your own: scene.fog = new THREE.Fog(...))
 ```
 The same keys are the style layer `style.sky.fog` (or `sky({ fog })`), e.g. `fog: { kind: 'exp', color: 0xb8c4d0 }` or
 `fog: { color: ({ sky }) => sky.isDay ? 0xc8d0d8 : 0x10141c }` (a function, evaluated each frame).
 
 - `kind`: `'linear'` (default, near = 0.3 x far) | `'exp'` | `'exp2'` | `'height'`. `color`: `'horizon'` (default; the dome's lower band fades to
   the fog color, so the horizon line never shows) | color | `({ time, weather, season, state, sky }) => color` (near / far / density take a function too). `density` per meter (default derived from the fog distance);
-  weather fog divides it, `engine.setFogFar` still moves the derived one.
+  an explicit density is kept as given (weather multiplies `far`, which moves only the derived one).
 - The `fog` hook replaces the fog math in every material, built-in or yours: `vec4 threedogFog(vec3 color, float depth, vec3 worldPos)` returns
   (fog rgb, amount 0..1). In scope: `fogColor`, `cameraPosition`, `fogNear` / `fogFar` (linear) or `fogDensity` (other kinds),
   `THREEDOG_FOG_HEIGHT`, `THREEDOG_FOG_FALLOFF`.
@@ -63,8 +63,8 @@ The same keys are the style layer `style.sky.fog` (or `sky({ fog })`), e.g. `fog
   them). Changing them later works and recompiles those materials once, so do it at a scene change, not every frame. Color and density stay live
   uniforms. No custom uniforms (three copies fog uniforms into each material when it compiles); write constants. Materials with `fog: false`
   (the dome) are not fogged. Your own ShaderMaterial and sprites keep three's plain fog.
-- Your own fog: `look.fog.manual()` keeps `scene.fog` and the sky never writes it again (set its color / near /
-  far, or assign your own object); `sky({ fog: false })` sets `scene.fog = null` (leave fog out of your materials with `fog: false` and fog in a
+- Your own fog is plain three.js: `scene.fog = new THREE.Fog(...)` (or `FogExp2`), and the engine stops writing it (there is no
+  `look.fog.replace`); `look.fog.manual()` keeps the engine's `scene.fog` and the sky never writes it again (set its color / near / far); `sky({ fog: false })` sets `scene.fog = null` (leave fog out of your materials with `fog: false` and fog in a
   post pass).
 - Two engines on one page each patch their own scene's materials, so they may use different fog kinds and hooks. Nothing rewrites
   `THREE.ShaderChunk`; plain `linear` / `exp2` add no patch at all.

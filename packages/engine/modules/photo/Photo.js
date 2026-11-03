@@ -7,13 +7,15 @@
 // When the photo key's op is refused the module emits photo:denied { reason } (the game shows it; a button reads r.code itself).
 // subject is what is in the middle of the frame { name, kind, distance }: NPC (kind 'npc'), entity ('entity'), named object ('object'),
 // vegetation ('vegetation'; after hitting an instanced mesh, vegetation.instanceAt looks up the kind); null when it hits the sky or an unnamed ground.
-// The photo key (action 'photo') is the game's: photo({ keys: ['KeyC'], pad: ['PadX'] }), photo({ ...presets.keys.photo }) (P / gamepad RB) or keys: [] for no key
+// The photo key (action 'photo') is the game's: engine.input.bind('photo', ['KeyC', 'PadX']), presets.bindings.photo (P / gamepad RB) or [] for no key
 // Shutter sound: the game's createEngine({ audio: { sounds: { shutter } } }) supplies a file, otherwise a synthesized fallback
-import { moduleKeys, warnOnce } from '../../core/validate.js';
+import { warnOnce } from '../../core/validate.js';
 import { builtInSounds } from '../../core/assetManifest.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { toast } from '../../ui/UI.js';
 import { coded } from '../../core/errorHints.js';
+import { setShadowUpdate } from '../../render/backend.js';
+import { shadowsOn } from '../../core/look/shadowPart.js';
 const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
 
@@ -32,16 +34,23 @@ export class Photo {
     const e = this.engine, r = e.renderer, sky = e.sky;
     const prevPR = r.getPixelRatio(), prevMap = sky?.shadowMapSize, prevBloom = e.post.get('bloom')?.enabled;
     const pr = Math.min(3, prevPR * o.scale);
-    r.setPixelRatio(pr); e.post.setPixelRatio(pr);
-    if (e.shadows && sky) sky.setShadowMapSize(o.shadowMapSize);
     const forceBloom = typeof o.bloom === 'boolean' && prevBloom !== undefined;
-    if (forceBloom) e.look.post.set({ 'bloom.enabled': o.bloom });
-    r.shadowMap.needsUpdate = true;     // shadows may update only every few frames (sky's shadow.updateEvery); force an update on the photo frame
-    e.post.render(0);
-    const url = r.domElement.toDataURL(o.format, o.quality);
-    r.setPixelRatio(prevPR); e.post.setPixelRatio(prevPR);
-    if (e.shadows && sky) sky.setShadowMapSize(prevMap);
-    if (forceBloom) e.look.post.set({ 'bloom.enabled': prevBloom });
+    let url, bloomHold = null;
+    // restored in finally: a throw mid-shot (a failed WebGPU frame, a tainted canvas in toDataURL) must not leave the game running at the photo's
+    // pixel ratio and shadow map size with photo's bloom hold still on
+    try {
+      r.setPixelRatio(pr);   // the post chain follows the renderer on its next draw (postWebGL.js follow)
+      if (shadowsOn(e) && sky) sky.setShadowMapSize(o.shadowMapSize);
+      // under its own owner, removed after the shot: the game layer keeps only what the game wrote (tests/specs/render-once.mjs)
+      bloomHold = forceBloom ? e.look.post.set({ 'bloom.enabled': o.bloom }, { owner: 'photo' }) : null;
+      setShadowUpdate(r, e.scene, { now: true });     // shadows may update only every few frames (sky's shadow.updateEvery); force an update on the photo frame
+      e.renderOnce();   // the frame the player sees, post included, read below in the same task; a fresh frame on WebGPU (engine.renderOnce)
+      url = r.domElement.toDataURL(o.format, o.quality);
+    } finally {
+      r.setPixelRatio(prevPR);
+      if (shadowsOn(e) && sky) sky.setShadowMapSize(prevMap);
+      bloomHold?.remove();
+    }
     const p = e.actorPosition() ?? e.cameraRig?.focusPoint();   // where whoever the user controls stands (engine.actor)
     const shot = { url, time: e.calendar?.clock ?? '', position: p ? { x: Math.round(p.x), z: Math.round(p.z) } : null, subject: this.subject() };
     this.album.unshift(shot); if (this.album.length > this.maxAlbum) this._drop(this.album.pop());
@@ -107,23 +116,22 @@ export class Photo {
 
 function under(o, set) { for (let p = o; p; p = p.parent) if (set.has(p)) return true; return false; }
 
-const STRINGS = { 'zh-CN': { 'photo.action': '拍照' }, en: { 'photo.action': 'Take photo' } };
+const STRINGS = { 'zh-CN': { 'module.photo': '拍照', 'photo.action': '拍照' }, en: { 'module.photo': 'photo', 'photo.action': 'Take photo' } };
 
-const PHOTO_PARAMS = keysSchema(['keys', 'pad', 'maxAlbum', ...TAKE_KEYS]);
+const PHOTO_PARAMS = keysSchema(['maxAlbum', ...TAKE_KEYS]);
 
 /** Photo module. Once installed: engine.ops.run('photo.take') takes a photo through photo.canTake; engine.photo.take() captures without checks */
 export function photo(all = {}) {
   readParams('photo', PHOTO_PARAMS, all);
-  const { keys: keys0, pad, ...opts } = all;
-  let bound = false;   // the photo action has a key or pad button (set at install)
+  const opts = all;
   let ph = null;
   return {
-    name: 'photo', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation'],
-    install(e) {
+    name: 'photo', type: 'tool', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation'],
+    install(e, ctx) {
       e.i18n.add(STRINGS);
-      const keys = moduleKeys('photo()', 'photo', keys0, 'photo', e.input);   // the game's key or a presets.keys bundle, never a built-in one
-      bound = keys.length > 0 || !!pad;
-      if (bound) { e.input.define('photo', keys, 'photo.action', { pad }); e.input.touchButton('photo', 'photo.action'); }
+      // declared only: the game binds the key (presets.bindings.photo or its own; [] = no key), so every key in a game comes from one bindings table
+      ctx.input.action('photo', { label: 'photo.action' });
+      if (e.input.keysOf('photo').length) e.input.touchButton('photo', 'photo.action');
       builtInSounds(e.assets, { shutter: (audio, p, out) => {   // sound asset 'shutter', silent until audio.sounds names it
         audio.noiseBurst({ dur: 0.03, type: 'highpass', freq: p.freq ?? 3000, vol: p.volume ?? 0.4, out });
         audio.noiseBurst({ dur: 0.05, type: 'bandpass', freq: 1800, vol: (p.volume ?? 0.4) * 0.75, delay: 0.07, out }); return 0.15;
@@ -137,18 +145,18 @@ export function photo(all = {}) {
         offers: () => [{}],
         reasons: { denied: 'photo.canTake() returned false' },
       });
-      e.events.on('save:imported', () => ph.restore());   // after restoring from a save file, the attachments in the file (photos) also go into the album
+      ctx.track(e.events.on('save:imported', () => ph.restore()));   // after restoring from a save file, the attachments in the file (photos) also go into the album
       return ph;
     },
     frame(dt, e) {
-      if (!bound || !e.input.pressed('photo')) return;
+      if (!e.input.pressed('photo')) return;
       const r = e.ops.run('photo.take', {}, { source: 'player' });
       if (!r.ok && r.code !== 'halted') e.events.emit('photo:denied', { reason: r.code });
     },
     // "did the shot land and what was in it": album size and the newest shot's subject; whether it can be taken now is describe().actions (photo.take)
-    describe() {
+    describe(e) {
       const s = ph.album[0];
-      return { album: ph.album.length, maxAlbum: ph.maxAlbum, keyBound: bound,
+      return { album: ph.album.length, maxAlbum: ph.maxAlbum, keyBound: e.input.keysOf('photo').length > 0,
         last: s ? { time: s.time, position: s.position, subject: s.subject?.name ?? null } : null };
     },
   };

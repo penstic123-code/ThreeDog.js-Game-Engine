@@ -17,7 +17,7 @@ export default {
       read(f).split('\n').forEach((l, i) => {
         for (const m of l.matchAll(/['"`]threedog\/([\w./*-]+)['"`]/g)) {
           if (!ok(m[1])) out.push({ level: 'error', file: f, line: i + 1, msg: `'threedog/${m[1]}' is not in package.json exports (${exp.join(', ')})`,
-            fix: 'use an exported entry (threedog, threedog/worker, @threedog/style-<name>, threedog/error-hints) or add the entry to exports' });
+            fix: 'use an exported entry (threedog, threedog/worker, threedog/error-hints) or add the entry to exports' });
         }
       });
     }

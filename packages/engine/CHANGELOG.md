@@ -2,6 +2,147 @@
 
 The engine has not been released yet, so this log is not maintained before release. At release time it is written in one pass from git history and `docs/API.md`: "what changed, how a game upgrades", placed under the version heading.
 
+## 0.4.0 (2026-11-04)
+
+- Sky colors for a game shader: `engine.uniforms.uSkyHorizon` / `uSkyTop` hold the colors the sky draws this frame (tint and lightning included);
+  the default fog color is the same horizon. `weather.set(name, { seconds: 0 })` switches at once (before any step); negative seconds throw.
+  The type check names the expression a call was made on (`` `engine.random` is not a function ... (it is Random; call one of its methods) ``).
+- One small look API: every `engine.look.<part>` has `set` / `patch(hook)` / `add` / `replace(thing)` / `manual` / `value`, and `patch` only
+  swaps a named hook. `look.materials.patch` is now `look.materials.add`; `look.fog.replace` is removed (a fog of your own is `scene.fog = ...`,
+  the engine yields); the module plumbing (`write`, `extend`, `drive`, `tick` ...) moved to `part.author`. Removed verbs throw naming the new call
+  (MIGRATING-0.4).
+- Post effects have one entry, `engine.look.post.add(x, { name, slot, order, owner })`: a plain three.js Pass, a WebGPU node function or an effect
+  `{ name, create, node, fuse }`; the plugins folder and a style's plugins go through it, so every effect switches with `look.post.set`. Removed:
+  `engine.post.addPass / insertPass / removePass`, `look.post.patch`, `style.post`, `postAdd / postRemove`, `createEngine({ post })` (each throws or
+  is gone, see MIGRATING-0.4). A function exported by a plugin file is a `[plugin-shape]` error on both renderers (it was a WebGPU post pass).
+  A Pass that renders the scene itself replaces the scene render (it drew the scene twice). WebGPU: removing an effect frees its nodes (leak fixed).
+- Material roles have one entry, `engine.look.materials`: the style's `materials` table is its style layer and `makeMaterial` reads nothing else
+  (look.materials.set also reaches Material-instance roles). Style packs bundle look plugins (`style.plugins`, plugged by `engine.plugins` on the
+  style layer, `plugins.off('<style>')`). The world example's `lowpoly` style is replaced by a small `world` style; its models moved to `examples/world/art/`.
+
+### Breaking (module types, leftovers)
+
+- A module's `type` decides how its errors are handled: a `look` or `ui` module that throws is switched off and the game keeps running; the
+  `presentation: true` flag is gone. `stage` only orders hooks; the stages `world` / `presentation` are renamed `ground` / `effects`.
+- `engine.time.manual` is gone (`engine.mod('time.<channel>', { owner, set })`).
+- The terrain data part reads no style: chunk colors and the `viewFog` fog distance belong to the terrain look (owner `terrainLook`, removed with it).
+- The 0.2 rename traps (`[renamed-field]` on `clock.timeScale`, sky calendar fields, `.reason`, `runState.by`, `describe().ui.inputContexts`,
+  dialogue `{ lock }`, `style.pickup.model`, item `mesh`) are removed; `[item-mesh]` is gone.
+- New-game template: the style lists `plugins` (with a `style/plugins/` folder) instead of `post: []`; the blank game no longer depends on
+  `@threedog/post-effects`. `threedog how` labels THREE.md rows that name engine APIs `engine + three.js`, not `plain three.js`.
+
+### Breaking (time, input, character control)
+
+- One time source: `engine.time` counts fixed steps (`engine.tick`); `real`, `ambient`, the calendar and channels are views (`engine.time.now(name)`). `engine.elapsed` and `engine.time.real` are gone (`engine.time.now('real')`); `describe().time` has `tick / real / ambient / calendar`; the `clock` save part is folded into `time` (old saves load).
+- Input by context: modules declare actions (`input.action`, `ctx.input.action`), the game binds keys (`input.bind`, `createEngine({ bindings })`), the player rebinds on the settings layer (`input.rebind`, `input.rebound()`). `input.define` and `createEngine({ padBindings })` are gone; the base context is `walk` (was `gameplay`). F3, F4, dialogue 1-9, RTS Q / R and the cutscene skip keys are no longer bound by default (`presets.bindings.debug / dialogNumbers / rtsRotate / cutsceneSkip`).
+- Character control: one control slot per character (`engine.control.take(ch, { owner, layer, step })`, layers base < script < cutscene < net). Gone: control `'none'`, writable `player.control`, `presets.player.none`, timeline `lockInput` (`actors`).
+
+### Added (plugins folder)
+
+- `plugins/` next to a page's html: each file is plugged at `engine.start()` by what it exports (Object3D, Pass / node pass, Material, ShaderPatch, module); order by file name or `plugins/plugins.json`; `engine.plugins.off(name)` / `on(name)`; a wrong shape is `[plugin-shape]`.
+- `describe().slots`: what is plugged where, from which file, what it affects.
+- Plain `PointLight` / `SpotLight`: counted by `engine.budget` `lights` (limit 8) / `shadowLights`, listed in `describe().render.lights`; a casting light at intensity 0 stops redrawing its shadow map.
+- `threedog lib pull` puts code entries (shader, material, effect, module) in `plugins/` by default (models and textures still in `art/`).
+
+### Breaking (physics, nav, weather, collision)
+
+- `weather.set(name, seconds)` is `weather.set(name, { seconds })`; a number throws `[module-params]` in dev.
+- `engine.collision.circles` / `.boxes` are Sets (insertion order, O(1) remove): `.length` is `.size`, `.filter` / `.map` need `[...set]`.
+- `engine.interactions.items` is a read-only array built on each read (insertion order); writing to it does nothing. `get(id)` is the fast lookup.
+- New `engine.collision.mirror({ add, remove })`: one add / remove diff of the static colliders, used by rigid and nav (their own copies are gone).
+- New `engine.assets.useTexture(name, use, { where, instead, opts })`: fetch a texture for a stand-in; a failed load is one `[load-failed]` warning
+  naming the slot. detail, surface, particles, weather particles and water use it (sky still has its own).
+- rigid rebuilds its physics world once per new game / load (it rebuilt on `session:end` and again on `world:load`); a refused load leaves physics as it was.
+- New options with the old values as defaults: `weather({ lightningFirst: 5, lightningInterval: [6, 20] })`, `nav({ maxObstacles: 1024, maxAgents: 128, arrive: 0.6 })`.
+- `nav()` declares `optional: { collision }`.
+
+### Breaking (per-frame waste, save loads, look write paths)
+
+- The weather look's entries on the look points are owned by the module `weatherLook` (was owner `'weather'`): `holders().find(h => h.owner === 'weatherLook')`. It takes each entry once through `ctx.mod` and rewrites it with the new `handle.change(value)`, so a frame adds no entry and no cleanup handle.
+- While a save part's `load()` is still pending (it returned a Promise), gameplay is frozen: no fixed step runs and `ops.run` / `ops.can` fail with code `loading` until every part is applied.
+- `ops.list({ available: true })` (and so `describe().actions`) no longer throws for an op whose `offers` throws or offers an arg set that fails its args check: such an op shows as an entry with code `offersFailed` / `badOffer` and `facts.error`.
+- Post effects have a fifth slot, `tone` (exclusive, between `hdr` and `ldr`): an effect there replaces the engine's tone-mapping output (OutputPass on WebGL, renderOutput on WebGPU) and must output display color; `describe().render.toneMapping` then names it.
+
+### Added (per-frame waste, save loads, look write paths)
+
+- `handle.change(value)` on every `engine.mod` / `ctx.mod` handle: rewrites that entry's value in place (same op and layer); false on a stale handle.
+- `describe().look.<part>.<key>.pack`: the style part that set a style-layer value when `createEngine({ style: [...] })` merged several (its `name`, else `style[<index>]`).
+- Rule R48: engine code writes `toneMappingExposure`, `shadowMap.enabled / type` and `environmentIntensity` only inside the owning look part's apply (allowlist with reasons in the rule file).
+- Rule R49: every shader patch and post fuse the engine and its add-ons ship has a `tsl` form next to `glsl`, so it draws on WebGPURenderer (WebGL-only-by-design patches listed with reasons in the rule file).
+- Camera rigs are no longer wrapped method by method (a pose compare on every call, `forward()` read every fixed step included): the built-in rigs mark their own placement once (fixed `cut`, rts `moveTo({ instant })`).
+- Staged content templates no longer serialize each copy's model every frame; an open menu with an idle cursor reads no layout per frame (the control list is cached and re-read on a move, a confirm or a DOM change).
+
+### Breaking (plain three.js is adopted)
+
+- `engine.scene.add(obj)` registers the root like `engine.add` (thing registry, describe, thing.set); engine modules mark their own objects with `engineOwned`.
+- `engine.post.addPass(pass)` / `insertPass(pass, i)` / `removePass(pass)`: a plain three.js Pass (WebGL) or `(input, ctx) => node` (WebGPU) joins the chain; RenderPass / OutputPass of the engine's own are skipped.
+- A game rendering the canvas itself takes the frame: the engine stops drawing its own and warns once `[own-frame]`; removing the call hands it back.
+- Plain lit three.js materials (Lambert / Phong / Standard / Physical / Toon) that enter the scene take the engine's cloud shadow (and a `look.cloudShadow.replace`), on both renderers, sharing one program per type. Opt out per material with `material.userData.cloudShadow = false`; materials already given engine patches are left alone; listed in `describe().owned['cloudShadow.plain']`. Snow / season cover stays opt-in: `applyEffects(mat, { season: 'ground' })`.
+- Vegetation on its own ground (no terrain): adding a species places only that species on the loaded chunks (it dropped and rebuilt every chunk). Terrain and own-ground chunks stream through one helper (`core/chunkStream.js`).
+
+### Breaking (consistency sweep)
+
+- `music.stop(fade)` is `music.stop({ fade })` (like `play`); a number throws `[module-params]` in dev.
+- `setValidate` is gone; `createEngine({ validate })` is per engine (`engine.validate`). Page-wide warnings stay on while any live engine has checks on (it was: the last `createEngine` decided for the page).
+- The event-name spelling check (`[event-typo]`) now also runs in the `npm test` bundle (it read raw `import.meta.env.DEV` and was off there).
+- Dev notes print through `note(text, key?)` (core/validate.js); R45 flags a bare `console.info` in engine code.
+- No three.js prototype is changed for rays: `Mesh.prototype.raycast` and `BufferGeometry.prototype.computeBoundsTree / disposeBoundsTree` are three's again. Registered static meshes still get a BVH (own `mesh.raycast`). A game that relied on BVH for its own `THREE.Raycaster` adds three-mesh-bvh's setup itself.
+- New `threePatches` export and `describe().threePatches`: the remaining class changes (`shadow-accessors`, `node-setup-position`), each undone page-wide with `threePatches.off(id)`.
+- AI.md: the "When something happens -> which tool" list moved to recipe 16 §11 (the MCP server reads it there).
+- No module option takes keys any more; modules only declare their actions and the game binds them (`createEngine({ bindings })` / `engine.input.bind`). Gone: `inventory({ keys, pad })`, `quests({ keys, pad })`, `photo({ keys, pad })`, `interactions({ keys })`, `grids.preview({ rotateKeys })`, `characters({ brakeKeys, brakePad })`, `createPlayer({ jumpKeys, runKeys })` (each now `[module-params]`). `presets.keys` is gone; its maps are `presets.bindings.inventory / quests / photo / gridRotate / brake`, plus new `presets.bindings.walk` (run / jump, what `presets.player.*` used to carry) and `presets.bindings.interact` (E / gamepad X, what `presets.interactions.*` used to carry). `presets.player.*` and `presets.interactions.*` hold no keys now. Migrate: `createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory } })`; "no key" is a binding to `[]`.
+- `createEngine` options are typed in their schema (`engine.catalog('core').params` shows `bool`, `number`, `object|array` ... instead of `any`): a wrong shape such as `batching: 'yes'` or `fov: 'wide'` now throws `[module-params]` at the call (it used to pass and fail later or be ignored). An unknown `fallback` is `[module-params]` too (was `[engine-misuse]`). Param schemas accept several shapes as `'bool|object'`.
+- R6 (options tables) is an error now: a module's schema and its d.ts options interface must name the same keys; a schema default written again as a destructuring default in the same function fails; a modules/ options table with `keys` / `pad` / `xKeys` fails.
+- `inventory({ pauseGame })` of the wrong type is `[module-params]` (was `[inventory-misuse]`; the schema already checked it).
+- Timing arguments are options objects (a number in their place throws `[module-params]` in dev): sound handle `h.fade(to, s)` / `h.stop(s)` are `h.fade({ to, seconds })` / `h.stop({ fade })`; `timeline.tween(t, to, duration, ease)` is `tween(t, to, { duration, ease })`; `fadeScreen(engine, to, seconds)` is `fadeScreen(engine, to, { seconds })`; `anim.go(state, fade)` / `anim.action(name, fade)` take `{ fade }`; fixed camera `blend(name, seconds, ease)` is `blend(name, { seconds, ease })`.
+- Handles end with `remove()`: a tween promise's `cancel()` and a `dialogue.say()` promise's `stop()` are `remove()`; a sound handle gains `remove()` (same as `stop()`); a look part's `dispose()` is `remove()` (it owns no GPU resource). R7 now fails (was a warning) on any returned object with `stop()` / `cancel()` and no `remove()`, with no allowlist.
+- `flow.transition` called `music.stop(fade)` positionally (it threw in dev since `music.stop({ fade })`); fixed.
+- An unbound module action no longer throws at `engine.use` (`interactions()` without keys, `inventory()` without keys); reading it warns `[input-unbound]` once in dev, so binding after `use` works.
+- Actions a module declares outside its ctx leave with it: the rts camera's `rotateLeft / rotateRight` (declared by the camera module), the player's `jump / run / brake` (declared at `characters()` install, optional), a grid preview's `rotate` (removed with the preview).
+
+### Breaking (module types and capabilities)
+
+- Every module declares `type`: `'world' | 'look' | 'actor' | 'rules' | 'ui' | 'net' | 'tool'` (what it may own; `stage` still says when it runs). A module without one throws `[module-type]` with the fix: add `type: 'rules'` for game logic.
+- Dev checks by type throw `[module-type-rule]` with the fix: a `look` module may not `ops.define` or write world records; a `ui` module may not `input.bind` or `saves.register`. A `world` module's file may not draw (rule R47).
+- `requires` names a capability (`'world'`, `'inventory'`, `'sky'`), provided by a module's `provides`; a missing one names both fixes (install the engine part, or your own provider). Built-ins provide theirs (world, level, collision, rigid, nav, calendar, weather, sky, particles, inventory, quests, dialogue, interactions). After `{ replaces }`, `engine.<capability>` is the new provider's API.
+- `describe().modules` is a list of `{ name, type, provides?, requires? }` (was a list of names).
+- `weather()` returns two modules, installed by the same `engine.use(weather(...))`: `weather` (state, `engine.weather`: types, current, set, auto, save, events) and `weatherLook` (look, `engine.weatherLook`: particles `systems`, `flash`, `apply`, `particles`, `area`; `describe().weatherLook.rainVisible / snowVisible`). `engine.weather.systems / flash / apply / particles / area` and `describe().weather.rainVisible / snowVisible` are gone.
+- Calendar: `timeOfDay`, `day` and `dayLength` are views of the `'calendar'` time channel (an origin plus `engine.clock.now`), not a counter of their own; writing them moves the origin. `day:start` / `season:change` / clock-time timers fire right after time moves (new `engine.time.onMove(fn)`), on a step and on a skip. `calendar.tick()` is gone; the save part also stores `at` (older saves still load).
+
+
+### Breaking (module boundaries)
+
+- Core, render and ui name no module; modules register what core needs. A module's loading-screen name `module.<name>` is registered by the module with its own text (`engine.i18n.add` in install); `describe().player` drops `running` / `jumping` (compare `state` yourself); the light-count warning skips lights marked `userData.fixedCount` (light pools set it) instead of names starting `lightPool_`; night glow reads the `daylight` measure (`engine.audio.measure`: calendar, or the sky without one); the baseline sun follow steps aside for whoever holds `shadow.follow`; the title's Settings button comes from `engine.ui.titleItem('settings', ...)` (an unknown string in title `items` throws, listing the added ids); the water surface numbers moved to `render/fxNumbers.js`.
+- New: `saves.register(key, { checkNewGame(data) })` (dev check of a part's new-game data; the world's "records placed by code" warning moved there), `engine.ops.route(fn)` / `engine.ops.refused(name, args, { reason, actor })`, `engine.world.pauseSimulation()`, `engine.inventory.contents()` / `setContents(data, { only })`. net uses only these; a game's own inventory provider needs `contents` / `setContents` for net to sync it.
+- Checks: R25 follows a module held in a local (`const inv = e.inventory; inv._x`); R46 (another module's internal files) is an error; R27 also flags module names kept in `core/I18n.js`; R3 looks for `module.<name>` in the module's own folder.
+
+### Breaking (look values on shared points)
+
+- Every `engine.look.<part>.<key>` is a shared point (`describe().shared['look.fog.far']`): the game's value is the base, effects multiply on top, the settings menu can only restrict. A game's `look.lights.set({ sun: { intensity: 3 } })` now dims in rain and fades at sunset (it used to cover both); for the exact number use `look.lights.manual('sun')` or `{ layer: 'system' }`.
+- Two owners `set` one look value on one layer throw `[shared-conflict]` in dev (was: the later write won). Fix: one owner, `mul` / `add`, or another `layer`.
+- `engine.mod('sky.sunLight' | 'sky.ambient' | 'sky.fog' | 'sky.tint' | 'sky.flash' | 'sky.cover')` are now `look.lights.sun.intensity`, `look.lights.hemi.intensity`, `look.fog.far`, `look.sky.tint`, `look.sky.flash`, `look.ground.cover`; `engine.sky.modifiers` is gone (read `engine.stacks.get(name).value()` or `describe().shared`).
+- Shadows: `createEngine({ shadows, shadowType })`, `engine.setShadows`, `engine.shadows`, `engine.shadowType` and `look.lights` `sun.shadow` are gone; use `engine.look.shadow.set({ enabled, type })` (core, works without a sky; a sky adds cascades, extent ...).
+- Fog: `createEngine({ fogFar })`, `engine.setFogFar` and `engine.fogFar` are gone; the start value is `style.sky.fog.far` / `sky({ fog: { far } })`, a game sets `look.fog.set({ far })`, `terrain({ viewFog: true })` makes the terrain look write the layer below it (owner `terrainLook`, removed with that module).
+- Fog: an explicit `near` or `density` is kept as given; the weather multiplies `far` only (it used to scale density too).
+- Settings menu: shadows / bloom / ao off is a `set: false` on the settings layer; on removes it, so a scene that turned them off stays off and a low-tier device's bloom stays off.
+- `look.<part>.set(...)`'s handle `remove()` returns whether it removed anything.
+
+### Breaking (terrain and vegetation: data and look)
+
+- `terrain()` and `vegetation()` each install two modules: data (`engine.terrain`, `engine.vegetation`) and look (`engine.terrainLook`, slot
+  `'terrain-look'`; `engine.vegetationLook`, slot `'vegetation-look'`). A game draws either its own way with
+  `engine.use(mine, { replaces: 'terrain-look' })` + `engine.terrain.view({ add, change, remove, show })` (or `'vegetation-look'` +
+  `engine.vegetation.view({ species, change, ring, show, drop })`) and keeps collision, paths, felling and saves (recipe 28 sections 6 and 7).
+  Code that lists module names (`openWorld().map(m => m.name)`) now sees `terrainLook` and `vegetationLook` too.
+- Chunk records hold data only. Removed: `c.terrain` / `c.group` (terrain meshes: `engine.terrainLook.meshes.get(c)`), `c.veg` / `c.vegGroup`
+  (plant meshes: `engine.vegetationLook.mesh(c, name)`; placement data: `c.plants[name]`, felled slots `c.hidden[name]`),
+  `im.userData.hidden` / `im.userData.ids` (use `c.hidden[name]` and `c.plants[name].ids`).
+- `vegetation.define()` returns the species' data; `geometry`, `lodGeometry`, `material` and `fadeUniforms` moved to
+  `engine.vegetationLook.kind(name)`. `Vegetation.levelOf` / `updateFade` and the terrain look internals `mountTerrain.js`, `chunkLevels.js`,
+  `terrainMat` / `sideMat` are gone.
+- A chunk job that keeps failing is tried 3 times, then reported (`terrain:chunkFailed`, `[terrain-chunk-failed]`,
+  `describe().perf.chunks.failed`); `engine.terrain.retry()` sends it again (it used to sit in loading for ever).
+- `terrain.setDensity` places only the plants again (ground collision is kept); `look.ground.replace` swaps the material in place.
+
 ## 0.3.0 (2026-11-03)
 
 WebGL renderer. Upgrade steps for a 0.2 game, most common first, with the error each old form now gives: [docs/MIGRATING-0.3.md](docs/MIGRATING-0.3.md).

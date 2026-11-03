@@ -3,7 +3,7 @@
 
 // Shared in-page helpers (a string, injected into each ev so every check renders the same scene)
 const SCENE = `
-  const { THREE, makeMaterial, applyEffects, terrainMaterial, materialPatches } = threedogTest, R = engine.renderer;
+  const { THREE, makeMaterial, applyEffects, terrainMaterial, materialPatches, fakeAssets, engineWith } = threedogTest, R = engine.renderer;
   const rt = new THREE.WebGLRenderTarget(48, 48), cam = new THREE.PerspectiveCamera(50, 1, 0.1, 100), bytes = new Uint8Array(48 * 48 * 4);
   cam.position.set(0, 3, 6); cam.lookAt(0, 0.5, 0);
   const colored = g => { const n = g.attributes.position.count, c = new Float32Array(n * 3); for (let i = 0; i < n; i++) { c[i * 3] = 0.45; c[i * 3 + 1] = 0.65; c[i * 3 + 2] = 0.3; } g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g; };
@@ -20,11 +20,30 @@ const SCENE = `
     let h = 0; for (const b of bytes) h = (Math.imul(h, 31) + b) | 0;
     return { h, errs: errs.join('').slice(0, 300), px: Array.from(bytes) };
   };
-  const eng = style => ({ style, assets: { texture: async () => { throw new Error('no assets'); } } });
+  const eng = style => engineWith(style, fakeAssets(async () => { throw new Error('no assets'); }));   // a real engine: makeMaterial reads its look.materials
 `;
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper)
+    name: '[guard] detail texture by asset name: a neutral 50% gray texture draws the same as the gray stand-in (read as data, no darkening when it arrives)',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev }) {
+      const r = await ev(`(async () => { ${SCENE}
+        const d = new Uint8Array(4 * 4 * 4); for (let i = 0; i < 16; i++) d.set([128, 128, 128, 255], i * 4);
+        const tex = new THREE.DataTexture(d, 4, 4); tex.needsUpdate = true;
+        const e = engineWith({ materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'gray', strength: 1, fade: false } } }, fakeAssets(async () => tex));
+        const m = terrainMaterial(null, e), before = shot(m);
+        await new Promise(r => setTimeout(r, 50));
+        const after = shot(m);
+        let diff = 0; for (let i = 0; i < before.px.length; i++) diff = Math.max(diff, Math.abs(before.px[i] - after.px[i]));
+        return { diff, errs: before.errs + after.errs };
+      })()`);
+      check('the frame after the texture loads matches the frame with the stand-in (max channel difference <= 2)', r.diff <= 2 && !r.errs, JSON.stringify(r));
+    },
+  },
+  {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 表面质感：默认画面不变（goldens 取自改动前）',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -40,21 +59,24 @@ export const specs = [
         for (let i = 0; i < px * px; i++) { const n = 60 + (i * 37 % 140); d.set([n, n, n, 255], i * 4); }
         const tex = new THREE.DataTexture(d, px, px); tex.needsUpdate = true;
         // 旧实现没有 fade：fade: false 时画面必须和旧实现逐字节相同（迁移没改画面）
-        const e = { style: { materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6, fade: false } } }, assets: { texture: async () => tex } };
+        const e = engineWith({ materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6, fade: false } } }, fakeAssets(async () => tex));
         const m = terrainMaterial(null, e); out.detailBefore = shot(m).h;
         await new Promise(r => setTimeout(r, 50)); out.detail = shot(m).h;
         // 默认 fade 开着（b8a68961，2026-11-01 有意改的：比一个像素还细的花纹淡掉，远处不闪），默认画面另记一份 golden，取自 b8a68961 之后
-        const ef = { style: { materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6 } } }, assets: { texture: async () => tex } };
+        const ef = engineWith({ materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6 } } }, fakeAssets(async () => tex));
         const mf = terrainMaterial(null, ef); out.fadeBefore = shot(mf).h;
         await new Promise(r => setTimeout(r, 50)); out.fade = shot(mf).h;
         return out; })()`);
       check('lambert / toon / standard 材质的画面与改动前逐字节相同', r.lambert === 813980680 && r.toon === 141705411 && r.standard === -2046925158, JSON.stringify(r));
       check('季节地面色（乘）与改动前相同', r.season === -449878753, String(r.season));
-      check('style.terrain.detail 迁到 detail 补丁后（fade: false）：加载前后的画面都与旧实现逐字节相同', r.detailBefore === 1844044487 && r.detail === 1857022951, `${r.detailBefore} ${r.detail}`);
-      check('detail 默认 fade 开：加载前后的画面与 b8a68961 之后的 golden 相同', r.fadeBefore === -1051862270 && r.fade === 2004762949, `${r.fadeBefore} ${r.fade}`);
+      // the after-load goldens changed on purpose (2026-11-03): the detail texture is read as data like the gray stand-in, no longer decoded as
+      // sRGB (the old after-load frames were the darkened ones); the before-load goldens did not move
+      check('style.terrain.detail 迁到 detail 补丁后（fade: false）：加载前的画面与旧实现逐字节相同，加载后按数据读贴图', r.detailBefore === 1844044487 && r.detail === -793329462, `${r.detailBefore} ${r.detail}`);
+      check('detail 默认 fade 开：加载前后的画面与 golden 相同（加载后的取自贴图按数据读之后）', r.fadeBefore === -1051862270 && r.fade === 1607165640, `${r.fadeBefore} ${r.fade}`);
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] detail 补丁：噪声 / 贴图来源、三平面、法线与粗糙度都能编译；参数生效；同补丁不同参数的 N 个材质只编译 1 个程序；写错报错给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -85,7 +107,7 @@ export const specs = [
         // texture by asset name: placeholder first, picture after loading
         const px = 8, d = new Uint8Array(px * px * 4); for (let i = 0; i < px * px; i++) d.set([i % 2 ? 250 : 20, 100, 60, 255], i * 4);
         const tex = new THREE.DataTexture(d, px, px); tex.needsUpdate = true;
-        const T = { style: std, assets: { texture: async n => { if (n !== 'rock.png') throw new Error('no ' + n); return tex; } } };
+        const T = engineWith(std, fakeAssets(async n => { if (n !== 'rock.png') throw new Error('no ' + n); return tex; }));
         const mt = makeMaterial('default', { vertexColors: true, detail: { texture: 'rock.png', strength: 1, scale: 1 } }, T);
         out.texBefore = shot(mt).h; await new Promise(r => setTimeout(r, 50)); out.texAfter = shot(mt).h;
         const bad = f => { try { f(); return ''; } catch (e) { return e.message; } };
@@ -106,6 +128,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 季节色混合：mix 模式把表面向季节色混合（不闷），multiply 默认不变；工具生成的 cacheKey 不因模式而变',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -130,14 +153,15 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 贴图资源名：材质规格里直接写 map / normalMap / roughnessMap…，色彩空间、wrap、repeat 自动设置；占位到位；写错有改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(`(async () => { try { ${SCENE}
         const out = {}, loads = [];
         const px = 4, d = new Uint8Array(px * px * 4).fill(180); const img = new THREE.DataTexture(d, px, px); img.needsUpdate = true;
-        const assets = { texture: async (n, o = {}) => { loads.push([n, o]); if (n === 'missing.png') throw new Error('404 ' + n); const t = img.clone(); t.colorSpace = o.color === false ? THREE.NoColorSpace : THREE.SRGBColorSpace; return t; } };
-        const E = { style: { materials: { rock: { type: 'standard', map: 'rock.png', normalMap: 'rock_n.png', roughnessMap: 'rock_r.png', repeat: [3, 2], wrap: 'mirror', roughness: 1 } } }, assets };
+        const assets = fakeAssets(async (n, o = {}) => { loads.push([n, o]); if (n === 'missing.png') throw new Error('404 ' + n); const t = img.clone(); t.colorSpace = o.color === false ? THREE.NoColorSpace : THREE.SRGBColorSpace; return t; });
+        const E = engineWith({ materials: { rock: { type: 'standard', map: 'rock.png', normalMap: 'rock_n.png', roughnessMap: 'rock_r.png', repeat: [3, 2], wrap: 'mirror', roughness: 1 } } }, assets);
         const m = makeMaterial('rock', { vertexColors: true }, E);
         out.stand = m.map?.isTexture && m.normalMap?.isTexture;
         const before = shot(m).h;
@@ -151,9 +175,9 @@ export const specs = [
         out.typo = bad(() => makeMaterial('rock', { normalmap: 'x.png' }, E)) + warns.join(' ');
         out.typo2 = bad(() => makeMaterial('rock', { roughnesMap: 'x.png' }, E));
         makeMaterial('rock', { map: 'missing.png' }, E); await new Promise(r => setTimeout(r, 50));
-        const lam = makeMaterial('rock', { type: 'lambert', roughnessMap: 'r.png' }, { ...E, style: { materials: { rock: { type: 'lambert' } } } });
+        const lam = makeMaterial('rock', { type: 'lambert', roughnessMap: 'r.png' }, engineWith({ materials: { rock: { type: 'lambert' } } }, E.assets));
         console.warn = w0; out.warns = warns.join(' | ');
-        out.noEngine = bad(() => makeMaterial('rock', { map: 'a.png' }, { style: E.style, assets: null }));
+        out.noEngine = bad(() => makeMaterial('rock', { map: 'a.png' }, engineWith(E.style, null)));
         out.badWrap = bad(() => makeMaterial('rock', { wrap: 'tile' }, E));
         // a texture object: the rock spec writes repeat / wrap, so the slot gets a copy that shares the image (ad39a799: a texture you made keeps
         // its own repeat / wrap; only the copy follows the spec), and the game's texture is left as it was
@@ -161,7 +185,7 @@ export const specs = [
         out.obj = m2.map !== img && m2.map.image === img.image && m2.map.repeat.x === 3 && m2.map.repeat.y === 2 && m2.map.wrapS === THREE.MirroredRepeatWrapping
           && img.repeat.x === 1 && img.wrapS === THREE.ClampToEdgeWrapping;
         // a spec that says nothing about repeat / wrap: the very same texture object goes into the slot
-        const m3 = makeMaterial('rock', { map: img }, { style: { materials: { rock: { type: 'standard' } } }, assets }); out.objSame = m3.map === img;
+        const m3 = makeMaterial('rock', { map: img }, engineWith({ materials: { rock: { type: 'standard' } } }, assets)); out.objSame = m3.map === img;
         return out; } catch (e) { return { crash: e.stack.slice(0, 600) }; } })()`);
       if (r.crash) { check('crash ' + r.crash.replace(/\s+/g, ' '), false); return; }
       check('占位到位：加载前槽里就有占位贴图，加载后画面变化，无着色器报错', r.stand && r.changed && r.errs === '', r.errs);
@@ -174,6 +198,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 光照出口：shadowTint / rim / wrap / lighting.glsl / style.lighting / toon ramp 与 soften 生效、编译、同补丁不同数值共用 1 个程序；错误写法给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {

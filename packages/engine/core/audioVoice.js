@@ -11,6 +11,9 @@ import { isHtml, NOT_THERE } from './assetLoad.js';
 const SFX_KEYS = ['volume', 'pitch', 'at', 'bus', 'loop', 'params', 'fadeIn'];
 const jit = (v, j) => v * (1 + (Math.random() * 2 - 1) * (j || 0));   // presentation
 const SOUND_KEYS = ['src', 'params', 'bus', 'volume', 'pitch', 'jitter', 'cooldown', 'voices', 'loop', 'distance'];
+// a sound handle's fade / stop take options like music.play / stop (one call shape for every audio verb)
+const FADE_PARAMS = { to: { type: 'number', min: 0, desc: 'target volume 0-1' }, seconds: { type: 'number', default: 0.5, min: 0, desc: 'fade length in seconds' } };
+const STOP_PARAMS = { fade: { type: 'number', default: 0.05, min: 0, desc: 'fade-out in seconds (0 = at once)' } };
 const SYNTH_GONE = "audio.sounds.{name}: {what} is gone. A synth is an asset now: register the function in assets.manifest({ sounds: { {src}: fn } }) "
   + "(engine modules' footstep / shutter / thunder / ambience synths are already registered under their names) and write {name}: {fix}";
 
@@ -117,27 +120,33 @@ export class SoundHandle {
     return this;
   }
   /**
-   * Fade this sound's volume to `to` (0-1) over `seconds`; it keeps playing (use stop to end it)
-   * @param {number} to
-   * @param {number} [seconds]
+   * Fade this sound's volume to `to` (0-1) over `seconds` (default 0.5); it keeps playing (use stop to end it). An options object like
+   * music.play's: fade(0.2, 1.5) throws in dev
+   * @param {{ to: number, seconds?: number }} opts
    * @returns {this}
-   * @example h.fade(0.2, 1.5);
+   * @example h.fade({ to: 0.2, seconds: 1.5 });
    */
-  fade(to, seconds = 0.5) {
+  fade(opts) { const o = readParams('sound.fade()', FADE_PARAMS, opts); return this._fade(o.to, o.seconds); }
+  /**
+   * Stop, fading out over `fade` seconds (default 0.05; 0 = at once). stop(1) throws in dev: stop({ fade: 1 })
+   * @param {{ fade?: number }} [opts]
+   * @returns {void}
+   * @example const h = engine.audio.sfx('engine-hum', { loop: true }); h.stop({ fade: 1 });
+   */
+  stop(opts) { this._stop(readParams('sound.stop()', STOP_PARAMS, opts).fade); }
+  /** Cancel convention (every handle has remove()): the same as stop() @returns {void} */
+  remove() { this._stop(STOP_PARAMS.fade.default); }
+  /** @internal the engine's own per-frame fades (ambience) skip the option parse */
+  _fade(to, seconds) {
     const ctx = this.audio.ctx; if (!ctx || this._stopped) return this;
     const g = this.gain.gain, t = ctx.currentTime;
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + Math.max(0.01, seconds));
     return this;
   }
-  /**
-   * Stop, fading out over `fade` seconds (0 = at once)
-   * @param {number} [fade]
-   * @returns {void}
-   * @example const h = engine.audio.sfx('engine-hum', { loop: true }); h.stop(1);
-   */
-  stop(fade = 0.05) {
+  /** @internal */
+  _stop(fade) {
     const ctx = this.audio.ctx; if (!ctx || this._stopped) return;
-    this.fade(0, fade); this._stopped = true;
+    this._fade(0, fade); this._stopped = true;
     const end = ctx.currentTime + Math.max(0.01, fade) + 0.05;
     try { this.source?.stop(end); } catch { /* already ended: nothing to stop */ }
     this.loop?.stop?.(end);
@@ -217,7 +226,7 @@ export async function playFile(audio, url, opts) {
   if (!ctx) return null;   // the engine was disposed while the file loaded
   const v = new SoundHandle(audio, url, audio._bus(bus), at);
   const src = ctx.createBufferSource(); src.buffer = buf ?? null; src.loop = loop; src.playbackRate.value = pitch;
-  v.gain.gain.value = fadeIn ? 0 : volume; if (fadeIn) v.fade(volume, fadeIn);
+  v.gain.gain.value = fadeIn ? 0 : volume; if (fadeIn) v._fade(volume, fadeIn);
   src.connect(v.gain); src.start(); v.source = src; v.endsAt = loop ? Infinity : ctx.currentTime + (buf?.duration ?? 0) / pitch;
   return v;
 }
@@ -229,14 +238,14 @@ export function playSound(audio, name, opts) {
   const now = audio.ctx.currentTime, last = audio._last.get(name);
   if (def.cooldown && last && now - last.at < def.cooldown) return null;
   const list = (audio._voices.get(name) || []).filter(v => v.playing);
-  if (def.voices && list.length >= def.voices) list.shift().stop(0.03);
+  if (def.voices && list.length >= def.voices) list.shift()._stop(0.03);
   // one variant, then where it comes from: a manifest synth plays its function, anything else is a file (a path or a manifest file sound)
   const [url, variant] = pickVariant(def.src, last?.variant ?? -1), synth = synthOf(audio, url);
   audio._last.set(name, { at: now, variant });
   const bus = audio._bus(opts.bus ?? def.bus ?? synth?.bus ?? 'sfx');
   const v = new SoundHandle(audio, name, bus, opts.at, def.distance);
   const vol = jit((def.volume ?? 1) * (opts.volume ?? 1), def.jitter?.volume), pitch = jit((def.pitch ?? 1) * (opts.pitch ?? 1), def.jitter?.pitch);
-  v.gain.gain.value = opts.fadeIn ? 0 : vol; if (opts.fadeIn) v.fade(vol, opts.fadeIn);
+  v.gain.gain.value = opts.fadeIn ? 0 : vol; if (opts.fadeIn) v._fade(vol, opts.fadeIn);
   startSource(audio, v, def, { pitch, loop: opts.loop ?? def.loop ?? false, url, synth, params: opts.params });
   list.push(v); audio._voices.set(name, list);
   return v;

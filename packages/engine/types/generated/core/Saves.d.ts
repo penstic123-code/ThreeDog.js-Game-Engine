@@ -35,6 +35,8 @@ export class Saves {
      * time and day were part 'sky'); an old save without this part but with oldPart hands that data, converted, to this part, and oldPart is dropped
      * (unless a registered part still owns that name).
      * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
+     * checkNewGame(data): dev only, called once start() finished with this part's data in the new-game state, to warn about what should not be there yet
+     * (world: records placed by code instead of content). The part knows its own format; core only hands the data over.
      * @param {string} key
      * @param {SaveProvider} provider
      * @example

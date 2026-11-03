@@ -3,8 +3,10 @@
 // Why a file of its own: materials.js is near the size cap, and the two parts share one rule: a verb changes what makeMaterial does NEXT time
 // (a Material already handed out is not touched, catalog / describe say appliesTo; rebuilding made materials from the spec costs a recompile each, so it is not done).
 // Exception: plain numeric / color properties (LIVE_KEYS below) are written to the already-made materials of that role at once; they need no recompile.
-//   look.materials  set({ wool: { roughness: 0.4 } })       merge into the role's spec (style.materials[role] stays below as the style layer)
-//                   patch(name, shaderPatch, { roles })      add a named ShaderPatch (render/patches.js) to materials made for those roles
+//   look.materials  the ONE entry for "what material a purpose gets": the style's materials table is its style layer (specs as <role>.<key>,
+//                   Material / function entries as replace:<role>), and makeMaterial reads only this part (no second read of engine.style)
+//                   set({ wool: { roughness: 0.4 } })       merge into the role's spec
+//                   add(name, shaderPatch, { roles })        add a named ShaderPatch (render/patches.js) to materials made for those roles
 //                   replace(role, Material | fn)             a role is this Material (cloned) / this (params, purpose, engine) => Material
 //   look.surface    set({ lighting: { wrap, shadowTint, rim }, detail: {...}, ramp: [...], soften })   defaults for every spec-made material
 //                   patch('lighting' | 'detail', glsl)       the shared threedogLighting / threedogDetailSample function
@@ -33,9 +35,9 @@ const liveOf = e => LIVE.get(e) ?? LIVE.set(e, new Map()).get(e);
 /** The last Material made per role, per engine (look.materials.object(role)); kept here so materials.js never touches the part's fields */
 const MADE = new WeakMap();
 const madeOf = e => MADE.get(e) ?? MADE.set(e, new Map()).get(e);
-// Live-key priority (§5.1): hand-set > passed in this makeMaterial call > look.materials.set > style pack.
+// Live-key priority (§5.1): hand-set > passed in this makeMaterial call > look.materials.set > style.
 // Why record on each material: before, live keys were written to ALL materials of the role, so a color passed by makeMaterial('wood', { color }) or later set by the game with m.color.set(),
-// got overwritten on a style pack change or look.materials.set, and the game could not tell "why did my change not stick". Now: keys passed by the call itself are always skipped; the value the engine last wrote is remembered,
+// got overwritten on a style change or look.materials.set, and the game could not tell "why did my change not stick". Now: keys passed by the call itself are always skipped; the value the engine last wrote is remembered,
 // and if it differs before the next write = the game hand-set it, so skip it and warn once (this material belongs to the game, P1 "step aside", per material rather than per role).
 const REC = new WeakMap();   // material -> { call: Set(keys this makeMaterial call passed), seen: Map(prop -> value the engine last left there) }
 const snap = v => (v?.isColor ? v.getHex() : v);
@@ -45,7 +47,11 @@ export function defineMaterialsLook(e, purposes) {
   const M = e.style.materials ?? {};
   const params = {}, style = {};
   const grow = (into, key) => { into[key] = { type: 'any', default: null, neutral: true, desc: 'a spec key of this role (type, color, roughness, steps, ramp, detail, lighting ...); null = not overridden' }; };
-  for (const [role, spec] of Object.entries(M)) if (isPlain(spec)) for (const [k, v] of Object.entries(spec)) { grow(params, `${role}.${k}`); style[`${role}.${k}`] = v; }
+  for (const [role, spec] of Object.entries(M)) {
+    if (isPlain(spec)) for (const [k, v] of Object.entries(spec)) { grow(params, `${role}.${k}`); style[`${role}.${k}`] = v; }
+    else if (spec?.isMaterial || typeof spec === 'function') style[`replace:${role}`] = spec;   // the same slot replace(role, ...) fills, one layer down
+    else if (spec != null) throw codedError('material-option', `style.materials.${role} is a spec { type, color, ... }, a three.js Material or a function (params, purpose, engine) => Material; got ${typeof spec}`);
+  }
   const made = madeOf(e);
   let glow = null;
   const part = defineLookPart(e, {
@@ -78,27 +84,29 @@ export function defineMaterialsLook(e, purposes) {
     // normalize runs for set() and engine.debug.override alike, before the values are checked
     normalize(p) {
       const grown = {};
-      for (const [role, spec] of Object.entries(p)) if (isPlain(spec)) for (const k of Object.keys(spec)) if (!part.has(`${role}.${k}`)) {
+      for (const [role, spec] of Object.entries(p)) if (isPlain(spec)) for (const k of Object.keys(spec)) if (!part.author.has(`${role}.${k}`)) {
         if (!knownSpecKey(k)) throw codedError('look-param', `look.materials.set(): ${role}.${k} is not a material spec key (type, color, roughness, steps, ramp, detail, lighting or a three.js material property)`);
         grow(grown, `${role}.${k}`);
       }
-      if (Object.keys(grown).length) part.extend(grown);
+      if (Object.keys(grown).length) part.author.extend(grown);
       return p;
     },
-    hooks: { '<name>': { signature: 'a ShaderPatch { slot: "color", glsl, pars, uniforms, needs } (slots: render/slots.js); patch(name, spec, { roles: ["wool"] }) adds it to materials made for those roles (none = all)', scope: ['fragment', 'vertex'] } },
-    replace: { accepts: "replace('wool', Material | (params, purpose, engine) => Material); replace('wool', null) gives the role back to the style", loses: ['the role spec: type, steps, ramp, detail, lighting ... and look.materials.set keys for that role'] },
+    // no named hook to swap: a shader patch here is one more thing next to the others, so it is add(), not patch() (docs/plans/2026-11-03-look-api.md)
+    noPatch: "a material patch is added, not swapped: look.materials.add('tint', { slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }, { roles: ['wool'] }); the handle's remove() takes it out",
+    replace: { accepts: "replace('wool', Material | (params, purpose, engine) => Material); replace('wool', null) gives the role back to the style (a style's own Material entry sits one layer down, in the same slot)", loses: ['the role spec: type, steps, ramp, detail, lighting ... and look.materials.set keys for that role'] },
     verbs: {
-      patch: { signature: 'patch(name, shaderPatch | null, { roles, owner })',
-        take(bad, name, spec, { roles, owner } = {}) {
-          if (typeof name !== 'string' || !name) bad("name is the patch's name, e.g. patch('tint', { slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }, { roles: ['wool'] })");
-          if (spec != null && !isPlain(spec)) bad(`the patch is a ShaderPatch object { slot: 'color', glsl: '...', pars, uniforms, needs } (slots: render/slots.js); got ${typeof spec}`);
-          return [{ [`hook:${name}`]: spec == null ? null : { patch: { name, ...spec }, roles: roles ?? null } }, owner];
+      add: { signature: 'add(name, shaderPatch, { roles, owner, layer })',
+        take(bad, name, spec, { roles, owner, layer } = {}) {
+          if (typeof name !== 'string' || !name) bad("name is the patch's name, e.g. add('tint', { slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }, { roles: ['wool'] })");
+          if (spec == null) bad("take an added patch out with the handle add() returned: h.remove()");
+          if (!isPlain(spec)) bad(`the patch is a ShaderPatch object { slot: 'color', glsl: '...', pars, uniforms, needs } (slots: render/slots.js); got ${typeof spec}`);
+          return [{ [`hook:${name}`]: { patch: { name, ...spec }, roles: roles ?? null } }, owner, layer];
         } },
-      replace: { signature: 'replace(role, Material | (params, purpose, engine) => Material | null, { owner })',
-        take(bad, role, impl, { owner } = {}) {
+      replace: { signature: 'replace(role, Material | (params, purpose, engine) => Material | null, { owner, layer })',
+        take(bad, role, impl, { owner, layer } = {}) {
           if (typeof role !== 'string') bad("the first argument is the role name, e.g. replace('wool', new THREE.MeshMatcapMaterial(...))");
           if (impl != null && !impl.isMaterial && typeof impl !== 'function') bad(`give a three.js Material or a function (params, purpose, engine) => Material; got ${typeof impl}`);
-          return [{ [`replace:${role}`]: impl ?? null }, owner];
+          return [{ [`replace:${role}`]: impl ?? null }, owner, layer];
         } },
     },
   });
@@ -106,19 +114,24 @@ export function defineMaterialsLook(e, purposes) {
   return part;
 }
 
-/** What the games and debug layers changed for a role: { key: value } to lay over the role's spec (makeMaterial) */
-export function materialOverrides(eng, role) {
+/** The Material / function the role is replaced with on the top layer that says one (style table entry, plugin file, game replace), else undefined */
+export const materialImpl = (eng, role) => eng?.look?.materials?.value(`replace:${role}`) ?? undefined;
+/** The role's spec after all layers (style table < game set < debug): { key: value } */
+export function materialSpec(eng, role) {
   const p = eng?.look?.materials, out = {};
-  if (!p) return out;
-  for (const [k] of p.resolved(role + '.')) { const v = p.top(k); if (v != null) out[k.slice(role.length + 1)] = v; }
+  if (p) for (const [k, v] of p.author.resolved(role + '.')) if (v != null) out[k.slice(role.length + 1)] = v;
   return out;
 }
-/** replace(role, ...) from a game / debug layer, else undefined */
-export const materialReplace = (eng, role) => eng?.look?.materials?.top(`replace:${role}`) ?? undefined;
-/** Patches added with look.materials.patch for this role */
+/** Every role look.materials says something about (a spec key or a replace), for the typo check */
+export function materialRoles(eng) {
+  const out = new Set();
+  for (const [k, v] of eng?.look?.materials?.author.resolved() ?? []) if (v != null && !k.startsWith('hook:')) out.add(k.startsWith('replace:') ? k.slice(8) : k.slice(0, k.indexOf('.')));
+  return out;
+}
+/** Patches added with look.materials.add for this role (stored as 'hook:<name>' keys, so layers and owners work as for every key) */
 export function materialPatches(eng, role) {
   const p = eng?.look?.materials, out = [];
-  if (p) for (const [, v] of p.resolved('hook:')) if (v && (!v.roles || v.roles.includes(role))) out.push(v.patch);
+  if (p) for (const [, v] of p.author.resolved('hook:')) if (v && (!v.roles || v.roles.includes(role))) out.push(v.patch);
   return out;
 }
 /** Remember the last Material made for a role (look.materials.object(role)); callKeys: the keys this makeMaterial call passed (live keys skip them) */

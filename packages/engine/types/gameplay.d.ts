@@ -10,10 +10,10 @@ import type { WorldRecord } from './generated/modules/world/World';
 // Timeline timeline()
 // ======================================================================
 
-/** Promise of a tween: await it to wait for the end; finish() jumps to the end now, cancel() stops at the current position */
+/** Promise of a tween: await it to wait for the end; finish() jumps to the end now, remove() stops at the current position */
 export interface TweenPromise extends Promise<boolean> {
   finish(): void;
-  cancel(): void;
+  remove(): void;
   task: any;
 }
 /** Tween target: 'dotted.path' -> target value. E.g. { 'position.y': 3, 'material.color': 0xffffff, scale: [2, 2, 2] }; a value can also be () => value */
@@ -60,20 +60,19 @@ export interface TimelinePlayOptions {
   skippable?: boolean;
   /** Letterbox bars, default false */
   letterbox?: boolean;
-  /** Lock player input while playing, default true */
-  lockInput?: boolean;
+  /**
+   * The characters the cutscene drives (their control slot on layer 'cutscene'; keys / walks / NPC behaviours pause and come back after).
+   * Default: [engine.player] when there is a player; [] drives nobody (a bubble scene the player walks through). A path step adds its character
+   */
+  actors?: any[];
 }
 
 // Timeline (engine.timeline) is generated from the JSDoc in modules/timeline/Timeline.js (npm run map); only the type is re-exported here
 import type { Timeline } from './generated/modules/timeline/Timeline';
 export type { Timeline };
-export interface TimelineOptions {
-  /**
-   * Keys that skip a cutscene, default ['Escape', 'Backspace'] (Esc is the back key, which the UI focus stack hands to the topmost cutscene; cutscenes
-   * do not advance while frozen)
-   */
-  skipKeys?: string[];
-}
+/** timeline() takes no options: the basic cancel key skips (the UI focus stack hands it to the topmost cutscene); bind the action 'skip'
+ *  (context 'cutscene') for another key, e.g. createEngine({ bindings: { ...presets.bindings.cutsceneSkip } }) */
+export interface TimelineOptions {}
 
 // ======================================================================
 // Level level()
@@ -216,8 +215,6 @@ export interface TriggerEvent { tag: string; trigger: Trigger; who: Vector3 | nu
 export interface TriggersOptions {
   /** Action name that toggles the debug view 'triggers' (engine.debug.view), default 'triggersDebug' */
   action?: string;
-  /** Key that toggles that view: default ['F4'] in dev builds, none in release builds */
-  keys?: string[];
 }
 
 /** engine.triggers */
@@ -337,10 +334,8 @@ export interface SettingsSection {
   order?: number;
 }
 export interface SettingsOptions {
-  /** Action name that opens the menu, default 'menu' */
+  /** Action that opens the menu, default the basic 'cancel' (Esc / pad B on an empty UI focus stack); another name is declared and the game binds it */
   action?: string;
-  /** Key that opens the menu, default ['Escape'] */
-  keys?: string[];
   /** Browser storage key */
   storageKey?: string;
   /** Override the graphics presets: { low: {...}, medium: {...}, high: {...} } */
@@ -376,8 +371,10 @@ export interface Settings {
   set(key: string, value: any, opts?: { save?: boolean }): void;
   /** Graphics preset: 'low' | 'medium' | 'high' */
   preset(name: 'low' | 'medium' | 'high' | (string & {})): void;
-  /** Game-defined setting: default value + apply function (saved automatically) */
-  define<T = any>(key: string, def: T, apply?: (value: T, e: Engine) => void): this;
+  /** Game-defined setting: default value + apply function (saved automatically), or { apply, limits }. limits names the shared value(s) the row
+   * restricts on the settings layer, like the built-in shadows row: off holds it off (the scene, weather or a cutscene cannot turn it back on),
+   * on allows what the scene chose; a number row from 0 to 1 is a factor on a number value. Define it after the effect exists */
+  define<T = any>(key: string, def: T, apply?: ((value: T, e: Engine) => void) | { apply?: (value: T, e: Engine) => void; limits?: string | string[] }): this;
   /** Add a tab of your own, or a built-in / optional one by name: addSection('camera') */
   addSection(id: string, section?: SettingsSection): this;
   removeSection(id: string): void;
@@ -530,21 +527,17 @@ export type FaceMode = 'move' | 'camera' | 'target' | 'manual';
 /** What a player control function returns: world direction (length 0–1 scales the speed), run; null = stand still. Speed changes: engine.mod('move.speed', { owner, id: 'player', ... }) */
 export type MoveRequest = { x: number; z: number; run?: boolean } | null | undefined;
 /**
- * Who moves the player each fixed step: 'camera' movement keys relative to the camera | 'none' the game calls player.move() itself | function returns
- * the move request
+ * How the player's input steers it (the base holder of its control slot, owner 'player-input'): 'camera' movement keys relative to the camera |
+ * a function returning the move request. The game moving the player itself takes control: engine.control.take(player, { owner, layer: 'script', step })
  */
-export type PlayerControl = 'camera' | 'none' | ((player: Character, input: Input, dt: number) => MoveRequest);
+export type PlayerControl = 'camera' | ((player: Character, input: Input, dt: number) => MoveRequest);
 /** Parameters of createPlayer() */
 export interface PlayerOptions extends CharacterOptions {
   /** Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted */
   spawn?: PositionLike;
-  /** Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space', 'PadA'] */
-  jumpKeys?: string[];
-  /** Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift / gamepad LB */
-  runKeys?: string[];
   /**
-   * Required, no default: 'camera' (keys relative to the camera) | 'none' (call player.move() yourself in onFixed) | (player, input, dt) => ({ x, z,
-   * run?, speed? }). Also the runtime property player.control. presets.player.* fill it
+   * Required, no default: 'camera' (keys relative to the camera) | (player, input, dt) => ({ x, z, run? }) (null stands still). presets.player.*
+   * fill it. Given once: a game that steers the player for a while takes control (engine.control.take(player, { owner, layer: 'script', step }))
    */
   control: PlayerControl;
   /** true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev */
@@ -584,8 +577,6 @@ export declare class Character {
   faceMode: FaceMode;
   /** What faceMode 'target' faces */
   faceTarget: PositionLike | null;
-  /** Player only: who moves it each fixed step (see PlayerOptions.control) */
-  control?: PlayerControl;
   /** Player only: whether the camera module follows it (see PlayerOptions.cameraFollow) */
   cameraFollow?: boolean;
   /** Move at a fixed velocity (m/s) for seconds, ignoring move()'s direction and without turning (knockback, dodge roll); gravity and collision still apply */
@@ -673,12 +664,15 @@ export declare class Character {
   syncRecord(): this;
   /**
    * Walk to a point along characters.findPath on fixed steps; never rejects. One walk per character: a new walkTo, dispose() or a save load ends the old
-   * one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip
+   * one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip. Holds the character's control on layer 'script' (owner 'walkTo'):
+   * the player's keys / an NPC's schedule pause meanwhile, a cutscene pauses the walk, and another script owner on it is control-conflict
    */
   walkTo(target: Vector3 | { x: number; z: number } | [number, number, number], opts?: { speed?: number; arrive?: number; turnRate?: number; stuckSeconds?: number; maxRepaths?: number; run?: boolean }): Promise<{ status: 'arrived' | 'noPath' | 'stuck' | 'cancelled' }> & { remove(): void };
   /**
    * Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1 scales the speed), run to run, dt in seconds (used as
-   * given). Speed comes from the stats: engine.mod('move.speed', { owner, id: character.id, ... }) (the player: id 'player'), the one way to change speed
+   * given). Speed comes from the stats: engine.mod('move.speed', { owner, id: character.id, ... }) (the player: id 'player'), the one way to change speed.
+   * A character someone controls (engine.control.of(ch)) moves only through its holder: called from anywhere else it is control-bypass in dev;
+   * take control and use handle.move() / step instead
    */
   move(dirX: number, dirZ: number, run: boolean, dt: number): void;
   /** Ground type underfoot ('water' while swimming) */
@@ -871,7 +865,7 @@ export interface CharactersApi {
    * Something characters stand on and ride (moving platform, lift, raft). Move the object any way (onFixed before or after the player, a timeline,
    * physics): riders follow how its matrix changed, so the order does not matter. safe: false = never a respawn spot; carry 'position+yaw' turns riders
    * with it; inherit: false = jumping off keeps none of its speed. With mover 'rapier' give it a collider too.
-   * @example const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.real); });
+   * @example const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.now('real')); });
    */
   support(object: any, opts?: { id?: string; safe?: boolean; carry?: 'position' | 'position+yaw'; inherit?: boolean }): { id: string; remove(): void };
   /**
@@ -912,11 +906,6 @@ export interface CharactersOptions {
   npcs?: boolean;
   /** Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts) */
   npcTiers?: { fullRadius: number; nearEvery: number };
-  /** Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix);
-   *  presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump) */
-  brakeKeys?: string[];
-  /** Gamepad button for braking, none by default; presets.keys.brake has ['PadLT'] */
-  brakePad?: string[];
 }
 /**
  * Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters,
@@ -962,8 +951,8 @@ export interface Interactions {
   action: string;
   /** How high the prompt floats (meters) */
   promptHeight: number;
-  /** All interactions */
-  items: any[];
+  /** All interactions in the order added (a fresh array each read; get(id) finds one without it) */
+  readonly items: any[];
   /** Default reach of add() in meters (2.5) */
   radius: number;
   /** How the one in front of the actor is chosen; can be changed at runtime */
@@ -1027,8 +1016,6 @@ export interface InteractionsOptions {
    * keys: ['KeyE'], radius: 2 }) // first person
    */
   pick: InteractionPick;
-  /** Keys of the action; required unless the game bound the action already (createEngine({ bindings: { interact: [...] } }) or input.define) */
-  keys?: string[];
 }
 
 // ======================================================================
@@ -1071,8 +1058,8 @@ export interface DialogueNode {
 }
 /** Dialogue script: node name -> node, starting from 'start' */
 export type DialogueScript = Record<string, DialogueNode>;
-/** Promise returned by say(): id is the temporary script name of a main-channel line (null for a plain bubble line); stop() ends the line now (it resolves) */
-export interface SayPromise extends Promise<void> { id: string | null; stop(): void }
+/** Promise returned by say(): id is the temporary script name of a main-channel line (null for a plain bubble line); remove() ends the line now (it resolves) */
+export interface SayPromise extends Promise<void> { id: string | null; remove(): void }
 /** Which dialogue channel: 'main' the conversation the player reads (locks input, choices) · 'bubble' lines over their speakers while play goes on */
 export type DialogueChannel = 'main' | 'bubble';
 /**
@@ -1127,10 +1114,9 @@ export interface Dialogue {
 export interface DialogueOptions {
   /** Typing speed (characters/second, game time: advanced by engine.step), default 40 */
   charsPerSecond?: number;
-  /** Actions that advance the dialogue, default ['confirm', 'interact'] (interact only when the game bound it) */
+  /** Actions that advance the dialogue, default ['confirm'] (a basic key); e.g. ['confirm', 'interact'] to also advance on the game's interact key.
+   *  Choices: the cursor, clicks, and the actions choice1..choice9 (context 'dialog', no keys of their own: presets.bindings.dialogNumbers binds 1-9) */
   advanceActions?: string[];
-  /** Number keys 1-9 pick choices (read only while the main dialogue runs; rebind them as actions choice1...choice9), false = cursor / click / op only. Default true */
-  choiceKeys?: boolean;
   /** A bubble line stays this many seconds plus its reading time (about 15 characters a second) unless say() gives seconds, default 2 */
   holdSeconds?: number;
 }
@@ -1385,14 +1371,14 @@ export interface Inventory {
   transfer(from: Container | string, to: Container | string, item: string, n?: number): number;
   /** Delete a container together with its contents ('player' cannot be deleted), returns whether one was deleted */
   removeContainer(id: string): boolean;
+  /** Every container's items as plain data, the player bag included: { [containerId]: entries } (what setContents takes; net syncs through these two) */
+  contents(): Record<string, any[]>;
+  /** Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too */
+  setContents(data: Record<string, any[] | null>, opts?: { only?: boolean }): void;
 }
 export interface InventoryOptions {
   /** Action name that opens the inventory, default 'inventory' */
   action?: string;
-  /** Keys that open the bag: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.inventory has ['KeyI'] */
-  keys?: string[];
-  /** Gamepad button, none by default; presets.keys.inventory has ['PadY'] */
-  pad?: string[];
   /** true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame */
   pauseGame?: boolean;
   /** Slot limit of the player inventory, default Infinity (no limit) */
@@ -1489,10 +1475,6 @@ export interface QuestLogView {
 export interface QuestsOptions {
   /** Action name that opens the quest log, default 'quests' */
   action?: string;
-  /** Keys that open the quest log: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.quests has ['KeyJ'] */
-  keys?: string[];
-  /** Gamepad button, none by default; presets.keys.quests has ['PadSelect'] */
-  pad?: string[];
   /** Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5 */
   checkInterval?: number;
   /**
@@ -1530,10 +1512,6 @@ export interface PhotoTakeOptions {
   format?: string;
 }
 export interface PhotoOptions extends PhotoTakeOptions {
-  /** Photo key: required unless createEngine({ bindings }) binds 'photo' ([] = no key); presets.keys.photo has ['KeyP'] */
-  keys?: string[];
-  /** Gamepad button for taking a photo, none by default; presets.keys.photo has ['PadRB'] */
-  pad?: string[];
   /** How many photos the album keeps at most, default 50 */
   maxAlbum?: number;
 }
@@ -1576,6 +1554,8 @@ export interface UIWindow {
   refresh(): void;
   /** Open / close (toggle if no argument is passed) */
   toggle(on?: boolean): void;
+  /** Remove the window: closed, its listeners and its element gone (a module passes the window to ctx.track instead) */
+  remove(): void;
 }
 /** Parameters of makeWindow() */
 export interface WindowOptions {
@@ -1643,7 +1623,7 @@ export interface Clock {
    * Calendar seconds = world-channel seconds x clock.rate, does not advance while paused / frozen, saved with the game;
    * one calendar day = calendar.dayLength calendar seconds
    */
-  now: number;
+  readonly now: number;
   /**
    * Calendar seconds per world-channel second (default 1; 0 stops the calendar, sky included). Read-only: change it with
    * `engine.mod('clock.rate', { owner: 'game', set: 60 })` (a minute per second); the handle's remove() undoes it
@@ -1656,31 +1636,51 @@ export interface Clock {
    * { channel } counts that time channel's seconds instead (a poison tick that slows down in bullet time)
    */
   after(seconds: number, fnOrEvent: (() => void) | string, data?: any, opts?: { channel?: string }): Handle;
-  /** Call once every seconds calendar seconds */
-  every(seconds: number, fn: () => void): Handle;
+  /** Call once every seconds calendar seconds ({ channel }: 'real' or a time channel's seconds instead) */
+  every(seconds: number, fn: () => void, opts?: { channel?: string }): Handle;
 }
 
 /** The handle engine.mod / input.gate return: remove() ends only this owner's entry (a stale handle ends nothing) */
-export interface ModHandle { owner: string; remove(): void; }
-/** engine.mod options: exactly one of set / add / mul / clamp on a number quantity; none on a hold ('freeze'); value on a 'top' quantity */
+export interface ModHandle {
+  owner: string; remove(): void;
+  /** Rewrite this entry's value in place (same op / layer): a per-frame contribution takes once and changes every frame. false when the handle is stale */
+  change(value: any): boolean;
+}
+/** Shared-point layers, lowest first. Most code never passes one: game code and game modules are 'game'; effects (weather, bullet time) pass 'effect' */
+export type SharedLayer = 'engine' | 'style' | 'game' | 'effect' | 'system' | 'settings' | 'debug';
+/**
+ * engine.mod options: exactly one of set / add / mul / clamp on a number point (set on a value point); none on a hold ('freeze') or a slot;
+ * value on a 'top' point. Inside a layer: set, then add, then mul, then clamp; a higher layer's set hides what is below. Two owners setting one
+ * point on one layer throw shared-conflict in development. The settings layer only restricts (clamp / mul; set false on a value point).
+ */
 export interface ModOptions {
   owner: string;
-  set?: number; add?: number; mul?: number; clamp?: { min?: number; max?: number };
-  /** 'top' quantities (the camera): the holder's value; 'any' ones: optional data kept beside the hold */
+  set?: any; add?: number; mul?: number; clamp?: { min?: number; max?: number };
+  /** 'top' points (the camera): the holder's value; 'any' ones: optional data kept beside the hold */
   value?: any;
   /** Seconds until it ends by itself, on clock ('real' by default: fixed seconds, stop while frozen; or a time channel name) */
   for?: number; clock?: string;
-  /** The record, for per-record quantities ('time.local', your own per: true ones) */
+  /** The record, for per-record points ('time.local', your own per: true ones) */
   id?: string;
-  /** Layer: 'base' 0 < 'game' 100 (default) < 'effect' 200 < 'system' 300 < 'debug' 400, or a number. system / debug entries are not saved */
-  priority?: number | 'base' | 'game' | 'effect' | 'system' | 'debug';
+  /** Default 'game'. settings / system / debug entries are not saved */
+  layer?: SharedLayer;
 }
-/** One holder as describe and holders() show it; at = game clock time (engine.clock.now) when it was taken */
-export interface ModHolder { owner: string; at: number; op?: 'set' | 'add' | 'mul' | 'clamp'; value?: any; priority?: number; left?: number; clock?: string; }
-/** One shared quantity (engine.stacks.get(name)) */
+/** One entry as describe and holders() show it; at = the code line that took it (development builds) */
+export interface ModHolder { owner: string; at?: string; op?: 'set' | 'add' | 'mul' | 'clamp'; value?: any; layer?: SharedLayer; left?: number; clock?: string; hidden?: boolean; }
+/** One describe().shared row: writer = the owner whose value the rest acts on ('default' when nobody set it; 'three (engine yielded)' after a direct three.js write) */
+export interface SharedRow { value: any; writer: string; layer?: SharedLayer; at?: string; how?: string; also: ModHolder[]; }
+/** One shared point (engine.stacks.get(name)): read it here; change it with engine.mod(name, { owner, ... }), the one way in. A settings row
+ *  restricts one with engine.settings.define(key, def, { limits: name }) */
 export interface Stack {
-  readonly name: string; readonly kind: 'number' | 'any' | 'top';
-  /** The current value, always recomputed from base + the entries now present */
+  readonly name: string; readonly kind: 'number' | 'value' | 'any' | 'top' | 'one';
+  /** The describe().shared row */
+  row(id?: string): SharedRow;
+  /** Whoever applies this point to a three.js property saw an outside write: stop applying it (check yielded); describe says writer three */
+  yieldToThree(at?: string | null): void;
+  /** Hand a yielded point back to the layers */
+  reclaim(): void;
+  readonly yielded: boolean;
+  /** The current value, always recomputed from base + the entries now present (a slot: the holder's name or null) */
   value(id?: string): any;
   holders(id?: string): ModHolder[];
   names(id?: string): string[];
@@ -1689,32 +1689,38 @@ export interface Stack {
   /** End owner's entry; false when it held none */
   release(owner: string, opts?: { id?: string }): boolean;
 }
-/** engine.stacks: every shared quantity by name ('time.<channel>', 'time.local', 'clock.rate', 'freeze', 'pause', 'camera', 'debug.view', your own) */
+/** engine.stacks: every shared point by name ('time.<channel>', 'time.local', 'clock.rate', 'freeze', 'pause', 'camera', 'debug.view', slots, your own) */
 export interface Stacks {
-  /** Define your own quantity: kind 'number' (default, base 1), 'any' (true while held), 'top' (latest holder wins); per: true = one value per record id */
-  define(name: string, opts?: { kind?: 'number' | 'any' | 'top'; base?: any; min?: number; max?: number; per?: boolean; save?: boolean }): Stack;
+  /**
+   * Define your own point: kind 'number' (default, base 1), 'value' (any data, set only), 'any' (true while held), 'top' (latest holder wins),
+   * 'one' (exclusive slot); per: true = one value per record id; manual = the takeover call the conflict error offers
+   */
+  define(name: string, opts?: { kind?: 'number' | 'value' | 'any' | 'top' | 'one'; base?: any; min?: number; max?: number; per?: boolean | 'optional'; save?: boolean; manual?: string }): Stack;
   get(name: string): Stack;
   has(name: string): boolean;
   list(): string[];
   mod(name: string, opts: ModOptions): ModHandle;
-  /** Every quantity that has entries: { name: holders } */
-  describe(): Record<string, any>;
+  /** describe().shared: one row per point with entries */
+  describe(): Record<string, SharedRow>;
+  /** Everything one owner changes now, e.g. ['time.world (mul 0.8, effect)', 'inventory (holds)'] */
+  of(owner: string): string[];
 }
 /** engine.time: time channels (world, player, your own). Speeds change only through engine.mod('time.<channel>', ...) */
 export interface Time {
   /** Define a channel; parent (default 'world') multiplies its speed */
-  channel(name: string, opts?: { parent?: string | null }): Time;
+  channel(name: string, opts?: { parent?: string | null; stack?: string }): Time;
   channels(): string[];
   /** Effective speed: parent x the channel's stack (x the record's 'time.local' stack when id is given) */
   scale(name: string, id?: string): number;
-  /** Real seconds: fixed seconds, no scale, stop while frozen */
-  readonly real: number;
-  /** Seconds lived by a channel */
-  now(name: string): number;
-  /** This fixed step's dt on a channel (1/60 x scale) */
+  /** Fixed steps run this playthrough: the one time counter (= engine.tick); every other time is a read-only view of it */
+  readonly tick: number;
+  /**
+   * Seconds on a view: 'real' (tick / 60, no scale, stops while frozen), 'ambient' (= uniforms.uTime, keeps moving while frozen),
+   * 'calendar' (= engine.clock.now) or a channel ('world', 'player', your own)
+   */
+  now(name: 'real' | 'ambient' | 'calendar' | 'world' | 'player' | (string & {})): number;
+  /** This fixed step's dt on a channel (1/60 x scale). Change a speed with engine.mod('time.<channel>', { owner, set | mul }); timers: engine.clock.after(s, fn, data, { channel }) */
   dt(name: string, id?: string): number;
-  /** Manual level: fn(id?) gives the speed and the stack is ignored until handle.remove() hands it back. Timers on a channel: engine.clock.after(s, fn, data, { channel }) */
-  manual(name: string, fn: (id?: string) => number, opts?: { owner?: string }): { owner?: string; remove(): void };
 }
 /** engine.vars: story flags and counters (autosaved) */
 export interface Vars {

@@ -53,7 +53,9 @@ export class UrlState {
     const e = this.engine;
     for (let i = 0; i < 600; i++) {
       if (!unsettled(e).length) return;
-      if (e.headless) e.step(1 / 30, { render: false, describe: false });
+      // a loading frame, not a step: how many polls this loop takes depends on how fast background threads answer, so a step here made the game
+      // time at the end of the setup depend on machine speed (same input, different result; review 0.4 B). Game time moves only in _late's wait
+      if (e.headless) e._frameHooks(0, true);
       await new Promise(r => setTimeout(r, 16));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
     }
   }

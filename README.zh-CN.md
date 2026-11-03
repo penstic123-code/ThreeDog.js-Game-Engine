@@ -128,7 +128,7 @@ npm test
 
 ## 现状
 
-0.3 是基于 WebGL 渲染器的早期版本，接口还可能变；下一阶段是 WebGPU 渲染器。和 0.2 相比改了什么，见[更新日志](packages/engine/CHANGELOG.md)；老游戏怎么升级，按常见程度排好的步骤在 [MIGRATING-0.3.md](packages/engine/docs/MIGRATING-0.3.md)。
+0.4 是早期版本，可以跑在 WebGL（默认）和 WebGPU（`createEngine({ renderer: 'webgpu' })`）上，接口还可能变。和 0.3 相比改了什么，见[更新日志](packages/engine/CHANGELOG.md)；老游戏怎么升级，按常见程度排好的步骤在 [MIGRATING-0.4.md](packages/engine/docs/MIGRATING-0.4.md)。
 
 ## 文档
 

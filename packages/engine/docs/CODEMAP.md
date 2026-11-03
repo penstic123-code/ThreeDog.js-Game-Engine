@@ -6,27 +6,32 @@
 
 Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 
-| Module (engine.xxx) | File |
-|---|---|
-| cameraRig (firstPersonCamera()) | modules/camera/FirstPersonCamera.js |
-| cameraRig (fixedCamera()) | modules/camera/FixedCamera.js |
-| cameraRig (followCamera()) | modules/camera/FollowCamera.js |
-| cameraRig (rtsCamera()) | modules/camera/RtsCamera.js |
-| terrain | modules/terrain/index.js |
-| vegetation | modules/vegetation/index.js |
-| world | modules/world/index.js |
-| calendar | modules/calendar/index.js |
-| sky | modules/sky/skyModule.js |
-| water | modules/water/Water.js |
-| weather | modules/weather/Weather.js |
-| interactions | modules/gameplay/Interactions.js |
-| pickups | modules/gameplay/pickups.js |
-| grids | modules/grid/index.js |
-| triggers | modules/triggers/index.js |
-| particles | modules/particles/Particles.js |
-| content | modules/content/index.js |
-| inventory | modules/gameplay/Inventory.js |
-| quests | modules/gameplay/Quests.js |
+Type = what the module may own (core/moduleTypes.js): world, look, actor, rules, ui, net, tool.
+
+| Module (engine.xxx) | Type | File |
+|---|---|---|
+| cameraRig (firstPersonCamera()) | undefined | modules/camera/FirstPersonCamera.js |
+| cameraRig (fixedCamera()) | undefined | modules/camera/FixedCamera.js |
+| cameraRig (followCamera()) | undefined | modules/camera/FollowCamera.js |
+| cameraRig (rtsCamera()) | undefined | modules/camera/RtsCamera.js |
+| terrain | world | modules/terrain/index.js |
+| vegetation | world | modules/vegetation/index.js |
+| world | world | modules/world/index.js |
+| calendar | world | modules/calendar/index.js |
+| sky | look | modules/sky/skyModule.js |
+| water | look | modules/water/Water.js |
+| weather | world | modules/weather/Weather.js |
+| weatherLook | look | modules/weather/weatherLook.js |
+| interactions | rules | modules/gameplay/Interactions.js |
+| pickups | rules | modules/gameplay/pickups.js |
+| grids | world | modules/grid/index.js |
+| triggers | rules | modules/triggers/index.js |
+| particles | look | modules/particles/Particles.js |
+| terrainLook | look | modules/terrain/index.js |
+| vegetationLook | look | modules/vegetation/index.js |
+| content | rules | modules/content/index.js |
+| inventory | rules | modules/gameplay/Inventory.js |
+| quests | rules | modules/gameplay/Quests.js |
 
 ## Files
 
@@ -41,7 +46,7 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - Baked.js: Code-generated model <-> GLB file (shared by the auto-cache…
 - Batching.js: Automatic batching, engine.batching: the same static model …
 - Budget.js: Performance budget, engine.budget: the game sets limits (on…
-- Clock.js: engine.clock: calendar seconds, after / every
+- Clock.js: Calendar clock, engine.clock: the calendar view of the time…
 - Commits.js: How background results take effect: engine.commits
 - DebugOverrides.js: engine.debug: diagnostic overrides with an owner ("show me …
 - Describe.js: Game state description: engine.describe() returns a plain o…
@@ -80,6 +85,8 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - catalog.js: engine.catalog(): what this game can do, read from the regi…
 - cells.js: Shared xz grid index
 - checks.js: Consistency checks a game (or an AI) can call in dev and te…
+- chunkStream.js: Chunk streaming shared by every chunk table (terrain chunks…
+- control.js: engine.control: who decides where a character goes
 - copies.js: Two copies of the engine on one page (e.g
 - dayTime.js: 'HH:MM' <-> day fraction
 - debugView.js: Diagnostic view modes behind engine.debug.view('albedo' / '…
@@ -91,6 +98,7 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - errorHints.js: Error hints: "what to do + which doc to read" for any error…
 - errors.js: Error tiers
 - events.generated.js: Generated, do not edit by hand: npm run map generates it fr…
+- gameLights.js: Plain three.js lights are adopted (docs/plans/2026-11-03-sl…
 - grayMap.js: Gray images as data maps over the ground: a terrain height …
 - grid.js: 2D grid fields: sampleGrid turns an array of numbers laid o…
 - gridLoad.js: Load an image file as grid data (assets.gridFromImage)
@@ -98,20 +106,17 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - headlessLoad.js: Headless loading after start: a headless engine (?threedog-…
 - holds.js: Who holds the engine still: pause, freeze (each ends with i…
 - inputContext.js: Input contexts
-- inputDefaults.js: Input defaults and strings
+- inputDefaults.js: The one default key preset and its labels
 - inputPad.js: Gamepad buttons
 - inputPointer.js: The mouse / touch pointer part of input: drag to look, whee…
 - inputTouch.js: The touch part of input: which on-screen controls the game …
 - lifecycle.js: Engine lifecycle: dispose() and counts() for leak hunting
 - lightWatch.js: Dev-only check (called from loop.js after each render once …
-- look/coreParts.js: look.tone, lights, clouds
-- look/layers.js: The layer arithmetic behind a LookPart (part.js): where a k…
-- look/part.js: engine.look.<part>: set / patch / replace and the layers
-- look/report.js: describe().look, catalog('look.*')
-- look/state.js: The atmosphere contract's input side: what a function-value…
-- look/write.js: How a value gets into a LookPart: normalize, flatten, check…
+- look/ engine.look.<part>: what a game calls — coreParts.js, part.js, points.js, report.js, shadowPart.js, state.js, write.js
 - loop.js: Main loop (part of Engine, mixed into Engine.prototype): fi…
 - math.js: Small shared helpers
+- moduleSlots.js: Exclusive slots for modules ("only one may hold this": 'sky…
+- moduleTypes.js: Module types: what a module may own (a module's `stage` onl…
 - modules.js: Module installation (part of Engine, mixed into Engine.prot…
 - movement.js: One shared definition of "can walk there": character radius…
 - mulberry32.js: mulberry32, the one copy (engine.random and terrain placeme…
@@ -125,6 +130,7 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - owned.js: One ownership model for every property the engine writes on…
 - page.js: engine.page: the one place that listens to the browser wind…
 - params.js: Param schemas: one plain-object description per field, shar…
+- plugins.js: engine.plugins: the plugins folder (docs/plans/2026-11-03-s…
 - pureWorker.js: Worker that runs pure-function batches for engine.threads (…
 - saveApply.js: Applying a save (split out of Saves.js): every part is chec…
 - saveFiles.js: Save files (.json download / restore), split out of Saves.j…
@@ -139,9 +145,10 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - session.js: engine.session: one playthrough, from "new game" or "load" …
 - shaderCost.js: Approximate shader cost per compiled program, for engine.de…
 - shadowTypes.js: three 0.187 shadow filters
+- sharedPoint.js: Shared points: the ONE way several owners change a shared t…
 - skip.js: engine.skip: jump time in segments
 - stackFrames.js: Read 'file.js:50' places out of an Error stack: where a thi…
-- stacks.js: Modifier stacks: the ONE way several systems change a share…
+- stacks.js: engine.stacks: the registry of every shared point (the poin…
 - startup.js: Startup (part of Engine, mixed into Engine.prototype): star…
 - streamCells.js: Per-chunk view of stream sources for loaders that sync whol…
 - streamSources.js: Stream sources (internal half of engine.stream): the places…
@@ -153,8 +160,9 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - things.js: Object registry behind engine.thing: every root handed to e…
 - threadPure.js: Pure functions for workers: a function is sent as its sourc…
 - threadServe.js: Worker side of engine.threads lanes: serve(handler) answers…
-- tier.js: Device tier: Engine uses it at construction to pick default…
-- time.js: Time channels, engine.time: separate speeds for separate gr…
+- threePatches.js: Every change the engine makes to three.js itself or to the …
+- tier.js: Device tier: tool pages' forced tier, render scale per tier
+- time.js: engine.time: the one time source
 - uiClock.js: UI timers on the page clock
 - util.js: Small shared core helpers
 - validate.js: Runtime checks: when an option or name is misspelled, print…
@@ -182,35 +190,41 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 - photo/ Photo mode: a sharper shot, then restore — Photo.js
 - rigid/ Real physics (Rapier): objects that topple, roll, get pushed an… — RigidBodies.js, Vehicles.js, sync.js
 - settings/ Settings menu module entry — Settings.js, apply.js, sections.js, strings.js, view.js
-- sky/ Sky environment lighting part (mixed into Sky.prototype): scene… — Sky.js, cascades.js, clouds.js, domeLayers.js, environment.js, fog.js, frame.js, layers.js, look.js, lookFog.js, lookShadow.js, lookSky.js, season.js, shader.js, shadow.js, skyModule.js
-- terrain/ Terrain module: chunked, streamed ground built from a height fu… — ChunkManager.js, chunkJob.js, chunkLevels.js, chunkQueries.js, chunkWorker.js, lookGround.js, mountTerrain.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
+- sky/ Sky environment lighting part (mixed into Sky.prototype): scene… — Sky.js, cascades.js, cascades.tsl.js, clouds.js, domeLayers.js, environment.js, fog.js, frame.js, look.js, lookFog.js, lookShadow.js, lookSky.js, season.js, shader.js, shadow.js, skyModule.js, tint.js
+- terrain/ Terrain module: chunked, streamed ground built from a height fu… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, look.js, lookGround.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zones: who enters, stays, leaves — 
-- vegetation/ Vegetation module factory: engine.use(vegetation(...)) — Vegetation.js, densityMap.js, groundChunks.js, lookWind.js, modelGeometry.js, nearFade.js
-- water/ Water module: draws the global water plane (sea, big lakes; sna… — Water.js, look.js, surface.js
-- weather/ Weather: the game's table of weather types (weather({ types }))… — Weather.js, look.js, particles.js, shaders.js, strings.js
+- vegetation/ Vegetation module factory: engine.use(vegetation(...)) installs… — Vegetation.js, densityMap.js, groundChunks.js, look.js, lookWind.js, modelGeometry.js, nearFade.js
+- water/ Water module: draws the global water plane (sea, big lakes; sna… — Water.js, look.js, surface.js, surfaceDefaults.js
+- weather/ Weather, the state half (type 'world', engine.weather): the gam… — Weather.js, look.js, particles.js, shaders.js, strings.js, weatherLook.js
 - world/ world() module: installed as engine.world (world data, see Worl… — World.js, explain.js, persist.js, pos.js, records.js, sim.js, simFar.js, state.js, thingSource.js, views.js
 
 **render/**
-- PostFX.js: Post-processing as an ordered list of named effects in four…
+- PostFX.js: Post effects in five slots (both renderers)
+- backend.js: Renderer facts that differ between WebGLRenderer and WebGPU…
 - detail.js: The `detail` surface patch: grain, paper, brush strokes or …
-- effects.js: Built-in shader effects (used by render/materials.js): the …
-- engineUniforms.js: Engine uniforms (helper of patches.js): a patch uniform tha…
-- fuse.js: Fused post pass: several effects that each carry a small GL…
-- hotGlsl.js: Shader hot reload in dev: a GLSL file imported with `?raw` …
-- lighting.js: The `lighting` surface patch and the toon ramp: extra, opti…
+- effects.js: Built-in shader effects
+- engineUniforms.js: Engine uniforms (helper of patches.js)
+- fuse.js: Fused post pass
+- fx/ threedog/tsl entry: the TSL Fn library — cloudShadow.tsl.js, detail.tsl.js, lighting.tsl.js, nodeErrors.tsl.js, noise.tsl.js, objectOrigin.tsl.js, particles.tsl.js, patchNodes.tsl.js, postWebGPU.tsl.js, season.tsl.js, sky.tsl.js, uniforms.tsl.js, water.tsl.js, wind.tsl.js
+- fxNumbers.js: The numbers inside the engine's shared shader functions, wr…
+- hotGlsl.js: Shader hot reload in dev
+- lighting.js: The `lighting` surface patch and the toon ramp
 - lights.js: Default lights every engine has (engine.lights, the mechani…
 - lookGlow.js: Night glow: emissive following daylight
 - lookSurface.js: look.materials and look.surface
 - materials.js: Materials and shaders: Material factory makeMaterial(role, …
 - modeling.js: Modeling gaps three lacks
-- patches.js: Named shader patches: one way to add shader code to any thr…
-- postLook.js: look.post: the post-processing chain as a look part (recipe…
+- ownFrame.js: The game draws the frame itself: the engine notices and yie…
+- patches.js: Named shader patches
+- postLook.js: look.post: the post chain as a look part
+- postWebGL.js: Post chain on WebGLRenderer (EffectComposer)
 - probes.js: Baked light probes
 - shaderErrors.js: Shader errors naming the patch and slot
-- slots.js: Semantic patch slots: the one table that says where a patch…
-- surface.js: Surface keys of a material spec (used by makeMaterial): tex…
-- uniformDecl.js: Declares style-supplied GLSL uniforms (sky clouds, wind): {…
+- slots.js: Semantic patch slots
+- surface.js: Surface keys of a material spec
+- terms.js: Built-in material terms a game can take over whole: the clo…
+- uniformDecl.js: Declares style-supplied GLSL uniforms
 
 **ui/**
 - Focus.js: UI focus stack and choice cursor
@@ -242,13 +256,13 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 | dialogue:line | gameplay | — |
 | dialogue:start | gameplay | music |
 | engine:error | core/errors.js | — |
-| engine:ready | core/startup.js | content, flow |
+| engine:ready | core/startup.js | content, flow, rigid |
 | flow:change | flow | — |
 | flow:transition | flow | — |
 | ground:change | terrain | characters |
 | i18n:change | core/I18n.js | core/inputTouch.js, gameplay, hud, settings, timeline, ui/UI.js |
 | input:context | core/inputContext.js | — |
-| input:rebind | core/Input.js, settings | gameplay, timeline, ui/UI.js |
+| input:rebind | core/Input.js | gameplay, timeline, ui/UI.js |
 | interaction:hold | gameplay | — |
 | interaction:interrupt | gameplay | — |
 | item:use | gameplay | — |
@@ -280,12 +294,14 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 | save:loaded | core/saveApply.js | characters |
 | save:written | core/Saves.js | — |
 | season:change | calendar | calendar |
-| session:end | core/session.js | core/skip.js, flow, gameplay, hud, music, timeline, triggers |
+| session:end | core/session.js | core/skip.js, flow, gameplay, hud, music, rigid, timeline |
+| session:failed | core/session.js | flow, rigid |
 | session:start | core/session.js | core/things.js, camera, flow |
 | settings:change | settings | — |
-| settings:shadows | core/sceneMethods.js | terrain |
+| settings:shadows | (the game) | terrain |
 | state:applied | core/UrlState.js | — |
 | template:stage | content | — |
+| terrain:chunkFailed | terrain | — |
 | terrain:void | rigid, terrain | — |
 | time:skip | core/skip.js | — |
 | timeline:end | timeline | — |
@@ -304,62 +320,83 @@ Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 | weather:lightning | weather | weather |
 | world:add | world | gameplay, grid |
 | world:change | world | gameplay, grid |
-| world:load | world | characters, content, gameplay, grid |
-| world:remove | world | characters, gameplay, grid |
+| world:load | world | characters, content, gameplay, grid, rigid |
+| world:remove | world | core/stacks.js, characters, gameplay, grid |
 
-## Key actions (engine.input)
+## Input actions (engine.input)
 
-| Action | Default keys | Text key | Registered at |
+Modules declare actions without keys; the game binds them (createEngine({ bindings }), engine.input.bind, presets.bindings.*). Only the basics have default keys.
+
+| Action | Context | Text key | Declared at |
 |---|---|---|---|
-| moveForward | ['KeyW', 'ArrowUp'] | input.moveForward | core/inputDefaults.js |
-| moveBack | ['KeyS', 'ArrowDown'] | input.moveBack | core/inputDefaults.js |
-| moveLeft | ['KeyA', 'ArrowLeft'] | input.moveLeft | core/inputDefaults.js |
-| moveRight | ['KeyD', 'ArrowRight'] | input.moveRight | core/inputDefaults.js |
-| confirm | ['Space', 'Enter'] | input.confirm | core/inputDefaults.js |
-| cancel | ['Escape'] | input.cancel | core/inputDefaults.js |
-| uiUp | ['ArrowUp', 'KeyW'] | input.uiUp | core/inputDefaults.js |
-| uiDown | ['ArrowDown', 'KeyS'] | input.uiDown | core/inputDefaults.js |
-| uiLeft | ['ArrowLeft', 'KeyA'] | input.uiLeft | core/inputDefaults.js |
-| uiRight | ['ArrowRight', 'KeyD'] | input.uiRight | core/inputDefaults.js |
-| rotateLeft | rotateKeys.left//['KeyQ'] | camera.rotateLeft | camera |
-| rotateRight | rotateKeys.right//['KeyR'] | camera.rotateRight | camera |
-| jump | opts.jumpKeys | input.jump | characters |
-| run | opts.runKeys | input.run | characters |
-| brake | brakeKeys??[] | input.brake | characters |
-| debugPanel | ['F3'] | debug.toggle | debug |
-| 'choice'+i | ['Digit'+i,'Numpad'+i] | dialogue.choice | gameplay |
-| interact (parameter action) | keys | input.interact | gameplay |
-| inventory (parameter action) | keys | inventory.action | gameplay |
-| quests (parameter action) | keys | quests.action | gameplay |
-| "{a}" | ["KeyR"] | undefined | grid |
-| rotate (parameter rotate) | rotateKeys | grid.rotate | grid |
-| photo | keys | photo.action | photo |
-| menu (parameter action) | ['Escape'] (parameter keys) | settings.action | settings |
-| skip | ['Escape', 'Backspace'] (parameter skipKeys) | timeline.skipAction | timeline |
-| triggersDebug (parameter action) | keys | triggers.debug | triggers |
+| moveForward (default KeyW, ArrowUp) | walk | input.moveForward | core/inputDefaults.js |
+| moveBack (default KeyS, ArrowDown) | walk | input.moveBack | core/inputDefaults.js |
+| moveLeft (default KeyA, ArrowLeft) | walk | input.moveLeft | core/inputDefaults.js |
+| moveRight (default KeyD, ArrowRight) | walk | input.moveRight | core/inputDefaults.js |
+| confirm (default Space, Enter, PadA) | walk | input.confirm | core/inputDefaults.js |
+| cancel (default Escape, PadB) | walk | input.cancel | core/inputDefaults.js |
+| uiUp (default ArrowUp, KeyW, PadUp) | walk | input.uiUp | core/inputDefaults.js |
+| uiDown (default ArrowDown, KeyS, PadDown) | walk | input.uiDown | core/inputDefaults.js |
+| uiLeft (default ArrowLeft, KeyA, PadLeft) | walk | input.uiLeft | core/inputDefaults.js |
+| uiRight (default ArrowRight, KeyD, PadRight) | walk | input.uiRight | core/inputDefaults.js |
+| rotateLeft | walk | camera.rotateLeft | camera |
+| rotateRight | walk | camera.rotateRight | camera |
+| jump | walk | input.jump | characters |
+| run | walk | input.run | characters |
+| brake | vehicle | input.brake | characters |
+| debugPanel | walk | debug.toggle | debug |
+| 'choice'+i | dialog | dialogue.choice | gameplay |
+| action | walk | input.interact | gameplay |
+| action | walk | inventory.action | gameplay |
+| action | walk | quests.action | gameplay |
+| rotate (parameter rotate) | walk | grid.rotate | grid |
+| photo | walk | photo.action | photo |
+| cancel (parameter action) | walk | settings.action | settings |
+| skip | cutscene | timeline.skipAction | timeline |
+| triggersDebug (parameter action) | walk | triggers.debug | triggers |
 
 ## i18n key groups (engine.t; full keys are in each string table)
 
-- core/I18n.js: common.* (8), loading.* (6), input.* (12), key.* (5), ground.* (1), module.* (33), shop.* (1)
+- core/I18n.js: common.* (8), loading.* (6), input.* (12), key.* (5), ground.* (1), shop.* (1)
 - core/page.js: page.* (2)
 - core/saveFiles.js: saves.* (8)
-- modules/camera/common.js: camera.* (2)
+- modules/ambience/Ambience.js: module.* (1)
+- modules/calendar/index.js: module.* (1)
+- modules/camera/common.js: module.* (1), camera.* (2)
+- modules/characters/index.js: module.* (1)
 - modules/characters/playerStrings.js: npc.* (1), input.* (2)
-- modules/debug/DebugPanel.js: debug.* (1)
-- modules/gameplay/Dialogue.js: dialogue.* (2)
-- modules/gameplay/Quests.js: quests.* (7)
-- modules/gameplay/inventoryOps.js: inventory.* (7)
-- modules/gameplay/pickups.js: pickups.* (1)
-- modules/grid/strings.js: grid.* (11)
-- modules/hud/index.js: hud.* (1)
-- modules/level/index.js: level.* (2)
-- modules/photo/Photo.js: photo.* (1)
+- modules/collision/Collision.js: module.* (1)
+- modules/content/index.js: module.* (1)
+- modules/debug/DebugPanel.js: debug.* (1), module.* (1)
+- modules/flow/index.js: module.* (1)
+- modules/gameplay/Dialogue.js: module.* (1), dialogue.* (2)
+- modules/gameplay/Interactions.js: module.* (1)
+- modules/gameplay/Quests.js: module.* (1), quests.* (7)
+- modules/gameplay/inventoryOps.js: module.* (1), inventory.* (7)
+- modules/gameplay/pickups.js: module.* (1), pickups.* (1)
+- modules/grid/strings.js: module.* (1), grid.* (11)
+- modules/hlod/index.js: module.* (1)
+- modules/hud/index.js: module.* (1), hud.* (1)
+- modules/level/index.js: module.* (1), level.* (2)
+- modules/lights/index.js: module.* (1)
+- modules/music/Music.js: module.* (1)
+- modules/nav/index.js: module.* (1)
+- modules/net/index.js: module.* (1)
+- modules/particles/Particles.js: module.* (1)
+- modules/photo/Photo.js: module.* (1), photo.* (1)
+- modules/rigid/RigidBodies.js: module.* (1)
 - modules/rigid/Vehicles.js: vehicle.* (2)
-- modules/settings/strings.js: settings.* (42)
-- modules/timeline/Timeline.js: timeline.* (2)
-- modules/triggers/index.js: triggers.* (1)
-- modules/weather/strings.js: weather.* (8)
-- ui/defaults.js: title.* (3)
+- modules/settings/strings.js: settings.* (42), title.* (1), module.* (1)
+- modules/sky/skyModule.js: module.* (1)
+- modules/terrain/index.js: module.* (2)
+- modules/timeline/Timeline.js: module.* (1), timeline.* (2)
+- modules/triggers/index.js: module.* (1), triggers.* (1)
+- modules/vegetation/index.js: module.* (2)
+- modules/water/Water.js: module.* (1)
+- modules/weather/strings.js: module.* (1), weather.* (8)
+- modules/weather/weatherLook.js: module.* (1)
+- modules/world/index.js: module.* (1)
+- ui/defaults.js: title.* (2)
 
 ## Style keys (who reads engine.style.xxx)
 

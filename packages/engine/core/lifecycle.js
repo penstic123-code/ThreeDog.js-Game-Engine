@@ -6,7 +6,8 @@
 //   - DOM listeners: attach to engine.signal (an AbortController); dispose aborts them all at once. Modules and games adding their own window / document listeners do the same:
 //       addEventListener('resize', fn, { signal: engine.signal })
 //   - UI elements: the engine and modules build UI under engine.uiRoot, removed as a whole on dispose; do not attach to document.body directly.
-//   - Events, onFixed / onFrame, clock timers, jobs, stream, ray registrations: core clears them all, modules need not.
+//   - Events, onFixed / onFrame, clock timers, jobs, stream, ray registrations: core clears them all here. A module registers its own through
+//     ctx.track (modules.js), so they also leave when its install rolls back or its init fails, and go before its dispose hook runs.
 //   - Things core does not know about (Worker, physics world, Audio nodes, real-time timers): clean up in the module's dispose(e) hook, called in reverse install order.
 //   - GPU memory: every geometry, material and texture in the scene, the assets cache, the post composer, then renderer.dispose().
 // Level changes do not come through here: things inside a level register with level.track(handle), and the level removes them itself on change.
@@ -14,6 +15,8 @@
 import { coded, codedError } from './errorHints.js';
 import { dropOwned } from './owned.js';
 import { reportError } from './errors.js';
+import { releaseContext, memory } from '../render/backend.js';
+import { dropPlainTerms } from '../render/terms.js';
 
 /** The per-step / per-frame callback lists (onFixed, onFrame, onRender, module hooks), empty: the constructor's starting state and what dispose leaves */
 export function clearHooks(e) {
@@ -50,18 +53,20 @@ export const lifecycleMethods = {
   dispose(opts = {}) {
     if (opts === null || typeof opts !== 'object' || Object.keys(opts).some(k => k !== 'keepContext')) throw codedError('dispose-options', STRINGS.opts.replace('{v}', JSON.stringify(opts)));
     if (this.disposed) return;
-    this.disposed = true; this.ready = false; this.paused = true;
+    this.phase = 'disposed'; this.paused = true;
     cancelAnimationFrame(this._raf);
     dropOwned(this, [...(this._owned?.values() ?? [])]);   // owned.js keeps a page-wide list for allowOwned
     for (const m of [...this.modules.values()].reverse()) {
       this._modState.set(m.name, 'disposed');
+      this._dropTracked(m.name);   // its listeners / timers go first, so nothing calls into the module while its dispose tears it down
       if (!m.dispose) continue;
       try { m.dispose(this); } catch (err) { reportError(this, err, coded('module-dispose', STRINGS.failed.replace('{name}', m.name)), { soft: true }); }
     }
     this._abort.abort();
+    this._untrackValidate();
     this._wraps?.dispose();   // engine.wrap: every wrapped method back on its object (a game object or api may outlive the engine)
     this.debug.dispose();   // before the scene is disposed: undoes every diagnostic override and view (puts swapped materials back)
-    for (const part of [this.saves, this.audio, this.clock, this.time, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
+    for (const part of [this.saves, this.audio, this.time, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
     this._roomEnv?.dispose(); this._roomEnv = null;
     clearHooks(this); this._afterTick = null;
     this.scene.traverse(disposeObject);
@@ -71,9 +76,11 @@ export const lifecycleMethods = {
     if (this.scene.background?.isTexture) this.scene.background.dispose();
     this.assets.dispose();
     this.post.dispose();
+    this._webglOnlyView?.remove(); this._webglOnlyView = null;
+    dropPlainTerms(this);
     this._gpu?.dispose();
     this.renderer.dispose();
-    if (this._ownsRenderer && !opts.keepContext) { this.renderer.forceContextLoss(); released.add(this.renderer.domElement); }
+    if (this._ownsRenderer && !opts.keepContext) { releaseContext(this.renderer); released.add(this.renderer.domElement); }
     this.ui._dispose();
     this._materials.remove();
     this._uiStyle.remove();
@@ -86,9 +93,9 @@ export const lifecycleMethods = {
    * Each installed module with a counts(e) hook adds its own field under its name, e.g. world { records, views }, rigid (body count), particles { alive, emitters }, sky { timers }.
    */
   counts() {
-    const mem = this.renderer.info.memory;
+    const mem = memory(this.renderer);
     const c = {
-      listeners: this.events.size, fixed: this._fixed.length + this._fixedLate.length, frame: this._frame.length, timers: this.clock.size,
+      listeners: this.events.size, fixed: this._fixed.length + this._fixedLate.length, frame: this._frame.length, timers: this.time.size,
       statics: this.rays.statics.size, streamEntries: this.stream.entries.size, jobs: this.jobs.pending, commits: this.commits.pending,
       geometries: mem.geometries, textures: mem.textures,
     };

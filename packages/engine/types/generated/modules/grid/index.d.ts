@@ -66,12 +66,12 @@ export class Grids {
     define(name: string, rule: import("./Grid.js").GridRule): void;
     /**
      * Show where an item would go: the target cell under the pointer ('pointer', default), in front of the player ('front') or from your
-     * function, turned by the input action rotate (default name 'rotate'; the game binds it, or pass rotateKeys / ...presets.keys.gridRotate, the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
+     * function, turned by the input action rotate (default name 'rotate'; the game binds it, e.g. presets.bindings.gridRotate; the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
      * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
-     * @example engine.input.define('place', ['Mouse0']);   // the game's own binding
-     *   const pv = engine.grids.preview({ grid: 'field', item: 'tower', ...presets.keys.gridRotate });
+     * @example engine.input.bind({ place: ['Mouse0'], ...presets.bindings.gridRotate });   // the game's own bindings
+     *   const pv = engine.grids.preview({ grid: 'field', item: 'tower' });
      *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.code)); } });
-     * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotateKeys?: string[], rotation?: number, look?: false | ((e: any) => any) }} opts
+     * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotation?: number, look?: false | ((e: any) => any) }} opts
      * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, code: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, code?: string }, remove(): void }}
      */
     preview(opts: {
@@ -79,7 +79,6 @@ export class Grids {
         item: string;
         from?: "pointer" | "front" | ((e: any) => any);
         rotate?: string | false;
-        rotateKeys?: string[];
         rotation?: number;
         look?: false | ((e: any) => any);
     }): {

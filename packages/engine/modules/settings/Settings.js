@@ -1,4 +1,4 @@
-// Settings menu module: Esc opens it in game (when the UI focus stack is empty: no window, dialogue or cutscene open; see ui/Focus.js); tabs for graphics,
+// Settings menu module: the basic cancel key (Esc / pad B) opens it in game (when the UI focus stack is empty: no window, dialogue or cutscene open; see ui/Focus.js); tabs for graphics,
 // audio, keys, language, saves (export / import save files).
 // Changes apply at once and autosave to the browser (localStorage), restored on the next launch.
 //
@@ -14,6 +14,7 @@
 //
 // A game's own settings page (e.g. "Gameplay"):
 //   engine.settings.define('subtitles', true, on => game.subtitles = on);   // custom setting: default value + apply function, autosaved
+//   engine.settings.define('volfog', true, { limits: 'look.post.volfog.enabled' });   // off holds the game's own effect off, like the shadows row
 //   engine.settings.addSection('gameplay', {
 //     title: e => e.t('my.gameplay'),
 //     render: (tools, e, s) => tools.row(tools.t('my.subtitles'), tools.toggle('subtitles', s.get('subtitles'))),
@@ -31,7 +32,7 @@ import { makeWindow, injectUICSS, uiFocus } from '../../ui/UI.js';
 import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
-import { applySetting } from './apply.js';
+import { applySetting, allowed, checkLimits } from './apply.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { reportError } from '../../core/errors.js';
 
@@ -45,8 +46,9 @@ const PRESETS = {
 const POST_KEYS = ['bloom', 'ao'];
 
 export class Settings extends SettingsView {
-  constructor(engine, { action = 'menu', keys = ['Escape'], storageKey, presets = {}, sections = true, freezeWorld = false } = {}) {
+  constructor(engine, { action = 'cancel', storageKey, presets = {}, sections = true, freezeWorld = false } = {}, track) {
     super();
+    /** @internal the module's ctx.track: listeners the settings and its sections add leave with the module */ this._track = track;
     this.engine = engine;
     this.action = action;
     this.presets = { ...PRESETS };
@@ -56,18 +58,21 @@ export class Settings extends SettingsView {
     this.storageKey = storageKey || p.replace(/save-$/, '') + 'settings';
     this.sections = new Map();
     this.custom = new Map();         // game's custom settings: key -> { def, apply }
-    this.defaultBindings = {};       // default keys per action (recorded the first time seen)
     this.capturing = null;           // action name waiting for a key press
     this.current = null;             // current tab
     this.freezeWorld = freezeWorld;
-    this._syncT = 0;
 
     engine.i18n.add(STRINGS);
-    engine.input.define(action, keys, 'settings.action');
+    // the default opener is the basic cancel key (the UI focus stack hands it to the menu when nothing else is open); another action is the
+    // game's, declared here and bound by the game (settings({ action: 'menu' }) + engine.input.bind('menu', ['Tab']))
+    if (action !== 'cancel') track(engine.input.action(action, { label: 'settings.action', owner: 'settings' }));
     injectUICSS(CSS);
 
     const stored = this._read();
-    this.saved = stored;                       // raw data read back (key bindings apply only after every action is registered)
+    this.saved = stored;                       // raw data read back
+    // the player's saved keys: through input.rebind, the one way to rebind (the settings layer of 'input.keys'). It works before the module that
+    // declares an action is installed, so nothing waits for "every action registered"
+    for (const [a, k] of Object.entries(stored.bindings || {})) if (Array.isArray(k) && k.length) engine.input.rebind(a, k);
     this.values = { ...this._currentValues(), ...(stored.values || {}) };
     this._applyAll();
     // Tabs: true = the default set; a list picks built-in and optional tabs by name (optional ones register their own settings in setup)
@@ -85,13 +90,14 @@ export class Settings extends SettingsView {
     this.win.refresh = () => { baseRefresh(); this._afterRefresh(); };
     this._bindDOM(this.win.el);
 
+    track(this.win);
     // The back key (Esc) has one entry point: with an empty focus stack it opens the menu; while the menu is open the window's onCancel handles it
     this.focus = uiFocus(engine);
     this.focus.setRoot(() => this.open());
     // The close button, the back key and code close() all go through the window's toggle, emitting ui:open / ui:close
-    engine.events.on('ui:open', id => { if (id === 'settings') this._pause(true); });
-    engine.events.on('ui:close', id => { if (id === 'settings') this._pause(false); });
-    engine.events.on('i18n:change', () => { if (this._ready) this.save(); });
+    track(engine.events.on('ui:open', id => { if (id === 'settings') this._pause(true); }));
+    track(engine.events.on('ui:close', id => { if (id === 'settings') this._pause(false); }));
+    track(engine.events.on('i18n:change', () => { if (this._ready) this.save(); }));
   }
 
   // ---------- reading and writing settings ----------
@@ -112,11 +118,21 @@ export class Settings extends SettingsView {
     this.values.quality = name;
     this.save(); this.win.refresh();
   }
-  /** A game's custom setting: default value + apply function (called once at once with the saved value) */
+  /**
+   * A game's custom setting: default value + apply function (called at once with the saved value), or { apply, limits }. limits names the shared
+   * value(s) the row restricts on the settings layer, the same way the built-in shadows row does: off holds the value off (a cutscene or the
+   * scene cannot turn it back on), on allows what the scene chose; a number row from 0 to 1 is a factor on a number value.
+   * @param {string} key @param {any} def
+   * @param {((value: any, engine: any) => void) | { apply?: (value: any, engine: any) => void, limits?: string | string[] }} [apply]
+   * @example engine.settings.define('volfog', true, { limits: 'look.post.volfog.enabled' });   // after look.post.add(volFog)
+   */
   define(key, def, apply) {
-    this.custom.set(key, { def, apply });
+    const o = typeof apply === 'function' || apply == null ? { apply } : apply;
+    const limits = o.limits == null ? null : [].concat(o.limits);
+    if (limits) checkLimits(this, key, def, limits);
+    this.custom.set(key, { def, apply: o.apply, limits });
     if (!(key in this.values)) this.values[key] = def;
-    try { apply?.(this.values[key], this.engine); } catch (err) { reportError(this.engine, err, `settings '${key}' apply`, { soft: true }); }
+    this._apply(key, this.values[key]);
     return this;
   }
   /** Add a tab */
@@ -130,15 +146,14 @@ export class Settings extends SettingsView {
   removeSection(id) { this.sections.delete(id); if (this.current === id) this.current = null; this.win.refresh(); }
 
   get isOpen() { return this.win.open; }
-  open() { if (!this.win.open) { this._syncActions(); this.win.toggle(true); } }
+  open() { if (!this.win.open) this.win.toggle(true); }
   close() { this.capturing = null; if (this.win.open) this.win.toggle(false); }
   toggle(on = !this.win.open) { on ? this.open() : this.close(); }
 
-  /** Reset all keys to defaults */
+  /** Reset all keys to the game's (takes every player rebinding away) */
   resetBindings() {
-    this._syncActions();
-    for (const [a, keys] of Object.entries(this.defaultBindings)) Object.assign(this.engine.input.actions.get(a), { keys: [...keys], custom: false });
-    this.engine.events.emit('input:rebind', { action: null, keys: null });
+    const inp = this.engine.input;
+    for (const a of Object.keys(inp.rebound())) inp.rebind(a, null);
     this.save();
   }
   /** Replace an action's first key with code (spare keys are kept) */
@@ -154,14 +169,15 @@ export class Settings extends SettingsView {
     const groups = {};
     for (const [, v] of all) groups[v.labelKey] = (groups[v.labelKey] || 0) + 1;
     const seen = {}, owner = {};
-    for (const [a, v] of all) for (const k of v.keys) (owner[k] ||= []).push(a);
-    // Conflict: one key shared by several actions, and not already so by default (Esc is both "back" and "menu" by default; not a conflict)
-    const isDefault = (a, k) => (this.defaultBindings[a] || inp.keysOf(a)).includes(k);
+    for (const [a] of all) for (const k of inp.keysOf(a)) (owner[k] ||= []).push(a);
+    // Conflict: one key shared by several actions because the player rebound one of them (the game's own sharing, W walks and moves the cursor, is not)
+    const mine = inp.rebound(), isDefault = (a, k) => !mine[a]?.includes(k);
     const conflict = k => owner[k].length > 1 && !owner[k].every(a => isDefault(a, k));
     return all.map(([action, v]) => {
       let name = this.engine.t(v.labelKey);
       if (groups[v.labelKey] > 1) name += ' ' + (seen[v.labelKey] = (seen[v.labelKey] || 0) + 1);
-      return { action, name, label: inp.label(action), keys: v.keys, conflict: v.keys.some(conflict) };
+      const keys = inp.keysOf(action);
+      return { action, name, label: inp.label(action), keys, conflict: keys.some(conflict) };
     });
   }
 
@@ -170,13 +186,7 @@ export class Settings extends SettingsView {
     try { const d = JSON.parse(localStorage.getItem(this.storageKey)); return d && typeof d === 'object' ? d : {}; } catch { return {}; }
   }
   save() {
-    const inp = this.engine.input, bindings = {};
-    for (const [a, def] of Object.entries(this.defaultBindings)) {
-      const cur = inp.keysOf(a);
-      if (cur.join() !== def.join()) bindings[a] = cur;
-    }
-    // Actions not registered yet (the game defines them later) keep their previously saved binding
-    for (const a in this.saved.bindings || {}) if (!(a in this.defaultBindings)) bindings[a] = this.saved.bindings[a];
+    const bindings = this.engine.input.rebound();   // only the player's changes; restored through input.rebind on the next launch
     const data = { v: 1, values: this.values, bindings, locale: this.engine.i18n.locale };
     this.saved = data;
     try { localStorage.setItem(this.storageKey, JSON.stringify(data)); } catch { return false; }
@@ -191,9 +201,9 @@ export class Settings extends SettingsView {
    */
   chunkHost() { return this.engine.terrain ?? this.engine.vegetation?.host ?? null; }
   _currentValues() {
-    const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: !!e.shadows };
+    const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: allowed(e, 'look.shadow.enabled') };
     v.antialias = e.post.antialias;
-    for (const k of POST_KEYS) if (e.post.get(k)) v[k] = e.post.get(k).enabled;
+    for (const k of POST_KEYS) if (e.post.get(k)) v[k] = allowed(e, `look.post.${k}.enabled`);
     if (e.adaptive) v.adaptive = !!e.adaptive.on;
     const H = this.chunkHost();
     if (H) { v.viewChunks = H.viewChunks ?? 4; v.density = H.density ?? 1; }
@@ -216,17 +226,7 @@ export class Settings extends SettingsView {
   }
   _applyAll() { for (const k in this.values) this._apply(k, this.values[k]); }
   _apply(key, val) { applySetting(this, key, val); }
-  /** Record the default keys of newly seen actions and apply previously saved bindings */
-  _syncActions() {
-    const inp = this.engine.input, saved = this.saved.bindings || {};
-    let changed = false;
-    for (const [a, v] of inp.actions) {
-      if (a in this.defaultBindings) continue;
-      this.defaultBindings[a] = [...v.keys];
-      if (Array.isArray(saved[a]) && saved[a].length) { v.keys = [...saved[a]]; v.custom = true; changed = true; }
-    }
-    if (changed) this.engine.events.emit('input:rebind', { action: null, keys: null });
-  }
+
 
   // ---------- module hooks ----------
   init() {
@@ -239,11 +239,9 @@ export class Settings extends SettingsView {
     }
     for (const [key, c] of this.custom) if (!(key in this.values)) this.values[key] = c.def;
     this.values.quality = this._matchPreset();
-    this._syncActions();
   }
-  frame(dt) {
+  frame() {
     const inp = this.engine.input;
-    if ((this._syncT -= dt) <= 0) { this._syncT = 1; this._syncActions(); }
     if (this.capturing) {
       const code = [...inp.justPressed][0];
       // The back key is routed to _cancel by the UI focus stack (cancels rebinding); nothing to do here
@@ -277,11 +275,11 @@ export class Settings extends SettingsView {
 }
 
 
-const SETTINGS_PARAMS = keysSchema(['action', 'keys', 'storageKey', 'presets', 'sections', 'freezeWorld']);
+const SETTINGS_PARAMS = keysSchema(['action', 'storageKey', 'presets', 'sections', 'freezeWorld']);
 
 /**
  * Settings menu module. Installs engine.settings. Install it after the other modules.
- * @param opts action/keys action that opens the menu (default 'menu' = Esc); storageKey storage key; presets override graphics presets;
+ * @param opts action the action that opens the menu (default the basic 'cancel'; another one the game binds); storageKey storage key; presets override graphics presets;
  * sections which tabs: true (default) graphics, audio, controls, language, saves; a list picks by name, including the optional 'game' (resume, load, back to
  * title) and 'camera' (sensitivity, invert Y, field of view); false for none;
  * freezeWorld pause gameplay while the menu is open (with flow it switches to flow's 'paused', otherwise engine.freeze; rendering continues), default false
@@ -290,10 +288,14 @@ export function settings(opts = {}) {
   readParams('settings', SETTINGS_PARAMS, opts);
   let s = null;
   return {
-    name: 'settings', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation'], stage: 'presentation',
-    install(e) { s = new Settings(e, opts); return s; },
+    name: 'settings', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation'], stage: 'effects',
+    install(e, ctx) {
+      s = new Settings(e, opts, ctx.track);
+      ctx.track(e.ui.titleItem('settings', { label: x => x.t('title.settings'), run: () => s.open() }));   // the title screen's Settings button
+      return s;
+    },
     init() { s.init(); },
-    frame(dt) { s.frame(dt); },
+    frame() { s.frame(); },
     // the values the player chose (quality preset, volumes, ...) explain a picture or a sound level; open / tab / capturing say the menu holds the input
     describe() { return { open: s.isOpen, tab: s.current, capturing: s.capturing, values: { ...s.values } }; },
   };

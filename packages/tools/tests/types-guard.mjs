@@ -18,7 +18,7 @@ createEngine({ canvas: document.createElement('canvas'), styel: {} });
 const home = new THREE.Vector3();
 console.log(home[0]);
 // A plain object literal (no annotation): TypeScript widens 'texture' / 'mix' / a [[t, v]] list; that must still pass. A misspelled field must still fail.
-const okStyle = { terrain: { config: { shading: 'texture' } }, seasons: { mode: 'mix' }, exposure: [[0, 1.6], [0.5, 1]], post: [{ name: 'x', slot: 'ldr' }] };
+const okStyle = { terrain: { config: { shading: 'texture' } }, seasons: { mode: 'mix' }, exposure: [[0, 1.6], [0.5, 1]], plugins: { 'x.js': { default: { name: 'x', slot: 'ldr', fuse: { glsl: '' } } } } };
 const badStyle = { exposur: 1 };
 createEngine({ canvas: document.createElement('canvas'), style: okStyle });
 createEngine({ canvas: document.createElement('canvas'), style: badStyle });
@@ -26,6 +26,14 @@ createEngine({ canvas: document.createElement('canvas'), style: badStyle });
 function box({ w, rough }) { return w + rough; }
 box({ w: 1 });
 function tree(opts = {}) { return opts.rough ?? 0.8; }
+// Plain JS TypeScript cannot follow in the game's own code (lines 16, 17 above, and 20-22): hints, never errors. An engine API typo stays an error (24); line 23 is valid
+import { float } from 'three/tsl';
+const fx = { time: 0 }; fx.density = 0.1;
+const mat = fx.time > 0 ? new THREE.ShaderMaterial() : new THREE.MeshBasicMaterial(); console.log(mat.uniforms);
+let s = float(0); s = s.add(1);
+const eng = createEngine({ canvas: document.createElement('canvas') }); const fog = () => ({ name: 'fog', slot: 'hdr', create: () => ({}) }); eng.look.post.add(fog());
+eng.look.post.ad(fog());
+console.log(eng.random());
 `;
 
 export async function run({ check }) {
@@ -45,9 +53,15 @@ export async function run({ check }) {
     check('numeric index on a Vector3: home[0] (any would silently turn into NaN)', errs.some(l => /probe\.js:8 .*numeric index/.test(l)), errs.join(' | '));
     check('unannotated style literal with literal-union fields passes (line 12)', !errs.some(l => /probe\.js:12 /.test(l)), errs.join(' | '));
     check('misspelled style field still fails (line 13)', errs.some(l => /probe\.js:13 /.test(l)), errs.join(' | '));
-    check('a destructured parameter without JSDoc: names the missing name, the cause and both fixes (not "expected an object/function, got an object/function")',
-      errs.some(l => /probe\.js:16 .*lacks `rough`.*no JSDoc.*default in the pattern.*@param/.test(l)), errs.join(' | '));
-    check('opts = {} without JSDoc: says the type came from the default {} and how to type it', errs.some(l => /probe\.js:17 .*opts\.rough.*inferred from a default `\{\}`.*@param/.test(l)), errs.join(' | '));
+    const hints = out.split(/\r?\n/).filter(l => l.trim().startsWith('!'));
+    check('a destructured parameter without JSDoc: a hint naming the missing name, the cause and both fixes (not "expected an object/function, got an object/function")',
+      hints.some(l => /probe\.js:16 .*lacks `rough`.*no JSDoc.*default in the pattern.*@param/.test(l)), hints.join(' | '));
+    check('opts = {} without JSDoc: a hint saying the type came from the default {} and how to type it', hints.some(l => /probe\.js:17 .*opts\.rough.*inferred from a default `\{\}`.*@param/.test(l)), hints.join(' | '));
+    check('a field added to the game\'s own object, a union from its own ternary, TSL node inference: hints, not errors',
+      [20, 21, 22].every(n => hints.some(l => l.includes(`probe.js:${n} `) && l.includes('plain JS'))), hints.join(' | '));
+    check('an effect returned from a function (slot widened to string) is a valid PostEffect', !errs.some(l => /probe\.js:23 /.test(l)) && !hints.some(l => /probe\.js:23 /.test(l)), errs.join(' | '));
+    check('an engine API typo still fails (look.post.ad)', errs.some(l => /probe\.js:24 .*ad/.test(l)), errs.join(' | '));
+    check('calling an object names the expression and its type (engine.random() where engine.random is a Random)', errs.some(l => /probe\.js:25 .*`eng\.random` is not a function.*Random.*`eng\.random\.<method>\(\)`/.test(l)), errs.join(' | '));
     check('no other errors (declarations themselves are clean)', errs.length === 7, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

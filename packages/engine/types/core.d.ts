@@ -2,7 +2,7 @@
 import type { Object3D, Vector3, Vector2, Color, Texture, BufferGeometry, Handle, PositionLike, Vec3Like, ColorLike, Material } from './common';
 import type { Style, StyleInput, MaterialSpec } from './style';
 import type {
-  Terrain, Vegetation, Sky, Calendar, Weather, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport,
+  Terrain, TerrainLook, Vegetation, VegetationLook, Sky, Calendar, Weather, WeatherLook, Water, WaterBody, WaterBodyOptions, VegetationRemoveEvent, Hlod, LightPool, Budget, BudgetLimits, BudgetReport,
 } from './world';
 import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
@@ -13,6 +13,7 @@ import type { Nav } from './nav';
 import type { Stream } from './generated/core/Stream';
 import type { Batching } from './generated/core/Batching';
 import type { Rays } from './generated/core/Rays';
+import type { Control } from './generated/core/control';
 import type { I18n } from './generated/core/I18n';
 import type { Audio } from './generated/core/Audio';
 import type { Input } from './generated/core/Input';
@@ -47,6 +48,12 @@ declare global {
    * interface GameEvents { 'fighter:hit': [{ attacker: string; victim: string; damage: number }] }
    */
   interface GameEvents {}
+  /**
+   * Vite's import.meta.glob, the documented way a style lists its plugins folder (style.plugins: import.meta.glob('./plugins/*.js', { eager: true }))
+   * and engine.plugins.add takes one. Declared here because a game's tsconfig has no vite/client types ("types": []), so the documented line
+   * failed the type check of a fresh game; with vite/client too, the two declarations merge as overloads.
+   */
+  interface ImportMeta { glob(pattern: string | string[], options?: { eager?: boolean; import?: string; query?: string | Record<string, string> }): Record<string, any>; }
 }
 /**
  * Events the engine and modules emit, and the arguments callbacks receive (written as an array: what each argument is).
@@ -171,6 +178,8 @@ export interface EventMap extends GameEvents {
   'rigid:rebuilt': [{ world: any; player: any; bodies: Record<string, any> }];
   /** terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides */
   'terrain:void': [{ who: any; position: { x: number; y: number; z: number } }];
+  /** A terrain chunk job failed every try (usually the game's height / groundType / placement rule throws there): the chunk stays empty and the error is reported. engine.terrain.retry() sends failed chunks again */
+  'terrain:chunkFailed': [{ cx: number; cz: number; error: any }];
   /** A vegetation instance was chopped / removed */
   'vegetation:remove': [VegetationRemoveEvent];
   /** A vegetation instance was restored */
@@ -205,7 +214,7 @@ export interface EventMap extends GameEvents {
   'net:result': [{ seq: number; name: string; ok: boolean; code: string | null; value?: any; tick: number }];
   /** A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error) */
   'engine:error': [EngineError];
-  /** A presentation module errored and was disabled (the game continues) */
+  /** A look or ui module errored and was disabled (the game continues) */
   'module:disabled': [{ name: string; message: string }];
   /** A character boarded a vehicle */
   'vehicle:enter': [{ character: Character; vehicle: Rideable }];
@@ -219,6 +228,8 @@ export interface EventMap extends GameEvents {
   'session:end': [];
   /** A playthrough started from a clean slate: kind 'new' (newGame) or 'load' (session.load, with the slot) */
   'session:start': [{ kind: 'new' | 'load'; slot?: string }];
+  /** newGame / session.load failed (a save part's load() threw) and the game was rolled back: the old playthrough goes on, no session:start */
+  'session:failed': [{ kind: 'new' | 'load'; slot?: string }];
   /** The page went away: the window lost focus or the tab was hidden (engine.page) */
   'page:blur': [{ focused: boolean; visible: boolean }];
   /** The page came back: focused and visible again */
@@ -230,6 +241,10 @@ export interface EventMap extends GameEvents {
   /** The WebGL context is back: gameplay resumes */
   'page:contextrestored': [];
 }
+/** The renderer behind engine.renderer: a WebGLRenderer by default, three's WebGPURenderer on the WebGPU route (createEngine({ renderer: 'webgpu' })).
+ * Narrow before using one side's API: `if ('isWebGPURenderer' in r)`, or engine.describe().renderer.backend */
+export type EngineRenderer = import('three').WebGLRenderer | import('three/webgpu').WebGPURenderer;
+
 /** Arguments a callback of the given event receives: known events follow EventMap, other names are not checked */
 export type EventArgs<K extends string> = K extends keyof EventMap ? EventMap[K] : any[];
 /** Event name: known events get autocompletion, any string is also allowed */
@@ -242,7 +257,7 @@ export type EventName = keyof EventMap | (string & {});
 
 /** Per-engine shader uniforms (engine.uniforms): { value } objects shared by every material of that engine */
 export interface EngineUniforms {
-  /** Fixed seconds (= engine.elapsed) */
+  /** Ambient seconds (= engine.time.now('ambient')): keeps moving while gameplay is frozen; written only by the time source */
   uTime: { value: number };
   /** Wind strength multiplier (weather) */
   uWind: { value: number };
@@ -262,12 +277,18 @@ export interface EngineUniforms {
   uDaylight: { value: number };
   /** Time of day 0-1 the sky draws (calendar time, or the sky's fixed time) */
   uTimeOfDay: { value: number };
+  /** Zenith color the sky draws this frame (keyframes, look.sky top, weather tint, lightning); linear, like every THREE.Color */
+  uSkyTop: { value: Color };
+  /** Horizon color the sky draws this frame (or the backdrop color); the default fog color ('horizon') is this same color. Read it for a shader that should meet the sky */
+  uSkyHorizon: { value: Color };
   /** Season tint of foliage (sky, by the calendar's season) */
   uFoliageTint: { value: Color };
   /** Season tint of the ground (sky, by the calendar's season) */
   uGroundTint: { value: Color };
   uFoliageMix: { value: number };
   uGroundMix: { value: number };
+  /** Snow / ash cover amount alone, x foliage, y ground, 0-1 (the 'look.ground.cover' point); the tints above already hold it blended in */
+  uCover: { value: Vector2 };
 }
 
 /** Mouse / touch pointer. ndcX/ndcY are screen coordinates in -1..1 */
@@ -312,6 +333,8 @@ export interface SaveProvider {
   first?: boolean;
   /** Join atomic ops: copied before an atomic op runs, put back if it fails (plain data; afterLoad does not run on rollback) */
   atomic?: boolean;
+  /** Dev only: called once start() finished with this part's data in the new-game state, to warn about what should not be there yet (world: records placed by code) */
+  checkNewGame?: (data: any) => void;
   /** This part's format version, default 1: raise it by 1 when what save() returns changes shape. A save with a newer version is refused */
   version?: number;
   /** Upgrade steps: old version -> data => data in the next version's shape, e.g. { 1: d => ({ ...d, beds: [] }) }.
@@ -454,6 +477,8 @@ export interface Assets {
   gridFromImage(nameOrUrl: string, opts?: { channel?: 'r' | 'g' | 'b' | 'a' | number; range?: [number, number]; bits?: 8 | 16 }): Promise<{ data: Float32Array; width: number; height: number; bits: number }>;
   /** Get a texture (.ktx2 compressed textures also work) */
   texture(nameOrUrl: string, opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] }): Promise<Texture>;
+  /** Fetch a texture for something that already shows a stand-in: use(texture) runs when it arrives; a failed load is one load-failed dev warning naming `where` and what shows `instead`, and resolves false (an error inside use() is not swallowed). opts are texture()'s options */
+  useTexture(nameOrUrl: string, use: (texture: Texture) => void, o?: { where?: string; instead?: string; opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] } }): Promise<boolean>;
   /**
    * Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is
    * removed with engine.remove
@@ -709,7 +734,7 @@ export interface TouchView {
   press(action: string): void;
   release(action: string): void;
 }
-/** A title screen button: built-ins 'start' | 'continue' | 'settings', or your own */
+/** A title screen button: built-ins 'start' | 'continue', a module's button by id (engine.ui.titleItem: 'settings'), or your own */
 export interface UITitleItem {
   id?: string;
   label: string | ((engine: Engine) => string);
@@ -734,6 +759,8 @@ export interface UIParts {
   /** Close a full-screen part, emits ui:close */
   close(name: string): void;
   isOpen(name: string): boolean;
+  /** Add a title screen button from a module (settings adds 'settings'): shown after continue / start, and nameable by id in the title's items. ctx.track the handle */
+  titleItem(id: string, item: { label: string | ((engine: Engine) => string); run(engine: Engine): any }): { remove(): void };
   /** name -> 'default' | 'custom' | 'off' */
   describe(): Record<string, string>;
   /**
@@ -771,7 +798,7 @@ export interface Ground {
   forEachCollider?(x: number, z: number, range: number, fn: (cx: number, cz: number, r: number) => void): void;
   /** Optional: chunk edge length (meters) */
   chunkSize?: number;
-  /** Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else fogFar) */
+  /** Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else the fog distance, look.fog far) */
   viewRange?(): number;
   /** Optional: collision data of a chunk (used by the physics module) */
   chunkCollision?(cx: number, cz: number): any;
@@ -787,6 +814,31 @@ export interface Ground {
 // Module definition
 // ======================================================================
 
+/** What a module's install / init receive: the module's name, track(handle) and mod(point, o), both tied to the module's life */
+export interface ModuleCtx {
+  readonly name: string;
+  /** Keep handle (anything with remove(): events.on, onFixed, onFrame, clock timers, audio.measure...) until the module goes: removed when its use()
+   *  batch rolls back, its init fails, it is replaced, or on engine.dispose() before its dispose hook. Returns the handle */
+  track<H extends { remove(): void }>(handle: H): H;
+  /**
+   * engine.mod with this module as the owner, tracked: the change goes when the module goes. Passing owner throws (use engine.mod for another name).
+   * @example ctx.mod('time.world', { mul: 0.8, layer: 'effect' })
+   */
+  mod(point: string, opts: Omit<import('./gameplay').ModOptions, 'owner'>): import('./gameplay').ModHandle;
+  /**
+   * engine.control with this module as the default owner, tracked: every character the module holds is handed back when the module goes.
+   * @example const h = ctx.control.take(guard, { layer: 'script', step: (dt, ch) => ({ x: 1, z: 0 }) })
+   */
+  control: {
+    take(who: any, opts?: Omit<Parameters<Control['take']>[1], 'owner'> & { owner?: string }): ReturnType<Control['take']>;
+    /** True while owner (default the module) holds the character */
+    has(who: any, owner?: string): boolean;
+  };
+}
+
+/** What a module may own (ModuleDef.type; core/moduleTypes.js) */
+export type ModuleType = 'world' | 'look' | 'actor' | 'rules' | 'ui' | 'net' | 'tool';
+
 /**
  * A module (the argument of engine.use). The name is the property name on the engine once installed.
  * Per-frame hook order follows stage, then before / after within a stage, then install order.
@@ -794,10 +846,24 @@ export interface Ground {
 export interface ModuleDef<Api = any> {
   /** Module name; after install, access the object returned by install through engine[name] */
   name: string;
+  /**
+   * What the module may own (required; core/moduleTypes.js): 'world' state, records, ops (draws nothing) | 'look' what is seen and heard (changes no
+   * game state: no ops, no world record writes) | 'actor' characters | 'rules' game logic | 'ui' panels and menus (binds no keys, no game save part)
+   * | 'net' multiplayer | 'tool' a one-shot job. A game module is usually 'rules'. Breaking a rule throws in dev with the fix.
+   */
+  type: ModuleType;
   /** Display name (used by the loading screen) */
   label?: string;
-  /** Names of other modules this depends on; they must be installed first (an error is thrown if not) */
+  /**
+   * Capabilities this depends on: slot names another module provides ('inventory', 'world', 'sky'), never a particular module. Missing throws with both
+   * fixes: install the engine's part of that name first, or your own module with provides: ['inventory']
+   */
   requires?: string[];
+  /**
+   * Capabilities this module holds while installed ("only one may hold this": 'sky', 'inventory'); engine.<slot> is its API too, so dependents keep
+   * working when a game swaps it: engine.use(mine(), { replaces: 'inventory' }). A second provider throws shared-taken. describe().shared shows the holder.
+   */
+  provides?: string[];
   /**
    * Optional dependencies (modules the code uses as e.xxx?. or guards with if (e.xxx); rule R16 requires listing them all).
    * An array only registers them; written as { moduleName: 'what is lost when missing' }, start() prints a one-time development hint when one is
@@ -805,11 +871,11 @@ export interface ModuleDef<Api = any> {
    */
   optional?: string[] | Record<string, string>;
   /**
-   * Hook stages (first -> last): 'control' timeline, camera -> 'world' terrain, level -> 'environment' weather, sky, water -> 'gameplay' interactions,
-   * dialogue, triggers
-   * -> 'presentation' particles, settings, objective markers -> 'late' (default) -> 'audio' music. Within a stage use before / after, then install order
+   * Hook stages, only the run order (first -> last): 'control' timeline, camera -> 'ground' terrain, level -> 'environment' weather, sky, water
+   * -> 'gameplay' interactions, dialogue, triggers -> 'effects' particles, settings, objective markers -> 'late' (default) -> 'audio' music.
+   * Within a stage use before / after, then install order. What the module may own and how its errors are handled come from type
    */
-  stage?: 'control' | 'world' | 'environment' | 'gameplay' | 'presentation' | 'late' | 'audio';
+  stage?: 'control' | 'ground' | 'environment' | 'gameplay' | 'effects' | 'late' | 'audio';
   /** Hooks run before these modules, inside one stage (ignored if not installed;
    *  use() throws on a cycle, or when the other module's stage already runs earlier) */
   before?: string[];
@@ -817,22 +883,20 @@ export interface ModuleDef<Api = any> {
    *  use() throws on a cycle, or when the other module's stage already runs later) */
   after?: string[];
   /**
-   * Presentation modules (particles, sound effects, HLOD; gameplay is unaffected without them): when a hook errors only this module is disabled and the
-   * game continues.
-   * Without it the module counts as gameplay: during development / testing an error freezes gameplay and is recorded in engine.error (error severity levels)
-   */
-  presentation?: boolean;
-  /**
    * The game cannot run without this module (default false): when its init() fails, engine.start() rejects with the module name and reason instead of
-   * starting a broken game. Without it a failed init is reported by severity (presentation: disabled and the game carries on; gameplay: error tiers) and
+   * starting a broken game. Without it a failed init is reported by severity (type look / ui: disabled and the game carries on; other types: error tiers) and
    * start() goes on. Only start() reads it; a critical module installed after start() is reported like any other
-   * @example engine.use({ name: 'saveSlots', critical: true, async init(e) { await loadSlots(); } })
+   * @example engine.use({ name: 'saveSlots', type: 'rules', critical: true, async init(e) { await loadSlots(); } })
    */
   critical?: boolean;
-  /** Install: create and return the object the game uses (engine.name) */
-  install?(e: Engine): Api;
-  /** Called at startup (download things, wait for assets); may be async */
-  init?(e: Engine): void | Promise<void>;
+  /**
+   * Install: create and return the object the game uses (engine.name). Register listeners / timers through ctx.track so they leave with the module
+   * (a use() batch that rolls back, a failed init, engine.dispose)
+   * @example install(e, ctx) { ctx.track(e.events.on('item:add', onAdd)); return api; }
+   */
+  install?(e: Engine, ctx: ModuleCtx): Api;
+  /** Called at startup (download things, wait for assets); may be async. ctx is the same as install's */
+  init?(e: Engine, ctx: ModuleCtx): void | Promise<void>;
   /** The loading screen waits until this returns true before disappearing (the hook is called isReady; in the engine ready is always a boolean property) */
   isReady?(e: Engine): boolean;
   /** After a save loaded: rebuild what the loaded state needs nearby; gameplay waits frozen until the returned Promise resolves */
@@ -879,20 +943,19 @@ export type ModuleInput = ModuleDef | ModuleInput[] | false | null | undefined;
 export interface EngineOptions {
   /** Canvas element (required unless renderer is given), e.g. document.getElementById('view') */
   canvas?: HTMLCanvasElement | HTMLElement;
-  /** A ready three.js renderer (WebGLRenderer or compatible) to use instead of creating one; canvas then defaults to renderer.domElement. The engine configures
-   * (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. WebGL is the fully supported path; WebGPU-style renderers may not run shader patches or post effects (recipe 48) */
-  renderer?: any;
+  /** 'webgl' (default): the engine builds a WebGLRenderer. 'webgpu': it builds three's WebGPURenderer (needs import 'threedog/tsl' first) and start() awaits its init().
+   * Or a ready three.js renderer (WebGLRenderer or WebGPURenderer) used as is; canvas then defaults to renderer.domElement. The engine configures
+   * (pixel ratio, size, tone mapping, shadows) only a renderer it created itself. A WebGPURenderer passed in goes the same way as 'webgpu' (start() inits it if needed) */
+  renderer?: 'webgl' | 'webgpu' | EngineRenderer;
+  /** WebGPU route only: what start() does when the browser gives no WebGPU. 'webgl2' (default): the same WebGPURenderer on its WebGL2 backend, TSL keeps
+   * working; 'webgl': a WebGLRenderer instead (faster, but NodeMaterials cannot draw: start() fails if the scene has one); 'error': start() rejects.
+   * Every fallback prints one '[threedog] WebGPU unavailable (...)' line and shows in describe().renderer */
+  fallback?: 'webgl2' | 'webgl' | 'error';
   /** Style (looks only: materials, sky, lighting, post, UI look), the game's own style (import style from './style/index.js'), or a list of parts
    * deep-merged left to right: [basePack, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders */
   style?: StyleInput;
-  /** Real-time shadows, default true */
-  shadows?: boolean;
-  /** Shadow filter: 'basic' (hard edge) | 'pcf' | 'vsm' (softest, costliest), default 'pcf'. Change later with engine.look.shadow.set({ type }) */
-  shadowType?: 'basic' | 'pcf' | 'vsm';
-  /** MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices */
+  /** MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices; with a renderer of your own, its own antialias. The start value is the canvas's own MSAA (no post chain while no effect is on) */
   antialias?: boolean;
-  /** Turn style post effects on or off by name at startup, e.g. { bloom: false }; default: each effect's own setting (costly ones off on low-tier devices) */
-  post?: Record<string, boolean>;
   /** Render resolution, default min(device pixel ratio, 1.5); the low tier uses at least 0.75 x device pixel ratio (never below 1). describe().render.scale reports it */
   pixelRatio?: number;
   /** Automatically lower resolution when the frame rate is too low, default true. Never silent: a dev warning once, and describe().render.scale.autoLowered */
@@ -910,19 +973,15 @@ export interface EngineOptions {
   fov?: number;
   /** Camera near clipping plane (meters), default 0.3 */
   near?: number;
-  /** Default fog distance (meters), default 600 */
-  fogFar?: number;
   /** UI language: 'auto' (default) follows the browser (a language starting with zh gives 'zh-CN', anything else 'en'); or force 'zh-CN' | 'en' | your own. Matched by language: 'zh' / 'zh-Hans' give 'zh-CN', 'en-US' gives 'en'; a language with no strings warns once */
   locale?: string;
   /** Override / add UI strings: { 'zh-CN': { key: text } } */
   strings?: StringTables;
   /**
-   * Keys per action: changes the neutral defaults (move / confirm / cancel) and binds gameplay actions, e.g. { interact: ['KeyE'], run: ['ShiftLeft'] };
-   * a module's define() keeps these keys
+   * The game's keys per action (keyboard, 'Mouse0', gamepad 'PadA' in one list), owner 'game': replaces the basics (move / confirm / cancel / UI
+   * cursor) and binds every other action, e.g. { interact: ['KeyE', 'PadX'], ...presets.bindings.dialogNumbers }. Same as engine.input.bind(map)
    */
-  bindings?: Record<string, string[]>;
-  /** Default gamepad buttons: { jump: 'PadA' } */
-  padBindings?: Record<string, string>;
+  bindings?: Readonly<Record<string, string | readonly string[]>>;
   /** Save name prefix; must differ when several games share one site, default 'game' */
   saveKey?: string;
   /** On-screen joystick: 'auto' (only on touch devices) | true | false */
@@ -1239,13 +1298,26 @@ export interface LookShadowPart extends LookPart<LookShadow> {
    */
   include<M extends import('three').Material>(material: M): M;
 }
-/** engine.look.post: a LookPart with add() for one custom pass */
+/** engine.look.post: a LookPart whose add() is the one way to put a post effect in the chain (game code, the plugins folder and style plugins all use it) */
 export interface LookPost extends LookPart {
-  /** Add ONE custom post pass (name, create | fuse, slot, order, params) without replacing the chain; remove() takes it out again. Slot, order and depth-order errors throw and add nothing. Change its params with set({ '<name>.<param>': v }) */
-  add(effect: PostEffect, opts?: LookOptions): LookHandle;
+  /**
+   * Add one post effect: a plain three.js Pass (WebGL; placed by kind: a pass that renders engine.scene itself replaces the scene render,
+   * FXAA / SMAA / TAA run last, any other after the style's effects in 'hdr'), a node function (input, ctx) => node (WebGPU), or an effect
+   * { name, create, node, fuse, slot, order, params } (both renderers). opts: name (its look.post key: set({ [name]: false })), slot, order
+   * (position in the chain), owner. Slot, order and depth-order errors throw and add nothing. remove() takes it out (a Pass of yours is not disposed)
+   * @example engine.look.post.add(new UnrealBloomPass(size, 0.6, 0.4, 0.85), { name: 'glow' }); engine.look.post.set({ glow: false });
+   */
+  add(x: PostEffect | { render(...args: any[]): any } | ((input: any, ctx: any) => any),
+    opts?: { name?: string; slot?: import('./generated/render/PostFX').PostSlot; order?: number; owner?: string }): { name: string | null; remove(): void };
 }
-/** engine.look.materials: a LookPart with glow() for emissive that follows daylight */
+/** engine.look.materials: a LookPart whose add() puts a shader patch on some roles, with glow() for emissive that follows daylight */
 export interface LookMaterials extends LookPart<Record<string, Record<string, any>>> {
+  /**
+   * Add a named ShaderPatch to the materials made for roles (none = all) from now on; the handle's remove() takes it out. (Was materials.patch:
+   * patch only swaps a named hook, and materials have none.)
+   * @example const h = engine.look.materials.add('tint', { slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }, { roles: ['wool'] });
+   */
+  add(name: string, patch: import('./generated/render/patches').ShaderPatch | Record<string, any>, opts?: { roles?: string[]; owner?: string }): LookHandle;
   /**
    * Materials matching `match` (a material role or material.name such as 'window', one Material, or (material) => boolean) get emissiveIntensity
    * `night` at night and `day` by day, faded in as daylight (calendar, else sky) drops below `dusk` (default 0.3, a starting value: raise it
@@ -1256,13 +1328,13 @@ export interface LookMaterials extends LookPart<Record<string, Record<string, an
    */
   glow(match: string | import('three').Material | ((material: import('three').Material) => boolean), opts: { night: number; day?: number; dusk?: number; owner?: string }): LookHandle;
 }
-/** owner: who writes the layer (non-empty name, default 'game'); roles: only materials.patch, the material roles that get the patch */
+/** owner: who writes the layer (non-empty name, default 'game'); roles: only materials.add, the material roles that get the patch */
 export interface LookOptions {
   owner?: string; roles?: string[];
   /** look.ground.replace(myMaterial, { effects: false }): your material as is, no cloud shadow / season / detail patch */
   effects?: boolean;
 }
-/** patch(name, spec): a spec instead of plain GLSL. post: fuse snippet (glsl, slot, order, uniforms, values); sky 'layer:<name>': glsl, blend, order, uniforms */
+/** patch(hook, spec): a spec instead of plain GLSL ({ glsl, tsl, uniforms }); sky 'layer:<name>': glsl, blend, order, uniforms */
 export interface LookPatchSpec {
   glsl?: string | Record<string, any>;
   /** post: 'hdr' | 'ldr' */
@@ -1278,18 +1350,22 @@ export interface LookPatchSpec {
 
 /**
  * One look part. Layers, upper wins: engine default < style < game (per owner, last write wins) < engine.debug.override.
- * A part offers only the verbs that make sense for it; the others throw naming the verb to use.
+ * Every part has the same verbs (docs/plans/2026-11-03-look-api.md); a part offers the ones that make sense for it, the others throw naming
+ * the call to use: set (values), patch (swap a named hook), add (one more named thing), replace (the one three.js thing it draws),
+ * manual (the engine stops writing), value (the one read). A whole module (behaviour, saves) is engine.use(mine(), { replaces: '<slot>' }).
  */
 export interface LookPart<P = Record<string, any>> {
   /** 'look.<part>': the id engine.catalog() and debug.override use */
   readonly id: string;
   /** Shallow-merge into the owner's layer, only the keys given; null drops a key so the layer below shows again. Keys that recompile shaders warn once in dev */
   set(params: { [K in keyof P]?: P[K] | null } & Record<string, any>, opts?: LookOptions): LookHandle;
-  /** Swap one named GLSL hook the part registered (names: engine.catalog('look.<part>').hooks); the same name again overrides; patch(name, null) restores the default */
-  patch(name: string, glsl: string | LookPatchSpec | null, opts?: LookOptions): LookHandle;
-  /** Take the whole part over (Material, texture, object, effect list ...: see the catalog); replace(null) gives it back. materials.replace takes the role first */
-  replace(impl: any, opts?: LookOptions): LookHandle;
-  replace(role: string, impl: any, opts?: LookOptions): LookHandle;
+  /** Swap one named hook the part declares (names: engine.catalog('look.<part>').hooks); the same name again overrides; patch(hook, null) restores the default */
+  patch(hook: string, code: string | LookPatchSpec | null, opts?: LookOptions): LookHandle;
+  /** Put one more named thing in next to the engine's (look.post.add, look.materials.add); the handle's remove() takes it out. Other parts throw */
+  add(...args: any[]): LookHandle;
+  /** Swap the one three.js thing the part draws (texture, sky object, Material, effect list ...: see the catalog); replace(null) gives it back. materials.replace takes the role first */
+  replace(thing: any, opts?: LookOptions): LookHandle;
+  replace(role: string, thing: any, opts?: LookOptions): LookHandle;
   /**
    * Take values the engine writes on its own (every frame or on a timer: the sky's sun, the fog, camera.far ...) for the game: the engine stops
    * writing them and the three.js object is yours. manual(keys, false) or the handle's remove() gives them back. Keys match by dotted prefix
@@ -1298,20 +1374,20 @@ export interface LookPart<P = Record<string, any>> {
    * @example engine.look.lights.manual('sun'); engine.lights.sun.intensity = 3;
    */
   manual(keys?: string | string[] | boolean, on?: boolean): LookHandle;
-  /** Drop every game and debug layer of that owner (the style value shows again); returns how many layers were removed, like engine.debug.clear */
-  clear(owner: string): number;
-  /** The resolved value of a key (what is in use now) */
+  /** The value in effect for a key (after every layer): the one read. Who set it and how: engine.describe().look.<part> */
   value(key: string): any;
-  /** The value from the highest game / debug layer for the key (undefined when only style or default gives it) */
-  top(key: string): any;
   /** The three.js object(s) behind the part (renderer, lights, scene.fog ...); changing it directly works but describe tags it 'three'.
    *  look.materials: a function, object('wool') = the last Material made for that role, object() = all of them */
   readonly object: any;
+  /** For module code that defines or drives a part (defineLookPart, recipes/52-look.md "Your own part"); a game never needs it */
+  readonly author: LookPartAuthor;
+}
+/** part.author: raw writes, extending keys, drivers and the per-frame tick, for module code. Kept off LookPart so a game's autocomplete shows only the game verbs */
+export interface LookPartAuthor {
   /** Each verb's call shape, e.g. { set: 'set(params, { owner })', replace: 'replace(role, ...)' } (also in engine.catalog('look.<part>')) */
   readonly signatures: Record<string, string>;
-  // ---- for authors of a part made with defineLookPart (recipes/52-look.md) ----
   /** Write raw keys (params, 'hook:<name>', '@replace') for an owner, no normalize; null drops a key */
-  write(owner: string, values: Record<string, any>, opts?: { layer?: 'game' | 'debug' }): LookHandle;
+  write(owner: string, values: Record<string, any>, opts?: { layer?: 'style' | 'game' | 'debug' }): LookHandle;
   /** What one owner holds for a key, or undefined */
   ownerValue(owner: string, key: string, opts?: { layer?: 'game' | 'debug' }): any;
   /** Add declared keys to a started part (same fields as defineLookPart params) */
@@ -1322,17 +1398,29 @@ export interface LookPart<P = Record<string, any>> {
   has(key: string): boolean;
   /** [key, value] pairs in effect whose key starts with prefix */
   resolved(prefix?: string): Array<[string, any]>;
+  /** Resolved params as a plain object */
+  values(): Record<string, any>;
+  /** The value from the highest game / debug layer for the key (undefined when only style or default gives it) */
+  top(key: string): any;
   /** Replace the style layer */
   restyle(values: Record<string, any>): void;
   /** Declare keys a style-driven system writes every frame (by = the driver's module name); drive(keys, null) hands them back */
   drive(keys: string[], by: string | null): void;
-  /** Unregister the part (its module went away) */
-  dispose(): void;
+  /** Who drives key every frame, or null */
+  driven(key: string): string | null;
+  /** The driver's value for a driven key this frame */
+  feed(key: string, value: any): void;
+  /** @internal Once per frame (the sky's frame calls it): function values on number keys are evaluated */
+  tick(ctx: any): void;
+  /** Run fn with the recompute held, so several writes apply once */
+  batch<T>(fn: () => T): T;
+  /** Unregister the part (its module went away); remove, not dispose: it owns no GPU resource */
+  remove(): void;
 }
 
 /** Exposure only: the tone curve is plain three.js (engine.renderer.toneMapping), written by the engine once at creation (style.toneMapping, else AgX) */
 export interface LookTone { exposure: number | Array<[number, number]> | ((t: number) => number) }
-export interface LookLightSide { color?: ColorLike; intensity?: number; /** sun only: cast soft shadows (no style: on) */ shadow?: boolean; /** hemi only */ ground?: ColorLike }
+export interface LookLightSide { color?: ColorLike; intensity?: number; /** hemi only */ ground?: ColorLike }
 /** env: the neutral generated room environment (scene.environment) the no-style baseline uses; 0 = none */
 export interface LookLights { sun: LookLightSide | 'manual' | false; hemi: LookLightSide | 'manual' | false; env: { intensity?: number; share?: number } }
 /** The map itself is the replace slot: look.env.replace('sky' | Texture | null) */
@@ -1374,9 +1462,9 @@ export interface Look {
   env: LookPart<LookEnv>;
   fog: LookPart<LookFog>;
   sky: LookPart<LookSky>;
-  /** set({ type, cascades, follow, extent ... }); include(myLitShaderMaterial) opts a ShaderMaterial of yours into cascaded shadows */
+  /** set({ enabled, type }) always (the engine's own: shadows on, 'pcf'); a sky adds cascades, follow, extent ...; include(myLitShaderMaterial) opts a ShaderMaterial of yours into cascaded shadows */
   shadow: LookShadowPart;
-  /** Roles are the keys: set({ wool: { roughness: 0.4 } }), patch(name, spec, { roles }), replace('wool', Material | fn), glow('window', { night: 2 }) */
+  /** Roles are the keys: set({ wool: { roughness: 0.4 } }), add(name, shaderPatch, { roles }), replace('wool', Material | fn), glow('window', { night: 2 }) */
   materials: LookMaterials;
   surface: LookPart<LookSurface>;
   ground: LookPart<LookGround>;
@@ -1384,7 +1472,7 @@ export interface Look {
   water: LookPart<LookWater>;
   /** Keys 'rain.speed', 'snow.size', 'lightning.brightness', overcastColor ...; patch('rain.fragment', wholeShaderText) */
   weather: LookPart;
-  /** Per effect: set({ bloom: { strength: 0.6 }, vignette: false }); patch(name, { glsl, slot, order, uniforms, values }); add(effect, { owner }); replace([effects]) */
+  /** Per effect: set({ bloom: { strength: 0.6 }, vignette: false }); add(pass | node fn | effect, { name, owner }); replace([effects]) */
   post: LookPost;
   /**
    * The game's half of the frame context every function-valued look key reads ({ time, weather, season, day, state, sky }): merge fields
@@ -1408,8 +1496,8 @@ export declare class Engine {
   THREE: typeof import('three');
   /** Style */
   style: Style;
-  /** three.js renderer */
-  renderer: import('three').WebGLRenderer;
+  /** three.js renderer: WebGLRenderer, or WebGPURenderer on the WebGPU route (EngineRenderer) */
+  renderer: EngineRenderer;
   /** Device tier: 'low' (phones, integrated graphics) | 'high'. A headless page takes it from ?threedog-tier=low|high (threedog shot / gallery / capture pass high, shot --tier low checks the low tier) */
   tier: 'low' | 'high';
   /** three.js scene */
@@ -1426,10 +1514,6 @@ export declare class Engine {
    * player by default), which does not follow the camera
    */
   focus: Vector3;
-  /** Whether shadows are on */
-  shadows: boolean;
-  /** Shadow filter in use; change it with look.shadow.set({ type }) */
-  shadowType: 'basic' | 'pcf' | 'vsm';
   /** Current ground */
   ground: Ground;
   /**
@@ -1452,9 +1536,15 @@ export declare class Engine {
    * position; null when unknown. @example engine.actor = 'boat_1'; engine.actorPosition()
    */
   actorPosition(id?: string): { x: number; y: number; z: number } | null;
-  /** True once start() completes and the loading screen is gone (every "is it ready" in the engine is such a boolean property) */
-  ready: boolean;
-  /** True after dispose() */
+  /**
+   * Where the engine is in its life: 'constructed' (start() not called) -> 'loading' (start() running: frame hooks only, no fixed step, so no game
+   * time passes and every machine opens at tick 0) -> 'ready' (world built: fixed steps run, engine:ready fires) -> 'running' (start() resolved)
+   * -> 'disposed'. engine.step() during loading runs frame hooks only
+   */
+  readonly phase: 'constructed' | 'loading' | 'ready' | 'running' | 'disposed';
+  /** phase is 'ready' or 'running': the world is built and the loading screen is gone (every "is it ready" in the engine is such a boolean property) */
+  readonly ready: boolean;
+  /** phase is 'disposed' */
   readonly disposed: boolean;
   /** Execution order of module hooks (module names, first -> last), for debugging "who runs before whom" */
   readonly moduleOrder: string[];
@@ -1475,7 +1565,7 @@ export declare class Engine {
    * message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console
    */
   readonly error: EngineError | null;
-  /** Names of presentation modules disabled after an error (modules with presentation: true) */
+  /** Names of look / ui modules disabled after an error (a module's type decides: look and ui fail soft) */
   readonly disabledModules: Set<string>;
   /**
    * The engine's cancel signal (AbortSignal): for DOM listeners write addEventListener(type, fn, { signal: engine.signal }), removed automatically on
@@ -1484,8 +1574,6 @@ export declare class Engine {
   readonly signal: AbortSignal;
   /** UI root node: UI elements of the engine and modules hang under it (don't attach to document.body directly), the whole tree is removed on dispose() */
   readonly uiRoot: HTMLDivElement;
-  /** Base fog distance (meters) */
-  fogFar: number;
   /** Installed modules: name -> module definition */
   modules: Map<string, ModuleDef>;
   /** Standalone water bodies (lakes, ponds) */
@@ -1543,6 +1631,12 @@ export declare class Engine {
   /** Every shared quantity by name; define your own with engine.stacks.define(name, { base }) */
   stacks: import('./gameplay').Stacks;
   /**
+   * Who decides where each character goes: one holder in charge per character, layers base < script < cutscene < net; a higher one pauses the
+   * lower until it ends. engine.control.take(ch, { owner, layer, step }) / .of(ch). Recipe 57
+   * @example const h = engine.control.take(npc, { owner: 'escort', layer: 'script', step: () => ({ x: 0, z: 1 }) }); ... h.remove();
+   */
+  control: Control;
+  /**
    * The one way to change what a module's public method does without copying the module: fn(next, ...args) runs instead of it; call next(...args)
    * for the method (do work before, after, or skip it). Several wrappers compose (the last wrapped runs first); remove() takes one out; listed in
    * describe().wraps. Private (_) methods throw. The methods a module promises are its contract.js api.
@@ -1555,6 +1649,17 @@ export declare class Engine {
   vars: Vars;
   /** Performance budget (off by default) */
   budget: Budget;
+  /** The plugins folder: files in the game's plugins/ plugged at start by what they export (core/plugins.js); describe().slots lists them */
+  plugins: {
+    /** Plug a folder's modules yourself (the vite preset does it): import.meta.glob('./plugins/*.js', { eager: true }) */
+    add(files: Record<string, any>, o?: { order?: string[]; off?: string[] }): any;
+    /** Take everything a plugin plugged out again (file name without .js) */
+    off(name: string): void;
+    /** Plug a switched-off plugin again */
+    on(name: string): void;
+    /** In plug order */
+    list(): { name: string; file: string; on: boolean; slots: string[] }[];
+  };
   /** Ray registry (what engine.raycast hits) */
   rays: Rays;
   /** Frame-spread job scheduler */
@@ -1570,9 +1675,12 @@ export declare class Engine {
   ops: Ops;
   /** Named fixed camera views for repeatable screenshots: define / show / release (recipes/46-blender-art-route.md) */
   views: Views;
-  /** Fixed-step count (the gameplay timeline: does not advance while frozen; commits due times, event history and the operation log use it) */
+  /**
+   * Fixed-step count (= engine.time.tick, the one time counter: does not advance while frozen; commits due times, event history and the operation
+   * log use it). Seconds are views of it: engine.time.now('real' | 'ambient' | 'calendar' | channel)
+   */
   readonly tick: number;
-  /** Seeded random numbers (use for gameplay randomness: reproducible and saved with the game) */
+  /** Seeded random numbers, an object (not a function): engine.random.next() in [0, 1), .range(a, b), .int(a, b), .pick(list), .chance(p). Use it for gameplay randomness: reproducible and saved with the game */
   random: Random;
   /**
    * Spatial stream-in and the stream sources (where the world is loaded: terrain, colliders, models, stream entries; built-in player and camera sources,
@@ -1584,14 +1692,8 @@ export declare class Engine {
   /** Startup timing report (null until start() completes) */
   startup: StartupReport | null;
   /**
-   * Real seconds: no scale, does not advance while frozen or paused; for presentation animation (swaying, floating).
-   * The other rulers: channel seconds engine.time.now(ch); calendar seconds engine.clock.now (= world-channel seconds x clock.rate, saved); time of day
-   * engine.calendar.timeOfDay (0–1, one day = dayLength calendar seconds)
-   */
-  readonly elapsed: number;
-  /**
    * This engine's shader uniforms, read by the built-in effects (wind, clouds, season, water, sky, rain). Share these objects in your
-   * own ShaderMaterial or patch instead of making your own uTime. Weather and sky write them; uTime follows engine.elapsed.
+   * own ShaderMaterial or patch instead of making your own uTime. Weather and sky write them; uTime is engine.time.now('ambient').
    * @example
    * new THREE.ShaderMaterial({ uniforms: { uTime: engine.uniforms.uTime }, vertexShader, fragmentShader });
    */
@@ -1600,16 +1702,22 @@ export declare class Engine {
   readonly waterLevel: number;
 
   // ---------- Modules (undefined when not installed) ----------
-  /** Procedural terrain (terrain() module) */
+  /** Procedural terrain, data part (terrain() module: chunks, heights, edits, collision) */
   terrain?: Terrain;
+  /** Draws the terrain chunks (terrain()'s look module, slot 'terrain-look'; undefined when a game replaced it) */
+  terrainLook?: TerrainLook;
   /** Vegetation (vegetation() module; grows on terrain or on any ground provider) */
   vegetation?: Vegetation;
+  /** Draws the plants (vegetation()'s look module, slot 'vegetation-look'; undefined when a game replaced it) */
+  vegetationLook?: VegetationLook;
   /** Sky dome, sun / moon light and fog drawn from the calendar's time (sky() module) */
   sky?: Sky;
   /** Time of day, day, seasons and clock-time timers (calendar() module); NPC schedules, content clock conditions and audio time rules read it */
   calendar?: Calendar;
-  /** Weather (weather() module, needs sky) */
+  /** Weather state (weather() module): the table, current values, set / setAuto, save, events */
   weather?: Weather;
+  /** Weather look (installed by weather(), needs sky): rain / snow particle systems, lightning flash, the weather's effect on sun, fog and sky */
+  weatherLook?: WeatherLook;
   /** Water surface (water() module) */
   water?: Water;
   /** World data (world() module): things that must be saved, survive level changes and keep changing while far away; the model is built only when nearby */
@@ -1684,8 +1792,12 @@ export declare class Engine {
   hud?: Hud;
 
   // ---------- Module system ----------
-  /** Install one or more modules (in order; dependencies must be installed first) */
-  use(...mods: ModuleInput[]): this;
+  /**
+   * Install one or more modules (in order; dependencies must be installed first). A last argument { replaces: 'slot' } swaps the module that holds
+   * that exclusive slot: it is unloaded first (its handles, changes and dispose) and put back if the new install fails.
+   * @example engine.use(myInventory(), { replaces: 'inventory' })
+   */
+  use(...mods: (ModuleInput | { replaces: string | string[] })[]): this;
   /** Whether a module is installed */
   has(name: string): boolean;
 
@@ -1767,7 +1879,16 @@ export declare class Engine {
    * @example const rt = new THREE.WebGLRenderTarget(256, 256);
    * engine.onRender(({ renderer, scene }) => { renderer.setRenderTarget(rt); renderer.render(scene, mapCam); });
    */
-  onRender(fn: (ctx: { renderer: import('three').WebGLRenderer; scene: import('three').Scene; camera: import('three').Camera; dt: number }) => void, opts?: { when?: 'before' | 'after' }): Handle;
+  onRender(fn: (ctx: { renderer: EngineRenderer; scene: import('three').Scene; camera: import('three').Camera; dt: number }) => void, opts?: { when?: 'before' | 'after' }): Handle;
+
+  /**
+   * Draw one picture now, outside the loop, on either renderer. `renderOnce()`: the frame the player sees, onto the canvas through engine.post
+   * (read the canvas in the same task, as photo mode does). `renderOnce(target)`: that frame through engine.post into a render target (the
+   * canvas's pixels). `renderOnce(target, camera)` with another camera: the scene from that camera, without post. On WebGPURenderer each call is a fresh node frame, so two calls in one task give two pictures (a RenderPipeline draws its scene pass once per frame).
+   * @example engine.renderOnce(); const url = engine.renderer.domElement.toDataURL('image/png');
+   * engine.renderOnce(rt, mapCamera);   // a minimap / thumbnail into your own render target
+   */
+  renderOnce(target?: import('three').RenderTarget | null, camera?: import('three').Camera): void;
 
   // ---------- Light probes (render/probes.js) ----------
   /**
@@ -1791,10 +1912,6 @@ export declare class Engine {
   // ---------- Settings ----------
   /** Render resolution */
   setPixelRatio(p: number): void;
-  /** Shadow toggle */
-  setShadows(on: boolean): void;
-  /** Engine-internal view-distance path (terrain viewFog): sets engine.fogFar and the camera far plane; never writes a fog the game owns. Games: engine.look.fog.set({ far }) */
-  setFogFar(d: number): void;
   /** Exposure per frame from style.exposure / look.tone keyframes or function, null for a plain number; the sky module calls it with engine.sky @readonly */
   exposureDriver: ((sky: any) => number) | null;
 
@@ -1832,7 +1949,7 @@ export declare class Engine {
   /** Run fn at the start of the next fixed step (via commits); a Promise of fn's value */
   nextFixed<T>(fn: () => T): Promise<T>;
   /**
-   * Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, the game clock and engine.elapsed all stop), frame
+   * Gameplay pause (menu, flow's paused): fixed steps are skipped entirely (onFixed, module fixed, tick and every time view but ambient stop), frame
    * hooks and rendering continue and the UI works.
    * So gameplay logic (movement, timing, quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame. owner is the freezer's
    * name, default 'game'. uniforms.uTime (wind, water, clouds) keeps moving while frozen; { ambient: true } stops it too
@@ -1853,7 +1970,7 @@ export declare class Engine {
    * Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step.
    * clock.after / every, sky.at / daily / between, day:start and season:change fire in time order as if stepped (each crossing once);
    * world records with far catch up the span in one far(rec, dt). onFixed, module fixed hooks, physics and near simulation do not run;
-   * engine.elapsed does not move. Input is locked and gameplay frozen during the skip; emits time:skip.
+   * every time view (tick, real, ambient, channels, calendar) moves as if stepped. Input is locked and gameplay frozen during the skip; emits time:skip.
    * fade 0 (default): the time has moved when skip returns. fade > 0: fade out, jump, save, fade in; the Promise resolves after the fade in (it needs frames).
    * session.newGame / load / quit cancel a running skip: it resolves null.
    * @example await engine.skip({ to: '06:00' })
@@ -1875,19 +1992,21 @@ export declare class Engine {
   checkSave(opts?: { ignore?: string[] }): Promise<{ ok: boolean; diffs: { path: string; a: any; b: any }[] }>;
   /**
    * Call engine.describe(opts?: { radius?: number }) to get the current game state (a plain object, JSON.stringify-able); radius is how far counts as
-   * "nearby" (meters, default 30).
+   * "nearby" (meters, default 30). describe('look') or describe({ only: ['look', 'shared'] }) returns just those top-level sections (the whole object
+   * is tens of KB on a big world); an unknown name comes back in unknownSections next to the list of sections.
    * engine.describe.add(name, fn) registers the game's own state in one line: the return value of fn(engine, ctx) goes into describe().<name>, and the
    * returned handle's remove() cancels it.
    * Small games use add; big games write the system as a module and use the module's describe hook. Example: engine.describe.add('range', () => ({
    * score, targets: targets.length }))
    */
   describe: {
-    (opts?: { radius?: number; center?: { x: number; z: number } }): GameState;
+    (opts?: { radius?: number; center?: { x: number; z: number }; only?: string[] }): GameState;
+    (section: string | string[]): Partial<GameState> & { unknownSections?: string[]; sections?: string[] };
     add(name: string, fn: (e: Engine, ctx: DescribeContext) => any): { remove(): void };
   };
   /**
-   * The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, one line per module with its key
-   * counts), ending with how to expand.
+   * The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, the game's describe.add sections,
+   * one line per module with its key counts, the engine tables such as shared / slots / look as one count line), ending with how to expand.
    * { path: 'world.byKind' } returns one part of describe() as JSON; { full: true } returns everything (all nearby things, every module's full data).
    * @example engine.describeText()   engine.describeText({ path: 'quests' })   engine.describeText({ full: true })
    */
@@ -2043,30 +2162,37 @@ export interface GameState {
   ready: boolean;
   /** Gameplay error in development / testing (gameplay is frozen), null when there is none */
   error: EngineError | null;
-  /** Presentation modules disabled after an error */
+  /** look / ui modules disabled after an error */
   disabledModules: string[];
   /** Modules that are initializing or failed ({ name: state }); absent when every module with an init is running (engine.moduleStates has all) */
   moduleStates?: Record<string, string>;
   /** What loading is waiting for, what failed, whether it blocks the start (engine.loading.view()) */
   loading: LoadingView;
-  /** elapsed is the run seconds (= engine.elapsed); with the sky module there are also clock, day, season, isDay, timeOfDay */
+  /** tick / real / ambient / calendar are the time views (engine.time); with the calendar module there are also clock, day, season, isDay, timeOfDay */
   time: {
-    elapsed: number; paused: boolean; frozen: boolean; headless: boolean; clock?: string; day?: number; season?: string; isDay?: boolean;
+    tick: number; real: number; ambient: number; calendar: number; paused: boolean; frozen: boolean; headless: boolean; clock?: string; day?: number; season?: string; isDay?: boolean;
     [key: string]: any;
   };
   /**
-   * Everyone who holds something (empty parts left out): pause / freeze / camera / debugView [{ owner, at }], input [{ context, owner, pass }]
-   * (input.push), gates { action: owners } (input.gate), stacks { name: holders } (other engine.mod quantities)
+   * Everyone who holds the engine still (empty parts left out): pause / freeze / camera / debugView [{ owner, at? }], input [{ context, owner, pass }]
+   * (input.push), gates { action: owners } (input.gate). Every other shared value is in `shared`
    */
   holds: { pause?: any[]; freeze?: any[]; camera?: any[]; debugView?: any[]; input?: { context: string; owner: string; pass: boolean }[];
-    gates?: Record<string, string[]>; stacks?: Record<string, any>; };
+    gates?: Record<string, string[]>; };
+  /**
+   * Every shared value and exclusive slot with entries, one row each ('move.speed[player]' for one record): the value, who decides it, how it
+   * combined, and everyone else who wants it (hidden: a set above hides theirs).
+   * @example engine.describe().shared['fog.far']   // { value: 72, writer: 'cave', layer: 'game', how: 'cave 180 × storm 0.4', also: [{ owner: 'storm', layer: 'effect', op: 'mul', value: 0.4 }] }
+   */
+  shared: Record<string, import('./gameplay').SharedRow>;
   /**
    * Player (null when there is no player), position in meters; ground is the ground type, groundName its display name
    * (i18n key ground.<type>, null if none)
    */
   player: {
-    x: number; y: number; z: number; ground: string; groundName: string | null; inWater: boolean; state: string | null;
-    running: boolean; jumping: boolean; [key: string]: any;
+    x: number; y: number; z: number; ground: string; groundName: string | null; inWater: boolean;
+    /** The character module's state name as it gives it ('idle', 'walk', 'run', 'jump'...): compare it yourself (state === 'run') */
+    state: string | null; [key: string]: any;
   } | null;
   /** Camera: type 'follow' | 'first' | 'fixed' | 'rts', override is the takeover owner's name */
   camera: { type: string | null; /** a camera rig may switch engine.camera (an EngineCamera) to orthographic */ projection: 'perspective' | 'orthographic'; orthoSize?: number; x: number; y: number; z: number; focus: { x: number; z: number }; override: string | null; [key: string]: any };
@@ -2084,13 +2210,17 @@ export interface GameState {
   };
   /** Cutscenes: count is how many are playing, skippable whether they can be skipped */
   cutscene: { count: number; skippable: boolean; [key: string]: any } | null;
-  /** Installed module names */
-  modules: string[];
+  /** Installed modules in install order: name, type, and the capabilities it provides / requires when it has any */
+  modules: { name: string; type: ModuleType; provides?: string[]; requires?: string[] }[];
+  /** What is plugged in where: plugins/ files, scene.add roots, addPass passes, modules, plain lights (core/plugins.js) */
+  slots: { slot: 'scene' | 'post' | 'material' | 'patch' | 'module' | 'light'; plugged: string; file: string; on: boolean; affects: string[] }[];
   /**
    * engine.add / world things by save tier (counts only) and what will not survive a load: unsaved ('obj#3 (main.js:88, made during play by op x)'),
    * conflicts (two systems managing one object), orphans (saved ids no object has); atCapped when dev stopped taking stacks
    */
   scene: { game: number; code: number; session: number; world: number; engine: number; unsaved: string[]; conflicts: string[]; orphans: string[]; atCapped?: boolean };
+  /** Renderer asked for ('webgl' default, 'webgpu') and the backend drawing ('webgl' | 'webgpu' | 'webgl2'; null before start()); reason: why not WebGPU, or null */
+  renderer: { requested: 'webgl' | 'webgpu'; backend: 'webgl' | 'webgpu' | 'webgl2' | null; reason: string | null };
   /** Performance (fps/cpuMs are null while paused) */
   perf: {
     fps: number | null; cpuMs: number | null; drawCalls: number; triangles: number; pixelRatio: number;
@@ -2106,10 +2236,11 @@ export interface GameState {
     /** Number of unfinished frame-spread jobs */
     jobs?: number; [key: string]: any };
   /**
-   * Weather module additions: name (label is the display name), rain, snow, fog intensity 0–1, progress is the transition progress 0–1, rainVisible /
-   * snowVisible whether raindrops / snowflakes are drawn right now (object names weather-rain / weather-snow)
+   * Weather state: name (label is the display name), rain, snow, fog intensity 0–1, progress is the transition progress 0–1
    */
   weather?: any;
+  /** Weather look: rainVisible / snowVisible whether raindrops / snowflakes are drawn right now (object names weather-rain / weather-snow), flash 0–1 */
+  weatherLook?: { rainVisible: boolean; snowVisible: boolean; flash: number };
   /**
    * Every value the engine writes on its own (sun, fog, exposure, camera.far, pixel ratio, camera ...) and who writes it now (writer): 'engine',
    * 'manual:<who>' (look.<part>.manual / sky({ sun: 'manual' })) or 'three (engine yielded)' (the game wrote it directly). manual = the takeover call

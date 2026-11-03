@@ -11,8 +11,23 @@ import { stackFrames, frameText } from './stackFrames.js';
 /** Stacks taken per session in dev: bullets or debris added every frame must not slow dev builds down for a file:line nobody reads */
 const STACK_CAP = 2000;
 const KEYS = ['position', 'rotation', 'scale', 'visible'];
-/** 'main.js:50' from a captured Error: frame 0 is captureStack, 1 engine.add, 2 its caller; the host part of a URL is dropped */
+/** 'main.js:50' from a captured Error: frame 0 is captureStack, 1 engine.add (or the scene.add hook), 2 its caller; the host part of a URL is dropped */
 function stackAt(err) { const f = stackFrames(err?.stack)[2]; return f ? frameText(f) : null; }
+
+/**
+ * Objects an engine module puts in the scene itself (sky dome, terrain chunks, default lights): owner name per object. A plain scene.add is
+ * adopted as a game object, so a module that adds with scene.add (often before engine.add exists, at construction) marks its objects here
+ * and they are registered under their module instead of showing up as the game's. A WeakMap: nothing is held after the object is dropped.
+ */
+const MODULE_OWNER = new WeakMap();
+/**
+ * Mark objects as an engine module's before scene.add (returns the first, so it fits in the call). For module code; a game never needs it.
+ * @example scene.add(engineOwned('sky', this.dome));
+ * @template {import('three').Object3D} T @param {string} module @param {[T, ...import('three').Object3D[]]} objs @returns {T}
+ */
+export function engineOwned(module, ...objs) { for (const o of objs) MODULE_OWNER.set(o, `engine:${module}`); return objs[0]; }
+/** The module owner engineOwned gave obj, else undefined @param {any} obj */
+export const moduleOwnerOf = obj => MODULE_OWNER.get(obj);
 
 /** One registered root. `at` parses the stack the first time it is read (V8 formats a stack only when .stack is read) */
 class Entry {
@@ -98,7 +113,7 @@ export class Things {
   tier(en) { return en.owner === 'world' ? 'record' : en.owner !== 'game' ? 'engine' : en.stable && en.phase === 'setup' ? 'code' : 'session'; }
 
   /**
-   * Register one root (engine.add). owner: 'game' (default) | 'world' | 'level' | 'stream' | 'engine:<module>'. Re-adding a detached object keeps its entry.
+   * Register one root (engine.add). owner: 'game' (default) | 'world' | 'level' | 'stream' | 'engine:<module>'. Re-adding a detached object keeps its entry (one with a stable id; one without is forgotten once it leaves the scene, thingOps.js).
    * @param {any} obj @param {{ id?: string, owner?: string, save?: boolean } | null} opts @param {Error | null} stack
    */
   add(obj, opts, stack) {
@@ -113,7 +128,7 @@ export class Things {
     if (owner === 'game') this.adopt(obj, en);
     return en;
   }
-  /** engine.remove: forget the entry (detach keeps it, the object may come back) */
+  /** engine.remove, or a root without a stable id that left the scene (thingOps.js): forget the entry */
   forget(obj) {
     const en = this.byObj.get(obj); if (!en) return;
     this.byObj.delete(obj);

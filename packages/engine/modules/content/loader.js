@@ -9,10 +9,10 @@ import { vegetationModel } from '../../core/namedModel.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
 import { srcOf, applyRenames, pickupId } from './ids.js';
-import { DEV } from '../../core/validate.js';
+import { DEV, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent, list } from './rules.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError, coded } from '../../core/errorHints.js';
 import { reportError } from '../../core/errors.js';
 
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
@@ -42,12 +42,8 @@ export const BUILTIN_RUNS = {
   startQuest: (e, v) => e.quests.start(v),
   toast: (e, v) => toast(e, v),
   particles: (e, v) => e.particles.emit(v.name, v.at, { count: v.count }),
-  marker: (e, v, raw) => {   // running the same marker again: remove the old one first (otherwise the old marker stays on screen)
-    const id = markerId(raw);
-    e.content.markers.get(id)?.remove();
-    e.content.markers.set(id, e.hud?.marker(v, { label: raw.label }));
-  },
-  clearMarker: (e, v, raw) => { const id = markerId(raw); e.content.markers.get(id)?.remove(); e.content.markers.delete(id); },
+  marker: (e, v, raw) => e.content._mark(markerId(raw), v, raw.label),   // the same marker again replaces the old one
+  clearMarker: (e, v, raw) => e.content._mark(markerId(raw), null),
 };
 const markerId = raw => raw.id ?? (typeof raw === 'string' ? raw : raw.place ?? `${raw.x},${raw.z}`);
 
@@ -82,7 +78,8 @@ export function loadContent(e, api, c, st, ids) {
 
   if (c.renames) applyRenames(e, c.renames);   // first: saved state under an old id must reach the new id before anything is placed under it
 
-  each(c.actions, (name, a) => e.input.define(name, a.keys, a.label));
+  // a pack's actions are the game's own (owner 'game'): loading the pack again replaces them, it is not a second binder
+  each(c.actions, (name, a) => e.input.action(name, { label: a.label, keys: a.keys, ...(a.context ? { context: a.context } : {}) }));
 
   // audio: sounds / footsteps by name into engine.audio.config, rules to ambience() / music() (core/audioRules.js). A pack loaded again
   // replaces its own rules (hot reload): a named pack by its name, an unnamed one by the data object itself, so loading the same object
@@ -130,13 +127,21 @@ export function loadContent(e, api, c, st, ids) {
     origin(id, c.npcs, id);
   });
 
-  // dialogue: a line can be several variants [{ if: condition, text }, ..., { text }]; the first whose condition holds is used
+  // dialogue: a line can be several variants [{ if: condition, text }, ..., { text }]; the first whose condition holds is used.
+  // When none holds (no unconditional last variant) the line is empty and a warning names it: throwing inside the dialogue's op would leave
+  // the conversation stuck on that node.
+  const variants = (where, list) => () => {
+    const hit = list.find(v => api.test(v.if));
+    if (!hit) warnOnce(coded('content-misuse', `content ${where}: no variant's "if" holds and there is no variant without "if", so the line is empty. ` +
+      'End the list with a plain { text } as the fallback'), where);
+    return hit?.text ?? '';
+  };
   each(c.dialogues, (id, d) => {
     const nodes = {};
     each(d.nodes, (nid, n) => {
       nodes[nid] = {
         ...n, speaker: n.speaker ?? d.speaker,
-        text: Array.isArray(n.text) ? () => n.text.find(v => api.test(v.if)).text : n.text,
+        text: Array.isArray(n.text) ? variants(`dialogues.${id}.nodes.${nid}.text`, n.text) : n.text,
         do: n.do && (() => api.run(n.do)),
         choices: n.choices?.map(ch => ({ ...ch, if: ch.if && (() => api.test(ch.if)), do: ch.do && (() => api.run(ch.do)) })),
       };
@@ -170,8 +175,8 @@ export function loadContent(e, api, c, st, ids) {
     });
     st.subs ??= [
       // the effects act for whoever crossed the zone (a { give } lands in that actor's bag); a zone emptied by removal has no id: engine.actor
-      e.events.on('trigger:enter', ({ tag, id }) => api.run(st.triggers[tag]?.onEnter, { actor: id ?? e.actor })),
-      e.events.on('trigger:exit', ({ tag, id }) => api.run(st.triggers[tag]?.onExit, { actor: id ?? e.actor })),
+      st.track(e.events.on('trigger:enter', ({ tag, id }) => api.run(st.triggers[tag]?.onEnter, { actor: id ?? e.actor }))),
+      st.track(e.events.on('trigger:exit', ({ tag, id }) => api.run(st.triggers[tag]?.onExit, { actor: id ?? e.actor }))),
     ];
   }
 

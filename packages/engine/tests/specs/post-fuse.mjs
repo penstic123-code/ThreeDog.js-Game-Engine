@@ -44,6 +44,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 后期 fuse 像素：合成 pass 的输出与逐个 pass 串联（中间隔一个直通 pass）的像素近似一致，且确实改了画面',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -70,7 +71,7 @@ export const specs = [
         const plain = (() => { p.render(0.016); return read(); })();
         let maxD = 0, sum = 0, vs = 0;
         for (let i = 0; i < fused.length; i++) { const d = Math.abs(fused[i] - serial[i]); maxD = Math.max(maxD, d); sum += d; vs += Math.abs(fused[i] - plain[i]); }
-        R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
+        R.setSize(sz.x, sz.y, false);
         return { maxD, mean: sum / fused.length, vsPlain: vs / fused.length, fusedPasses, serialPasses };
       });
       check('合成链只有 3 个 pass，逐个串联有 10 个（4 个效果 + 4 个直通 + 场景 + 输出）', r.fusedPasses === 3 && r.serialPasses === 10, JSON.stringify(r));
@@ -79,6 +80,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 描边模式：默认 depth 不多渲染场景；normal / both 渲一次法线并还原 scene；offLayer 让带该图层的物体没有线；dof 可建',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -114,7 +116,7 @@ export const specs = [
         const n0 = p.composer.passes.length, dof = L.add(E.dof({ enabled: true, focus: 12 })); p.render(0.016); out.dofOk = p.composer.passes.length > n0;
         out.dofCostly = E.dof().costly;
         dof.remove();
-        R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
+        R.setSize(sz.x, sz.y, false);
         return out;
       });
       check('depth 模式有线、不渲法线也不渲遮罩', r.depthEdges > 20 && !r.depthInfo[0] && !r.depthInfo[1], JSON.stringify(r));
@@ -127,12 +129,13 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 风格里的 bloom / ao / outline 就是 post-effects 导出的那份（同一种 pass、同样的 slot / order）；dof 与 outline 同开像素不变',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, lowpoly } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext(), sz = R.getSize(new THREE.Vector2()), W = 96, H = 72, out = {};
-        // 钉住色调：渲染基线（AgX、中性房间环境 0.5）在每个风格包下都开着，会改掉每个像素；下面 dof 的黄金值取自基线之前，
+        const { THREE } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext(), sz = R.getSize(new THREE.Vector2()), W = 96, H = 72, out = {};
+        // 钉住色调：渲染基线（AgX、中性房间环境 0.5）在每个游戏自己的 style下都开着，会改掉每个像素；下面 dof 的黄金值取自基线之前，
         // 守的是"dof 让出深度前后同一份效果"，不是基线长什么样，所以关掉基线再比（重新取值就只能证明"和现在的自己一样"）。
         // 另外基线下有一处已知差异：scene.background 是纯色时，直接渲染不做色调映射，走 post 链时 OutputPass 会把它 AgX 一遍，
         // 不开 MSAA 时下面 dof 的 blurred 会把整片天空的色差也算进去（2357 里约 2248 是背景），不是 dof 糊得多
@@ -163,14 +166,15 @@ export const specs = [
         }
         pin.forEach(h => h.remove());
         sc.remove(...mine); sc.background = bg0; sc.fog = fog0; hidden.forEach(([c, v]) => { c.visible = v; }); cam.position.copy(cp); cam.quaternion.copy(cq);
-        R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
+        R.setSize(sz.x, sz.y, false);
         // 结构对照，不比像素：风格写的 bloom() / ao() / outline() 每次调用都是新对象（create 是新箭头函数），所以比它们造出的 pass 是不是
         // post-effects 那一种、slot / order / costly / needsDepth 一致。像素哈希只能守一次性迁移，换一台机器或升级 three 就失效
         const E = threedogTest.postEffects, ctx = { scene: sc, camera: cam, width: 8, height: 8 };
         const passOf = e => { const pass = e.create({ ...ctx, params: { ...e.params } }); const C = pass.constructor; pass.dispose?.(); return C; };
         const meta = e => [e.name, e.slot, e.order, e.costly === true, e.needsDepth === true].join();
-        out.meta = lowpoly.post.map(e => [meta(e), meta(E[e.name]())]);
-        out.sameClass = lowpoly.post.map(e => [e.name, typeof E[e.name] === 'function' && passOf(e) === passOf(E[e.name]())]);
+        const stylePost = [E.outline({ color: 0x2a2620, thickness: 1, strength: 0.7, enabled: false }), E.ao({ enabled: false }), E.bloom({ strength: 0.35, radius: 0.5, threshold: 0.85 })];   // what a style's post: [...] holds
+        out.meta = stylePost.map(e => [meta(e), meta(E[e.name]())]);
+        out.sameClass = stylePost.map(e => [e.name, typeof E[e.name] === 'function' && passOf(e) === passOf(E[e.name]())]);
         return out;
       });
       const dd = r.dof, goldDof = { false: '3391731882', true: '342418655' };
@@ -183,6 +187,7 @@ export const specs = [
   },
   {
     // render/PostFX.js _direct: a Color background (or none: the clear color) is a clear, which three never tone-maps; the composer tone-maps it in OutputPass
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[guard] a THREE.Color background or the clear color is the same pixel with effects on / off and MSAA on / off (tone-mapped on both paths)',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -190,7 +195,7 @@ export const specs = [
         const { THREE, ShaderPass, CopyShader } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, S = engine.scene, gl = R.getContext();
         const sz = R.getSize(new THREE.Vector2()), aa = p._aa, bg = S.background, W = 32, H = 24;
         const shown = S.children.filter(o => o.visible); for (const o of shown) o.visible = false;
-        R.setSize(W, H, false); p.setSize(W, H);
+        R.setSize(W, H, false);
         const col = new THREE.Color(0x88ccff); S.background = col;
         const px = () => { p.render(0.016); const b = new Uint8Array(4); gl.readPixels(W >> 1, H >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [...b.slice(0, 3)]; };
         const out = { tone: R.toneMapping };
@@ -212,7 +217,7 @@ export const specs = [
         { const c = col.clone().convertLinearToSRGB(); out.raw = [c.r, c.g, c.b].map(v => Math.round(v * 255)); }
         out.restored = S.background === col;
         S.background = bg; for (const o of shown) o.visible = true;
-        p.setAntialias(aa); R.setSize(sz.x, sz.y, false); p.setSize(sz.x, sz.y);
+        p.setAntialias(aa); R.setSize(sz.x, sz.y, false);
         return out;
       });
       const d = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));

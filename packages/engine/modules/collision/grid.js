@@ -16,30 +16,31 @@ function take(out, it, x, z, range, st) {
 }
 
 export class CollisionGrid {
-  constructor() { this.cells = new Map(); this.big = []; this.seq = 0; this.stamp = 0; this.out = []; }
+  constructor() { this.cells = new Map(); this.big = new Set(); this.seq = 0; this.stamp = 0; this.out = []; }
   /** Register; item needs x, z, r. isBox puts it after circles in the callback order */
   add(item, isBox) {
     item._o = this.seq++; item._b = isBox ? 1 : 0;
     const [x0, x1, z0, z1] = cellRange(item);
-    if ((x1 - x0 + 1) * (z1 - z0 + 1) > MAX_CELLS) { this.big.push(item); return; }
+    if ((x1 - x0 + 1) * (z1 - z0 + 1) > MAX_CELLS) { this.big.add(item); return; }
     for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
       const k = i * KEY + j; let c = this.cells.get(k); if (!c) this.cells.set(k, c = []); c.push(item);
     }
   }
   remove(item) {
-    const bi = this.big.indexOf(item); if (bi >= 0) { this.big.splice(bi, 1); return; }
+    if (this.big.delete(item)) return;
     const [x0, x1, z0, z1] = cellRange(item);
     for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
       const k = i * KEY + j, c = this.cells.get(k); if (!c) continue;
-      c.splice(c.indexOf(item), 1); if (!c.length) this.cells.delete(k);
+      // swap-remove: order inside a cell does not matter (query sorts by insertion order), and splice shifted the rest of a crowded cell every time
+      const at = c.indexOf(item); if (at < 0) continue;
+      c[at] = c[c.length - 1]; c.pop(); if (!c.length) this.cells.delete(k);
     }
   }
   /** Colliders intersecting the circle at (x, z) with radius range (exactly filtered, sorted). The returned array is reused by the next query, do not keep it */
   query(x, z, range) {
     const out = this.out; out.length = 0;
     const st = ++this.stamp;
-    const big = this.big;
-    for (let i = 0; i < big.length; i++) take(out, big[i], x, z, range, st);
+    for (const it of this.big) take(out, it, x, z, range, st);
     const x0 = Math.floor((x - range) / CELL), x1 = Math.floor((x + range) / CELL), z0 = Math.floor((z - range) / CELL), z1 = Math.floor((z + range) / CELL);
     for (let i = x0; i <= x1; i++) for (let j = z0; j <= z1; j++) {
       const c = this.cells.get(i * KEY + j);

@@ -4,7 +4,8 @@ import { codedError } from './errorHints.js';
 // full-screen UI push an opaque context instead of "locking input", so there is one mechanism, not two.
 // Changes take effect at the start of the next fixed step (before the input snapshot), so a key pressed in step N never acts in both the old and the new context.
 
-const BASE_CONTEXT = 'gameplay';
+/** The base context: walking around (the common names: walk, vehicle, dialog, menu, cutscene; a game may add its own) */
+export const BASE_CONTEXT = 'walk';
 
 /** @internal */
 export function initContexts(input) {
@@ -32,7 +33,7 @@ export function pushContext(input, name, { pass = false, owner = name } = {}) {
 export function readableMap(input) {
   if (input._readable) return input._readable;
   const keysOf = new Map();
-  for (const [, a] of input.actions) { const c = a.context || BASE_CONTEXT; let s = keysOf.get(c); if (!s) keysOf.set(c, s = new Set()); for (const k of a.keys) s.add(k); }
+  for (const [n, a] of input.actions) { const c = a.context || BASE_CONTEXT; let s = keysOf.get(c); if (!s) keysOf.set(c, s = new Set()); for (const k of input.keysOf(n)) s.add(k); }
   const m = new Map(), stack = input._stack;
   for (const [name, a] of input.actions) {
     const ctx = a.context || BASE_CONTEXT;
@@ -42,7 +43,7 @@ export function readableMap(input) {
       if (c.name === ctx) { ok = true; break; }
       if (!c.pass) break;
       const shadow = keysOf.get(c.name);
-      if (shadow && a.keys.some(k => shadow.has(k))) break;
+      if (shadow && input.keysOf(name).some(k => shadow.has(k))) break;
     }
     m.set(name, ok);
   }
@@ -63,7 +64,7 @@ export function applyContexts(input) {
   const after = readableMap(input);
   for (const [name, was] of before) {
     if (!was || after.get(name)) continue;
-    for (const k of input.actions.get(name)?.keys ?? []) {
+    for (const k of input.keysOf(name)) {
       if (!input.keys.has(k)) continue;   // even if another action on this key becomes readable: it needs a fresh press (F that boards must not also exit)
       input.keys.delete(k); input._accP.delete(k); input._accR.delete(k); input._muted.add(k);
     }

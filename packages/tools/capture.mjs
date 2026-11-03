@@ -18,16 +18,15 @@ process.env.THREEDOG_TEST = '1';
 import { launchBrowser, newGamePage, buildAndPreview } from './browser.mjs';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pickWorkspace, rel } from './paths.mjs';
-import { cliOptions } from './lib/cli-args.mjs';
+import { cli, rel } from './paths.mjs';
 import { viewSize } from './lib/shot-name.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { summarize, hookScript, fetchSpector, spectorDraws } from './lib/capture-lib.mjs';
 
 // Per-draw state snapshots and stack traces make a frame 10+ MB; the default file keeps the command list (names, arguments, text) only
 const slim = cap => ({ ...cap, commands: cap.commands.map(({ id, name, commandArguments, status, text }) => ({ id, name, commandArguments, status, text })) });
-const { dir, args } = pickWorkspace(process.argv.slice(2));
-const { page: url, opt } = cliOptions(args, { flags: ['no-spector', 'full', 'no-build', 'gpu', 'software'], values: ['top', 'out', 'time', 'weather', 'pos', 'size', 'spector-url'] });
+
+const { dir, page: url, opt } = cli(process.argv.slice(2), { page: '/', flags: ['no-spector', 'full', 'no-build', 'gpu', 'software'], values: ['top', 'out', 'time', 'weather', 'pos', 'size', 'spector-url'] });
 let W, H; try { [W, H] = viewSize(opt.size); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
 const TOP = +(opt.top || 8);
 // resolve, not join: join(cwd, 'D:/caps') glued an absolute --out under the current folder ("<cwd>/D:/caps")

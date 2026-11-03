@@ -31,7 +31,7 @@ export function fakeDialogue() {
     _next(to) { const a = api.active; if (!to || to === 'end' || !a.nodes[to]) { api.end(); return; } a.node = to; api._line(); },
   };
   return {
-    name: 'dialogue',
+    name: 'dialogue', type: 'rules',
     install(engine) {
       e = engine;
       e.ops.define('dialogue.advance', { net: 'local', can: () => api.active ? true : 'noDialogue', run: () => { const n = api.active.nodes[api.active.node]; if (!n.choices) api._next(n.next); } });

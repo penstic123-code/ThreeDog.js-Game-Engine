@@ -1,5 +1,5 @@
 // Reliability guards: clean new game / continue / back to title (engine.session), save failure paths (engine.saves), window and device state (engine.page).
-// Each test is the reproducible acceptance flow for one of them; same format as specs.mjs.
+// Each test is the reproducible acceptance flow for one of them; same format as the other files here.
 
 // describe() fields that move with real time or rendering, not with game state (camera: the view angle is not part of a playthrough yet; alive: ambient particles)
 const VOLATILE = /(^|\.)(fps|cpuMs|perf|budget|render|startup|tick|elapsed|frame|done|events|ops|recent|camera|rel|alive)(\.|$)/;

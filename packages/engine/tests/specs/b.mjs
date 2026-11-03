@@ -1,4 +1,4 @@
-// Batch-3 group B specs (same format as packages/engine/tests/specs.mjs), appended at the end of specs.mjs: vehicle, character controller, navmesh, animation state machine, camera override warning.
+// Batch-3 group B specs (same format as the other files here): vehicle, character controller, navmesh, animation state machine, camera override warning.
 export const specs = [
   {
     name: 'Vehicle (Rapier vehicle controller)',
@@ -229,7 +229,7 @@ export const specs = [
         engine.pause();
         const rig = engine.cameraRig;
         let done = false;
-        rig.blend('east', 5).then(() => { done = true; });
+        rig.blend('east', { seconds: 5 }).then(() => { done = true; });
         engine.step(0.2);
         rig.cut('north');
         for (let i = 0; i < 5; i++) await Promise.resolve();

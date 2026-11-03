@@ -19,12 +19,12 @@ const TUNE = Object.freeze({
 });
 
 const style = url.get('style') === 'none' ? undefined : look;
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: 'action' } }, saveKey: 'threedog-action' });
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: 'action' } }, saveKey: 'threedog-action' });
 // A room needs no terrain, plants, weather, water or physics; a fixed time of day; an over-the-shoulder camera that locks the mouse on click,
 // starting behind the player looking along +Z into the room (yaw = which side of the player the camera sits on: PI = the -Z side)
 engine.use(openWorld({ camera: followCamera({ ...presets.camera.overShoulder, yaw: Math.PI }), terrain: false, vegetation: false, weather: false, water: false, rigid: false, ambience: false,
   calendar: { ...presets.calendar.fixedTime, time: 0.42 }, characters: { npcs: false } }),
-  interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), pickups(), content(), hud());
+  interactions({ ...presets.interactions.nearest }), inventory(), pickups(), content(), hud());
 
 engine.assets.manifest(packs);   // assets.js: floor / wall / pillar / enemy (content/templates.js) and the blip synth (content/audio.js)
 engine.characters.createPlayer({ ...presets.player.aim, spawn: TUNE.spawn });   // no body asset: the engine's gray capsule; face where the camera looks: a swing goes where you aim

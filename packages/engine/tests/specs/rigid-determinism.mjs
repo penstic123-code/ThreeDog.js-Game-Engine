@@ -1,5 +1,5 @@
 // Rigid determinism: same inputs + same number of fixed steps give bit-identical bodies (fresh pages, frame rate, save / load). Replay, engine.step,
-// saves and the net module rely on it. Same format as specs.mjs; vehicle test page (flat level, a car, ?mover=rapier for the Rapier character mover).
+// saves and the net module rely on it. Same format as the other files here; vehicle test page (flat level, a car, ?mover=rapier for the Rapier character mover).
 //
 // Why fresh pages and not two runs in one page: a Rapier world keeps solver caches, freed-handle order and islands that no body list shows, so a
 // second run in the same page can differ where a reload does not (or hide a difference a reload has). The real loop runs between page load and
@@ -15,6 +15,9 @@ async function scenario({ seconds = 2, frameEvery = 2 }) {
   const e = window.engine, R = e.rigid, T = e.THREE;
   e.pause();
   const st = { render: false, describe: false };
+  // game time starts when loading ends, and the real-time loop ran a few steps (machine speed) before this pause: let the player, created on
+  // engine:ready, land first, so the scenario starts from the same resting state on every page
+  e.step(0.5, { ...st, frameEvery });
   {
     const box = (x, y, z) => R.addBox(new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()), { size: [1, 1, 1], mass: 2 });
     const at = (b, x, y, z) => { R.setPosition(b, [x, y, z]); b.mesh.position.set(x, y, z); return b; };
@@ -70,6 +73,7 @@ export const specs = [
     // A load used to put a toppling crate back upright and at rest at its record's position (the record keeps a position only), and leave a car
     // where it was at load time: the game after the load was not the saved game. The save part 'rigid' keeps pose, velocities and sleep per body id.
     name: 'rigid save: a load restores pose, rotation and velocity of bodies with an id (world-record crates mid-topple, a driving car) [guard]',
+    serial: true,   // failed once beside other pages (load-sensitive), passes alone
     url: '/tests/vehicle/index.html',
     timeout: 180000,
     async run({ check, ev }) {

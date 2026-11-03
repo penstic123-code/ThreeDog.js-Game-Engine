@@ -1,8 +1,8 @@
 // One particle effect (helper of Particles.js): a ring buffer of particles drawn as one THREE.Points, updated on the CPU every frame.
 import * as THREE from 'three';
 import { vert, frag } from './shaders.js';
-import { warnOnce } from '../../core/validate.js';
-import { coded } from '../../core/errorHints.js';
+import { codedError } from '../../core/errorHints.js';
+import { isWebGPU, webgpuPart, onRendererSwap } from '../../render/backend.js';
 
 export const NEUTRAL = {
   max: 120, lifetime: [1, 2], rate: 10, speed: [0.5, 1.5], direction: [0, 1, 0], spread: 0.5, area: 0,
@@ -11,6 +11,10 @@ export const NEUTRAL = {
 };
 export const KEYS = Object.keys(NEUTRAL);
 const pair = v => Array.isArray(v) ? v : [v, v];
+/** The node-material side (render/fx/particles.tsl.js, loaded with threedog/tsl) when the renderer is a WebGPURenderer, else null */
+function nodeSide(engine, name) {
+  return isWebGPU(engine.renderer) ? webgpuPart('particles', `[particles ${name}] the particle material`) : null;
+}
 
 export class Effect {
   constructor(sys, name, o) {
@@ -23,27 +27,48 @@ export class Effect {
     this.sz = new Float32Array(N * 2); this.op = new Float32Array(N * 2);
     this.extra = new Float32Array(N * 3);   // gravity, drag, wind (emit may override)
     this.head = 0; this.alive = 0;
+    this._c0 = new THREE.Color(); this._c1 = new THREE.Color();
+    this._build();
+    // fallback 'webgl': an effect defined before start() was built for the WebGPURenderer start() then replaced; build its draw object again
+    // for the renderer in use (the particle state lives in the arrays above, so live particles carry over)
+    /** @internal */ this._swap = onRendererSwap(sys.engine, () => {
+      const vis = this.points.visible, was = [this.aPos, this.aSize, this.aAlpha, this.aAngle, this.aColor].map(a => a.array);
+      this.sys.engine.remove(this.points);
+      this._build();
+      [this.aPos, this.aSize, this.aAlpha, this.aAngle, this.aColor].forEach((a, i) => a.array.set(was[i]));
+      this.points.visible = vis;
+      if (this._tex) this._useTexture(this._tex);
+    });
+    if (o.texture) this._loadTexture(o.texture);
+  }
+
+  /** @internal The geometry, material and draw object for the engine's current renderer (sprite quads on WebGPU, points on WebGL) */
+  _build() {
+    const sys = this.sys, o = this.o, N = this.max, name = this.name;
     const g = this.geometry = new THREE.BufferGeometry();
-    const attr = (n, size) => { const a = new THREE.BufferAttribute(new Float32Array(N * size), size); a.setUsage(THREE.DynamicDrawUsage); g.setAttribute(n, a); return a; };
+    const gpu = nodeSide(sys.engine, name);   // WebGPU: the same attributes, read per instance by sprite quads
+    const attr = (n, size) => { const a = new (gpu ? THREE.InstancedBufferAttribute : THREE.BufferAttribute)(new Float32Array(N * size), size); a.setUsage(THREE.DynamicDrawUsage); g.setAttribute(n, a); return a; };
     this.aPos = attr('position', 3); this.aSize = attr('aSize', 1); this.aAlpha = attr('aAlpha', 1); this.aAngle = attr('aAngle', 1); this.aColor = attr('aColor', 3);
-    this.material = new THREE.ShaderMaterial({
+    this._attrs = null;
+    if (gpu) ({ material: this.material, object: this.points } = gpu.particles({ count: N, fog: o.fog !== false, additive: o.blending === 'additive',
+      maxPixels: o.maxPixels, attrs: { aPos: this.aPos, aSize: this.aSize, aAlpha: this.aAlpha, aAngle: this.aAngle, aColor: this.aColor } }));
+    else this.material = new THREE.ShaderMaterial({
       vertexShader: vert, fragmentShader: frag, transparent: true, depthWrite: false, fog: o.fog !== false,
       blending: o.blending === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending,
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: null }, uHasMap: { value: 0 }, uScale: { value: 400 }, uMaxPx: { value: o.maxPixels } }]),
     });
-    this.points = new THREE.Points(g, this.material);
+    if (!gpu) this.points = new THREE.Points(g, this.material);
     this.points.frustumCulled = false; this.points.visible = false; this.points.renderOrder = 10;
     this.points.matrixAutoUpdate = false;
     sys.engine.add(this.points, { owner: 'engine:particles' });
-    this._c0 = new THREE.Color(); this._c1 = new THREE.Color();
-    if (o.texture) this._loadTexture(o.texture);
   }
 
-  async _loadTexture(t) {
-    try {
-      const tex = t.isTexture ? t : await this.sys.engine.assets.texture(t);
-      this.material.uniforms.uMap.value = tex; this.material.uniforms.uHasMap.value = 1;
-    } catch (err) { warnOnce(coded('load-failed', `[particles ${this.name}] texture failed to load (${err?.message ?? err}); using a round dot instead`)); }
+  /** @internal */
+  _useTexture(tex) { this._tex = tex; this.material.uniforms.uMap.value = tex; this.material.uniforms.uHasMap.value = 1; }
+
+  _loadTexture(t) {
+    if (t.isTexture) this._useTexture(t);
+    else this.sys.engine.assets.useTexture(t, tex => this._useTexture(tex), { where: `particles '${this.name}'`, instead: 'a round dot shows instead' });
   }
 
   /** Emit count particles. origin {x,y,z}; o is the merged params; frame optional: particle direction rotates with the object */
@@ -105,10 +130,11 @@ export class Effect {
     this.points.visible = alive > 0;
     // upload only the used range (0 to the last live particle), not the whole buffer
     const n = hi + 1;
+    if (this.points.isSprite) this.points.count = n;   // WebGPU sprites: instances up to the last live one (dead ones in between have size 0)
     for (const a of this._attrs ||= [this.aPos, this.aSize, this.aAlpha, this.aColor, this.aAngle]) {
       a.clearUpdateRanges(); a.addUpdateRange(0, n * a.itemSize); a.needsUpdate = true;
     }
   }
 
-  dispose() { this.sys.engine.remove(this.points); }   // remove, then dispose geometry and material
+  dispose() { this._swap.remove(); this.sys.engine.remove(this.points); }   // remove, then dispose geometry and material
 }

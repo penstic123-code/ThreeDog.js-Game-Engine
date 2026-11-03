@@ -1,8 +1,8 @@
 # Adding quests (with HUD objective markers)
 
-Modules needed: `quests({ ...presets.keys.quests })` (quest log; the preset opens it with J / gamepad Select, or pass your own `keys`, `keys: []` for
+Modules needed: `quests()` (quest log; the game binds its `quests` action: `presets.bindings.quests` is J / gamepad Select, `quests: []` for
 none); objective markers need `hud()` (neither is in openWorld, add them yourself:
-`engine.use(openWorld({ camera: 'follow', ...}), quests({ ...presets.keys.quests }), hud())`).
+`engine.use(openWorld({ camera: 'follow', ...}), quests(), hud())`).
 A quest is a list of steps completed in order; each step has one completion condition (or several parallel goals), checked every half second; a quest
 may also fail. When the current step has a `target`, hud shows a marker and distance above it automatically, and an edge arrow when it is off-screen.
 
@@ -37,7 +37,7 @@ condition as `{ counter: { name: 3 } }`.
 ### Parallel goals, optional goals, failing
 Not every quest is a straight line. A step can hold several goals done in any order (`all`); a goal marked `optional` never holds the step back;
 `fail` ends the quest early:
-```js
+```js fragment
 'defend-camp': {
   title: 'Hold the camp',
   startOn: 'engine:ready',

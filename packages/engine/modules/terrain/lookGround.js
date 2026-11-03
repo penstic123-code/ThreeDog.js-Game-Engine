@@ -1,4 +1,4 @@
-// look.ground: how the terrain looks (colors, variation, shading, detail layer, material). Registered by the terrain module.
+// look.ground: how the terrain looks (colors, variation, shading, detail layer, material). Registered by the terrain look module (terrainLook): a look that replaces it brings its own controls.
 //   set({ colors, biomeColors, steep, variation, shading, detail })
 //        colors / biomeColors / steep / variation / shading are baked into the chunks by the workers: a change rebuilds every chunk (cost 'rebuild';
 //        edits stay). colors / biomeColors / steep are given whole (they replace the style's table), variation / detail are objects (style.terrain.*).
@@ -13,16 +13,16 @@ const GEN = ['colors', 'biomeColors', 'steep', 'variation', 'shading'];
 const isObj = v => (v && typeof v === 'object' ? null : 'must be an object');
 
 /**
- * @param {any} e @param {any} w the ChunkManager
- * @param {{ cfg: () => any, setCfg: (c: any) => void, game: Record<string, any> }} h (game.effects: terrain({ effects }) for its material) the module's current terrain config, and what terrain({...}) itself passed (written as owner 'terrain()')
+ * @param {any} e @param {any} look the terrain look (look.js) @param {any} w the terrain data part (ChunkManager)
+ * @param {{ cfg: () => any, setCfg: (c: any) => void, species: () => any, game: Record<string, any> }} h (game.effects: terrain({ effects }) for its material) the module's current terrain config, and what terrain({...}) itself passed (written as owner 'terrain()')
  */
-export function defineGroundLook(e, w, h) {
+export function defineGroundLook(e, look, w, h) {
   const st = e.style.terrain ?? {}, cfg0 = h.cfg();
   // materials handed over with replace(m, { effects: false }): drawn as given, no cloud / season / detail patch (keyed by the material or function)
   const bare = new WeakSet();
   const rebuild = 'rebuild';
   const part = defineLookPart(e, {
-    id: 'ground', group: 'surface', module: 'terrain', object: () => w.terrainMat, applyAtStart: false, docs: ['recipes/52-look.md'],
+    id: 'ground', group: 'surface', module: 'terrainLook', object: () => look.material, applyAtStart: false, docs: ['recipes/52-look.md'],
     params: {
       colors: { type: 'any', default: {}, neutral: true, cost: rebuild, check: isObj, desc: 'palette name -> color; the whole table (a ground type without a color is neutral gray)' },
       biomeColors: { type: 'any', default: {}, neutral: true, cost: rebuild, check: isObj, desc: 'ground type -> palette name(s); the whole table' },
@@ -45,8 +45,7 @@ export function defineGroundLook(e, w, h) {
       for (const k of GEN) if (changed.has(k)) { if (v[k] == null) delete next[k]; else next[k] = v[k]; }
       if (!next.shading) next.shading = cfg0.shading;
       h.setCfg(next);
-      const species = {}; for (const sp of e.vegetation?.list() || []) species[sp.name] = sp.rule;
-      w.reinit(next, species);
+      w.reinit(next, h.species());
     },
   });
   // what terrain({ colors, shading, material ... }) itself was given sits on the game layer under the owner 'terrain()', so describe shows it
@@ -54,12 +53,11 @@ export function defineGroundLook(e, w, h) {
   for (const k of GEN) if (h.game[k] !== undefined) given[k] = h.game[k];
   if (h.game.material !== undefined) given[REPLACE] = h.game.material;
   if (h.game.material && h.game.effects === false) bare.add(h.game.material);   // terrain({ material, effects: false }): the same record replace(m, { effects: false }) keeps
-  if (Object.keys(given).length) part.write('terrain()', given);
-  /** Rebuild the ground material from the resolved replace / detail, then every chunk picks it up */
+  if (Object.keys(given).length) part.author.write('terrain()', given);
+  /** Rebuild the ground material from the resolved replace / detail and swap it on the loaded chunks (no chunk is regenerated) */
   function material() {
     const impl = part.value(REPLACE) ?? null;
-    w.terrainMat = terrainMaterial(typeof impl === 'function' ? impl(e) : impl, e, { effects: !(impl && bare.has(impl)) });
-    w.rebuild();
+    look.setMaterial(terrainMaterial(typeof impl === 'function' ? impl(e) : impl, e, { effects: !(impl && bare.has(impl)) }));
   }
   return part;
 }

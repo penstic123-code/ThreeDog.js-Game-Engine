@@ -12,6 +12,7 @@ import { fmt, warnOnce } from './validate.js';
 import { r1 } from './math.js';
 import { SHADOW_TYPES } from './shadowTypes.js';
 import * as THREE from 'three';
+import { stats, shadowMaps } from '../render/backend.js';
 
 const STRINGS = {
   startup: 'Startup took {value} ms, over budget startupMs {limit} ms; slowest module: {top}',
@@ -35,6 +36,15 @@ const COMPILES_KEPT = 20;   // compile-stall frames remembered by ApplyCost.comp
  * extra render time of frames that first draw new objects over the average render time of other frames; stream = the synchronous part of a stream
  * build() callback.
  */
+/** Bytes of the typed arrays in a plain result object, `depth` levels down @param {any} v @param {number} depth @returns {number} */
+function arrayBytes(v, depth) {
+  if (ArrayBuffer.isView(v)) return v.byteLength;
+  if (!v || typeof v !== 'object' || depth < 0) return 0;
+  let n = 0;
+  for (const k in v) n += arrayBytes(v[k], depth - 1);
+  return n;
+}
+
 export class ApplyCost {
   /** @internal */
   constructor() {
@@ -57,9 +67,11 @@ export class ApplyCost {
     this.add(stage, performance.now() - t0);   // measure
     if (stage === 'build' || stage === 'stream') this._fresh++;
   }
-  /** @internal A worker result arrived: t0 is when its job was sent, r.ms what the worker spent computing it */
+  /** @internal A worker result arrived: t0 is when its job was sent, r.ms what the worker spent computing it.
+   * The payload size is the typed arrays in the result, at most two levels down ({ mesh: { pos, nor } }): measured from the shape of
+   * any result, so core never learns one module's field names (it used to read terrain's four arrays by name). */
   transit(t0, r) {
-    const t = r.terrain, bytes = t ? t.pos.byteLength + t.nor.byteLength + t.col.byteLength + t.uv.byteLength : 0;
+    const bytes = arrayBytes(r, 2);
     this.add('transit', Math.max(0, performance.now() - t0 - (r.ms ?? 0)), bytes);   // measure
   }
   /** @internal One render finished (ms): a frame that drew new objects pays the upload, the others set the baseline. Also rolls the per-frame smoothing.
@@ -176,7 +188,7 @@ export class Budget {
   }
   /** Current value per category (fps/low1/cpuMs exist only once there are frame times) @returns {Record<string, number>} */
   values() {
-    const info = this.engine.renderer.info, v = /** @type {Record<string, number>} */ ({ drawCalls: info.render.calls, triangles: info.render.triangles, textures: info.memory.textures });
+    const s = stats(this.engine.renderer), v = /** @type {Record<string, number>} */ ({ drawCalls: s.drawCalls, triangles: s.triangles, textures: s.textures });
     const d = this._dts;
     if (d.length) {
       const sum = d.reduce((a, b) => a + b, 0), worst = d.slice().sort((a, b) => b - a), n = Math.max(1, Math.floor(d.length * 0.01));
@@ -205,11 +217,9 @@ export class Budget {
    * @returns {BudgetTagStat[]}
   */
   byTag() {
-    const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled, shadowCost = SHADOW_TYPES[e.shadowType]?.cost ?? 1;
-    // shadow passes a caster is drawn in: one per shadow-casting light (cascaded shadows add a light per cascade), six for a point light
-    let passes = 0;
-    e.scene.traverseVisible(o => { if (o.isLight && o.castShadow) passes += o.isPointLight ? 6 : 1; });
-    passes = Math.max(1, passes);
+    const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled, shadowCost = SHADOW_TYPES[e.look.shadow?.value('type')]?.cost ?? 1;
+    // shadow passes a caster is drawn in: one per shadow map the renderer draws (each cascade on both renderers), six for a point light
+    const passes = Math.max(1, shadowMaps(e.renderer, e.scene).reduce((n, m) => n + m.faces, 0));
     cam.updateMatrixWorld();
     this._frustum.setFromProjectionMatrix(this._m.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
     const walk = (o, tag) => {

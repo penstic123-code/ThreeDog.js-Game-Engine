@@ -1,7 +1,7 @@
 // The headless page opened by npm run bake (packages/tools/bake.mjs opens it with Playwright through the workspace's vite dev server, so generated code is identical to npm run dev).
-// Collects what to bake (the lists come from the dev server's /__threedog/bake-lists, paths from paths.mjs):
-//   · the style packages' procedural models: the asset pack each styles/*/index.js exports as `assets` (each called once without arguments)
-//   · the game's bake list: the bake = { name: () => object | { build, params, source: 'file' } } exported by files named bake.js in this workspace (except tests/)
+// Collects what to bake (the lists come from the dev server's /__threedog/bake-lists): the bake list, i.e. the
+//   bake = { name: () => object | { build, params, source: 'file' } } exported by files named bake.js in this workspace (except tests/).
+//   Models from a game's style/ folder are baked by naming them in that bake.js (looks are not packages, so nothing exports `assets` to scan).
 // For each entry it asks the dev server for the hash (same scheme as the automatic cache); if equal to the last bake it is skipped, otherwise it is generated and exported as GLB for bake.mjs to write.
 const info = await fetch('/__threedog/bake-lists').then(r => r.json());
 const { toGLB } = await import(/* @vite-ignore */ info.baked);
@@ -10,8 +10,7 @@ async function collect() {
   const items = [];
   for (const { url, from } of info.lists) {
     const mod = await import(/* @vite-ignore */ url);
-    if (from.endsWith('/bake.js')) for (const [name, v] of Object.entries(mod.bake || {})) items.push({ name, ...(typeof v === 'function' ? { build: v } : v), from });
-    else for (const [name, build] of Object.entries(mod.assets?.models || {})) items.push({ name, build, from });
+    for (const [name, v] of Object.entries(mod.bake || {})) items.push({ name, ...(typeof v === 'function' ? { build: v } : v), from });
   }
   return items;
 }

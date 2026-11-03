@@ -21,7 +21,8 @@ export class Session {
         remove(): void;
     }>(handle: H): H;
     /**
-     * Start a new playthrough from the state the game had right after start(). Returns Promise<boolean> (false only if a save part failed to load; the game is then rolled back).
+     * Start a new playthrough from the state the game had right after start(). Returns Promise<boolean> (false only if a save part failed to load: the
+     * old playthrough then goes on, with its data, listeners and timers, and 'session:failed' fires instead of 'session:start').
      * @returns {Promise<boolean>}
      * @example
      * // a "Restart" button in a game-over screen

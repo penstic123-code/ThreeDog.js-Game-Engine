@@ -1,4 +1,4 @@
-// engine.threads (worker pool) and world far simulation in workers. Same format as specs.mjs, appended at the end of it.
+// engine.threads (worker pool) and world far simulation in workers. Same format as the other files here.
 // Every item is a "do not bypass" guard: workers only through engine.threads lanes, results that change gameplay only through engine.commits,
 // and threads on / off must give bit-identical world records. The static "do not bypass" source scan (Worker / postMessage only in the pool) is rule R19 (npm run check).
 // Runs in the page: two fresh headless engines (threads 0 and 2) with the same world content, advanced step by step with real waits so worker replies can land

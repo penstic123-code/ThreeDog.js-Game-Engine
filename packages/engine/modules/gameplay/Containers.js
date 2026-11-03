@@ -6,7 +6,7 @@ import { codedError } from '../../core/errorHints.js';
 
 /** Container table: implementation of inventory.container() / transfer(); bag is the home bag 'player' (saved as its own part, never removed). @internal */
 export class Containers {
-  constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); this.renames = new Map(); this.loaded = new WeakSet(); }
+  constructor(inv, bag) { this.inv = inv; this.bag = bag; this.map = new Map([[bag.id, bag]]); this.renames = new Map(); }
 
   /**
    * content/renames.js: a container saved under an old authored id moves to the new id (null = drop it). Remembered, so a save loaded later
@@ -31,7 +31,7 @@ export class Containers {
     if (!c) {
       this.map.set(id, c = new Container(this.inv, id, opts));
       // place goods only on first creation; seeding is setup, so the ops guard lets it through
-      if (opts?.items) { this.inv.engine.ops.allow(() => { for (const [item, n] of Object.entries(opts.items)) c.add(item, n, { silent: true }); }); c.seeded = true; }
+      if (opts?.items) { c._start = { ...opts.items }; this._seed(c); }
     } else {   // container created first by a load, game code sets the limits afterwards; if it already exists, goods are not placed again
       if (opts?.capacity != null) c.capacity = opts.capacity;
       if (opts?.maxWeight != null) c.maxWeight = opts.maxWeight;
@@ -56,11 +56,14 @@ export class Containers {
     if (!(n > 0)) throw codedError('container', `inventory.transfer: count must be a positive number, got ${n}`);
     if (a === b) return 0;
     let moved = 0;
-    for (const e of a._of(x)) {   // each entry keeps its data, and its key when it lands as a new entry
+    for (const e of a._of(x)) {   // each entry keeps its data; its key only when the whole entry moves (as setData does)
       const k = Math.min(n - moved, e.count, b._room(e.id, e.data));
       if (k <= 0) continue;
+      // part of a stack: the rest stays under the old key in the source, so the moved part needs a new one (two live entries with one key make
+      // inventory.entry(key) and room(key) pick the wrong one)
+      const keep = k === e.count ? e.key : null;
       a._take(e, k);
-      b._put(e.id, k, e.data, e.key, false);
+      b._put(e.id, k, e.data, keep, false);
       if ((moved += k) >= n) break;
     }
     return moved;
@@ -71,20 +74,30 @@ export class Containers {
     return this.map.delete(id);
   }
 
+  /** @internal place a container's starting goods (content setup: the ops guard lets it through) */
+  _seed(c) {
+    c._entries = [];
+    this.inv.engine.ops.allow(() => { for (const [item, n] of Object.entries(c._start)) c.add(item, n, { silent: true }); });
+    c.seeded = true;
+  }
   /** Save: non-player containers that have contents or ever had starting contents placed (an emptied one is still recorded, or a load would treat it as new and place them again) */
   save() {
     const out = {};
     for (const [id, c] of this.map) if (c !== this.bag && (c._entries.length || c.seeded)) out[id] = c._save();
     return out;
   }
-  /** A load follows the save: containers missing from the save are cleared; but ones that had starting contents placed (save older than the content, first time seen) keep their current goods */
+  /**
+   * A load follows the save: containers missing from the save are cleared, except authored ones (created with items): the save is older than that
+   * content, so they get their starting goods again. Decided by the save and the content only, never by what earlier loads did, so the same
+   * save loads the same on a fresh page and after an hour of play (review 0.4 modules-a B6)
+   */
   load(d) {
     if (d && this.renames.size) d = Object.fromEntries(Object.entries(d).flatMap(([id, v]) => {   // content/renames.js first (null = dropped)
       const b = this.renames.has(id) ? this.renames.get(id) : id;
       return b == null || (b !== id && b in d) ? (b == null ? [] : [[id, v]]) : [[b, v]];
     }));
-    for (const c of this.map.values()) if (c !== this.bag && !(c.seeded && !this.loaded.has(c) && !(c.id in (d || {})))) c._entries = [];   // kept: starting goods of content newer than this save; not a container that only came from an earlier load / save (newGame must empty it)
-    for (const [id, list] of Object.entries(d || {})) { const c = this.get(id); c._load(list); c.seeded = true; this.loaded.add(c); }
+    for (const c of this.map.values()) if (c !== this.bag && !(c.id in (d || {}))) { if (c._start) this._seed(c); else { c._entries = []; c.seeded = false; } }
+    for (const [id, list] of Object.entries(d || {})) { const c = this.get(id); c._load(list); c.seeded = true; }
     // entry keys are numbered across all containers: never hand out a key a loaded container already holds
     for (const c of this.map.values()) for (const e of c._entries) { const n = Number(e.key.split('#')[1]) || 0; if (n > this.inv._seq) this.inv._seq = n; }
   }

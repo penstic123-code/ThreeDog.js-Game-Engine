@@ -7,7 +7,7 @@
 //   runContract(cameraContract, () => myCamera(), { check, prepare: e => { e.camera = ... } })   // prepare: add what your module needs to the small engine
 // An object contract (kind: 'object', e.g. characters/vehicle.contract.js) checks one object instead: runContract(contract, () => myBoat, { check }).
 // Order: install -> name -> api methods -> fields (properties other modules read) -> ops defined and listed -> saves registered with their versions -> probe setup -> each probe event fires ->
-//   describe answers -> engine.wrap goes around an api method -> a probed value survives save -> a fresh install -> load
+//   describe answers -> engine.wrap goes around an api method -> a probed value survives save -> a fresh install -> load -> (probe.copy) and a read -> write into a fresh install
 // What it deliberately does not check: behaviour beyond the contract (stack sizes, UI looks): those are the module's own tests.
 // The engine core parts come from the installed threedog package (found like every other tool: paths.mjs ENGINE), not a copy.
 import { join } from 'node:path';
@@ -15,8 +15,8 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from './paths.mjs';
 
 const core = f => import(pathToFileURL(join(ENGINE, 'core', f)).href);
-const [{ Events }, { Ops }, { Stacks }, { defineHoldStacks, holdMethods }, { Wraps }] =
-  await Promise.all(['Events.js', 'Ops.js', 'stacks.js', 'holds.js', 'wrap.js'].map(core));
+const [{ Events }, { Ops }, { Stacks }, { defineHoldStacks, holdMethods }, { Wraps }, { Control }] =
+  await Promise.all(['Events.js', 'Ops.js', 'stacks.js', 'holds.js', 'wrap.js', 'control.js'].map(core));
 
 /** A minimal engine with the real core parts a gameplay module talks to; everything with a screen is a stand-in that records calls */
 export function contractEngine() {
@@ -27,10 +27,12 @@ export function contractEngine() {
     i18n: { add() {}, t: k => k, has: () => false },
     audio: { register() {}, sfx() {}, condition() {}, measure() {} },
     clock: { speed: 1, rate: 1, now: 0 },
+    // the time source's move hook: views of a channel (the calendar's day) update and fire their events here; '__step' moves clock.now and calls it
+    time: { _onMove: [], onMove(fn) { this._onMove.push(fn); return { remove: () => { this._onMove = this._onMove.filter(f => f !== fn); } }; } },
     // asset name table: modules register built-in assets in install (characters' 'footstep' synthesized sound, builtInSounds writes entries), and a real engine always has engine.assets
     assets: { entries: new Map() },
     saves: { register: (key, def) => { saved.set(key, def); }, save() {}, _defs: saved },
-    input: { actions: new Map(), define(a, keys) { this.actions.set(a, keys); }, touchButton() {}, pressed: () => false, pressedRaw: () => false, down: () => false,
+    input: { actions: new Map(), action(a, o) { this.actions.set(a, o ?? {}); return { name: a, remove() {} }; }, bind: () => ({ owner: 'game', remove() {} }), keysOf: () => [], touchButton() {}, pressed: () => false, pressedRaw: () => false, down: () => false,
       push: name => ({ name, remove() {} }), axis: { x: 0, y: 0 }, padStick: { x: 0, y: 0 }, label: () => '' },
     ui: { define() {}, get: () => null, create: () => null, set() {}, templates: {}, isOpen: () => false, open() {}, close() {}, refresh() {} },
     movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 },
@@ -39,11 +41,14 @@ export function contractEngine() {
   e.ops = new Ops(e);
   e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o); defineHoldStacks(e);
   e._wraps = new Wraps(e); e.wrap = (t, m, fn, o) => e._wraps.wrap(t, m, fn, o);
+  e.control = new Control(e);   // who drives each character (characters installs on it)
   return e;
 }
 
-// ['__step', seconds]: one fixed step of the module (its fixed(dt) hook), for contracts whose events come from time passing (calendar day:start)
-const callOn = (api, [m, ...args], mod, e) => m === '__step' ? mod.fixed(args[0], e) : api[m](...args);
+// ['__step', seconds]: time passes: the calendar channel moves (onMove listeners run, as core/time.js does) and the module's fixed(dt) hook runs,
+// for contracts whose events come from time passing (calendar day:start)
+const step = (mod, e, dt) => { e.clock.now += dt; for (const fn of [...e.time._onMove]) fn(); mod.fixed?.(dt, e); };
+const callOn = (api, [m, ...args], mod, e) => m === '__step' ? step(mod, e, args[0]) : api[m](...args);
 // state.read: a method call ['count', 'fish'] or a property name ('day')
 const readOf = (api, read) => typeof read === 'string' ? api[read] : callOn(api, read);
 
@@ -57,7 +62,8 @@ export function runContract(contract, makeModule, { check, label = contract.name
   const install = () => {
     const e = contractEngine(); prepare?.(e);
     const mod = makeModule();
-    const api = mod.install(e);
+    // the contract engine never uninstalls: nothing to track
+    const api = mod.install(e, { name: mod.name, track: h => h, input: { action: (a, o) => e.input.action(a, o), bind: (a, k) => e.input.bind(a, k) } });
     e[mod.name] = api; e.modules.set(mod.name, mod);
     for (const c of contract.probe?.setup ?? []) callOn(api, c);
     return { e, mod, api };
@@ -105,9 +111,17 @@ export function runContract(contract, makeModule, { check, label = contract.name
     t(`${what} is ${st.expect} after the probe calls`, before === st.expect, String(before));
     const data = Object.fromEntries([...reg].map(([k, d]) => [k, JSON.parse(JSON.stringify(d.save()))]));
     const fresh = install();
+    fresh.e.clock.now = first.e.clock.now;   // the engine's time source is in every save (core/time.js part): the fresh engine resumes at the saved second
     for (const [k, d] of fresh.e.saves._defs) if (k in data) d.load(data[k]);
     const after = read(fresh.api);
     t('the value survives save -> fresh install -> load', after === st.expect, String(after));
+    // probe.copy: what one install reads (contents()) written into a fresh one (setContents) gives the same value: the net host -> client path
+    const cp = contract.probe.copy;
+    if (cp) {
+      const copy = install(); let got;
+      try { copy.api[cp.write](JSON.parse(JSON.stringify(callOn(api, cp.read)))); got = read(copy.api); } catch (err) { got = err.message; }
+      t(`${cp.read[0]}() written into a fresh install with ${cp.write}() keeps ${what} = ${st.expect}`, got === st.expect, String(got));
+    }
   }
 }
 

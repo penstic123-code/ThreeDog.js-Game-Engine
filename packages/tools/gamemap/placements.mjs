@@ -37,12 +37,12 @@ export function placementLines(c, gameFiles, g) {
 
 // [system, installed when, one-line hint]
 const SYSTEMS = [
-  ['inventory', (m, c) => m.has('inventory'), 'items, stacks, containers and pickups: `inventory({ ...presets.keys.inventory })` (keys required), content/items.js (recipes/03-items-pickups.md)'],
+  ['inventory', (m, c) => m.has('inventory'), 'items, stacks, containers and pickups: `inventory()` + key map presets.bindings.inventory, content/items.js (recipes/03-items-pickups.md)'],
   ['collision', m => m.has('collision'), 'walls and blocking for characters: `collision()` (in openWorld), template `collide` (recipes/18-world.md)'],
   ['characters', m => m.has('characters'), 'player and NPC movement, spawn, schedules: `characters()` (in openWorld), content/npcs.js (recipes/02-npc.md)'],
   ['saves', (m, c, code) => /saves\.(register|save|autosave)\(/.test(code), 'save your own state: `engine.saves.register(key, { version, save, load })` (recipes/20-content-actions-save.md)'],
   ['interactions', m => m.has('interactions'), 'press a key near a thing: `interactions({ ...presets.interactions.nearest })` (E, nearest; the game picks the pick mode and keys), template `interact: { label, op }` (recipes/30-templates.md)'],
-  ['quests', m => m.has('quests'), 'goals with steps, conditions and rewards: `quests({ ...presets.keys.quests })` (keys required), content/quests.js (recipes/04-quests.md)'],
+  ['quests', m => m.has('quests'), 'goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (recipes/04-quests.md)'],
   ['grids', m => m.has('grids'), 'cell placement for farming and building: `grids()` (recipes/29-grid.md)'],
   ['templates', (m, c) => Object.keys(c.templates || {}).length > 0, 'reusable objects placed from content: content/templates.js + props { template } (recipes/30-templates.md)'],
 ];

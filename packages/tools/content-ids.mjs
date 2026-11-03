@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { parseAst } from 'vite';
-import { abs, rel, pickWorkspace, CONTENT_IDS_REL } from './paths.mjs';
+import { abs, rel, command, CONTENT_IDS_REL } from './paths.mjs';
 import { loadGame, partOf } from './content-check/load.mjs';
 import { exportedLiteral } from './vite/vite-threedog-content-src.js';
 
@@ -54,11 +54,12 @@ async function main(argv) {
   const [sub, ...rest] = argv;
   if (sub === 'set' || sub === 'add' || sub === 'remove') return (await import('./content-write.mjs')).main(sub, rest);
   if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies) · threedog content set|add|remove … (threedog content set for its usage)'); return 1; }
-  let dir, args;
-  try { ({ dir, args } = pickWorkspace(rest)); } catch (e) { console.log('✗ ' + e.message); return 1; }
-  const folder = args.find(a => !a.startsWith('-'));   // or a game folder by path (the engine's examples are not workspaces)
-  if (folder) dir = resolve(folder);
-  const write = args.includes('--write');
+  let dir, folders, opt;
+  // an optional game folder by path (the engine's examples are not workspaces)
+  try { ({ dir, rest: folders, opt } = command(rest, { positional: true, flags: ['write'] })); } catch (e) { console.log('✗ ' + e.message); return 1; }
+  if (folders.length > 1) { console.log(`✗ one game folder only, got ${folders.join(' ')}`); return 1; }
+  if (folders[0]) dir = resolve(folders[0]);
+  const write = !!opt.write;
   const plan = await planIds(dir);
   const n = plan.files.reduce((s, f) => s + f.lines.length / 3, 0);
   for (const f of plan.files) console.log(f.lines.join('\n'));

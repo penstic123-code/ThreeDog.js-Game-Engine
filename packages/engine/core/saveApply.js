@@ -8,6 +8,7 @@ import { fmt, warnOnce } from './validate.js';
 import { reportError } from './errors.js';
 import { codedError, coded } from './errorHints.js';
 import { FORMAT, readSave, parseSave, upgradePart } from './saveVersions.js';
+import { PARTS_LOADING } from './opsFail.js';
 
 const DEV_STRINGS = {
   loadThrew: "load() of save part '{k}' threw ({msg}); the game was rolled back to how it was before loading '{slot}'",
@@ -51,8 +52,13 @@ export function applySave(s, data, slot) {
   };
   let out;
   try { out = e.ops.allow(() => runParts(e, r.list, slot)); } catch (err) { return fail(err); }   // loading writes state outside ops on purpose (guard allows it)
+  // a part still loading (its load() returned a Promise): gameplay waits until every part is applied -- no fixed step, no op (opsFail.js
+  // PARTS_LOADING). Held through a rollback too, since that may wait on async parts as well. A fully sync load never takes it.
+  const fz = out !== true ? e.freeze(PARTS_LOADING) : null;
+  const partsDone = () => { fz?.remove(); };
   // a load is a state change: ops.revision moves. afterLoad belongs to the load (Saves.apply doc): a hook that throws fails it like a part's load()
-  return Promise.resolve(out).then(() => { e.ops.revision++; return afterLoad(e, slot).then(() => true, fail); }, fail);
+  return Promise.resolve(out).then(() => { partsDone(); e.ops.revision++; return afterLoad(e, slot).then(() => true, fail); },
+    err => Promise.resolve(fail(err)).finally(partsDone));
 }
 
 /** Run one part's load with event-listener errors collected (Events._catch): the first one counts as the load throwing, so it rolls back */

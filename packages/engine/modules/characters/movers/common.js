@@ -76,7 +76,7 @@ function waterMode(c, depth, p) {
 }
 
 /** Float on the water surface when swimming (gentle bob) */
-export function float(c, swimY) { c.vy = 0; c.grounded = false; c.root.position.y = swimY + Math.sin(c.engine.elapsed * 2) * 0.05; }
+export function float(c, swimY) { c.vy = 0; c.grounded = false; c.root.position.y = swimY + Math.sin(c.engine.time.now('real') * 2) * 0.05; }
 
 // Jump state lives here, out of reach (a WeakMap, not fields on the character): games read character.jumpState() and change it through
 // jump() / addJumps() / resetJumps() / launch(), so no game depends on how the buffer or coyote time is kept (the old _coyote / _jumpBuffer).

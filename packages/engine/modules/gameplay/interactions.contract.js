@@ -7,7 +7,7 @@ export default {
   events: ['interaction:hold', 'interaction:interrupt'],
   saves: {},   // not saved: the game / world adds interactions again when things are rebuilt on load
   describe: true,
-  options: { pick: 'nearest', keys: ['KeyE'] },
+  options: { pick: 'nearest' },   // the probe needs no key (the game binds it in real use)
   probe: {
     setup: [['add', { x: 0, y: 0, z: 0 }, { id: 'door', label: 'Open' }]],
     emits: [],

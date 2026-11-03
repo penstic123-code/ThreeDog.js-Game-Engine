@@ -1,0 +1,73 @@
+// Module types: what a module may own (a module's `stage` only says when it runs; its `type` says what it may own and how its errors are handled:
+// look / ui fail soft, see core/errors.js). Mixed into Engine with modules.js.
+//   type: 'world' | 'look' | 'actor' | 'rules' | 'ui' | 'net' | 'tool'  -- every module declares one, built-in or the game's (missing = error).
+// Why a type and not a rule in the docs: an AI follows the shape of the code, not a paragraph. A look module that defines an op, or a ui module that binds
+// keys, is the start of two modules owning one thing; the check names the rule and the one-line fix where the mistake is made.
+// No subtypes: differences inside a type are the declarations the engine already checks (provides, requires, shared values written with ctx.mod,
+// material slots patched, the post stage, backends, sounds).
+// The checks are dev only and cheap: the engine knows which module is installing (install and the synchronous part of init) or running a hook
+// (fixed / frame / afterRender / skip), and the few write points below ask it. A callback a module registered (an event listener, a timer) is not
+// attributed: the check is a guard rail at the common places, not a sandbox.
+import { DEV, fmt } from './validate.js';
+import { codedError } from './errorHints.js';
+
+/** type -> what it may own (shown in the missing / unknown type error and in recipes/14) */
+export const MODULE_TYPES = {
+  world: 'game state: save parts, world records, ops, ground / collision / navigation data (draws nothing)',
+  look: 'what is seen and heard: look values, three.js objects, particles, sounds (changes no game state)',
+  actor: 'characters: their control slots and movement values (other state only through ops)',
+  rules: 'game logic: save parts, ops, events; may take input, control or the camera for a while (a cutscene)',
+  ui: 'DOM panels and menus: declares input actions, runs ops (binds no keys, writes no game save)',
+  net: 'multiplayer: remote characters and the transport (other modules only through ops and their public API)',
+  tool: 'a one-shot job (a photo, a bake) that undoes itself when it ends or fails',
+};
+
+const STRINGS = {
+  missing: "module {name} has no type. Every module says what it owns. Fix: add type: '{guess}' to the module definition ({name}: { name: '{name}', type: '{guess}', ... }). Types: {list}",
+  unknown: "module {name} has type '{type}', which is not a module type. Fix: use one of {list}",
+  // rule broken at runtime: module, type, what it did, why not, the fix
+  broke: "module {name} (type '{type}') {did}: {why}. Fix: {fix}",
+};
+const RULES = {
+  // [types it is wrong for, why, fix]
+  'ops.define': [['look'], 'a look module only shows the game, it never adds actions that change it',
+    "define the op in a rules (or world) module and let the look module read the state; or give {name} type: 'rules' if it really is game logic"],
+  'world.write': [['look', 'ui'], 'world records are game state; a {type} module only reads them',
+    "run an op that writes it (engine.ops.run('<noun.verb>', args)) or move the write into a rules / world module"],
+  'input.bind': [['ui'], 'a ui module declares actions; which key does what is the game\'s choice',
+    "declare the action (ctx.input.action(name, { context })) and bind keys in the game: engine.input.bind(name, ['KeyE']) or createEngine({ bindings })"],
+  'saves.register': [['ui'], 'a ui module keeps menus and preferences out of the game save (a load must not change the volume)',
+    'keep preferences in browser storage (engine.settings does), and game state in a rules / world module'],
+};
+
+/** _planUse: the module's type must be one of MODULE_TYPES (missing or unknown = error naming the fix) */
+export function checkType(m) {
+  const list = Object.keys(MODULE_TYPES).map(t => `'${t}'`).join(' | ');
+  if (m.type == null) throw codedError('module-type', fmt(STRINGS.missing, { name: m.name, guess: 'rules', list }));
+  if (!(m.type in MODULE_TYPES)) throw codedError('module-type', fmt(STRINGS.unknown, { name: m.name, type: String(m.type), list }));
+}
+
+/**
+ * @internal dev check at a write point: the module installing or running a hook now may not do `what` if its type forbids it.
+ * what: 'ops.define' | 'world.write' | 'input.bind' | 'saves.register'; did: what it did, for the message ("defined op shop.buy").
+ */
+export function checkTypeRule(e, what, did) {
+  const m = DEV ? e?._curModule : null;
+  if (!m) return;
+  const [types, why, fix] = RULES[what];
+  if (!types.includes(m.type)) return;
+  const v = { name: m.name, type: m.type };
+  throw codedError('module-type-rule', fmt(STRINGS.broke, { ...v, did, why: fmt(why, v), fix: fmt(fix, v) }));
+}
+
+/** @internal run fn with m as the current module (install, init's synchronous part, a hook); restores the previous one */
+export function asModule(e, m, fn) {
+  const was = e._curModule;
+  e._curModule = m;
+  try { return fn(); } finally { e._curModule = was; }
+}
+
+/** @internal describe().modules row: name, type, and provides / requires when there are any */
+export function moduleRow(m) {
+  return { name: m.name, type: m.type, ...(m.provides?.length ? { provides: [...m.provides] } : {}), ...(m.requires?.length ? { requires: [...m.requires] } : {}) };
+}

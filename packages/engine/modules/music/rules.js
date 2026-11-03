@@ -23,6 +23,6 @@ export function evaluateRules(m, immediate = false) {
   if (immediate || m._candidateT >= hold) {
     m._candidate = undefined; m._candidateT = 0;
     const fade = m._ruleOpts.fade ?? m.opts.fade;
-    want == null ? m.stop(fade) : m.play(want, { fade });
+    want == null ? m.stop({ fade }) : m.play(want, { fade });
   }
 }

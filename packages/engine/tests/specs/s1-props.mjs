@@ -1,4 +1,4 @@
-// Stage 1.11 step 5: props and pickups are data in world with stable ids, saved with the game. Same style as specs.mjs; appended at the end of specs.mjs.
+// Stage 1.11 step 5: props and pickups are data in world with stable ids, saved with the game. Same style as the other files here.
 // Open-world example ('/') content: 8 pickups (respawn 120), 7 props (4 with collision). Id rules: `pickup:<item>:<index>`, `prop:<model name>:<index>`.
 const READY = { timeout: 60000 };
 const reload = async page => { await page.reload(); await page.waitForFunction(() => window.engine?.stateApplied, null, READY); };
@@ -124,10 +124,12 @@ export const specs = [
         out.restored = !gone();
         engine.saves.apply(saved);
         out.afterLoad = gone();
-        const im = engine.terrain.chunks.get(t.cx + ',' + t.cz).veg[t.species];
-        out.hiddenInView = im.userData.hidden?.size > 0;
+        // drawn: the felled slot is a zero matrix in the look's mesh
+        const c = engine.terrain.chunks.get(t.cx + ',' + t.cz);
+        const drawnGone = () => { const im = engine.vegetationLook.mesh(c, t.species), i = im.userData.plants.ids.indexOf(t.id); return im.instanceMatrix.array[i * 16 + 15] === 0; };
+        out.hiddenInView = c.hidden?.[t.species]?.size > 0 && drawnGone();
         engine.step(40, { render: false });   // regrows after 30 game seconds
-        out.regrown = !gone() && !(im.userData.hidden?.size > 0);
+        out.regrown = !gone() && !c.hidden?.[t.species] && !drawnGone();
         return out;
       });
       check('tree found', !r.none);

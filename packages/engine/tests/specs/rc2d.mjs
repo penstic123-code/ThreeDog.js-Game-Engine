@@ -17,6 +17,7 @@ const read = () => {
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'rc2d example: light next to a lamp, blocked behind a wall; resize rebuilds; dispose frees its render targets',
     url: '/rc2d.html?threedog-headless',
     async run({ page, check, ev, wait }) {

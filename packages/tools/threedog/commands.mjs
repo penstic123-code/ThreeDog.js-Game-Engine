@@ -22,6 +22,7 @@ const num = (s, name) => {
 };
 const lines = (s, n = 3) => String(s).split('\n').slice(0, n).join('\n');
 const MAX = 500;   // default output cap (characters); add --max N for more
+const SCENE_ROWS = 6;   // objects threedog scene lists by default (counts and the reasons line still cover all)
 
 /** key=value arguments of op / explain op / skip / state → [[key, value]]; a word without = is an error, not a silent { "": value } */
 function opPairs(args, what = 'op arguments', e_g = 'n=2') {
@@ -80,12 +81,12 @@ export const COMMANDS = {
   ops: 'what the player can do now (each op offer checked with can): ✓ shop.buy shop=bakery item=bread · ✗ … (reason)',
   op: 'run an op as source bridge (no time passes): op shop.buy shop=bakery item=bread n=2 (values converted by the op args shape)',
   inspect: 'what is around the player (or inspect npc_3 / inspect 10,-4) and which ops it can do now, with reasons; inspect materials = every material: textures, size, color space (wrong ones first), VRAM estimate, engine/game, patches, shared-by; inspect perf = draw calls, triangles, programs, texture MB, JS ms, compile stalls, each against a budget with the next call',
-  scene: 'the mesh exists but is not drawn: lists every Mesh / Points / Line / Sprite (position, size, material, drawn or not) and WHY each undrawn one is not (visible=false up the parents, layers, material flags, scale 0 / NaN, empty geometry, behind camera, beyond far, outside the view, fog...): scene [--hidden (only undrawn)] [--limit N] [--json]',
+  scene: 'the mesh exists but is not drawn: counts, one line of reasons over every Mesh / Points / Line / Sprite, then the first 6 undrawn ones (surprising before plain view culling) with WHY (visible=false up the parents, layers, material flags, scale 0 / NaN, empty geometry, behind camera, beyond far, outside the view, fog...): scene [--hidden (only undrawn)] [--limit N | --full (40)] [--json]',
   pick: 'what is at screen pixel x,y (from the canvas top-left): pick 480,270 -> record id, kind, template, where it is defined (content file:line), fields',
   thing: 'everything about one id as JSON: thing player-chest (definition file:line, template, model, materials, state, collision rules, related ops, save status, how to change it)',
   explain: 'why: explain op shop.buy shop=bakery item=bread (can it run; --full adds its last attempt) / explain quest first-light (where it is stuck)',
   scenario: 'run one scenario test (tests/scenarios/<name>.json) on this page: scenario barter (prints failed checks; the scenario leaves the page paused)',
-  catalog: 'what the game can do, from its registrations: catalog = one line per module (ops, saved parts, time model); catalog shop = one module ' +
+  catalog: 'what the game can do, from its registrations: catalog = a line per module with ops or problems, the rest named on one line (--full: a line each); catalog shop = one module ' +
     '(dependencies, params + defaults, ops with args and failure codes, saved parts, time hooks, problems, doc / recipe / source files); catalog shop.buy ' +
     '= one op; catalog --find throw; --json for the raw data',
   loading: 'what loading waits for / what failed / does it block the start (answers while start() is stuck); loading hero: one task with its manifest and path',
@@ -220,8 +221,11 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'scene': {
       const limit = opt.limit ? Number(opt.limit) : undefined;
       if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) throw new Error('--limit must be a whole number above 0, e.g. threedog scene --hidden --limit 20');
-      const r = await ev(driver, 'scene', { hidden: !!opt.hidden, limit });
-      return { ok: r.ok, text: r.text, data: r.data };
+      // answer first: the counts, the reasons line and the first few undrawn objects (the surprising ones sort before plain culling).
+      // Why: listing 40 objects with their materials was ~15 KB of text and ~45 KB of MCP data on the world example, for one bug
+      const r = await ev(driver, 'scene', { hidden: !!opt.hidden, limit: limit ?? (opt.full ? undefined : SCENE_ROWS) });
+      const more = limit || opt.full ? '' : `\nMore: threedog scene --limit N (or --full for 40), --hidden for undrawn only, threedog thing <name> for one object`;
+      return { ok: r.ok, text: r.text + more, data: r.data };
     }
     case 'pick': {
       const m = /^(-?[\d.]+),(-?[\d.]+)$/.exec(rest[0] ?? '');

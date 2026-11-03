@@ -11,6 +11,9 @@ Navmesh (nav() module)
   - `tileSize?: number` Tile size (in cells), default 32
   - `crowd?: boolean` NPCs use Recast crowd avoidance, default false
   - `debug?: boolean` Show the navmesh (debug), default false
+  - `maxObstacles?: number` Most TileCache obstacles (collision boxes are cut into several), default 1024
+  - `maxAgents?: number` Most crowd agents (with crowd: true), default 128
+  - `arrive?: number` Meters past the character's radius a path may end short of its goal and still count as arrived, default 0.6
 
 ## Methods and properties
 - `nav.findPath(from: PositionLike, to: PositionLike, opts?: { radius?, detailed? }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }) → { status, path }` — Path from from to to [{ x, z }…] (meters); null if not ready or unreachable. Usually use engine.characters.findPath

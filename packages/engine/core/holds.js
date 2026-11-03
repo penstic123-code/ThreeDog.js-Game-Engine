@@ -2,10 +2,9 @@
 // Each is a named stack (core/stacks.js: 'pause' and 'freeze' kind any, 'camera' kind top), so they follow the same owner rules as every shared quantity:
 // engine.freeze('menu') is engine.mod('freeze', { owner: 'menu' }) with the loop's side effects added (ending the last pause restarts the loop).
 // One entry per mechanism: the handle's remove() ends a pause / freeze (there is no engine.resume / engine.unfreeze).
-import { warnOnce, renamed } from './validate.js';
+import { warnOnce } from './validate.js';
 import { coded } from './errorHints.js';
-import { ownerArgs } from './stacks.js';
-const OLD_RUN_STATE = renamed('runState', { by: '.owners (and .blockedBy)' });
+import { ownerArgs } from './sharedPoint.js';
 
 // The pause / freeze handle is { owner, remove() } only: no chaining, so a pause is ended in exactly one way.
 function handle(owner, remove) { return { owner, remove }; }
@@ -55,7 +54,7 @@ export const holdMethods = {
     if (!P.release(o) && !P.size() && !this.disposed) { this.paused = false; this._loop(); }
     return this;
   },
-  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, game clock and engine.elapsed all stop) while frame hooks
+  // Gameplay freeze (menus, flow 'paused'): no fixed steps (movement, timers, tick and every time view but ambient stop) while frame hooks
   // and rendering go on, so the picture and UI stay alive.
   // Gameplay logic (quest checks, cutscene waits) belongs in fixed, or check engine.frozen first in frame (see the top of this file).
   // Unlike pause(), which stops rendering too and is for tests and step(). owner is the freezer's name; play resumes only when all
@@ -92,7 +91,7 @@ export const holdMethods = {
     const blockedBy = (this.input?.holders ?? []).filter(h => !h.pass).map(h => h.context);
     if (F.has('error')) blockedBy.push('error');
     if (lv?.blocked) blockedBy.push('loading');
-    return OLD_RUN_STATE.on({ state, owners, blockedBy });   // 0.2 runState.by: reading the old name throws
+    return { state, owners, blockedBy };
   },
 
   // ---------- camera takeover ----------
@@ -120,7 +119,7 @@ export const holdMethods = {
 const HOLD_STACKS = { pause: 'pause', freeze: 'freeze', camera: 'camera', debugView: 'debug.view' };
 /**
  * Everyone who holds something, in one place (empty parts left out): pause / freeze / camera / debugView [{ owner, at }]; input [{ context, owner,
- * pass }] (pushed input contexts); gates { action: [owners] } (input.gate); stacks { name: holders } (every other engine.mod quantity with entries).
+ * pass }] (pushed input contexts); gates { action: [owners] } (input.gate). Every other shared value is in describe().shared (core/stacks.js).
  * Lives here, next to the hold stacks it reads, so describe() and the input-holds test use the same function (no second copy).
  * "Why can't I move / why is time slow" is answered here without knowing which module did it.
  */
@@ -131,7 +130,5 @@ export function describeHolds(e) {
   const g = e.stacks.has('input.gate') ? e.stacks.get('input.gate') : null, gates = {};
   for (const id of g?.ids() ?? []) if (g.size(id)) gates[id] = g.names(id);
   if (Object.keys(gates).length) out.gates = gates;
-  const st = e.stacks.describe(); for (const n of [...Object.values(HOLD_STACKS), 'input.gate']) delete st[n];
-  if (Object.keys(st).length) out.stacks = st;
   return out;
 }

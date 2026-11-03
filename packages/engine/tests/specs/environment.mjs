@@ -38,7 +38,7 @@ export const specs = [
       const r = await ev(() => {
         const s = engine.sky, cal = engine.calendar, out = {};
         cal.dayLength = Infinity;                     // 时间归 calendar（天空只画）：定住，只由测试改
-        engine.weather.setAuto(false); engine.weather.set('clear', 0.01);   // 云量跟天气走，先定住
+        engine.weather.setAuto(false); engine.weather.set('clear', { seconds: 0.01 });   // 云量跟天气走，先定住
         engine.step(1, { render: false });
         engine.look.env.replace('sky'); engine.look.env.set({ interval: 1 });
         engine.step(0.05, { render: false });         // 第一帧按当时的天空颜色生成

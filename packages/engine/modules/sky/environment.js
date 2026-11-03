@@ -15,7 +15,6 @@
 // surface as by day at midnight (demo finding 2026-11-02). look.env.replace('sky' | asset) swaps in the sky's own map (the sky map darkens by
 // itself at night; an asset map is a fixed photo and does not follow).
 import * as THREE from 'three';
-import { warnOnce } from '../../core/validate.js';
 import { defineLookPart, REPLACE } from '../../core/look/part.js';
 import { defineOwned } from '../../core/owned.js';
 import { refreshRoom, dropRoomEnvironment, followRoomEnvironment, isRoomEnvironment, roomEnvironmentInfo } from '../../render/lights.js';
@@ -169,12 +168,12 @@ export const environmentMethods = {
 
   // Panorama asset (.hdr goes through HDRLoader in the asset loader). A newer look.env.replace call makes the token stale and the late result is dropped
   _envFromAsset(name, token) {
-    this.engine.assets.texture(name).then(t => {
+    this.engine.assets.useTexture(name, t => {
       if (this._env?.token !== token || this.engine.disposed) return;
       t.mapping = THREE.EquirectangularReflectionMapping;
       this._pmrem ??= new THREE.PMREMGenerator(this.engine.renderer);
       this._envSet(this._pmrem.fromEquirectangular(t));
-    }).catch(err => warnOnce(err.message));
+    }, { where: 'look.env.replace', instead: 'the previous environment light stays' });
   },
 
   // The game's own map (look.env.replace(texture)). Why not PMREM an already prefiltered one: a PMREM result from the game (isPMREMTexture; three 0.187 no longer exports CubeUVReflectionMapping) is used as is;

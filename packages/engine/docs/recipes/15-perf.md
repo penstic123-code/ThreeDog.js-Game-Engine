@@ -2,9 +2,9 @@
 
 Order: first use numbers to decide which category is over (frame rate? draw calls? CPU? startup?), then find who takes the most, and after changing,
 compare before/after with the same method.
-Which renderer measures: tests run on software rendering (SwiftShader; numbers only for relative comparison). `threedog shot`, `perf`, `stress` and
+Which renderer measures: tests that compare pixels run on software rendering (SwiftShader; numbers only for relative comparison), the others on the GPU when headless can reach it. `threedog shot`, `perf`, `stress` and
 `gallery --shots` use the hardware GPU when headless can reach it (`threedog doctor` says whether it can; `--gpu` / `--software` or
-`THREEDOG_RENDER=gpu|software` force one). On a machine without one, ask the user to press F3 in the browser. Method and reference data: `../PERF.md`.
+`THREEDOG_RENDER=gpu|software` force one). On a machine without one, ask the user to press F3 in the browser (bound by `createEngine({ bindings: { ...presets.bindings.debug } })`; the templates do). Method and reference data: `../PERF.md`.
 - **What this machine can carry**: `threedog stress [--only lights,skinned] [--json]` ramps one load at a time (triangles, draw calls, instances, lights,
   shadow lights, shadow map size, overlapping transparency, particles, post effects, skinned characters) on a neutral scene until the frame passes 33 ms,
   and prints where 16.7 / 33 ms are crossed, with CPU and GPU ms. Turn the row for your target machine into `engine.budget` limits (section 2).
@@ -22,7 +22,7 @@ Which renderer measures: tests run on software rendering (SwiftShader; numbers o
   `'off'` restores. For real GPU timings use `threedog capture` (Spector.js) or the browser's GPU profiler.
 - **Other view modes and the panel**: `debug.view('triggers')` shows hidden zones; modules add their own modes (`engine.debug.defineView(name, { what, apply })`)
   and `engine.debug.viewModes()` lists every mode. `engine.debug.panel` is the F3 panel (dev builds; null without the `debug()` module).
-- **F3 panel** (`debug()` module, included in openWorld, collapsed by default, press F3 to open): frame rate, CPU ms/frame, draw calls, triangles,
+- **F3 panel** (`debug()` module, included in openWorld, collapsed by default; the action `debugPanel` opens it, `presets.bindings.debug` binds F3): frame rate, CPU ms/frame, draw calls, triangles,
   chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
   with a budget set it also shows over-limit items and startup time; the "20-second stress test" makes the player run forward fast automatically and
   reports the average frame rate and the worst frame at the end.
@@ -68,7 +68,7 @@ and they get timed.
 | Symptom | Fix |
 |---|---|
 | Many draw calls | Use `vegetation` / InstancedMesh for repeated objects; install `hlod()` for a block of buildings; share geometry and materials between copies of a model (`assets.model` shares by default) |
-| Expensive shadows | Style `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; filter `createEngine({ shadowType: 'basic' })` (hard edge, cheapest) / `'pcf'` (default) / `'vsm'` (softest, costliest), switch live with `engine.look.shadow.set({ type: 'vsm', radius: 3 })` (radius: pcf and vsm only; blurSamples: vsm only; a switch recompiles materials, so avoid doing it every frame); the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
+| Expensive shadows | Style `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; filter `look.shadow.set({ type: 'basic' })` (hard edge, cheapest) / `'pcf'` (default) / `'vsm'` (softest, costliest), switch live with `engine.look.shadow.set({ type: 'vsm', radius: 3 })` (radius: pcf and vsm only; blurSamples: vsm only; a switch recompiles materials, so avoid doing it every frame); the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
 | Stutter while walking | Put generation work in `engine.jobs.add(function* () { ...; yield; })` or `engine.stream.add`; chunk upload budget `engine.terrain.applyBudgetMs` |
 | Slow start | Look at which is slowest in `engine.startup.modules`; `npm run bake` for large models; preload only the necessary assets |
 | Slow physics | Keep dynamic rigid bodies within a few hundred (the `rigidBodies` budget); `rigid({ terrainRing: 1 })` |

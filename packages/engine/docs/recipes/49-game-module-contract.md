@@ -21,9 +21,10 @@ shows in `describe()` and the dev bridge, and can be driven by ops, without spec
    `describe`). Call with `engine.ops.run(name, args)` -> `{ ok, value }` or `{ ok: false, code, facts, nextActions }` (read `r.code`). Never mutate state from UI code directly.
 
 ## Declaring stage and dependencies
-`stage` picks where the hooks run (first to last): `control, world, environment, gameplay, presentation, late (default), audio`; `before / after`
-(module names) only order modules inside one stage; a contradiction with the stage order throws. `requires: ['world']` must already be installed (throws
-otherwise: put those `engine.use` calls first). `optional: { sky: 'what is lost without it' }` is a soft dependency (use `engine.sky?.`). Core never imports
+`stage` only picks where the hooks run (first to last): `control, ground, environment, gameplay, effects, late (default), audio`; `before / after`
+(module names) only order modules inside one stage; a contradiction with the stage order throws. `requires: ['world']` names a capability that must already be provided (throws
+otherwise, naming both fixes: the engine's `world()` first, or your own module with `provides: ['world']`). `type` says what the module may own
+(recipe 14: `'rules'` for game logic like this one; a `'look'` module may not define ops). `optional: { sky: 'what is lost without it' }` is a soft dependency (use `engine.sky?.`). Core never imports
 modules. The module `name` must not clash with an existing engine property.
 
 ## One copyable module: something that finishes after a delay (a smelter, a turret recharge, a crop)
@@ -31,7 +32,7 @@ modules. The module `name` must not clash with an existing engine property.
 export const machines = () => {
   const started = new Map();                                 // id -> startedAt (game seconds)
   return {
-    name: 'machines', stage: 'gameplay', requires: [],
+    name: 'machines', type: 'rules', stage: 'gameplay', requires: ['inventory'],
     install(e) {
       e.saves.register('machines', { version: 1,                // contract 1: saved and restored
         save: () => [...started],
@@ -51,8 +52,8 @@ export const machines = () => {
   };
 };
 ```
-Needs the `inventory`
-module (add `requires: ['inventory']`, or drop the `inventory.add` line).
+Needs an `inventory` (the engine's, or a game's own module with `provides: ['inventory']`; drop the `inventory.add` line and the requires
+if the game has none).
 
 ## Check "advance 10h normally == skip 10h" (bridge, no new tools)
 ```

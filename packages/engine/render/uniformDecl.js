@@ -1,4 +1,4 @@
-// Declares style-supplied GLSL uniforms (sky clouds, wind): { uTint: new THREE.Color(...), uK: 0.4, uPaper: texture } -> GLSL lines + { name: { value } }.
+// Declares style-supplied GLSL uniforms. For sky clouds, wind: { uTint: new THREE.Color(...), uK: 0.4, uPaper: texture } -> GLSL lines + { name: { value } }.
 import * as THREE from 'three';
 import { codedError } from '../core/errorHints.js';
 

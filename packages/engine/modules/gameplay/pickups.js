@@ -2,7 +2,7 @@
 // Things lying on the ground that whoever takes them gets. Installed as engine.pickups; needs world() (the data are plain kind 'pickup' records in
 // engine.world, saved with it), interactions() for the key prompt, inventory() only for pickups that give an item.
 //
-// engine.use(world(), interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), pickups());
+// engine.use(world(), interactions({ ...presets.interactions.nearest }), inventory(), pickups());
 // engine.pickups.spawn([3, 0, 5], { give: 'berry', count: 2, respawnSeconds: 120 });          // into the picker's bag (inventory.of(actor))
 // engine.pickups.spawn([8, 0, 2], { give: (e, { actor }) => heal(actor, 25), name: 'Medkit', auto: true });   // instant effect: no inventory needed
 //
@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
-import { warnOnce, renamed } from '../../core/validate.js';
+import { warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { copyData } from './Container.js';
 import { failure } from '../../core/opsFail.js';
@@ -24,16 +24,16 @@ import { protoOf } from '../../core/namedModel.js';
 import { shadowDefaults } from '../../core/assetEntry.js';
 import { codedError, coded } from '../../core/errorHints.js';
 
-const STRINGS = { 'zh-CN': { 'pickups.take': '捡起 {name}' }, en: { 'pickups.take': 'Pick up {name}' } };
+const STRINGS = { 'zh-CN': { 'module.pickups': '拾取物', 'pickups.take': '捡起 {name}' }, en: { 'module.pickups': 'pickups', 'pickups.take': 'Pick up {name}' } };
 const SPAWN_KEYS = ['give', 'count', 'data', 'name', 'model', 'color', 'mesh', 'respawnSeconds', 'bob', 'id', 'initial', 'zone', 'radius', 'auto'];
 const STYLE_KEYS = ['color', 'size', 'lift'];
-const OLD_STYLE = renamed('style.pickup', { model: "an asset model by name: the pickup's or item's model, else 'pickup:<item id>' / 'pickup' (style.pickup keeps color / size / lift)" });   // style.pickup: looks only (the shape is an asset model, StylePack.pickup)
 const NO_ACTORS = [];
 // A net host measures peers at the position they last sent (a few steps old): pickup.take allows this much beyond the radius so a fair press is not refused
 const NET_SLACK = 1;
 
 export class Pickups {
-  constructor(engine, { radius = 2, showDistance = 60, takers } = {}) {
+  /** @internal track: the module's ctx.track */
+  constructor(engine, { radius = 2, showDistance = 60, takers } = {}, track) {
     this.engine = engine;
     /** Reach of pickups that set no radius (meters); auto pickups are taken within it */ this.radius = radius;
     /** @internal pickups float, spin and have a model only within this distance of the stream sources */ this.showDistance = showDistance;
@@ -50,11 +50,11 @@ export class Pickups {
     /** @internal largest radius of the auto pickups in the world (0 = none) */ this._autoR = 0;
     /** @internal pickup records changed since _autoR was read */ this._autoDirty = true;
     const dirty = ({ kind }) => { if (kind === 'pickup') this._autoDirty = true; };
-    engine.events.on('world:add', dirty); engine.events.on('world:change', dirty);
+    track(engine.events.on('world:add', dirty)); track(engine.events.on('world:change', dirty));
     engine.i18n.add(STRINGS);
     // a record gone (taken without respawn, removed, not in a loaded save): its live parts are no longer needed for a rebuild
-    engine.events.on('world:remove', ({ id, kind }) => { this._live.delete(id); dirty({ kind }); });
-    engine.events.on('world:load', () => { this._autoDirty = true; for (const id of this._live.keys()) if (!engine.world.get(id)) this._live.delete(id); });
+    track(engine.events.on('world:remove', ({ id, kind }) => { this._live.delete(id); dirty({ kind }); }));
+    track(engine.events.on('world:load', () => { this._autoDirty = true; for (const id of this._live.keys()) if (!engine.world.get(id)) this._live.delete(id); }));
     present(this);
   }
 
@@ -169,7 +169,7 @@ function present(pk) {
     build: rec => model(pk, rec),
     update: (rec, o) => {   // bobbing spin: world places the model at the data position each frame first, this adds the bob on top
       if (rec.bob === false) return;
-      const t = e.elapsed, x = rec.position.x;
+      const t = e.time.now('real'), x = rec.position.x;
       o.rotation.y = t * 1.5 + x; o.position.y = rec.position.y + Math.sin(t * 2 + x) * 0.08;
     },
     // only detached: a game's mesh is the game's, a model clone shares geometry / material with its prototype (protoOf), materials are shared per color;
@@ -182,13 +182,13 @@ function present(pk) {
 }
 
 // A pickup's shape goes one way only: a model name from assets (same protoOf as content props / templates: file or code-generated, cache, bake and shadow rules are identical).
-// Name order: the pickup's own model -> the item definition's model -> 'pickup:<item id>' in assets -> 'pickup' -> neutral grey-box placeholder (warns once). Style packs give no shape, only color / size / lift.
+// Name order: the pickup's own model -> the item definition's model -> 'pickup:<item id>' in assets -> 'pickup' -> neutral grey-box placeholder (warns once). Styles give no shape, only color / size / lift.
 const NO_PICKUP = "pickups: no model for '{item}', so it lies on the ground as a gray box (a placeholder). Register a model in an asset pack and name it: "
   + "pickups.spawn(p, { model: 'gem' }) / inventory.define('{item}', { model: 'gem' }), or call the model 'pickup:{item}' (this item) / 'pickup' (every pickup without its own)";
 const NO_NAME = "pickups: '{item}' has model '{model}', but no asset pack registers a model of that name (engine.assets.manifest({ models: { {model}: fn | '/models/{model}.glb' } })); using the gray placeholder box";
 const fill = (t, o) => t.replace(/\{(\w+)\}/g, (_, k) => o[k]);
 /** Which model name a pickup shows (its own model, else the item's, else 'pickup:<item>' / 'pickup'), or null for the placeholder @internal */
-export function pickupModelName(e, item, model) {
+function pickupModelName(e, item, model) {
   const has = n => { const x = e.assets.entries.get(n); return !!x?.named && x.type === 'model'; };
   const what = item ?? 'pickup';
   if (typeof model === 'string') { if (has(model)) return model; warnOnce(fill(NO_NAME, { item: what, model })); return null; }
@@ -275,19 +275,19 @@ const PICKUP_PARAMS = {
  * Pickups module: things on the ground that give whoever takes them an item (into that actor's container) or an instant effect. Installs engine.pickups and
  * the op pickup.take. Needs world() first; interactions() for the key prompt (auto: true pickups need none); inventory() only for give: itemId.
  * Options: radius (default reach, 2 m), showDistance (60 m), takers (who walks into auto pickups).
- * @example engine.use(openWorld(), interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), pickups())
+ * @example engine.use(openWorld(), interactions({ ...presets.interactions.nearest }), inventory(), pickups())
  * @example engine.use(world(), pickups({ radius: 1 }))   // coins and health packs only: auto pickups with give functions, no inventory, no prompt
  */
 export function pickups(opts = {}) {
   const o = readParams('pickups', PICKUP_PARAMS, opts);
   let pk = null;
   return {
-    name: 'pickups', label: 'Pickups', params: PICKUP_PARAMS, options: o, requires: ['world'], optional: ['interactions', 'inventory', 'net'], stage: 'gameplay',
+    name: 'pickups', type: 'rules', label: 'Pickups', params: PICKUP_PARAMS, options: o, requires: ['world'], optional: ['interactions', 'inventory', 'net'], stage: 'gameplay',
     noSkip: 'auto pickups are spatial; respawn follows the game clock',
-    install(e) {
+    install(e, ctx) {
       // same rule as style.weather: style sections a module reads go through readParams; the 0.2 style.pickup.model (no longer read) names the new form first (in dev), never silently does nothing
-      if (e.style.pickup) readParams('style.pickup', keysSchema(STYLE_KEYS), OLD_STYLE.check(e.style.pickup));
-      pk = new Pickups(e, opts); defineTake(e, pk); return pk;
+      if (e.style.pickup) readParams('style.pickup', keysSchema(STYLE_KEYS), e.style.pickup);
+      pk = new Pickups(e, opts, ctx.track); defineTake(e, pk); return pk;
     },
     fixed() { pk._auto(); },
     describe(e, ctx) {   // use the model if present (same object the interactions module reports, merged into one entry); far away only data

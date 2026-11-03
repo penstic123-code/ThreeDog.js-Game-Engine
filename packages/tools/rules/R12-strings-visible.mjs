@@ -1,5 +1,5 @@
 // R12 text in a STRINGS table shown to the player → warning, it must go through i18n (heuristic)
-// Background: the hard-rule check (item 3 of check.mjs) lets code inside STRINGS = {...} tables through, because dev hints (console warnings, describe text) may be in one language only.
+// Background: R15 (hard-coded text) lets code inside STRINGS = {...} tables through, because dev hints (console warnings, describe text) may be in one language only.
 //       But if text from the same table is shown to the player, it bypasses localization: after switching language it still shows the wrong one.
 // Criteria: in packages/engine/, a constant whose name contains STRINGS (or an alias such as const S = XX_STRINGS) with an object-literal initializer that is not the { 'zh-CN': …, en: … } multi-language shape;
 //   walk up the syntax tree from table.key (continuing through wrappers like fmt(…)) to the statement; passing any of these "player-visible" places → warning:

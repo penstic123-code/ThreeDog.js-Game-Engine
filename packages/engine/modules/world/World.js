@@ -7,6 +7,7 @@
 // Data must be plain values (putting a three.js object or a function in it throws in dev); position is a plain { x, y, z }. Don't hold on to rec: loading a
 // save swaps in new objects, so keep the id and use world.get(id).
 import { DEV, fmt } from '../../core/validate.js';
+import { checkTypeRule } from '../../core/moduleTypes.js';
 import { addRecord, setRecord, removeRecord, queryRecords } from './records.js';
 import { Views } from './views.js';
 import { Sim } from './sim.js';
@@ -82,7 +83,7 @@ export class World {
    * @param {{ initial?: boolean, save?: boolean }} [opts]
    * @returns {WorldRecord | null}
    */
-  add(def, opts) { return addRecord(this, def, opts); }
+  add(def, opts) { checkTypeRule(this.engine, 'world.write', `added a world record (${def?.kind ?? '?'})`); return addRecord(this, def, opts); }
   /**
    * Where a record comes from (filled in dev and test builds; null in release): { definedAt: 'content/props.js:14' } for a content entry,
    * { level, node } for a level-model node, { template } when it is a template instance, { spawned: { op, tick } } for a record created during play.
@@ -117,7 +118,7 @@ export class World {
    * @param {Record<string, any>} patch
    * @returns {WorldRecord}
    */
-  set(id, patch) { return setRecord(this, id, patch); }
+  set(id, patch) { checkTypeRule(this.engine, 'world.write', `set world record ${id}`); return setRecord(this, id, patch); }
   /**
    * Move a record (no event; use it in simulate for things that move every step); still saved (saves diff against content).
    * The model of a positionFrom 'record' (default) record follows this frame; to do something else with the position in presentation, compare in update
@@ -138,7 +139,7 @@ export class World {
    * @param {string} id
    * @returns {void}
    */
-  remove(id) { removeRecord(this, id); }
+  remove(id) { checkTypeRule(this.engine, 'world.write', `removed world record ${id}`); removeRecord(this, id); }
   /**
    * Query records; returns an array. With near only nearby cells are scanned and results are sorted nearest first (radius defaults to 30 m); where filters
    * further. For neighbor queries every step use forEachNear
@@ -229,6 +230,12 @@ export class World {
    * @returns {{ remove(): void }}
    */
   simulate(kind, opts) { return this._s.simulate(kind, opts); }
+  /**
+   * Stop running simulate() handlers on this machine until remove(): a multiplayer client lets the host simulate and only receives the records.
+   * Public so net() needs no world internals.
+   * @returns {{ remove(): void }}
+   */
+  pauseSimulation() { const s = this._s; s.fixed = () => {}; return { remove: () => { delete s.fixed; } }; }
   /** Number of fixed steps simulated */ get steps() { return this._s.n; }
 
 

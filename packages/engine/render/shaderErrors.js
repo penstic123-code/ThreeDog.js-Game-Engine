@@ -4,6 +4,10 @@
 // `// threedog:begin patch=x slot=y` / `// threedog:end` before and after each piece; here, going up from the error line number, find the nearest begin marker and report the patch name and slot.
 // three has a hook renderer.debug.onShaderError: once set, three no longer prints on its own, so the original error is printed in full here too (nothing from plain three.js is lost).
 // if the game set onShaderError itself, do not override it.
+import { setConsoleFunction, getConsoleFunction } from 'three';
+import { isWebGPU, findNodeBuild } from './backend.js';
+import { materialPatches } from './patches.js';
+
 const BEGIN = /^\s*\/\/ threedog:begin patch=(\S+) slot=(\S+)/, END = /^\s*\/\/ threedog:end/;
 // a GLSL file served by the vite preset's threedog-live plugin (shader hot reload, render/hotGlsl.js): `// threedog:begin file=<path>`
 const FILE = /^\s*\/\/ threedog:begin file=(\S+)/;
@@ -56,6 +60,7 @@ function explainShaderError(stage, source, log) {
  */
 export function nameShaderErrors(renderer) {
   const d = /** @type {any} */ (renderer).debug;
+  if (isWebGPU(renderer)) { nameNodeErrors(renderer); return; }
   if (!d || d.onShaderError) return;
   d.onShaderError = (gl, program, vs, fs) => {
     const parts = [];
@@ -69,4 +74,81 @@ export function nameShaderErrors(renderer) {
     const link = gl.getProgramInfoLog(program) || '';
     console.error(parts.join('\n') + (link.trim() ? `\n[threedog] program link: ${link.trim()}` : '') + '\n(raw anchors and slots: render/slots.js)');
   };
+}
+
+// ---------- WebGPURenderer (docs/plans/2026-11-03-webgpu-phase2.md §4 "shader error location") ----------
+// What exists there: a tsl patch's own JS error is caught where it runs and named `patch 'x' (slot y)` with the game's line on top of its stack
+// (render/fx/patchNodes.tsl.js run()); an error while three builds the node a patch or a post effect returned carries the same name
+// (render/fx/nodeErrors.tsl.js), and three's 'TSL:' build-error log gets one more line naming the material and mesh. A compile error comes later, from code three generated from nodes, and that code has no patch markers
+// (TSL writes it; there is nothing to put them in), so the line cannot be mapped to a patch. What this names instead: the material and mesh
+// whose program failed and the patches on it. Two hooks reach it: on the WebGL2 backend three calls debug.onShaderError like WebGLRenderer;
+// on the WebGPU backend there is no callback, three reports pipeline failures (popErrorScope + getCompilationInfo, with WGSL line excerpts)
+// through its console function only, so the engine wraps that once (setConsoleFunction, a game's own wrapper still runs) and adds one line.
+// Not covered: errors the device raises outside a pipeline build (renderer.onError, three's uncaptured-error handler) keep three's own message.
+const NODE_HINT = "node programs have no patch markers (TSL writes them): take the listed patches off one at a time (applyEffects), or read the program with renderer.debug.getShaderAsync(scene, camera, mesh); a patch's own JS error is named patch 'x' (slot y) where it runs";
+
+/** "MeshLambertNodeMaterial 'leaf' (#12) on Mesh 'tree'; patches on it: wind, clouds" @param {any} ro a three RenderObject */
+function nodeOwner(ro) {
+  const m = ro.material, o = ro.object, p = materialPatches(m);
+  return `${m.type}${m.name ? ` '${m.name}'` : ''} (#${m.id}) on ${o?.type ?? 'object'} '${o?.name || '(unnamed)'}'; patches on it: ${p.join(', ') || 'none'}`;
+}
+
+/**
+ * The explanation for one three console message, or '' (not a pipeline failure)
+ * @internal exported for tests/backend; three reaches it through the console hook
+ * @param {string} message
+ * @returns {string}
+ */
+export function explainPipelineError(message) {
+  const m = /Render pipeline creation failed \(renderPipeline_.*_(\d+)\)/.exec(message);
+  if (!m) return '';
+  const ro = findNodeBuild(x => x.material?.id === +m[1]);
+  return `[threedog] WebGPU pipeline failed for ${ro ? nodeOwner(ro) : `material #${m[1]} (not among the recent builds)`}: ${NODE_HINT}. three's WGSL lines follow.`;
+}
+
+/** The explanation for three's node build-error log ('THREE.TSL: TypeError: ...', NodeManager), or '' (another message) @param {string} message */
+function explainBuildError(message) {
+  if (!/^THREE\.TSL: \w*Error: /.test(message)) return '';
+  // three logs right after building the stand-in for the failed one, with the same render object: the newest build is the one that failed
+  const ro = findNodeBuild(() => true), named = /\[threedog\] (patch|post effect) '/.test(message);
+  return `[threedog] node build failed for ${ro ? nodeOwner(ro) : 'a material not among the recent builds'}; three draws it with a plain NodeMaterial instead (the black or white mesh). `
+    + (named ? 'The patch or post effect named above returned the node that failed.'
+      : "Not inside a patch's or post effect's node (those are named when they fail): look at the material's own nodes (colorNode, positionNode ...)");
+}
+
+let consoleHooked = false;
+/** Wrap three's console function once per page: three's message as before, then the explanation for a pipeline failure */
+function hookThreeConsole() {
+  if (consoleHooked) return;
+  consoleHooked = true;
+  const prev = getConsoleFunction();
+  setConsoleFunction((type, message, ...params) => {
+    if (prev) prev(type, message, ...params);
+    else if (params[0]?.isStackTrace) console[type](params[0].getError(message));   // what three prints when no function is set
+    else console[type](message, ...params);
+    const why = type === 'error' ? explainPipelineError(String(message)) || explainBuildError(String(message)) : '';
+    if (why) console.error(why);
+  });
+}
+
+/** @param {any} r a WebGPURenderer */
+function nameNodeErrors(r) {
+  const d = r.debug;
+  if (d && !d.onShaderError) d.onShaderError = (gl, program, vs, fs) => {
+    const src = [gl.getShaderSource(vs), gl.getShaderSource(fs)];
+    // _nodeBuilderState, not getNodeBuilderState(): reading must never start a build from inside an error report
+    const ro = findNodeBuild(x => { const s = x._nodeBuilderState; return !!s && (s.vertexShader === src[0] || s.fragmentShader === src[1]); });
+    const logs = [];
+    for (const [stage, sh] of /** @type {const} */ ([['vertex', vs], ['fragment', fs]])) {
+      const log = gl.getShaderInfoLog(sh) || '';
+      if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) && !log.trim()) continue;
+      const lines = (gl.getShaderSource(sh) || '').split('\n');
+      const rows = log.split('\n').filter(l => /ERROR:/.test(l)).map(l => { const n = /ERROR:\s*\d+:(\d+):/.exec(l)?.[1]; return n ? `${l.trim()} | ${lines[+n - 1]?.trim() ?? ''}` : l.trim(); });
+      logs.push(`[threedog] ${stage} shader log:\n${rows.join('\n') || log.trim()}`);
+    }
+    const link = gl.getProgramInfoLog(program) || '';
+    console.error(`[threedog] shader error in a node program (WebGPURenderer, WebGL2 backend) for ${ro ? nodeOwner(ro) : 'a material not among the recent builds'}: ${NODE_HINT}\n`
+      + logs.join('\n') + (link.trim() ? `\n[threedog] program link: ${link.trim()}` : ''));
+  };
+  hookThreeConsole();
 }

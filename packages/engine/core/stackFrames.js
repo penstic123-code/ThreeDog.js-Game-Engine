@@ -1,6 +1,8 @@
-// Read 'file.js:50' places out of an Error stack: where a thing was added (things.js) and which game line set a look value (look/layers.js).
+// Read 'file.js:50' places out of an Error stack: where a thing was added (things.js), which game line set a look value (look/points.js) or took
+// a shared point (sharedPoint.js: the conflict error names both sides' lines).
 // Why one file: the two copies of the frame regex drifted apart once already (a query string after the file name, a Windows path), and a fix made in
 // one never reached the other. Both read V8 and Firefox / Safari frame lines ("at f (http://host/src/main.js?v=1:50:7)" and "f@http://host/src/main.js:50:7").
+import { DEV } from './validate.js';
 const FRAME = /\(?((?:[a-z]+:\/\/[^/\s]+)?[^\s()]+?\.[cm]?[jt]sx?)(?:\?[^:\s)]*)?:(\d+):\d+\)?\s*$/i;
 const FUNC = /^[^@\s/]*@(?=[a-z]+:\/\/)/i;
 
@@ -18,3 +20,15 @@ export function stackFrames(stack) {
 
 /** 'src/main.js:50' for a frame: the URL host and leading slashes dropped, so the text matches the repository path @param {{ file: string, line: number }} f */
 export const frameText = f => `${f.file.replace(/^[a-z]+:\/\/[^/]+\//i, '').replace(/^\/+/, '')}:${f.line}`;
+
+const ENGINE_FRAME = /(?:engine|threedog)\/(?:core|modules|render|ui)\//;   // engine code (engine.mod called from inside the engine) is skipped: `at` names the game's line
+
+/** 'main.js:50' of the first caller outside the engine (dev only: release builds keep no stacks) */
+export function callerAt() {
+  if (!DEV) return null;
+  const E = /** @type {ErrorConstructor & { stackTraceLimit?: number }} */ (Error);   // stackTraceLimit is V8's (Chrome), not in the DOM typings
+  const lim = E.stackTraceLimit; E.stackTraceLimit = 14;
+  const stack = String(new Error().stack ?? ''); E.stackTraceLimit = lim;
+  const f = stackFrames(stack).find(x => !ENGINE_FRAME.test(x.file));
+  return f ? frameText(f) : null;
+}

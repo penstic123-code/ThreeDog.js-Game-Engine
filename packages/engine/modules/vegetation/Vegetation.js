@@ -1,16 +1,14 @@
-// Vegetation module: defines what to plant, where, how far before switching to low-poly, and how far before not drawing. Models (the look) come from the game
-// or style.
-import * as THREE from 'three';
-import { fromModel } from './modelGeometry.js';
+// Vegetation data part: what grows where. Species definitions (placement rule, positions, densityMap, rings), placement per chunk
+// (c.plants[name]: matrices, colors, stable ids), tree collision circles (c.colliders), felled-tree records (saved) and instanceAt.
+// Data only: this file makes no mesh and touches no material. Looks subscribe with view({ species, change, ring, show, drop })
+// (vegetation/look.js is the engine's own, slot 'vegetation-look'); the models and materials given to define() are read there.
 import { isModelName, vegetationModel } from '../../core/namedModel.js';
-import { makeMaterial, applyEffects } from '../../render/materials.js';
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { reportError } from '../../core/errors.js';
 import { xzOf } from '../../core/math.js';
 import { GroundChunks } from './groundChunks.js';
-import { swayOf } from './lookWind.js';
-import { fadeBand, nearFadePatch } from './nearFade.js';
+import { fadeBand } from './nearFade.js';
 import { makeDensity, thin } from './densityMap.js';
 import { codedError } from '../../core/errorHints.js';
 // parameters read by vegetation.define(); keys inside rule (sent to the worker thread)
@@ -36,16 +34,18 @@ function checkPositions(label, list, rule) {
 //   const hit = engine.vegetation.instanceAt(position, { radius: 2, species: '松树' });   // → { species, cx, cz, id, position } or null
 //   engine.vegetation.removeInstance(hit.species, hit.cx, hit.cz, hit.id, { regrowSeconds: 300 });  // grows back after 300 game seconds
 //   engine.vegetation.restoreInstance(...)   // restore immediately
-// Hiding: scale this instance's matrix to 0 (count unchanged) and drop it from the chunk's collision circles.
+// Hiding: the slot goes into c.hidden[name] (the look draws it as a zero matrix, count unchanged) and out of the chunk's collision circles.
 // Regrowth: the record stores the expiry time (engine.clock game seconds), checked once per second; the clock is saved, so the countdown continues after
 // reload.
 const KEY_RE = /^veg:(.*):(-?\d+),(-?\d+):(\d+)$/;
-const ZERO16 = new Float32Array(16);
 const hashName = s => { let h = 7; for (const ch of s) h = (Math.imul(h, 31) + ch.codePointAt(0)) | 0; return h & 0x7fffffff; };
-// stable id -> instance index (built once per InstancedMesh)
-function slotOf(im, id) {
-  if (!im.userData.slot) { im.userData.slot = new Map(); const ids = im.userData.ids; if (ids) for (let i = 0; i < ids.length; i++) im.userData.slot.set(ids[i], i); }
-  return im.userData.slot.get(id);
+// stable id -> instance slot of one placement result (built once per result, kept off the record so it never travels)
+const SLOTS = new WeakMap();
+function slotOf(r, id) {
+  if (!r.ids) return id < r.n ? id : undefined;
+  let m = SLOTS.get(r);
+  if (!m) { m = new Map(); SLOTS.set(r, m); for (let i = 0; i < r.ids.length; i++) m.set(r.ids[i], i); }
+  return m.get(id);
 }
 
 export class Vegetation {
@@ -55,7 +55,14 @@ export class Vegetation {
     // whatever provides the ground (a level, a code-built ground, flat). Both hosts keep chunks of one shape, so everything below is shared
     if (engine.terrain && Object.keys(opts).length) throw codedError('vegetation-option', `vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
     /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
+    /** @internal the looks drawing the plants (view()) */ this.views = new Set();
     this.host = engine.terrain ?? new GroundChunks(engine, this, opts);
+    // on terrain: this is the terrain's planter (it calls mount / unmount / drop / ring; terrain never reads engine.vegetation); a chunk's
+    // visibility comes from the terrain data part, so a game that replaces the terrain look keeps its trees
+    if (engine.terrain) {
+      this._planter = engine.terrain.setPlanter(this);
+      this._view = engine.terrain.view({ show: (c, v) => this._emit('show', c, v) });
+    }
     this._removed = new Map();   // 'name:cx,cz' -> Map(id -> regrow time (clock game seconds), null = permanent)
     this._acc = 0;
     this._pending = [];   // density images still loading (densityMap.url); the module's init waits for them
@@ -77,7 +84,7 @@ export class Vegetation {
           if (!this._removed.has(ck)) this._removed.set(ck, new Map());
           this._removed.get(ck).set(+m[4], until);
         }
-        for (const c of this.host.chunks.values()) for (const n in c.veg) this.applyEdits(c, n);
+        for (const c of this.host.chunks.values()) for (const n in c.plants) this.applyEdits(c, n);
       },
     });
   }
@@ -125,27 +132,20 @@ export class Vegetation {
     readParams(`vegetation.define('${name}').rule`, keysSchema(RULE_KEYS), o.rule);
     if (o.positions != null) checkPositions(`vegetation.define('${name}')`, o.positions, o.rule);
     const density = o.densityMap != null ? makeDensity(o.densityMap, `vegetation.define('${name}')`) : null;
-    const sw = swayOf(this.engine), wind = o.wind && sw ? { amplitude: o.wind, glsl: sw.glsl, uniforms: sw.uniforms } : o.wind;   // look.wind 'sway' (a game's engine.look.wind.patch('sway', ...)) replaces the sway shape
-    // distance fade of near-only species (nearFade.js): on by default for them, fade: false keeps the hard ring edge, { start, end } sets the band in metres
+    // distance fade band of near-only species (nearFade.js), checked here so a bad band throws at define; the look draws it
     if (o.fade && typeof o.fade === 'object') readParams(`vegetation.define('${name}').fade`, keysSchema(['start', 'end']), o.fade);
     const maxRing = o.maxRing ?? (o.nearOnly ? 1 : 99);
-    const band = o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.CHUNK), nf = band && nearFadePatch(band);
-    const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage', patches: nf ? [nf.patch] : undefined });
-    const mdl = o.model && fromModel(o.model, `vegetation.define('${name}')`);
-    let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, `vegetation.define('${name}').lodGeometry`).geometry : o.lodGeometry || null;
-    if (mdl && lod && !lod.groups.length) { lod = lod.clone(); lod.addGroup(0, Infinity, 0); }   // a material array draws nothing without groups
     const sp = {
-      name, geometry: mdl ? mdl.geometry : o.geometry, lodGeometry: lod,
+      name,
       // random seed from the name: placement is unaffected by registration order. positions rides inside the rule because the rule is what
       // reaches the placer (terrain worker or ground chunks), and a list of numbers travels as plain data
       rule: { salt: hashName(name), ...(o.rule || {}), ...(o.positions != null ? { positions: o.positions } : {}) },
       density,   // densityMap sampler (main thread only: a function may read game state), applied in mount()
-      nearOnly: !!o.nearOnly, maxRing, fade: band, fadeUniforms: nf?.uniforms ?? null, lodRing: o.lodRing ?? 1,
+      nearOnly: !!o.nearOnly, maxRing, lodRing: o.lodRing ?? 1, fade: o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.CHUNK),
       castShadow: o.castShadow ?? !o.nearOnly, shadowRing: o.shadowRing ?? 1, receiveShadow: o.receiveShadow ?? true,
-      material: mdl ? mdl.materials.map(fx)
-        : fx(o.material ?? makeMaterial('vegetation', { vertexColors: true, side: o.doubleSided ? THREE.DoubleSide : THREE.FrontSide }, this.engine)),
     };
-    sp.source = o;   // what it was made from: a hot swap adds it again with the new model (_swapped)
+    sp.source = o;   // what it was made from: the look reads geometry / model / material / wind from it, a hot swap adds it again (_swapped)
+    this._emit('species', sp);   // the look builds geometry and materials now, so a bad model throws here, before anything is registered
     this.species.set(name, sp);
     this.host.registerSpecies(name, sp.rule);
     // a density image still loading: this species places nothing until it is in, then every chunk is placed again. The module's init waits
@@ -210,11 +210,29 @@ export class Vegetation {
     sp.shadowRing = ring;
     this.host.refreshLevels();
   }
-  /** @internal module frame hook: the fade band is centred on the view focus (the player in a follow camera) */
-  updateFade() {
-    const f = this.engine.focus;
-    for (const sp of this.species.values()) sp.fadeUniforms?.uNearFadeCenter.value.copy(f);
+  /**
+   * Draw the plants. Hooks: species(sp) (defined or defined again; sp.source is what define() was given), change(c, name) (c.plants[name]
+   * placed, replaced or gone, or c.hidden[name] changed: felled slots), ring(c, ring) (LOD ring), show(c, visible) (in view or not), drop(c)
+   * (the chunk was released). Species and chunks already there are replayed at once. This is how a look that replaces 'vegetation-look'
+   * draws. Returns { remove() } (ctx.track it).
+   * @example ctx.track(engine.vegetation.view({ change(c, name) { draw(c, c.plants[name]) }, drop(c) { undraw(c) } }))
+   * @param {{ species?: (sp: any) => void, change?: (c: any, name: string) => void, ring?: (c: any, ring: number) => void, show?: (c: any, visible: boolean) => void, drop?: (c: any) => void }} v
+   * @returns {{ remove(): void }}
+   */
+  view(v) {
+    this.views.add(v);
+    for (const sp of this.species.values()) v.species?.(sp);
+    for (const c of this.host.chunks.values()) {
+      if (c.state !== 'ready') continue;
+      for (const n in c.plants) v.change?.(c, n);
+      if (c.ring != null) v.ring?.(c, c.ring);
+      if (c.inView === false) v.show?.(c, false);
+    }
+    return { remove: () => { if (!this.views.delete(v)) return; for (const c of this.host.chunks.values()) if (c.state === 'ready') v.drop?.(c); } };
   }
+  /** @internal tell every view */
+  _emit(k, c, a) { for (const v of this.views) v[k]?.(c, a); }
+
   /** @internal terrain plumbing */
   baseNames() { return this.list().filter(s => !s.nearOnly).map(s => s.name); }
   /** @internal terrain plumbing */
@@ -229,14 +247,14 @@ export class Vegetation {
     const ck = `${species}:${cx},${cz}`;
     if (!this._removed.has(ck)) this._removed.set(ck, new Map());
     this._removed.get(ck).set(id, regrowSeconds > 0 ? this.engine.clock.now + regrowSeconds : null);
-    this._refresh(species, cx, cz, id);
+    this._refresh(species, cx, cz);
     this.engine.events.emit('vegetation:remove', { species, cx, cz, id });
     return this.key(species, cx, cz, id);
   }
   restoreInstance(species, cx, cz, id) {
     const ck = `${species}:${cx},${cz}`, m = this._removed.get(ck);
     if (m) { m.delete(id); if (!m.size) this._removed.delete(ck); }
-    this._refresh(species, cx, cz, id);
+    this._refresh(species, cx, cz);
     this.engine.events.emit('vegetation:restore', { species, cx, cz, id });
   }
   /** @internal module hook: check once per second, those due grow back */
@@ -265,94 +283,62 @@ export class Vegetation {
       for (let cx = Math.floor((x - radius) / CH); cx <= Math.floor((x + radius) / CH); cx++) {
         const c = T.chunks.get(cx + ',' + cz);
         if (!c || c.state !== 'ready') continue;
-        for (const name in c.veg) {
+        for (const name in c.plants) {
           if (species && name !== species) continue;
-          const im = c.veg[name], a = im.instanceMatrix.array, hid = im.userData.hidden, ox = cx * CH, oz = cz * CH;
-          for (let i = 0; i < im.count; i++) {
+          const r = c.plants[name], a = r.m, hid = c.hidden?.[name], ox = cx * CH, oz = cz * CH;
+          for (let i = 0; i < r.n; i++) {
             if (hid?.has(i)) continue;
             const dx = ox + a[i * 16 + 12] - x, dz = oz + a[i * 16 + 14] - z, d = dx * dx + dz * dz;
-            if (d < bestD) { bestD = d; best = { species: name, cx, cz, id: im.userData.ids ? im.userData.ids[i] : i, position: new this.engine.THREE.Vector3(ox + a[i * 16 + 12], a[i * 16 + 13], oz + a[i * 16 + 14]) }; }
+            if (d < bestD) { bestD = d; best = { species: name, cx, cz, id: r.ids ? r.ids[i] : i, position: new this.engine.THREE.Vector3(ox + a[i * 16 + 12], a[i * 16 + 13], oz + a[i * 16 + 14]) }; }
           }
         }
       }
     return best;
   }
 
-  /** @internal chunk plumbing (terrain chunks and ground chunks): upload one species' placement result r into chunk c as an InstancedMesh */
+  /** @internal chunk plumbing (terrain chunks and ground chunks): one species' placement result r for chunk c (data; the looks draw it) */
   mount(c, name, r) {
     const sp = this.species.get(name);
     // densityMap thins here, before the colliders are taken, so a dropped plant blocks nothing; survivors keep their stable ids
     if (sp?.density) r = thin(r, c.cx * this.host.CHUNK, c.cz * this.host.CHUNK, sp.density.at, sp.rule.salt);
-    if (r.k && r.k.length) c.colliders[name] = r.k; else delete c.colliders[name];
-    (c.collidersAll ||= {})[name] = c.colliders[name];   // original collision circles (before felled trees are filtered), for single-tree removal
-    // none left (terrain dug, densityMap thinned all): the old mesh must be torn down too, or collision is gone while plants hang in place. Handled in mount so callers (terrain edit, ground swap) need not remember
-    if (r.n === 0) { if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); delete c.veg[name]; } return; }
-    const t0 = performance.now();   // measure: the 'build' stage of engine.budget.cost
-    const im = new THREE.InstancedMesh(sp.geometry, sp.material, r.n);
-    im.instanceMatrix.array.set(r.m); im.instanceMatrix.needsUpdate = true;
-    im.instanceColor = new THREE.InstancedBufferAttribute(r.c, 3);
-    im.frustumCulled = false; im.matrixAutoUpdate = false;
-    im.receiveShadow = sp.receiveShadow;
-    im.userData.ids = r.ids;   // stable id per instance (used by felled-tree records)
-    im.userData.budgetTag = 'vegetation';
-    c.group.add(im); im.updateMatrixWorld(true);
-    if (c.veg[name]) { c.group.remove(c.veg[name]); c.veg[name].dispose(); }
-    c.veg[name] = im;
-    this.engine.budget.cost.end('build', t0);
-    this.applyEdits(c, name);   // felled trees stay gone after reload
+    c.plants ||= {}; c.colliders ||= {}; c.collidersAll ||= {};
+    // none left (terrain dug, densityMap thinned all): drop the record, so the look tears its mesh down too and collision matches what is drawn
+    if (r.n === 0) delete c.plants[name]; else c.plants[name] = r;
+    if (r.n && r.k?.length) c.collidersAll[name] = r.k; else delete c.collidersAll[name];   // original circles (before felled trees are filtered)
+    this.applyEdits(c, name);   // felled trees stay gone after reload; sets the colliders and tells the looks
   }
   /** @internal chunk plumbing: drop a near-only species from a chunk that moved out of its ring */
   unmount(c, name) {
-    const im = c.veg[name]; if (!im) return;
-    c.group.remove(im); im.dispose(); delete c.veg[name]; delete c.colliders[name]; if (c.collidersAll) delete c.collidersAll[name];
+    if (!c.plants?.[name]) return;
+    delete c.plants[name]; delete c.collidersAll?.[name];
+    this.applyEdits(c, name);
   }
-  /** @internal chunk plumbing: draw distance, low-poly swap and shadows of one species' instances at a ring */
-  levelOf(im, sp, ring) {
-    im.visible = ring <= sp.maxRing;
-    im.geometry = sp.lodGeometry && ring > sp.lodRing ? sp.lodGeometry : sp.geometry;
-    im.castShadow = this.engine.shadows && sp.castShadow && ring <= sp.shadowRing;
-  }
+  /** @internal chunk plumbing: the chunk was released */
+  drop(c) { this._emit('drop', c); c.plants = {}; c.hidden = null; }
+  /** @internal chunk plumbing: the chunk's ring changed; the looks pick draw distance, low-poly swap and shadows from it */
+  ring(c, ring) { c.ring = ring; this._emit('ring', c, ring); }
 
-  /** @internal Called by the terrain module when a chunk's vegetation was just uploaded: reapply the edit records */
+  /** @internal felled-tree records -> c.hidden[name] (instance slots) and the chunk's collision circles; tells the looks */
   applyEdits(c, name) {
-    const im = c.veg[name];
-    if (!im) return;
-    const want = this._removed.get(`${name}:${c.cx},${c.cz}`)?.keys() ?? [];
-    const hid = im.userData.hidden;
-    const wantSlots = new Set(); for (const id of want) { const s = slotOf(im, id); if (s !== undefined) wantSlots.add(s); }
-    if (hid) for (const i of [...hid.keys()]) if (!wantSlots.has(i)) this._show(im, i, true);
-    for (const i of wantSlots) this._show(im, i, false);
-    this._filterColliders(c, name);
-  }
-
-  _refresh(species, cx, cz, id) {
-    const c = this.host.chunks.get(cx + ',' + cz), im = c?.veg[species];
-    if (!im) return;   // chunk not loaded: applyEdits handles it when loaded
-    const slot = slotOf(im, id); if (slot === undefined) return;
-    this._show(im, slot, !this.isRemoved(species, cx, cz, id));
-    this._filterColliders(c, species);
-  }
-
-  // show/hide an instance: when hiding, save the original matrix and write an all-zero matrix
-  _show(im, i, visible) {
-    if (i >= im.count) return;
-    const a = im.instanceMatrix.array, hid = (im.userData.hidden ||= new Map());
-    if (visible) { const m = hid.get(i); if (!m) return; a.set(m, i * 16); hid.delete(i); }
-    else { if (hid.has(i)) return; hid.set(i, a.slice(i * 16, i * 16 + 16)); a.set(ZERO16, i * 16); }
-    im.instanceMatrix.needsUpdate = true;
-  }
-
-  // collision circles map one-to-one to instances (instance i = group i of [x, z, r]); drop the hidden ones
-  _filterColliders(c, name) {
-    const all = c.collidersAll?.[name], hid = c.veg[name]?.userData.hidden;
-    if (!all) return;
-    const before = c.colliders[name];
-    if (!hid || !hid.size) c.colliders[name] = all;
+    const r = c.plants?.[name], hid = new Set();
+    if (r) for (const id of this._removed.get(`${name}:${c.cx},${c.cz}`)?.keys() ?? []) { const s = slotOf(r, id); if (s !== undefined) hid.add(s); }
+    (c.hidden ||= {})[name] = hid.size ? hid : null;
+    // collision circles map one-to-one to instances (instance i = group i of [x, z, r]); drop the hidden ones
+    const all = r ? c.collidersAll?.[name] : null, before = c.colliders[name];
+    if (!all) delete c.colliders[name];
+    else if (!hid.size) c.colliders[name] = all;
     else {
       const out = [];
       for (let i = 0; i < all.length / 3; i++) if (!hid.has(i)) out.push(all[i * 3], all[i * 3 + 1], all[i * 3 + 2]);
       c.colliders[name] = new Float32Array(out);
     }
-    if (before !== c.colliders[name]) c.colToken = {};   // tell the physics module to rebuild this chunk's collision
+    // physics rebuilds this chunk's trunks (only them: the ground triangles keep their own token); a new placement always counts as a change
+    if (before !== c.colliders[name] || r) c.treeToken = {};
+    this._emit('change', c, name);
+  }
+
+  _refresh(species, cx, cz) {
+    const c = this.host.chunks.get(cx + ',' + cz);
+    if (c?.plants?.[species]) this.applyEdits(c, species);   // chunk not loaded: applyEdits runs when it is placed
   }
 }

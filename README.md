@@ -128,7 +128,7 @@ A minimal game in code, and the two changes the engine makes to three.js globals
 
 ## Status
 
-Version 0.3 is an early release on the WebGL renderer. APIs may still change, and a WebGPU renderer is the next phase. What changed since 0.2 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.3.md](packages/engine/docs/MIGRATING-0.3.md).
+Version 0.4 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`); APIs may still change. What changed since 0.3 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.4.md](packages/engine/docs/MIGRATING-0.4.md).
 
 ## Documentation
 

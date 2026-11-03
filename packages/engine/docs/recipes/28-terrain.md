@@ -78,3 +78,36 @@ Crisp ground color borders, triangle cut, normals, bounds margin, height from a 
 
 `terrain({ shape: { mask, edge, side, bottom } })` keeps ground only where `mask > 0` (an island, a floating rock): off it `engine.surface` is
 `-Infinity` and `engine.ground.has(x, z)` is false, and falls emit `terrain:void`. Without `shape` nothing changes. See `42-terrain-shape.md`.
+
+## 6. Drawing the ground and plants your own way: replace the look, keep play
+
+`terrain()` and `vegetation()` each install two modules: the data part (`engine.terrain`: heights, chunks, edits, collision;
+`engine.vegetation`: species, placement, tree collision, felling) and the look (`engine.terrainLook`, slot `'terrain-look'`;
+`engine.vegetationLook`, slot `'vegetation-look'`). Collision, paths, `engine.surface`, `instanceAt` and saves read only the data, so a game that
+replaces a look keeps all of play. A look listens to the data part's `view` hooks and never changes the data:
+```js
+engine.use({ name: 'myGround', type: 'look', provides: ['terrain-look'], install(e, ctx) {
+  const meshes = new Map();
+  ctx.track(e.terrain.view({
+    add(c) { const m = buildMesh(c.data.pos, c.data.nor, c.data.col); m.position.set(c.cx * e.terrain.CHUNK, 0, c.cz * e.terrain.CHUNK); e.scene.add(m); meshes.set(c, m); },
+    change(c) { refill(meshes.get(c), c.data); },   // terrain.edit rewrote the arrays (same vertex count)
+    remove(c) { e.scene.remove(meshes.get(c)); meshes.delete(c); },
+    show(c, visible) { meshes.get(c).visible = visible; },
+  }));
+} }, { replaces: 'terrain-look' });
+engine.use({ name: 'myPlants', type: 'look', provides: ['vegetation-look'], install(e, ctx) {
+  ctx.track(e.vegetation.view({
+    species(sp) { /* sp.source = what vegetation.define was given (geometry, model, material, wind) */ },
+    change(c, name) { /* c.plants[name]: { n, m (16 floats per plant, chunk-local), c (colors), ids }; c.hidden[name]: felled slots; gone = drop that mesh */ },
+    ring(c, ring) { /* LOD: ring 1 = the chunk a source stands in plus one ring around */ },
+    show(c, visible) {}, drop(c) { /* chunk released */ },
+  }));
+} }, { replaces: 'vegetation-look' });
+```
+Only the material, not the meshes? `engine.look.ground.replace(material)` swaps it on every loaded chunk in place (recipe 52).
+
+## 7. A chunk that fails
+
+A chunk job that throws (usually the game's `height` / `groundType` / placement rule at that spot) is tried 3 times, then the chunk stays empty
+(no ground, no collision there): `terrain:chunkFailed` `{ cx, cz, error }` fires, the error `[terrain-chunk-failed]` names the chunk and the cause,
+and `describe().perf.chunks.failed` counts it. Fix the rule, then `engine.terrain.retry()` sends every failed chunk again.

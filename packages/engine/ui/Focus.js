@@ -13,7 +13,7 @@
 //   f.setRoot(() => settings.open())                             // what the back key does on an empty stack; returns a handle { remove() }
 //   f.top        top name or null; f.list() names from bottom to top; f.cursor { id, index } of the top entry when it has a nav, else null
 // Look: none (behavior only); the cursor marks the selected DOM control with .is-cursor.
-import { stepCursor } from './cursor.js';
+import { stepCursor, forgetNav } from './cursor.js';
 const stacks = new WeakMap();   // engine -> UI focus stack
 /** @import { Engine } from '../types/core' */
 /** @import { UIFocus } from '../types/gameplay' */
@@ -38,8 +38,8 @@ export function uiFocus(engine) {
         id, cancel, nav, index: null, at: frame, used: -1,
         get fresh() { return h.at === frame; },
         get consumed() { return h.used === frame; },
-        setNav(n) { h.nav = n; h.index = null; },
-        remove() { const i = entries.indexOf(h); if (i >= 0) entries.splice(i, 1); },
+        setNav(n) { forgetNav(h); h.nav = n; h.index = null; },
+        remove() { forgetNav(h); const i = entries.indexOf(h); if (i >= 0) entries.splice(i, 1); },
       };
       entries.push(h);
       return h;

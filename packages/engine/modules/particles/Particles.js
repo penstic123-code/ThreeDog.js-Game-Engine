@@ -68,7 +68,7 @@ export class Particles {
 
   /**
    * Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of the style
-   * pack preset. Returns the effect object: .points is its THREE.Points, .material is the shader material
+   * pack preset. Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer), .material is the shader material
    * @param {string} name
    * @param {ParticleOptions} [opts]
    * @returns {ParticleEffect}
@@ -177,7 +177,7 @@ export class Particles {
  */
 export function particles() {
   let p = null;
-  return { name: 'particles', label: 'Particles', stage: 'presentation', presentation: true, install(e) { p = new Particles(e); return p; }, frame(dt) { p.update(dt); },
+  return { name: 'particles', type: 'look', provides: ['particles'], label: 'Particles', stage: 'effects', install(e) { e.i18n.add({ 'zh-CN': { 'module.particles': '粒子' }, en: { 'module.particles': 'particles' } }); p = new Particles(e); return p; }, frame(dt) { p.update(dt); },
     counts() { return { alive: p.count(), emitters: p.emitters.size }; },   // engine.counts().particles
     // "did the dust burst fire": live particles in total and per effect that has any (idle effects left out to stay short). Kept under `alive`
     // because the numbers change every frame (an emitter's smoke): state comparisons (the session spec) skip that key as presentation, not game state

@@ -8,7 +8,7 @@ export const chunkQueries = {
     const [x, z] = xzOf(position), CH = this.T.CHUNK, pcx = Math.floor(x / CH), pcz = Math.floor(z / CH);
     for (let dz = -rings; dz <= rings; dz++) for (let dx = -rings; dx <= rings; dx++) {
       const c = this.chunks.get((pcx + dx) + ',' + (pcz + dz));
-      if (!c || c.state !== 'ready' || solid && !c.solid) return false;
+      if (!c || c.state !== 'ready' || c.regrow > 0 || solid && !c.solid) return false;   // regrow: plants of a species added later still on the way
     }
     return true;
   },
@@ -30,13 +30,15 @@ export const chunkQueries = {
   },
 
   /** @internal Collision data of a chunk (for the physics module): terrain triangles (chunk-local coordinates) + vegetation collision circles. Returns null if not generated.
-   *  token tells whether the chunk was regenerated */
+   *  token tells whether the ground was regenerated, treeToken whether its tree circles changed */
   chunkCollision(cx, cz) {
     const c = this.chunks.get(cx + ',' + cz);
     if (!c || c.state !== 'ready' || !c.solid) return null;   // collision's effective tick not reached yet
     // when the token changes the physics module rebuilds this chunk's collision; edits such as felling a tree issue a new colToken
     // an island chunk (terrain({ shape })) leaves out its bottom: a body falls past the underside instead of landing on it from below
-    const p = c.terrain.geometry.attributes.position.array, positions = c.solidCount == null ? p : p.subarray(0, c.solidCount * 3);
-    return { token: c.colToken ?? c, positions, ox: cx * this.T.CHUNK, oz: cz * this.T.CHUNK, circles: Object.values(c.colliders) };
+    const p = c.data.pos, positions = c.solidCount == null ? p : p.subarray(0, c.solidCount * 3);
+    // treeToken: only the tree circles changed (density, a felled tree): physics rebuilds the trunks, not the ground triangles
+    const token = c.colToken ?? c;
+    return { token, treeToken: c.treeToken ?? token, positions, ox: cx * this.T.CHUNK, oz: cz * this.T.CHUNK, circles: Object.values(c.colliders) };
   },
 };

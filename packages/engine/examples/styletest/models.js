@@ -1,4 +1,4 @@
-// The exhibits that are not in the lowpoly asset pack, built in code and registered by name in main.js (content/templates.js places them).
+// The exhibits that are not in the world example's art (../world/art), built in code and registered by name in main.js (content/templates.js places them).
 // Every surface goes through makeMaterial(role), so the style decides the feel: roles wood, stone, metal, glass, building.
 // Shadow flags are set here, on the model (the engine does not guess them).
 import { THREE, mergeColored, makeMaterial } from '../../index.js';

@@ -54,6 +54,25 @@ export const specs = [
     },
   },
   {
+    name: '[guard] level is critical: a missing level file rejects start() (no empty world), a switch while playing stays soft and the save does not name the failed file',
+    url: '/tests/loading/index.html',
+    expectErrors: /404|Not Found|Failed to load resource|Startup blocked|missing-level|level\.load/,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const E = threedogLoad.make('level-hard');
+        E.use(threedogLoad.level({ url: '/models/missing-level.glb' }));
+        const msg = await E.start().then(() => 'started', e => e.message);
+        const F = threedogLoad.make('level-soft');
+        F.use(threedogLoad.level({ url: threedogLoad.gltfUrl() }));
+        await F.start();
+        const soft = await F.level.load('/models/missing-level-2.glb').then(() => 'resolved', e => 'threw: ' + e.message);
+        return { msg, ready: E.ready, soft, file: F.describe().level?.file ?? null };
+      });
+      check('start() rejects and names the level module', r.msg !== 'started' && /level/.test(r.msg) && !r.ready, r.msg.split('\n').join(' '));
+      check('level.load() while playing resolves (reported, toast) and describe/save no longer name the failed file', r.soft === 'resolved' && r.file === null, JSON.stringify(r));
+    },
+  },
+  {
     name: '加载可观察：加载中 describe 能说出在等哪一项（游戏自己的步骤 → 模块），界面件文字是同一项',
     url: '/tests/loading/index.html',
     async run({ check, ev }) {
@@ -62,7 +81,7 @@ export const specs = [
         const part = () => ({ show() {}, update: d => texts.push(d.text), hide() {}, dispose() {} });
         const E = threedogLoad.make('wait', { ui: { loading: part } });
         let ready = false, finish;
-        E.use({ name: 'slowThing', isReady: () => ready });
+        E.use({ name: 'slowThing', type: 'rules', isReady: () => ready });
         const step = E.loading.track('level-data', () => new Promise(res => { finish = res; }));
         const started = E.start();
         const until = async f => { for (let i = 0; i < 200 && !f(); i++) await new Promise(res => setTimeout(res, 20)); };

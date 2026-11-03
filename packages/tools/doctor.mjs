@@ -7,11 +7,12 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync, realpathSyn
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { createConnection } from 'node:net';
-import { ROOT, ENGINE, workspaces, rel } from './paths.mjs';
+import { ROOT, ENGINE, workspaces, rel, cli, engineMismatch } from './paths.mjs';
 import { TOOLS } from './project.mjs';
 import { devServerInfo } from './devinfo.mjs';
 
-const ci = process.argv.includes('--ci'), json = process.argv.includes('--json');
+const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['ci', 'json', 'gpu', 'software'] });
+const ci = !!opt.ci, json = !!opt.json;
 let bad = 0;
 const items = [], verdict = { healthy: false, items, render: {} };
 const line = (status, msg, fix) => { items.push(fix ? { status, msg, fix } : { status, msg }); if (!json) console.log(`${{ ok: '✓', problem: '✗', info: '–' }[status]} ${msg}${fix ? `  →${fix}` : ''}`); };
@@ -35,6 +36,11 @@ else {
   if (unlinked.length) no(`workspaces not linked: ${unlinked.join(', ')}`, 'run npm install in the repo root (once after creating a new game)');
   else ok(`all workspaces linked (${names.length})`);
 }
+// The engine the games import must lie in this project: a git worktree without its own node_modules resolves the main checkout's copy, so
+// builds and tests would run other code than check reads (paths.mjs engineMismatch)
+const mismatch = engineMismatch();
+if (mismatch) no(mismatch, `npm install in ${ROOT}`);
+else ok(`engine resolves inside this project (${rel(ENGINE) || '.'})`);
 const lockFile = join(ROOT, 'package-lock.json');
 if (!existsSync(lockFile)) no('no package-lock.json', 'run npm install in the repo root');
 else {
@@ -61,7 +67,7 @@ const probe = (from, name) => {
     return { dir: rel(join(real, '..')) || '.', real: join(real, '..'), tag: `${j.version ?? '?'} @ ${statSync(real).mtime.toISOString().slice(0, 16)}` };
   } catch { return null; }
 };
-const ctxs = [['check', TOOLS], ...workspaces().filter(d => existsSync(join(d, 'vite.config.js'))).map(d => [`run/build ${rel(d)}`, d])];
+const ctxs = [['check', TOOLS], ...workspaces().map(d => [`run/build ${rel(d)}`, d])];
 const seen = new Map();
 for (const [pkg, label] of [['threedog', 'engine'], ['@threedog/tools', 'tools'], ['three', 'three']]) {
   for (const [ctx, from] of ctxs) {
@@ -152,7 +158,7 @@ try {
     else ok(`engine frame rendered with software rendering (${sw.renderer}, ${sw.frameMs} ms): tests run on this, the same pixels on every machine`);
     const gpu = verdict.render.gpu = await frame('gpu');
     const hw = verdict.render.hardwareGpu = !gpu.error && gpu.drawn && !SOFTWARE_RENDERER.test(gpu.renderer);
-    if (hw) ok(`a hardware GPU is available to headless (${gpu.renderer}, ${gpu.frameMs} ms): shot, gallery --shots, perf and stress use it; tests stay on software`);
+    if (hw) ok(`a hardware GPU is available to headless (${gpu.renderer}, ${gpu.frameMs} ms): shot, gallery --shots, perf and stress use it; tests use it too, except those that read pixels (they stay on software)`);
     else info(`no hardware GPU reachable headless (${gpu.error ?? (gpu.drawn ? gpu.renderer : `frame came out wrong on ${gpu.renderer}`)}): shot / gallery / perf / stress fall back to software rendering (slower, GPU ms not real). ` +
       'Normal on CI and remote machines; on a desktop update the graphics driver' + (process.platform === 'linux' ? ' and install the Mesa Vulkan driver (mesa-vulkan-drivers)' : ''));
     const best = hw ? gpu : sw;

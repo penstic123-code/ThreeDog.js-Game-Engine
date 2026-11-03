@@ -6,6 +6,10 @@
 // material and disposed the real one (review H3). In the chain, the albedo view is a { material: 'flat' } entry on the scene and the other modes an apply()
 // entry whose undo only puts back what it changed, and only disposes the override material it created.
 // One view at a time, held in the stack 'debug.view' (core/stacks.js, kind top): only its owner (or force) switches it or turns it off.
+// WebGPURenderer: the same plain-three override materials, on purpose. three's renderer turns any plain material into its node twin
+// (NodeLibrary.fromMaterial) and, for scene.overrideMaterial, copies each mesh's positionNode onto the override, so swayed meshes keep their
+// shape; a node-material copy here would add a three/webgpu import for nothing. Per-mesh stand-ins (albedo, shaderCost) are node materials on
+// a NodeMaterial (DebugOverrides._stand), since nothing copies positionNode there. shaderCost reads the generated code (render/backend.js nodeProgram).
 // A module adds its own mode with engine.debug.defineView(name, { what, apply }) (the triggers module: 'triggers' draws the zones as wireframes).
 // Why one list and not a debug option per module: an AI learns one call (debug.view) for every "show me the hidden thing", the view is owner-scoped
 // and said in describe().render like the built-in ones, and the core never names a module (check rule R27).
@@ -18,7 +22,7 @@ const VIEW_MODES = ['albedo', 'lighting', 'shadow', 'normals', 'overdraw', 'shad
 const EXPLAIN = {
   albedo: 'unlit base color and texture only (no lights, no shadows)',
   lighting: 'every surface plain white matte: shows only what the lights do (no textures)',
-  shadow: 'plain white matte lit by direct lights only (ambient and hemisphere lights hidden): shadows read as black',
+  shadow: 'plain white matte lit by direct lights only (ambient and hemisphere lights hidden, environment map off): shadows read as black',
   normals: 'surface normals as color (x/y/z -> r/g/b); a normal map shows here, flat shading looks faceted',
   overdraw: 'every drawn layer adds a little orange, depth test off: bright = many surfaces drawn over each other on that pixel (transparent foliage, particles, stacked planes)',
   shaderCost: 'each material colored by its compiled program cost (fragment code lines + samplers, approximate): green cheap, red the costliest in this scene, gray not compiled yet',
@@ -37,6 +41,33 @@ function costColors(e) {
   };
 }
 
+/**
+ * scene.environment off inside each render of the scene only (the shadow view): an environment map lights the override's standard material from
+ * every side, which lifted the shadows the view shows black (both renderers read it per render: WebGL per material program, WebGPU per render object).
+ * Why around each render and not scene.environment = null for the view's lifetime: scene.environment is an owned property (the sky's env row,
+ * core/owned.js); a write that lasts across frames reads as the game taking it over. Between renders the scene keeps its real map, so nothing
+ * is recorded and nothing needs restoring but the two hooks. Returns the undo (puts the scene's own hooks back exactly: an own property or the prototype's).
+ * @param {any} scene @returns {() => void}
+ */
+function withoutEnvironment(scene) {
+  const own = { before: Object.hasOwn(scene, 'onBeforeRender'), after: Object.hasOwn(scene, 'onAfterRender') };
+  const prevBefore = scene.onBeforeRender, prevAfter = scene.onAfterRender;
+  let env = null, held = false;
+  const before = function (...a) {
+    if (!held && scene.environment) { env = scene.environment; scene.environment = null; held = true; }
+    return prevBefore.apply(this, a);
+  };
+  const after = function (...a) {
+    try { return prevAfter.apply(this, a); } finally { if (held) { if (scene.environment === null) scene.environment = env; env = null; held = false; } }
+  };
+  scene.onBeforeRender = before; scene.onAfterRender = after;
+  return () => {
+    if (held && scene.environment === null) scene.environment = env;   // a render that threw between the hooks
+    if (scene.onBeforeRender === before) { if (own.before) scene.onBeforeRender = prevBefore; else delete scene.onBeforeRender; }
+    if (scene.onAfterRender === after) { if (own.after) scene.onAfterRender = prevAfter; else delete scene.onAfterRender; }
+  };
+}
+
 /** apply() for the scene-wide modes: returns an undo that restores only what this call changed */
 function sceneMode(mode) {
   return scene => {
@@ -46,10 +77,12 @@ function sceneMode(mode) {
     const was = scene.overrideMaterial, hidden = [];
     scene.overrideMaterial = mat;
     if (mode === 'shadow') scene.traverse(o => { if ((o.isAmbientLight || o.isHemisphereLight || o.isLightProbe) && o.visible) { o.visible = false; hidden.push(o); } });
+    const noEnv = mode === 'shadow' ? withoutEnvironment(scene) : null;
     return () => {
       if (scene.overrideMaterial === mat) scene.overrideMaterial = was;
       mat.dispose();   // ours: created above
       for (const l of hidden) if (!l.visible) l.visible = true;
+      noEnv?.();
     };
   };
 }

@@ -105,7 +105,7 @@ export const specs = [
     async run({ check, ev }) {
       await ev(() => {
         const A = threedogThreads.all;
-        if (!engine.has('inventory')) engine.use(A.inventory({ keys: [] }));
+        if (!engine.has('inventory')) engine.use(A.inventory());
         if (!engine.has('world')) engine.use(A.world());
         engine.inventory.define('apple', { name: 'Apple', stack: 4 }); engine.inventory.define('plum', { name: 'Plum', stack: 2 }); engine.inventory.define('rock', { name: 'Rock', stack: 9 });
       });
@@ -121,7 +121,7 @@ export const specs = [
     async run({ check, ev }) {   // minimal sequence found by the rules 1-4 property: add -> save -> load -> newGame left the chest's goods in place
       const r = await ev(async () => {
         const A = threedogThreads.all;
-        if (!engine.has('inventory')) engine.use(A.inventory({ keys: [] }));
+        if (!engine.has('inventory')) engine.use(A.inventory());
         engine.inventory.define('apple', { name: 'Apple', stack: 4 });
         await engine.session.newGame();
         const chest = engine.inventory.container('chest2', { capacity: 3 });

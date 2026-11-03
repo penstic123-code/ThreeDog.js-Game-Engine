@@ -13,6 +13,7 @@ import { registerManifest, paramValues } from './assetManifest.js';
 import { protoCaches, protoOf, cachedModel, list } from './namedModel.js';
 import { reportError } from './errors.js';
 import { codedError } from './errorHints.js';
+import { note } from './validate.js';
 
 // a failed rebuild is reported (soft: the old copies stay on screen) and the swap goes on with the other names
 const failWith = e => (err, what) => reportError(e, err, `asset hot swap: ${what}`, { soft: true });
@@ -141,7 +142,7 @@ function remember(e, r) {
   if (a._swaps.length > LAST) a._swaps.shift();
   const n = Object.values(r.copies).reduce((s, x) => s + x, 0);
   const text = `asset hot swap (${r.why}): ${r.names.join(', ')} -> ${n} mesh(es) in ${r.ms} ms${r.partsChanged ? ` (parts changed: ${r.partsChanged.join(', ')})` : ''}`;
-  console.info('[threedog] ' + text);
+  note(text);
   try { e.ui?.get?.('toast')?.show({ text, kind: 'info', ms: 1800 }); } catch { /* the toast part may be off */ }
 }
 

@@ -5,7 +5,7 @@
 import { mkdirSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { ROOT, rel } from '../paths.mjs';
+import { ROOT, rel, viteOptions } from '../paths.mjs';
 import { copyTemplates } from '../lib/scaffold.mjs';
 
 /** gzip KB of all JS in dist/assets, lazy chunks included (navmesh wasm, draco decoder): 899 KB measured 2026-11-02, + 25% */
@@ -21,7 +21,7 @@ export async function run({ check }) {
   try {
     copyTemplates(dir, { name: 'sizecheck' });
     const { build } = await import('vite');
-    const res = await build({ root: dir, configFile: join(dir, 'vite.config.js'), logLevel: 'error' });
+    const res = await build(await viteOptions(dir, { logLevel: 'error' }));
     const outputs = [res].flat().flatMap(r => r.output ?? []);
     const assets = join(dir, 'dist', 'assets'), js = readdirSync(assets).filter(f => f.endsWith('.js'));
     const sizes = js.map(f => ({ f, kb: gzipSync(readFileSync(join(assets, f))).length / 1024 })).sort((a, b) => b.kb - a.kb);

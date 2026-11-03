@@ -3,8 +3,10 @@
 // injects the import), or `threedog gallery [-w game]`; `threedog gallery --shots` writes one PNG per asset per light (headless, the same page).
 // The light setups are lighting only and neutral on purpose (white-ish sun high, sun low, sky only): they test how an asset reads under
 // different light, they are not a look. The tone mapping and exposure are copied from the game's renderer, so colors match what the game shows.
-// It draws with its own WebGLRenderer on an overlay canvas: the game's renderer, scene and state are untouched (the game is paused while open).
-// Plain three.js equivalent: a scene per asset, a camera fitted to its bounding sphere, renderer.setScissor per cell.
+// It draws with its own renderer on its own canvas: the game's renderer, scene and state are untouched (the game is paused while open).
+// That renderer is a WebGPURenderer when the game draws with one or an asset carries a node material (WebGLRenderer cannot draw TSL),
+// else a WebGLRenderer. Each grid cell is a 2D canvas the picture is copied into, so both renderers fill the grid the same way.
+// Plain three.js equivalent: a scene per asset, a camera fitted to its bounding sphere, one render per cell.
 // three comes from the engine (engine.THREE): the same instance as the game's materials, whatever the tools package resolves
 let THREE;
 
@@ -80,10 +82,25 @@ function frame(rig, st, cam, yaw) {
   cam.position.set(0, st.height * 0.5 + dist * 0.35, dist); cam.lookAt(0, st.height * 0.45, 0);
 }
 
-/** A renderer that matches the game's output (tone mapping, exposure, color space) */
-function rendererLike(engine, canvas) {
-  const R = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-  const g = engine.renderer;
+/** Whether any material under root is a node material (TSL: only WebGPURenderer draws it) */
+export function hasNodeMaterial(root) {
+  let n = false;
+  root.traverse(o => { for (const m of [o.material].flat()) if (m?.isNodeMaterial) n = true; });
+  return n;
+}
+
+/**
+ * A renderer that matches the game's output (tone mapping, exposure, color space): a WebGPURenderer when the game draws with one or a
+ * staged asset carries a node material, else a WebGLRenderer. Why the game's own class first: it is the three instance its materials come from.
+ */
+async function rendererLike(engine, canvas, staged) {
+  const g = engine.renderer, gpu = g.isWebGPURenderer || staged.some(st => st.pivot && hasNodeMaterial(st.pivot));
+  let R;
+  if (gpu) {
+    const WebGPURenderer = g.isWebGPURenderer ? g.constructor : (await import('three/webgpu')).WebGPURenderer;
+    R = new WebGPURenderer({ canvas, antialias: true });
+    await R.init();
+  } else R = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   R.toneMapping = g.toneMapping; R.toneMappingExposure = g.toneMappingExposure; R.outputColorSpace = g.outputColorSpace;
   R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap;
   return R;
@@ -95,7 +112,7 @@ export const MODES = ['silhouette', 'value'];
 
 /** "--mode a,b" -> the list; throws on an unknown mode, or a mode without --shots (the live grid shows the light setups only) */
 /** Options that only mean something with --shots, and a port that is a number: wrong ones stop with the fix instead of being ignored (like --mode). Returns the modes */
-export function parseOptions(opt) {
+export function parseGalleryOptions(opt) {
   for (const k of ['size', 'only']) if (opt[k] != null && opt[k] !== false && !opt.shots) throw new Error(`--${k} works with --shots (it shapes the pictures written to disk; the live gallery has its own controls)`);
   if (opt.port != null && !/^\d+$/.test(String(opt.port))) throw new Error(`--port is a port number, e.g. --port 5181; got ${JSON.stringify(opt.port)}`);
   return parseModes(opt.mode, opt.shots);
@@ -174,7 +191,7 @@ export function valueFacts(data, mask) {
   return n ? { p5: at(0.05), p50: at(0.5), p95: at(0.95) } : { p5: 0, p50: 0, p95: 0 };
 }
 
-/** The WebGL canvas as top-down RGBA bytes (a 2D canvas copy: gl.readPixels would be bottom-up) */
+/** The renderer's canvas as top-down RGBA bytes (a 2D canvas copy: gl.readPixels would be bottom-up, and a WebGPU canvas has no readPixels) */
 function readCanvas(canvas, size) {
   const c = document.createElement('canvas'); c.width = c.height = size;
   const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(canvas, 0, 0, size, size);
@@ -199,13 +216,14 @@ function drawSilhouette(R, st, cam, rig, yaw) {
  */
 export async function shots(engine, { size = 256, yaw = -0.6, only = null, modes = [] } = {}) {
   THREE = engine.THREE;
-  const { models, textures } = assetNames(engine), canvas = document.createElement('canvas');
-  const R = rendererLike(engine, canvas); R.setPixelRatio(1); R.setSize(size, size, false);
+  const { models, textures } = assetNames(engine), canvas = document.createElement('canvas'), staged = [];
+  for (const [type, names] of [['model', models], ['texture', textures]]) for (const name of names)
+    if (!only || only.includes(name)) staged.push(await stageOf(engine, type, name));
+  const R = await rendererLike(engine, canvas, staged); R.setPixelRatio(1); R.setSize(size, size, false);
   const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 2000), all = rigs(), out = [];
   const midday = all.find(r => r.name === 'midday');
-  for (const [type, names] of [['model', models], ['texture', textures]]) for (const name of names) {
-    if (only && !only.includes(name)) continue;
-    const st = await stageOf(engine, type, name);
+  for (const st of staged) {
+    const { name, type } = st;
     for (const rig of all) {
       if (st.error) { out.push({ name, type, light: rig.name, error: st.error }); continue; }
       frame(rig, st, cam, yaw); R.render(rig.scene, cam);
@@ -239,8 +257,7 @@ export async function openGallery(engine) {
   const hold = engine.pause('gallery');   // the game stands still behind the overlay (its own pause owner: the game's pauses are untouched)
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;z-index:2000;overflow:auto;background:#2a2c30;color:#eee;font:12px/1.4 sans-serif';
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2001';
+  const canvas = document.createElement('canvas');   // the renderer's own, off the page: each cell gets a copy of its picture
   const head = document.createElement('div');
   head.style.cssText = 'position:sticky;top:0;padding:8px 12px;background:#1d1f22;z-index:2002;display:flex;gap:12px;align-items:center';
   head.innerHTML = `<b>Asset gallery</b><span>${models.length} models · ${textures.length} textures · lights: ${LIGHTS.map(l => l[0]).join(' / ')} (neutral, lighting only)</span>`;
@@ -248,36 +265,37 @@ export async function openGallery(engine) {
   head.appendChild(close); host.appendChild(head);
   const grid = document.createElement('div');
   grid.style.cssText = `display:grid;grid-template-columns:160px repeat(${LIGHTS.length}, minmax(160px, 1fr));gap:6px;padding:8px 12px`;
-  host.appendChild(grid); document.body.append(host, canvas);
-  const R = rendererLike(engine, canvas), cam = new THREE.PerspectiveCamera(30, 1, 0.05, 2000), all = rigs(), cells = [];
-  for (const [type, names] of [['model', models], ['texture', textures]]) for (const name of names) {
+  host.appendChild(grid); document.body.append(host);
+  const staged = [];
+  for (const [type, names] of [['model', models], ['texture', textures]]) for (const name of names) staged.push(await stageOf(engine, type, name));
+  const R = await rendererLike(engine, canvas, staged), cam = new THREE.PerspectiveCamera(30, 1, 0.05, 2000), all = rigs(), cells = [];
+  for (const st of staged) {
     const label = document.createElement('div'); label.style.cssText = 'align-self:center;word-break:break-all';
-    label.textContent = `${name} (${type})`; grid.appendChild(label);
-    const st = await stageOf(engine, type, name);
+    label.textContent = `${st.name} (${st.type})`; grid.appendChild(label);
     if (st.error) label.textContent += ' — failed: ' + st.error;
     for (const rig of all) {
-      const el = document.createElement('div'); el.style.cssText = 'aspect-ratio:1;background:#000;position:relative';
-      el.title = `${name} · ${rig.name}`; grid.appendChild(el);
+      const el = document.createElement('canvas'); el.style.cssText = 'width:100%;height:auto;aspect-ratio:1;background:#000;display:block';   // inline: a game's canvas { height } rule must not stretch it
+      el.title = `${st.name} · ${rig.name}`; grid.appendChild(el);
       if (!st.error) cells.push({ el, st, rig });
     }
   }
   let raf = 0;
   const draw = t => {
     raf = requestAnimationFrame(draw);
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== w || canvas.height !== h) R.setSize(w, h, false);
-    R.setScissorTest(false); R.clear(); R.setScissorTest(true);
     for (const { el, st, rig } of cells) {
       const b = el.getBoundingClientRect();
-      if (b.bottom < 0 || b.top > h || b.right < 0 || b.left > w) continue;
-      R.setViewport(b.left, h - b.bottom, b.width, b.height); R.setScissor(b.left, h - b.bottom, b.width, b.height);
-      cam.aspect = b.width / b.height; cam.updateProjectionMatrix();
+      if (b.bottom < 0 || b.top > innerHeight || b.right < 0 || b.left > innerWidth) continue;
+      const w = Math.max(1, Math.round(b.width)), h = Math.max(1, Math.round(b.height));
+      if (canvas.width !== w || canvas.height !== h) R.setSize(w, h, false);
+      if (el.width !== w || el.height !== h) { el.width = w; el.height = h; }
+      cam.aspect = w / h; cam.updateProjectionMatrix();
       frame(rig, st, cam, t * 0.0005); R.render(rig.scene, cam);
+      el.getContext('2d').drawImage(canvas, 0, 0);   // in the same task as the render: a WebGPU canvas keeps no picture after it
     }
   };
   raf = requestAnimationFrame(draw);
   const api = {
-    close() { cancelAnimationFrame(raf); R.dispose(); host.remove(); canvas.remove(); hold.remove(); },
+    close() { cancelAnimationFrame(raf); R.dispose(); host.remove(); hold.remove(); },
   };
   close.onclick = () => api.close();
   return api;

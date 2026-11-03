@@ -1,4 +1,4 @@
-// Input contexts: menu shadows gameplay, no stuck hold after closing, vehicle context shadows same-key actions, blur / tab hide releases all keys.
+// Input contexts: menu shadows walking, no stuck hold after closing, vehicle context shadows same-key actions, blur / tab hide releases all keys.
 export const specs = [
   {
     name: '输入情境：菜单遮蔽攻击、关菜单后不留按住、载具情境遮蔽同键动作、失焦与切标签页清空按住',
@@ -9,9 +9,9 @@ export const specs = [
         const I = engine.input, o = {};
         // one fixed step's view, taken the way the engine does at the start of each step
         const fx = names => { I.beginFixed(); const v = names.map(n => [I.pressed(n), I.down(n)]); I.endFixed(); return v; };
-        I.define('tAtk', 'KeyU', 'Attack');
-        I.define('tOk', 'KeyU', 'Ok', { context: 'tmenu' });
-        I.define('tUse', 'KeyF', 'Use'); I.define('tExit', 'KeyF', 'Exit', { context: 'tcar' }); I.define('tWalk', 'KeyG', 'Walk');
+        I.action('tAtk', { keys: ['KeyU'] });
+        I.action('tOk', { keys: ['KeyU'], context: 'tmenu' });
+        I.action('tUse', { keys: ['KeyF'] }); I.action('tExit', { keys: ['KeyF'], context: 'tcar' }); I.action('tWalk', { keys: ['KeyG'] });
 
         I._keyDown('KeyU', 'keyboard');
         o.base = fx(['tAtk', 'tOk']);                       // attack pressed; menu action not on the stack
@@ -51,13 +51,13 @@ export const specs = [
         return o;
       });
       const J = JSON.stringify(r);
-      check('menu pushes apply at the next fixed step', r.pendingEnabled === true && r.menu.enabled === false && r.menu.ctx === 'gameplay,tmenu', J);
+      check('menu pushes apply at the next fixed step', r.pendingEnabled === true && r.menu.enabled === false && r.menu.ctx === 'walk,tmenu', J);
       check('gameplay attack is pressed, menu action unreadable before the menu', r.base[0][0] && r.base[0][1] && !r.base[1][0], J);
       check('with the menu open the same key does not attack but triggers the menu action', !r.inMenu[0][0] && !r.inMenu[0][1] && r.inMenu[1][0], J);
       check('closing the menu leaves no held key (and auto-repeat does not bring it back)', !r.afterClose.after[0][1] && !r.afterClose.repeat[0][1], J);
       check('a fresh press after the menu works again', r.repress[0][0] && r.repress[0][1], J);
       check('vehicle context: F means exit, walk-F is shadowed, G still works, enabled stays true', r.car.enabled && !r.car.v[0][0] && r.car.v[1][0] && r.car.v[2][1], J);
-      check('remove() twice is harmless and pops the context', r.carOut.ctx === 'gameplay', J);
+      check('remove() twice is harmless and pops the context', r.carOut.ctx === 'walk', J);
       check('window blur and tab hidden release all held keys', r.blur === 0 && r.hidden === 0, J);
     },
   },

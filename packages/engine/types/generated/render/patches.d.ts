@@ -17,6 +17,11 @@ export type PatchCode = {
 } | string;
 export type PatchSlot = "position" | "shadowPosition" | "clipPosition" | "map" | "color" | "normal" | "roughness" | "emissive" | "lightsPars" | "lightingModel" | "lighting" | "output" | "fogPars" | "fog";
 /**
+ * tsl (NodeMaterial / WebGPURenderer): (ctx) => node for `slot`, or { slot: fn }; ctx[slot] is the value so far, ctx.fx the threedog/tsl
+ * functions (ctx.fx.patchUniform(u) = a { value } uniform of the patch as a node), ctx.tsl three/tsl.
+ * The lighting slot returns { directDiffuse?, directSpecular?, indirectDiffuse?, indirectSpecular? }, or takes
+ * hooks { start?(ctx), light?(light, ctx) => color, direct?(light, ctx), after?(ctx) } (light = { direction, color, shadow, directional, light };
+ * light() returns that one light's new color before three uses it; ctx.state is shared by the hooks).
  * slot + glsl string: that slot's code (render/slots.js lists the slots, where each goes and what is in scope); glsl { slot: code }:
  * several slots; pars: declarations at the top of every stage the patch touches (or { vertex, fragment }).
  * Raw-anchor exit: glsl.vertex / glsl.fragment: three.js chunk name -> code; the key `pars` is declarations placed at the top of the shader.
@@ -45,5 +50,6 @@ export type ShaderPatch = {
         vertex?: Record<string, PatchCode>;
         fragment?: Record<string, PatchCode>;
     };
+    tsl?: ((ctx: any) => any) | { [slot in PatchSlot]?: any; };
 };
 import * as THREE from 'three';

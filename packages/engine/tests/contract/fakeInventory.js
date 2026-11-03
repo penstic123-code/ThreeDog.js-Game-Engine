@@ -25,9 +25,17 @@ export function fakeInventory() {
     of: (actor = e.actor) => api.container(actor),   // an actor's bag is the container with its id
     transfer(from, to, item, n = 1) { if ((bag(from).get(item) ?? 0) < n) return false; change(from, item, -n, 'remove'); return change(to, item, n, 'add'); },
     trade(take, give) { for (const [k, n] of Object.entries(give)) if (!api.has(k, n)) return false; for (const [k, n] of Object.entries(give)) api.remove(k, n); for (const [k, n] of Object.entries(take)) api.add(k, n); return true; },
+    // net sync: every bag as plain data and back (silent, like a load); a null entry empties that bag, only: true empties the bags not in data
+    contents: () => Object.fromEntries([...bags].map(([id, b]) => [id, Object.fromEntries(b)])),
+    setContents(data, { only = false } = {}) {
+      if (only) for (const id of bags.keys()) if (!(id in data)) bags.set(id, new Map());
+      for (const [id, items] of Object.entries(data)) bags.set(id, new Map(Object.entries(items ?? {})));
+    },
+    // content renames: a bag saved under an old authored id moves to the new one (null drops it)
+    renameIds(map) { for (const [a, b] of Object.entries(map)) if (bags.has(a)) { if (b !== null) bags.set(b, bags.get(a)); bags.delete(a); } },
   };
   return {
-    name: 'inventory',
+    name: 'inventory', type: 'rules',
     install(engine) {
       e = engine;
       e.saves.register('inventory', { version: 1, save: () => ({ items: Object.fromEntries(bag('player')) }), load: d => { bags.set('player', new Map(Object.entries(d?.items ?? {}))); } });

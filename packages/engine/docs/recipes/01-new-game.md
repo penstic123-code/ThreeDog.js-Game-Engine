@@ -14,7 +14,7 @@ npm run new-game -- my-game --example           # the open world plus a sample: 
 (The `--` matters: without it npm swallows the flags. The CLI form takes them directly: `threedog new-game my-game --example`. `--example` uses engine placeholders (gray box, capsule), so it works with any style.)
 The name may only contain lowercase letters, digits and dashes; an existing directory under `games/` with the same name is refused. What it does:
 1. Copies `packages/tools/templates/game/` to `games/my-game/` (`__NAME__` in the files is replaced by the name); `--open-world` copies `templates/openworld/` over it first, `--example` also `templates/example/`.
-2. Creates the `node_modules/my-game` link (the path npm gives a workspace named `my-game`). It builds nothing and leaves `package-lock.json` alone; it runs `npm install` only when a dependency is not installed yet (a published style named by `--style`), and says so.
+2. Creates the `node_modules/my-game` link (the path npm gives a workspace named `my-game`). It builds nothing and leaves `package-lock.json` alone; it runs `npm install` only when a dependency of the template is not installed yet, and says so.
 3. Runs `map` (generates GAMEMAP.md) and `check`. Any failing step stops and says why. The smoke test (`threedog test -w games/my-game`) builds, so it is left to you.
 
 The default game is deliberately empty: `world()` + `content()`, the engine's camera placed by hand (a plain `THREE.PerspectiveCamera`) and the always-on
@@ -32,7 +32,7 @@ no default).
 - To change the starting point of new games, edit the real files in `packages/tools/templates/game/` (`templates/openworld/` for `--open-world`, `templates/example/` for the sample).
 - `DESIGN.md` is an empty template: write your gameplay ideas there. `CLAUDE.md` only points the way (read `node_modules/threedog/docs/AI.md` first,
   then GAMEMAP, DESIGN) and does not copy engine rules.
-- There is no `tests/`: when `tests/specs.mjs` does not exist, `npm test -w games/my-game` runs a smoke test automatically.
+- There is no `tests/`: when `tests/specs/` does not exist, `npm test -w games/my-game` runs a smoke test automatically.
 
 ## 1. Creating the files by hand (to learn what each file is, or when the template doesn't fit)
 | File | Content |
@@ -75,11 +75,13 @@ import style from './style/index.js';                      // the game's own sty
 import { terrainPreset } from '@threedog/terrain-noise';   // optional terrain generator (nor a world shape)
 import data from './content/index.js';
 
-const engine = createEngine({ canvas: document.getElementById('view'), style, ui: { loading: { title: 'My game' } }, saveKey: 'my-game' });
+// keys: modules only declare actions, the game binds them (presets.bindings.* are ready-made maps)
+const engine = createEngine({ canvas: document.getElementById('view'), style, ui: { loading: { title: 'My game' } }, saveKey: 'my-game',
+  bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests } });
 // the preset only covers world and environment; the debug panel is installed in dev builds only (debug: true forces it in release too)
 engine.use(openWorld({ camera: 'follow', seed: 42, terrain: terrainPreset(), time: 0.3 }),
   // add gameplay modules as the game needs (a shooter has no inventory); pickups() when items lie on the ground (content pickups)
-  interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), pickups(), quests({ ...presets.keys.quests }),
+  interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), pickups(), quests(),
   content());
 // the terrain is generated: find flat ground as "home" at the start (give your own height range to avoid beach and peaks)
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 });
@@ -120,8 +122,8 @@ export default { items, startItems, places };
 1. `npm run map` -> generates `games/my-game/GAMEMAP.md`; check the "engine modules" and "page /" sections.
 2. `npm run check` -> content validation points out wrong file names, ids and clock-time formats; `npm run types` finds misused engine APIs.
 3. `npm run shot -- -w my-game / --describe-only` -> the text has a `player` line with its position, the module list, and no "still loading".
-4. `npm test -w games/my-game` -> without `tests/specs.mjs` it runs a smoke test (the page opens, the engine is ready, the console has no errors); to
-   test gameplay, write `games/my-game/tests/specs.mjs` in the style of the engine repository's `packages/engine/tests/specs.mjs`.
+4. `npm test -w games/my-game` -> without `tests/specs/` it runs a smoke test (the page opens, the engine is ready, the console has no errors); to
+   test gameplay, write `games/my-game/tests/specs/<name>.mjs` in the style of the engine repository's `packages/engine/tests/specs/*.mjs`.
 5. To see the picture: `npm run shot -- -w my-game /` (one image in `games/my-game/.threedog/shots/`); while developing run `npm run dev -w games/my-game` (or
    `npm run dev -- my-game`) and open the printed address; read errors in `games/my-game/.threedog/errors.log`.
 
@@ -142,10 +144,9 @@ engine.use(calendar(presets.calendar.fourSeasons), sky(), weather({ ...presets.w
 engine.use(interactions({ ...presets.interactions.facing }));   // nearest / facing / aim, each with E
 const player = engine.characters.createPlayer({ ...presets.player.lockOn, faceTarget: boss });   // none / thirdPerson / lockOn / aim / sideScroller
 ```
-`presets.player.thirdPerson` is `{ control: 'camera', faceMode: 'move', runKeys: Shift, jumpKeys: Space, cameraFollow: true }`; written out by hand
-the same player is `createPlayer({ control: 'camera', faceMode: 'move', runKeys: ['ShiftLeft', 'ShiftRight', 'PadLB'], jumpKeys: ['Space', 'PadA'],
-cameraFollow: true })`.
-Keys for any action can also come from `createEngine({ bindings: { interact: ['KeyF'] } })`; those win over the keys a module or preset passes.
+`presets.player.thirdPerson` is `{ control: 'camera', faceMode: 'move', cameraFollow: true }`; the run / jump keys are
+`presets.bindings.walk` (`{ run: ['ShiftLeft', 'ShiftRight', 'PadLB'], jump: ['Space', 'PadA'] }`). No module or preset takes keys: every key
+comes from `createEngine({ bindings })` or `engine.input.bind(...)`.
 
 ## 5. Canvas size: full window, a page section, a split layout or an editor panel
 The engine follows the canvas's own CSS box (a `ResizeObserver` on the canvas), not the window: renderer size, camera aspect, `input.pointer` (`x / y`

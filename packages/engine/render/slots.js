@@ -1,61 +1,74 @@
 import { codedError } from '../core/errorHints.js';
-// Semantic patch slots: the one table that says where a patch's code goes. A patch names a slot ('position', 'color', 'lighting'...),
-// this table maps the slot to a GLSL injection point today (a three.js `#include <chunk>` plus before / after / replace) and, in the
-// WebGPU phase, to a NodeMaterial property (`node`, informational until then: docs/plans/2026-11-03-webgpu-phase2.md §2.2).
+// Semantic patch slots. The one table that says where a patch's code goes. A patch names a slot ('position', 'color', 'lighting'...),
+// this table maps the slot to a GLSL injection point on WebGLRenderer (a three.js `#include <chunk>` plus before / after / replace) and to where
+// render/fx/patchNodes.tsl.js puts the patch's tsl on a NodeMaterial (`node`: { prop } a node property, { setup } code run inside that three
+// setup method, null = WebGL only). patchNodes.tsl.js builds its slot map from this column, so the table cannot promise a mapping the code lacks.
+// nodeMeaning: what is different on the NodeMaterial side, said here once (it is printed in the recipe 43 table).
 // Why one table: patches, built-in effects (wind / cloud shadow / season / detail / lighting / CSM), error messages and the recipe 43 table all read from here,
-// phase 2 fills only the node column and patches need no change; the anchor strings appear once here, not scattered across effects each writing their own.
+// the WebGPU route only needed the node column and no patch changed; the anchor strings appear once here, not scattered across effects each writing their own.
 // Raw anchors (`glsl: { vertex|fragment: { <chunk>: code } }`) stay as the expert exit: plain three.js knowledge, WebGL only.
-/** @typedef {{ stage: 'vertex' | 'fragment', anchor: string, at: 'after' | 'before' | 'replace', shadowOnly?: boolean, scope: string, meaning: string, node: string }} Slot */
+/** @typedef {{ stage: 'vertex' | 'fragment', anchor: string, at: 'after' | 'before' | 'replace', shadowOnly?: boolean, scope: string, meaning: string,
+ *   node: { prop?: string, setup?: string } | null, nodeMeaning?: string }} Slot */
 
 /** @type {Record<string, Slot>} */
 export const SLOTS = {
-  position:       { stage: 'vertex', anchor: 'begin_vertex', at: 'after', node: 'positionNode',
+  position:       { stage: 'vertex', anchor: 'begin_vertex', at: 'after', node: { prop: 'positionNode' },
     scope: 'transformed (vec3, object space, write), position, normal, uv',
-    meaning: 'move vertices in object space, before skinning / instancing / the model matrix' },
-  shadowPosition: { stage: 'vertex', anchor: 'begin_vertex', at: 'after', shadowOnly: true, node: 'castShadowPositionNode',
+    meaning: 'move vertices in object space, before skinning / instancing / the model matrix',
+    nodeMeaning: "the same place (the engine runs the chain before three's instancing; a game's own positionNode still applies after it)" },
+  shadowPosition: { stage: 'vertex', anchor: 'begin_vertex', at: 'after', shadowOnly: true, node: { prop: 'castShadowPositionNode' },
     scope: 'transformed (vec3, object space, write), position',
     meaning: 'vertex code for the shadow passes only (depth / point-light distance), replacing this patch\'s position code there' },
-  clipPosition:   { stage: 'vertex', anchor: 'project_vertex', at: 'after', node: 'vertexNode',
+  clipPosition:   { stage: 'vertex', anchor: 'project_vertex', at: 'after', node: { prop: 'vertexNode' },
     scope: 'transformed, mvPosition (view space), gl_Position (clip space, write)',
     meaning: 'after projection: snap or offset on screen, or write world-space varyings' },
-  map:            { stage: 'fragment', anchor: 'map_fragment', at: 'after', node: 'colorNode (before vertex colors)',
+  map:            { stage: 'fragment', anchor: 'map_fragment', at: 'after', node: { prop: 'colorNode' },
     scope: 'diffuseColor (vec4, write; the map applied, vertex colors not yet)',
     meaning: 'the base color / texture, before vertex colors and every color patch' },
-  color:          { stage: 'fragment', anchor: 'color_fragment', at: 'after', node: 'colorNode',
+  color:          { stage: 'fragment', anchor: 'color_fragment', at: 'after', node: { setup: 'setupDiffuseColor' },
     scope: 'diffuseColor (vec4, write; map and vertex colors already applied), vUv when the material has a map',
     meaning: 'the surface (diffuse) color before lighting' },
-  normal:         { stage: 'fragment', anchor: 'normal_fragment_maps', at: 'after', node: 'normalNode',
+  normal:         { stage: 'fragment', anchor: 'normal_fragment_maps', at: 'after', node: { setup: 'setupNormal' },
     scope: 'normal (vec3, view space, write), faceDirection, vViewPosition',
     meaning: 'the shading normal (bump, detail) after normal / bump maps' },
-  roughness:      { stage: 'fragment', anchor: 'roughnessmap_fragment', at: 'after', node: 'roughnessNode',
+  roughness:      { stage: 'fragment', anchor: 'roughnessmap_fragment', at: 'after', node: { prop: 'roughnessNode' },
     scope: 'roughnessFactor (float, write); MeshStandard / MeshPhysical only',
     meaning: 'roughness after the roughness map' },
-  emissive:       { stage: 'fragment', anchor: 'emissivemap_fragment', at: 'after', node: 'emissiveNode',
+  emissive:       { stage: 'fragment', anchor: 'emissivemap_fragment', at: 'after', node: { prop: 'emissiveNode' },
     scope: 'totalEmissiveRadiance (vec3, write), diffuseColor',
     meaning: 'emitted light after the emissive map' },
-  lightsPars:     { stage: 'fragment', anchor: 'shadowmap_pars_fragment', at: 'after', node: '(TSL Fn)',
+  lightsPars:     { stage: 'fragment', anchor: 'shadowmap_pars_fragment', at: 'after', node: null,
+    nodeMeaning: "TSL has no declaration area: the light's direction and shadow come to the lighting slot's direct(light, ctx) hook",
     scope: 'declarations; three\'s light structs, getShadow() and directionalLights[] are already declared',
     meaning: 'functions that call three\'s light / shadow helpers (pars goes before them)' },
-  lightingModel:  { stage: 'fragment', anchor: 'lights_fragment_begin', at: 'replace', node: 'LightingModel (setupLightingModel)',
+  lightingModel:  { stage: 'fragment', anchor: 'lights_fragment_begin', at: 'replace', node: null,
+    nodeMeaning: "use the lighting slot's hooks { start, light, direct, after }, or a NodeMaterial with your own setupLightingModel",
     scope: 'geometryPosition, geometryNormal, material, reflectedLight; your code replaces three\'s light loop',
     meaning: 'replace how lights are summed (one patch per material may take it)' },
-  lighting:       { stage: 'fragment', anchor: 'lights_fragment_end', at: 'after', node: 'lightsNode (wrapped)',
+  lighting:       { stage: 'fragment', anchor: 'lights_fragment_end', at: 'after', node: { setup: 'setupLightingModel' },
     scope: 'reflectedLight.directDiffuse / directSpecular / indirectDiffuse (write), normal, diffuseColor, vViewPosition',
-    meaning: 'after lights are summed: cloud shadows, wrap, shadow tint, rim' },
-  output:         { stage: 'fragment', anchor: 'opaque_fragment', at: 'before', node: 'outputNode',
+    meaning: 'after lights are summed: cloud shadows, wrap, shadow tint, rim',
+    nodeMeaning: "hooks { start, light, direct, after }: light(light, ctx) returns a new color for one light before three lights the surface with it (what GLSL does by wrapping three's light info in lightsPars), direct(light, ctx) sees each light in three's loop and adds to its own sums, which join the summed light at the patch's place in the list, then its after() runs: the same order as WebGL" },
+  output:         { stage: 'fragment', anchor: 'opaque_fragment', at: 'before', node: { setup: 'setupOutput' },
     scope: 'outgoingLight (vec3, write), diffuseColor.a',
     meaning: 'the final lit color, before fog and tone mapping' },
   // fog as two slots, like lightsPars / lightingModel: functions cannot sit inside main(), and they must come after three's fog uniforms
   // (declared in fog_pars_fragment), which the top-of-shader pars precedes. The sky's custom fog kinds and look.fog's hook go through these
   // (modules/sky/fog.js) instead of rewriting THREE.ShaderChunk.fog_* for the whole page
-  fogPars:        { stage: 'fragment', anchor: 'fog_pars_fragment', at: 'after', node: 'fogNode (TSL Fn)',
+  fogPars:        { stage: 'fragment', anchor: 'fog_pars_fragment', at: 'after', node: null,
+    nodeMeaning: 'fog on WebGPU is scene.fogNode (the sky fog kinds and look.fog hooks have a tsl form)',
     scope: 'declarations; fogColor and fogNear / fogFar or fogDensity are already declared (inside #ifdef USE_FOG)',
     meaning: 'fog functions that read three\'s fog uniforms (wrap them in #ifdef USE_FOG)' },
-  fog:            { stage: 'fragment', anchor: 'fog_fragment', at: 'replace', node: 'fogNode',
+  fog:            { stage: 'fragment', anchor: 'fog_fragment', at: 'replace', node: null,
+    nodeMeaning: 'fog on WebGPU is scene.fogNode (the sky fog kinds and look.fog hooks have a tsl form)',
     scope: 'gl_FragColor (write, tone mapped already), fogColor, vFogDepth, fogNear / fogFar or fogDensity (inside #ifdef USE_FOG)',
     meaning: 'replace how fog mixes into the final color (one patch per material may take it)' },
 };
 export const SLOT_NAMES = Object.keys(SLOTS);
+/** The lighting slot's hook names on the TSL side (render/fx/patchNodes.tsl.js) */
+export const LIGHT_HOOKS = ['start', 'light', 'direct', 'after'];
+/** Slots a patch's tsl can use (the node column is not null) */
+const NODE_SLOTS = SLOT_NAMES.filter(n => SLOTS[n].node);
 
 const isObj = v => v != null && typeof v === 'object' && !Array.isArray(v);
 /** Whether a patch uses the slot form (slot: / glsl keyed by slot names) rather than raw anchors (glsl: { vertex, fragment }) */
@@ -77,6 +90,9 @@ const mark = (patch, slot, code) => `// threedog:begin patch=${patch} slot=${slo
  */
 export function toAnchors(p) {
   if (!p || typeof p !== 'object') return p;
+  if (p.tsl != null) p = { ...p, tsl: tslSlots(p) };
+  // a TSL-only patch has no GLSL to place: it drops slot / pars like the slot form does and keeps tsl (NodeMaterials only)
+  if (p.tsl != null && p.glsl == null) { const { slot, pars, ...rest } = p; return rest; }
   if (!slotForm(p)) {
     if (p.pars !== undefined) throw codedError('shader-patch', `[threedog] patch '${p.name}': top-level pars goes with slot names; in the raw-anchor form put it at glsl.vertex.pars / glsl.fragment.pars`);
     if (p.glsl == null) return p;
@@ -121,6 +137,29 @@ export function toAnchors(p) {
   return out;
 }
 
+/**
+ * A patch's tsl field as { slot: code } (WebGPU route, render/fx/patchNodes.tsl.js applies it): tsl: (ctx) => node goes to the patch's
+ * slot; tsl: { position: fn, color: fn } names several. Throws on an unknown slot, and on lightsPars, which TSL does not have.
+ * @param {any} p
+ * @returns {Record<string, any>}
+ */
+function tslSlots(p) {
+  // slot: 'lighting' + tsl: { start, light, direct, after } is that slot's hook object, not a slot map (no slot has those names)
+  const hooks = isObj(p.tsl) && p.slot != null && Object.keys(p.tsl).length > 0 && Object.keys(p.tsl).every(k => LIGHT_HOOKS.includes(k));
+  const by = typeof p.tsl === 'function' || hooks ? (p.slot != null ? { [p.slot]: p.tsl } : null) : isObj(p.tsl) ? p.tsl : undefined;
+  if (by === null) throw codedError('shader-patch', `[threedog] patch '${p.name}' has a tsl function but no slot; add slot: ${SLOT_NAMES.join(' | ')}, or write tsl: { <slot>: (ctx) => node }`);
+  if (by === undefined) throw codedError('shader-patch', `[threedog] patch '${p.name}': tsl is (ctx) => node with slot:, or { <slot>: (ctx) => node }; got ${typeof p.tsl}`);
+  for (const name of Object.keys(by)) {
+    // TSL has no declaration area: the sun direction and shadow value lightsPars code reads come to the lighting slot's direct() hook instead
+    if (name === 'lightsPars') throw codedError('shader-patch', `[threedog] patch '${p.name}': slot 'lightsPars' does not exist on WebGPU (TSL has no declaration area); read the light's direction and shadow in the lighting slot's direct hook: tsl: { lighting: { direct(light, ctx) { ... }, after(ctx) { ... } } }`);
+    if (!SLOTS[name]) throw codedError('shader-patch', `[threedog] patch '${p.name}': unknown tsl slot '${name}'; use ${NODE_SLOTS.join(' | ')}`);
+    if (!SLOTS[name].node) throw codedError('shader-patch', `[threedog] patch '${p.name}': slot '${name}' is WebGL only (${SLOTS[name].nodeMeaning}); tsl slots: ${NODE_SLOTS.join(' | ')}`);
+  }
+  return by;
+}
+
+/** The node column as text: the property, the setup method the code runs in, or WebGL only @param {Slot} s */
+const nodeText = s => !s.node ? 'WebGL only' : s.node.prop ? `\`${s.node.prop}\`` : `inside \`${s.node.setup}\``;
 /** The slot table as a markdown table; recipe 43 holds a copy that threedog check R42 compares (it imports this) @internal */
-export const slotTable = () => ['| slot | GLSL (WebGL, today) | WebGPU node (phase 2) | in scope | meaning |', '|---|---|---|---|---|',
-  ...SLOT_NAMES.map(n => { const s = SLOTS[n]; return `| \`${n}\` | ${s.at} \`${s.anchor}\`${s.shadowOnly ? ' (shadow passes)' : ''} | \`${s.node}\` | ${s.scope} | ${s.meaning} |`; })].join('\n');
+export const slotTable = () => ['| slot | GLSL (WebGL) | WebGPU (NodeMaterial) | in scope | meaning |', '|---|---|---|---|---|',
+  ...SLOT_NAMES.map(n => { const s = SLOTS[n]; return `| \`${n}\` | ${s.at} \`${s.anchor}\`${s.shadowOnly ? ' (shadow passes)' : ''} | ${nodeText(s)} | ${s.scope} | ${s.meaning}${s.nodeMeaning ? `; WebGPU: ${s.nodeMeaning}` : ''} |`; })].join('\n');

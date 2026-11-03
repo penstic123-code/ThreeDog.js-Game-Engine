@@ -9,10 +9,14 @@
 //   returns  rgb = final cloud color, a = opacity 0..1 (the dome does mix(sky, rgb, a)); apply your own horizon fade
 // In scope for your code: threedogHash(vec2), threedogNoise(vec2), the built-in cloud uniforms (uCloudScale, uCloudSpeed,
 // uCloudHorizon, uCloudFade, uCloudSoft, uCloudOpacity, uCloudMul, uCloudWeights, uCloudRelief) and the patch's own uniforms.
+// WebGPURenderer draws the hook's tsl form instead ({ glsl, tsl, uniforms }; render/fx/sky.tsl.js): tsl: (ctx) => vec4 node, ctx = { dir, time,
+// sunDir, night, lit, shade, cover (the same arguments as nodes), clouds (the built-in kind's vec4, the value so far), uniforms (the dome's
+// uniforms as nodes, the patch's own included), fx: { noise, hash }, tsl (three/tsl) }. Each renderer needs its own form; a missing one throws by name.
 import * as THREE from 'three';
 import { closest } from '../../core/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { codedError } from '../../core/errorHints.js';
+import { SKY as K, glslFloat as f } from '../../render/fxNumbers.js';
 
 const KINDS = ['plane', 'cumulus'];
 
@@ -27,7 +31,7 @@ const PLANE = `vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night,
   vec2 cp = d.xz / (d.y + uCloudHorizon) * uCloudScale + uCloudSpeed * time;
   float cn = threedogNoise(cp) * uCloudWeights.x + threedogNoise(cp * uCloudMul.x + 7.0) * uCloudWeights.y + threedogNoise(cp * uCloudMul.y) * uCloudWeights.z;
   float cloud = smoothstep(1.0 - cov, 1.0 - cov + uCloudSoft, cn) * smoothstep(uCloudFade.x, uCloudFade.y, d.y);
-  vec3 cc = mix(shade, lit, smoothstep(0.3, 0.8, cn)) * (0.35 + 0.65 * (1.0 - night));
+  vec3 cc = mix(shade, lit, smoothstep(${f(K.planeTone[0])}, ${f(K.planeTone[1])}, cn)) * (${f(K.nightDim)} + ${f(1 - K.nightDim)} * (1.0 - night));
   return vec4(cc, cloud * uCloudOpacity);
 }`;
 
@@ -37,19 +41,19 @@ const PLANE = `vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night,
 // Cost: 8 value-noise samples per cloudy sky pixel (plane: 3). Still one 2D pass, no ray marching.
 const CUMULUS = `float threedogCumulusDensity(vec2 p){
   float a = 0.5, s = 0.0;
-  for (int i = 0; i < 4; i++) { s += threedogNoise(p) * a; p = p * 2.03 + 3.7; a *= 0.5; }
-  return s / 0.9375;
+  for (int i = 0; i < 4; i++) { s += threedogNoise(p) * a; p = p * ${f(K.lacunarity)} + ${f(K.offset)}; a *= 0.5; }
+  return s / ${f(K.norm)};
 }
 vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cov){
   vec2 cp = d.xz / (d.y + uCloudHorizon) * uCloudScale + uCloudSpeed * time;
-  vec2 toSun = normalize(sunDir.xz + vec2(0.0001, 0.0)) * 0.12;
+  vec2 toSun = normalize(sunDir.xz + vec2(0.0001, 0.0)) * ${f(K.toSun)};
   float n0 = threedogCumulusDensity(cp), n1 = threedogCumulusDensity(cp + toSun);
-  float t = 1.0 - cov * 0.9;
+  float t = 1.0 - cov * ${f(K.cover)};
   float body = smoothstep(t, t + uCloudSoft, n0);
-  float core = smoothstep(t, t + 0.35, n0);
+  float core = smoothstep(t, t + ${f(K.core)}, n0);
   float sunSide = clamp(0.5 + (n0 - n1) * uCloudRelief, 0.0, 1.0);
-  float light = mix(sunSide, 1.0, (1.0 - core) * 0.5) * (0.55 + 0.45 * (1.0 - core * 0.5));
-  vec3 cc = mix(shade, lit, light) * (0.35 + 0.65 * (1.0 - night));
+  float light = mix(sunSide, 1.0, (1.0 - core) * ${f(K.rim)}) * (${f(1 - K.coreDark)} + ${f(K.coreDark)} * (1.0 - core * 0.5));
+  vec3 cc = mix(shade, lit, light) * (${f(K.nightDim)} + ${f(1 - K.nightDim)} * (1.0 - night));
   return vec4(cc, body * smoothstep(uCloudFade.x, uCloudFade.y, d.y) * uCloudOpacity);
 }`;
 
@@ -59,12 +63,15 @@ vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3
  * injection entry per look value, so style.sky.clouds.glsl / .uniforms throw and name the hook.
  * @param {any} c style.sky.clouds @param {string | { glsl?: string, uniforms?: object } | null} [hook] look.sky's 'hook:clouds' value
  */
-export function resolveClouds(c, hook) {
+export function resolveClouds(c, hook, gpu = false) {
   const kind = c?.kind ?? 'plane';
   if (!KINDS.includes(kind)) throw codedError('sky-option', `style.sky.clouds.kind '${kind}' is not a cloud kind; use ${KINDS.map(k => `'${k}'`).join(' | ')}` + (closest(kind, KINDS) ? ` (did you mean '${closest(kind, KINDS)}'?)` : ''));
   for (const k of ['glsl', 'uniforms']) if (c?.[k] != null) throw codedError('sky-option', `style.sky.clouds.${k} is not an option; your own cloud function goes through the look hook: engine.look.sky.patch('clouds', { glsl, uniforms }) (signature in modules/sky/clouds.js)`);
   const h = typeof hook === 'string' ? { glsl: hook } : hook;
   let glsl = kind === 'cumulus' ? CUMULUS : PLANE;
+  if (h?.tsl != null && typeof h.tsl !== 'function') throw codedError('sky-option', "look.sky.patch('clouds'): tsl must be (ctx) => vec4 node (WebGPURenderer); see modules/sky/clouds.js");
+  // gpu: the node dome draws h.tsl (render/fx/sky.tsl.js checks it); the GLSL, when given too, is still checked here
+  if (h && h.glsl == null && !gpu) throw codedError('sky-option', "look.sky.patch('clouds') has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl, uniforms })");
   if (h?.glsl != null) {
     if (typeof h.glsl !== 'string' || !/vec4\s+threedogClouds\s*\(/.test(h.glsl)) throw codedError('sky-option', "look.sky.patch('clouds'): glsl must define `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)` returning (rgb color, alpha); see modules/sky/clouds.js");
     glsl = h.glsl;

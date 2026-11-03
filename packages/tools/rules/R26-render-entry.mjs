@@ -1,6 +1,7 @@
 // R26 render entry points: shader code and post-processing each have one way in.
 // Detection: a line that assigns `.onBeforeCompile =` or `.customProgramCacheKey =`, or constructs `new EffectComposer(`, is an error in
-// engine code (core, modules, render, ui) and styles, except in render/patches.js and render/PostFX.js (the two places that own them).
+// engine code (core, modules, render, ui) and the add-on packages, except in render/patches.js, its NodeMaterial side render/fx/patchNodes.tsl.js
+// (which extends three's node-graph key with the patches' own) and render/postWebGL.js (the places that own them).
 // In game code (examples, games/*) plain three.js is fine: onBeforeCompile / customProgramCacheKey are not flagged at all, since a material the
 // engine patched keeps its patches when the game assigns them later (patches.js chains the game's function first, user decision 5, 2026-11-02);
 // a game EffectComposer warns as a choice, naming look.post as one option. Why engine code still may not assign them: engine code goes through
@@ -12,7 +13,7 @@
 // is not seen; tests and tools are not scanned (tests call onBeforeCompile on purpose).
 import { walk, lines, codeOnly, P, E, isEngineCode } from './_lib.mjs';
 
-const OWNERS = new Set([E('render/patches.js'), E('render/PostFX.js')]);
+const OWNERS = new Set([E('render/patches.js'), E('render/fx/patchNodes.tsl.js'), E('render/postWebGL.js')]);
 const CLONE = /[mM]aterials?\w*(\[\w+\])?\.clone\(\)/;
 const CHECKS = [
   { re: /\.onBeforeCompile\s*=(?!=)/, what: 'assigns onBeforeCompile directly', why: "it replaces every engine patch on that material (wind, clouds, season, a pack's own) and their shadow pass",
@@ -27,7 +28,7 @@ export default {
   id: 'R26', title: 'Shader code goes through applyEffects, post-processing through engine.post',
   run() {
     const out = [];
-    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.ADDONS_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js', '.mjs']))];
+    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, ...P.ADDONS_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js', '.mjs']))];
     for (const f of files) {
       if (OWNERS.has(f)) continue;
       const game = P.GAME_CODE_DIRS_REL.some(d => P.under(f, d));   // game code: plain three.js is allowed (onBeforeCompile chains, see the header)

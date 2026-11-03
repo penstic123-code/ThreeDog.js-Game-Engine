@@ -4,9 +4,10 @@
 // for reading the numbers, not a rule the engine enforces; engine.budget.enable({...}) sets real ones (and then warns while playing).
 // Plain three.js equivalent: renderer.info.render (calls, triangles), renderer.info.programs.length, renderer.info.memory; performance.now() around render.
 import { inspectMaterials } from './InspectMaterials.js';
-import { programCost } from './shaderCost.js';
+import { programCosts } from './shaderCost.js';
 import { mb } from './textureBytes.js';
 import { r1 } from './math.js';
+import { stats, memory } from '../render/backend.js';
 
 /** Reference budgets (desktop, 60 fps) used when the game set none in engine.budget */
 const REFERENCE = { drawCalls: 300, triangles: 1_000_000, programs: 60, textureMB: 256, cpuMs: 8, compileMs: 50 };
@@ -21,16 +22,16 @@ const NEXT = {
 
 /** @param {any} e the engine @param {{ top?: number }} [opts] top: how many costliest programs to list */
 export function inspectPerf(e, { top = 5 } = {}) {
-  const r = e.renderer, info = r.info, lim = e.budget?.limits ?? {};
+  const r = e.renderer, s = stats(r), lim = e.budget?.limits ?? {};
   const mats = inspectMaterials(e, { limit: 0 });
   const compiles = e.budget?.cost?.compiles ?? [];
   const worst = compiles.reduce((m, c) => Math.max(m, c.ms), 0);
-  const programs = (info.programs ?? []).map(p => programCost(r, p)).filter(Boolean).sort((a, b) => b.score - a.score);
+  const programs = programCosts(r, e.scene);   // WebGPU too: the scene's node programs (no program count there, but the costliest still listed)
   const values = {
-    drawCalls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0,
+    drawCalls: s.drawCalls, triangles: s.triangles, programs: s.programs,   // null on WebGPU (no program list): not counted, not budgeted, rather than a 0 that always passes
     textureMB: r1(mats.textureBytes / 1048576), cpuMs: r1(e.cpuMs ?? 0), compileMs: worst,
   };
-  const budgets = Object.keys(values).map(k => {
+  const budgets = Object.keys(values).filter(k => values[k] != null).map(k => {
     const limit = lim[k] ?? REFERENCE[k], own = lim[k] != null;
     const ok = values[k] <= limit;
     return { name: k, value: values[k], budget: limit, from: own ? 'engine.budget' : 'reference', ok, ...(ok ? {} : { next: NEXT[k] }) };
@@ -40,7 +41,7 @@ export function inspectPerf(e, { top = 5 } = {}) {
   const hint = e.batching?.stats.hint;
   const unit = { textureMB: ' MB', cpuMs: ' ms', compileMs: ' ms (worst stall)' };
   const text = [
-    `frame: ${values.drawCalls} draw calls (incl. shadow + post passes), ${fmtN(values.triangles)} triangles, ${values.programs} programs, ~${mb(mats.textureBytes)} textures `
+    `frame: ${values.drawCalls} draw calls (incl. shadow + post passes), ${fmtN(values.triangles)} triangles, ${values.programs == null ? 'programs not counted (WebGPU)' : values.programs + ' programs'}, ~${mb(mats.textureBytes)} textures `
       + `(${mats.textures}), JS ${values.cpuMs} ms (fixed ${r1(p.fixed ?? 0)} / frame ${r1(p.frame ?? 0)} / render ${r1(p.render ?? 0)}), fps ${Math.round(e.fps ?? 0)}`,
     `compile: startup ${e.startup?.compileMs ?? '?'} ms; ${compiles.length} stall frame${compiles.length === 1 ? '' : 's'} during play${compiles.length ? ` (worst ${worst} ms, last at ${compiles.at(-1).at} s, +${compiles.at(-1).programs} programs)` : ''}`,
     ...budgets.map(b => `${b.ok ? '✓' : '✗'} ${b.name} ${b.name === 'triangles' ? fmtN(b.value) : b.value}${unit[b.name] ?? ''} / ${b.name === 'triangles' ? fmtN(b.budget) : b.budget} (${b.from})${b.ok ? '' : ' -> ' + b.next}`),
@@ -49,5 +50,5 @@ export function inspectPerf(e, { top = 5 } = {}) {
     programs.length ? `costliest programs (fragment lines + 25 x samplers): ${programs.slice(0, top).map(c => `${c.name} ${c.score} (${c.fragmentLines} lines, ${c.samplers} samplers)`).join(', ')}; see them: engine.debug.view('shaderCost')` : '',
   ].filter(Boolean).join('\n');
   return { ...values, cpuPhases: { ...p }, fps: r1(e.fps ?? 0), startupCompileMs: e.startup?.compileMs ?? null, compiles: compiles.slice(),
-    textureCount: mats.textures, memory: { ...info.memory }, programCosts: programs.slice(0, top), budgets, ok: budgets.every(b => b.ok), text };
+    textureCount: mats.textures, memory: memory(r), programCosts: programs.slice(0, top), budgets, ok: budgets.every(b => b.ok), text };
 }

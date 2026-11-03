@@ -1,6 +1,6 @@
 // Scoped check (check -w <game>, or check run from inside a game folder): problems in that workspace's files are reported in full and decide the exit
 // code; problems elsewhere are only counted, then summed into one line for other games and one for the engine and shared packages.
-// check.mjs filters its hard rules and the rule runner through this; types.mjs does the same for tsc errors and hands its counts back to check with
+// check.mjs filters the rule runner through this; types.mjs does the same for tsc errors and hands its counts back to check with
 // --tally-json (one TALLY line that check parses and merges).
 import { resolve } from 'node:path';
 import * as P from '../paths.mjs';
@@ -8,21 +8,11 @@ import * as P from '../paths.mjs';
 export const TALLY = 'THREEDOG_TALLY ';
 
 /**
- * The workspace a check is scoped to: `-w name` wins; otherwise the game workspace holding cwd (not the repo root, not the engine package).
- * Returns null for a repo-wide check; an unknown or ambiguous -w name prints why and exits with 1.
+ * The scope of a check on workspace dir, as paths.mjs command(argv, { workspace: 'scope' }) picked it (the named workspace, else the game
+ * workspace holding cwd); null for a repo-wide check.
+ * @param {string | null} dir
  */
-export function checkScope(argv, cwd = process.cwd()) {
-  const i = argv.findIndex(a => a === '-w' || a === '--workspace');
-  let dir = null;
-  if (i >= 0) {
-    try { dir = P.findWorkspace(argv[i + 1]); } catch (e) { console.log('✗ ' + e.message); process.exit(1); }
-    if (!dir) { console.log(`✗ workspace "${argv[i + 1]}" not found. Available: ${P.workspaces().map(P.rel).join(', ')}`); process.exit(1); }
-  } else {
-    const here = P.workspaceOf(cwd);
-    if (here && here !== P.ROOT && here !== P.ENGINE && P.workspaces().includes(here)) dir = here;
-  }
-  return dir && scope(dir);
-}
+export const checkScope = dir => dir ? scope(dir) : null;
 
 function scope(dir) {
   const mineRel = P.rel(dir), list = P.workspaces().map(P.rel).filter(Boolean).sort((a, b) => b.length - a.length);

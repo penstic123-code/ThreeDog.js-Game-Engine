@@ -2,7 +2,7 @@
 // camera focus, a teleport destination)
 // and the result unloads when far from all of them. Ten thousand entries build only the nearby ones.
 // const h = engine.stream.add({ position: [40, 0, -20], radius: 8, build: () => makeHouse() }); // the object build returns is added to the scene automatically
-// engine.stream.setRadius(200); // how far from each stream source to build (meters); defaults to the terrain view distance, or the fog distance engine.fogFar
+// engine.stream.setRadius(200); // how far from each stream source to build (meters); defaults to the terrain view distance, or the fog distance (look.fog far)
 // without terrain
 //   h.remove();                     // no longer needed (a built one is unloaded)
 // Stream sources (stream.player, stream.camera, stream.source(...), stream.teleport(...)) are the one list every distance-based loader reads: stream entries,
@@ -19,6 +19,7 @@ import { xzOf } from './math.js';
 import { reportError } from './errors.js';
 import { codedError } from './errorHints.js';
 import { Source, SOURCE_KEYS, SOURCE_STRINGS } from './streamSources.js';
+import { fogFarOf } from './sceneMethods.js';
 
 const KEYS = ['position', 'radius', 'build', 'dispose', 'keep', 'priority'];
 const FULL = { detail: 'full' };
@@ -30,7 +31,7 @@ export class Stream {
     /** @internal */ this.engine = engine;
     /**
      * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance
-     * engine.fogFar without terrain) @type {number | null}
+     * the fog distance without terrain) @type {number | null}
      */
     this.radius = null;
     /** Grid cell edge in meters, shared with hlod, default 64 */
@@ -57,7 +58,7 @@ export class Stream {
   }
   /** The build radius actually in use, in meters @returns {number} */
   get activeRadius() {
-    return this.radius ?? this.engine.ground.viewRange?.() ?? this.engine.fogFar;   // the ground's view range (terrain sets it), else the fog distance
+    return this.radius ?? this.engine.ground.viewRange?.() ?? fogFarOf(this.engine);   // the ground's view range (terrain sets it), else the fog distance
   }
   /** @internal Key 'cx,cz' of the cell containing (x, z) (hlod shares the same grid) @param {number} x @param {number} z @returns {string} */
   cellKey(x, z) { return Math.floor(x / this.cellSize) + ',' + Math.floor(z / this.cellSize); }

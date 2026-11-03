@@ -147,6 +147,7 @@ export class Ops {
     /**
      * What exists, or with { available: true } what is possible now: every arg set from each op's offers checked with can
      * (an op with neither offers nor args is checked once with {}; one with args but no offers is skipped, since its args are free-form).
+     * An offers that throws gives one entry with code 'offersFailed'; an offered arg set that fails the op's args check gives code 'badOffer' (facts.error says why).
      * @param {{ available?: boolean, actor?: string }} [opts]
      * @returns {{ name: string, desc?: string, args?: any, atomic: boolean, ok?: boolean, code?: string }[]}
      * @example engine.ops.list({ available: true });   // [{ name: 'shop.buy', args: { shop: 'bakery', item: 'bread' }, ok: false, code: 'noMoney' }, ...]
@@ -191,6 +192,30 @@ export class Ops {
      * @returns {void}
      */
     guard(where: string): void;
+    /**
+     * Send every op to someone else instead of running it here (a multiplayer client: the host decides). fn(def, args, opts) returns the result to
+     * hand back, or null to run the op locally after all. While routed, a write outside an op or allow() is reported even in fixed steps (only the
+     * host changes game state). One router at a time; remove() runs ops locally again. Public so a transport module needs no ops internals.
+     * @param {(def: any, args: any, opts: any) => any} fn
+     * @returns {{ remove(): void }}
+     * @example const r = engine.ops.route((d, args) => d.name.startsWith('chat.') ? null : sendToHost(d.name, args));   // r.remove() on disconnect
+     */
+    route(fn: (def: any, args: any, opts: any) => any): {
+        remove(): void;
+    };
+    /**
+     * Put a refused request into the op history (describe().ops, ops.history) without running it: a host refusing a peer's op keeps the refusal visible
+     * next to the ops that ran. The op must be defined.
+     * @param {string} name
+     * @param {any} args
+     * @param {{ reason: string, actor?: string, source?: string }} why  source defaults to 'net'
+     * @returns {void}
+     */
+    refused(name: string, args: any, { reason, actor, source }: {
+        reason: string;
+        actor?: string;
+        source?: string;
+    }): void;
     /**
      * Run fn with guarded writes allowed (loading a save, applying a scenario, net sync); works for an async fn too (allowed until its Promise settles). Returns what fn returns.
      * @experimental

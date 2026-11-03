@@ -1,32 +1,46 @@
 // One-shot test: npm test
 // For each workspace (engine package + games/*; in a game's own repo, the game): build, open the pages and test pages in a headless browser, and
 //   check item by item. Run it after changing code to see whether anything else broke.
-//   Engine package: packages/engine/tests/specs.mjs (example pages + per-module test pages)
-//   Games:          use tests/specs.mjs if present; otherwise a smoke test (every page opens, the engine is ready, no console errors)
+//   Test items: every <workspace>/tests/specs/*.mjs (engine: packages/engine/tests/specs/), each exporting `specs`, an array of
+//     { name, url, run({ page, check, ev, frames, wait }) }: open url, wait for the engine, then run() records check(label, ok, detail on failure).
+//     ev(fn, arg) runs fn in the page (window.engine is there); frames(n) waits n engine frames; wait(ms) waits (software rendering is slow, game
+//     time runs behind real time); page is the Playwright page (page.keyboard.press('KeyE')). Files are found by the runner: a new file needs no
+//     registration anywhere. A file that exports no runnable items, an item without name / url / run, or a name used twice is an error.
+//     check(label, ok) given a Promise fails ("add await"); an item whose run() records no check fails ("no checks recorded").
+//   A workspace without tests/specs/: a smoke test (every page opens, the engine is ready, no console errors)
+//   Tests written as data: <workspace>/tests/scenarios/*.json (scenario.mjs).
 //
 // Install the browser once before first use: npx playwright install chromium
-//   npm test                          all workspaces
-//   npm test -- city settings         only test items whose names contain these words (searched across all workspaces); no match is a failure
+//   npm test                          all workspaces; prints failures (with detail), a progress line and the summary
+//   npm test -- city settings         only test items whose names contain these words, any case (searched across all workspaces); no match fails
 //   npm test -- -w my-farm            one workspace only (also npm test -w games/my-farm, or run npm test inside the game directory)
-// Adding tests: for the engine, add an item in packages/engine/tests/specs.mjs following the existing ones; for a game, write it in
-//   <game>/tests/specs.mjs (export a specs array, same format). Tests written as data: <workspace>/tests/scenarios/*.json (scenario.mjs).
+//   npm test -- --verbose             also print every passing item and check
+// Rendering: a spec that reads rendered pixels runs on software rendering (SwiftShader: same pixels on every machine), the rest on the GPU.
+//   spec.software: true / false decides; unset, it is true when run() itself calls a pixel API (readPixels, getImageData, screenshot ...). A spec
+//   whose pixel reading sits in a helper must set it. A spec that reads pixels on the GPU unmarked is listed at the end of the run.
+// Parallel: --jobs N / -j N (default half the cores, 1-6; 1 = one after the other). spec.serial: true runs a spec alone.
+//   A spec that fails beside others is retried alone at the end of its workspace, for the first 5 failures of a run only (more = a real break).
+// Options are checked: an unknown one fails with the list (--update-snapshots, --gpu, --software, --verbose / -v, --jobs / -j, -w / --workspace).
 // A spec may set timeout (ms, default 120000); one stuck spec fails with "timed out" instead of stalling the suite.
 // Page helpers every spec can use inside ev(): __t.warns(fn) → { value, warns } (console.warn lines during fn, sync or async, ops-guard
 //   reminders about test setup left out), __t.frames(n), __t.until(cond, ms).
 process.env.THREEDOG_TEST = '1';
-import { existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { readdirSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, basename, relative, sep } from 'node:path';
 import { packTest } from './pack-test.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { scenarioSpecs } from './scenario.mjs';
-import { launchBrowser, newGamePage, buildAndPreview, withTimeout } from './browser.mjs';
+import { launchBrowser, forcedRender, newGamePage, buildAndPreview, withTimeout } from './browser.mjs';
+import { cpus } from 'node:os';
 import { nearest } from './lib/text.mjs';
-import { ENGINE, ENGINE_SPECS, TOOLS, ROOT, MODE, workspaces, workspaceOf, findWorkspace, rel } from './paths.mjs';
+import { workspaceSpecs, toolTests as findToolTests, noDuplicateNames } from './lib/specs.mjs';
+import { intOption } from './lib/cli-args.mjs';
+import { ENGINE, TOOLS, ROOT, MODE, rel, cli, engineMismatch } from './paths.mjs';
 
 const SPEC_TIMEOUT = 120000;
 const tSuite = Date.now();
-// ops guard reminders seen in any page (gameplay state written outside fixed steps and ops), unique, listed in .threedog/ops-guard.log
+// ops guard reminders (gameplay state written outside fixed steps and ops), unique per tested game: game dir -> (first line -> test name).
+// Listed in <game>/.threedog/ops-guard.log, the folder the game's author works in
 const guardSeen = new Map();
 
 /** Page-side test helpers (installed before any page script runs) */
@@ -38,6 +52,7 @@ function pageHelpers() {
       console.warn = (...a) => { const m = a.map(String).join(' '); if (!GUARD.test(m)) warns.push(m); };
       try { return { value: await fn(), warns }; } finally { console.warn = orig; }
     },
+    pixelReads: 0,
     frames: (n = 2) => new Promise(r => { let k = 0; const h = window.engine.onFrame(() => { if (++k >= n) { h.remove(); r(); } }); }),
     async until(cond, ms = 10000) {
       const end = performance.now() + ms;
@@ -45,26 +60,48 @@ function pageHelpers() {
       throw new Error(`__t.until: condition not met within ${ms} ms: ${String(cond).slice(0, 80)}`);
     },
   };
+  // Detector for tests that read rendered pixels without a software mark (reported at the end): WebGL readPixels, and a WebGL canvas read through 2D / toDataURL
+  const hit = () => { window.__t.pixelReads++; };
+  for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+    const o = C?.prototype.readPixels; if (o) C.prototype.readPixels = function (...a) { hit(); return o.apply(this, a); };
+  }
+  const gl = new WeakSet(), getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...a) { if (/webgl/.test(type)) gl.add(this); return getContext.call(this, type, ...a); };
+  for (const k of ['toDataURL', 'toBlob']) {
+    const o = HTMLCanvasElement.prototype[k]; HTMLCanvasElement.prototype[k] = function (...a) { if (gl.has(this)) hit(); return o.apply(this, a); };
+  }
+  const draw = CanvasRenderingContext2D.prototype.drawImage;
+  CanvasRenderingContext2D.prototype.drawImage = function (src, ...a) { if (gl.has(src)) hit(); return draw.call(this, src, ...a); };
 }
 
 // Which workspaces to test: -w > the workspace of the current directory > all
-const argv = process.argv.slice(2);
-let targets = workspaces();
-const wi = argv.findIndex(a => a === '-w' || a === '--workspace');
-if (wi >= 0) {
-  let dir;
-  try { dir = findWorkspace(argv[wi + 1]); } catch (e) { console.error(e.message); process.exit(1); }
-  if (!dir) { console.error(`workspace "${argv[wi + 1]}" not found. Available: ${targets.map(rel).join(', ')}`); process.exit(1); }
-  targets = [dir]; argv.splice(wi, 2);
-} else {
-  const here = workspaceOf(process.cwd());
-  if (here && targets.includes(here)) targets = [here];
-}
+// named: -w was given or the current folder chose the workspace; only a run over everything adds the tools' own tests (counting the targets
+// against workspaces() could not tell `test -w engine` from a full run in a repo without games)
+const { dirs: targets, named, opt, rest: only } = cli(process.argv.slice(2), { workspace: 'targets', positional: true,
+  flags: ['update-snapshots', 'gpu', 'software', 'verbose'], values: ['jobs'], short: { j: 'jobs', v: 'verbose' }, conflicts: [['gpu', 'software', 'they pick opposite renderers']] });
 if (!targets.length) { console.error(`✗ no workspace to test under ${ROOT} (a game needs package.json and main.js)`); process.exit(1); }
-const only = argv.filter(a => !a.startsWith('-'));
-const match = name => !only.length || only.some(o => name.includes(o));
+// The engine the games import must be the one this checkout reads: in a worktree without its own node_modules the build would test another copy
+const mismatch = engineMismatch();
+if (mismatch) { console.error('✗ ' + mismatch); process.exit(1); }
 // --update-snapshots: tests that use expectDescribe (describe-snapshot.mjs) write their baselines instead of comparing
-if (argv.includes('--update-snapshots')) process.env.THREEDOG_UPDATE_SNAPSHOTS = '1';
+if (opt['update-snapshots']) process.env.THREEDOG_UPDATE_SNAPSHOTS = '1';
+
+// --jobs N / -j N (or THREEDOG_JOBS): test pages open at the same time. Default: half the cores, 1 to 6. 1 = one page at a time.
+//   Snapshot writing is always serial (one baseline file at a time). Without --jobs, at most 2 software-rendered pages run at once:
+//   SwiftShader spreads one page over every core, so more of them side by side only slow each other (and the machine) down.
+let jobs = Math.max(1, Math.min(6, Math.floor(cpus().length / 2)));
+const jobsGiven = opt.jobs !== undefined || !!process.env.THREEDOG_JOBS;
+try { jobs = intOption({ jobs: opt.jobs ?? process.env.THREEDOG_JOBS }, 'jobs') ?? jobs; } catch (e) { console.error(`✗ ${e.message} (1 = one page at a time)`); process.exit(1); }
+if (opt['update-snapshots']) jobs = 1;
+const verbose = !!opt.verbose;
+// Name filters ignore case: `hlod` finds "HLOD ..."
+const nameHas = name => only.some(o => name.toLowerCase().includes(o.toLowerCase()));
+const match = name => !only.length || nameHas(name);
+
+/** Pixel reads in a run() body: a test that has any compares what the renderer drew, so it stays on software rendering (same pixels on every machine) */
+const PIXEL_SRC = /page\.screenshot|readPixels|readRenderTargetPixels|getImageData|toDataURL|toBlob/;
+/** spec.software: true / false decides; unset: looked up in the source of run() (helpers defined elsewhere are not seen there, so specs that use them set it) */
+const needsSoftware = spec => spec.software ?? PIXEL_SRC.test(String(spec.run));
 
 /** Smoke test when a game has no specs: one item per page */
 const smokeSpecs = dir => readdirSync(dir).filter(f => f.endsWith('.html')).sort().map(f => ({
@@ -74,114 +111,262 @@ const smokeSpecs = dir => readdirSync(dir).filter(f => f.endsWith('.html')).sort
     check('engine started, URL parameters applied, modules installed', await ev(() => !!engine.stateApplied && engine.modules.size > 0));
   },
 }));
+/** A workspace's items: its tests/specs/*.mjs (lib/specs.mjs; none: the smoke test), then its scenarios (tests/scenarios/*.json, scenario.mjs) */
 async function specsOf(dir) {
-  const file = dir === ENGINE ? ENGINE_SPECS : join(dir, 'tests', 'specs.mjs');
-  // scenario tests (tests/scenarios/*.json, see scenario.mjs) join the workspace's own items
-  const all = [...(existsSync(file) ? (await import(pathToFileURL(file).href)).specs : smokeSpecs(dir)), ...scenarioSpecs(dir)];
-  // A repeated name means an item would run twice in this one process. That is never wanted and it hides bugs: the second run sees
-  //   process-wide state the first one left (warn-once sets, module caches), so a check can pass or fail depending on the order. It
-  //   happened once when a merge conflict kept both copies of the spread line in the engine's specs.mjs. Stop here, before any browser.
-  const dup = [...new Set(all.map(s => s.name).filter((n, i, a) => a.indexOf(n) !== i))];
-  if (dup.length) throw new Error(`${file}: ${dup.length} test item name(s) appear more than once (a spec array spread twice?): ${dup.slice(0, 5).map(n => JSON.stringify(n)).join(', ')}${dup.length > 5 ? ', ...' : ''}`);
+  const own = (await workspaceSpecs(dir)).map(x => x.spec);
+  const all = [...(own.length ? own : smokeSpecs(dir)), ...scenarioSpecs(dir)];
+  // A repeated name means one filter picks two items and the results cannot be told apart. Stop here, before any browser.
+  noDuplicateNames(all, () => 'tests/specs or tests/scenarios', `${rel(dir) || basename(dir)}: test item`);
   return all;
 }
 
 let pass = 0, fail = 0, ran = 0;
+/** Parallel failures retried alone per run, at most (see runSpecs); parallelFails counts them, retriesSkipped the ones past the limit */
+const RETRY_LIMIT = 5;
+let parallelFails = 0, retriesSkipped = 0;
+const flaky = [], unmarked = [];   // failed beside other pages but passed alone; read pixels on the GPU without a software mark
 const seenNames = [];
-/** Print one item's results and add them to the totals */
+/** Items expected this run (for the progress line); set once the plan is made */
+let expected = 0;
+const failedItems = [];
+const tty = !!process.stdout.isTTY;
+let progressShown = false;
+/** Progress: on a terminal one line rewritten in place, otherwise a line every 50 items (logs stay short) */
+function progress() {
+  if (verbose || !expected) return;
+  const text = `   ${ran}/${expected} items done, ${failedItems.length} failed`;
+  if (tty) { process.stdout.write(`\r${text}`); progressShown = true; } else if (ran % 50 === 0 && ran < expected) console.log(text);
+}
+/** Before printing anything else on a terminal: end the progress line so the text does not land on it */
+const endProgress = () => { if (progressShown) { process.stdout.write('\n'); progressShown = false; } };
+/** Add one item's results to the totals and print them: every check with --verbose, otherwise only a failed item and its failed checks */
 function report(name, results, t0, extra = '') {
   const bad = results.filter(r => !r.ok);
-  console.log(`\n${bad.length ? '✗' : '✓'} ${name} (${((Date.now() - t0) / 1000).toFixed(1)} s${extra})`);
-  for (const r of results) console.log(`   ${r.ok ? '✓' : '✗'} ${r.label}${r.detail && !r.ok ? '  → ' + r.detail : ''}`);
   pass += results.length - bad.length; fail += bad.length; ran++;
+  if (bad.length) failedItems.push(name);
+  if (verbose || bad.length) {
+    endProgress();
+    console.log(`\n${bad.length ? '✗' : '✓'} ${name} (${((Date.now() - t0) / 1000).toFixed(1)} s${extra})`);
+    for (const r of verbose ? results : bad) console.log(`   ${r.ok ? '✓' : '✗'} ${r.label}${r.detail && !r.ok ? '  → ' + r.detail : ''}`);
+    if (!verbose && results.length > bad.length) console.log(`   (${results.length - bad.length} other check(s) passed)`);
+  }
+  progress();
 }
-const collect = () => { const results = []; return { results, check: (label, ok, detail = '') => results.push({ label, ok: !!ok, detail }) }; };
+// A Promise (or any thenable) as ok is always truthy: check('door opens', ev(...)) without await would pass whatever the page says, so it fails instead
+const collect = () => { const results = []; return { results, check: (label, ok, detail = '') => results.push(typeof ok?.then === 'function'
+  ? { label, ok: false, detail: 'check got a Promise: add await' } : { label, ok: !!ok, detail }) }; };
+/** An item whose own run() recorded no check tested nothing (an early return, a loop over an empty list): one failed check says so */
+const noChecks = (results, check) => { if (!results.length) check('no checks recorded', false, 'run() returned without calling check(): it tested nothing'); };
 
 // Plan first (no browser yet), so a filter that matches nothing fails at once with the closest names
 const plan = [];   // [dir, specs to run]
-for (const dir of targets) { const all = await specsOf(dir); seenNames.push(...all.map(s => s.name)); plan.push([dir, all.filter(s => match(s.name))]); }
-// The tools' own tests (need a dev server and the like, not part of any workspace): packages/tools/tests/*.mjs, exporting { name, async run({ check,
-//   browser }), optIn? }. Only in the monorepo, and not with -w or inside a game directory. optIn: slow tests that run only when named
-const TOOL_TESTS = join(TOOLS, 'tests'), toolTests = [];
-if (MODE === 'monorepo' && targets.length === workspaces().length && existsSync(TOOL_TESTS)) for (const f of readdirSync(TOOL_TESTS).filter(f => f.endsWith('.mjs')).sort()) {
-  const t = await import(pathToFileURL(join(TOOL_TESTS, f)).href);
-  seenNames.push(t.name);
-  if (match(t.name) && (!t.optIn || only.some(o => t.name.includes(o)))) toolTests.push(t);
-}
+// The tools' own tests (need a dev server and the like, not part of any workspace): every packages/tools/tests/*.mjs, exporting { name,
+//   async run({ check, browser }), optIn? }. Only in the monorepo, and not with -w or inside a game directory. optIn: slow tests that run only
+//   when named. Found by the runner like the specs; a file without name / run, or a name used twice (also by an engine page spec), is an error.
+const toolTests = [];
+try {
+  for (const dir of targets) { const all = await specsOf(dir); seenNames.push(...all.map(s => s.name)); plan.push([dir, all.filter(s => match(s.name))]); }
+  if (MODE === 'monorepo' && !named) {
+    const tools = await findToolTests(join(TOOLS, 'tests'));
+    for (const { test: t } of tools) {
+      seenNames.push(t.name);
+      if (match(t.name) && (!t.optIn || nameHas(t.name))) toolTests.push(t);
+    }
+    // a tools test named like an engine page spec: one name, two items whose results cannot be told apart (each list was only checked on its own)
+    const engineSpecs = (await specsOf(ENGINE)).map(s => ({ name: s.name, where: 'packages/engine tests' }));
+    noDuplicateNames([...engineSpecs, ...tools.map(({ test, file }) => ({ name: test.name, where: `tools test ${file}` }))], s => s.where, 'engine page spec / tools test');
+  }
+} catch (e) { console.error(`\n✗ ${e.message}`); process.exit(1); }
 const packs = targets.filter(d => d !== ENGINE).map(d => [d, `pack: ${rel(d) || basename(d)}`]);
 seenNames.push(...packs.map(p => p[1]));
-if (only.length && !plan.some(p => p[1].length) && !toolTests.length && !packs.some(p => match(p[1]))) {
-  console.log(`\n✗ no test name contains ${only.map(o => `"${o}"`).join(' or ')}. Close: ${only.flatMap(o => nearest(o, seenNames, 3)).map(n => `"${n}"`).join(', ') || '(none)'}`);
-  console.log(`\nTotal: 0 items matched, failed (${((Date.now() - tSuite) / 1000).toFixed(1)} s)`);
+// Every filter word must find something: a misspelled word next to a good one would otherwise just quietly run less
+const unmatched = only.filter(o => !seenNames.some(n => n.toLowerCase().includes(o.toLowerCase())));
+expected = plan.reduce((n, [, l]) => n + l.length, 0) + toolTests.length + packs.filter(p => match(p[1])).length;
+if (only.length && (unmatched.length || !expected)) {
+  const words = unmatched.length ? unmatched : only;
+  console.log(`\n✗✗ NOTHING MATCHED: no test name contains ${words.map(o => `"${o}"`).join(' or ')} (case is ignored). Close: ${words.flatMap(o => nearest(o, seenNames, 3)).map(n => `"${n}"`).join(', ') || '(none)'}`);
+  console.log(`\nTotal: ${expected ? `${unmatched.length} filter word(s) matched nothing` : '0 items matched'} — FAILED, nothing was tested (${((Date.now() - tSuite) / 1000).toFixed(1)} s)`);
   process.exit(1);
 }
 
-const browser = await launchBrowser();   // software rendering: the same pixels on every machine (forced elsewhere only by THREEDOG_RENDER / --gpu)
-if (browser.render.kind === 'gpu') console.log('Note: tests forced onto the hardware GPU: pixel comparisons and the slowdown alarm baseline are recorded on software');
+// Two browsers, started on first use. Rendering: a test that reads rendered pixels needs the same pixels on every machine, so it runs on SwiftShader
+//   (software). Everything else runs on the hardware GPU, several times faster and far lighter on the CPU. A GPU launch that fails or lands on a
+//   software renderer falls back to the software browser (launchBrowser prints one line why). --software / --gpu / THREEDOG_RENDER force one for all.
+const forced = forcedRender();
+let softP = null, gpuP = null, gpuFellBack = false;
+const softBrowser = () => (softP ??= launchBrowser({ prefer: 'software' }));
+const gpuBrowser = () => (gpuP ??= forced ? softBrowser() : launchBrowser({ prefer: 'gpu' }).then(async b => {
+  if (b.render.kind === 'gpu') return b;
+  gpuFellBack = true;
+  await b.close().catch(() => {});   // fell back: use the one software browser instead of keeping two
+  return softBrowser();
+}));
+/** The browser a spec runs in: software when it reads pixels (spec.software, else detected in its run() source), else the GPU one */
+const browserFor = spec => (needsSoftware(spec) ? softBrowser() : gpuBrowser());
+
+/** A failed item for an error that escaped a spec's own try (the browser crashed, the page could not open): the scheduler below only handles
+ *  fulfilled results, so one rejection used to stop the whole run with no summary and leave the later items and workspaces untested */
+const crashed = (name, e, t0 = Date.now()) => ({ name, t0, extra: '', gpuPixels: false,
+  results: [{ label: 'run error (outside the test body: browser or page setup)', ok: false, detail: String(e?.message ?? e).split('\n')[0] }] });
+
+/** Run one spec in its own page; returns what report() needs, never rejects. Output is not printed here (specs run in parallel and print in order) */
+const runSpec = (spec, dir, server, opts) => { const t0 = Date.now(); return runSpecPage(spec, dir, server, opts).catch(e => crashed(spec.name, e, t0)); };
+async function runSpecPage(spec, dir, server, { software = false } = {}) {
+  const errors = [];
+  const browser = await (software ? softBrowser() : browserFor(spec));
+  // tests assert zh-CN strings; the engine default 'auto' follows this locale
+  const page = await newGamePage(browser, { errors, locale: 'zh-CN' });
+  await page.addInitScript(pageHelpers);
+  let shots = 0;   // page.screenshot is a pixel read too (the page-side hooks only see canvas reads)
+  const screenshot = page.screenshot.bind(page);
+  page.screenshot = (...a) => { shots++; return screenshot(...a); };
+  page.on('console', m => {
+    if (m.type() !== 'warning' || !m.text().includes('outside a fixed step or an op')) return;
+    const k = m.text().split('\n')[0];
+    // test scripts setting up state are not game code
+    if (k.includes('eval at evaluate')) return;
+    const seen = guardSeen.get(dir) ?? guardSeen.set(dir, new Map()).get(dir);
+    if (!seen.has(k)) seen.set(k, spec.name);
+  });
+  const { results, check } = collect();
+  const t0 = Date.now();
+  let startup = null;
+  try {
+    await withTimeout((async () => {
+      await page.goto(server.base + spec.url);
+      await waitEngine(page, { timeout: 60000, errors });
+      startup = await page.evaluate(() => engine.startup);
+      // frames(n): wait for the engine's loop to run n more frames (a key press is read on the next frame; software rendering is slow,
+      //   so waiting by frames is more reliable than by milliseconds)
+      const frames = (n = 2) => page.evaluate(n => window.__t.frames(n), n);
+      await spec.run({ page, check, frames, ev: (fn, arg) => page.evaluate(fn, arg), wait: ms => page.waitForTimeout(ms) });
+    })(), spec.timeout ?? SPEC_TIMEOUT, 'spec');
+  } catch (e) { check('run error', false, String(e).split('\n')[0]); }
+  noChecks(results, check);   // before the console check below, which every page gets
+  // spec.expectErrors (regex): errors this test deliberately provokes (such as the error-level test); matches do not count
+  const unexpected = spec.expectErrors ? errors.filter(m => !spec.expectErrors.test(m)) : errors;
+  check('no console errors', unexpected.length === 0, unexpected.slice(0, 3).join(' | '));
+  // A spec that read pixels while on the GPU and is not marked: its pixels depend on the machine. Reported at the end so the mark gets added.
+  const pixelReads = shots + (await page.evaluate(() => window.__t?.pixelReads ?? 0).catch(() => 0));
+  const gpuPixels = !!pixelReads && browser.render.kind === 'gpu' && !needsSoftware(spec) && spec.software !== false;
+  await page.close().catch(() => {});
+  // Startup timing: open to playable / start() to playable, slowest modules
+  const slow = startup && Object.entries(startup.modules).map(([n, t]) => [n,
+    (t.init ?? 0) + (t.ready ?? 0)]).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([n, t]) => `${n} ${t}`).join(', ');
+  return { name: spec.name, results, t0, gpuPixels, extra: startup ? `; startup ${startup.totalMs}/${startup.startMs} ms, slowest ${slow || '-'}` : '' };
+}
+
+/** runSpec, plus: a spec that read pixels on the GPU unmarked is listed, and when it failed it runs again on software rendering (its pixels
+ *  depend on the machine, so a GPU failure says nothing); the note says so, the list at the end asks for the mark */
+async function runSpecChecked(spec, dir, server) {
+  const d = await runSpec(spec, dir, server);
+  if (!d.gpuPixels) return d;
+  unmarked.push(`${rel(dir) || basename(dir)} · ${spec.name}`);
+  if (!d.results.some(r => !r.ok)) return d;
+  const s = await runSpec(spec, dir, server, { software: true });
+  s.note = '; failed on the GPU after reading pixels unmarked, run again on software rendering';
+  return s;
+}
+
+/**
+ * Run a workspace's specs: up to `jobs` pages at once, results printed in test order (never interleaved).
+ *   spec.serial: runs alone (waits for the running ones, nothing starts beside it): timing assertions, files written
+ *   A spec that fails while others run beside it is run once more alone: heavy parallel load slows every page, and a timing or timeout failure
+ *   caused by that is not a bug. It prints as passed with a note and is listed in the summary; failing again alone is a real failure.
+ */
+async function runSpecs(list, dir, server) {
+  const done = new Array(list.length).fill(null), running = new Set(), retry = [];
+  // a page renders in software when it reads pixels, or when everything does (--software, or the GPU launch fell back)
+  if (!forced && list.some(s => !needsSoftware(s))) await gpuBrowser();
+  const soft = s => forced === 'software' || gpuFellBack || needsSoftware(s);
+  const softCap = jobsGiven ? jobs : Math.min(jobs, 2);
+  let softRunning = 0;
+  let next = 0;   // next index to print
+  const flush = () => { while (next < list.length && done[next]) { const d = done[next++]; report(d.name, d.results, d.t0, d.extra + (d.note ?? '')); } };
+  const idle = async () => { while (running.size) await Promise.race(running); };
+  const alone = async i => { const d = await runSpecChecked(list[i], dir, server); done[i] = d; flush(); return d; };
+  const retryAll = async () => {
+    for (const r of retry.splice(0)) {
+      const d = await runSpecChecked(list[r], dir, server);
+      if (!d.results.some(x => !x.ok)) { d.note = '; failed beside other pages, passed on a serial retry'; flaky.push(list[r].name); }
+      done[r] = d;
+    }
+    flush();
+  };
+  const start = i => {
+    const s = soft(list[i]);
+    if (s) softRunning++;
+    const p = runSpecChecked(list[i], dir, server).then(d => {
+      running.delete(p);
+      if (s) softRunning--;
+      // Many failures in one run mean a real break (a build or an engine bug), not load: past RETRY_LIMIT a failure is kept as it is, so a
+      // broken build costs one parallel pass instead of one pass plus every failed page again one at a time
+      const failed = jobs > 1 && d.results.some(r => !r.ok);
+      if (failed && ++parallelFails <= RETRY_LIMIT) retry.push(i);
+      else { if (failed) { d.note = `; not retried alone (more than ${RETRY_LIMIT} failures this run)`; retriesSkipped++; } done[i] = d; }
+      flush();
+    });
+    running.add(p);
+  };
+  for (let i = 0; i < list.length; i++) {
+    // Retries wait for a serial spec or the end of the workspace: retrying as soon as one failed drained the parallel pipeline each time
+    if (list[i].serial) { await idle(); await retryAll(); await alone(i); continue; }
+    while (running.size >= jobs || (soft(list[i]) && softRunning >= softCap)) await Promise.race(running);
+    start(i);
+  }
+  await idle();
+  await retryAll();
+}
+
 try {
+  const total = plan.reduce((n, [, l]) => n + l.length, 0), pix = plan.reduce((n, [, l]) => n + l.filter(needsSoftware).length, 0);
+  if (total) console.log(`Running ${total} test pages, ${jobs} at a time${forced ? ` (all on ${forced} rendering, forced)` : `: ${total - pix} on the GPU, ${pix} that read pixels on software rendering`}${toolTests.length ? `; then ${toolTests.length} tools tests` : ''}${verbose ? '' : ' (only failures are printed; --verbose prints every check)'}`);
   for (const [dir, list] of plan) {
     if (!list.length) continue;
     process.env.THREEDOG_SNAP_DIR = join(dir, 'tests', 'snapshots');   // where this workspace's describe baselines live
-    console.log(`\n━━ ${rel(dir) || basename(dir)}: building…`);
-    const server = await buildAndPreview(dir);
-    try {
-      for (const spec of list) {
-        const errors = [];
-        // tests assert zh-CN strings; the engine default 'auto' follows this locale
-        const page = await newGamePage(browser, { errors, locale: 'zh-CN' });
-        await page.addInitScript(pageHelpers);
-        page.on('console', m => {
-          if (m.type() !== 'warning' || !m.text().includes('outside a fixed step or an op')) return;
-          const k = m.text().split('\n')[0];
-          // test scripts setting up state are not game code
-          if (!guardSeen.has(k) && !k.includes('eval at evaluate')) guardSeen.set(k, `${rel(dir)} · ${spec.name}`);
-        });
-        const { results, check } = collect();
-        const t0 = Date.now();
-        let startup = null;
-        try {
-          await withTimeout((async () => {
-            await page.goto(server.base + spec.url);
-            await waitEngine(page, { timeout: 60000, errors });
-            startup = await page.evaluate(() => engine.startup);
-            // frames(n): wait for the engine's loop to run n more frames (a key press is read on the next frame; software rendering is slow,
-            //   so waiting by frames is more reliable than by milliseconds)
-            const frames = (n = 2) => page.evaluate(n => window.__t.frames(n), n);
-            await spec.run({ page, check, frames, ev: (fn, arg) => page.evaluate(fn, arg), wait: ms => page.waitForTimeout(ms) });
-          })(), spec.timeout ?? SPEC_TIMEOUT, 'spec');
-        } catch (e) { check('run error', false, String(e).split('\n')[0]); }
-        // spec.expectErrors (regex): errors this test deliberately provokes (such as the error-level test); matches do not count
-        const unexpected = spec.expectErrors ? errors.filter(m => !spec.expectErrors.test(m)) : errors;
-        check('no console errors', unexpected.length === 0, unexpected.slice(0, 3).join(' | '));
-        // Startup timing: open to playable / start() to playable, slowest modules
-        const slow = startup && Object.entries(startup.modules).map(([n, t]) => [n,
-          (t.init ?? 0) + (t.ready ?? 0)]).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([n, t]) => `${n} ${t}`).join(', ');
-        report(spec.name, results, t0, startup ? `; startup ${startup.totalMs}/${startup.startMs} ms, slowest ${slow || '-'}` : '');
-        await page.close().catch(() => {});
-      }
-    } finally { await server.close(); }
+    endProgress(); console.log(`\n━━ ${rel(dir) || basename(dir)}: building…`);
+    // a workspace that does not build is one failed item; the other workspaces are still tested and the summary still prints
+    const t0 = Date.now();
+    let server;
+    try { server = await buildAndPreview(dir); } catch (e) { const d = crashed(`build: ${rel(dir) || basename(dir)}`, e, t0); report(d.name, d.results, t0); continue; }
+    try { await runSpecs(list, dir, server); } finally { await server.close(); }
   }
   for (const { name, run } of toolTests) {
     const { results, check } = collect(), t0 = Date.now();
-    try { await run({ check, browser }); } catch (e) { check('run error', false, String(e).split('\n')[0]); }
+    // the tools' own tests keep the software browser (render-paths and pixel tests assume it)
+    try { await run({ check, browser: await softBrowser() }); } catch (e) { check('run error', false, String(e).split('\n')[0]); }
+    noChecks(results, check);
     report(name, results, t0);
   }
   // Works after packaging: each game is built for production once and started from dist only (see pack-test.mjs); the name contains "pack"
   for (const [dir, label] of packs) {
     if (!match(label)) continue;
-    console.log(`\n━━ ${rel(dir) || basename(dir)}: production build + serving dist…`);
+    endProgress(); console.log(`\n━━ ${rel(dir) || basename(dir)}: production build + serving dist…`);
     const t0 = Date.now();
-    const { name, results } = await packTest(dir, browser);
+    const { name, results } = await (async () => packTest(dir, await softBrowser()))().catch(e => crashed(label, e, t0));
     report(name, results, t0);
   }
-} finally { await browser.close(); }
+} finally { await Promise.all([softP, gpuP].map(p => p?.then(b => b.close()).catch(() => {}))); }
 
-if (guardSeen.size) {
-  mkdirSync(join(ROOT, '.threedog'), { recursive: true });
-  writeFileSync(join(ROOT, '.threedog/ops-guard.log'), [...guardSeen].map(([k, v]) => `${k}\n    in ${v}`).join('\n') + '\n');
-  console.log(`\nops guard: ${guardSeen.size} places change gameplay state outside fixed steps and ops (list: .threedog/ops-guard.log)`);
+endProgress();
+// Written for every tested game on every run, empty when clean: written only on a hit, a clean run left the previous run's list behind as if it were current.
+// The first place is printed here, so a single hit needs no file at all
+for (const dir of targets) {
+  const seen = guardSeen.get(dir) ?? new Map(), log = join(dir, '.threedog', 'ops-guard.log');
+  mkdirSync(join(dir, '.threedog'), { recursive: true });
+  writeFileSync(log, [...seen].map(([k, v]) => `${k}\n    in ${v}\n`).join(''));
+  if (!seen.size) continue;
+  const [k, v] = seen.entries().next().value, shown = relative(process.cwd(), log).split(sep).join('/') || log;
+  console.log(`\nops guard (${rel(dir) || basename(dir)}): ${seen.size} place(s) change gameplay state outside fixed steps and ops:\n   ${k}\n      in ${v}`
+    + `\n   ${seen.size > 1 ? 'all of them' : 'listed'} in ${shown}`);
 }
+if (retriesSkipped) console.log(`\n${retriesSkipped} failed item(s) were not retried alone: more than ${RETRY_LIMIT} failed this run, so the cause is not load`);
+if (flaky.length) console.log(`\n${flaky.length} item(s) failed while running beside other pages and passed alone (load-sensitive; \`--jobs 1\` runs one at a time, spec.serial: true keeps one alone):\n${flaky.map(n => '   ' + n).join('\n')}`);
+if (unmarked.length) console.log(`\n${unmarked.length} item(s) read rendered pixels on the GPU but are not marked \`software: true\` (their pixels depend on the machine; add the mark to the spec):\n${unmarked.map(n => '   ' + n).join('\n')}`);
 const took = (Date.now() - tSuite) / 1000;
 const time = took >= 90 ? `${(took / 60).toFixed(1)} min` : `${took.toFixed(1)} s`;
+if (failedItems.length) console.log(`\n${failedItems.length} item(s) failed (details above):\n${failedItems.map(n => '   ✗ ' + n).join('\n')}`);
+// Nothing ran at all (every workspace empty, say) is never a pass
+if (!ran) { console.log(`\n✗✗ NOTHING RAN — FAILED, nothing was tested (${time})`); process.exit(1); }
 console.log(`\nTotal: ${pass + fail} checks in ${ran} items, ${pass} passed, ${fail} failed (${time})`);
 process.exit(fail ? 1 : 0);

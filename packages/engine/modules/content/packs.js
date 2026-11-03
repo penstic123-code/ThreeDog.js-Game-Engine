@@ -12,6 +12,7 @@
 // npm run check -> content-check, packages/tools/content-check/world.mjs).
 import { DEV, warnOnce, fmt } from '../../core/validate.js';
 import { codedError } from '../../core/errorHints.js';
+import { isPlainObject } from '../../core/util.js';
 
 const STRINGS = {
   dup: 'content.load: {key}.{id} is defined by both {a} and {b}. Packs loaded together may not share an id: rename one, or drop it from one pack',
@@ -20,7 +21,6 @@ const STRINGS = {
     + "(engine.assets.manifest({ models: { {short}: '{m}' } })) and write model: '{short}'",
   code: 'content: {what} gives a function as its model. Content is data: register the generator in an asset pack (engine.assets.manifest({ models: { name: fn } })) and write its name',
 };
-const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 // plain-object tables that are not "one id, one pack": their entries combine (startItems counts add, each pack's load gives its own)
 const NOT_KEYED = new Set(['startItems']);
 const PATH = /[/\\]|\.(glb|gltf|fbx|obj|png|jpe?g|webp|ktx2|mp3|ogg|wav)$/i;
@@ -45,12 +45,12 @@ export function packsOf(data) {
     }
   };
   packs.forEach((p, i) => {
-    if (!plain(p)) throw codedError('content-pack', fmt(STRINGS.notPack, { at: i + 1, got: Array.isArray(p) ? 'an array' : typeof p }));
+    if (!isPlainObject(p)) throw codedError('content-pack', fmt(STRINGS.notPack, { at: i + 1, got: Array.isArray(p) ? 'an array' : typeof p }));
     for (const [key, v] of Object.entries(p)) {
       if (key === 'rules') { claim('rules.conditions', v?.conditions, i); claim('rules.kinds', v?.kinds, i); }
       // audio: named tables are ids (a sound in two packs is an error), rule lists concatenate
       else if (key === 'audio') { claim('audio.sounds', v?.sounds, i); claim('audio.footsteps', v?.footsteps, i); claim('audio.music.tracks', v?.music?.tracks, i); }
-      else if (key !== 'name' && !NOT_KEYED.has(key) && plain(v)) claim(key, v, i);
+      else if (key !== 'name' && !NOT_KEYED.has(key) && isPlainObject(v)) claim(key, v, i);
     }
     if (DEV) modelRefs(p);
   });

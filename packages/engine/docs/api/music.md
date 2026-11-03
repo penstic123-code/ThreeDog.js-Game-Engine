@@ -14,7 +14,7 @@ Background music (music() module)
 ## Methods and properties
 - `music.addTracks(map: Record<string, MusicTrack>)` — Register tracks: { name: url / { url, volume, loop, stems } }
 - `music.play(name: string | null, opts?: { fade?: number; force?: boolean })` — Play a track (cross-fade over fade seconds). Does nothing if it is already playing; force replays it
-- `music.stop(fade?: number)` — Fade out and stop (fade over fade seconds)
+- `music.stop(opts?: { fade?: number })` — Fade out and stop (fade over fade seconds; default the music({ fade }) option). An options object like play's: stop(3) throws in dev
 - `music.stinger(name: string, opts?: { duck?: number; volume?: number })` — Layer a one-shot piece (victory, discovered place...); the background dips to `duck` while it plays
 - `music.rules(list: MusicRule[] | null, opts?: { hold?, fade?, interval? })` — Set the auto track rules (null turns them off). opts: hold how many seconds a new result must be stable before switching, fade switch fade seconds, interval check interval
 - `music.override(name: string | null, opts?: { fade?: number; force?: boolean })` — Pick a track by hand, pausing the rules; override(null) hands control back

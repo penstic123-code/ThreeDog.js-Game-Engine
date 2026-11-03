@@ -1,6 +1,7 @@
 // Page errors from <workspace>/.threedog/errors.log (written by vite/vite-error-relay.js) as records with an id, a time, a source and a count.
 //   threedog errors                new errors since the last read (moves the read position)
 //   threedog errors latest [N]     the last N records (default 3); the same ones show again on every call
+// Records with the same message and source print as one line: first and last id / time, summed count (×N)
 //   threedog errors --since 5      records after id 5 (E5 also works); never moves the read position, so it is safe to repeat
 // Ids are the order of appearance in the log (E1, E2…), restarting when the dev server restarts (the log is cleared then). The "read position" stores
 // the log's first line too, so a restarted dev server does not hide its new errors behind an old position.
@@ -56,7 +57,18 @@ export function newErrors(dir) {
   return list.filter(r => r.id > from);
 }
 
-const one = r => (`E${r.id} ${r.time}${r.tick === null ? '' : ' tick ' + r.tick}${r.count > 1 ? ` ×${r.count}` : ''} `
+const at = r => `E${r.id} ${r.time}${r.tick === null ? '' : ' tick ' + r.tick}`;
+/** Records with the same kind, page, message and source as one group, in order of first appearance: { ...first, last, count summed } */
+function merge(list) {
+  const groups = new Map();
+  for (const r of list) {
+    const k = [r.kind, r.page, r.message, r.source].join('\0'), g = groups.get(k);
+    if (g) { g.last = r; g.count += r.count; } else groups.set(k, { ...r, last: null });
+  }
+  return [...groups.values()];
+}
+// one line per group; one that came back as several records shows its first and last: "E3 12:00:01 tick 5 … E9 12:00:09 tick 80 ×7"
+const one = r => (`${at(r)}${r.last ? ' … ' + at(r.last) : ''}${r.count > 1 ? ` ×${r.count}` : ''} `
   + `${r.kind === 'warning' ? 'warning' : 'error'}${r.code ? ` [${r.code}]` : ''} ${r.page} ${oneLine(r.message)}${r.source ? ' (' + r.source + ')' : ''}`)
   + (r.hint ? `\n  -> ${r.hint}` : '');
 
@@ -75,12 +87,14 @@ export function errorsCommand(dir, rest, opt) {
   } else { list = newErrors(dir); label = 'new'; }
   const cursor = all.length, data = { errors: list.slice(-10).map(({ message, ...r }) => ({ ...r, message: oneLine(message) })), cursor, total: all.length };
   if (!list.length) return { ok: true, data, text: opt.since !== undefined || latest ? `✓ No errors ${opt.since !== undefined ? label : 'recorded'}` : '✓ No new errors' };
-  const more = list.length > 2 && !latest ? `\n…${list.length - 2} more, see .threedog/errors.log or threedog errors --since ${Math.max(0, list[0].id - 1)}` : '';
-  const shown = latest ? list : list.slice(0, 2);
+  const groups = merge(list);
+  const more = groups.length > 2 && !latest ? `\n…${groups.length - 2} more, see .threedog/errors.log or threedog errors --since ${Math.max(0, list[0].id - 1)}` : '';
+  const shown = latest ? groups : groups.slice(0, 2);
   // count errors and warnings apart: a run that only produced warnings is not a failure and does not say "errors"
   const nErr = list.filter(r => r.kind !== 'warning').length, nWarn = list.length - nErr;
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-  const counts = [nErr && plural(nErr, 'error'), nWarn && plural(nWarn, 'warning')].filter(Boolean).join(', ');
-  return { ok: nErr === 0, data, text: `${nErr ? '✗' : '!'} ${latest ? `${label}: ${counts}` : `${label}: ${counts}`}\n`
+  const counts = [nErr && plural(nErr, 'error'), nWarn && plural(nWarn, 'warning')].filter(Boolean).join(', ')
+    + (groups.length < list.length ? ` (${groups.length} different)` : '');
+  return { ok: nErr === 0, data, text: `${nErr ? '✗' : '!'} ${label}: ${counts}\n`
     + shown.map(one).join('\n') + more + `\nCursor E${cursor}: threedog errors --since ${cursor} lists only what comes after` };
 }

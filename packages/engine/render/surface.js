@@ -1,11 +1,11 @@
-// Surface keys of a material spec (used by makeMaterial): texture names (`map: 'rock.png'`), `detail`, `lighting`.
+// Surface keys of a material spec. Used by makeMaterial: texture names (`map: 'rock.png'`), `detail`, `lighting`.
 // Textures load through engine.assets.texture by name; a neutral stand-in sits in the slot until the image arrives, so nothing flashes.
 import * as THREE from 'three';
 import { closest, warnOnce } from '../core/validate.js';
 import { placeholderTexture, EFFECTS } from './effects.js';
 import { detailPatch } from './detail.js';
 import { lightingPatch } from './lighting.js';
-import { patchMaterial } from './patches.js';
+import { patchMaterial, sharedPatch } from './patches.js';
 import { surfaceDetail } from './lookSurface.js';
 import { CODE_TEXTURES } from '../core/assetLoad.js';
 import { codedError } from '../core/errorHints.js';
@@ -46,14 +46,14 @@ function loadSlot(m, slot, name, o, where, engine) {
   if (!engine?.assets) throw codedError('material-option', `${where}.${slot}: '${name}' is an asset name but no engine is known; pass the engine (makeMaterial(role, params, engine)) or give a THREE.Texture`);
   const stand = standIn(slot);
   m[slot] = stand;
-  engine.assets.texture(name, COLOR_SLOTS.includes(slot) ? {} : { color: false }).then(t => {
-    m[slot] = shaped(t, o, !CODE_TEXTURES.has(t)); stand.dispose();
-  }).catch(err => warnOnce(`${where}.${slot}: texture '${name}' did not load (${err.message}). Register it (engine.assets.manifest({ textures: { name: 'file.png' } })) or write its URL`));
+  engine.assets.useTexture(name, t => { m[slot] = shaped(t, o, !CODE_TEXTURES.has(t)); stand.dispose(); },
+    { where: `${where}.${slot}`, instead: 'the neutral stand-in stays', opts: COLOR_SLOTS.includes(slot) ? {} : { color: false } });
 }
 
 // One texture slot's value: a name, a THREE.Texture, or { texture: name | Texture, channel, repeat, wrap, colorSpace } (per-slot settings win
 // over the spec-wide repeat / wrap). channel picks the uv set: aoMap / lightMap on a second uv (uv1) is { texture: 'ao', channel: 1 }
 function slotValue(m, k, v, tex, where, engine) {
+  /** @type {{ repeat: any, wrap: any, channel?: number, colorSpace?: string }} */
   let o = { repeat: tex.repeat, wrap: tex.wrap }, src = v;
   if (v && typeof v === 'object' && !v.isTexture) {
     for (const key of Object.keys(v)) if (!SLOT_KEYS.includes(key)) throw codedError('material-option', `${where}.${k}.${key} is not a texture setting; use ${SLOT_KEYS.join(', ')}. Example: ${k}: { texture: 'ao', channel: 1 }`);
@@ -97,8 +97,9 @@ export function applySurface(m, props, where, engine, lit) {
     } else rest[k] = v;
   }
   const det = props.detail === false ? null : props.detail ?? surfaceDetail(engine);   // look.surface.detail is the pack-wide default
-  if (det) patchMaterial(m, [EFFECTS.world(), detailPatch(det, engine, `${where}.detail`)]);
+  // same options -> the same patch object (sharedPatch): one WebGPU program for every material of a spec
+  if (det) patchMaterial(m, [EFFECTS.world(), sharedPatch(engine ?? null, 'detail', det, () => detailPatch(det, engine, `${where}.detail`))]);
   const l = props.lighting === false ? null : { ...lit, ...props.lighting };
-  if (l && Object.keys(l).length) patchMaterial(m, [lightingPatch(l, `${where}.lighting`)]);
+  if (l && Object.keys(l).length) patchMaterial(m, [sharedPatch(engine ?? null, 'lighting', l, () => lightingPatch(l, `${where}.lighting`))]);
   return rest;
 }

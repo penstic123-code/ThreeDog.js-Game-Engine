@@ -5,7 +5,7 @@
 9. zone and data limits · 10. Stream sources
 
 Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need
-`interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory({ ...presets.keys.inventory })`. The API list is in
+`interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory()` (keys: `presets.bindings.interact` / `.inventory`). The API list is in
 `../api/world.md`; this page explains how to use it and what the rules are.
 
 Anything in the game that "must remember its state, survive level changes, and keep changing while far away" (chests, NPCs, zombies, crops, trees the
@@ -80,14 +80,17 @@ function harvest(rec) {
   engine.world.remove(rec.id);   // delete the data after harvesting (the model goes with it). To "grow back after a while": world.set(rec.id, { plantedAt: engine.clock.now }); to hide temporarily: return false from show
 }
 
-function plant(x, z) {   // the player plants one
-  return engine.world.add({ kind: 'crop', position: { x, y: engine.surface(x, z), z }, plantedAt: engine.clock.now });
-}
+// the player plants one: an op, because saved state changes only in a fixed step or an op (recipe 23 §5); a key, a button or a test runs it
+engine.ops.define('crop.plant', {
+  desc: 'Plant a crop on the ground',
+  args: { x: 'number', z: 'number' },
+  run(e, { x, z }) { return e.world.add({ kind: 'crop', position: { x, y: e.surface(x, z), z }, plantedAt: e.clock.now })?.id; },
+});
 ```
 The same "store when, derive the rest" pattern fits any timed thing: an enemy camp that respawns (`clearedAt`), a turret or machine cooldown
 (`usedAt`), a door that shuts again (`openedAt`):
 `const ready = rec => engine.clock.now - rec.usedAt >= rec.cooldown;   // no per-step counter, correct after skip and load`
-Test: `plant(2, 2)` -> `engine.step(130)` (fast-forward 130 game seconds) -> the player walks next to it -> `engine.ops.run('interaction.use')` ->
+Test: `engine.ops.run('crop.plant', { x: 2, z: 2 })` -> `engine.step(130)` (fast-forward 130 game seconds) -> the player walks next to it -> `engine.ops.run('interaction.use')` ->
 `engine.inventory.count('carrot')`.
 
 ## 4. Data written in content: `initial`

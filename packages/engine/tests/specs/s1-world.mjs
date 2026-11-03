@@ -1,4 +1,4 @@
-// Stage 1.11, world data separated from presentation: tests for engine.world (modules/world). Same format as packages/engine/tests/specs.mjs; appended at the end of specs.mjs.
+// Stage 1.11, world data separated from presentation: tests for engine.world (modules/world). Same format as the other files here.
 export const specs = [
   {
     name: 'S1 world data: add/set/remove/query, query by distance, events, putting a three.js object in data throws with a fix (open world)',

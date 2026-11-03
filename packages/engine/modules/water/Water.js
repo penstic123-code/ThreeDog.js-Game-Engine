@@ -14,11 +14,12 @@ import * as THREE from 'three';
 import { makeMaterial } from '../../render/materials.js';
 import { placeholderTexture } from '../../render/effects.js';
 import { patchMaterial } from '../../render/patches.js';
-import { warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { waterLook, wavesPatch, surfacePatch } from './surface.js';
 import { defineWaterLook } from './look.js';
 import { codedError } from '../../core/errorHints.js';
+import { glslFloat } from '../../render/fxNumbers.js';
+import { FRESNEL_POWER } from './surfaceDefaults.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, Material, Vector3 } from '../../types/common' */
 /** @import { WaterBody, WaterOptions } from '../../types/world' */
@@ -30,7 +31,7 @@ const WATER_PARAMS = keysSchema(WATER_OPTIONS);
 /** engine.water */
 export class Water {
   /** @internal */
-  constructor(engine, opts = {}) {
+  constructor(engine, opts = {}, track) {
     /** @internal */ this.engine = engine;
     /** @internal */ this.opts = opts;
     /** @internal */ this.st = { color: 0x888888, opacity: 0.85, flat: true, waveHeight: 1, waveScale: 1, waveSpeed: 1, fresnel: 0.5,
@@ -42,7 +43,7 @@ export class Water {
       // normal map: a flat-normal placeholder until the asset loads, then it takes the asset's image source (shared, not copied;
       // goes through asset management, so it can be preloaded and released)
       const n = this.normalMap = placeholderTexture('normal'); n.wrapS = n.wrapT = THREE.RepeatWrapping;
-      engine.assets.texture(st.normalMap, { color: false }).then(t => { n.source = t.source; n.needsUpdate = true; }).catch(err => warnOnce(err.message));
+      engine.assets.useTexture(st.normalMap, t => { n.source = t.source; n.needsUpdate = true; }, { where: 'water normalMap', instead: 'the generated ripples stay', opts: { color: false } });
     }
     /**
      * Water material (shared by all water)
@@ -63,9 +64,9 @@ export class Water {
     /** @internal */ this._seaChecked = st.sea === false;   // global water is built on the first frame: terrain (water level) is installed by then, so no dependence on install order
     for (const b of engine.waterBodies) this._addBody(b);
     defineWaterLook(this);   // look.water: the style's values are its style layer, water({...}) options its 'game' layer
-    engine.events.on('water:add', b => this._addBody(b));
+    track(engine.events.on('water:add', b => this._addBody(b)));
     // material is shared by all bodies, so not engine.remove (which would dispose it); its ray registration goes too
-    engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.rays.forget(m); m.geometry.dispose(); this.bodies.delete(b); } });
+    track(engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.rays.forget(m); m.geometry.dispose(); this.bodies.delete(b); } }));
   }
 
   /** @internal */
@@ -92,11 +93,15 @@ export class Water {
     this._u = { ...waves.uniforms, uFresnel };   // the live uniforms look.water.set writes
     // grazing-angle reflection: the flatter the view, the closer to the fog (horizon) color; the getter follows whatever fog exists at draw time.
     // Basic material has no normal/view variables, so it gets no reflection
+    const uFresnelColor = { get value() { return e.scene.fog?.color ?? grey; } };
     if (!('isMeshBasicMaterial' in m)) patches.push({ name: 'fresnel',
-      uniforms: { uFresnel, uFresnelColor: { get value() { return e.scene.fog?.color ?? grey; } } },
+      uniforms: { uFresnel, uFresnelColor },
       pars: 'uniform float uFresnel; uniform vec3 uFresnelColor;', slot: 'output', glsl: `
-        float threedogFres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 3.0) * uFresnel;
-        outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));` });
+        float threedogFres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), ${glslFloat(FRESNEL_POWER)}) * uFresnel;
+        outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));`,
+      // NodeMaterial: the same blend (threedog/tsl waterFresnel) on the color before fog; the uniform nodes read these objects every render
+      tsl: c => c.tsl.vec4(c.fx.waterFresnel(c.output.rgb, c.tsl.normalView, c.tsl.positionViewDirection,
+        c.fx.patchUniform(uFresnel), c.fx.patchUniform(uFresnelColor)), c.output.a) });
     return patchMaterial(m, patches, { strict: false });
   }
   /** Build the shared material again (look.water changed something structural) and hand it to every water mesh @internal */
@@ -157,7 +162,7 @@ export class Water {
 export function water(opts = {}) {
   readParams('water', WATER_PARAMS, opts);
   let w = null;
-  return { name: 'water', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], install(e) { w = new Water(e, opts); return w; }, frame(dt, e) { w.update(e.focus, dt); },
+  return { name: 'water', type: 'look', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); },
     // "is there water where I think": the global sea (its level and plane size; null = none, e.g. no water level) and each separate body
     describe() {
       const r = v => Math.round(v * 10) / 10, s = w.sea;

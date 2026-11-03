@@ -34,6 +34,7 @@ export class Container {
     /** Weight limit, sum of item weight × count (Infinity = no limit) */ this.maxWeight = maxWeight;
     /** @internal { key, id, count, data, sig } in insertion order */ this._entries = [];
     this.seeded = false;      // starting contents were placed on creation: still saved when emptied, so a load doesn't treat it as new and place them again
+    /** @internal authored starting goods (container(id, { items })): what a save older than the content puts back */ this._start = null;
   }
 
   /** How many of an item (all entries of that id) or of one entry (key). @param {string} x @returns {number} */

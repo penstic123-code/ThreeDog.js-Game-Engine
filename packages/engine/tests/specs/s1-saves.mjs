@@ -1,4 +1,4 @@
-// 1.7 saves: world saves use IndexedDB (photos stored separately), export / import files. Same format as specs.mjs; appended at the end of specs.mjs.
+// 1.7 saves: world saves use IndexedDB (photos stored separately), export / import files. Same format as the other files here.
 // Every test runs in a fresh browser context (storage is empty). The consistency test "keep running vs save -> reload -> continue" waits until the 1.11 world data rework.
 import { readFileSync } from 'node:fs';
 
@@ -52,6 +52,7 @@ export const specs = [
   },
   {
     name: 'S1 saves: exportFile download -> importFile restore, the round trip is identical and the photo comes back too; a bad file does no damage (open world)',
+    software: false,   // the photo in the save is read back, not compared
     url: '/',
     async run({ page, check, ev }) {
       await ev(async () => {

@@ -29,8 +29,10 @@ export class Collision {
   constructor(engine, { maxClimb = engine.movement.slopeRatio, canopyHeight = 5, cameraPad = 0.5, cameraMin = 1.5, walkableWaterMargin = 0.2, cameraOcclusion = 'colliders' } = {}) {
     this.engine = engine;
     Object.assign(this, { maxClimb, canopyHeight, cameraPad, cameraMin, walkableWaterMargin, cameraOcclusion });
-    this.circles = [];   // manually added circle colliders {x, z, r, h}
-    this.boxes = [];     // rectangles {x, z, hw, hd, rot, h}
+    // Sets, not arrays: they keep insertion order (forEachStatic and every consumer see colliders in the order added) and delete in O(1),
+    // where an array filter per remove made unloading n colliders O(n^2)
+    /** manually added circle colliders {x, z, r, h} @type {Set<any>} */ this.circles = new Set();
+    /** rectangles {x, z, hw, hd, rot, h} @type {Set<any>} */ this.boxes = new Set();
     this._grid = new CollisionGrid();   // grid index: resolve / camera look only nearby instead of scanning all (circles / boxes change only via addCircle / addBox)
     this._blocked = [];   // addBlocked fields {fn, bounds}; empty = zero cost
     this.blockedVersion = 0;   // +1 on addBlocked / remove: async paths re-sample their cached ground rasters
@@ -42,13 +44,39 @@ export class Collision {
   }
   /** Iterate all manually added static colliders (for the physics module): fn('box' | 'circle', data) */
   forEachStatic(fn) { for (const b of this.boxes) fn('box', b); for (const c of this.circles) fn('circle', c); }
+  /**
+   * Keep an outside copy of the static colliders (boxes and circles) in step, e.g. physics colliders or navmesh obstacles. add(type, data) builds the
+   * copy of one collider and returns it; remove(piece, data) drops one. sync() does the work only when `version` moved since the last sync, then adds
+   * what is new (in forEachStatic order) and removes what is gone; returns whether anything was compared. clear() forgets every piece without calling
+   * remove (the outside world they lived in was thrown away) so the next sync builds all again.
+   * Why one shared mirror: nav and rigid each had their own copy of this diff, and the two copies drifted (one checked readiness, the other a version
+   * field of its own); a third consumer would copy it a third time.
+   * @param {{ add: (type: 'box' | 'circle', data: any) => any, remove: (piece: any, data: any) => void }} fns
+   */
+  mirror({ add, remove }) {
+    const pieces = new Map(), col = this;
+    const seen = new Set();
+    let version = -1;
+    return {
+      sync() {
+        if (col.version === version) return false;
+        version = col.version; seen.clear();
+        col.forEachStatic((type, o) => { seen.add(o); if (!pieces.has(o)) pieces.set(o, add(type, o)); });
+        for (const [o, p] of pieces) if (!seen.has(o)) { pieces.delete(o); remove(p, o); }
+        seen.clear();
+        return true;
+      },
+      clear() { pieces.clear(); version = -1; },
+      get size() { return pieces.size; },
+    };
+  }
 
   /** Add a circle collider (pillar, statue, campfire): position is the centre, radius (default 0.5), height (default 6). Returns a handle { remove() } */
   addCircle(position, opts = {}) {
     readParams('collision.addCircle()', keysSchema(CIRCLE_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [x, z] = xzOf(position), c = { x, z, r: opts.radius ?? 0.5, h: opts.height ?? 6 };
-    this.circles.push(c); this._grid.add(c, false); this.version++;
-    return { remove: () => { if (!this.circles.includes(c)) return; this.circles = this.circles.filter(o => o !== c); this._grid.remove(c); this.version++; } };
+    this.circles.add(c); this._grid.add(c, false); this.version++;
+    return { remove: () => { if (!this.circles.delete(c)) return; this._grid.remove(c); this.version++; } };
   }
   /**
    * Add a rectangle collider (house, fence): position is the centre; halfWidth / halfDepth (default 1), rotation about the Y axis (radians),
@@ -58,8 +86,8 @@ export class Collision {
     readParams('collision.addBox()', keysSchema(BOX_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [x, z] = xzOf(position), hw = opts.halfWidth ?? 1, hd = opts.halfDepth ?? 1, rot = opts.rotation ?? 0;
     const b = { x, z, hw, hd, rot, h: opts.height ?? 6, y: opts.y, c: Math.cos(rot), s: Math.sin(rot), r: Math.hypot(hw, hd) };
-    this.boxes.push(b); this._grid.add(b, true); this.version++;
-    return { remove: () => { if (!this.boxes.includes(b)) return; this.boxes = this.boxes.filter(o => o !== b); this._grid.remove(b); this.version++; } };
+    this.boxes.add(b); this._grid.add(b, true); this.version++;
+    return { remove: () => { if (!this.boxes.delete(b)) return; this._grid.remove(b); this.version++; } };
   }
   /**
    * Add a thin wall along the line a -> b (fence, wall; positions like addBox). thickness (default 0.3), height (default 6), y as in addBox.
@@ -272,11 +300,11 @@ const COLLISION_PARAMS = keysSchema(['maxClimb', 'canopyHeight', 'cameraPad', 'c
 export function collision(opts = {}) {
   readParams('collision', COLLISION_PARAMS, opts);
   let c = null;
-  return { name: 'collision', params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { return (c = new Collision(e, opts)); },
+  return { name: 'collision', type: 'world', provides: ['collision'], params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { e.i18n.add({ 'zh-CN': { 'module.collision': '碰撞' }, en: { 'module.collision': 'collision' } }); return (c = new Collision(e, opts)); },
     // counts of what blocks walking, and whether the player's own spot is walkable: answers "why can the player not go there" without stepping
     describe(e) {
       const p = e.player?.position;
-      return { circles: c.circles.length, boxes: c.boxes.length, fields: c._blocked.length, cameraOcclusion: c.cameraOcclusion,
+      return { circles: c.circles.size, boxes: c.boxes.size, fields: c._blocked.length, cameraOcclusion: c.cameraOcclusion,
         ...(p ? { atPlayer: { walkable: c.groundWalkable(p.x, p.z), blocked: c.blockedAt(p.x, p.z) } } : {}) };
     } };
 }

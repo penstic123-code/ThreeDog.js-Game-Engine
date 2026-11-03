@@ -35,19 +35,25 @@ export function describeRender(e) {
   // { look, writer }: the record to read in describe().look and its writer; 'engine' (no look record) when no part covers it
   const who = (part, key) => { const row = look[part]?.[key]; return row ? { look: `look.${part}.${key}`, writer: row.writer } : { look: null, writer: 'engine' }; };
   e._oTone.check();   // a direct write since the last look turns the record to 'yielded' (quiet: no warning)
-  const tone = { value: toneName(r.toneMapping), writer: e._oTone.on ? b.toneBy : 'game' };
+  // a post effect in the 'tone' slot replaces the tone-mapping stage (render/PostFX.js): then it, not renderer.toneMapping, makes the picture
+  const toneFx = e.post?._list?.find(h => h.slot === 'tone' && h.enabled);
+  const tone = toneFx ? { value: `post effect '${toneFx.name}' (tone slot)`, ...who('post', `${toneFx.name}.enabled`) }
+    : { value: toneName(r.toneMapping), writer: e._oTone.on ? b.toneBy : 'game' };
   const exposure = { value: rv(r.toneMappingExposure), ...who('tone', 'exposure') };   // keyframes / a function: the value used this frame
   const shadows = { enabled: r.shadowMap.enabled, type: shadowName(r.shadowMap.type), ...who('shadow', 'type') };
   const post = (e.post?._list || []).map(h => ({ name: h.name, on: h.enabled, params: { ...h.params }, ...who('post', `${h.name}.enabled`),
     ...(e.post._offWhy?.[h.name] && !h.enabled ? { why: e.post._offWhy[h.name] } : {}) }));
   const lights = Object.entries(e.lights || {}).filter(([, l]) => l.parent)
     .map(([name, l]) => ({ name, type: l.type, intensity: rv(l.intensity), source: 'engine-default', ...who('lights', `${name}.intensity`) }));
+  // the game's own point / spot lights (core/gameLights.js): adopted like a lightPool light, listed with the line that added them
+  for (const l of e._gameLights?.list() ?? []) lights.push({ name: l.name || l.type, type: l.type, intensity: rv(l.intensity), castShadow: l.castShadow,
+    source: 'game', writer: 'game', at: e._things?.entryOf(l)?.[0]?.at ?? null, ...(e._gameLights.idled(l) ? { shadowIdled: true } : {}) });
   const kv = x => Object.entries(x).map(([k, v]) => `${k}=${typeof v === 'number' ? rv(v) : v}`).join(' ');
   const srgb = r.outputColorSpace === 'srgb' ? '' : ' (WRONG: colors are encoded for srgb; color textures must be srgb, data maps linear, see assets.report)';
   let text = [
     `renderer: ${tone.value} (${tone.writer}) exposure ${exposure.value} (${exposure.writer}) shadows ${shadows.enabled ? shadows.type : 'off'} (${shadows.writer})${b.owned ? '' : ' [game-supplied renderer]'} output ${r.outputColorSpace}${srgb}`,
     `post: ${post.map(x => `${x.name}${x.on ? '' : x.why ? ' off (low-tier default)' : ' off'}${Object.keys(x.params).length ? `{${kv(x.params)}}` : ''} (${x.writer})`).join(', ') || 'none'}${e.post?.antialias ? ' + MSAA' : ''}`,
-    `lights (engine-added defaults; extra scene lights are not listed): ${lights.map(l => `${l.name} ${l.type} ${l.intensity} (${l.writer})`).join(', ')}`,
+    `lights: ${lights.map(l => `${l.name} ${l.type} ${l.intensity} (${l.writer}${l.at ? ' ' + l.at : ''})`).join(', ')}`,
   ].join('\n');
   // probe sets (render/probes.js): how many, how dense, who made them and who writes the scene probe now
   const probes = [...(e._probeSets ?? [])].map(s => s.info());

@@ -1,10 +1,10 @@
 // R9 display-text keys for key actions must exist in every locale table (error)
-// The 3rd argument of input.define('action', key, 'textKey'), the 2nd argument of input.touchButton('action', 'textKey'),
+// The label of input.action('action', { label: 'textKey' }), the 2nd argument of input.touchButton('action', 'textKey'),
 // and the label in demo/<game>/content/actions.js are the text shown on the key-rebinding page of the settings menu / on touch buttons:
 //   - written as a key name (a.b form) → both the zh-CN and the en table must have it; missing one is an error (after switching language it would show as "inventory.action")
 //   - plain text (no dot) in packages/engine/ → error (the engine hard-codes no UI text); plain text in game content is fine (the game picks its own language)
-//   - define in packages/engine/ without a text key → warning (the action name is shown as is)
-// Where the text tables are collected from: every object literal in the whole project (engine demo styles) that has both 'zh-CN' and en keys (CORE in I18n.js, each module's STRINGS,
+//   - input.action in packages/engine/ without a label → warning (the action name is shown as is)
+// Where the text tables are collected from: every object literal in the whole project (engine, add-ons, examples and games, their style/ folders included) that has both 'zh-CN' and en keys (CORE in I18n.js, each module's STRINGS,
 //   e.i18n.add({...}), createEngine({ strings })), whose values are object literals or same-file constants.
 // Limitation: text keys held in variables (such as the passthrough of a.label in content) are only checked for literals in content/actions.js; dynamically built keys are not found.
 import { ts, parse, visit, lineOf, strValue, objectKeys, constInit, walk, isEngineCode, P } from './_lib.mjs';
@@ -32,7 +32,7 @@ function tables(files) {
 export default {
   id: 'R9', title: 'Key text keys exist in every locale',
   run() {
-    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.ADDONS_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js']))];
+    const files = [P.INDEX_JS_REL, ...[...P.ENGINE_CODE_DIRS_REL, ...P.ADDONS_REL, ...P.GAME_CODE_DIRS_REL].flatMap(d => walk(d, ['.js']))];
     const T = tables(files), out = [];
     const check = (f, line, key, where) => {
       if (ALLOW.some(([k]) => k === key)) return;
@@ -50,11 +50,15 @@ export default {
         if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression)) return;
         const m = n.expression.name.text, recv = n.expression.expression.getText();
         if (!/(^|\.)input$/.test(recv)) return;
-        let idx;
-        if (m === 'define') idx = 2; else if (m === 'touchButton') idx = 1; else return;
-        const arg = n.arguments[idx];
+        let arg;
+        if (m === 'action') {
+          const o = n.arguments[1];
+          // options given as an object literal: read its label; anything else (a spread, a variable) cannot be checked here
+          if (o && (!ts.isObjectLiteralExpression(o) || o.properties.some(p => ts.isSpreadAssignment(p)))) return;
+          arg = o?.properties.find(p => ts.isPropertyAssignment(p) && p.name.getText() === 'label')?.initializer;
+        } else if (m === 'touchButton') arg = n.arguments[1]; else return;
         const action = strValue(n.arguments[0]) ?? n.arguments[0]?.getText();
-        if (!arg) { if (isEngineCode(f)) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `input.${m}('${action}') has no display text key`, fix: 'add the 3rd argument (a text key), otherwise the rebinding menu shows the action name' }); return; }
+        if (!arg) { if (isEngineCode(f)) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `input.${m}('${action}') has no display text key`, fix: "add label: 'module.action' (a text key), otherwise the rebinding menu shows the action name" }); return; }
         let v = strValue(arg);
         if (v == null && ts.isIdentifier(arg)) { const init = constInit(sf, arg.text); v = strValue(init); }
         if (v == null) return;   // variable / expression: cannot check

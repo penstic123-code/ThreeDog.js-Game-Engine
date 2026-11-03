@@ -47,6 +47,7 @@ async function sunRoute(ev, wait, page, query) {
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'technique sun-and-key-light: routes differ in key:fill as documented, low sun = longer shadows, color push tints shadows',
     url: '/sun-and-key-light.html?threedog-headless&route=noon',
     async run({ page, check, ev, wait }) {
@@ -73,6 +74,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'technique interior-light: probe-baked bounce brightens the shadowed side; exposure eases between zones; lamps at night',
     url: '/interior-light.html?threedog-headless&fill=none',
     async run({ page, check, ev }) {

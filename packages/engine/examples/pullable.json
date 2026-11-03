@@ -91,6 +91,14 @@
       ],
       "use": "import { applyKeyFill, aimSun, fitSunShadow } from './keyLight.js';  applyKeyFill(engine, route);  aimSun(engine, { elevation, azimuth, camera });  fitSunShadow(engine, { extent });"
     },
+    "webgpu-tsl": {
+      "dir": "webgpu-tsl",
+      "files": [
+        "README.md",
+        "tslScene.js"
+      ],
+      "use": "import 'threedog/tsl';  import { createTslScene } from './tslScene.js';  createEngine({ renderer: 'webgpu' });  createTslScene(engine);  // before engine.start()"
+    },
     "wet-road": {
       "dir": "techniques/wet-road",
       "files": [

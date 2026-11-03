@@ -23,9 +23,11 @@ function gameRootOf(dir) {
   }
 }
 
-// Windows paths are case-insensitive: the cwd drive letter case may differ from realpath, so normalize before comparing
-const norm = p => process.platform === 'win32' ? p.toLowerCase() : p;
-const within = (p, dir) => norm(p) === norm(dir) || norm(p).startsWith(norm(dir) + sep);
+// Windows paths are case-insensitive: the cwd drive letter case may differ from realpath (VS Code terminals give c:\), so every path comparison
+// in the tools goes through these two; a plain === / startsWith made a lower-case cwd miss its game and silently fall back to the engine
+export const norm = p => process.platform === 'win32' ? p.toLowerCase() : p;
+/** Whether path p is dir or lies under it (case-insensitive on Windows) */
+export const within = (p, dir) => norm(p) === norm(dir) || norm(p).startsWith(norm(dir) + sep);
 /** Whether a folder is one of this monorepo's own workspaces (the root, packages/*, games/*), so commands there run in monorepo mode */
 const monorepoOwns = d => d === MONO || within(d, join(MONO, 'packages')) || within(d, join(MONO, 'games'));
 
@@ -34,7 +36,7 @@ const monorepoOwns = d => d === MONO || within(d, join(MONO, 'packages')) || wit
  *   mode       'monorepo' (cwd in this repository's root, packages/* or games/*) or 'game' (any other game folder: installed from npm,
  *              or a game anywhere else, even nested inside this repository or another repo's npm workspaces)
  *   root       the monorepo root, or the game folder (nearest package.json at or above cwd that depends on threedog)
- *   engineDir  the engine package folder, found with createRequire from root
+ *   engineDir  the engine package folder: monorepo = its own packages/engine; game mode = found with createRequire from root
  *   gameDirs() folders with a main.js: monorepo = engine examples/* + games/*; game mode = root (+ games/* if present)
  *   docRef(p)  how generated game docs cite an engine file: `node_modules/threedog/<p>`, valid in both layouts
  */
@@ -43,8 +45,10 @@ export function project(cwd = process.cwd()) {
   // npm run dev / check acted on the outer one ("dev: packages/engine") and the game's own checks never ran. The monorepo's own workspaces (root, packages/*, games/*) are still the monorepo
   const game = gameRootOf(cwd);
   const root = MONO && (!game || monorepoOwns(game)) ? MONO : game ?? resolve(cwd);
-  let engineDir;
-  for (const from of [join(root, 'package.json'), fileURLToPath(import.meta.url)]) {
+  // Monorepo: the engine is this repository's own packages/engine, taken directly. Node resolution would climb out of a git worktree that has no
+  // node_modules of its own and land on the main checkout's node_modules/threedog, so check / test / map silently read and wrote the other copy
+  let engineDir = MONO && norm(root) === norm(MONO) ? join(MONO, 'packages', 'engine') : undefined;
+  if (!engineDir) for (const from of [join(root, 'package.json'), fileURLToPath(import.meta.url)]) {
     try { engineDir = realpathSync(dirname(createRequire(from).resolve('threedog/package.json'))); break; } catch {}
   }
   engineDir ??= join(root, 'node_modules', 'threedog');

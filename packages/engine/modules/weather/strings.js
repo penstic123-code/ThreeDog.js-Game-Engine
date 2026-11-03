@@ -1,8 +1,8 @@
 // Weather display names (string table weather.<name>); a game that adds a weather adds its name with i18n.add.
 export const STRINGS = {
-  'zh-CN': { 'weather.clear': '晴', 'weather.cloudy': '多云', 'weather.overcast': '阴', 'weather.rain': '雨', 'weather.storm': '暴雨',
+  'zh-CN': { 'module.weather': '天气', 'weather.clear': '晴', 'weather.cloudy': '多云', 'weather.overcast': '阴', 'weather.rain': '雨', 'weather.storm': '暴雨',
     'weather.snow': '雪', 'weather.fog': '雾', 'weather.auto': '自动变化' },
-  en: { 'weather.clear': 'Clear', 'weather.cloudy': 'Cloudy', 'weather.overcast': 'Overcast', 'weather.rain': 'Rain', 'weather.storm': 'Storm',
+  en: { 'module.weather': 'weather', 'weather.clear': 'Clear', 'weather.cloudy': 'Cloudy', 'weather.overcast': 'Overcast', 'weather.rain': 'Rain', 'weather.storm': 'Storm',
     'weather.snow': 'Snow', 'weather.fog': 'Fog', 'weather.auto': 'Auto' },
 };
 

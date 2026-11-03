@@ -29,7 +29,8 @@ function shove(acc, dx, dz, d, min, tie) {
 
 /** @internal @internal Mounted on engine.npcs: engine.npcs.avoid = false | { radius, strength } */
 export class NpcAvoid {
-  constructor(engine) {
+  /** @param {(h: any) => any} track the characters module's ctx.track: its listeners leave with the module */
+  constructor(engine, track) {
     this.engine = engine;
     this.on = true;         // switch (default on)
     this.radius = null;     // avoid radius per NPC (m); null = engine.movement.radius
@@ -49,9 +50,9 @@ export class NpcAvoid {
       if (o.rec === rec || d2 >= this._min2 || (o.rec.zone != null && rec.zone != null && o.rec.zone !== rec.zone)) return;
       shove(this._acc, own.x - o.position.x, own.z - o.position.z, Math.sqrt(d2), this._min, rec.id < o.id ? 1 : -1);
     };
-    engine.events.on('world:remove', ({ id }) => { const s = this._start.get(id); if (s) { this._grid?.delete(s); this._filed.delete(s); this._start.delete(id); } });
+    track(engine.events.on('world:remove', ({ id }) => { const s = this._start.get(id); if (s) { this._grid?.delete(s); this._filed.delete(s); this._start.delete(id); } }));
     // after load the simulation step count returns to the saved value, so the old index is stale
-    engine.events.on('world:load', () => { this._start.clear(); this._filed.clear(); this._grid?.clear(); this._gridN = -1; });
+    track(engine.events.on('world:load', () => { this._start.clear(); this._filed.clear(); this._grid?.clear(); this._gridN = -1; }));
   }
 
   /**

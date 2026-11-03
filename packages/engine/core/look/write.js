@@ -5,7 +5,7 @@ import { closest, warnOnce } from '../validate.js';
 import { whyBad } from '../params.js';
 import { codedError, coded } from '../errorHints.js';
 import { isPlainObject } from '../util.js';
-import { REPLACE, HOOK, callerAt, commit } from './layers.js';
+import { REPLACE, HOOK, writeKeys, writeStyle } from './points.js';
 
 /** A sample call for error texts: { <first key>: <its default> } */
 export function example(p) { const k = Object.keys(p._params)[0]; return k ? `{ ${k}: ${JSON.stringify(p._params[k].default)} }` : '{...}'; }
@@ -44,58 +44,27 @@ export function setOn(p, layer, owner, params) {
 /** Replace the style layer (start, or a style swap); game and debug layers stay */
 export function setStyle(p, values) {
   const given = Object.fromEntries(Object.entries(flat(p, values ?? {})).filter(([, v]) => v != null));
-  const params = Object.fromEntries(Object.entries(given).filter(([k]) => k !== REPLACE && !k.startsWith(HOOK)));   // a style may also fill the replace slot / hooks
+  const params = Object.fromEntries(Object.entries(given).filter(([k]) => k !== REPLACE && !k.startsWith(HOOK) && !k.startsWith('replace:')));   // a style may also fill the replace slot(s) / hooks
   check(p, params);   // a style value of the wrong type throws at start, with the key
-  const old = p._style;
-  p._style = new Map(Object.entries(given));
-  commit(p, () => { p._style = old; });
+  writeStyle(p, given);
 }
 
 /** Where spec.validate's answer is quoted: the verb that carried the bad value, so the fix reads as a call */
 const quoteVerb = (p, k) => k === REPLACE ? `${p.id}.replace(impl): impl` : k.startsWith(HOOK) ? `${p.id}.patch('${k.slice(HOOK.length)}', glsl):` : `${p.id}: ${k}`;
 
-/** Write one owner's keys on the game or debug layer. All or nothing: if apply throws, the layer and the picture go back (review H1) */
+/** Write one owner's keys on a layer (game unless named). All or nothing: if apply throws, the points and the picture go back (review H1) */
 export function writeLayer(p, layer, owner, values) {
   if (!owner || typeof owner !== 'string') throw codedError('look-param', `${p.id}: owner is a non-empty string naming who changes it, e.g. { owner: 'cave' }`);
   for (const [k, v] of Object.entries(values)) {   // spec.validate stops a bad hook / replace value (or any key) before anything is written
     const why = v === null ? null : p._spec.validate?.(k, v);
     if (why) throw codedError(k === REPLACE || k.startsWith(HOOK) ? 'look-verb' : 'look-param', `${quoteVerb(p, k)} ${why}`);
   }
-  const map = p._owners[layer], old = map.get(owner);
-  // `at` = the owner's first write: one stack capture per owner, not per set (#14)
-  const rec = { values: new Map(old?.values), seq: ++p._seq, at: old ? old.at : callerAt() };
-  for (const [k, v] of Object.entries(values)) v === null ? rec.values.delete(k) : rec.values.set(k, v);
-  map.delete(owner); if (rec.values.size) map.set(owner, rec);
-  commit(p, () => { map.delete(owner); if (old) map.set(owner, old); });
-  // the handle undoes this call's own writes (docs: "every handle ends with remove()"), not the owner's whole layer: two set() under one owner
-  // ('game' by default) must not take each other down. A key goes only while it still holds the value this call wrote; a later write wins.
-  const wrote = Object.entries(values).filter(([, v]) => v !== null);
-  return { remove: () => removeWrites(p, layer, owner, wrote) };
-}
-
-/** Handle remove(): delete the keys one write put in, where they still hold that value; an emptied owner record is dropped. Twice is a no-op */
-function removeWrites(p, layer, owner, wrote) {
-  const map = p._owners[layer], old = map.get(owner);
-  const mine = old && wrote.filter(([k, v]) => old.values.get(k) === v);
-  if (!mine?.length) return false;
-  const values = new Map(old.values);
-  for (const [k] of mine) values.delete(k);
-  map.delete(owner); if (values.size) map.set(owner, { ...old, values });
-  commit(p, () => { map.delete(owner); map.set(owner, old); });
-  return true;
-}
-
-export function dropLayer(p, layer, owner) {
-  const map = p._owners[layer], old = map.get(owner);
-  if (!old) return false;
-  map.delete(owner);
-  commit(p, () => map.set(owner, old));
-  return true;
+  return writeKeys(p, layer, owner, values);
 }
 
 /** A verb with its own call shape (spec.verbs[verb].take): take(bad, ...args) -> [values, owner]; bad(msg) throws quoting the signature */
 export function takeVerb(p, verb, args) {
-  const sig = p.signatures[verb], bad = msg => { throw codedError('look-verb', `${p.id}.${verb}: ${msg}. Call it as ${p.id.slice(5)}.${sig}`); };
-  const [values, owner = 'game'] = p._spec.verbs[verb].take(bad, ...args);
-  return p.write(owner, values);
+  const sig = p.author.signatures[verb], bad = msg => { throw codedError('look-verb', `${p.id}.${verb}: ${msg}. Call it as ${p.id.slice(5)}.${sig}`); };
+  const [values, owner = 'game', layer = 'game'] = p._spec.verbs[verb].take(bad, ...args);
+  return p._write(layer, owner, values);   // layer: a style pack's plugin writes the style layer (core/plugins.js)
 }

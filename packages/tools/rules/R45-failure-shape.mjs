@@ -1,4 +1,4 @@
-// R45 engine code fails in one shape (systematize plan W4)
+// R45 engine code fails in one shape
 // Why: an AI reading an engine failure needs the same three things every time: a stable code, what to change, which page to read. A plain
 // `throw new Error(text)` has none of them (the old hint table guessed them from the text with regexes, a second copy that drifted), and a bare
 // console.warn repeats every frame and carries no fix. So in packages/engine code:
@@ -28,7 +28,7 @@ export function plainFailures(sf) {
     if (ts.isThrowStatement(n) && n.expression && ts.isNewExpression(n.expression) && ts.isIdentifier(n.expression.expression)
       && ERRORS.has(n.expression.expression.text)) out.push({ what: `throw new ${n.expression.expression.text}(`, node: n });
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression)
-      && n.expression.expression.text === 'console' && ['warn', 'error'].includes(n.expression.name.text)) out.push({ what: `console.${n.expression.name.text}(`, node: n });
+      && n.expression.expression.text === 'console' && ['warn', 'error', 'info'].includes(n.expression.name.text)) out.push({ what: `console.${n.expression.name.text}(`, node: n });
   });
   return out;
 }
@@ -37,7 +37,7 @@ export const scanText = (text, file = 'mod.js') => plainFailures(ts.createSource
 
 const FIX = {
   throw: 'throw codedError(code, message) (core/errorHints.js) with an ERROR_CODES entry in core/errorCodes.js (reuse the module\'s code for the same kind of misuse); the message names the call and the fix',
-  console: 'a recoverable problem: warnOnce(coded(code, message)) (core/validate.js); a callback that threw: reportError(engine, err, where, { soft: true }) (core/errors.js)',
+  console: 'a recoverable problem: warnOnce(coded(code, message)) (core/validate.js); a note that is no problem: note(text, key?) (core/validate.js); a callback that threw: reportError(engine, err, where, { soft: true }) (core/errors.js)',
 };
 
 export default {

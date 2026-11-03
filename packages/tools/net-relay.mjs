@@ -9,8 +9,13 @@
 // and remember the room name is the only "password". The host still validates every request (net: 'peer', args, owner, rate).
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
+import { parseOptions } from './lib/cli-args.mjs';
 
-const PORT = Number(process.argv[2] || process.env.PORT || 8787);
+// [port] only: anything else (an option, a second argument, a port that is not a number) fails instead of starting on the default port
+let ARGS;
+try { ({ rest: ARGS } = parseOptions(process.argv.slice(2), { positional: true })); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
+const PORT = Number(ARGS[0] || process.env.PORT || 8787);
+if (ARGS.length > 1 || !Number.isInteger(PORT) || PORT < 1 || PORT > 65535) { console.error(`✗ usage: threedog relay [port] (got ${ARGS.join(' ') || process.env.PORT})`); process.exit(1); }
 const MAX = 1 << 20;   // 1 MB per message: a snapshot of a big world fits; anything larger is likely abuse
 const rooms = new Map();   // room -> { host, peers: Map id -> socket, keys: Map key -> id, next }
 

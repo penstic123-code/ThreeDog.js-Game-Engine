@@ -12,6 +12,7 @@ const ONCE = 'The engine writes toneMapping once, at createEngine (style.toneMap
 
 const NO_DRIVER = "look.lights {k}: a function value is evaluated every frame by a time-of-day module; nothing drives {k} now (no sky, sky({ sun / hemisphere: false }), or look.lights.manual(...)), so it is ignored. Install sky(), or set a number / color";
 import { setRoomEnvironment } from '../../render/lights.js';
+import { badTerm, retakeTerms } from '../../render/terms.js';
 
 /** style.toneMapping names -> three constants */
 export const TONE = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, none: THREE.NoToneMapping };
@@ -54,17 +55,18 @@ const badExposure = v => { try { exposureDriver(v); return null; } catch (err) {
  * curve nor its exposure is applied at start (the renderer is the game's), but a later look.tone.set({ exposure }) still writes exposure.
  * baseline: the engine's own renderer, under every style (user decision 2026-11-02). The engine defaults are then a technical render baseline
  * instead of "off": AgX tone mapping, soft sun shadows, a neutral generated environment, a dimmer hemisphere (the environment adds ambient too).
- * Not art: a pack still picks every color, and one that wants none of it says so (style.toneMapping: 'none', look.lights sun.shadow false / env.intensity 0).
+ * Not art: a pack still picks every color, and one that wants none of it says so (style.toneMapping: 'none', look.shadow enabled false, look.lights env.intensity 0).
  * Why under every pack: a pack that never mentioned tone mapping or an environment rendered flatter than a plain, well-set-up three.js scene.
  * @param {any} e @param {{ owned: boolean, baseline?: boolean }} o
  */
 export function defineCoreLook(e, { owned, baseline = false }) {
-  const r = e.renderer;
+  // e.renderer, not a captured renderer: start() may replace it (fallback 'webgl' on the WebGPU route, core/startup.js)
+  const r = () => e.renderer;
   const B = 'technical render baseline under every style (not art), so plain three.js materials look as they would in a well-set-up three.js scene';
   // Tone mapping is not a look param (user decision 2026-11-03, plan 2026-11-02 section 3): it is a render baseline the engine writes once here,
   // at creation, and never again. A game changes it with plain three.js (engine.renderer.toneMapping = THREE.ACESFilmicToneMapping) and nothing
   // overwrites it, because no engine code writes toneMapping after this line; a wrapper param would be a second road to the same property.
-  if (owned) r.toneMapping = toneMappingOf(e.style.toneMapping, baseline);
+  if (owned) r().toneMapping = toneMappingOf(e.style.toneMapping, baseline);
   defineLookPart(e, {
     id: 'tone', group: 'atmosphere', module: 'core', object: () => e.renderer, applyAtStart: owned, docs: ['recipes/52-look.md'],
     params: {
@@ -73,19 +75,21 @@ export function defineCoreLook(e, { owned, baseline = false }) {
     // the old curve key gets the plain three.js line instead of a bare "unknown key" (normalize runs before the key check, write.js)
     normalize: p => { if (p && 'mapping' in p) throw codedError('look-param', `look.tone.set(): there is no mapping key; the curve is plain three.js: engine.renderer.toneMapping = THREE.AgXToneMapping (or ACESFilmic / Neutral / No / Custom). ${ONCE}`); return p; },
     style: () => (owned ? { exposure: e.style.exposure } : {}),
-    read: () => ({ exposure: e.exposureDriver ? undefined : r.toneMappingExposure }),
+    read: () => ({ exposure: e.exposureDriver ? undefined : r().toneMappingExposure }),
     apply(v, changed) {
       if (changed.has('exposure')) {
         // keyframes / a function become exposureDriver, which a time-of-day module (sky) evaluates each frame; core knows no time of day
         e.exposureDriver = exposureDriver(v.exposure);
-        if (typeof v.exposure === 'number') r.toneMappingExposure = v.exposure;
+        if (typeof v.exposure === 'number') r().toneMappingExposure = v.exposure;
       }
     },
     // plain three.js always works: the curve itself is three's renderer.toneMapping, so the error shows that instead of saying it is impossible
-    noPatch: "look.tone has no GLSL hook and no curve param; the curve is plain three.js: engine.renderer.toneMapping = THREE.ACESFilmicToneMapping, or " +
-      "THREE.CustomToneMapping and replace the CustomToneMapping function in THREE.ShaderChunk.tonemapping_pars_fragment (before the first render). The engine never writes toneMapping after createEngine",
-    noReplace: 'to own tone mapping completely, set engine.renderer.toneMapping yourself (the engine writes it only once, at creation) ' +
-      'or pass your own renderer: createEngine({ renderer }) (recipes/50)',
+    // why the tone slot and not THREE.ShaderChunk: a ShaderChunk edit is page-wide and WebGL only; the slot runs on both renderers (recipes/52)
+    noPatch: "look.tone has no GLSL hook and no curve param. A curve of your own is a post stage in the 'tone' slot, on WebGL and WebGPU alike: " +
+      "engine.look.post.add({ name: 'myCurve', slot: 'tone', create: ctx => pass, node: (input, ctx) => colorNode }) (it replaces the output tone " +
+      'mapping and outputs display color). A three.js curve: engine.renderer.toneMapping = THREE.ACESFilmicToneMapping; the engine never writes toneMapping after createEngine',
+    noReplace: "to own tone mapping completely, add a post stage in the 'tone' slot: engine.look.post.add({ name: 'myCurve', slot: 'tone', create, node }) " +
+      '(both renderers), or set engine.renderer.toneMapping yourself (the engine writes it only once, at creation), or pass your own renderer: createEngine({ renderer }) (recipes/50)',
   });
 
   const { sun, hemi } = e.lights, scene = e.scene;
@@ -99,9 +103,6 @@ export function defineCoreLook(e, { owned, baseline = false }) {
       'hemi.intensity': { type: 'number', default: baseline ? 0.6 : 1.2, min: 0, fn: true, cost: 'uniform', why, off },
       'hemi.color': { type: 'any', default: '#ffffff', fn: true, neutral: true, cost: 'uniform', desc: 'sky color of the hemisphere light' },
       'hemi.ground': { type: 'any', default: '#555555', fn: true, cost: 'uniform', why: 'darker ground color, so faces turned down read darker than faces turned up', off: "look.lights.set({ hemi: { ground: '#ffffff' } })" },
-      // on (true / 0.5) for the baseline (the engine's own renderer, any style); off (false / 0) only when the game passed its own renderer
-      'sun.shadow': { type: 'bool', default: baseline, cost: 'recompile', desc: 'the engine sun casts soft shadows (2048 map, 60 m box following engine.focus without a sky module); also needs createEngine({ shadows }) on',
-        why: B, off: 'look.lights.set({ sun: { shadow: false } }) or createEngine({ shadows: false })' },
       // two keys, one meaning each (render/lights.js refreshRoom): env.intensity is always the absolute scene.environmentIntensity, env.share
       // only the sky's budget split. One key that changed meaning when a sky was installed made a game's 0.7 silently read as "70% of the ambient"
       'env.intensity': { type: 'number', default: baseline ? 0.5 : 0, min: 0, cost: 'uniform',
@@ -113,15 +114,14 @@ export function defineCoreLook(e, { owned, baseline = false }) {
     },
     read: () => ({ 'sun.intensity': sun.intensity, 'hemi.intensity': hemi.intensity }),
     apply(v, changed) {
-      // undefined = a style driver (sky) writes this key every frame: leave it to the driver
-      // a function value (({ time, state }) => ...) is evaluated by the sky each frame (applyTop with the frame context); without a sky nothing calls it
-      const set = (k, fn) => { if (!changed.has(k) || v[k] === undefined) return; if (typeof v[k] === 'function') { if (!e.look.lights.driven(k)) warnOnce(NO_DRIVER.replace('{k}', k)); return; } fn(v[k]); };
+      // a key a style driver (sky) drives: the driver writes the three.js light from value(key), which holds game sets and effects
+      // a function value (({ time, state }) => ...) is evaluated by the sky each frame (tick with the frame context); without a sky nothing calls it
+      const set = (k, fn) => { if (!changed.has(k) || v[k] === undefined || e.look.lights?.author.driven(k)) return; if (typeof v[k] === 'function') { if (!e.look.lights.driven(k)) warnOnce(NO_DRIVER.replace('{k}', k)); return; } fn(v[k]); };
       set('sun.intensity', x => { sun.intensity = x; });
       set('sun.color', x => sun.color.set(x));
       set('hemi.intensity', x => { hemi.intensity = x; });
       set('hemi.color', x => hemi.color.set(x));
       set('hemi.ground', x => hemi.groundColor.set(x));
-      set('sun.shadow', x => { sun.castShadow = x && e.shadows !== false; });
       if (changed.has('env.intensity') || changed.has('env.share')) {
         // absolute: a game / style / debug layer wrote env.intensity (the engine's own default does not count), so under a sky the engine yields to it
         const src = e.look?.lights?._source('env.intensity');
@@ -191,7 +191,29 @@ export function defineCloudShadowLook(e) {
       if (changed.has('scale')) u.uCloudScale.value = v.scale;
       if (changed.has('speed')) u.uCloudSpeed.value.set(v.speed[0], v.speed[1]);
     },
-    noPatch: 'the cloud-shadow GLSL is shared with the sky clouds; change the look with look.cloudShadow.set({ shadow, scale, speed })',
-    noReplace: 'to drop cloud shadows from a material, build it with applyEffects(mat, { clouds: false })',
+    noPatch: 'the cloud-shadow GLSL is shared with the sky clouds; change the look with look.cloudShadow.set({ shadow, scale, speed }), or put your own term in its place: look.cloudShadow.replace({ glsl, tsl })',
+    // (c): the game's own term in place of the engine's on every engine material, both backends (render/terms.js); false = none at all
+    replace: { accepts: "{ glsl, tsl, uniforms?, pars?, slot? } (a patch, default slot 'lighting'; uTime / uCloud* and threedogCloudShadow(worldPos) in scope, ctx.fx.cloudShadow on WebGPU) or false (no engine cloud shadow anywhere: draw your own)",
+      loses: ["the engine's cloud-shadow math on ground and objects (shadow / scale / speed still write their uniforms, which your code may read)"] },
+    validate: (k, v) => k === '@replace' ? badTerm('cloudShadow', v, !!e.renderer?.isWebGPURenderer) : null,
+    applyReplace: () => retakeTerms(e, 'clouds'),
+  });
+}
+
+/**
+ * look.season: the season and snow / ash cover tint on engine materials (the 'season' patch: foliage on plants, ground on the terrain).
+ * Its colors are style.seasons and the 'look.ground.cover' point (modules/sky/tint.js); this part only holds the replace slot, so a game can put
+ * its own tint in place of the engine's on both backends and still read the signals: uFoliageTint / uGroundTint / uFoliageMix / uGroundMix
+ * (season and cover blended), uCover (x foliage, y ground: the cover amount alone), engine.calendar.season in JS.
+ * @param {any} e
+ */
+export function defineSeasonLook(e) {
+  defineLookPart(e, {
+    id: 'season', group: 'surface', module: 'core', object: () => e.uniforms, docs: ['recipes/52-look.md'], params: {},
+    noPatch: "the tint colors come from style.seasons and engine.mod('look.ground.cover', { owner, value: { ground, foliage, amount } }); your own tint: look.season.replace(kind => ({ glsl, tsl }))",
+    replace: { accepts: "{ glsl, tsl, uniforms?, pars?, slot? } or kind => that ('foliage' | 'ground'; an object spec gets THREEDOG_SEASON_KIND 0 / 1 in GLSL), default slot 'color', the tint and cover uniforms and threedogSeason(color, kind) in scope; or false (no engine tint anywhere)",
+      loses: ["the engine's tint math (the calendar and the cover still write the uniforms your code reads)"] },
+    validate: (k, v) => k === '@replace' ? badTerm('season', v, !!e.renderer?.isWebGPURenderer) : null,
+    applyReplace: () => retakeTerms(e, 'season'),
   });
 }

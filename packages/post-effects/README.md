@@ -6,16 +6,18 @@ Optional post effects for [threedog](https://www.npmjs.com/package/threedog): `b
 npm install @threedog/post-effects
 ```
 
-```js
-import { createEngine, postAdd } from 'threedog';
-import { bloom, vignette } from '@threedog/post-effects';
-import base from './style/index.js';
+Each effect is one value that runs on WebGL and on WebGPU. It goes in the way every post effect does, `engine.look.post.add`:
 
-// effects are part of the look: added to the game's style
-createEngine({ canvas, style: [base, postAdd(bloom({ strength: 0.6 }), vignette({ enabled: true }))] });
+```js
+import { bloom, vignette } from '@threedog/post-effects';
+
+engine.look.post.add(bloom({ strength: 0.6 }));            // game code
+// or a file in the game's plugins/ folder, or in a style's style/plugins/ folder:
+// plugins/20-vignette.js
+export default vignette();
 ```
 
-A listed effect is on unless it says `enabled: false`; the costly ones (`bloom`, `ao`, `dof`, outline `normal` / `both`) start off on low-tier devices. Tuning at runtime: `engine.look.post.set({ 'ao.enabled': true })`.
+An added effect is on unless it says `enabled: false`; the costly ones (`bloom`, `ao`, `dof`, outline `normal` / `both`) that a style's plugins bring start off on low-tier devices. On / off and tuning: `engine.look.post.set({ bloom: false, 'ao.radius': 0.6 })`.
 
 Docs ship with the engine: `node_modules/threedog/docs/recipes/52-look.md` (post-effect chain, order, depth readers) and `docs/AI.md`.
 

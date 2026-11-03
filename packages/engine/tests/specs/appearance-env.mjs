@@ -40,13 +40,14 @@ const page = fn => new Function(`${HELPERS}\nreturn (${fn})();`);
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 光源开关：sky({ sun / hemisphere }) true 默认照旧驱动；look.lights.manual 后不改颜色强度（太阳仍按时间转）；false 隐藏且不动；写错报错给可选值和接管写法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {};
         const def = make({}).e; def.sky.fixedTime = 0.5; def.sky.update(def.focus);
-        out.def = { sun: def.lights.sun.intensity, hemi: def.lights.hemi.intensity, cast: def.lights.sun.castShadow === def.shadows };
+        out.def = { sun: def.lights.sun.intensity, hemi: def.lights.hemi.intensity, cast: def.lights.sun.castShadow === def.renderer.shadowMap.enabled };
         const man = make({}).e; man.look.lights.manual(['sun.intensity', 'sun.color', 'hemi']);
         man.lights.sun.intensity = 0.42; man.lights.sun.color.set(0xff0000); man.lights.hemi.intensity = 0.13;
         const p0 = man.lights.sun.position.clone(); man.sky.fixedTime = 0.7; man.sky.update(man.focus);
@@ -65,6 +66,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 雾：默认线性雾逐像素等于 three 原生 Fog；exp / exp2 / height / 自定义 hook 编译通过且生效（材质在引擎场景里，打上 fog 补丁）；height 随相机高度变化；自定义雾色同步到穹顶；写错报错',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -87,7 +89,7 @@ export const specs = [
         }
         out.kinds = kinds;
         const dn = make({ sky: { fog: { kind: 'exp2', density: 0.01, color: 0x804020 } } }).e;
-        dn.mod('sky.fog', { owner: 'test', mul: 0.5 }); dn.sky.update(dn.focus);
+        dn.mod('look.fog.far', { owner: 'test', mul: 0.5 }); dn.sky.update(dn.focus);
         out.density = dn.scene.fog.density; out.color = dn.scene.fog.color.getHex();
         out.domeFog = dn.sky.uniforms.uFogBand.value === 1 && domeShot(dn, 0.05).px !== domeShot(def, 0.05).px && domeShot(dn, 0.05).err === '';
         dn.dispose();
@@ -101,29 +103,30 @@ export const specs = [
       check('默认穹顶：雾带关（uFogBand 0，画面同原版），不含自定义层代码', r.domePlain);
       for (const k of ['exp', 'exp2', 'height', 'hook']) check(`kind ${k}：编译通过、画面不同于默认`, r.kinds[k].err === '' && r.kinds[k].differs, JSON.stringify(r.kinds[k]));
       check('height：相机高低画面不同（低处雾浓）', r.kinds.height.byHeight);
-      check('density 被天气雾倍率除（0.01 / 0.5 = 0.02），color 固定色生效', Math.abs(r.density - 0.02) < 1e-9 && r.color === 0x804020, `${r.density} ${r.color}`);
+      check('an explicit density is the fog the game asked for: a look.fog.far multiplier does not change it (0.01), the fixed color holds', Math.abs(r.density - 0.01) < 1e-9 && r.color === 0x804020, `${r.density} ${r.color}`);
       check('自定义雾色：穹顶下沿渐变到雾色（地平线不露缝），编译通过', r.domeFog);
       check('kind 写错：报错给可选值和相近名', /'linear' \| 'exp' \| 'exp2' \| 'height'.*did you mean 'exp/.test(r.errKind || ''), r.errKind);
       check('hook 没定义 threedogFog：报错给签名', /vec4 threedogFog\(vec3 color, float depth, vec3 worldPos\)/.test(r.errHook || ''), r.errHook);
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 雾开关：sky({ fog }) true 默认照旧每帧写；look.fog.manual() 后不再写颜色距离；false 为 null 且不抛错；游戏置空或换对象不抛错；写错报错',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {};
         const def = make({}).e; def.sky.fixedTime = 0.5; def.sky.update(def.focus);
-        out.def = def.scene.fog.isFog && def.scene.fog.far === def.fogFar && def.scene.fog.color.equals(def.sky.uniforms.uHorizon.value);
+        out.def = def.scene.fog.isFog && def.scene.fog.far === def.look.fog.value('far') && def.scene.fog.color.equals(def.sky.uniforms.uHorizon.value);
         const obj = make({}, { fog: { kind: 'exp2' } }).e; out.obj = obj.scene.fog.isFogExp2;   // an object is still the style override
         const man = make({}).e; man.look.fog.manual(); man.sky.update(man.focus);
-        man.scene.fog.color.set(0x123456); man.scene.fog.far = 77; man.scene.fog.near = 5; man.sky.fixedTime = 0.1; man.setFogFar(900); man.sky.update(man.focus);   // setFogFar (terrain view distance) must not write a fog the game owns
-        const yl = make({}).e; yl.sky.update(yl.focus); yl.scene.fog.far = 50; yl.scene.fog.near = 15; yl.sky.update(yl.focus); yl.setFogFar(900); yl.sky.update(yl.focus);   // same 0.3 ratio: still an outside write (values recorded, not the ratio)
+        man.scene.fog.color.set(0x123456); man.scene.fog.far = 77; man.scene.fog.near = 5; man.sky.fixedTime = 0.1; man.mod('look.fog.far', { owner: 'terrain:view', layer: 'engine', set: 900 }); man.sky.update(man.focus);   // the terrain view distance must not write a fog the game owns
+        const yl = make({}).e; yl.sky.update(yl.focus); yl.scene.fog.far = 50; yl.scene.fog.near = 15; yl.sky.update(yl.focus); yl.mod('look.fog.far', { owner: 'terrain:view', layer: 'engine', set: 900 }); yl.sky.update(yl.focus);   // same 0.3 ratio: still an outside write (values recorded, not the ratio)
         out.yield = [yl.scene.fog.far, yl.scene.fog.near]; yl.dispose();
         out.man = [man.scene.fog.color.getHex(), man.scene.fog.far, man.scene.fog.near];
         const mine = new THREE.FogExp2(0x00ff00, 0.5); man.scene.fog = mine; man.sky.update(man.focus); out.manOwn = mine.color.getHex() === 0x00ff00 && mine.density === 0.5;
         const off = make({}, { fog: false }).e; out.offNull = off.scene.fog === null;
-        off.sky.update(off.focus); off.setFogFar(300); out.offOk = true;
+        off.sky.update(off.focus); off.viewFar(300); out.offOk = true;
         const gen = make({}, { fog: true }).e; gen.scene.fog = null; gen.sky.update(gen.focus); out.nulled = true;   // game nulled it under a driven sky
         gen.scene.fog = { }; gen.sky.update(gen.focus); out.replaced = true;
         const dm = make({ sky: { fog: { color: 0x804020 } } }, { fog: false }).e; dm.sky.update(dm.focus); out.domeOff = domeShot(dm, 0.05).err === '';   // custom fog color but no fog object
@@ -133,13 +136,14 @@ export const specs = [
       }));
       check('默认 / 对象写法：照旧由天空创建并驱动雾（对象 = style.sky.fog 覆盖）', r.def && r.obj);
       check("look.fog.manual()：游戏设的颜色和距离保留，换成自己的 FogExp2 也不被改", r.man[0] === 0x123456 && r.man[1] === 77 && r.man[2] === 5 && r.manOwn, JSON.stringify(r.man));
-      check('false：scene.fog 为 null，update / setFogFar 不抛错', r.offNull && r.offOk);
-      check('[guard] game wrote fog far 50 / near 15 directly (same ratio as the engine): engine yields, setFogFar does not overwrite', r.yield?.[0] === 50 && r.yield?.[1] === 15, JSON.stringify(r.yield));
+      check('false: scene.fog is null, update / the terrain view distance do not throw', r.offNull && r.offOk);
+      check('[guard] game wrote fog far 50 / near 15 directly (same ratio as the engine): engine yields, the terrain view distance does not overwrite', r.yield?.[0] === 50 && r.yield?.[1] === 15, JSON.stringify(r.yield));
       check('天空驱动时游戏把 scene.fog 置空或换成别的对象：update 不抛错；自定义雾色 + fog:false 穹顶仍编译', r.nulled && r.replaced && r.domeOff);
       check('写错值：报错给 true / false 和接管写法', /must be true .*false.*look\.fog\.manual/.test(r.bad || ''), r.bad);
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 曝光与色调映射：style.exposure 数字照旧；关键帧按时间插值并跨午夜；函数每帧求值；engine.look.tone.set 运行时改；写错报错',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -162,7 +166,7 @@ export const specs = [
         return out;
       }));
       check('数字曝光与色调映射照旧（不建每帧驱动）', r.num);
-      check('色调映射：技术基线 agx（有没有风格包都一样）；风格包写 none 才关', r.defTone);
+      check('色调映射：技术基线 agx（有没有游戏自己的 style都一样）；游戏自己的 style写 none 才关', r.defTone);
       check('关键帧 [[0,2],[0.5,1]]：0 → 2，0.25 → 1.5，0.5 → 1，0.75 跨午夜 → 1.5', JSON.stringify(r.keys) === '[2,1.5,1,1.5]', JSON.stringify(r.keys));
       check('函数曝光每帧求值（夜里 3），look.tone.set({ exposure: 1.3 }) 取代它', r.fn === 3 && r.set === 1.3, `${r.fn} ${r.set}`);
       check('直接写 renderer.toneMapping 不被天空每帧覆盖；style.toneMapping 写错报错给可选值', r.tone && /"aces", "agx", "neutral", "none"/.test(r.badTone || ''), r.badTone);
@@ -170,6 +174,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 天空多层：默认无层时穹顶着色器文本不变；层编译通过、画面变化、按 order 排序且改名不冲突、uniform 进 sky.uniforms；写错报错给签名',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {

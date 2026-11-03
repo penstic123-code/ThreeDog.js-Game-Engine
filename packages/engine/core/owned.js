@@ -11,7 +11,7 @@
 //
 // Modes per property: 'engine' (the engine writes it) | 'manual' (look.<part>.manual(key), look.<part>.replace(...) where it hands the value to the game) | 'yielded'
 // (the game wrote it directly). look.<part>.manual(key, false) hands any of them back. describe().owned lists them all.
-import { warnOnce, DEV, validateOn } from './validate.js';
+import { warnOnce, DEV } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 
 const STRINGS = {   // yielded: the prefix up to "stopped writing it" is matched by tests (the owned-prop tag carries the fix); the rest leads with the next calls
@@ -48,11 +48,14 @@ const differs = (a, b) => a.length !== b.length || a.some((x, i) => x !== b[i]);
 
 class Owned {
   constructor(e, spec) {
-    Object.assign(this, { id: spec.id, part: spec.part, key: spec.key ?? spec.id, levels: spec.levels ?? {} });
+    /** @type {string} */ this.id = spec.id;
+    /** @type {string} */ this.part = spec.part;
+    /** @type {string} */ this.key = spec.key ?? spec.id;
+    /** @type {{ set?: string, manual?: string, back?: string }} */ this.levels = spec.levels ?? {};
     this._read = spec.read; this._write = spec.write; this._e = e;
     /** objects this property lives on (allowOwned matches them) */ this.objects = spec.objects ?? [];
     /** 'engine' | 'manual' | 'yielded' */ this.mode = 'engine';
-    /** who took it: 'game', the call that took it ('look.fog.replace'), or 'three' for a direct write */ this.by = 'engine';
+    /** who took it: 'game' (manual()), or 'three' for a direct write */ this.by = 'engine';
     this._snap = null;
     this._onChange = spec.onChange;
     // once: the engine writes it once, at creation (renderer.toneMapping), and no look.<part>.set ever writes it. So a direct write is the documented
@@ -68,7 +71,7 @@ class Owned {
     const v = flat(this._read());
     if (!differs(v, this._snap) || isExempt(this)) return;
     this._set('yielded', 'three');
-    if (DEV && validateOn() && !this._once) {
+    if (DEV && this._e.validate && !this._once) {
       const L = this.levels, back = L.back ?? L.manual.replace(/\(([^()]*)\)\s*$/, (_, a) => `(${a ? a + ', ' : ''}false)`);
       warnOnce(coded('owned-prop', STRINGS.yielded.replace('{id}', this.id).replace('{manual}', L.manual)
         .replace('{set}', L.set ? STRINGS.set.replace('{set}', L.set) : '').replace('{back}', back)));
@@ -87,7 +90,14 @@ class Owned {
   _set(mode, by) {
     const was = this.mode;
     this.mode = mode; this.by = by; this.at = this._e.time?.frame ?? null;
-    if (was !== mode) this._onChange?.(this);
+    if (was !== mode) { this._onChange?.(this); this._point(mode); }
+  }
+  /** @internal tell the look value's shared point (look.<part>.<key>, prefix match: 'sun' covers sun.intensity): a direct write or a manual()
+   *  takes it from the layers, so describe().shared says writer 'three (engine yielded)'; handing it back reclaims it */
+  _point(mode) {
+    const S = this._e.stacks, pre = `look.${this.part}.${this.key}`;
+    if (!S) return;
+    for (const n of S.list()) if (n === pre || n.startsWith(pre + '.')) mode === 'engine' ? S.get(n).reclaim() : S.get(n).yieldToThree(mode === 'manual' ? `manual:${this.by}` : null);
   }
   /** describe().owned row: writer = who writes it now ('engine' | 'manual:<who>' | 'three (engine yielded)'); the old field name `by` throws */
   info() { return ({ part: this.part, key: this.key, writer: this.mode === 'engine' ? 'engine' : this.mode === 'yielded' ? 'three (engine yielded)' : `manual:${this.by}`, ...(this.levels.manual ? { manual: this.levels.manual } : {}) }); }

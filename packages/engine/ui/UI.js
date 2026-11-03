@@ -10,6 +10,8 @@ import { uiFocus } from './Focus.js';
 import { injectUICSS } from './theme.js';
 import { codedError } from '../core/errorHints.js';
 import { uiAfter } from '../core/uiClock.js';
+import { readParams, keysSchema } from '../core/params.js';
+const FADE_SCREEN_KEYS = ['seconds'];
 /** @import { Engine } from '../types/core' */
 /** @import { PositionLike, Object3D } from '../types/common' */
 /** @import { UIWindow, WindowOptions, ScreenPoint } from '../types/gameplay' */
@@ -91,8 +93,9 @@ export function makeWindow(engine, opts) {
       engine.events.emit(on ? 'ui:open' : 'ui:close', id);
     },
   };
-  engine.events.on('i18n:change', () => api.refresh());
-  engine.events.on('input:rebind', () => api.refresh());
+  const subs = [engine.events.on('i18n:change', () => api.refresh()), engine.events.on('input:rebind', () => api.refresh())];
+  // a window made at runtime (or by a module: ctx.track(makeWindow(...))) goes away whole: closed, its listeners and its element removed
+  api.remove = () => { api.toggle(false); for (const s of subs) s.remove(); w.remove(); };
   return api;
 }
 
@@ -143,13 +146,15 @@ const fades = new WeakMap();   // engine → { el, value, from, to, t, d, done }
 // color --threedog-fade-bg. Follows engine frames (step() advances it too; stops while pause()d). A new fade interrupts the old (the old Promise resolves at once).
 // Scene transitions use engine.flow.transition and cutscenes use the timeline's { fade: seconds, to } step; both go through here.
 /**
- * Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends
+ * Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends.
+ * fadeScreen(engine, 1, 0.5) throws in dev: fadeScreen(engine, 1, { seconds: 0.5 })
  * @param {Engine} engine
  * @param {number} to  0 clear ... 1 fully covered
- * @param {number} [seconds]  default 0.5
+ * @param {{ seconds?: number }} [opts]
  * @returns {Promise<void>}
  */
-export function fadeScreen(engine, to, seconds = 0.5) {
+export function fadeScreen(engine, to, opts) {
+  const { seconds = 0.5 } = readParams('fadeScreen()', keysSchema(FADE_SCREEN_KEYS), opts);
   injectUICSS();
   let f = fades.get(engine);
   if (!f) {

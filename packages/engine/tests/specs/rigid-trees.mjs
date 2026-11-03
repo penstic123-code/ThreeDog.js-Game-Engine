@@ -1,5 +1,5 @@
 // Rigid trunk cylinders only near the player and moving bodies (rigid({ treeRadius })): few resident colliders, bodies still stop at trunks everywhere,
-// cylinders leave with distance and come back, and the creation budget is a count per fixed step (never wall-clock). Same format as specs.mjs; open world page.
+// cylinders leave with distance and come back, and the creation budget is a count per fixed step (never wall-clock). Same format as the other files here; open world page.
 export const specs = [
   {
     name: 'rigid trees: cylinders only for chunks near the player (budgeted by count); a body thrown at a trunk stops, also after a teleport into a far chunk; they leave and come back',

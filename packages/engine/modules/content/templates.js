@@ -175,7 +175,8 @@ function present(e, api, st, name) {
     async build(rec) {
       const d = def(), model = modelOf(d, rec), id = rec.id;
       const o = await buildModel(e, api, rec, model, d.body ? { ...d, static: false, collide: false } : d, stageScale(d, rec));
-      o.userData.model = JSON.stringify(model);   // update compares it: a stage with another model rebuilds the copy
+      o.userData.model = JSON.stringify(model);   // the built model, as text (describe / tests read it); serialized once per build, never per frame
+      o.userData.modelFrom = modelSource(d, rec);      // update compares this cheap key every frame: a stage with another model rebuilds the copy
       if (d.body) addBody(e, rec, o, d.body);
       if (d.interact && e.interactions) o.userData.use = e.interactions.add(o, {
         id, radius: d.interact.radius ?? 2.5, height: d.interact.height, action: d.interact.action,
@@ -188,7 +189,7 @@ function present(e, api, st, name) {
     update(rec, o, dt) {
       const d = def();
       // a stage that names another model: tear this copy down, world builds the new one next frame (the record, and so the save, is untouched)
-      if (d.stages && o.userData.model !== JSON.stringify(modelOf(d, rec))) { e.world.rebuild(rec.id); return; }
+      if (d.stages && !sameModel(o.userData, d, rec)) { e.world.rebuild(rec.id); return; }
       const mul = stageScale(d, rec);
       if (!d.body && o.userData.fit !== fitKey(rec, mul)) settle(e, rec, o, d, mul);   // a body places itself; a stage scale re-aligns collision too
       else if (d.body) restBody(e, rec, o);
@@ -229,6 +230,22 @@ function restBody(e, rec, o) {
 function modelOf(d, rec) {
   for (let i = Math.min(rec.stage ?? 0, (d.stages?.length ?? 0) - 1); i >= 0; i--) if (d.stages[i].model) return d.stages[i].model;
   return d.model;
+}
+/**
+ * Which definition and which stage supplied the model (the stage index, -1 for the template's own). Two equal keys always mean the same model, so
+ * the per-frame check compares one object and one number instead of serializing the model of every instance every frame.
+ */
+function modelSource(d, rec) {
+  for (let i = Math.min(rec.stage ?? 0, (d.stages?.length ?? 0) - 1); i >= 0; i--) if (d.stages[i].model) return { d, at: i };
+  return { d, at: -1 };
+}
+/** Same model as when built? Same definition + same source stage is a yes without serializing; only a reloaded definition falls back to comparing text */
+function sameModel(ud, d, rec) {
+  const k = modelSource(d, rec), b = ud.modelFrom;
+  if (b.d === d) return b.at === k.at;
+  if (ud.model !== JSON.stringify(modelOf(d, rec))) return false;
+  ud.modelFrom = k;   // a reload with the same model: adopt the new definition so the next frames take the cheap path again
+  return true;
 }
 /** A stage's scale multiplies the instance's own scale (a sprout at 0.6 of a placement scaled 2 is 1.2) */
 const stageScale = (d, rec) => d.stages?.[rec.stage ?? 0]?.scale ?? 1;

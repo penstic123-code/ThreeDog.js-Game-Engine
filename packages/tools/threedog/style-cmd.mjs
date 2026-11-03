@@ -5,7 +5,9 @@ import { paletteText, compareText, styleArgs } from '../style.mjs';
 
 /** args like the CLI after `style palette|compare`; → { ok, text } (never throws: a bad picture or region is a ✗ line) */
 export async function styleCommand(dir, cmd, args) {
-  const a = styleArgs(args), { val, flag } = a, pos = a.pos.map(p => resolve(dir, p));
+  let a;
+  try { a = styleArgs(args); } catch (e) { return { ok: false, text: '✗ ' + e.message }; }
+  const { val, flag } = a, pos = a.pos.map(p => resolve(dir, p));
   const mark = flag('--json') ? '' : '✓ ';   // --json stays parseable: no status mark in front
   try {
     if (cmd === 'style-palette') {

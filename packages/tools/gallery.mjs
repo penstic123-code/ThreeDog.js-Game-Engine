@@ -8,17 +8,16 @@
 // Why the dev server (not a build): the gallery is injected by the vite preset in dev only, and an asset edit needs no rebuild to be seen.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pickWorkspace, rel } from './paths.mjs';
-import { cliOptions } from './lib/cli-args.mjs';
-import { parseOptions, fileStems, escapeHtml as esc } from './gallery/index.js';
+import { cli, rel, viteOptions } from './paths.mjs';
+import { parseGalleryOptions, fileStems, escapeHtml as esc } from './gallery/index.js';
 
-const { dir, args } = pickWorkspace(process.argv.slice(2));
-const { opt } = cliOptions(args, { flags: ['shots', 'gpu', 'software'], values: ['port', 'size', 'only', 'mode'], page: null });
+
+const { dir, opt } = cli(process.argv.slice(2), { flags: ['shots', 'gpu', 'software'], values: ['port', 'size', 'only', 'mode'] });
 let modes;
-try { modes = parseOptions(opt); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
+try { modes = parseGalleryOptions(opt); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
 const { createServer } = await import('vite');
-const server = await createServer({ root: dir, configFile: join(dir, 'vite.config.js'), logLevel: 'error',
-  server: { port: opt.port ? +opt.port : opt.shots ? 0 : 5181, host: '127.0.0.1', strictPort: false, open: false } });
+const server = await createServer(await viteOptions(dir, { logLevel: 'error',
+  server: { port: opt.port ? +opt.port : opt.shots ? 0 : 5181, host: '127.0.0.1', strictPort: false, open: false } }));
 await server.listen();
 const base = (server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.httpServer.address().port}/`).replace(/\/$/, '');
 if (!opt.shots) {

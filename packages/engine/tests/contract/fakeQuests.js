@@ -23,7 +23,7 @@ export function fakeQuests() {
     },
   };
   return {
-    name: 'quests',
+    name: 'quests', type: 'rules',
     install(engine) {
       e = engine;
       e.saves.register('quests', { version: 2, save: () => ({ state: structuredClone(prog) }), load: d => { for (const k of Object.keys(prog)) delete prog[k]; Object.assign(prog, d?.state ?? {}); } });

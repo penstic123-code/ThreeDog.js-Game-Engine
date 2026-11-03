@@ -3,6 +3,7 @@
 // catalog and the dev bridge cannot disagree about a field (no second copy in docs or TypeScript).
 //   short form:  'int' / 'int?'  (type, ? = optional)
 //   full form:   { type: 'int', default: 1, min: 1, max: 99, values: [...], desc: 'how many', optional: true }  (default implies optional)
+//   several shapes: 'bool|object' (any of them; e.g. createEngine's batching: false or { ... }), checked like one type
 import { closest, fmt, DEV, warnOnce, unknownOptionText } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 
@@ -13,12 +14,15 @@ const TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any', 'obje
 const SPEC_KEYS = ['type', 'default', 'min', 'max', 'values', 'desc', 'optional'];
 const isPos = v => Array.isArray(v) && (v.length === 2 || v.length === 3) && v.every(Number.isFinite);
 /** type name -> value check (op args use the first seven: plain data only) */
-export const CHECK = {
+const CHECK = {
   string: v => typeof v === 'string', number: v => Number.isFinite(v), int: v => Number.isInteger(v), bool: v => typeof v === 'boolean',
   position: isPos, id: v => typeof v === 'string', any: () => true, object: v => !!v && typeof v === 'object' && !Array.isArray(v),
   array: Array.isArray, function: v => typeof v === 'function',
   color: v => (Number.isInteger(v) && v >= 0 && v <= 0xffffff) || (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)),
 };
+const unions = new Map();
+/** The value check of a type name or a 'a|b' union (one cached function per union) */
+export const checkOf = type => CHECK[type] ?? unions.get(type) ?? (unions.set(type, (fs => v => fs.some(f => f(v)))(type.split('|').map(t => CHECK[t]))), unions.get(type));
 const STRINGS = {
   badType: "{where}: {key} has type '{type}'; use one of {list} (add ? for optional, e.g. 'int?', or { type: 'int', default: 1 })",
   badSpec: '{where}: {key} has unknown schema field {field}{hint}; schema fields: ' + SPEC_KEYS.join(', '),
@@ -43,7 +47,7 @@ export function parseSpec(where, key, spec, err = codedError.bind(null, 'engine-
     }
     s.optional = !!s.optional || 'default' in s;
   }
-  if (!TYPES.includes(s.type)) throw err(fmt(STRINGS.badType, { where, key, type: String(s.type ?? spec), list: TYPES.join(' ') }));
+  if (typeof s.type !== 'string' || !s.type.split('|').every(t => TYPES.includes(t))) throw err(fmt(STRINGS.badType, { where, key, type: String(s.type ?? spec), list: TYPES.join(' ') }));
   if ('default' in s) { const why = whyBad(s, s.default); if (why) throw err(fmt(STRINGS.badDefault, { where, key, got: JSON.stringify(s.default), why })); }
   return s;
 }
@@ -58,7 +62,7 @@ export function parseSchema(where, schema, err) {
 
 /** Why v does not fit the parsed spec s (type, range, allowed values), or null when it does */
 export function whyBad(s, v) {
-  if (!CHECK[s.type](v)) return `should be ${s.type === 'position' ? '[x, y, z]' : s.type}, got ${JSON.stringify(v) ?? typeof v}`;
+  if (!checkOf(s.type)(v)) return `should be ${s.type === 'position' ? '[x, y, z]' : s.type.replaceAll('|', ' or ')}, got ${JSON.stringify(v) ?? typeof v}`;
   if (s.min != null && v < s.min) return `must be >= ${s.min}, got ${v}`;
   if (s.max != null && v > s.max) return `must be <= ${s.max}, got ${v}`;
   if (s.values && !s.values.includes(v)) return `must be one of ${s.values.map(x => JSON.stringify(x)).join(', ')}, got ${JSON.stringify(v)}`;
@@ -104,7 +108,7 @@ export function schemaInfo(shape) {
  * const PARAMS = { radius: { type: 'number', default: 2, min: 0, desc: 'pickup reach in m' }, sound: 'string?' };
  * export const magnet = (opts) => {
  *   const o = readParams('magnet', PARAMS, opts);
- *   return { name: 'magnet', params: PARAMS, options: o, install(e) { return { radius: o.radius }; } };
+ *   return { name: 'magnet', type: 'rules', params: PARAMS, options: o, install(e) { return { radius: o.radius }; } };
  * };
  */
 export function readParams(where, schema, opts = {}) {

@@ -22,22 +22,103 @@
   "windows": []
  },
  "modules": [
-  "world",
-  "level",
-  "calendar",
-  "sky",
-  "collision",
-  "rigid",
-  "cameraRig",
-  "characters",
-  "interactions",
-  "dialogue",
-  "triggers",
-  "particles",
-  "timeline",
-  "settings",
-  "debugPanel",
-  "content",
-  "flow"
+  {
+   "name": "world",
+   "provides": [
+    "world"
+   ],
+   "type": "world"
+  },
+  {
+   "name": "level",
+   "provides": [
+    "level"
+   ],
+   "type": "world"
+  },
+  {
+   "name": "calendar",
+   "provides": [
+    "calendar"
+   ],
+   "type": "world"
+  },
+  {
+   "name": "sky",
+   "provides": [
+    "sky"
+   ],
+   "type": "look"
+  },
+  {
+   "name": "collision",
+   "provides": [
+    "collision"
+   ],
+   "type": "world"
+  },
+  {
+   "name": "rigid",
+   "provides": [
+    "rigid"
+   ],
+   "requires": [
+    "collision"
+   ],
+   "type": "world"
+  },
+  {
+   "name": "cameraRig",
+   "type": "look"
+  },
+  {
+   "name": "characters",
+   "type": "actor"
+  },
+  {
+   "name": "interactions",
+   "provides": [
+    "interactions"
+   ],
+   "type": "rules"
+  },
+  {
+   "name": "dialogue",
+   "provides": [
+    "dialogue"
+   ],
+   "type": "rules"
+  },
+  {
+   "name": "triggers",
+   "type": "rules"
+  },
+  {
+   "name": "particles",
+   "provides": [
+    "particles"
+   ],
+   "type": "look"
+  },
+  {
+   "name": "timeline",
+   "type": "rules"
+  },
+  {
+   "name": "settings",
+   "type": "ui"
+  },
+  {
+   "name": "debugPanel",
+   "type": "ui"
+  },
+  {
+   "name": "content",
+   "type": "rules"
+  },
+  {
+   "name": "flow",
+   "type": "rules"
+  }
  ]
 }

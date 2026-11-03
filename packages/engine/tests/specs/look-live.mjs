@@ -1,5 +1,5 @@
 // look.materials live keys (render/lookSurface.js LIVE_KEYS): plain numeric / color properties reach materials already made for the role;
-// shader keys (detail, patch ...) are for new materials only, and appliesTo says which is which. Same format as specs.mjs.
+// shader keys (detail, patch ...) are for new materials only, and appliesTo says which is which. Same format as the other files here.
 export const specs = [
   {
     name: 'look.materials live keys: color / opacity change materials already made for the role; shader keys (detail) wait for new materials; appliesTo names the live keys',

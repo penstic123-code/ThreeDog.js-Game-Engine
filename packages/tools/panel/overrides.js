@@ -1,4 +1,4 @@
-// What the style workbench exports: the values the user changed, as a plain object literal to paste into `style: [lowpoly, { ... }]`.
+// What the style workbench exports: the values the user changed, as a plain object literal to paste into `style: [myStyle, { ... }]`.
 // Pure functions (no DOM, no engine) so a test can run them on their own.
 
 /** Set a value at a path of keys inside a nested plain object, creating the objects on the way */

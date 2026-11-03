@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { resolveFog, DOME_FOG } from './fog.js';
 import { resolveDomeLayers } from './domeLayers.js';
 import { codedError } from '../../core/errorHints.js';
+import { isWebGPU } from '../../render/backend.js';
 
 const TAKE = { sun: "engine.look.lights.manual(['sun.intensity', 'sun.color'])", hemisphere: "engine.look.lights.manual('hemi')", fog: 'engine.look.fog.manual()' };
 const modeOf = (name, v = true) => {
@@ -21,7 +22,7 @@ const modeOf = (name, v = true) => {
   return v;
 };
 
-/** Resolve light modes, fog and dome layers for a new Sky; returns the extra dome uniforms and GLSL ({ uniforms, decl, body }) */
+/** Resolve light modes, fog and dome layers for a new Sky; returns the extra dome uniforms and GLSL ({ uniforms, decl, body }), and the layers for a node dome */
 export function prepareLook(sky, st, over) {
   /** @internal which engine lights / fog the sky writes each frame: true / false */
   // fog is also the look override (an object of style.sky.fog settings, which means true); a boolean picks the mode and keeps the style's settings
@@ -34,10 +35,10 @@ export function prepareLook(sky, st, over) {
   sky._fogSpec = fogObj || over.fog == null ? st.fog : sky.engine.style.sky?.fog;   // look.fog's style layer (lookFog.js)
   sky._fog = resolveFog(sky._fogSpec);
   sky._backdrop = resolveBackdrop(st);
-  const f = DOME_FOG, l = resolveDomeLayers(st.layers);
+  const f = DOME_FOG, l = resolveDomeLayers(st.layers, { gpu: isWebGPU(sky.engine.renderer) });
   // the fog object is created after the dome and may be replaced by the game: read its color at draw time (fog.js fogBand turns the band on)
   const uniforms = { ...l.uniforms, uFogBand: { value: 0 }, uFogColor: { get value() { return sky.engine.scene.fog?.color ?? sky.uniforms.uHorizon.value; } } };
-  return { uniforms, decl: [f.decl, l.decl].filter(Boolean).join('\n'), body: f.body + l.body };
+  return { uniforms, decl: [f.decl, l.decl].filter(Boolean).join('\n'), body: f.body + l.body, layers: l.layers };
 }
 
 // style.sky.backdrop: one flat color (or ({ time, weather, season, state, sky }) => color each frame, core/look/state.js) instead of the dome -- no gradient, horizon, sun / moon disk,

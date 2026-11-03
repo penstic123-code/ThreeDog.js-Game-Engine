@@ -39,7 +39,7 @@ function questLogPart(engine) {
  * @returns {{ readonly open: boolean, toggle(on?: boolean): void, refresh(): void }}
  * @internal
  */
-export function questLogWindow(e, q) {
+export function questLogWindow(e, q, track) {
   /** @returns {QuestLogView} */
   const view = () => ({ title: e.t('quests.title'), key: e.input.label(q.action), quests: q.list(), close: () => e.ui.close(NAME) });
   e.ui.define(NAME, questLogPart, { modal: { cancel: eng => eng.ui.close(NAME), data: view } });
@@ -48,7 +48,7 @@ export function questLogWindow(e, q) {
     toggle(on = !win.open) { if (on) e.ui.open(NAME); else e.ui.close(NAME); },
     refresh() { if (win.open) e.ui.get(NAME).update(view()); },
   };
-  e.events.on('i18n:change', win.refresh);
-  e.events.on('input:rebind', win.refresh);
+  track(e.events.on('i18n:change', win.refresh));
+  track(e.events.on('input:rebind', win.refresh));
   return win;
 }

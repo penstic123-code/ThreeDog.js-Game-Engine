@@ -31,18 +31,25 @@ export class SoundHandle {
      */
     setPosition(at: any): this;
     /**
-     * Fade this sound's volume to `to` (0-1) over `seconds`; it keeps playing (use stop to end it)
-     * @param {number} to
-     * @param {number} [seconds]
+     * Fade this sound's volume to `to` (0-1) over `seconds` (default 0.5); it keeps playing (use stop to end it). An options object like
+     * music.play's: fade(0.2, 1.5) throws in dev
+     * @param {{ to: number, seconds?: number }} opts
      * @returns {this}
-     * @example h.fade(0.2, 1.5);
+     * @example h.fade({ to: 0.2, seconds: 1.5 });
      */
-    fade(to: number, seconds?: number): this;
+    fade(opts: {
+        to: number;
+        seconds?: number;
+    }): this;
     /**
-     * Stop, fading out over `fade` seconds (0 = at once)
-     * @param {number} [fade]
+     * Stop, fading out over `fade` seconds (default 0.05; 0 = at once). stop(1) throws in dev: stop({ fade: 1 })
+     * @param {{ fade?: number }} [opts]
      * @returns {void}
-     * @example const h = engine.audio.sfx('engine-hum', { loop: true }); h.stop(1);
+     * @example const h = engine.audio.sfx('engine-hum', { loop: true }); h.stop({ fade: 1 });
      */
-    stop(fade?: number): void;
+    stop(opts?: {
+        fade?: number;
+    }): void;
+    /** Cancel convention (every handle has remove()): the same as stop() @returns {void} */
+    remove(): void;
 }

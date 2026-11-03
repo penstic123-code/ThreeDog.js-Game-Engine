@@ -39,13 +39,16 @@ export function toggleOnKey(engine: Engine, win: {
  */
 export function worldToScreen(engine: Engine, pos: PositionLike): ScreenPoint;
 /**
- * Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends
+ * Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends.
+ * fadeScreen(engine, 1, 0.5) throws in dev: fadeScreen(engine, 1, { seconds: 0.5 })
  * @param {Engine} engine
  * @param {number} to  0 clear ... 1 fully covered
- * @param {number} [seconds]  default 0.5
+ * @param {{ seconds?: number }} [opts]
  * @returns {Promise<void>}
  */
-export function fadeScreen(engine: Engine, to: number, seconds?: number): Promise<void>;
+export function fadeScreen(engine: Engine, to: number, opts?: {
+    seconds?: number;
+}): Promise<void>;
 export function iconHTML(def: any): string;
 import type { Engine } from '../../core';
 import type { WindowOptions } from '../../gameplay';

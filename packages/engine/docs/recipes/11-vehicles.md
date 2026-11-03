@@ -1,4 +1,7 @@
-# Vehicles and boarding
+# Physics: rigid bodies, pushing, joints, vehicles
+
+Any physics body (crates the player pushes, balls, doors on hinges, ropes): §3, read it first when the game has no car. Cars and
+boarding: §1–2.
 
 Required modules: `collision()` + `rigid()` (Rapier physics; the vehicle controller lives there) + `characters()`. With
 `interactions({ ...presets.interactions.nearest })` installed, a "board/exit" prompt (E key) appears automatically near a vehicle.
@@ -36,7 +39,7 @@ Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.cas
 
 ## 2. Boarding and driving
 - Player: press E near the car to board (when interactions is installed); while driving, WASD = throttle/steering; the brake key (action `brake`, only
-  when the game gives one: `characters({ ...presets.keys.brake })` is B / gamepad LT, or `characters({ brakeKeys: ['KeyX'] })`; keep it off Space so
+  when the game gives one: `engine.input.bind(presets.bindings.brake)` is B / gamepad LT, or `engine.input.bind('brake', ['KeyX'])`; keep it off Space so
   it doesn't compete with jumping) brakes, and without one the engine warns once; press E again to exit.
 - Saving: the player save records which vehicle the player is in (its `id`); loading an on-foot save while driving exits the vehicle first, and
   loading a driving save puts the player back in the car.
@@ -48,6 +51,13 @@ Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.cas
 
 ## 3. Rigid bodies: saves, joints, determinism
 This section covers every `engine.rigid` body (crates, balls, hulls, vehicles), not only cars.
+
+**Pushing bodies with the player.** Yes, with any mover: with `rigid()` installed the player carries a kinematic capsule
+(`rigid.playerBody`) that follows it every fixed step, so walking into a dynamic body (`addBox(mesh, { mass })`, `addBall`, `addHull`) shoves it
+ahead. The mover leaves dynamic bodies out of its own collision, so a body is pushed instead of stopping the player; how hard it resists is
+its `mass` and friction. A body that should stop the player is `{ fixed: true }` with `mover: 'rapier'` (that mover collides with fixed bodies).
+A puzzle reads the result from the body (`entry.body.translation()` in `onFixed`, or a trigger zone) and gives the body an `id`, so a save keeps
+where it was pushed. Test: `npm test -- "rigid push"` (both movers).
 
 **Saves.** A body added with an `id` (`rigid.addBox(mesh, { id: rec.id })`; vehicles always have one) is saved with its pose, rotation,
 velocities and sleep, and a load gives that state back to the body with the same id, also when it is built after the load (a world presenter's

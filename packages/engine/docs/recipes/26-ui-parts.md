@@ -42,7 +42,7 @@ What each part receives:
 | `hud.marker` | per marker | `update({ x, y, onScreen, arrow, angle, label, icon, distance })` every frame · `hide()` · `dispose()` |
 | `hud.counter` | per counter | `update({ id, label, icon, value, max })` · `dispose()` |
 | `hud.bar` | per bar | `update({ id, label, value, max })` · `dispose()` |
-| `inventory` | once (on first open; opened by the key from `inventory({ keys })` or `engine.ui.open('inventory')`) | `show(d)` · `update(d)` while open · `hide()`; `d = { title, hint, items: [{ key, id, count, data, def }], capacity, used, weight, maxWeight }`; buttons run `inventory.use / drop / transfer` ops (recipe 03) |
+| `inventory` | once (on first open; opened by the bound `inventory` key or `engine.ui.open('inventory')`) | `show(d)` · `update(d)` while open · `hide()`; `d = { title, hint, items: [{ key, id, count, data, def }], capacity, used, weight, maxWeight }`; buttons run `inventory.use / drop / transfer` ops (recipe 03) |
 | `touch` | once, if wanted (1) | `show(view)` · `update(view)` (buttons or language changed) |
 | `prompt` | once | `update({ id, action, key, label, text, x, y, onScreen, use(), options })` every frame in reach · `hide()` |
 | `questLog` | once, full screen (2) | `show(view)` · `update(view)` (quests changed while open) · `hide()` |
@@ -50,7 +50,7 @@ What each part receives:
 
 (1) Only when a stick (`createEngine({ joystick })`: `'auto'` on touch devices, `true` always) or a touch button is wanted.
 `view = { stick, buttons: [{ action, label }], move(x, y), press(action), release(action) }`.
-(2) The quest key (`quests({ keys })`, e.g. `...presets.keys.quests`) opens it, Esc and the key close it.
+(2) The bound `quests` key (e.g. `presets.bindings.quests`) opens it, Esc and the key close it.
 `view = { title, key, quests: engine.quests.list(), close() }`.
 
 Every view hands back functions (`advance`, `choose`, `use`, `close`, `move`, `press`...) instead of making your part call engine internals:
@@ -61,7 +61,7 @@ With every part off (`false`) the engine draws no DOM at all and the logic keeps
 ```js
 toast(engine, 'Saved', { kind: 'save' });           // your own message (the engine comes first)
 engine.ui.set('toast', (engine) => ({ show: ({ text, kind }) => { if (kind !== 'quest') myBanner(text); } }));
-engine.use(quests({ ...presets.keys.quests, notify: false }));               // or only silence quest messages; notify: ({ type, id, text }) => ... shows them your way
+engine.use(quests({ notify: false }));               // or only silence quest messages; notify: ({ type, id, text }) => ... shows them your way
 ```
 
 ## 4. Dialogue box: your own look, your own fields
@@ -99,8 +99,8 @@ Any other unknown node key is reported as a typo (a misspelled `next` would sile
   Bubbles never wait for or cut into the main dialogue. They are drawn by the multi part `dialogue.bubble` (`update({ speaker, text, x, y, onScreen, screen })`
   every frame); `describe().ui.bubbles` lists them. NPCs pick the channel with the `npc.talk` arg `channel: 'bubble'`, a timeline `say` step with `channel` / `at`.
 - **Keyboard and gamepad choices**: the main dialogue's choices take the UI choice cursor (next section); `view.selected` is the highlighted one.
-- **Options**: `dialogue({ charsPerSecond: 40, advanceActions: ['confirm', 'interact'], choiceKeys: true, holdSeconds: 2 })`.
-  `charsPerSecond: 0` shows the whole line at once; `choiceKeys: false` drops the 1-9 keys (click / op only).
+- **Options**: `dialogue({ charsPerSecond: 40, advanceActions: ['confirm'], holdSeconds: 2 })`.
+  `charsPerSecond: 0` shows the whole line at once. Number keys pick choices only when the game binds them: `createEngine({ bindings: { ...presets.bindings.dialogNumbers } })`.
   The choice keys are the actions `choice1`...`choice9` (rebind with `createEngine({ bindings })`), read only while the main dialogue runs.
 
 ## The choice cursor: windows and choices without a mouse
@@ -113,7 +113,7 @@ Every entry of the UI focus stack (dialogue, `engine.ui.open` parts, `makeWindow
   has the class `is-cursor` (style it in `style.ui.css`). Your own part opts in by exposing `get el() { return root; }`.
 - Your own focus entry: `uiFocus(engine).push('shop', { cancel, nav: () => shopEl })`, or a list you draw yourself:
   `nav: { count: () => items.length, moved: i => draw(i), confirm: i => engine.ops.run('shop.buy', { item: items[i].id }) }`.
-- Keys are actions: rebind with `createEngine({ bindings: { uiUp: ['KeyI'] }, padBindings: { confirm: 'PadB', cancel: 'PadA' } })` or the settings menu.
+- Keys are actions: rebind with `createEngine({ bindings: { uiUp: ['KeyI', 'PadUp'], confirm: ['Space', 'PadB'], cancel: ['Escape', 'PadA'] } })` or the settings menu.
 
 ### A window: results, game over, summary, any modal
 `makeWindow` is the one window: it opens on top of the UI focus stack, locks game input while open, closes with its close button or Esc
@@ -159,12 +159,23 @@ engine.settings.addSection('gameplay', {
   order: 50,
 });
 ```
+A row that switches off an effect of your own (a post effect, a look value): name the shared value it limits, and it works like the
+built-in shadows row. Off holds the value off on the settings layer, so a later scene, weather or cutscene cannot turn it back on; on
+allows whatever the scene chose. A number row from 0 to 1 is a factor on a number value. Define the row after the effect exists.
+```js
+engine.look.post.add(volFog);                                                     // look.post.volFog.enabled now exists
+engine.settings.define('volFog', true, { limits: 'look.post.volFog.enabled' });   // add apply: v => ... too if the game reacts in code
+engine.settings.define('sunCap', 1, { limits: 'look.lights.sun.intensity' });     // 0.5 = half the sun, whatever the time of day sets
+settings({ presets: { low: { volFog: false } } });                                // a preset can switch the row like any other key
+```
+`engine.describe().shared['look.post.volFog.enabled']` shows the settings entry and what the scene wanted underneath.
+
 A completely different menu: don't install `settings()`; open your own with `uiFocus(engine).setRoot(() => myMenu.open())` so Esc on an empty stack reaches it.
 
 Check what is in use: `engine.ui.describe()` → `{ loading: 'default', toast: 'off', 'hud.bar': 'custom', ... }`.
 
 ## 7. Keys, and UI that follows the world
-- Declare keys once with `input.define('action', keys, 'label', { pad })` (or content `actions`) and read them by action name: gameplay keys (attack,
+- Bind keys once with `engine.input.bind('action', ['KeyX', 'PadY'])` / `engine.input.action('action', { label, keys })` (or content `actions`) and read them by action name: gameplay keys (attack,
   jump) in the fixed step, UI keys in the frame hook. Never `addEventListener('keydown')`, and never read `pointer.clicked` for gameplay; bind a
   `Mouse0` action instead.
 - A menu, vehicle or build mode that takes over keys pushes an input context: `const h = engine.input.push('menu')` (opaque) or

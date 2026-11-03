@@ -18,6 +18,7 @@
 // shared code, not a copy), so its real light, its stand-in and the game's window glow switch on together. Off by default: a torch in a cave, a
 // muzzle flash or a lamp the game wants lit at noon keeps its intensity. Its scaled intensity is what the choice scores, so lamps that are off by
 // day give their lights to sources that are lit.
+import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
 import { warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
@@ -211,10 +212,11 @@ export function lightPool(opts = {}) {
     for (let i = 0; i < n; i++) {
       const L = type === 'spot' ? new THREE.SpotLight(0xffffff, 0) : new THREE.PointLight(0xffffff, 0);
       L.name = `lightPool_${type}${shadow ? '_shadow' : ''}_${i}`;
+      L.userData.fixedCount = true;   // the light-count warning (core/lightWatch.js) leaves pooled lights out: their number never grows
       L.castShadow = shadow;   // fixed at creation: a shadow count that changes recompiles too
       if (shadow) L.shadow.autoUpdate = false;   // no source yet: no shadow passes
-      e.scene.add(L);
-      if (L.isSpotLight) e.scene.add(L.target);
+      e.scene.add(engineOwned('lightPool', L));
+      if (L.isSpotLight) e.scene.add(engineOwned('lightPool', L.target));
       api.lights.push(L);
       g.slots.push({ light: L, group: g, src: null, w: 0, want: 0 });
     }
@@ -222,8 +224,8 @@ export function lightPool(opts = {}) {
   }
 
   return {
-    name: 'lightPool', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late', presentation: true,
-    install(engine) {
+    name: 'lightPool', type: 'look', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late',
+    install(engine) { engine.i18n.add({ 'zh-CN': { 'module.lightPool': '光源池' }, en: { 'module.lightPool': 'light pool' } });
       e = engine;
       const k = Math.max(0, Math.min(shadows, point));
       if (k > 0 && k >= point) warnOnce(STRINGS.allShadow.replace('{n}', String(point)).replace('{m}', String(k + 2)).replaceAll('{k}', String(k)));

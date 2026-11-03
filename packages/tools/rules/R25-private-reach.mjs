@@ -8,16 +8,15 @@ import { walk, read, codeOnly, P } from './_lib.mjs';
 
 // [folder, member, reason]; folder '*' = any folder
 const ALLOW = [
-  ['net', 'ops._client', 'net routing hooks kept in core Ops.js; net is deferred (user decision), experimental'],
-  ['net', 'ops._route', 'net routing hooks kept in core Ops.js; net is deferred (user decision), experimental'],
-  ['net', 'ops._log', 'host logs refused peer requests into the op history; net is deferred (user decision)'],
-  ['net', 'world._s', 'client switches off world simulation; net is deferred (user decision)'],
-  ['net', 'inventory._containers', 'container sync; net is deferred (user decision)'],
+  ['characters', 'collision._blocked', 'the simple mover skips blockedAt when no blocked ground exists (a per-step shortcut); characters is being changed by another pass: give collision a hasBlocked getter then'],
   ['world', '_things', 'adds its record store with engine._things.addSource at install: the one door core offers to record stores'],
 ];
 // LookPart private fields reached through any name (part._owners, p._write, look.fog._params ...): the engine-prefix pattern above misses an alias
 const LOOK_REACH = /\b(?:part|p|lp|look(?:\??\.\w+)?)\??\.(_(?:owners|params|meta|resolved|style|write|drop|spec|driven|setOn|setStyle|check|flat|source|keys|refresh|seq|started|made))\b/g;
 const REACH = /\b(?:e|engine|this\.engine|this\.e)(?:\?)?\.(?:(\w+)\??\.)?(_\w+)/g;
+// Another module held in a local first (const inv = e.inventory; inv._containers): the alias is followed within the file. Why: net reached
+// inventory._containers this way and the engine-prefix pattern alone never saw it (review 0.4 E)
+const ALIAS = /\b(?:const|let)\s+(\w+)\s*=\s*(?:e|engine|this\.engine|this\.e)\??\.(\w+)\s*(?=[;,)\n]|$)/gm;
 
 export default {
   id: 'R25', title: 'No reaching into another module\'s private members',
@@ -25,7 +24,13 @@ export default {
     const out = [];
     for (const f of walk(P.MODULES_REL)) {
       const folder = f.slice(P.MODULES_REL.length + 1).split('/')[0];
-      read(f).split('\n').forEach((raw, i) => {
+      const text = read(f), aliases = [...text.split('\n').map(codeOnly).join('\n').matchAll(ALIAS)].filter(([, , owner]) => owner !== folder);
+      text.split('\n').forEach((raw, i) => {
+        for (const [, name, owner] of aliases) for (const m of codeOnly(raw).matchAll(new RegExp(`\\b${name}\\??\\.(_\\w+)`, 'g'))) {
+          if (ALLOW.some(([fo, mem]) => (fo === '*' || fo === folder) && mem === `${owner}.${m[1]}`)) continue;
+          out.push({ level: 'error', file: f, line: i + 1, msg: `module folder ${folder} reaches into engine.${owner}'s private ${m[1]} through ${name} (${m[0]})`,
+            fix: 'call a public method of the owner (add a small documented one when none fits); or add [folder, member, reason] to ALLOW in this file' });
+        }
         for (const m of codeOnly(raw).matchAll(REACH)) {
           const [, owner, priv] = m, member = owner ? `${owner}.${priv}` : priv;
           if (owner === folder) continue;   // its own module (folder name = module name: world, nav, collision...)
@@ -35,12 +40,12 @@ export default {
         }
         // a look part held in a local (const part = defineLookPart(...); p = e.look.weather): its `_` fields are core/look's (review r2 #2)
         for (const m of codeOnly(raw).matchAll(LOOK_REACH)) out.push({ level: 'error', file: f, line: i + 1, msg: `${folder} reaches into a look part's private ${m[1]} (${m[0]})`,
-          fix: 'use the LookPart author methods (write, ownerValue, extend, retract, has, resolved, restyle, top, value; core/look/part.js) or add one there' });
+          fix: 'use part.author (write, ownerValue, extend, retract, has, resolved, values, restyle, top; core/look/part.js PartAuthor) or add one there' });
       });
     }
     for (const f of walk(P.ENGINE_REL + '/render').filter(x => /\/look\w*\.js$/.test(x))) read(f).split('\n').forEach((raw, i) => {
       for (const m of codeOnly(raw).matchAll(LOOK_REACH)) out.push({ level: 'error', file: f, line: i + 1, msg: `render look file reaches into a look part's private ${m[1]} (${m[0]})`,
-        fix: 'use the LookPart author methods (core/look/part.js) or add one there' });
+        fix: 'use part.author (core/look/part.js PartAuthor) or add one there' });
     });
     out.note = `${ALLOW.length} allowlisted members`;
     return out;

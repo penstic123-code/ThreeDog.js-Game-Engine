@@ -1,6 +1,6 @@
-// "Actor everywhere" guards (docs/plans/2026-11-02-genericity-fixes.md items 2 and 4): nothing in interactions, pickups, containers, content effects or
+// "Actor everywhere" guards (docs/plans/done/2026-11-02-genericity-fixes.md items 2 and 4): nothing in interactions, pickups, containers, content effects or
 // triggers may assume one player. Each case has two actors (the local 'player' and a second one: a world record standing in for an NPC or a net peer,
-// or real net peers) and checks that each one's action lands on that one. Same format as specs.mjs, appended at the end of it.
+// or real net peers) and checks that each one's action lands on that one. Same format as the other files here.
 // Do not bypass: if any of these fails, some path went back to a fixed 'player' / engine.player / engine.actor.
 
 // the second actor: a plain world record with a position (what a net peer's avatar on the host, or an NPC record, is)

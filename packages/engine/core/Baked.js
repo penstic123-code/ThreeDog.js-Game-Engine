@@ -26,7 +26,10 @@ const LOST = "[bake] '{name}': {list} cannot be stored in the cached / baked GLB
 /** Texture slots of m the GLB loses (hand-made toon ramp, lightMap, specularMap, envMap); [] when nothing is lost @param {any} m */
 function lostSlots(m) { return LOST_SLOTS.filter(k => m[k]?.isTexture && !(k === 'gradientMap' && m.userData?.purpose)); }
 
-/** Object (or geometry) -> GLB. Marks are written on a copy; the original is untouched. */
+/**
+ * Object (or geometry) -> GLB. Marks are written on a copy; the original is untouched.
+ * @returns {Promise<ArrayBuffer>}
+ */
 export async function toGLB(value, engine, name = 'model') {
   const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
   const geo = value.isBufferGeometry;
@@ -52,7 +55,7 @@ export async function toGLB(value, engine, name = 'model') {
     o.userData = { ...o.userData, threedog: { cast: o.castShadow, receive: o.receiveShadow, hidden: !o.visible } };
     if (o.material) o.material = Array.isArray(o.material) ? o.material.map(tag) : tag(o.material);
   });
-  return new GLTFExporter().parseAsync(root, { binary: true, onlyVisible: false });
+  return /** @type {ArrayBuffer} */ (await new GLTFExporter().parseAsync(root, { binary: true, onlyVisible: false }));   // binary: true gives the GLB bytes
 }
 
 /** The part of a GLTFLoader result that toGLB exported: restores shadow flags, visibility and materials in place (other glTF files are unaffected). Returns the gltf. */

@@ -1,4 +1,4 @@
-// engine.ops: the one entry point for actions (core/Ops.js). Same format as specs.mjs; appended at the end of specs.mjs.
+// engine.ops: the one entry point for actions (core/Ops.js). Same format as the other files here.
 import { runScenario, pageDriver } from '@threedog/tools/scenario';
 export const specs = [
   {
@@ -240,6 +240,7 @@ export const specs = [
   },
   {
     name: 'ops photo.take: the photo key runs the op; refused with the canTake reason and photo:denied { reason }; the button path logs too',
+    software: false,   // takes a photo, compares no pixels
     url: '/?cutscene=skip',
     async run({ page, check, ev, frames }) {
       await ev(() => { engine.pause(); window._denied = []; engine.events.on('photo:denied', d => window._denied.push(d.reason)); });
@@ -289,7 +290,7 @@ export const specs = [
         ];
         const s = O.run('test.s'), o = O.run('test.o'), c = O.can('test.o');
         const lst = O.list({ available: true }).find(x => x.name === 'test.o');
-        const hist = O.recent('test.o').at(-1).code; const noReason = (o => { if (Object.keys(o).includes('reason')) return false; try { return o.reason === undefined; } catch (x) { return x.code === 'renamed-field'; } })(s);   // 旧名不在数据里；经 failure() 出来的结果开发时读它报 renamed-field
+        const hist = O.recent('test.o').at(-1).code; const noReason = !('reason' in s);   // a failed result has code, never a reason field
         hs.forEach(h => h.remove());
         const t0 = E.tick; let at = -1;
         const p = E.nextFixed(() => { at = E.tick; return 7; });
@@ -300,7 +301,7 @@ export const specs = [
         const wasOwner = E.paused; E.pause('x'); E._resume('y'); const kept = E.paused; E._resume('x'); E.paused = was;
         return { s: { ...s, noReason }, o, c, lstFacts: lst?.facts, hist, before, at, t0, val, stillPaused, wasOwner, kept };
       });
-      check('string failure normalized: code only (no reason data field; reading .reason throws renamed-field in dev), facts {}, nextActions []', r.s.code === 'noMoney' && r.s.noReason && Object.keys(r.s.facts).length === 0 && r.s.nextActions.length === 0, JSON.stringify(r.s));
+      check('string failure normalized: code only (no reason field), facts {}, nextActions []', r.s.code === 'noMoney' && r.s.noReason && Object.keys(r.s.facts).length === 0 && r.s.nextActions.length === 0, JSON.stringify(r.s));
       check('structured failure carries facts and nextActions through run, can, list; history keeps the code', r.o.code === 'noMoney' && r.o.facts.need === 5 && r.o.nextActions[0].op === 'test.s' && r.c.facts.need === 5 && r.lstFacts?.need === 5 && r.hist === 'noMoney', JSON.stringify(r));
       check('nextFixed runs at the next fixed step and resolves with the value', r.before === -1 && r.at === r.t0 + 1 && r.val === 7, JSON.stringify([r.before, r.at, r.t0, r.val]));
       check('pause owners: resume by another owner does not unpause; all owners must resume', r.stillPaused === true && r.kept === true, JSON.stringify([r.stillPaused, r.wasOwner, r.kept]));

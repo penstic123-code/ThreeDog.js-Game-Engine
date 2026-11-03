@@ -1,14 +1,15 @@
 # Scene: what is in the world, where, and what a save keeps
 
 The engine's three outward concepts are **Scene** (what stands in the world, where it is, how you interact with it), **Assets** (models, textures,
-sounds, fonts: `05-props-bake.md` §3b) and **Style** (how it looks: `09-style-pack.md`). Content packs belong to Scene: they are the data form of it.
+sounds, fonts: `05-props-bake.md` §3b) and **Style** (how it looks: `09-style.md`). Content packs belong to Scene: they are the data form of it.
 Patches, ops and world records are the scene's inner machinery; read them when you need them (`23-ops.md`, `18-world.md`).
 
 ## 1. Two doors into one scene
 A scene object comes in either of two ways, and both end up in the same scene:
 
-- **Plain three.js.** Build a mesh or group, call `engine.add(obj)`. Nothing else is required. This is the right way for anything your code rebuilds
-  on every start.
+- **Plain three.js.** Build a mesh or group, `engine.scene.add(obj)` (or `engine.add(obj)`, the same registration). Nothing else is required. This is the right way for anything your code rebuilds
+  on every start. A piece that stands on its own can be one file in `plugins/` instead (`export default mesh`): plugged at start with the file name
+  as its id (THREE.md, plugins folder).
 - **A template.** Define it in `content/templates.js`, place it in `content/props.js` with an `id`, or create it during play with
   `engine.content.spawn(name, at)`. This is the right way for anything that must be saved, be editable without code, or exist in many copies.
 
@@ -40,7 +41,7 @@ Route B gives the object an id, a source line (`engine.world.origin('windmill-hi
 Route A gives you less ceremony and full three.js control.
 
 ## 2. What goes in content, what stays three.js
-| Put it in content (templates, props, pickups, npcs, containers) | Write it as three.js (`engine.add`, `engine.scene.add`) |
+| Put it in content (templates, props, pickups, npcs, containers) | Write it as three.js (`engine.scene.add`, `engine.add(obj, { id })`) |
 |---|---|
 | Must come back after a load, or the player can change it and the change must be saved | Rebuilt by your code on every start: lights, decoration, effects, bullets |
 | Should be editable without a code change (position, state, copies) | Procedural or per-frame: particles, trails, shaders, a spinning blade |
@@ -99,10 +100,12 @@ Plain three.js is always allowed (`engine.scene`, `engine.renderer`, `engine.cam
 
 | You wrote | Not applied to it |
 |---|---|
-| `new THREE.MeshStandardMaterial(...)` (not `makeMaterial` / a look material) | wind sway, snow and season cover, cloud shadows, the engine fog hook, cascaded shadows, `look.surface` lighting and detail, `look.materials` roles, `debug.view` modes |
-| your own `EffectComposer` / render call | `engine.post` effects, `look.post`, adaptive resolution, photo mode, `describe().render.post` |
+| `new THREE.MeshStandardMaterial(...)` (not `makeMaterial` / a look material) | wind sway, snow and season cover, the engine fog hook, cascaded shadows, `look.surface` lighting and detail, `look.materials` roles, `debug.view` modes (cloud shadows are adopted, see below) |
+| your own `EffectComposer` / render call to the canvas | the engine yields the frame (`[own-frame]`), so `engine.post` effects, `look.post`, adaptive resolution, photo mode, `describe().render.post`; keep them with `engine.look.post.add(pass)` instead |
 | `renderer.toneMappingExposure = x`, `scene.fog = ...` | the owner record and the debug layer (`describe().look` tags it `three`); a direct write yields it (the sky stops writing fog); `look.fog.manual()` says so on purpose |
 
-Keep the integrations by going through the engine: `engine.makeMaterial('role', {...})` for the material, `look.materials.patch(name, { glsl }, { roles })` to add GLSL to a role, `look.post.patch(name, { glsl, slot })` or `look.post.replace([...])` for a screen effect.
+Cloud shadows reach plain materials on their own: a lit three.js material (Lambert, Phong, Standard, Physical, Toon) that enters the scene darkens under the drifting clouds like the engine's ground, on WebGL and WebGPU, and follows `look.cloudShadow.replace`. Clouds dim the sun only (directional lights, every cascade included): a `PointLight` street lamp or a torch is never shaded by them. With the shadow at 0 (the default) a uniform branch skips the cloud noise, so it costs nothing and one program per material type stays. `material.userData.cloudShadow = false` keeps one out, also when set after `scene.add` (it is read every frame; clearing it puts the shadow back); a material you already gave engine patches (`applyEffects`, `patchMaterial`) is left as it is; a NodeMaterial is not adopted (its nodes are your TSL; `applyEffects(mat)` adopts one); `describe().owned['cloudShadow.plain']` lists all three (`materials`, `optedOut`, `notAdopted`). Snow and season cover are not adopted (nothing tells a floor from a wall on a plain material): give a ground-like material one line, `applyEffects(mat, { season: 'ground' })` (`'foliage'` for leaves).
+
+Keep the integrations by going through the engine: `engine.makeMaterial('role', {...})` for the material, `look.materials.add(name, { glsl }, { roles })` to add GLSL to a role, `look.post.add(pass | { name, fuse: { glsl }, slot })` or `look.post.replace([...])` for a screen effect.
 
 `patch` vs `replace`: `patch(hook, glsl)` swaps one registered hook (`threedogWind`, `threedogFog`, `threedogLighting`, the water `wave`) and the rest of the engine's shader stays, so the integrations above still work. `replace(impl)` hands over the whole part (the ground material, the water surface, the whole post chain): everything that part did is now yours, including the fog, shadow and season hooks inside it. Prefer `patch`; use `replace` when the hook is too small. `engine.catalog('look.<part>')` lists the hooks and what each `replace` loses.

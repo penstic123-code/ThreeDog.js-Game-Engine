@@ -8,7 +8,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
+import { TOOLS, ROOT, ENGINE, viteOptions } from '../paths.mjs';
 import { waitEngine } from '../wait-engine.mjs';
 import { until, securityCases } from '../lib/bridge-cases.mjs';
 
@@ -26,7 +26,7 @@ export async function run({ check, browser }) {
     check('without a dev server it says to run npm run dev first', r.status === 1 && r.stdout.includes('npm run dev'), r.stdout);
   }
 
-  const server = await createServer({ root: dir, configFile: join(dir, 'vite.config.js'), server: { port: 0, host: 'localhost' }, logLevel: 'error' });
+  const server = await createServer(await viteOptions(dir, { server: { port: 0, host: 'localhost' }, logLevel: 'error' }));
   await server.listen();
   try {
     const dev = JSON.parse(readFileSync(join(dir, '.threedog/dev.json'), 'utf8'));
@@ -47,13 +47,13 @@ export async function run({ check, browser }) {
       && /Headless page paused, tick \d+/.test(d.out), d.out);
     check('describe --full: the full text', (await threedog('describe', '--full')).out.includes('[Game state]'));
     check('describe path: one item', /^\d\d:\d\d$/.test(startClock), startClock);
-    const clockOf = async () => (await threedog('eval', 'engine.describe().time.elapsed')).out.replace('✓ ', '');
+    const clockOf = async () => (await threedog('eval', 'engine.describe().time.real')).out.replace('✓ ', '');
     const t0 = +await clockOf(), s = (await threedog('step', '2'));
     check('step 2: advances 2 seconds', s.out.startsWith('✓ Stepped 2 s') && Math.abs(+await clockOf() - t0 - 2) < 0.1, s.out);
     await threedog('state', 'cutscene=skip');   // the game's opening camera (5 s) takes Esc as "skip" while it plays
-    const p = (await threedog('press', 'menu'));
-    check('press menu: the settings window opens', p.out.includes('settings'), p.out);
-    (await threedog('press', 'menu'));
+    const p = (await threedog('press', 'cancel'));
+    check('press cancel: the settings window opens (settings opens on the basic cancel key)', p.out.includes('settings'), p.out);
+    (await threedog('press', 'cancel'));
     check('press again: it closes', !(await threedog('describe')).out.includes('settings'));
     check('press an unknown action: lists the available actions', (await threedog('press', 'nope')).out.includes('Unknown'));
     const where = async () => JSON.parse((await threedog('describe', 'player.position')).out);
@@ -70,7 +70,7 @@ export async function run({ check, browser }) {
     check('js alias / --file: reads a multi-line script from a file', (await threedog('js', '1 + 2')).out === '✓ 3' && (await threedog('js',
       '--file', script)).out === '✓ 21' && (await threedog('eval', '--file', 'nope.js')).out.includes('Script file not found'));
     // plain js and checks scripts get the same globals (step / log / assert / expect); a failed expect shows its message in both forms
-    writeFileSync(script, 'const t = engine.elapsed;\nstep(0.5);\nlog("stepped");\nreturn +(engine.elapsed - t).toFixed(1) > 0.4;\n');
+    writeFileSync(script, 'const t = engine.time.now("real");\nstep(0.5);\nlog("stepped");\nreturn +(engine.time.now("real") - t).toFixed(1) > 0.4;\n');
     const plainJs = await threedog('js', '--file', script);
     check('js without checks: step() and log() exist, the return value is printed', plainJs.code === 0 && plainJs.out === '· stepped\n✓ true', plainJs.out);
     writeFileSync(script, 'expect(1, "on expect").toBe(2);\nexpect(1).toBe(3, "on matcher");\nassert(false, "on assert");\nexpect(1).toBe(1);\n');
@@ -78,7 +78,7 @@ export async function run({ check, browser }) {
     check('js checks: expect(v, msg) and expect(v).toBe(x, msg) failures print the message', checks.code === 1 && checks.out.startsWith('✗ 3 of 4 checks failed')
       && checks.out.includes('#1 on expect → expected 2, got 1') && checks.out.includes('#2 on matcher') && checks.out.includes('#3 on assert'), checks.out);
     rmSync(script, { force: true });
-    const rawClock = async () => +(await threedog('eval', 'engine.elapsed')).out.replace('✓ ', ''),
+    const rawClock = async () => +(await threedog('eval', 'engine.time.now("real")')).out.replace('✓ ', ''),
       tp0 = await rawClock(); await threedog('press', 'KeyJ', '--for', '0.02'); const tp1 = await rawClock();
     check('press --for 0.02: advances only about 0.04 s (default 0.117 s)', tp1 - tp0 > 0.03 && tp1 - tp0 < 0.06, `${tp0} ${tp1}`);
     // op / ops: run a game op from the command line; values are converted by the op's args shape
@@ -178,7 +178,7 @@ export async function run({ check, browser }) {
     await until(async () => !(await threedog('eval', 'location.search')).out.includes('threedog-headless'));
     const live = (await threedog('step', '1'));
     check('real page: step pauses first and says to resume', live.out.includes('threedog resume') && await page.evaluate(() => engine.paused), live.out);
-    check('real page: the command takes effect on this page', (await page.evaluate(() => engine.describe().time.elapsed)) > 0);
+    check('real page: the command takes effect on this page', (await page.evaluate(() => engine.describe().time.real)) > 0);
     check('real page: snap can capture (canvas only)', (await threedog('snap',
       'bridge-live')).code === 0 && existsSync(join(dir, '.threedog/shots/bridge-live.png')));
     check('real page: resume restores real time', (await threedog('resume')).code === 0 && !(await page.evaluate(() => engine.paused)));
@@ -210,7 +210,7 @@ export async function run({ check, browser }) {
   // 5. No bridge in the build output
   const out = mkdtempSync(join(tmpdir(), 'threedog-bridge-'));
   try {
-    await build({ root: dir, configFile: join(dir, 'vite.config.js'), build: { outDir: out, emptyOutDir: true }, logLevel: 'error' });
+    await build(await viteOptions(dir, { build: { outDir: out, emptyOutDir: true }, logLevel: 'error' }));
     const files = readdirSync(out, { recursive: true, withFileTypes: true }).filter(f => f.isFile() && /\.(js|html)$/.test(f.name));
     const hit = files.filter(f => /threedog-bridge|__threedog\/cmd|threedog:hello/.test(readFileSync(join(f.parentPath, f.name), 'utf8')));
     check('the build output contains no bridge code', files.length > 0 && hit.length === 0, hit.map(f => f.name).join(', '));

@@ -1,5 +1,5 @@
 // Trigger zones on a spatial grid: same enter / exit sequence as visiting every zone, cheap with thousands of zones, and still right when zones are added / removed,
-// sit on a cell border, carry their own `who` or cool down. Same format as specs.mjs; runs on the small town page (engine.triggers, no terrain).
+// sit on a cell border, carry their own `who` or cool down. Same format as the other files here; runs on the small town page (engine.triggers, no terrain).
 export const specs = [
   {
     name: 'triggers grid: 2000 zones give the same enter / exit sequence as a full scan, each step is cheap, 120000 zones do not overflow the stack (small town)',
@@ -21,7 +21,7 @@ export const specs = [
         // reference: every step visit every zone newest first, exactly what the module did before the grid
         const want = [], was = new Set();
         const path = Array.from({ length: 500 }, (_, i) => [Math.cos(i / 40) * 150 + rnd() * 3, Math.sin(i / 25) * 150 + rnd() * 3]);
-        let stepMs = 0;
+        let stepMs = 0, visited = 0;
         for (const [x, z] of path) {
           P.set(x, 0, z);
           const p = engine.actorPosition();
@@ -30,6 +30,7 @@ export const specs = [
             if (hit && !was.has(t)) { was.add(t); want.push('+' + t.tag); } else if (!hit && was.has(t)) { was.delete(t); want.push('-' + t.tag); }
           }
           const t0 = performance.now(); T.update(1 / 60); stepMs += performance.now() - t0;
+          visited += T._scan.length;   // zones this step actually tested (the work the grid saves); timings are printed only, they flake under load
         }
         const same = log.length === want.length && log.every((s, i) => s === want[i]);
         // timing on the same positions: visiting every zone, as the old update did
@@ -43,11 +44,12 @@ export const specs = [
           const t0 = performance.now(); T.update(1 / 60); big = { ms: Math.round(performance.now() - t0) };
           for (let i = hs.length - 1; i >= 0; i--) hs[i].remove();
         } catch (e) { big = { error: String(e) }; }
-        return { same, n: log.length, stepMs: stepMs / path.length, scanMs: scanMs / path.length, hits, big, left: T.list().length - own };
+        return { same, n: log.length, stepMs: stepMs / path.length, scanMs: scanMs / path.length, visited: visited / path.length, total: zs.length + own, hits, big, left: T.list().length - own };
       });
-      console.log(`  triggers: 2000 zones module ${r.stepMs.toFixed(4)} ms/step, full scan ${r.scanMs.toFixed(4)} ms/step, ${r.n} events, 120000 zones first step ${r.big.ms} ms`);
+      console.log(`  triggers: 2000 zones module ${r.stepMs.toFixed(4)} ms/step (${r.visited.toFixed(1)} zones tested), full scan ${r.scanMs.toFixed(4)} ms/step, ${r.n} events, 120000 zones first step ${r.big.ms} ms`);
       check('enter / exit sequence over 500 steps equals the full scan', r.same && r.n > 20, `${r.n} events`);
-      check('a step with 2000 zones costs less than just testing each zone', r.stepMs < r.scanMs, `module ${r.stepMs.toFixed(4)} ms/step, full scan (contains only) ${r.scanMs.toFixed(4)} ms/step`);
+      // counted, not timed: the grid's point is testing the zones near the actor (plus always-checked and occupied ones), not all of them
+      check('a step with 2000 zones tests under a twentieth of them', r.visited > 0 && r.visited < r.total / 20, `${r.visited.toFixed(1)} of ${r.total} zones per step`);
       check('120000 zones: update runs without a stack overflow', r.big && !r.big.error, JSON.stringify(r.big));
       check('removing everything leaves nothing behind', r.left === 0, r.left);
     },

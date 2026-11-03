@@ -7,10 +7,10 @@ import { terrainPreset } from '@threedog/terrain-noise';   // optional: a terrai
 import data from './content/index.js';
 import packs from './assets.js';
 
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests, ...presets.bindings.photo, ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
 // openWorld installs the world and environment (terrain, vegetation, calendar, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
-// More you can add (installed above: interactions inventory pickups content hud): dialogue() quests({ ...presets.keys.quests }) triggers() timeline() particles() music() photo({ ...presets.keys.photo }) grids(), usage in node_modules/threedog/docs/api/<module>.md
-engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, calendar: presets.calendar.cycle }), interactions({ ...presets.interactions.nearest }), inventory({ ...presets.keys.inventory }), pickups(), content(), hud());
+// More you can add (installed above: interactions inventory pickups content hud): dialogue() quests() triggers() timeline() particles() music() photo() grids(), usage in node_modules/threedog/docs/api/<module>.md
+engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, calendar: presets.calendar.cycle }), interactions({ ...presets.interactions.nearest }), inventory(), pickups(), content(), hud());
 
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 });   // the terrain is generated: find a flat spot as "home". home is a Vector3, use home.x / home.z, not home[0]
 engine.assets.manifest(packs);   // assets.js: the names content uses (crate, a gray box made in code); add GLB files and sounds there the same way

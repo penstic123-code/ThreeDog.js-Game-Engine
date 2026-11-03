@@ -1,28 +1,28 @@
-// Post-processing as an ordered list of named effects in four slots. The engine owns no look of its own here: bloom, AO and
-// outline are effects a style registers (they come from @threedog/post-effects); games add theirs with look.post.replace([...]).
-// An effect promises only a name, params and on/off; how it draws is its create() (a three.js Pass under WebGLRenderer),
-// so a WebGPU backend can later bring its own implementation without changing callers.
+// Post effects in five slots (both renderers). One list for WebGL and WebGPU. The engine owns no look of its own here: bloom, AO and
+// outline are effects a style's plugins bring (they come from @threedog/post-effects). Everything gets into the list through ONE call,
+// engine.look.post.add (render/postLook.js): game code, the plugins folder and a style pack's plugins alike; look.post.replace swaps the list.
+// An effect promises only a name, params and on/off; how it draws is its create() (a three.js Pass under WebGLRenderer) or its
+// node() (a TSL node under WebGPURenderer), so callers never see which backend runs.
 //
-// Why EffectComposer and not three 0.187's renderer.setEffects(): setEffects fixes MSAA when the renderer is created (no
-// runtime switch for the settings menu) and always tone-maps last, so there is no place for sRGB-space effects (LUT, palette
-// quantising, paper grain). The composer stays an internal detail; nothing public returns it.
-//
-// MSAA lives in the composer's render targets, so it survives any effect and can be switched at runtime. With nothing on
-// (antialias included) the scene renders straight to the canvas and nothing is allocated (a Color background or the clear color is drawn tone-mapped there too: _direct).
+// This file is the backend-free part (list, slots, ownership); the chain itself is postWebGL.js (EffectComposer) or, on WebGPURenderer,
+// render/fx/postWebGPU.tsl.js (RenderPipeline). Why the WebGPU side is looked up on a global and not imported: importing it here would put
+// three/webgpu into every WebGL game's bundle; it registers itself when threedog/tsl loads, the way patchNodes.tsl.js does for patches,
+// and stays synchronous (a dynamic import would leave the first frames without post and make _sync async).
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { warnMissing, warnOnce } from '../core/validate.js';
-import { FusedPass, groupFuse, checkDepthOrder } from './fuse.js';
+import { webglPost } from './postWebGL.js';
 import { definePostLook } from './postLook.js';
 import { codedError } from '../core/errorHints.js';
+import { isWebGPU, webgpuPart, ownMsaa } from './backend.js';
+import { defineOwned } from '../core/owned.js';
+import { watchOwnFrame } from './ownFrame.js';
 /** @import { Engine } from '../types/core' */
 
 /**
- * @typedef {'scene' | 'hdr' | 'ldr' | 'final'} PostSlot
+ * @typedef {'scene' | 'hdr' | 'tone' | 'ldr' | 'final'} PostSlot
  *   scene: replaces the scene render (one at a time, e.g. a pixelating render); hdr: linear color before tone mapping (bloom, AO,
- *   outline); ldr: sRGB color after tone mapping (LUT, palette, grain, vignette); final: last of all (FXAA / SMAA).
+ *   outline); tone: replaces the engine's tone-mapping output stage (one at a time: an own curve, a filmic grade; it receives linear HDR
+ *   color and must output display color, tone mapped AND converted to the output color space, as three's OutputPass / renderOutput do);
+ *   ldr: sRGB color after tone mapping (LUT, palette, grain, vignette); final: last of all (FXAA / SMAA).
  * @typedef {{ engine: Engine, scene: import('three').Scene, camera: import('three').Camera, width: number, height: number, params: Record<string, any> }} PostContext
  *   width / height are in device pixels.
  * @typedef {{ uniforms?: Record<string, string>, values?: (params: Record<string, any>) => Record<string, any>, glsl: string, reads?: boolean }} PostFuse
@@ -31,11 +31,25 @@ import { codedError } from '../core/errorHints.js';
  *   declares extra ones by GLSL type ({ uVigStrength: 'float' }; names must be unique across effects, prefix with the effect name);
  *   values(params) returns their current values. reads: true when the snippet samples tDiffuse at other uvs (blur, color fringe):
  *   it then starts a new group, so it sees the real input.
- * @typedef {{ name: string, create?: (ctx: PostContext) => object, fuse?: PostFuse, slot?: PostSlot, order?: number, enabled?: boolean, costly?: boolean,
+ *   tsl (WebGPURenderer): (color, uv, t) => color, the same snippet as a TSL expression on the vec4 color node; t holds tsl (three/tsl),
+ *   p (a uniform node per number / color param, live: set() changes .value, no rebuild), input (the image so far, sample it at other uvs with
+ *   t.input.sample(uv)), time (s), resolution (device px). Neighbors are chained into one node, so three draws them in one pass.
+ * @typedef {{ engine: Engine, scene: import('three').Scene, camera: import('three').Camera, width: number, height: number, params: Record<string, any>,
+ *   scenePass: any, tsl: any, display: Record<string, Function>, p: Record<string, any> }} PostNodeContext
+ *   WebGPU only. scenePass: the scene's pass() node (.getTextureNode('depth'), getViewZNode() ...); tsl: three/tsl; display: three's display nodes
+ *   (bloom, ao from three/addons/tsl/display) plus pass (an extra scene render) and texture (the color so far as a texture to sample at other uvs),
+ *   handed in so effect packages never import three/webgpu themselves and so the nodes they make are disposed with the chain;
+ *   p: live uniform nodes of the number / color params (as in PostFuse tsl), so set() of those never rebuilds the pipeline; a param read from
+ *   ctx.params while node() runs is a constant in the graph, so set() of it rebuilds the chain (as WebGL rebuilds an effect without update()).
+ * @typedef {{ name: string, create?: (ctx: PostContext) => object, node?: (input: any, ctx: PostNodeContext) => any, fuse?: PostFuse, slot?: PostSlot | (string & {}), order?: number, enabled?: boolean, costly?: boolean,
  *   needsDepth?: boolean, params?: Record<string, any>, update?: (impl: any, params: Record<string, any>) => void }} PostEffect
+ *   node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
+ *   that is not a number / color changes (those are live in ctx.p). An effect with only create cannot run on WebGPURenderer (it throws by name).
  *   create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
  *   fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params
  *   update in place (no update() needed).
+ *   slot: a PostSlot; typed as any string too because a slot in a plain JS object (an effect returned from a function) is a string to
+ *   TypeScript, and the chain throws on an unknown slot naming the valid ones.
  *   order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
  *   needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  *   scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
@@ -45,7 +59,9 @@ import { codedError } from '../core/errorHints.js';
  *   readonly params: Record<string, any> }} PostHandle
  */
 
-const SLOTS = ['scene', 'hdr', 'ldr', 'final'];
+const SLOTS = ['scene', 'hdr', 'tone', 'ldr', 'final'];
+// slots one effect at a time: each replaces an engine stage (the scene render, the tone-mapping output), two replacements of one stage cannot both run
+const EXCLUSIVE = { scene: 'replace the scene render', tone: 'replace the tone-mapping output' };
 
 export class PostFX {
   /**
@@ -53,30 +69,25 @@ export class PostFX {
    * @param {{ antialias?: boolean, effects?: PostEffect[], enabled?: Record<string, boolean> }} [opts]
    * @internal
    */
-  constructor(engine, { antialias = true, effects = [], enabled = {} } = {}) {
+  constructor(engine, { antialias = true } = {}) {
     /** @internal */ this.engine = engine;
     /** @internal */ this._aa = antialias;
     /** @internal */ this._list = /** @type {any[]} */ ([]);
     /** @internal EffectComposer, built the first time anything is on */ this.composer = /** @type {any} */ (null);
-    if (!Array.isArray(effects)) throw codedError('post-effect', 'style.post must be an array of post effects, e.g. post: [bloom({ strength: 0.35 })] (see recipe 09)');
-    for (const name in enabled) if (!effects.some(e => e?.name === name))
-      throw codedError('post-effect', `createEngine({ post }): no post effect named '${name}'; the style registers: ${effects.map(e => e.name).join(', ') || 'none'}`);
-    /** @internal */ this._fused = /** @type {Map<string, FusedPass>} */ (new Map());
-    /** @internal */ this._scenePass = /** @type {any} */ (null);
-    /** @internal */ this._output = /** @type {any} */ (null);
-    /** @internal */ this._building = true;     // add() skips chain rebuilds until every style effect is in
+    /** @internal the chain's backend: postWebGL.js, or the WebGPU one threedog/tsl registers */ this._be = backendFor(engine.renderer);
+    /** @internal the renderer's own MSAA on its canvas (fixed when it was made; the engine makes it with the default antialias) */ this._ownAA = ownMsaa(engine.renderer);
+    this._be.init(this);
+    /** @internal */ this._building = false;    // look.post.replace sets it while it swaps the list, so the chain is rebuilt once
     /** Why a costly effect started off (name -> reason), shown by describe().render and logged once: a silent "bloom is missing" in headless / software rendering looked like a bug @internal */
     this._offWhy = /** @type {Record<string, string>} */ ({});
-    for (const e of effects) {
-      const lowOff = enabled[e.name] == null && e.costly && engine.tier === 'low';
-      if (lowOff) this._offWhy[e.name] = `starts off: costly effect on a low-tier device (${engine.headless ? 'this headless page runs at the low tier: shot --tier high renders it' : 'weak GPU or software rendering'}); turn it on with createEngine({ post: { ${e.name}: true } }) or engine.look.post.set({ '${e.name}.enabled': true })`;
-      this._add(e, { enabled: enabled[e.name] ?? (lowOff ? false : undefined) });
-    }
-    const why = Object.entries(this._offWhy);
-    if (why.length) warnOnce(`post: ${why.map(([n]) => n).join(', ')} ${why.length > 1 ? 'are' : 'is'} off by default here. ${why[0][1]}`);
-    this._building = false;
+    watchOwnFrame(engine);   // a game that renders the canvas itself (own EffectComposer) takes the frame; the loop yields (ownFrame.js)
+    // look.post.manual(): the game takes the built chain (composer passes / pipeline.outputNode) and the engine stops rebuilding it; handing it
+    // back rebuilds from the list. read is a constant: a direct write to object() is not a takeover (the next chain change replaces it)
+    /** @internal */ this._own = defineOwned(engine, { id: 'post.chain', part: 'post', key: 'chain', read: () => 0,
+      levels: { manual: "engine.look.post.manual('chain')" }, onChange: o => { if (!o.on) return; if (this._pipe) this._pipe.key = null; this._sync(); } });
     this._sync();
-    /** look.post: the style's effects are its style layer; look.post.set writes its 'game' layer @internal */ this._look = definePostLook(this, effects);
+    // look.post.add is the one way an effect gets here (game code, the plugins folder, a style pack's plugins): render/postLook.js
+    /** @internal */ this._look = definePostLook(this);
   }
 
   /**
@@ -85,10 +96,11 @@ export class PostFX {
    */
   get antialias() { return this._aa; }
   /**
-   * Whether any post work runs (antialias or an enabled effect)
+   * Whether the post chain runs: an effect is on, or antialias differs from the canvas's own MSAA (fixed when the renderer was made, so a
+   * runtime switch away from it goes through the chain's targets)
    * @returns {boolean}
    */
-  get active() { return this._aa || this._list.some(e => e.enabled); }
+  get active() { return this._aa !== this._ownAA || this._list.some(e => e.enabled); }
 
   /**
    * The three.js EffectComposer the chain runs in, for reading (pass list, sizes, its targets), or null while no post work has run yet (built
@@ -97,7 +109,7 @@ export class PostFX {
    * to own the whole chain look.post.replace (recipe 52). Why public: a game reading the chain had to dig into an internal field (review 2026-11-03)
    * @returns {any}
    */
-  object() { return this.composer; }
+  object() { return this._be.object(this); }
   /**
    * The composer's render targets, for reading (sample the last frame's color or depth in a game pass, check formats / samples), or null while
    * there is no composer. renderTarget1 / renderTarget2 are the ping-pong pair. During the chain readBuffer is a pass's input and writeBuffer its
@@ -108,22 +120,18 @@ export class PostFX {
    * do not dispose them or swap their textures. A target of your own: new THREE.WebGLRenderTarget in onRender (recipe 54)
    * @returns {{ renderTarget1: any, renderTarget2: any, readBuffer: any, writeBuffer: any } | null}
    */
-  targets() {
-    const c = this.composer;
-    // a fresh frozen object each call: reassigning a field here cannot swap the composer's own buffers
-    return c ? Object.freeze({ renderTarget1: c.renderTarget1, renderTarget2: c.renderTarget2, readBuffer: c.readBuffer, writeBuffer: c.writeBuffer }) : null;
-  }
+  targets() { return this._be.targets(this); }
 
   /** Effects are added by look.post (patch generates a fuse effect, replace swaps the chain) with this @internal */
   _add(effect, { slot, order, enabled } = {}) {
-    if (!effect || typeof effect.name !== 'string' || (typeof effect.create !== 'function' && !effect.fuse))
+    if (!effect || typeof effect.name !== 'string' || (typeof effect.create !== 'function' && typeof effect.node !== 'function' && !effect.fuse))
       throw codedError('post-effect', "post effect: needs { name: 'myEffect', create: (ctx) => pass } (or a fuse snippet, see PostEffect)");
     if (this.get(effect.name)) throw codedError('post-effect', `post effect '${effect.name}' is already added; change it with look.post.set({ '${effect.name}.<param>': value }), or drop it with look.post.replace([...])`);
     const s = slot ?? effect.slot ?? 'hdr';
     if (!SLOTS.includes(s)) throw codedError('post-effect', `post effect '${effect.name}': unknown slot '${s}', use ${SLOTS.join(' | ')}`);
     if (effect.fuse && s === 'scene') throw codedError('post-effect', `post effect '${effect.name}': a fuse snippet colors an existing image, it cannot replace the scene render; use slot 'hdr' | 'ldr' | 'final'`);
-    const other = s === 'scene' && this._list.find(e => e.slot === 'scene');
-    if (other) throw codedError('post-effect', `post slot 'scene' already holds '${other.name}'; remove it first (only one effect can replace the scene render)`);
+    const other = s in EXCLUSIVE && this._list.find(e => e.slot === s);
+    if (other) throw codedError('post-effect', `post slot '${s}' already holds '${other.name}'; remove it first (only one effect can ${EXCLUSIVE[s]})`);
     const post = this;
     const h = {
       name: effect.name, slot: s, order: order ?? effect.order ?? 0, enabled: enabled ?? effect.enabled ?? true,
@@ -131,13 +139,18 @@ export class PostFX {
       _enable(on) { const was = h.enabled; post._change(() => { h.enabled = !!on; }, () => { h.enabled = was; }); },
       _set(p) {
         Object.assign(h.params, p);
-        if (effect.fuse) { for (const p of post._fused.values()) p.refresh(); return; }
+        if (post._be.set?.(post, h, p)) return;   // WebGPU: live uniforms, or a rebuild of the node graph
+        if (effect.fuse) { post._be.refresh(post, h); return; }
         if (!h._impl) return;
         if (effect.update) effect.update(h._impl, h.params); else { h._impl.dispose?.(); h._impl = null; post._sync(); }
       },
       _remove() {
         if (h._removed) return;
-        h._removed = true; h._impl?.dispose?.(); h._impl = null;
+        h._removed = true;
+        // a plain Pass the game handed in is the game's object: like three's composer.removePass it is not disposed. Only that case: on WebGPU
+        // _impl is the engine's record of the nodes it built (bloom's mip targets), and skipping it leaked them on every off / on
+        if (h._impl !== effect._pass) h._impl?.dispose?.();
+        h._impl = null;
         post._list = post._list.filter(e => e !== h); post._sync();
       },
     };
@@ -153,7 +166,8 @@ export class PostFX {
    */
   get(name) { return this._list.find(e => e.name === name); }
   /**
-   * Turn MSAA (antialiasing of the post chain) on or off. It is a render target setting, not a look part.
+   * Turn MSAA on or off. It is a render setting, not a look part. With no effect on, the start value is the canvas's own MSAA (free: no
+   * post chain); the other value, and any effect, draws through the chain, whose render targets carry the MSAA.
    * @example engine.post.setAntialias(false);
    * @param {boolean} on
    * @returns {void}
@@ -161,7 +175,7 @@ export class PostFX {
    */
   setAntialias(on) {
     this._aa = !!on;
-    if (this.composer) for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) { rt.samples = on ? 4 : 0; rt.dispose(); }
+    this._be.setAntialias(this, this._aa);
     this._sync();
   }
   /**
@@ -180,45 +194,12 @@ export class PostFX {
     apply();
     try { this._sync(); } catch (err) { undo(); this._sync(); throw err; }
   }
-  // One FusedPass per group of neighboring fuse effects, kept while the same effects stay grouped (a changed group recompiles once)
-  /** @internal */
-  _fuseEntry(group, used) {
-    const key = group.map(e => e.name).join('+'), old = this._fused.get(key);
-    let pass = old && old.items.every((e, i) => e === group[i]) ? old : null;
-    if (!pass) { old?.dispose(); pass = new FusedPass(group); this._fused.set(key, pass); }
-    used.add(key);
-    return { name: `fused(${key})`, _impl: pass };
-  }
-  // Rebuild the pass chain from the list: scene (or the default RenderPass) -> hdr -> tone-mapped output -> ldr -> final.
-  // Only enabled effects are in the chain; an implementation is built the first time its effect is on and kept after.
+  // Rebuild the chain from the list (the backend does it); skipped while the style's effects are still being added
   /** @internal */
   _sync() {
-    if (this._building || (!this.composer && !this.active)) return;
-    const { renderer, scene, camera } = this.engine, size = this._size();
-    if (!this.composer) {
-      const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: this._aa ? 4 : 0 });
-      this.composer = new EffectComposer(renderer, rt);
-      // EffectComposer takes a given target's size (device pixels) as its CSS size; reset it so setPixelRatio does not scale twice
-      const css = renderer.getSize(new THREE.Vector2());
-      this.composer.setSize(css.x, css.y);
-      this._scenePass = new RenderPass(scene, camera);
-      this._output = new OutputPass();
-    }
-    const c = this.composer, on = this._sorted().filter(e => e.enabled);
-    for (const e of on) if (!e._impl && !e._def.fuse) {
-      e._impl = e._def.create({ engine: this.engine, scene, camera, width: size.x, height: size.y, params: e.params });
-      if (!e._impl || typeof e._impl.render !== 'function') { e._impl = null; throw codedError('post-effect', `post effect '${e.name}': create() must return a pass with render() (a three.js postprocessing Pass)`); }
-    }
-    const used = new Set();
-    const slot = s => groupFuse(on.filter(e => e.slot === s)).map(g => Array.isArray(g) ? this._fuseEntry(g, used) : g);
-    const named = [slot('scene')[0] ?? { name: 'scene render', _impl: this._scenePass }, ...slot('hdr'),
-      { name: 'output (tone mapping)', _impl: this._output }, ...slot('ldr'), ...slot('final')];
-    for (const [k, p] of this._fused) if (!used.has(k)) { p.dispose(); this._fused.delete(k); }
-    checkDepthOrder(named);
-    // Effects reading depth (outline) need a depth texture on both ping-pong targets; added once, kept
-    if (on.some(e => e._def.needsDepth)) for (const rt of [c.renderTarget1, c.renderTarget2]) if (!rt.depthTexture) { rt.depthTexture = new THREE.DepthTexture(size.x, size.y); rt.dispose(); }
-    c.passes = named.map(e => e._impl);
-    for (const p of c.passes) p.setSize(size.x, size.y);
+    if (this._building || (!this.composer && !this._pipe && !this.active)) return;
+    if (!this._own.on && (this.composer || this._pipe)) return;   // the game owns the built chain (look.post.manual)
+    this._be.sync(this);
   }
 
   /**
@@ -227,17 +208,8 @@ export class PostFX {
    */
   dispose() {
     for (const e of this._list) { e._impl?.dispose?.(); e._impl = null; }
-    for (const p of this._fused.values()) p.dispose();
-    this._fused.clear();
-    this._bgTex?.dispose(); this._bgTex = null;
-    if (!this.composer) return;
-    this._scenePass.dispose(); this._output.dispose();
-    this.composer.dispose(); this.composer = null;
+    this._be.dispose(this);
   }
-  /** @param {number} w @param {number} h @returns {void} */
-  setSize(w, h) { this.composer?.setSize(w, h); }
-  /** @param {number} r @returns {void} */
-  setPixelRatio(r) { this.composer?.setPixelRatio(r); }
   /**
    * @internal The target the scene is drawn into this frame, for start()'s compileAsync: three keys a program by its output (the canvas gets tone
    * mapping + sRGB, a render target gets neither), so compiling for the canvas while the composer draws into its half-float target compiled
@@ -246,44 +218,39 @@ export class PostFX {
    */
   _sceneTarget() {
     if (!this.active) return null;
-    if (!this.composer) this._sync();
-    return this.composer?.renderTarget1 ?? null;   // RenderPass draws into readBuffer, which is renderTarget1 or its twin (same format: same program key)
+    return this._be.sceneTarget(this);
   }
-  /** @param {number} dt @returns {void} */
-  render(dt) {
-    if (!this.active) { this._direct(); return; }
-    if (!this.composer) this._sync();
-    // no background: RenderPass clears the half-float target with whatever clear value three last set, which after the previous frame's
-    // OutputPass is the clear color converted for the canvas (sRGB), not linear, so OutputPass tone-maps the wrong value. The clear color as a
-    // Color background for this render makes three set the linear value and clear with it (the same pixel a Color background gives)
-    const s = this.engine.scene, c = s.background == null && this._clearColor();
-    if (!c) { this.composer.render(dt); return; }
-    s.background = c;
-    try { this.composer.render(dt); } finally { s.background = null; }
+  /**
+   * Draw the frame through the chain. target: a render target to draw the finished picture into instead of the canvas (engine.renderOnce(target));
+   * it gets the canvas's pixels (tone mapped, output color space). Why a target argument and not "set the render target first": the WebGL chain's
+   * last pass always writes to the canvas (EffectComposer renderToScreen); the WebGPU pipeline draws into whatever target is set.
+   * @param {number} dt @param {any} [target] @returns {void}
+   */
+  render(dt, target = null) {
+    if (!this.active) { this._be.direct(this, target); return; }
+    this._be.render(this, dt, target);
+  }
+  /**
+   * @internal start() replaced the renderer (fallback: 'webgl'): the chain and every effect's built part (bloom's node, its targets) belong to
+   * the old backend. Dropping each _impl matters: the WebGL backend builds an effect only when it has none, so a WebGPU record left behind
+   * was used as a Pass and start() crashed.
+   */
+  _setBackend() {
+    this._be.dispose(this);
+    for (const e of this._list) { e._impl?.dispose?.(); e._impl = null; }
+    this._be = backendFor(this.engine.renderer);
+    this._ownAA = ownMsaa(this.engine.renderer);
+    this._be.init(this);
+    this._sync();
   }
   /** @internal The renderer's clear color when it stands in for a missing background: opaque and cleared by three (not the game), else null */
   _clearColor() {
     const r = this.engine.renderer;
     return r.autoClear && r.autoClearColor && r.getClearAlpha() === 1 ? r.getClearColor(this._clear ??= new THREE.Color()) : null;
   }
-  /**
-   * @internal The straight-to-canvas render. A THREE.Color scene.background, and with no background the renderer's clear color, is a clear,
-   * and three never tone-maps a clear, while the composer path tone-maps everything in its OutputPass: the sky color shifted whenever an effect
-   * or MSAA switched on. Here such a background is drawn for this one render as a 1x1 linear texture, which three draws as a tone-mapped quad,
-   * so both paths show the same pixel (render() fixes the composer side of a missing background). Not for a see-through clear (clear alpha < 1: the quad would make the canvas opaque) or when the game
-   * clears itself (autoClear off). Not for a texture background either: an sRGB one is drawn untone-mapped on the canvas by three's own rule
-   * (WebGLBackground sets toneMapped from the texture's color space every frame) and tone-mapped by OutputPass; a linear (HDR) one agrees.
-   * Why not always render through the composer: that costs a half-float target and a fullscreen pass on every page that has no effects (low-end devices).
-   */
-  _direct() {
-    const { renderer: r, scene: s, camera } = this.engine, bg = s.background;
-    const col = bg?.isColor ? bg : bg == null ? this._clearColor() : null;
-    if (!col || r.toneMapping === THREE.NoToneMapping) { r.render(s, camera); return; }
-    const t = this._bgTex ??= Object.assign(new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType), { colorSpace: THREE.LinearSRGBColorSpace });
-    const d = t.image.data;
-    if (d[0] !== col.r || d[1] !== col.g || d[2] !== col.b || d[3] !== 1) { d.set([col.r, col.g, col.b, 1]); t.needsUpdate = true; }
-    const bi = s.backgroundIntensity;   // a clear ignores backgroundIntensity; the texture would not
-    s.background = t; s.backgroundIntensity = 1;
-    try { r.render(s, camera); } finally { s.background = bg; s.backgroundIntensity = bi; }
-  }
+}
+
+/** The chain backend for this renderer: WebGL here; the WebGPU one only when threedog/tsl registered it (render/fx/postWebGPU.tsl.js) */
+function backendFor(r) {
+  return isWebGPU(r) ? webgpuPart('post', 'engine.post (the post chain)') : webglPost;
 }

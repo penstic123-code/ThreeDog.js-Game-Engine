@@ -3,8 +3,6 @@
 Photo mode (photo() module)
 
 - Options `PhotoOptions` (also includes the fields of PhotoTakeOptions):
-  - `keys?: string[]` Photo key: required unless createEngine({ bindings }) binds 'photo' ([] = no key); presets.keys.photo has ['KeyP']
-  - `pad?: string[]` Gamepad button for taking a photo, none by default; presets.keys.photo has ['PadRB']
   - `maxAlbum?: number` How many photos the album keeps at most, default 50
 
 ## Methods and properties

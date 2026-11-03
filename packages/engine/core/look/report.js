@@ -8,6 +8,7 @@
 import { schemaInfo } from '../params.js';
 import { rv } from '../math.js';
 import { ownedOf } from '../owned.js';
+import { stylePackOf } from '../styleParts.js';
 
 const shown = v => (typeof v === 'number' ? rv(v) : typeof v === 'function' ? '<function>' : Array.isArray(v) && v.length > 4 ? `<array of ${v.length}>` : v?.isObject3D || v?.isTexture || v?.isMaterial ? `<${v.type}>` : v);
 /**
@@ -21,11 +22,12 @@ function same(a, b) {
   const x = arr(a), y = arr(b);
   if (x && y) return x.length === y.length && x.every((v, i) => same(v, y[i]));
   const c = a?.isColor ? a : b?.isColor ? b : null, other = c === a ? b : a;
-  if (c && (typeof other === 'number' || /^(#|rgb|hsl)/i.test(other ?? '')))   // 'horizon' and the like are not colors: three would warn return c.clone().set(other).equals(c);
+  // 'horizon' and the like are not colors: three would warn
+  if (c && (typeof other === 'number' || /^(#|rgb|hsl)/i.test(other ?? ''))) return c.clone().set(other).equals(c);
   return false;
 }
-/** A layer as a writer name: 'game' | 'style' | 'engine' | '<layer>:<owner>' (layer game or debug, owner as given to set / debug.override) */
-const tag = (s) => (s.layer === 'game' && s.owner === 'game') || s.layer === 'style' || s.layer === 'engine' ? s.layer : `${s.layer}:${s.owner}`;
+/** A layer as a writer name: 'game' | 'style' | 'engine' | 'settings' (owner named like its layer) | '<layer>:<owner>' (owner as given to set / debug.override) */
+const tag = (s) => s.owner === s.layer || s.layer === 'style' || s.layer === 'engine' ? s.layer : `${s.layer}:${s.owner}`;
 
 /** One part's keys: { key: { value, writer, at?, under? } }; under lists the layers this value covers (top first) */
 function partInfo(p) {
@@ -34,13 +36,20 @@ function partInfo(p) {
     const s = p._source(k);
     if (!s) continue;
     const o = { value: shown(s.value), writer: tag(s) };
-    if (s.driven) Object.assign(o, { value: shown(live[k]), driver: s.owner });   // written every frame from the style: the live value is the value
+    // a driver (the sky) writes it every frame from the layered value: the live value is what is on screen, whoever is on top (a debug override
+    // shows on the next frame; while paused the live value is the last one drawn)
+    if (s.driver) Object.assign(o, { value: shown(live[k]), driver: s.driver });
     else if (k in live && live[k] !== undefined && !same(live[k], s.value)) Object.assign(o, { value: shown(live[k]), writer: 'three' });
     if (s.at) o.at = s.at;
+    // several packs merged into the style: name the one this value came from (styleParts.js records the source per path while merging)
+    if (s.layer === 'style' && !s.driver && o.writer === 'style') { const pack = stylePackOf(p._e.style, k, s.value); if (pack) o.pack = pack; }
+    if (s.layer === 'engine' && o.writer === 'engine' && p._meta[k]?.device) o.why = p._meta[k].device;   // the engine chose this for the device (layers.js LOOK_FIELDS)
     if (s.under.length && s.layer !== 'engine') o.under = s.under.map(tag);
     // who writes it now (core/owned.js) when the engine yielded it: the owned row's name wins over the plain 'three' guess (yielded / manual:<who>)
     const w = owned.find(x => !x.on && (x.key === k || k.startsWith(x.key + '.')));
     if (w) o.writer = w.info().writer;
+    // a function value that threw or gave a non-number (points.js evalFn): how many evaluations failed, and the last reason; the value is the last good one
+    for (const f of p._fns.values()) if (f.key === k && f.errors) { o.fnErrors = (o.fnErrors ?? 0) + f.errors; o.fnError = `${f.owner}: ${f.lastError}`; }
     out[k] = o;
   }
   return Object.assign(out, p._spec.info?.());   // read-only rows that are not params (look.env source), same { value, writer } shape
@@ -67,11 +76,12 @@ function lookEntry(e, p) {
     if (m.neutral) schema[k].neutral = true;
     if (info[k]) Object.assign(schema[k], { value: info[k].value, writer: info[k].writer });
   }
-  return { id: p.id, kind: 'look', group: s.group ?? null, module: s.module ?? 'core', verbs: verbsOf(p), signatures: p.signatures, params: schema,
+  return { id: p.id, kind: 'look', group: s.group ?? null, module: s.module ?? 'core', verbs: verbsOf(p), signatures: p.author.signatures, params: schema,
     ...(s.appliesTo ? { appliesTo: s.appliesTo } : {}),
     hooks: s.hooks ?? null, replace: s.replace ?? null, ...(s.docs ? { docs: s.docs } : {}), problems: [] };
 }
-const verbsOf = p => ['set', ...(p._spec.hooks ? ['patch'] : []), ...(p._spec.replace ? ['replace'] : []), ...(ownedOf(p._e, p._spec.id).length ? ['manual'] : [])];
+// the verbs a part has: the keys of its signatures, so the catalog's verb list and its call shapes come from one place
+const verbsOf = p => Object.keys(p.author.signatures);
 
 /** Short list rows for engine.catalog() (same row shape as modules: ops / saves stay empty) @param {any} e */
 export function lookSummaries(e) {

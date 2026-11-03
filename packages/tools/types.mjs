@@ -3,7 +3,8 @@
 //   wrongly typed arguments, methods that do not exist) as short file:line summaries with a fix hint.
 // Engine types: index.d.ts + types/*.d.ts (hand-written) + types/generated/ (gentypes.mjs), via import 'threedog'.
 // Also checks that index.d.ts declares every export of index.js (a missing one means the declarations are stale).
-// Web (DOM) errors (el.style.opacity = 0.5, window.game missing) are only hints (they run fine); --strict-dom makes them errors.
+// Web (DOM) errors (el.style.opacity = 0.5, window.game missing) are only hints (they run fine); --strict-dom makes them errors. So is plain JS
+//   TypeScript cannot follow in game code (fields added to the game's own object, a union from the game's ternary, TSL node inference): isPlainJs.
 // -w game (or inside a game folder): only its errors count, the rest is a count (lib/scope.mjs)
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
@@ -15,11 +16,13 @@ import * as P from './paths.mjs';
 import { checkScope } from './lib/scope.mjs';
 
 const { ROOT } = P;
-const STRICT_DOM = process.argv.includes('--strict-dom');
-const SCOPE = checkScope(process.argv.slice(2)), ENG = SCOPE?.notEngine;
+// --tally-json: run by check -w (hands the other workspaces' counts back as one line, lib/scope.mjs)
+const { dir: SCOPE_DIR, opt: OPT } = P.cli(process.argv.slice(2), { workspace: 'scope', flags: ['strict-dom', 'tally-json'], values: ['project'] });
+const STRICT_DOM = !!OPT['strict-dom'];
+const SCOPE = checkScope(SCOPE_DIR), ENG = SCOPE?.notEngine;
 // --project <tsconfig>: another config instead of the root one (the types guard test uses a probe file)
 // A game in its own repo without a tsconfig.json gets a default one in .threedog/ (all game .js and .d.ts, engine types through 'threedog')
-const PROJECT = process.argv.includes('--project') ? process.argv[process.argv.indexOf('--project') + 1] : existsSync(join(ROOT, 'tsconfig.json')) ? join(ROOT, 'tsconfig.json') : defaultConfig();
+const PROJECT = OPT.project ?? (existsSync(join(ROOT, 'tsconfig.json')) ? join(ROOT, 'tsconfig.json') : defaultConfig());
 const rel = p => relative(ROOT, p).split(sep).join('/');
 function defaultConfig() {
   const f = join(ROOT, '.threedog', 'tsconfig.types.json');
@@ -77,6 +80,10 @@ for (const f of [P.abs(P.INDEX_DTS_REL), ...readdirSync(P.abs(P.TYPES_REL)).map(
   if (!f.endsWith('.d.ts') || !existsSync(f)) continue;
   for (const m of readFileSync(f, 'utf8').matchAll(/export (?:declare )?(?:interface|type|class) (\w+)/g)) typeHome.set(m[1], rel(f));
 }
+// every engine type name, the generated declarations too (PostEffect): an error that names one is about the engine API (isPlainJs)
+const engineTypes = new Set(typeHome.keys());
+for (const f of readdirSync(P.abs(P.TYPES_REL), { recursive: true })) if (String(f).endsWith('.d.ts'))
+  for (const m of readFileSync(join(P.abs(P.TYPES_REL), String(f)), 'utf8').matchAll(/export (?:declare )?(?:interface|type|class) (\w+)/g)) engineTypes.add(m[1]);
 const where = t => { const name = t.match(/^(\w+)/)?.[1]; return name && typeHome.has(name) ? ` (valid forms: see ${name} in ${typeHome.get(name)})` : ''; };
 
 /** Turn TypeScript's type notation into plain English */
@@ -152,7 +159,15 @@ function translate(d) {
     return `name not defined: ${m[1]}` + (m[2] ? `; did you mean \`${m[2]}\`?` : ' (forgot to import it, or misspelled?)');
   if ((m = msg.match(/^Cannot find module '(.+?)'/)))
     return `file not found: ${m[1]} (wrong path?)`;
-  if (/^This expression is not callable/.test(msg)) return 'this is not a function, it cannot be called with parentheses' + detail(d);
+  if (/^This expression is not callable/.test(msg)) {
+    // name the expression (TypeScript only says "this expression") and its type: `engine.random()` where engine.random is an object (keeper run 2026-11-03)
+    // TypeScript points at the last name of a member call (random in engine.random()): the receiver in front of it completes the expression
+    const own = srcLine(d.file, d.line).slice(d.col - 1).match(/^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*/)?.[0], who = receiver(d);
+    const what = own && (who ? `${who}.${own}` : own);
+    const type = d.more.map(l => l.match(/^Type '(.+?)' has no call signatures/)?.[1]).find(Boolean);
+    return `${what ? `\`${what}\`` : 'this'} is not a function, it cannot be called with parentheses` +
+      (type ? ` (it is ${typeText(type)}; call one of its methods, ${what ? `\`${what}.<method>()\`` : '`.<method>()`'})${where(type)}` : detail(d));
+  }
   if ((m = msg.match(/^'(.+?)' is possibly '(null|undefined)'/))) return `${m[1]} may be empty (${m[2]})`;
   if (/^No overload matches this call/.test(msg)) return 'the arguments match none of the forms of this function' + detail(d);
   if ((m = msg.match(/^Cannot assign to '(.+?)' because it is a read-only property\.$/))) return `${m[1]} is read-only and cannot be changed directly`;
@@ -178,14 +193,33 @@ function isDom(d) {
   return false;
 }
 
+/**
+ * Plain JS that TypeScript cannot follow, in a game's own code: a field added to the game's own object after it was made (fx.density = …),
+ * a property read on a union the game's own ternary built (gpu ? nodeMaterial : shaderMaterial), a default `{}` parameter, a call that leaves
+ * out a name the game's own untyped function destructures, a TSL node whose
+ * type TypeScript narrowed by inference (let s = float(0); s = s.add(…)). It runs fine, so it is a hint, not an error. Why not stricter: an AI
+ * that gets errors for ordinary JS turns the check off for the whole file (// @ts-nocheck) and loses the engine checks with it. Anything that
+ * names an engine type stays an error, and so does the engine's own code (packages/, examples included).
+ */
+function isPlainJs(d) {
+  if (d.file.startsWith('packages/')) return false;
+  const all = d.msg + ' ' + d.more.join(' ');
+  for (const w of all.matchAll(/\b[A-Z]\w+/g)) if (engineTypes.has(w[0])) return false;
+  const tsl = /\b(?:\w*Node)<"/.test(all);
+  if (d.code === 2339) { const t = d.msg.match(/^Property '.+?' does not exist on type '(.+?)'\./)?.[1] ?? ''; return t.startsWith('{') || t.includes(' | ') || tsl; }
+  // the game's own function that destructures its parameter with no JSDoc: TypeScript makes every name required ({ w: any; rough: any })
+  const ownParam = d.code === 2345 && /parameter of type '\{ (?:[\w$]+(?:: any|\?: [^;{}]+); )*[\w$]+: any; /.test(d.msg);
+  return ownParam || ((d.code === 2322 || d.code === 2345) && tsl);
+}
+
 const errors = [], hints = [];
 for (const d of diags) {
   if (d.line && P.notGameSource(resolve(P.ROOT, d.file), P.ROOT, false)) continue;   // an error inside a dependency is not the game's
   const at = d.line ? `${d.file}:${d.line}` : d.file;
   const text = d.code ? translate(d) : d.msg;
-  const hint = !STRICT_DOM && d.code && isDom(d);
+  const hint = !d.code ? null : !STRICT_DOM && isDom(d) ? 'web (DOM) type hint' : isPlainJs(d) ? 'plain JS TypeScript cannot follow' : null;
   if (SCOPE?.mine(d.file) === false) SCOPE.other(d.line && d.file, hint ? 'warn' : 'error');
-  else if (hint) hints.push(`${at}  ${text}`);
+  else if (hint) hints.push(`${at}  ${text}  ← ${hint}`);
   else errors.push(`${at}  ${text}`);
 }
 
@@ -234,18 +268,18 @@ else {
 // ---------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------
-// Grouped by source: examples, styles styles, each game games/<name>
-const group = f => P.under(f, P.EXAMPLES_REL) ? 'examples' : P.under(f, P.STYLES_REL) ? 'styles' : P.MODE === 'game' ? (f.startsWith('games/') ? f.split('/').slice(0, 2).join('/') : 'game') : f.split('/').slice(0, 2).join('/');
+// Grouped by source: examples, each game games/<name> (a game's style/ folder counts as that game)
+const group = f => P.under(f, P.EXAMPLES_REL) ? 'examples' : P.MODE === 'game' ? (f.startsWith('games/') ? f.split('/').slice(0, 2).join('/') : 'game') : f.split('/').slice(0, 2).join('/');
 if (ENG) { SCOPE.engine(coverage.length); coverage.length = 0; }   // the engine's
 const shown = SCOPE ? checked.filter(SCOPE.mine) : checked;
 console.log(`Type check: ${shown.length} game files (${[...new Set(shown.map(group))].join(', ') || 'none'})`);
 for (const e of errors) console.log('  ✗ ' + e);
 for (const c of coverage) console.log('  ✗ ' + c);
-for (const h of hints) console.log('  ! ' + h + '  ← web (DOM) type hint, not a misuse of the engine API, does not affect running');
+for (const h of hints) console.log('  ! ' + h + ', not a misuse of the engine API, does not affect running');
 SCOPE?.report();
 const n = errors.length + coverage.length;
 if (n) {
-  console.log(`\n${n} errors. ✗ means the engine API is misused (or the declarations are stale); fix the code, then run npm run types again.`);
+  console.log(`\n${n} error${n === 1 ? '' : 's'}. ✗ means the engine API is misused (or the declarations are stale); fix the code, then run npm run types again.`);
   process.exit(1);
 }
-console.log(`\n✓ No misuse of the engine API found${hints.length ? ` (plus ${hints.length} web (DOM) hints, which can be ignored)` : ''}.`);
+console.log(`\n✓ No misuse of the engine API found${hints.length ? ` (plus ${hints.length} hints that do not affect running)` : ''}.`);

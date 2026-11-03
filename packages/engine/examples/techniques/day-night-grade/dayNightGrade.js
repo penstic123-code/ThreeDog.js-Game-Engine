@@ -32,9 +32,12 @@ export const GRADE = [
 /** Lamps: fully on below this daylight (0 night .. 1 noon), fading in above it */
 export const LAMPS = { onBelow: 0.02, offAbove: 0.35 };   // daylight 0.35 is about 16:40: windows and lamps come on before dark, as people switch them on
 
-/** The style fragment that carries the keyframes: createEngine({ style: [yourStyle, dayNightStyle()] }) or merge the keys into your own */
+/**
+ * The style fragment that carries the keyframes: createEngine({ style: [yourStyle, dayNightStyle()] }) or merge the keys into your own.
+ * The grade is a look plugin of this fragment (the shape a plugins/ file exports), so it reaches the chain through look.post.add like any effect
+ */
 export function dayNightStyle() {
-  return { sky: { keyframes: SKY, moonColor: 0xc8d4f0 }, exposure: EXPOSURE, post: [lut({ enabled: true })] };
+  return { name: 'dayNight', sky: { keyframes: SKY, moonColor: 0xc8d4f0 }, exposure: EXPOSURE, plugins: { 'lut.js': { default: lut({ enabled: true }) } } };
 }
 
 /** Linear interpolation over [[t, ...values]] rows sorted by t, wrapping at 1 */

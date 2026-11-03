@@ -10,7 +10,7 @@ export function chunkHandler() {
     if (d.type === 'species') { species[d.name] = d.rule; return null; }
     const t0 = performance.now();   // measure
     T.setEdits(d.edits);   // only the edits around this chunk travel with the job (null when there are none)
-    const out = { gen: d.gen, ev: d.ev, cx: d.cx, cz: d.cz, terrain: d.terrain ? T.buildChunk(d.cx, d.cz) : null, veg: {}, ms: 0 };
+    const out = { regrow: !!d.regrow, gen: d.gen, vgen: d.vgen, ev: d.ev, cx: d.cx, cz: d.cz, terrain: d.terrain ? T.buildChunk(d.cx, d.cz) : null, veg: {}, ms: 0 };
     for (const name of d.species) out.veg[name] = T.place(d.cx, d.cz, species[name], d.density);
     // compute time: the main thread subtracts it from the round trip to get the transit cost (Budget.js ApplyCost)
     out.ms = performance.now() - t0;   // measure

@@ -4,7 +4,7 @@
 5. Point -> thing · 6. When to use a template
 
 Requires `world()` (in `openWorld()`); a template with `interact` needs `interactions({ ...presets.interactions.nearest })`, with `container` needs
-`inventory({ ...presets.keys.inventory })`. The code is `modules/content/templates.js`.
+`inventory()`. The code is `modules/content/templates.js`.
 
 A **template** describes one kind of object once: its model, collision, interaction, container, sound, animation and the default values of its saved
 state. Every chest, campfire or bed you place is an **instance**: a world record that names the template (its `kind` is the template name) and holds
@@ -46,7 +46,7 @@ template's **state fields**. Writing a definition field (`model`, `collide`, `in
 **Field descriptions.** When a state field has a range or a short list of allowed values, say so in `fields` next to `state`. The default stays
 only in `state`; a `default` inside `fields` is an error, because two copies of a default drift apart. The type is taken from the state value
 when you leave it out:
-```js
+```js fragment
 crop:   { model: 'crop', state: { stage: 0, sort: 'wheat' }, fields: { stage: { type: 'int', min: 0, max: 4 }, sort: { values: ['wheat', 'corn'] } } },
 turret: { model: 'turret', state: { ammo: 30 }, fields: { ammo: { min: 0, max: 99, desc: 'rounds left' } } },
 ```

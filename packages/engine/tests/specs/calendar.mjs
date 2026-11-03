@@ -1,4 +1,4 @@
-// [守] 日历从天空里拆出来（docs/plans/2026-11-02-genericity-fixes.md 第 1 项）：时间、天数、季节归 calendar() 模块，sky 只读它来画。
+// [守] 日历从天空里拆出来（docs/plans/done/2026-11-02-genericity-fixes.md 第 1 项）：时间、天数、季节归 calendar() 模块，sky 只读它来画。
 // 守的是"不许绕开"：
 //   1. 不装 sky，只装 calendar，NPC 日程照样随时间换站（以前日历长在 sky 里，室内游戏没有天空日程就停了）；
 //   2. sky 读日历：改 calendar.timeOfDay，太阳方向跟着变；不装 calendar 时 sky 画一个固定时刻；旧的日历选项写在 sky 上会报错指路；

@@ -1,4 +1,4 @@
-// sheepisland: this game's style, LOOKS ONLY (recipes/09-style-pack.md, 35-style-from-reference.md), filled in from the empty style/index.js
+// sheepisland: this game's style, LOOKS ONLY (recipes/09-style.md, 35-style-from-reference.md), filled in from the empty style/index.js
 // a new game starts with. A soft painted diorama: few flat colors, round shapes, soft shadows, a pale warm background with no horizon.
 // The world (island outline, river, wheat field) is the game's terrain() in ../main.js, never here.
 import { makeMaterial, applyEffects } from '../../../index.js';
@@ -28,7 +28,7 @@ export default {
   exposure: 1,
   toneMapping: 'neutral',        // neutral keeps the painted colors close to what is written here (aces darkens and shifts them)
 
-  post: [],                      // restraint: the reference shows no outline, bloom or grain
+  // no post plugins: restraint, the reference shows no outline, bloom or grain
 
   materials: {
     default: { type: 'lambert' },

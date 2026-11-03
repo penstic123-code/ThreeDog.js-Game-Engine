@@ -25,7 +25,9 @@ function fake() {
   e.stacks.define('input.gate', { kind: 'any', per: true });   // as services.js does
   // the real Input methods without its DOM listeners: one action 'jump' on Space, held this frame
   const inp = Object.create(Input.prototype);
-  Object.assign(inp, { engine: e, actions: new Map([['jump', { keys: ['Space'] }], ['attack', { keys: ['KeyJ'] }]]), keys: new Set(['Space', 'KeyJ']), _accP: new Set(), _accR: new Set(), _inFixed: false });
+  Object.assign(inp, { engine: e, actions: new Map(), _touchKeys: new Map(), keys: new Set(['Space', 'KeyJ']), _accP: new Set(), _accR: new Set(), _inFixed: false });
+  inp._keys = e.stacks.define('input.keys', { kind: 'value', per: true, save: false, settingsSet: true });   // as Input's constructor does
+  inp.bind({ jump: ['Space'], attack: ['KeyJ'] });
   inp._live = { keys: inp.keys, pressed: new Set(['Space', 'KeyJ']), released: new Set() };
   initContexts(inp); e.input = inp;
   return e;
@@ -38,7 +40,7 @@ export async function run({ check }) {
   check('gated: jump reads as not pressed / down, attack still reads', !inp.pressed('jump') && !inp.down('jump') && inp.pressed('attack'));
   tut.remove();
   check('one owner opening it is not enough while another holds it', !inp.pressed('jump'));
-  for (let i = 0; i < 31; i++) e.time._advance(STEP);
+  for (let i = 0; i < 31; i++) (e.time._beginStep(), e.time._endStep());
   check('{ for: 0.5 } ends by itself: jump reads again', inp.pressed('jump'), String(e.stacks.get('input.gate').names('jump')));
   stun.remove();   // already ended: a no-op
   const g2 = inp.gate('attack', 'cutscene');
@@ -50,7 +52,7 @@ export async function run({ check }) {
   check('holds.freeze lists the freeze owner', h.freeze?.[0]?.owner === 'flow', JSON.stringify(h.freeze));
   check('runState.blockedBy names the opaque context (read through input.holders)', e.runState.blockedBy.includes('menu') && !e.runState.blockedBy.includes('vehicle'), JSON.stringify(e.runState.blockedBy));
   e.mod('time.world', { owner: 'bullet-time', mul: 0.35 });
-  check('holds.stacks lists other engine.mod quantities', !!holds(e).stacks?.['time.world'], JSON.stringify(holds(e).stacks));
+  check('other engine.mod points are in describe().shared, not holds', !('stacks' in holds(e)) && e.stacks.describe()['time.world']?.also[0]?.owner === 'bullet-time', JSON.stringify(e.stacks.describe()));
   g2.remove(); shop.remove(); car.remove(); applyContexts(inp); e.stacks.get('freeze').release('flow');
   check('nothing held: holds has no input / gates / freeze', !('input' in holds(e)) && !('gates' in holds(e)) && !('freeze' in holds(e)), JSON.stringify(holds(e)));
   let msg = ''; try { inp.push('x', { owner: '' }); } catch (x) { msg = x.message; }
@@ -61,7 +63,6 @@ export async function run({ check }) {
   for (const d of ['core', 'modules', 'ui', 'render']) walk(d);
   const readers = files.filter(f => !/core\/(Input|inputContext)\.js$/.test(f) && /input\._stack\b/.test(readFileSync(join(ENGINE, f), 'utf8')));
   check('nothing outside Input.js / inputContext.js reads input._stack', !readers.length, readers.join(', '));
-  // the old name may appear only as the renamedFields entry that makes reading it throw (core/validate.js)
-  const desc = readFileSync(join(ENGINE, 'core/Describe.js'), 'utf8').replace(/\{ inputContexts: 'describe\(\)\.holds\.input' \}/, '');
+  const desc = readFileSync(join(ENGINE, 'core/Describe.js'), 'utf8');
   check('describe has one holder list (no time.heldBy, no ui.inputContexts)', !/heldBy|inputContexts/.test(desc));
 }

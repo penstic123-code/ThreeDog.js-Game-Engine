@@ -2,7 +2,8 @@
 
 **In this recipe**: 1. Usage · 2. Notes · 2b. A scripted playthrough, and three kinds of check · 3. Windows / PowerShell notes ·
 3b. Speed, a session, and checks in one call · 4. Let describe see the game's own state · 5. Safety · 6. Reuse in scenario tests ·
-7. Describe snapshots instead of screenshots · 8. Errors carry a code, a fix and a doc page · 9. Reusable scenarios · 10. MCP server
+7. Describe snapshots instead of screenshots · 8. Errors carry a code, a fix and a doc page · 9. Reusable scenarios · 10. MCP server ·
+11. When something happens: which tool
 
 Purpose: after changing code, don't write a playwright script or take a screenshot; just ask "what does the game look like now", advance time, press
 keys, change state. Output is English, three lines or fewer, to save tokens.
@@ -21,7 +22,7 @@ game only advances on step); once you open the page in a browser, commands go to
 | Command | What it does | Example output |
 |---|---|---|
 | `describe` | One-line scene summary: position / time and weather / nearby / quest | `player (4.0, 7.0) in forest · 07:11 day 1 · clear` |
-| `describe --full` | The state as text, summary first (`engine.describeText()`: at most 30 lines, the nearest things, one line per module with its key counts, and a last line on how to expand). Details: `describe <path>` for one part, `engine.describeText({ full: true })` for everything | `quests: active[1], done=0, failed=0` |
+| `describe --full` | The state as text, summary first (`engine.describeText()`: at most 30 lines, the nearest things, the game's `describe.add` sections, one line per module with its key counts, the engine tables (shared, slots, look...) as one count line, and a last line on how to expand). Details: `describe <path>` for one part (in code `engine.describe('look')` or `describe({ only: ['look', 'shared'] })`), `engine.describeText({ full: true })` for everything | `quests: active[1], done=0, failed=0` |
 | `describe --all` | Everything: every nearby thing and every module's full data (`describeText({ full: true })`); large, prefer a path | |
 | `describe render` | How the picture is set: tone mapping, exposure, shadow filter, post effects with params, default lights, each tagged `engine` (default), `style` or `game` (changed after). Also the `renderer:` lines of `describe --full`. Information only, never warns | `{ "toneMapping": { "value": "aces", "by": "style" }, ... }` |
 | `describe player.position` | Player coordinates { x, y, z } (numbers) | `{ "x": 4, "y": 1.2, "z": 7 }` |
@@ -116,7 +117,7 @@ A game's own state (score, number of targets, crops) is not in `describe` by def
 ```js
 engine.describe.add('range', () => ({ score, targets: targets.length }));   // the returned handle's .remove() cancels it
 ```
-After that `threedog describe range` shows it, and `describeText()` includes it too. The name must not collide with a core field (player, time...)
+After that `threedog describe range` shows it, and `describeText()` includes it too (listed before the module lines, so the 30-line cut never drops it). The name must not collide with a core field (player, time...)
 or a module name; if the callback throws, only this item shows `{ error }` and the rest are unaffected.
 **Large games write their systems as modules** (see 14-custom-module.md) and use the module's `describe(e, ctx)` hook: the return value likewise goes
 into `describe().<module name>`, and `ctx.near()` can report "things nearby".
@@ -168,9 +169,9 @@ combination so tests and scenarios reuse it.
 
 ## 10. MCP server: Claude Code, Cursor and other MCP clients
 `threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
-`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `style_palette`, `style_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check` and `art_list`;
+`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `style_palette`, `style_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check`, `art_list` and `lib_list`;
 tests/mcp.mjs fails when this list and the server's tools differ) and returns the same text as the
-command line; `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `style_palette` and `style_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
+command line (every default answer fits in about 4 KB, `tests/tool-output-sizes.mjs` guards it; a `data` payload over 3 KB keeps its small fields and names `threedog <cmd> --json` for the rest); `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `style_palette` and `style_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
 (or start `npm run dev` yourself; a tool call without a server answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As
 with the command line, the `op` and `step` tools change the current session and its saves; the level itself changes only by editing content files.
 
@@ -186,3 +187,18 @@ Plain node is the same on every OS (no `cmd /c` on Windows). The server starts o
 
 The `js` tool (arbitrary code in the page) is off by default; `threedog mcp --allow-js` enables it, for development only. Other options: `-w name`
 (workspace), `--page /<page>.html` (page path).
+
+## 11. When something happens: which tool
+Tools: MCP, or `node node_modules/@threedog/tools/bin/threedog.mjs <cmd>` (`COMMANDS.md`). Errors: `.threedog/errors.log`, **read first when something breaks**.
+- Not sure the engine has X -> `threedog how "<task>"`, `threedog catalog [id]`.
+- An action failed -> its `code`, `facts`, `nextActions`.
+- What is this object, why can't I click it -> `thing(id).explain()`.
+- Stuck, or a value is not what you set -> `describe().holds` / `.shared` / `.control`.
+- What caused this -> `events.trace(name)`, `traceFocus(id)`.
+- Placeholders (gray look, capsule, boxes) -> the look is not made yet: `style/` (recipe 09), code models (05), tuning (35).
+- The picture looks wrong -> `engine.debug.view('lighting')`, `describe().look`, `threedog inspect materials`.
+- Slow or stutters -> `threedog inspect perf`, `debug.view('shaderCost')`.
+- "... so the engine stopped writing it" -> your direct write owns it now: `look.<part>.manual(key)`, `describe().owned` (recipe 52).
+- Models made in code -> hot swap, `threedog gallery --shots` (recipe 05 §2c); another game's art -> `threedog art copy`.
+- Verifying a change -> `describeText()` for logic, shots for looks, `threedog verify <scenario>` (read "not proven").
+- Saves or time skips broken -> `checkSave`, `checkSkip`.

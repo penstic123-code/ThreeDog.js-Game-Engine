@@ -17,8 +17,8 @@ export const name = 'describe everywhere: R44 catches a module without describe,
 /** The parts of an engine the triggers module and the debug chain touch, real Stacks and DebugOverrides */
 function fakeEngine() {
   const scene = new THREE.Scene();
-  const e = { scene, THREE, style: {}, i18n: { add() {} }, input: { define() {}, pressed: () => false }, audio: { condition() {} },
-    events: { on() {} }, surface: () => 0, actorPosition: () => null, _things: { entryOf: () => null, live: () => null } };
+  const e = { scene, THREE, style: {}, i18n: { add() {} }, input: { define() {}, action: () => ({ remove() {} }), pressed: () => false }, audio: { condition() {} },
+    saves: { register() {} }, events: { on() {} }, surface: () => 0, actorPosition: () => null, _things: { entryOf: () => null, live: () => null } };
   e.stacks = new Stacks(e);
   e.debug = new DebugOverrides(e);
   return e;
@@ -26,8 +26,8 @@ function fakeEngine() {
 
 export async function run({ check }) {
   // R44: a module definition (name + install) without describe is a finding; with describe, or not a module, it is not
-  check('R44 flags a module definition without describe', scanText("export const m = () => ({ name: 'lamp', label: 'Lamp', install(e) { return {}; } });\n").join() === 'lamp');
-  check('R44 passes one with describe', scanText("const m = { name: 'lamp', install() {}, describe() { return { on: true }; } };\n").length === 0);
+  check('R44 flags a module definition without describe', scanText("export const m = () => ({ name: 'lamp', type: 'rules', label: 'Lamp', install(e) { return {}; } });\n").join() === 'lamp');
+  check('R44 passes one with describe', scanText("const m = { name: 'lamp', type: 'rules', install() {}, describe() { return { on: true }; } };\n").length === 0);
   check('R44 ignores objects that are not module definitions', scanText("const o = { name: 'x', value: 1 }; const p = { install() {} };\n").length === 0);
 
   // triggers: the old option is unknown now (readParams throws in dev), the old method is gone
@@ -36,7 +36,7 @@ export async function run({ check }) {
   const w0 = console.warn; console.warn = (...a) => { msg += a.join(' '); };
   try { triggers({ debug: true }); } catch (err) { msg = err.message; } finally { console.warn = w0; }
   check('triggers({ debug }) is an unknown option', /unknown option "debug"/.test(msg), msg);
-  const e = fakeEngine(), def = triggers({ keys: [] }), tr = def.install(e);
+  const e = fakeEngine(), def = triggers({}), tr = def.install(e, { name: def.name, track: h => h });
   check('setDebug and the debug flag are gone', tr.setDebug === undefined && tr.debug === undefined);
   check("the module adds 'triggers' to the debug view modes", e.debug.viewModes().includes('triggers'));
 
@@ -61,8 +61,9 @@ export async function run({ check }) {
 
   // one stack-frame helper: both callers import it and neither keeps its own regex
   const src = f => readFileSync(join(ENGINE, f), 'utf8');
-  check('things.js and look/layers.js read frames through core/stackFrames.js, no private FRAME regex',
-    ['core/things.js', 'core/look/layers.js'].every(f => src(f).includes("stackFrames.js'") && !/const FRAME\s*=/.test(src(f))));
+  // look/write.js and look/layers.js no longer read frames (look rework); the callers left read them through the helper
+  check('things.js, sharedPoint.js and control.js read frames through core/stackFrames.js, no private FRAME regex',
+    ['core/things.js', 'core/sharedPoint.js', 'core/control.js'].every(f => src(f).includes("stackFrames.js'") && !/const FRAME\s*=/.test(src(f))) && !/const FRAME\s*=/.test(src('core/look/write.js')));
   const v8 = 'Error\n    at captureStack (http://localhost:5173/packages/engine/core/things.js?v=3:40:9)\n    at add (http://localhost:5173/core/Engine.js:9:1)\n    at http://localhost:5173/src/main.js:50:7';
   const ff = 'add@http://localhost:5173/core/Engine.js:9:1\n@http://localhost:5173/src/main.js:50:7';
   check('V8 frames: query string dropped, host dropped', frameText(stackFrames(v8)[2]) === 'src/main.js:50' && stackFrames(v8).length === 3);

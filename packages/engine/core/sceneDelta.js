@@ -14,6 +14,8 @@
 //   Swapping an entry inside a material array in place (mesh.material[1] = m) is not seen; assign a new array instead.
 // A visitor keeps its own per-object / per-material state (Maps, WeakMaps); nothing here holds an object after it left the scene.
 import * as THREE from 'three';
+import { useSceneVisitor } from '../render/backend.js';
+import { notePatch, patchOn } from './threePatches.js';
 
 const KEY = Symbol.for('threedog.sceneDelta');
 const P = THREE.Object3D.prototype;
@@ -27,25 +29,38 @@ function trackerOf(o) {
   return shared.trackers.get(r);
 }
 
+const ORIG = Symbol.for('threedog.sceneDelta.orig');   // three's own add / remove, for threePatches.off('scene-add-hook')
 if (!P[KEY]) {
   const add = P.add, remove = P.remove;
-  Object.defineProperty(P, KEY, { value: true });
+  Object.defineProperty(P, KEY, { value: true, configurable: true });
+  Object.defineProperty(P, ORIG, { value: { add, remove }, configurable: true });
   P.add = function (...a) {
     const out = add.apply(this, a);   // three detaches each child from its old parent first (through remove below), then attaches
     const t = trackerOf(this);
     if (t) for (const c of a) if (c?.parent === this) t.pending.add(c);
+    // a root right under the scene: the root listeners hear it now, not at the next flush, so engine.thing(obj) works on the next line and
+    // an add inside a session:start listener still counts as setup (plain scene.add is adopted like engine.add: see onSceneRoot)
+    if (t?.roots.size && this === t.scene) for (const c of a) if (c?.parent === this) for (const f of t.roots) f(c);
     return out;
   };
   P.remove = function (...a) {
     const t = trackerOf(this);
     if (!t) return remove.apply(this, a);
-    let gone = null;
+    let gone = null, roots = null;
     for (const c of a) if (c?.parent === this && t.seen.has(c)) (gone ??= []).push(c);
+    if (t.rootLeaves.size && this === t.scene) for (const c of a) if (c?.parent === this) (roots ??= []).push(c);
     const out = remove.apply(this, a);
     if (gone) for (const c of gone) t.left(c);
+    if (roots) for (const c of roots) if (c.parent !== this) for (const f of t.rootLeaves) f(c);
     return out;
   };
 }
+notePatch('scene-add-hook', 'Object3D.prototype.add / remove: wrapped once per page to see what enters and leaves a watched scene at any depth (three\'s childadded fires on the direct parent only)',
+  () => { const o = P[ORIG]; if (!o || !P[KEY]) return; P.add = o.add; P.remove = o.remove; delete P[KEY]; delete P[ORIG]; },
+  { lost: 'plain scene.add is no longer adopted like engine.add, and fog, cascades, cloud shadow, night glow and light counts miss objects added later' });
+notePatch('mesh-material-accessor', 'mesh.material on each object with a material that enters a watched scene: an own get / set on that object (the class accessor still runs) so a material swap is seen',
+  () => {},   // off: objects entering from now on keep a plain material (_walk asks patchOn)
+  { scope: 'objects in the scene', lost: 'mesh.material = other on objects entering from now on is not seen: the new material misses fog, cascades and cloud shadow until the object re-enters' });
 
 /** The accessor (get / set) `material` resolves to on this object or up its prototype chain, or null when it is a plain value */
 function materialAccessor(o) {
@@ -92,6 +107,10 @@ class Tracker {
     /** subtree roots attached since the last flush (may have left again: flush checks) */
     this.pending = new Set();
     this.visitors = new Set();
+    /** onSceneRoot listeners: called synchronously for each object added directly under the scene */
+    this.roots = new Set();
+    /** onSceneRoot leave listeners: called synchronously for each object taken off directly from under the scene */
+    this.rootLeaves = new Set();
     this._walk(scene, null);   // what is in the scene already counts as seen; each new visitor gets its own full walk
   }
   /** Visit a subtree: objects not yet seen get seen and shown to the visitors (only `only` when given) */
@@ -102,7 +121,7 @@ class Tracker {
       if (only) only.enter(o);
       else if (!this.seen.has(o)) {
         this.seen.add(o);
-        if (o.material !== undefined) watchMaterial(o);
+        if (o.material !== undefined && patchOn('mesh-material-accessor')) watchMaterial(o);
         for (const v of this.visitors) if (!v.full) v.spec.enter(o);
       }
       for (const c of o.children) stack.push(c);
@@ -156,9 +175,29 @@ export function sceneVisitor(scene, spec) {
     /** Stop visiting; the scene stops being watched when no visitor is left */
     remove() {
       t.visitors.delete(v);
-      if (!t.visitors.size && shared.trackers.get(scene) === t) shared.trackers.delete(scene);
+      if (!t.visitors.size && !t.roots.size && shared.trackers.get(scene) === t) shared.trackers.delete(scene);
     },
   };
   t.visitors.add(v);
   return v;
 }
+/**
+ * Call fn(obj) synchronously each time an object is added directly under scene (scene.add, engine.add, attach), from any code. The thing
+ * registry uses it so a plain three.js scene.add is adopted like engine.add. leave(obj), when given, runs each time one is taken off from
+ * directly under scene (scene.remove, removeFromParent, attach elsewhere). Returns { remove() }.
+ * @param {THREE.Object3D} scene @param {(o: THREE.Object3D) => void} fn @param {(o: THREE.Object3D) => void} [leave]
+ */
+export function onSceneRoot(scene, fn, leave) {
+  const t = shared.trackers.get(scene) ?? new Tracker(scene);
+  shared.trackers.set(scene, t);
+  t.roots.add(fn);
+  if (leave) t.rootLeaves.add(leave);
+  return {
+    remove() {
+      t.roots.delete(fn);
+      if (leave) t.rootLeaves.delete(leave);
+      if (!t.visitors.size && !t.roots.size && shared.trackers.get(scene) === t) shared.trackers.delete(scene);
+    },
+  };
+}
+useSceneVisitor(sceneVisitor);   // render/backend.js shadowLights: the shadow lights of a scene without a walk per frame

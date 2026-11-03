@@ -1,11 +1,12 @@
-// Performance panel + time/weather debugging + stress test. Collapsed by default; F3 shows/hides it (debug({ open: true }) shows it at start). Quality, view distance and density are in the settings menu. Do not install this module in a release.
+// Performance panel + time/weather debugging + stress test. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug binds F3; debug({ open: true }) shows it at start). Quality, view distance and density are in the settings menu. Do not install this module in a release.
 import { readParams, keysSchema } from '../../core/params.js';
 import { esc } from '../../ui/UI.js';
+import { stats } from '../../render/backend.js';
 /** @import { ModuleDef } from '../../types/core' */
 
 // Note: the debug panel is a dev tool; its UI text is plain English, not in the string table; do not install this module in a release.
 // The panel sits next to the core diagnostics as engine.debug.panel (composition): engine.debug (override / clear / view) is core and works without it.
-/** engine.debug.panel (F3 panel) */
+/** engine.debug.panel (the debug panel) */
 export class DebugPanel {
   /** @internal */
   constructor(engine, { open = false } = {}) {
@@ -74,7 +75,7 @@ export class DebugPanel {
       return i;
     };
     if (e.calendar) {
-      bind('ts', () => e.clock.rate, v => e.mod('clock.rate', { owner: 'debug', set: v, priority: 'debug' }), v => v + '×');   // the panel's own entry: the game's rate comes back when it is ended
+      bind('ts', () => e.clock.rate, v => e.mod('clock.rate', { owner: 'debug', set: v, layer: 'debug' }), v => v + '×');   // the panel's own entry: the game's rate comes back when it is ended
       /** @internal */ this.tod = bind('tod', () => e.calendar.timeOfDay, v => e.calendar.timeOfDay = v, () => e.calendar.clock);
     }
     const ws = q('[data-s="weather"]');
@@ -83,10 +84,9 @@ export class DebugPanel {
       ws.innerHTML = Object.keys(e.weather.types).map(k => `<option value="${esc(k)}">${esc(e.weather.label(k))}</option>`).join('') + `<option value="auto">${esc(e.weather.label('auto'))}</option>`;
       ws.value = e.weather.name;
     }
-    ws.onchange = () => { if (ws.value === 'auto') e.weather.setAuto(true); else { e.weather.setAuto(false); e.weather.set(ws.value, 8); } };
+    ws.onchange = () => { if (ws.value === 'auto') e.weather.setAuto(true); else { e.weather.setAuto(false); e.weather.set(ws.value, { seconds: 8 }); } };
     q('[data-b="bench"]').onclick = () => this.startBench();
     engine.i18n.add({ 'zh-CN': { 'debug.toggle': '调试面板' }, en: { 'debug.toggle': 'Debug panel' } });   // the settings menu's rebind page shows this name
-    engine.input.define('debugPanel', ['F3'], 'debug.toggle');
   }
 
   /**
@@ -150,7 +150,7 @@ export class DebugPanel {
 const DEBUG_PANEL_PARAMS = keysSchema(['open']);
 
 /**
- * F3 debug panel -> engine.debug.panel: performance panel, settings, stress test. Collapsed by default; F3 shows/hides it; open: true shows it at start. Just do not install it in a release
+ * Debug panel -> engine.debug.panel: performance panel, settings, stress test. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug: F3); open: true shows it at start. Just do not install it in a release
  * @param {{ open?: boolean }} [opts]
  * @returns {ModuleDef<DebugPanel>}
  */
@@ -158,8 +158,13 @@ export function debug(opts = {}) {
   readParams('debugPanel', DEBUG_PANEL_PARAMS, opts);
   let d = null; const prof = { n: 0, t: 0, cpu: 0 };
   return {
-    name: 'debugPanel', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['calendar', 'weather', 'terrain'], presentation: true,
-    install(e) { d = new DebugPanel(e, opts); e.debug.panel = d; return d; },
+    name: 'debugPanel', type: 'ui', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['calendar', 'weather', 'terrain'],
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.debugPanel': '调试面板' }, en: { 'module.debugPanel': 'debug panel' } });
+      d = new DebugPanel(e, opts); e.debug.panel = d;
+      // the toggle action has no key of its own (presets.bindings.debug binds F3); optional: the panel works by code (panel.el.hidden) too
+      ctx.input.action('debugPanel', { label: 'debug.toggle', optional: true });
+      return d;
+    },
     dispose(e) { if (e.debug.panel === d) e.debug.panel = null; d?.el.remove(); },
     frame(dt, e) { if (e.input.pressedRaw('debugPanel')) d.el.hidden = !d.el.hidden; },
     // open matters to a screenshot (the panel covers a corner); benchmarking matters to perf numbers (autopilot drives the player, adaptive resolution paused)
@@ -168,8 +173,8 @@ export function debug(opts = {}) {
       d.frame(dt, e.terrain?.stats.builtThisFrame || 0);
       prof.n++; prof.t += dt; prof.cpu += e.cpuMs || 0;
       if (prof.t < 0.5) return;
-      const s = e.terrain?.stats || {}, info = e.renderer.info.render;
-      d.stats({ fps: prof.n / prof.t, cpu: prof.cpu / prof.n, calls: info.calls, tris: info.triangles, visible: s.visible ?? 0, loaded: s.loaded ?? 0, instances: s.instances ?? 0, apply: s.applyMs ?? 0, queued: s.queued ?? 0 });
+      const s = e.terrain?.stats || {}, info = stats(e.renderer);
+      d.stats({ fps: prof.n / prof.t, cpu: prof.cpu / prof.n, calls: info.drawCalls, tris: info.triangles, visible: s.visible ?? 0, loaded: s.loaded ?? 0, instances: s.instances ?? 0, apply: s.applyMs ?? 0, queued: s.queued ?? 0 });
       prof.n = prof.t = prof.cpu = 0;
     },
   };

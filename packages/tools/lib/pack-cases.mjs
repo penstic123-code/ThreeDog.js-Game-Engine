@@ -1,6 +1,6 @@
 // Extra cases of the outside-the-repo check (pack-external.mjs: step 1 package contents, steps 6 and 7) and the template copy it starts from.
 //   packageContents: what the packed engine / tools / terrain tarballs contain
-//   copyTemplate: the new-game template into a folder, as new-game does (game name 'external'); usePost: its style turns on post: [bloom()]
+//   copyTemplate: the new-game template into a folder, as new-game does (game name 'external'); usePost: its style brings bloom() as a style plugin file
 //   engineAlone:  the engine folder installed by path with npm install --install-links, only three and vite next to it, a plain vite config builds
 //   vendored:     the engine vendored under vendor/threedog (tests included) as a file: dependency; check and types read only the game's sources
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from 'node:fs';
@@ -13,12 +13,13 @@ export function copyTemplate(_from, to) {
   copyTemplates(to, { name: 'external', example: true }, { skipPackage: true });
 }
 
-/** Turn on the template style's post line the way the docs show it (bloom() from @threedog/post-effects), so the outside check imports that package */
+/** Turn on the template style's plugins line the way the docs show it, with bloom() from @threedog/post-effects in style/plugins/10-bloom.js, so the outside check imports that package */
 export function usePost(dir) {
-  const f = join(dir, 'style', 'index.js'), src = readFileSync(f, 'utf8'), line = /^ *\/\/ post: \[\],.*$/m;
-  if (!line.test(src)) throw new Error('usePost: the template style/index.js no longer has the "// post: []," line; update lib/pack-cases.mjs');
-  // the import goes after the // @ts-check line (that comment only counts above the first statement)
-  writeFileSync(f, src.replace(line, '  post: [bloom()],').replace(/^\/\/ @ts-check$/m, "// @ts-check\nimport { bloom } from '@threedog/post-effects';"));
+  const f = join(dir, 'style', 'index.js'), src = readFileSync(f, 'utf8'), line = /^ *\/\/ plugins: import\.meta\.glob\('\.\/plugins\/\*\.js', \{ eager: true \}\),.*$/m;
+  if (!line.test(src)) throw new Error('usePost: the template style/index.js no longer has the "// plugins: import.meta.glob(...)" line; update lib/pack-cases.mjs');
+  writeFileSync(f, src.replace(line, "  plugins: import.meta.glob('./plugins/*.js', { eager: true }),"));
+  mkdirSync(join(dir, 'style', 'plugins'), { recursive: true });
+  writeFileSync(join(dir, 'style', 'plugins', '10-bloom.js'), "// @ts-check\nimport { bloom } from '@threedog/post-effects';\n\nexport default bloom();\n");
 }
 
 /** Step 6: install the engine folder by path into a project with only threedog, three and vite, then build it with a plain vite config */
@@ -80,13 +81,7 @@ export function packageContents(check, { eng, tools, terrainPkg }) {
   const hidden = engFiles.filter(f => /^(tests|public)\//.test(f));
   check('engine tarball has entry points, types, docs, workers', need.every(f => engFiles.includes(f)), need.filter(f => !engFiles.includes(f)).join(', '));
   check('engine tarball has no tests/ or public/', hidden.length === 0, hidden.slice(0, 3).join(', '));
-  // The repository's private @threedog/style-lowpoly is never published, so no shipped file may import it: an example that did would not run
-  // for a user. Read the packed example sources from disk (npm pack lists paths, not contents). Only an import counts (static from / bare import /
-  // dynamic import()): a comment may name the package (examples/world/style says the private package re-exports it), and that runs nothing.
-  const importsLowpoly = /(?:\bfrom\s*|\bimport\s*\(?\s*)['"]@threedog\/style-lowpoly(?:\/[^'"]*)?['"]/;
-  const lowpoly = engFiles.filter(f => /^examples\/.*\.js$/.test(f) && importsLowpoly.test(readFileSync(join(ENGINE, f), 'utf8')));
-  check('engine tarball ships no art (no styles/) and no shipped example imports the private @threedog/style-lowpoly',
-    !engFiles.some(f => f.startsWith('styles/')) && engFiles.some(f => f.startsWith('examples/')) && lowpoly.length === 0, lowpoly.join(', '));
+  check('engine tarball ships no art (no styles/) and ships the examples', !engFiles.some(f => f.startsWith('styles/')) && engFiles.some(f => f.startsWith('examples/')));
   check('the terrain generator is its own package (index.js, index.d.ts)', has(terrainPkg, 'index.js', 'index.d.ts'));
   check('tools tarball has the CLI and vite preset, no tests/',
     toolFiles.includes('bin/threedog.mjs') && toolFiles.includes('vite/gameConfig.js') && !toolFiles.some(f => f.startsWith('tests/')));

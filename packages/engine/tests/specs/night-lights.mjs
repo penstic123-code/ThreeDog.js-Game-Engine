@@ -21,6 +21,7 @@ const grab = ({ under, between, head }) => {
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'night-lights technique: lamp pools brighter than between lamps, no large clipped areas with the defaults, off by day',
     url: '/night-lights.html?threedog-headless',
     async run({ page, check, ev }) {

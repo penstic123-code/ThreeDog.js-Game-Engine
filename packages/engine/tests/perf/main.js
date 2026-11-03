@@ -13,10 +13,12 @@ import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { SLOTS } from '../../render/slots.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
+import { Assets } from '../../core/Assets.js';
 import { defineLookPart } from '../../core/look/part.js';
 import { NOISE_GLSL } from '../../render/effects.js';
-import { styleFrom, postAdd, postRemove } from '../../core/styleParts.js';
-import lowpoly, { models as lowpolyModels, assets as lowpolyAssets } from '@threedog/style-lowpoly';
+import { styleFrom } from '../../core/styleParts.js';
+import worldStyle from '../../examples/world/style/index.js';   // the world example's look and art (mode world draws that scene)
+import { models as worldModels, assets as worldArt } from '../../examples/world/art/index.js';
 import * as postEffects from '@threedog/post-effects';
 const { outline } = postEffects;
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
@@ -116,8 +118,9 @@ if (mode === 'native') {
   };
   window.engine = { ready: true };   // "ready" signal for the test scripts
 } else {
-  const engine = window.engine = createEngine({ canvas, style: mode === 'world' ? lowpoly : {}, batching: q.get('batch') === '0' ? false : undefined,
-    headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, post: mode === 'world' ? { bloom: false } : undefined,
+  const engine = window.engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests }, canvas, style: mode === 'world' ? { ...worldStyle, plugins: null } : {},   // world: without its bloom plugin (perf measures the scene)
+    batching: q.get('batch') === '0' ? false : undefined,
+    headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false,
     saveKey: 'perf-' + mode });
   if (mode === 'city') {
     engine.use(level({ scene: block() }), calendar({ time: 0.45, dayLength: 360 }), sky(), weather(presets.weather.temperate), hlod(),
@@ -134,14 +137,14 @@ if (mode === 'native') {
     const mods = openWorld({ camera: 'follow', seed: 1337, terrain: { ...terrainPreset(), ...(q.get('shading') && { shading: q.get('shading') }) }, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
       weather: presets.weather.temperate, debug: false, ambience: false });
     // The preset only builds the world; add back the gameplay modules it used to bundle so timings stay comparable with earlier runs (music stays off)
-    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), pickups(),
-      quests({ ...presets.keys.quests }), timeline(), triggers(), particles(), hud());
-    const geo = m => [].concat(m).length > 1 ? lowpolyModels[m[0]](...m.slice(1)) : lowpolyModels[m]();
+    engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), pickups(),
+      quests(), timeline(), triggers(), particles(), hud());
+    const geo = m => [].concat(m).length > 1 ? worldModels[m[0]](...m.slice(1)) : worldModels[m]();
     for (const [name, v] of Object.entries(vegetationDefs)) {
       const { model, lod, ...rest } = v;
       engine.vegetation.define(name, { geometry: geo(model), lodGeometry: lod ? geo(lod) : undefined, ...rest });
     }
-    engine.assets.manifest(lowpolyAssets);
+    engine.assets.manifest(worldArt);
     engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });
   } else if (mode === 'props') {
     propsScene(engine);
@@ -212,5 +215,14 @@ if (mode === 'native') {
   engine.start();
 }
 window.bench = bench;
-window.threedogTest = { THREE, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, lowpoly, lowpolyAssets, lowpolyModels, sky, calendar, styleFrom, postAdd, postRemove, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector, defineLookPart, world, grids, particles };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+// a fake engine's assets for specs that build materials without an engine: the given texture() plus the real useTexture on top of it
+const fakeAssets = texture => ({ texture, useTexture: Assets.prototype.useTexture });
+// a real headless engine with this style for specs that test makeMaterial / terrainMaterial: look.materials is the one entry makeMaterial reads,
+// so a bare { style } object no longer stands in for an engine. assets: e.g. fakeAssets(texture), or null for "no asset loader"
+const engineWith = (style, assets) => {
+  const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'engine-with-' + performance.now(), style });
+  if (assets !== undefined) e.assets = assets;
+  return e;
+};
+window.threedogTest = { THREE, fakeAssets, engineWith, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
+  injectUICSS, NOISE_GLSL, createTerrain, worldStyle, worldArt, worldModels, sky, calendar, styleFrom, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector, defineLookPart, world, grids, particles };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

@@ -35,11 +35,16 @@ follow the camera frustum and snap to whole shadow pixels themselves, so edges d
   `lights_fragment_begin` (it would clash with `csm`, reported when added).
 - three's `ShaderChunk` is never changed (the addon's constructor does that globally; the engine swaps the chunk per material instead).
 - With `shadow.updateEvery > 1` cascades move only on frames whose maps re-render (or when the camera jumps), so lights and maps agree.
-- Photo mode raises `setShadowMapSize`, which is the sun's map: the nearest cascade, where it shows most.
+- Photo mode's `setShadowMapSize` (and `look.shadow.set({ mapSize })`) resizes every cascade's map, on both renderers.
+
+On WebGPURenderer (recipe 56) the same `look.shadow.set({ cascades })` is three's
+`CSMShadowNode` on `engine.lights.sun.shadow.shadowNode`: one light, so no material is patched, nothing is listed in `describe().owned`,
+and `look.shadow.include(mat)` does nothing (it says so once). `engine.sky.csm` is that node (its `lights` are placeholder objects, not
+lights). The cascade shadow cameras reach `lightMargin + 2 * maxFar` meters, as on WebGL.
 
 ## Costs and stalls
 - Each cascade draws the shadow casters once more (each culls to its own box; near ones see little). `engine.budget.byTag()` counts a
-  caster once per shadow-casting light, an upper bound. In the styletest acceptance test (software renderer, relative only) 3 cascades
+  caster once per shadow map (each cascade, on both renderers), an upper bound. In the styletest acceptance test (software renderer, relative only) 3 cascades
   went from 1 to 3 shadow passes and roughly doubled frame time; do not expect frame rate to improve.
 - Switching cascades on, off or changing any cascade field recompiles every lit material once (a stall), and each material keeps the
   old program until it is disposed (three would otherwise reuse a stale program whose uniforms no longer update). Do it on a settings

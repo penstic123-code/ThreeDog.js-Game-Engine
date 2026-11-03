@@ -87,7 +87,7 @@ Saved gameplay state (`world.add/set/move/remove`, containers and the inventory,
 a fixed step, inside an op, during `saves.load` or `applyState`. Anywhere else (a UI callback, `onFrame`, `setTimeout`, `threedog js`) prints once
 per place:
 `[engine] gameplay state changed outside a fixed step or an op: world.set, called at ...`. Fix: turn the write into an op and `engine.ops.run` it, or
-move simulation into `fixed`. `npm test` lists every place in `.threedog/ops-guard.log`.
+move simulation into `fixed`. `npm test` prints the first place and lists every one in the game's `.threedog/ops-guard.log`.
 
 A module that owns its own saved state joins the guard (experimental): call `engine.ops.guard('store.set')` (a no-op in production builds) at the top
 of each writing method, and wrap writes that are allowed anyway (loading your save part) in `engine.ops.allow(() => ...)`.

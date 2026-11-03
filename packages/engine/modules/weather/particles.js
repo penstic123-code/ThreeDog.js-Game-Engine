@@ -8,12 +8,14 @@
 // glsl: { vertex, fragment } (whole shader text; copy from shaders.js), uniforms (for your glsl);
 // or create(engine, { area, count }) => { object, update?(amount, ctx) } for a system of your own (the engine adds it, shows it while the
 // amount is above 0.02 and calls update every frame with ctx = { camera, time, wind }).
+import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
-import { closest, warnOnce } from '../../core/validate.js';
+import { closest } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { lineVert, lineFrag, pointVert, pointFrag, SHAPES, shaderMat, scatter } from './shaders.js';
 import { codedError } from '../../core/errorHints.js';
+import { isWebGPU, webgpuPart } from '../../render/backend.js';
 
 const SPEC_KEYS = ['shape', 'texture', 'color', 'opacity', 'size', 'maxSize', 'length', 'speed', 'slant', 'sway', 'count', 'density', 'glsl', 'uniforms', 'create'];
 const SHAPE_LIST = ['line', ...Object.keys(SHAPES)];
@@ -54,8 +56,10 @@ export function makeSystem(engine, field, spec, { area, count, base = DRIFT }) {
   } else {
     geo.setAttribute('position', new THREE.BufferAttribute(p3, 3));
     Object.assign(u, { uPx: { value: s.size }, uMaxPx: { value: s.maxSize }, uSway: { value: 0 }, uSwayAmp: { value: s.sway }, uMap: { value: null }, uUseMap: { value: 0 } });
-    if (s.texture) engine.assets.texture(s.texture).then(t => { u.uMap.value = t; u.uUseMap.value = 1; }).catch(err => warnOnce(err.message));
+    if (s.texture) engine.assets.useTexture(s.texture, t => { u.uMap.value = t; u.uUseMap.value = 1; }, { where: 'weather particles', instead: 'plain streaks show instead' });
   }
+  const gpu = nodeSide(engine, where, s.glsl);
+  if (gpu) return finish(engine, field, { field, object: line ? new THREE.LineSegments(geo, gpu.weatherLines(u)) : gpu.weatherPoints(u, geo, s.shape), uniforms: u, spec: s, count: n, line, update: null, own: false });
   const g = s.glsl || {};
   if (s.glsl !== undefined) readParams(`${where}.glsl`, keysSchema(['vertex', 'fragment']), g);
   const vert = g.vertex ?? (line ? lineVert : pointVert), frag = g.fragment ?? (line ? lineFrag : pointFrag(s.shape));
@@ -64,10 +68,17 @@ export function makeSystem(engine, field, spec, { area, count, base = DRIFT }) {
   return finish(engine, field, { field, object, uniforms: u, spec: s, count: n, line, update: null, own: false });
 }
 
+/** The node-material side (render/fx/particles.tsl.js, loaded with threedog/tsl) on WebGPURenderer, else null; GLSL text has no WebGPU form */
+function nodeSide(engine, where, glsl) {
+  if (!isWebGPU(engine.renderer)) return null;
+  if (glsl !== undefined) throw codedError('webgpu-needs-tsl', `${where}: glsl is GLSL text, which WebGPURenderer cannot compile; give a TSL version: create(engine) returning your own object with a node material`);
+  return webgpuPart('particles', `${where}: the weather particle material`);
+}
+
 function finish(engine, field, sys) {
   const o = sys.object;
   o.frustumCulled = false; o.visible = false; o.userData.budgetTag = 'weather'; o.name ||= 'weather-' + field;
-  engine.scene.add(o);
+  engine.scene.add(engineOwned('weather', o));
   return sys;
 }
 
@@ -82,7 +93,9 @@ export function updateSystem(sys, amount, camera, t, wind) {
   u.uFallOff.value = (t * s.speed) % u.uSize.value;
   u.uCam.value.copy(camera.position);
   u.uOpacity.value = amount * s.opacity;
-  sys.object.geometry.setDrawRange(0, Math.floor(sys.count * Math.min(1, Math.max(0, s.density(amount)))) * (sys.line ? 2 : 1));
+  const drawn = Math.floor(sys.count * Math.min(1, Math.max(0, s.density(amount))));
+  if (sys.object.isSprite) sys.object.count = drawn;   // WebGPU snow: one sprite instance per flake
+  else sys.object.geometry.setDrawRange(0, drawn * (sys.line ? 2 : 1));
   if (sys.line) u.uWindDir.value.set(wind * s.slant, wind * s.slant * 0.3);
   else u.uSway.value = t % (20 * Math.PI);
 }

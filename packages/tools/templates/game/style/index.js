@@ -1,5 +1,5 @@
 // __NAME__ style: EMPTY on purpose. With nothing here the engine shows its neutral gray placeholders; the game has no look yet.
-// Fill it one section at a time (recipes/09-style-pack.md, recipes/52-look.md). To try another look, copy this folder and point main.js at the copy.
+// Fill it one section at a time (recipes/09-style.md, recipes/52-look.md). To try another look, copy this folder and point main.js at the copy.
 // Looks only: no gameplay data, no terrain shape.
 // @ts-check
 /** @type {import('threedog').Style} */
@@ -23,6 +23,7 @@ export default {
   // particles: {},               // particle look
   // grid: {},                    // grid cells look
   // triggers: {},                // trigger volume look
-  // post: [],                    // post effects in order, e.g. bloom() from @threedog/post-effects
+  // plugins: import.meta.glob('./plugins/*.js', { eager: true }),   // look plugins of this style, one file each: a post effect
+  //                              (style/plugins/10-bloom.js: export default bloom(), from @threedog/post-effects), a Material, a patch (recipe 09 section 0d)
   // ui: {},                      // { bg, fg, muted, accent, line, font, radius: '12px' } (CSS strings; radius needs its unit)
 };

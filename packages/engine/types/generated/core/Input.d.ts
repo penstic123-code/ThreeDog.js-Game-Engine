@@ -16,36 +16,57 @@ export class Input {
     };
     /** Auto movement (stress tests, test scripts) @type {Autopilot | null} */
     autopilot: Autopilot | null;
-    /** action name -> { keys = key list, labelKey = string-table key } @type {Map<string, { keys: string[], labelKey: string }>} */
+    /** action name -> its declaration: labelKey (string-table key), context, optional, by (who declared it; null = only bound so far).
+     *  Keys are not here: keysOf(action) reads the shared point 'input.keys' @type {Map<string, { labelKey: string, context: string, optional: boolean, by: string | null }>} */
     actions: Map<string, {
-        keys: string[];
         labelKey: string;
+        context: string;
+        optional: boolean;
+        by: string | null;
     }>;
     /** Most recently used device: UI key hints follow it @type {'keyboard' | 'pad' | 'touch'} */
     lastDevice: "keyboard" | "pad" | "touch";
     /** Is this a touch device? */
     touch: boolean;
     /**
-     * Register an action. keys is a key name or array (gamepad keys such as 'PadY' can go in directly); labelKey is the display name (a string-table key or
-     * text).
-     * opts.pad: the default gamepad key for this action (gameplay-specific actions get it from the registering module; createEngine({ padBindings }) takes
-     * precedence).
-     * If the action exists, the later definition overrides (warns once in dev when the keys differ); keys the player rebound in settings are kept
-     * @param {string} action
-     * @param {string | string[]} keys
-     * @param {string} [labelKey]
-     * opts.context: the input context the action belongs to (default 'gameplay'); it is readable only while that context is on the stack and not shadowed, see
-     * push().
-     * @param {{ pad?: string | string[], context?: string }} [opts]
-     * @returns {this}
-     * @example engine.input.define('openMap', 'KeyM', 'input.openMap', { pad: 'PadY' });
-     * @example engine.input.define('brake', 'KeyB', 'Brake', { context: 'vehicle' });   // only readable while input.push('vehicle') is on the stack
-     * @example engine.input.define('attack', ['KeyJ', 'Mouse0'], 'Attack');   // mouse buttons can be bound too: Mouse0 left / Mouse1 middle / Mouse2 right
-    */
-    define(action: string, keys: string | string[], labelKey?: string, opts?: {
-        pad?: string | string[];
+     * Declare an action: its context and display name, never its keys (the game binds those). Modules call ctx.input.action (owned by the module,
+     * removed with it); a game's own action can pass keys to declare and bind in one line.
+     * context: the input context it is read in (default 'walk'); readable only while that context is on the stack and not shadowed, see push().
+     * optional: true = the module works without it (number keys for dialogue choices), so reading it unbound is silent.
+     * A second owner declaring the same action with another context throws input-action-context.
+     * @param {string} name
+     * @param {{ context?: string, label?: string, optional?: boolean, keys?: string | string[], owner?: string }} [o]
+     * @returns {{ name: string, remove(): void }} remove() takes the declaration (and keys given here) away
+     * @example ctx.input.action('choice1', { context: 'dialog', label: 'dialogue.choice', optional: true });   // in a module: no keys
+     * @example engine.input.action('brake', { context: 'vehicle', keys: ['KeyB', 'PadLT'] });                     // a game's own action, bound at once
+     */
+    action(name: string, o?: {
         context?: string;
-    }): this;
+        label?: string;
+        optional?: boolean;
+        keys?: string | string[];
+        owner?: string;
+    }): {
+        name: string;
+        remove(): void;
+    };
+    /**
+     * Bind keys to an action (the game's choice; owner 'game'). Takes one action or a whole map, e.g. a preset: bind(presets.bindings.rtsRotate).
+     * Binding again as the same owner replaces; a DIFFERENT owner binding the same action throws input-bound-twice in dev (release: the later wins).
+     * An action nobody declared yet is created in context 'walk' (a module declaring it later sets its context; order does not matter).
+     * @param {string | Readonly<Record<string, string | readonly string[]>>} name an action, or { action: keys }
+     * @param {string | readonly string[]} [keys] key names (KeyboardEvent.code, 'PadA', 'Mouse0'); [] = deliberately no key
+     * @param {{ owner?: string }} [o]
+     * @returns {{ owner: string, remove(): void }} remove() takes these keys away (the default preset or a lower binding shows again)
+     * @example engine.input.bind('jump', ['Space', 'PadA']);
+     * @example engine.input.bind({ ...presets.bindings.dialogNumbers, ...presets.bindings.cutsceneSkip });
+     */
+    bind(name: string | Readonly<Record<string, string | readonly string[]>>, keys?: string | readonly string[], { owner }?: {
+        owner?: string;
+    }): {
+        owner: string;
+        remove(): void;
+    };
     /**
      * Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the
      * language changes) @param {string} action @param {string} labelKey
@@ -59,10 +80,21 @@ export class Input {
      * @example engine.input.simulate('moveForward'); engine.step(1); engine.input.simulate('moveForward', false)
      */
     simulate(action: string, down?: boolean): void;
-    /** Rebind a key @param {string} action @param {string | string[]} keys */
-    rebind(action: string, keys: string | string[]): void;
-    /** All keys bound to an action @param {string} action @returns {string[]} */
-    keysOf(action: string): string[];
+    /**
+     * The player's rebinding (the settings menu calls this and saves it): replaces the game's keys on the settings layer of 'input.keys'.
+     * keys null takes the player's choice away (the game's or the default keys show again). Works before the action is declared (a saved binding
+     * is restored at start, the module declaring the action comes later).
+     * @param {string} action @param {string | string[] | null} keys
+     * @example engine.input.rebind('jump', ['KeyJ']);   engine.input.rebind('jump', null);   // back to the game's keys
+     */
+    rebind(action: string, keys: string | string[] | null): void;
+    /** The player's rebindings now in effect: { action: keys } (what the settings menu saves) @returns {Record<string, string[]>} */
+    rebound(): Record<string, string[]>;
+    /**
+     * All keys bound to an action: the player's rebinding, else the game's bind, else the default preset (basics only); plus its touch button
+     * @param {string} action @returns {readonly string[]}
+     */
+    keysOf(action: string): readonly string[];
     /** Key name shown in the UI, e.g. "E" @param {string} action @returns {string} */
     label(action: string): string;
     /** Held (a snapshot of this step in fixed, the latest state in frame) @param {string} action @returns {boolean} */
@@ -88,9 +120,9 @@ export class Input {
     /**
      * Push an input context (an action group, like a Unity Action Map). The top context shadows lower actions bound to the same key.
      * Opaque by default (nothing below is readable: menus, dialogue, cutscenes); { pass: true } lets unrelated lower actions keep working (vehicle, build mode).
-     * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with define(..., {
-     * context }); menu keys: pressedRaw.
-     * @param {string} name e.g. 'vehicle', 'menu', 'build' (the base context is 'gameplay')
+     * Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with
+     * input.action(name, { context }); menu keys: pressedRaw.
+     * @param {string} name e.g. 'vehicle', 'dialog', 'menu', 'cutscene', 'build' (the base context is 'walk')
      * owner (default the name) is who pushed it, listed in describe().holds.input
      * @param {{ pass?: boolean, owner?: string }} [opts]
      * @returns {{ name: string, remove(): void }} remove() pops it (safe to call twice)
@@ -103,6 +135,15 @@ export class Input {
     }): {
         name: string;
         remove(): void;
+    };
+    /**
+     * describe().input: the context stack, declared actions nobody bound (unbound; optional ones left out) and the player's rebindings
+     * @returns {{ stack: string[], unbound: string[], rebound: Record<string, string[]> }}
+     */
+    describe(): {
+        stack: string[];
+        unbound: string[];
+        rebound: Record<string, string[]>;
     };
     /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
     get contexts(): string[];
@@ -117,7 +158,7 @@ export class Input {
     }[];
     /**
      * Close one action while anyone holds its gate (stun: no jump; a tutorial: no attack yet), without a whole input context. Same rules as every
-     * engine.mod stack (it is the stack 'input.gate', one entry per owner and action): only the owner opens it, { for } ends it by itself.
+     * engine.mod stack (it is the shared point 'input.gate', one entry per owner and action): only the owner opens it, { for } ends it by itself.
      * A closed action reads as not down / pressed / released; describe().holds.gates lists the owners.
      * @param {string} action @param {string | { owner?: string, for?: number, clock?: string }} [owner] default 'game'
      * @returns {{ owner: string, remove(): void }}

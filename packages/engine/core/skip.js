@@ -4,12 +4,13 @@
 // (a clock timer due, a calendar clock mark: midnight, an at time, a between edge), so after / every / at / daily / between / day:start / season:change
 // fire in the same order and the same number of times as when stepping. The world catches up once at the end: every record with far
 // gets the whole span as one far(rec, dt) (records added by a timer mid-skip owe only from when they were added).
-// What does not run while skipping: onFixed callbacks, module fixed hooks, physics and near simulation; engine.elapsed and engine.tick stay put.
-// Time channels (core/time.js) move too: real seconds by the skipped fixed seconds, each channel by those x its speed, so channel timers fire and
-// mods with `for` end in order (a segment also ends at each of those).
+// What does not run while skipping: onFixed callbacks, module fixed hooks, physics and near simulation.
+// Every time view (core/time.js) moves as if stepped: tick and real by the skipped fixed seconds, ambient too, each channel by those x its speed,
+// so timers on any channel fire and mods with `for` end in order (a segment also ends at each of those). One call per segment: time._skip.
 // Modules that keep their own time implement the hook skip(dt, e, done): dt is the segment in fixed seconds, done is true on the last segment (do expensive catch-up once there).
 // The jump itself is the op 'time.skip' (logged, replayable, allowed to write saved state); skip() adds the 'skip' input context, optional fade and autosave around it.
 import { parseClock } from './dayTime.js';
+import { asModule } from './moduleTypes.js';
 import { readParams, keysSchema } from './params.js';
 import { reportError } from './errors.js';
 import { codedError } from './errorHints.js';
@@ -33,26 +34,28 @@ function amount(e, o) {
   if (!Number.isFinite(cal.dayLength)) throw codedError('skip-amount', STRINGS.fixedDay);   // the clock never reaches that time: an endless skip otherwise
   const f = parseClock(o.to, cal.hoursPerDay) % 1;
   if (!Number.isFinite(f)) throw bad();
-  return ((((f - cal.timeOfDay) % 1) + 1) % 1 || 1) * cal.dayLength;
+  // + NUDGE: land just past the mark, like every segment end. Without it the float sums of the segments could stop a hair short, and the clock
+  // read 05:59 instead of 06:00 (a flaky spec, review 0.4 B)
+  return ((((f - cal.timeOfDay) % 1) + 1) % 1 || 1) * cal.dayLength + NUDGE;
 }
 
 /** Advance calendar seconds in segments (see the top of the file). Called by the op 'time.skip' */
 function jump(e, seconds) {
-  const clock = e.clock, cal = e.calendar, time = e.time;
+  const clock = e.clock, cal = e.calendar, time = e.time;   // clock: the calendar view of time (its timers are in time's one queue)
   let left = seconds, ended = false;
   const off = e.events.on('session:end', () => { ended = true; });   // a timer callback ended the playthrough mid-skip: the new one must not be skipped
   try {
     while (left > 0 && !ended) {
       // calendar seconds per fixed second, read per segment (an ended mod changes it); a stopped calendar (0) would need infinite fixed seconds: skip as if at 1x
       const r = clock.speed, ts = r > 0 ? r : 1;
-      let seg = Math.min(left, clock.untilNext() + NUDGE, cal ? cal.untilMark() + NUDGE : Infinity, time._untilNext(ts) + NUDGE);
+      let seg = Math.min(left, cal ? cal.untilMark() + NUDGE : Infinity, time._untilNext(ts) + NUDGE);
       left -= seg;
       if (left < NUDGE) { seg += left; left = 0; }   // no sliver segment at the end
       const dt = seg / ts, done = left === 0;
       for (const h of e._hooks.skip) {
-        try { h.fn(dt, e, done); } catch (err) { reportError(e, err, STRINGS.hook.replace('{name}', h.name), { module: h.mod }); }
+        try { asModule(e, h.mod, () => h.fn(dt, e, done)); } catch (err) { reportError(e, err, STRINGS.hook.replace('{name}', h.name), { module: h.mod }); }
       }
-      time._advance(dt, seg);
+      time._skip(dt, seg);
     }
   } finally { off.remove(); }
   if (ended) return null;
@@ -103,7 +106,7 @@ export const skipMethods = {
     const end = () => { ctx.remove(); fz.remove(); off.remove(); };
     if (!(fade > 0)) { try { go(); } finally { end(); } return Promise.resolve(out); }
     const run = this.flow ? this.flow.transition(go, { fade, autosave: false, music: false })
-      : (async () => { try { await fadeScreen(this, 1, fade); go(); } finally { await fadeScreen(this, 0, fade); } })();
+      : (async () => { try { await fadeScreen(this, 1, { seconds: fade }); go(); } finally { await fadeScreen(this, 0, { seconds: fade }); } })();
     return run.finally(end).then(() => out);
   },
 };

@@ -21,7 +21,7 @@ const rigs = {
   rts: () => rtsCamera({ height: 30, angle: 0.95, edgePan: false, bounds: { minX: -80, maxX: 80, minZ: -80, maxZ: 80 } }),
 };
 
-const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'camera test' } } });
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), ui: { loading: { title: 'camera test' } } });
 engine.use(world(), sky({ time: 0.45 }), collision(), rigs[cam](), characters({ npcs: false }), interactions({ ...presets.interactions.nearest }), dialogue(), timeline(), debug());
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a9a96 }));
@@ -51,7 +51,7 @@ window.cutscene = (opts = {}) => engine.timeline.play([
   ] },
   { wait: 0.4 },
 ], { skippable: true, letterbox: true, ...opts });
-engine.input.define('testCutscene', ['KeyC'], 'testCutscene');
+engine.input.action('testCutscene', { label: 'testCutscene', keys: ['KeyC'] });
 engine.onFrame(() => { if (engine.input.pressed('testCutscene')) window.cutscene(); });
 
 window.engine = engine; window.player = player; window.THREE = THREE; window.boxes = boxes; window.fader = fader;

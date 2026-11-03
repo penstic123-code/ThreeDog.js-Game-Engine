@@ -61,7 +61,7 @@ engine.onFrame(() => {
   if (n === lastNight) return;
   lastNight = n;
   ambientMod?.remove();
-  ambientMod = n > 0 ? engine.mod('sky.ambient', { owner: 'night-demo', mul: 1 - 0.5 * n }) : null;
+  ambientMod = n > 0 ? engine.mod('look.lights.hemi.intensity', { owner: 'night-demo', mul: 1 - 0.5 * n }) : null;
 });
 
 // points the spec reads: the ground under the second lamp, and the ground half way to the next lamp on the same side

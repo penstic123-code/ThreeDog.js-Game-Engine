@@ -36,7 +36,7 @@ const sizeOf = t => { const i = Array.isArray(t.image) ? t.image[0] : t.image; c
 
 /**
  * @param {any} e the engine
- * @param {{ limit?: number }} [opts] limit: how many materials the text lists (all are in `materials`)
+ * @param {{ limit?: number }} [opts] limit: how many lines of materials the text lists (alike ones share a line; all are in `materials`)
  */
 export function inspectMaterials(e, { limit = 30 } = {}) {
   const mats = new Map(), texUsers = new Map();
@@ -72,10 +72,14 @@ export function inspectMaterials(e, { limit = 30 } = {}) {
   const line = mt => `${mt.name ?? '(unnamed)'} ${mt.type} [${mt.madeBy}${mt.role ? ' ' + mt.role : ''}] x${mt.sharedBy} meshes`
     + (mt.patches.length ? ` · patches ${mt.patches.map(p => `${p.name}${p.slots.length ? '(' + p.slots.join(',') + ')' : ''}`).join(' ')}` : '')
     + (mt.textures.length ? ' · ' + mt.textures.map(t => `${t.slot} ${t.size} ${t.colorSpace} ${mb(t.bytes)}${t.sharedBy > 1 ? ` shared x${t.sharedBy}` : ''}`).join(', ') : ' · no textures');
+  // materials whose line reads the same (one per placed copy of a model, say) are one line with a count; limit counts lines
+  const rows = new Map();
+  for (const mt of materials) { const l = line(mt); rows.set(l, (rows.get(l) ?? 0) + 1); }
+  const shown = [...rows].slice(0, limit), rest = materials.length - shown.reduce((s, [, n]) => s + n, 0);
   const text = [`${materials.length} materials, ${textureCount} textures, ~${mb(bytes)} texture memory (estimate, mipmaps included)`
     + `${issues.length ? `, ${issues.length} color-space issue${issues.length > 1 ? 's' : ''}` : ''}`,
   ...issues.map(i => '✗ ' + i),
-  ...materials.slice(0, limit).map(line),
-  materials.length > limit ? `… ${materials.length - limit} more (engine.inspect.materials({ limit }) or .materials)` : ''].filter(Boolean).join('\n');
+  ...shown.map(([l, n]) => n > 1 ? `${l} · ×${n} materials alike` : l),
+  rest ? `… ${rest} more (engine.inspect.materials({ limit }) or .materials)` : ''].filter(Boolean).join('\n');
   return { count: materials.length, textures: textureCount, textureBytes: bytes, issues, materials, text };
 }

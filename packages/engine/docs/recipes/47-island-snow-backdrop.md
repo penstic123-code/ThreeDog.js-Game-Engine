@@ -13,7 +13,7 @@ With `shading: 'texture'` the color map is applied before the vertex colors, so 
 `style.seasons: { mode: 'mix', winter: { ground: 0xeef0f2 } }` therefore whitens the textured top like the side walls (recipe 43).
 
 ## Snow that settles: `style.weather.snow.cover`
-```js
+```js fragment
 weather: {
   snow: { size: 18, cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 } },
 },
@@ -23,7 +23,7 @@ weather: {
   and any material with `applyEffects(m, { season: 'ground' })` follow; no extra shader pass.
 - Over a `mode: 'mix'` season the two blend into one mix; a `'multiply'` season gives way while snow lies (use `'mix'` for smooth fades).
 - Leave a part out to keep its season color (`cover: { foliage: 0xffffff }` whitens trees only). Leave `cover` out and snow is particles only.
-- Ash, frost or anything else: `engine.mod('sky.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } })` (one entry per owner, the handle's `remove()` ends it).
+- Ash, frost or anything else: `engine.mod('look.ground.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } })` (one entry per owner, the handle's `remove()` ends it).
 
 ## Weather changes and seasons in scenarios
 - `engine.events.on('weather:change', ({ from, to }) => ...)`: once per change of name, when the blend starts (`weather.set` with the same name
@@ -32,7 +32,7 @@ weather: {
   `calendar({ seasons })`; a wrong name throws with the calendar's list.
 
 ## Flat backdrop: `style.sky.backdrop`
-```js
+```js fragment
 sky: { backdrop: 0xefebe4 },                                       // one color
 sky: { backdrop: ({ sky }) => (sky.isDay ? 0xefebe4 : 0x2c3346) },       // per frame (time of day, weather, your own state)
 ```

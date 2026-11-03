@@ -6,7 +6,7 @@ import style from './style/index.js';   // the game's own style: empty for now (
 import { terrainPreset } from '@threedog/terrain-noise';   // optional: a terrain generator (the engine ships none)
 import data from './content/index.js';
 
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, ui: { loading: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
 // openWorld installs the world and environment (terrain, vegetation, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
 // More you can add: interactions() inventory() pickups() (items lying on the ground) hud() dialogue() quests() triggers() timeline() particles() music() photo() grids(), usage in node_modules/threedog/docs/api/<module>.md
 engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, calendar: presets.calendar.cycle }), content());

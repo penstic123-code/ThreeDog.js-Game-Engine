@@ -14,10 +14,10 @@ const fakes = new URLSearchParams(location.search).has('fakes');
 const pad = window.__pad = { connected: true, buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })), axes: [0, 0, 0, 0] };
 Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
 
-const engine = createEngine({ canvas: document.getElementById('view'), saveKey: 'test-uinav', adaptiveResolution: false, ui: { loading: false } });
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), saveKey: 'test-uinav', adaptiveResolution: false, ui: { loading: false } });
 engine.use(world(), collision(), fakes ? fakeCamera() : followCamera(), characters(), interactions({ ...presets.interactions.nearest }),
-  fakes ? fakeDialogue() : dialogue({ charsPerSecond: 0 }), fakes ? fakeQuests() : quests({ keys: [] }), hud(), content(), timeline(),
-  ...(fakes ? [] : [inventory({ keys: [] })]));
+  fakes ? fakeDialogue() : dialogue({ charsPerSecond: 0 }), fakes ? fakeQuests() : quests(), hud(), content(), timeline(),
+  ...(fakes ? [] : [inventory()]));
 engine.add(new THREE.Mesh(new THREE.PlaneGeometry(80, 80).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x888888 })));
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: { x: 0, z: 0 } });
 if (!fakes) {

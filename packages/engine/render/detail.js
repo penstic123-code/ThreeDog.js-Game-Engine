@@ -2,11 +2,11 @@
 // Everything that differs between materials is a uniform (scale, strength, direction, stretch, octaves, mode, tint), so N materials with
 // different values share ONE shader program; only the structure is in the cacheKey: source kind, projection, which channels it touches.
 import * as THREE from 'three';
-import { warnOnce } from '../core/validate.js';
 import { readParams, keysSchema, isOptions } from '../core/params.js';
 import { placeholderTexture, hashText } from './effects.js';
 import { declareUniforms } from './uniformDecl.js';
 import { codedError } from '../core/errorHints.js';
+import { DETAIL as D, glslFloat as f } from './fxNumbers.js';
 
 /**
  * @typedef {{ texture?: string | import('three').Texture, noise?: 'grain' | 'paper' | 'stroke' | 'dabs', glsl?: string, uniforms?: Record<string, any>,
@@ -21,30 +21,30 @@ const MODES = ['multiply', 'add', 'mix'];
 //   vec4 threedogDetailNoise(vec2 p, int kind, float octaves)   kind 0 grain, 1 paper, 2 stroke, 3 dabs; returns (gray rgb, height 0-1)
 //   vec3 threedogDetailBump(vec3 surfPos, vec3 surfNorm, float h, float k, float faceDir)   screen-space bump (three's bump-map math)
 // Why: a game's own shader gets the style's grain / paper / brush texture by calling it instead of the engine patching its material.
+// The hash / value noise are the shared threedogHash / threedogNoise (#include <threedog_noise>, render/effects.js), not a copy: the detail grain,
+// cloud shadows and sky clouds are one noise, and the TSL side (render/fx/detail.tsl.js) calls the same hash() / noise().
 const CALLABLE = `#ifndef THREEDOG_DETAIL
 #define THREEDOG_DETAIL
-float threedogDHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float threedogDNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-  return mix(mix(threedogDHash(i), threedogDHash(i+vec2(1,0)), f.x), mix(threedogDHash(i+vec2(0,1)), threedogDHash(i+vec2(1,1)), f.x), f.y); }
+#include <threedog_noise>
 float threedogDFbm(vec2 p, float octaves){ float s = 0.0, a = 0.5, n = 0.0;
-  for (int i = 0; i < 4; i++) { if (float(i) >= octaves) break; s += a * threedogDNoise(p); n += a; p = p * 2.03 + 17.0; a *= 0.5; }
+  for (int i = 0; i < 4; i++) { if (float(i) >= octaves) break; s += a * threedogNoise(p); n += a; p = p * ${f(D.lacunarity)} + ${f(D.offset)}; a *= 0.5; }
   return s / n; }
 // Soft oval brush dabs: one random dab per cell (random size, rotation, tone), no preferred direction. 3x3 cells cover a dab that reaches into a neighbor.
-float threedogDDabs(vec2 p, float octaves){ float s = 0.5, w = 0.85;
+float threedogDDabs(vec2 p, float octaves){ float s = 0.5, w = ${f(D.dabWeight)};
   for (int o = 0; o < 3; o++) { if (float(o) >= octaves) break;
     vec2 ip = floor(p); float fo = float(o);
     for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
       vec2 c = ip + vec2(float(i), float(j));
-      vec2 h = vec2(threedogDHash(c + fo * 13.1), threedogDHash(c.yx + 7.7 + fo * 5.3));
-      float ang = 6.2832 * threedogDHash(c * 1.7 + 3.1 + fo), r = 0.35 + 0.3 * threedogDHash(c * 2.3 + 11.9 + fo), tone = threedogDHash(c + vec2(5.5, 1.3) + fo);
+      vec2 h = vec2(threedogHash(c + fo * 13.1), threedogHash(c.yx + 7.7 + fo * 5.3));
+      float ang = 6.2832 * threedogHash(c * 1.7 + 3.1 + fo), r = 0.35 + 0.3 * threedogHash(c * 2.3 + 11.9 + fo), tone = threedogHash(c + vec2(5.5, 1.3) + fo);
       vec2 d = p - (c + 0.15 + 0.7 * h); float ca = cos(ang), sa = sin(ang);
       d = vec2(ca * d.x + sa * d.y, -sa * d.x + ca * d.y) / vec2(r * 1.3, r * 0.75);
       s = mix(s, tone, (1.0 - smoothstep(0.3, 1.0, length(d))) * w); }
-    p = p * 2.03 + 17.0; w *= 0.6; }
+    p = p * ${f(D.lacunarity)} + ${f(D.offset)}; w *= ${f(D.dabFall)}; }
   return s; }
 vec4 threedogDetailNoise(vec2 p, int kind, float octaves){
-  float s = kind == 1 ? 0.65 * threedogDFbm(p, octaves) + 0.35 * threedogDNoise(vec2(p.x * 7.0, p.y * 0.9))
-    : kind == 2 ? smoothstep(0.15, 0.85, threedogDFbm(vec2(p.x, p.y * 1.7), octaves))
+  float s = kind == 1 ? ${f(D.paper[0])} * threedogDFbm(p, octaves) + ${f(D.paper[1])} * threedogNoise(vec2(p.x * ${f(D.paperStretch[0])}, p.y * ${f(D.paperStretch[1])}))
+    : kind == 2 ? smoothstep(${f(D.stroke[0])}, ${f(D.stroke[1])}, threedogDFbm(vec2(p.x, p.y * ${f(D.strokeStretch)}), octaves))
     : kind == 3 ? threedogDDabs(p, octaves) : threedogDFbm(p, octaves);
   return vec4(vec3(s), s); }
 vec3 threedogDetailBump(vec3 surfPos, vec3 surfNorm, float h, float k, float faceDir){
@@ -129,11 +129,13 @@ export function detailPatch(o, engine, label = 'detail') {
       tex = placeholderTexture('detail');
       if (typeof o.texture === 'string') {
         if (!engine?.assets) throw codedError('material-option', `${label}.texture '${o.texture}' is an asset name but no engine is known; pass the engine (makeMaterial(role, params, engine), applyEffects(mat, { detail, engine })) or give a THREE.Texture`);
-        engine.assets.texture(o.texture).then(t => {
+        engine.assets.useTexture(o.texture, t => {
           const own = t.clone();   // shares the image (no second upload); own wrapping
-          own.wrapS = own.wrapT = THREE.RepeatWrapping; own.colorSpace = THREE.SRGBColorSpace; own.needsUpdate = true;
+          // read as data, like the gray stand-in: 128 is the neutral the blend doubles to 1. Decoded as sRGB it reads 0.22, and the ground
+          // would darken the moment the real texture arrives
+          own.wrapS = own.wrapT = THREE.RepeatWrapping; own.colorSpace = THREE.NoColorSpace; own.needsUpdate = true;
           tex.dispose(); u.uDetail.value = own;
-        }).catch(err => warnOnce(err.message));
+        }, { where: `${label}.texture`, instead: 'the neutral gray detail stays' });
       }
     }
     if (o.texture) { tex.wrapS = tex.wrapT = THREE.RepeatWrapping; u.uDetail = { value: tex }; decl = 'uniform sampler2D uDetail;'; }
@@ -150,5 +152,59 @@ ${PROJECT[proj]}`;
   const glsl = /** @type {Record<string, string>} */ ({ color: `vec4 threedogDS = threedogDetail(vThreedogWorld);\n${colorOn ? COLOR : ''}` });
   if (bump) glsl.normal = 'normal = threedogDetailBump(-vViewPosition, normal, threedogDS.a, uDetailBump * threedogDFade, faceDirection);';
   if (rough) glsl.roughness = 'roughnessFactor = clamp(roughnessFactor + (threedogDS.a - 0.5) * uDetailRough * threedogDFade, 0.04, 1.0);';
-  return { name: 'detail', cacheKey: `${src}|${proj}|${colorOn ? 'c' : ''}${bump ? 'n' : ''}${rough ? 'r' : ''}`, needs: { patches: ['world'] }, uniforms: u, pars, glsl };
+  return { name: 'detail', cacheKey: `${src}|${proj}|${colorOn ? 'c' : ''}${bump ? 'n' : ''}${rough ? 'r' : ''}`, needs: { patches: ['world'] }, uniforms: u, pars, glsl,
+    // a game's own GLSL sample has no TSL twin: no tsl field, so a NodeMaterial names the patch instead of drawing it without its look
+    ...(!o.glsl && { tsl: detailTsl(u, proj, o.texture ? -1 : NOISES.indexOf(o.noise ?? 'grain'), colorOn, bump, rough) }) };
+}
+
+/**
+ * The patch on a NodeMaterial: the same projection, fade and blend as the GLSL above, written with ctx.tsl / ctx.fx (this file must not import
+ * three/tsl: it is in every WebGL game's bundle). kind -1 = texture. The sample is built once per material and shared by the color / normal /
+ * roughness code, as threedogDS is in GLSL.
+ * @param {Record<string, { value: any }>} u @param {string} proj @param {number} kind @param {boolean} colorOn @param {boolean} bump @param {boolean} rough
+ */
+function detailTsl(u, proj, kind, colorOn, bump, rough) {
+  const memo = new WeakMap();   // material -> { s: vec4 (color, height), fade }
+  const sample = c => {
+    let r = memo.get(c.material);
+    if (r) return r;
+    const T = c.tsl, U = k => c.fx.patchUniform(u[k]);
+    const dir = U('uDetailDir'), scale = U('uDetailScale'), fadeOn = U('uDetailFade');
+    const turn = p => T.vec2(dir.x.mul(p.x).add(dir.y.mul(p.y)).div(U('uDetailStretch')), dir.y.negate().mul(p.x).add(dir.x.mul(p.y)));
+    const uv = w => turn(w.mul(scale));
+    const fp = p => T.max(T.length(T.dFdx(p)), T.length(T.dFdy(p)));
+    const fadeOf = f => T.mix(1, T.float(1).sub(T.smoothstep(0.5, 1, f)), fadeOn);
+    const src = p => {
+      if (kind >= 0) return c.fx.detailNoise(p, kind, U('uDetailOctaves'));
+      const t = c.fx.patchTexture(u.uDetail, p).rgb;
+      return T.vec4(t, T.dot(t, T.vec3(0.299, 0.587, 0.114)));
+    };
+    const w = T.positionWorld;
+    if (proj === 'world') { const p = uv(w.xz); r = { s: src(p), fade: fadeOf(fp(p)) }; }
+    else if (proj === 'triplanar') {
+      const a = T.abs(T.normalize(T.cross(T.dFdx(w), T.dFdy(w)))), n = a.div(a.x.add(a.y).add(a.z));
+      const pa = uv(w.zy), pb = uv(w.xz), pc = uv(w.xy);
+      r = { s: src(pa).mul(n.x).add(src(pb).mul(n.y)).add(src(pc).mul(n.z)),
+        fade: fadeOf(fp(pa)).mul(n.x).add(fadeOf(fp(pb)).mul(n.y)).add(fadeOf(fp(pc)).mul(n.z)) };
+    } else {
+      // screenCoordinate counts from the top (WebGPU rule) on both backends; flipped back to gl_FragCoord's bottom-left origin,
+      // so the grain sits where GLSL puts it
+      const k = T.max(scale, 1e-3), sc = T.screenCoordinate;
+      r = { s: src(turn(T.vec2(sc.x, T.screenSize.y.sub(sc.y)).div(k))), fade: fadeOf(T.float(1).div(k)) };
+    }
+    memo.set(c.material, r);
+    return r;
+  };
+  const tsl = /** @type {Record<string, (c: any) => any>} */ ({});
+  if (colorOn) tsl.color = c => {
+    const T = c.tsl, { s, fade } = sample(c), mode = c.fx.patchUniform(u.uDetailMode), k = c.fx.patchUniform(u.uDetailStrength).mul(fade);
+    const tdc = s.rgb.mul(c.fx.patchUniform(u.uDetailTint)), rgb = c.color.rgb;
+    return T.vec4(T.select(mode.lessThan(0.5), rgb.mul(T.mix(T.vec3(1), tdc.mul(2), k)),
+      T.select(mode.lessThan(1.5), rgb.add(tdc.sub(0.5).mul(k)), T.mix(rgb, tdc, k))), c.color.a);
+  };
+  if (bump) tsl.normal = c => { const { s, fade } = sample(c);
+    return c.fx.detailBump(c.tsl.positionView, c.normal, s.a, c.fx.patchUniform(u.uDetailBump).mul(fade), c.tsl.faceDirection); };
+  if (rough) tsl.roughness = c => { const { s, fade } = sample(c);
+    return c.tsl.clamp(c.roughness.add(s.a.sub(0.5).mul(c.fx.patchUniform(u.uDetailRough)).mul(fade)), 0.04, 1); };
+  return tsl;
 }

@@ -66,6 +66,7 @@ const page = fn => new Function(`${HELPERS}\nconst OLD = ${JSON.stringify(OLD_PA
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 水面外观：默认和旧着色器逐像素一致；depthColor / foam 生效；glsl.wave 照抄默认写法逐像素相同、glsl.surface 带自定义 uniform 能编译；写错报错给改法；Reflector 经 water.material 接入能渲染',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -145,6 +146,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；look.weather.replace 注册自己的粒子；写错报错给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -152,14 +154,14 @@ export const specs = [
         const out = {}, cam = new THREE.PerspectiveCamera(70, 1, 0.1, 100); cam.position.set(3, 2, 5); cam.updateMatrixWorld();
         const types = { clear: {}, wet: { rain: 1, snow: 1, wind: 1.5 }, ashfall: { ash: 1 } };
         const at = (wst, opts = {}) => { const m = make({ weather: wst }, [sky(), weather({ types, start: 'wet', particles: 3000, ...opts })]); if (m.error) return m;
-          m.e.step(0.3, { render: false }); m.e.weather.apply(cam); return m; };
-        const sys = (e, k) => e.weather.systems.get(k);
+          m.e.step(0.3, { render: false }); m.e.weatherLook.apply(cam); return m; };
+        const sys = (e, k) => e.weatherLook.systems.get(k);
         const def = at({}).e, rain = sys(def, 'rain'), snow = sys(def, 'snow');
         const oldRain = new THREE.LineSegments(rain.object.geometry, new THREE.ShaderMaterial({ vertexShader: OLD.rainVert, fragmentShader: OLD.rainFrag, uniforms: rain.uniforms, transparent: true, depthWrite: false }));
         const oldSnow = new THREE.Points(snow.object.geometry, new THREE.ShaderMaterial({ vertexShader: OLD.snowVert, fragmentShader: OLD.snowFrag, uniforms: snow.uniforms, transparent: true, depthWrite: false }));
         const px = o => { const c = o.clone(); c.visible = true; c.frustumCulled = false; return shot(c, cam, 48); };
         const r0 = px(rain.object), s0 = px(snow.object);
-        const n = def.weather.particles; const busy = q => new Set(q.px.split(',')).size > 4;   // something was drawn, so equal is not two empty pictures
+        const n = def.weatherLook.particles; const busy = q => new Set(q.px.split(',')).size > 4;   // something was drawn, so equal is not two empty pictures
         out.same = busy(r0) && busy(s0) && r0.px === px(oldRain).px && s0.px === px(oldSnow).px && !r0.err && !s0.err;
         out.err0 = r0.err + s0.err + JSON.stringify([r0.px === px(oldRain).px, s0.px === px(oldSnow).px, rain.object.geometry.drawRange.count, n, r0.px.length, new Set(r0.px.split(',')).size]);
         out.drawn = rain.object.visible && snow.object.visible && rain.object.geometry.drawRange.count === n * 2;
@@ -173,20 +175,20 @@ export const specs = [
         const tinted = at({ snow: { uniforms: { uTint: [1, 0.2, 0.2] }, glsl: { fragment: OLD.snowFrag.replace('uColor * c.rgb', 'uTint * c.rgb') } } }).e;
         const ts = px(sys(tinted, 'snow').object); out.glsl = !ts.err && ts.px !== s0.px; out.glslErr = ts.err;
         // lightning look
-        const zap = at({ lightning: f => f * 0.25 }, { start: 'wet' }).e; zap.weather.flash = 1; zap.weather.apply(cam);
-        out.lightning = Math.abs(zap.weather._add.add - 0.25) < 1e-6;
+        const zap = at({ lightning: f => f * 0.25 }, { start: 'wet' }).e; zap.weatherLook.flash = 1; zap.weatherLook.apply(cam);
+        out.lightning = Math.abs((zap.stacks.get('look.sky.flash').holders().find(h => h.owner === 'weatherLook')?.value ?? NaN) - 0.25) < 1e-6;
         // game-defined systems
         const g = at({}).e;
-        g.look.weather.replace({ ash: { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 } }); const ash = g.weather.systems.get('ash');
-        g.weather.set('ashfall', 0.01); g.step(0.2, { render: false }); g.weather.apply(cam);
+        g.look.weather.replace({ ash: { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 } }); const ash = g.weatherLook.systems.get('ash');
+        g.weather.set('ashfall', { seconds: 0.01 }); g.step(0.2, { render: false }); g.weatherLook.apply(cam);
         out.ash = ash.object.parent === g.scene && ash.object.name === 'weather-ash' && ash.object.visible && !px(ash.object).err;
         let seen = -1; const own = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
-        g.look.weather.replace({ ash: { create: () => ({ object: own, update(a) { seen = a; } }) } }); g.weather.apply(cam);
+        g.look.weather.replace({ ash: { create: () => ({ object: own, update(a) { seen = a; } }) } }); g.weatherLook.apply(cam);
         out.own = !ash.object.parent && own.parent === g.scene && seen > 0.9;
         const drops = new THREE.Points(new THREE.BufferGeometry());
         g.look.weather.replace({ rain: { create: () => ({ object: drops }) } });
         out.replaced = !g.scene.getObjectByName('weather-rain') || g.scene.getObjectByName('weather-rain') === drops;
-        out.zero = at({}, { types: { clear: {}, dusk: { grey: 0.4 } }, start: 'clear' }).e.weather.systems.size === 0;
+        out.zero = at({}, { types: { clear: {}, dusk: { grey: 0.4 } }, start: 'clear' }).e.weatherLook.systems.size === 0;
         // wrong settings
         const err = fn => { try { fn(); return ''; } catch (e) { return e.message; } };
         out.badField = err(() => g.look.weather.replace({ ahs: {} }));

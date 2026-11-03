@@ -1,4 +1,8 @@
-// R6 options-table consistency (two parts, both warnings)
+// R6 options-table consistency. A is an error: the schema / known-key table is the one source, the d.ts must name exactly its keys
+// (two hand copies drifting was the bug: a key in one only). B is a warning. D (error): no module option takes keys (keys / pad / xKeys /
+// xPad in a modules/ readParams or checkOptions table): modules only declare actions, the game binds them (presets.bindings).
+// E (error): a default written twice. A readParams schema field with a default, destructured again with its own "= value" from the same
+// options (the raw argument or the readParams result) in that function, is a second copy that can drift: read the value readParams filled in.
 // A. Fields of the d.ts options interface vs the runtime key table: checkOptions(label, object, known keys), or the params schema of
 //    readParams(name, SCHEMA, object) (label = 'name()'; SCHEMA is keysSchema([...keys]) or an object literal of fields):
 //    in d.ts but not in checkOptions → a game written to the d.ts gets an "unknown option" hint at runtime;
@@ -124,6 +128,37 @@ function restSiblings(call, arg) {
   return [];
 }
 
+/** Keys of a schema object literal whose spec has a default ({ type, default }) */
+function defaultedKeys(sf, node, depth = 0) {
+  if (!node || depth > 5) return [];
+  if (ts.isIdentifier(node)) return defaultedKeys(sf, constInit(sf, node.text), depth + 1);
+  if (!ts.isObjectLiteralExpression(node)) return [];
+  return node.properties.filter(p => ts.isPropertyAssignment(p) && ts.isObjectLiteralExpression(p.initializer)
+    && p.initializer.properties.some(q => q.name?.getText() === 'default')).map(p => p.name.getText());
+}
+function partE(out) {
+  for (const f of engineFiles()) {
+    const sf = parse(f);
+    visit(sf, n => {
+      if (!ts.isCallExpression(n) || n.expression.getText() !== 'readParams' || n.arguments.length < 3) return;
+      const keys = new Set(defaultedKeys(sf, n.arguments[1])); if (!keys.size) return;
+      const fn = enclosingFn(n); if (!fn) return;
+      const names = new Set([n.arguments[2].getText()]);
+      if (ts.isVariableDeclaration(n.parent) && ts.isIdentifier(n.parent.name)) names.add(n.parent.name.text);
+      visit(fn, d => {
+        const init = ts.isVariableDeclaration(d) ? d.initializer : null;
+        const fromSame = init && (init === n || names.has(init.getText()));
+        if (!fromSame || !ts.isObjectBindingPattern(d.name)) return;
+        for (const el of d.name.elements) {
+          const k = (el.propertyName ?? el.name).getText();
+          if (el.initializer && keys.has(k)) out.push({ level: 'error', file: f, line: lineOf(el),
+            msg: `'${k}' has a default in the readParams schema and again here (= ${el.initializer.getText()})`, fix: 'drop the "= value": readParams already filled the schema default in' });
+        }
+      });
+    });
+  }
+}
+
 function partA(out, stats) {
   const T = typeTools();
   for (const f of engineFiles()) {
@@ -135,6 +170,9 @@ function partA(out, stats) {
       const raw = n.arguments[0].getText().slice(1, -1);   // a public API entry already names its call (grids.add(name), style.sky.fog); a module factory is only its name
       const label = isParams && !raw.includes('(') && !raw.includes('.') ? raw + '()' : raw;
       const known = isParams ? schemaKeys(sf, n.arguments[1]) : stringArray(sf, n.arguments[2]);
+      // D
+      if (/[\\/]modules[\\/]/.test(f)) for (const k of known.vals) if (KEY_OPTION.test(k)) out.push({ level: 'error', file: f, line: lineOf(n),
+        msg: `${label}: option '${k}' takes keys; modules take no keys`, fix: `declare the action (ctx.input.action) and let the game bind it: a presets.bindings map or createEngine({ bindings })` });
       const t = resolveParamType(T, label, paramIndexOf(n, isParams ? 2 : 1));
       const dts = t && T.fields(t);
       if (!dts) { stats.skipped.push(`${f}:${lineOf(n)} ${label}`); return; }
@@ -143,9 +181,9 @@ function partA(out, stats) {
       const allow = k => ALLOW_KEYS.some(([l, kk]) => l === label && kk === k);
       const onlyDts = [...dts].filter(k => !js.has(k) && !allow(k));
       const onlyJs = [...js].filter(k => !dts.has(k) && !allow(k));
-      if (onlyDts.length && known.complete) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `${label}: in d.ts but unknown to ${fnName}: ${onlyDts.join(', ')}`,
+      if (onlyDts.length && known.complete) out.push({ level: 'error', file: f, line: lineOf(n), msg: `${label}: in d.ts but unknown to ${fnName}: ${onlyDts.join(', ')}`,
         fix: 'add these keys to the known keys of checkOptions (if they are really supported), otherwise delete them from the d.ts' });
-      if (onlyJs.length) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `${label}: known to ${fnName} but missing from d.ts: ${onlyJs.join(', ')}`,
+      if (onlyJs.length) out.push({ level: 'error', file: f, line: lineOf(n), msg: `${label}: known to ${fnName} but missing from d.ts: ${onlyJs.join(', ')}`,
         fix: 'add these fields (with JSDoc) to the matching options interface in the d.ts, otherwise delete them from the known keys' });
     });
   }
@@ -201,6 +239,7 @@ function partB(out) {
   }
 }
 
+const KEY_OPTION = /^(keys|pad|\w+Keys)$/;   // xPad stays free: cameraPad / colliderPad are paddings, not buttons
 const RETIRED = { padKeys: 'pad', brakePadKeys: 'brakePad', viewDistance: 'viewChunks', range: 'radius' };
 function partC(out) {
   for (const f of dtsFiles()) {
@@ -222,6 +261,7 @@ export default {
     partA(out, stats);
     partB(out);
     partC(out);
+    partE(out);
     out.note = `${stats.matched} checkOptions calls (checkOptions + readParams) matched, ${stats.skipped.length} skipped because the label cannot be resolved to a d.ts type (add --verbose for the list)`;
     out.verbose = stats.skipped;
     return out;

@@ -17,12 +17,12 @@ Time of day, day, seasons and clock-time timers (calendar() module); NPC schedul
 - `calendar.onSeason(name: string, fn: (season: string) => void) → Handle` — Call fn(seasonName) on entering season name
 - `calendar.untilMark() → number` — Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there; Infinity when the time of day never moves
 - Properties:
-  - `timeOfDay: number` Time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Writing it later in the day counts as time passing (at timers crossed fire); writing it earlier only resets the timers' baseline
-  - `dayLength: number` Game seconds per day (1 hour = dayLength / hoursPerDay game seconds; at clock.rate 1 calendar seconds equal real seconds); Infinity = the time of day never moves
-  - `day: number` Day number (1-based)
   - `hoursPerDay: number` Hours per day (clock notation 'HH:MM', schedules, at / between)
   - `daysPerSeason: number` Days per season for seasons given by name only
   - `seasons: string[]` Season names, [] when the game has no seasons (the default)
+  - `timeOfDay: number` Time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Writing it later in the day counts as time passing (at timers crossed fire); writing it earlier only resets the timers' baseline
+  - `day: number` Day number (1-based); writing it fires no day:start
+  - `dayLength: number` Game seconds per day (1 hour = dayLength / hoursPerDay game seconds; at clock.rate 1 calendar seconds equal real seconds); Infinity = the time of day never moves. Changing it keeps the current time of day
   - `clock: string` Clock text, e.g. "18:00"
   - `daylight: number` Daylight from the clock 0-1 (0 from 18:00 to 06:00, 1 at noon; a sine over the day). Audio rules { daylight }, ambience and the sky's default sun read it
   - `isDay: boolean` Whether it is daytime by the clock (06:00-18:00 of the day's hours)

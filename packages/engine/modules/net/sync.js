@@ -27,7 +27,7 @@ export function partKeys(e, sync) {
 /** @internal host: one part as entries { id: value } (live objects; the transport copies them) */
 function readPart(e, key) {
   if (key === 'world') return Object.fromEntries(e.world.records);
-  if (key === 'containers') { const out = {}; for (const [id, c] of e.inventory._containers.map) out[id] = c._save(); return out; }
+  if (key === 'containers') return e.inventory.contents();   // public API only: any module that provides 'inventory' syncs the same
   if (key === 'vars') return { flags: e.vars.flags, counters: e.vars.counters };
   const p = e.saves.providers.get(key);
   return p ? { [GENERIC]: p.save() } : {};
@@ -71,11 +71,10 @@ export function applyPart(e, key, part, full, opts) {
   const set = full ? part : part.set ?? {}, del = full ? null : part.del ?? [], { toLocal } = opts;
   if (key === 'world') return applyWorld(e, set, del, full, opts);
   if (key === 'containers') {
-    const inv = e.inventory, seen = new Set();
-    for (const id in set) { const c = inv.container(toLocal(id)); seen.add(c.id); c._load(set[id]); }
-    for (const id of del ?? []) { const c = inv._containers.map.get(toLocal(id)); if (c) c._load([]); }
-    if (full) for (const [id, c] of inv._containers.map) if (!seen.has(id)) c._load([]);
-    inv._refresh();   // _load is silent (as a save load): redraw the inventory UI once
+    const data = {};
+    for (const id in set) data[toLocal(id)] = set[id];
+    for (const id of del ?? []) data[toLocal(id)] = null;   // gone on the host: emptied here if it exists
+    e.inventory.setContents(data, { only: full });   // silent like a save load; the inventory window redraws once
     return;
   }
   if (key === 'vars') {

@@ -105,8 +105,8 @@ function apply(pass, p) {
  * mode 'depth' (default): silhouettes where depth jumps; 'normal': creases where surface normals turn (the scene is drawn once more with
  * normals; costly, off by default on low-tier devices); 'both': either. Objects can opt out of the lines with offLayer.
  * @example
- * post: [outline({ enabled: true, color: 0x222222, thickness: 1.5 })]
- * post: [outline({ enabled: true, mode: 'both', wobble: 1.5, offLayer: OUTLINE_OFF_LAYER })]   // hand-drawn; then: sky.layers.enable(OUTLINE_OFF_LAYER)
+ * engine.look.post.add(outline({ enabled: true, color: 0x222222, thickness: 1.5 }))
+ * engine.look.post.add(outline({ enabled: true, mode: 'both', wobble: 1.5, offLayer: OUTLINE_OFF_LAYER }))   // hand-drawn; then: sky.layers.enable(OUTLINE_OFF_LAYER)
  * @param {{ color?: any, thickness?: number, strength?: number, mode?: 'depth' | 'normal' | 'both', fadeWithDistance?: boolean, wobble?: number,
  *   offLayer?: number | null, enabled?: boolean, order?: number }} [o]
  *   fadeWithDistance: lines fade out in the far 40..90% of the camera range (default true); wobble: line jitter in pixels (0 = straight);
@@ -116,5 +116,71 @@ function apply(pass, p) {
 export function outline({ color = 0x222222, thickness = 1, strength = 0.8, mode = 'depth', fadeWithDistance = true, wobble = 0, offLayer = null, enabled, order = 10 } = {}) {
   return { name: 'outline', slot: 'hdr', order, enabled, needsDepth: true, costly: mode !== 'depth', params: { color, thickness, strength, mode, fadeWithDistance, wobble, offLayer },
     create: ({ scene, camera, params }) => { const pass = new OutlinePass(scene, camera, params); apply(pass, params); return pass; },
-    update: apply };
+    update: apply, node: outlineNode };
+}
+
+/**
+ * WebGPU: the same steps as OutlinePass's fragment shader, as one node (not three's OutlineNode, which outlines selected objects, a different
+ * effect). Depth comes from the scene pass; the normal and mask views are extra scene renders made through ctx.display.pass, so this file never
+ * imports three/webgpu. Number / boolean params are live uniforms (ctx.p); mode and offLayer on / off rebuild the node, as any non-number param does.
+ * @param {any} input @param {any} ctx
+ */
+function outlineNode(input, { tsl: T, display, scenePass, scene, camera, params, p }) {
+  const mode = MODES[params.mode];
+  if (mode === undefined) throw new Error(`outline: unknown mode '${params.mode}', use 'depth' | 'normal' | 'both'`);
+  const near = T.uniform(camera.near).onRenderUpdate(() => camera.near), far = T.uniform(camera.far).onRenderUpdate(() => camera.far);
+  const ortho = T.uniform(0).onRenderUpdate(() => (camera.isOrthographicCamera ? 1 : 0));
+  // the color param may be a number (then ctx.p holds a float uniform, not a color) or a Color: read the param itself every render
+  const tint = new THREE.Color(), col = T.uniform(tint).onRenderUpdate(() => { tint.set(params.color); });
+  // distance from the camera, from a depth texture; the depth -> view z helpers follow the backend's depth range, the GLSL does it by hand
+  const lin = (tex, uv) => { const d = tex.sample(uv).x; return T.select(ortho.greaterThan(0.5), T.orthographicDepthToViewZ(d, near, far), T.perspectiveDepthToViewZ(d, near, far)).negate(); };
+  const depthTex = scenePass.getTextureNode('depth');
+  const texel = T.vec2(1).div(T.screenSize), o = texel.mul(p.thickness), base = T.screenUV;
+  const nb = [T.vec2(o.x, 0), T.vec2(o.x.negate(), 0), T.vec2(0, o.y), T.vec2(0, o.y.negate())];   // the four neighbors, thickness apart
+  // wobble: value noise on the pixel grid, redrawn 8 times a second (flip-book trembling); the GLSL counts its own clock modulo 64 s the same way
+  const h2 = q => T.fract(T.sin(T.dot(q, T.vec2(127.1, 311.7))).mul(43758.5453));
+  const vn = q => { const i = T.floor(q), f0 = T.fract(q), f = f0.mul(f0).mul(f0.mul(-2).add(3));
+    return T.mix(T.mix(h2(i), h2(i.add(T.vec2(1, 0))), f.x), T.mix(h2(i.add(T.vec2(0, 1))), h2(i.add(T.vec2(1, 1))), f.x), f.y); };
+  const tick = T.floor(T.mod(T.time, 64).mul(8)), px = base.div(texel).mul(0.04);
+  const jitter = T.vec2(vn(px.add(tick)), vn(px.add(17.3).add(tick))).sub(0.5).mul(2).mul(p.wobble).mul(texel);
+  const uv = T.select(p.wobble.greaterThan(0), base.add(jitter), base);
+  const d = lin(depthTex, uv);
+  let edge = T.float(0);
+  if (mode !== 1) {
+    const e = nb.reduce((s, n) => s.add(lin(depthTex, uv.add(n)).sub(d).abs()), T.float(0));
+    edge = T.smoothstep(0.08, 0.3, e.div(T.max(d, 0.5)).mul(4));
+  }
+  // An extra render of the scene with one material, no background or fog. three's MeshNormalNodeMaterial stores its packed normal as an sRGB
+  // color (decoded to linear, so the canvas looks like WebGL's), unlike WebGL's MeshNormalMaterial in a render target, so the sample is
+  // re-encoded with the sRGB curve before unpacking; the clear is the sRGB (0.5, 0.5, 1) for the same reason: an empty pixel then reads as a
+  // normal facing the camera (as OutlinePass._pass), and for the mask its red (0.21 linear) stays below the > 0.5 test
+  const view = (mat, layer) => {
+    const v = display.pass(scene, camera);
+    v.overrideMaterial = mat;
+    const L = layer && new THREE.Layers(), run = v.updateBefore.bind(v), free = v.dispose.bind(v), clear = new THREE.Color(), was = new THREE.Color();
+    if (L) v.setLayers(L);
+    v.updateBefore = frame => {
+      const r = frame.renderer, bg = scene.background, fog = scene.fog, a = r.getClearAlpha();
+      if (L) L.set(params.offLayer);
+      r.getClearColor(was);
+      r.setClearColor(clear.setRGB(0.5, 0.5, 1, THREE.SRGBColorSpace), 1);
+      scene.background = null; scene.fog = null;
+      try { run(frame); } finally { scene.background = bg; scene.fog = fog; r.setClearColor(was, a); }
+    };
+    v.dispose = () => { free(); mat.dispose(); };
+    return v;
+  };
+  if (mode !== 0) {
+    const nTex = view(new THREE.MeshNormalMaterial()).getTextureNode(), unpack = q => T.sRGBTransferOETF(nTex.sample(q).xyz).mul(2).sub(1), n = unpack(uv);
+    const k = nb.reduce((s, q) => s.add(T.float(1).sub(T.dot(n, unpack(uv.add(q))))), T.float(0));
+    edge = T.max(edge, T.smoothstep(0.35, 0.8, k));
+  }
+  edge = edge.mul(T.select(p.fadeWithDistance.greaterThan(0.5), T.float(1).sub(T.smoothstep(far.mul(0.4), far.mul(0.9), d)), T.float(1)));
+  if (params.offLayer != null) {
+    const m = view(new THREE.MeshBasicMaterial({ color: 0xffffff }), true), mTex = m.getTextureNode(), mDepth = m.getTextureNode('depth');
+    // object in the exempt layer at this pixel: its own render is not behind what the scene depth saw (unwobbled uv, as the GLSL)
+    const masked = q => T.select(mTex.sample(q).r.greaterThan(0.5).and(lin(mDepth, q).lessThanEqual(lin(depthTex, q).add(0.05))), T.float(1), T.float(0));
+    edge = edge.mul(T.float(1).sub(nb.reduce((s, q) => T.max(s, masked(base.add(q))), masked(base))));
+  }
+  return T.vec4(T.mix(input.rgb, col, edge.mul(p.strength)), input.a);
 }

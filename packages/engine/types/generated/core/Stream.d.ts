@@ -3,7 +3,7 @@
 export class Stream {
     /**
      * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance
-     * engine.fogFar without terrain) @type {number | null}
+     * the fog distance without terrain) @type {number | null}
      */
     radius: number | null;
     /** Grid cell edge in meters, shared with hlod, default 64 */

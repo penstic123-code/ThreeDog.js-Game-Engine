@@ -66,6 +66,7 @@
 - `ground:change` [{ x0: number; z0: number; x1: number; z1: number }] The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale
 - `rigid:rebuilt` [{ world: any; player: any; bodies: Record<string, any> }] rigid: newGame / a load rebuilt the physics world (a fresh page for physics) and the engine's bodies are back (entry.body is the rebuilt Rapier body; bodies maps the ids given to addBox / addBall / addHull / addWheeled). The old world's joints were freed with it: re-create the game's joints here (recipes/11-vehicles.md, Joints). Not emitted while a vehicle exists (the world is kept then, joints included)
 - `terrain:void` [{ who: any; position: { x: number; y: number; z: number } }] terrain({ shape }): the player or a moving rigid body dropped below engine.terrain.voidY (once per fall). The engine does not respawn: the game decides
+- `terrain:chunkFailed` [{ cx: number; cz: number; error: any }] A terrain chunk job failed every try (usually the game's height / groundType / placement rule throws there): the chunk stays empty and the error is reported. engine.terrain.retry() sends failed chunks again
 - `vegetation:remove` [VegetationRemoveEvent] A vegetation instance was chopped / removed
 - `vegetation:restore` [VegetationRemoveEvent] A vegetation instance was restored
 - `music:change` [MusicChangeEvent] Background music changed track (null means silence)
@@ -83,13 +84,14 @@
 - `net:sync` [{ tick: number; full: boolean }] Client (net): host state applied (full: a whole snapshot, else a diff); redraw UI from state here
 - `net:result` [{ seq: number; name: string; ok: boolean; code: string | null; value… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
 - `engine:error` [EngineError] A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error)
-- `module:disabled` [{ name: string; message: string }] A presentation module errored and was disabled (the game continues)
+- `module:disabled` [{ name: string; message: string }] A look or ui module errored and was disabled (the game continues)
 - `vehicle:enter` [{ character: Character; vehicle: Rideable }] A character boarded a vehicle
 - `vehicle:exit` [{ character: Character; vehicle: Rideable }] A character exited a vehicle
 - `flow:change` [{ from: string; to: string }] Game flow state changed
 - `flow:transition` [{ phase: 'start' | 'end' }] Scene transition: phase 'start' begins fading to black, 'end' finishes fading back in
 - `session:end` [] A playthrough ends (engine.session.newGame / load / quit), before the reset
 - `session:start` [{ kind: 'new' | 'load'; slot?: string }] A playthrough started from a clean slate: kind 'new' (newGame) or 'load' (session.load, with the slot)
+- `session:failed` [{ kind: 'new' | 'load'; slot?: string }] newGame / session.load failed (a save part's load() threw) and the game was rolled back: the old playthrough goes on, no session:start
 - `page:blur` [{ focused: boolean; visible: boolean }] The page went away: the window lost focus or the tab was hidden (engine.page)
 - `page:focus` [{ focused: boolean; visible: boolean }] The page came back: focused and visible again
 - `page:pointerlock` [{ locked: boolean }] The mouse lock on the canvas started or ended (Esc, alt-tab); cameras with pointerLock lock again on the next click

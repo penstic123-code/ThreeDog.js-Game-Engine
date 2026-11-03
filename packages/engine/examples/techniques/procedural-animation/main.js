@@ -6,7 +6,7 @@ import { createEngine, openWorld, followCamera, presets, makeMaterial, THREE } f
 import { buildCreature } from './creature.js';
 import { createProceduralAnimator } from './proceduralAnim.js';
 
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), ui: { loading: false }, saveKey: 'threedog-procanim' });
+const engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), ui: { loading: false }, saveKey: 'threedog-procanim' });
 engine.use(openWorld({ camera: followCamera({ ...presets.camera.follow, distance: 4 }), terrain: false, vegetation: false, weather: false, water: false, rigid: false,
   ambience: false, calendar: { ...presets.calendar.fixedTime, time: 0.4 }, characters: { npcs: false } }));
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), makeMaterial('terrain', { color: 0x7d7d7d }));

@@ -11,6 +11,7 @@ const PAGE = '/tests/threads/';
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] day-night light: with calendar + sky a MeshStandardMaterial ground is much darker at night than at noon (room env follows the sky)',
     url: PAGE,
     async run({ check, ev }) {
@@ -52,6 +53,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] contact shadows: a thin caster 10 cm above the ground leaves a visible shadow under the default sun (sky and the no-sky baseline)',
     url: PAGE,
     async run({ check, ev }) {
@@ -167,7 +169,7 @@ export const specs = [
           const E = mk(createEngine, key, { style: { sky: { starDensity: 0.2, ...(dim ? { dim } : {}) } } });
           E.use(T.calendar({ time: '23:30' }), T.sky());
           await E.start();
-          const m = E.mod('sky.tint', { owner: 'test', value: { color: 0xffffff, amount: 1, horizon: 1 } });
+          const m = E.mod('look.sky.tint', { owner: 'test', value: { color: 0xffffff, amount: 1, horizon: 1 } });
           E.step(1 / 30); E.step(1 / 30);
           const top = lum(E.sky.uniforms.uTop.value);
           m.remove(); E.step(1 / 30);

@@ -13,14 +13,14 @@ Content: actions 4 · audio 3 · containers 1 · dialogues 1 · items 4 · npcs 
 
 ## Engine modules (engine.use)
 
-- createEngine: { style, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } }
+- createEngine: { ...(gpuRoute && { renderer: 'webgpu' }), bindings: { ...presets.bindings.walk, ...presets.bindings.interact…
 - openWorld preset ({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius:…) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
 - interactions ({ ...presets.interactions.nearest })
 - dialogue
-- inventory ({ ...presets.keys.inventory })
+- inventory
 - pickups
-- quests ({ ...presets.keys.quests })
-- photo ({ ...presets.keys.photo })
+- quests
+- photo
 - timeline
 - triggers
 - particles
@@ -51,6 +51,10 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
+| art/humanoid.js | 43 | The 'humanoid' body: the procedural character body, exported in the world example's asset pack (art… |
+| art/index.js | 12 | The world example's own art: procedural models built in code (trees, rocks, grass, flowers, the 'hu… |
+| art/models.js | 59 | The world example's procedural models: trees, rocks, grass and flowers built in code, no files. Exp… |
+| art/shapes.js | 10 | The ground pickup shape, registered as the asset model name 'pickup' (assets in art/index.js). It i… |
 | assets.js | 7 | The asset packs this game registers (main.js: engine.assets.manifest(packs)). Kept in their own fil… |
 | content/actions.js | 9 |  |
 | content/audio.js | 26 |  |
@@ -67,12 +71,10 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/rules.js | 24 |  |
 | content/templates.js | 6 |  |
 | content/vegetation.js | 33 |  |
-| main.js | 169 | Open-world example (slow photography life): riverside cabin + an old fisherman who walks by the clo… |
+| main.js | 173 | Open-world example (slow photography life): riverside cabin + an old fisherman who walks by the clo… |
 | models.js | 29 | Models this game builds in code: the cabin (registered by name in main.js, placed by content/props.… |
-| style/humanoid.js | 49 | The 'humanoid' body: the procedural character body, exported in the asset pack (index.js `assets`),… |
-| style/index.js | 153 | The world example's own look (a game keeps its style in its style/ folder; recipes/09-style-pack.md… |
-| style/models.js | 59 | Procedural models of this look: trees, rocks, grass and flowers built in code, no files. Exported a… |
-| style/shapes.js | 10 | The ground pickup shape, registered as the asset model name 'pickup' (assets in index.js). It is an… |
+| style/index.js | 62 | The world example's look: one folder = one style (recipes/09-style.md). Starting values only; the g… |
+| style/plugins/10-bloom.js | 6 | The world look's bloom: a post effect plugin of the style (look.post.add puts it in the chain; look… |
 
 ## NPCs (content/npcs.js)
 

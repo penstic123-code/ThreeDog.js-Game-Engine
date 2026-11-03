@@ -24,6 +24,7 @@ const measure = (ev) => ev(src => { try { engine.step(0.5); return (0, eval)(`($
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'contact-shadows technique: small objects darken their base (defaults float); the handle writes and gives back shadow, fill and AO',
     url: '/contact-shadows.html?threedog-headless',
     async run({ page, check, ev }) {

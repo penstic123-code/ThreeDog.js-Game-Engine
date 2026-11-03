@@ -1,4 +1,4 @@
-// Authored data has one source (recipes/30-templates.md, recipes/20-content-actions-save.md "Save format"). Same style as specs.mjs; appended at the end.
+// Authored data has one source (recipes/30-templates.md, recipes/20-content-actions-save.md "Save format"). Same style as the other files here.
 // Guards: stable ids and duplicate errors, save = authored baseline + per-id diff, orphans kept, runtime spawns saved whole, level-node ids,
 // "defined in file:line" in inspect / explain / pick, point -> thing on a batched copy, and the dev warning when code placed records before start.
 const READY = { timeout: 60000 };

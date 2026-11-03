@@ -1,4 +1,4 @@
-// Batch 3, group D specs (same format as packages/engine/tests/specs.mjs); appended at the end of specs.mjs:
+// Batch 3, group D specs (same format as the other files here):
 // game clock, story variables and old-save migration, content loader (custom conditions, props), game flow and fades, timeline fade, objective marker HUD.
 export const specs = [
   {
@@ -97,11 +97,11 @@ export const specs = [
         await p;
         const end = { unlocked: engine.input.enabled, clear: fade() < 0.01, events: events.join(',') };
         engine.flow.go('paused');
-        const t0 = engine.elapsed; engine.step(1, { render: false });
-        const frozen = engine.elapsed === t0 && engine.flow.state === 'paused' && !engine.input.enabled;
+        const t0 = engine.time.now('real'); engine.step(1, { render: false });
+        const frozen = engine.time.now('real') === t0 && engine.flow.state === 'paused' && !engine.input.enabled;
         engine.flow.go('playing');
         engine.step(0.5, { render: false });
-        return { mid, end, frozen, resumed: engine.elapsed > t0 && engine.input.enabled };
+        return { mid, end, frozen, resumed: engine.time.now('real') > t0 && engine.input.enabled };
       });
       check('input locked and .threedog-fade opaque during transition', r.mid.locked && r.mid.dark, JSON.stringify(r.mid));
       check('input restored, screen clear and fn ran after transition', r.end.unlocked && r.end.clear && r.mid.ran, JSON.stringify(r.end));
@@ -288,7 +288,7 @@ export const specs = [
         // a bubble line: input stays free, it ends by itself after its seconds
         const p = d.say('Reloading!', { speaker: 'Mira', channel: 'bubble', at: engine.player.root, seconds: 2 });
         engine.step(1, { render: false });
-        o.barkInput = !engine.input.contexts.includes('dialogue'); o.locks = engine.input.contexts.slice(1); o.barkShown = engine.describe().ui.bubbles?.[0]?.text;
+        o.barkInput = !engine.input.contexts.includes('dialog'); o.locks = engine.input.contexts.slice(1); o.barkShown = engine.describe().ui.bubbles?.[0]?.text;
         let ended = false; p.then(() => { ended = true; });
         engine.step(0.5, { render: false }); await null; o.earlyEnd = ended;
         engine.step(3, { render: false }); await null; await null; o.barkEnded = ended && !d.bubbles().length;
@@ -296,14 +296,14 @@ export const specs = [
         d.start('d-gen');
         const hey = d.say('Hey!', { channel: 'bubble', seconds: 1 });
         engine.step(0.2, { render: false });
-        o.kept = d.active?.speaker === 'd-gen' && d.bubbles().length === 1; hey.stop(); d.end();
+        o.kept = d.active?.speaker === 'd-gen' && d.bubbles().length === 1; hey.remove(); d.end();
         // an NPC's interact op npc.talk with channel 'bubble': its script plays over its head, input stays free, busy clears when the lines end
         d.define('d-bark', { start: { text: 'Fresh fish!' } });
         engine.npcs.add({ id: 'd-bark', name: 'Seller', interact: { op: 'npc.talk', args: { channel: 'bubble' } }, position: { x: 2, z: 2 }, schedule: [] });
         engine.step(0.2, { render: false });
         const talked = engine.ops.run('npc.talk', { npc: 'd-bark', channel: 'bubble' });
         engine.step(0.2, { render: false });
-        o.npcTalk = { ok: talked.ok, code: talked.code, active: !!d.active, bubble: d.bubbles()[0]?.text, locked: engine.input.contexts.includes('dialogue'), busy: engine.world.get('d-bark').busy };
+        o.npcTalk = { ok: talked.ok, code: talked.code, active: !!d.active, bubble: d.bubbles()[0]?.text, locked: engine.input.contexts.includes('dialog'), busy: engine.world.get('d-bark').busy };
         o.npcBubble = talked.ok && !d.active && o.npcTalk.bubble === 'Fresh fish!' && !o.npcTalk.locked && o.npcTalk.busy;
         engine.step(6, { render: false }); await null; await null;
         o.npcBubbleDone = !d.bubbles().length && !engine.world.get('d-bark').busy;
@@ -337,14 +337,14 @@ export const specs = [
         const hidden = m.el.hidden && engine.describe().hud.markers.at(-1).visible === false;
         m.remove();
         await engine.applyState({ weather: 'rain' }); engine.step(0.1);
-        const w = engine.describe().weather, named = !!engine.scene.getObjectByName('weather-rain')?.visible, text = engine.describeText();
+        const w = engine.describe().weatherLook, named = !!engine.scene.getObjectByName('weather-rain')?.visible, text = engine.describeText();
         await engine.applyState({ weather: 'clear' }); engine.step(0.1);
-        const dry = engine.describe().weather.rainVisible;
+        const dry = engine.describe().weatherLook.rainVisible;
         return { nearestOk, dist: m.dist, want, hidden, rain: w.rainVisible, named, dry, text };
       });
       check('{ nearest: berry } points at the nearest berry', r.nearestOk, JSON.stringify({ dist: r.dist, want: r.want }));
       check('setTarget(function returning null) → hidden, describe shows visible=false', r.hidden);
-      check('rain: describe().weather.rainVisible, object name weather-rain, state text says "on screen: raindrops"; false when clear', r.rain && r.named && r.dry === false && /on screen: raindrops/.test(r.text), JSON.stringify({ ...r, text: r.text.split('\n')[2] }));
+      check('rain: describe().weatherLook.rainVisible, object name weather-rain, state text says "on screen: raindrops"; false when clear', r.rain && r.named && r.dry === false && /on screen: raindrops/.test(r.text), JSON.stringify({ ...r, text: r.text.split('\n')[2] }));
     },
   },
   // ---------- Seams (review 6.8): UI focus stack, trigger zone exit, freezing, repeated content load, load ----------
@@ -408,7 +408,7 @@ export const specs = [
         engine.quests.start('dFrozen');
         let ended = false;
         engine.freeze('d-test');
-        engine.timeline.play([{ wait: 0.5 }], { lockInput: false }).then(() => { ended = true; });
+        engine.timeline.play([{ wait: 0.5 }], { actors: [] }).then(() => { ended = true; });
         engine.step(2, { render: false });
         await Promise.resolve();
         const frozen = { quest: engine.quests.isDone('dFrozen'), timeline: ended || !engine.timeline.playing };

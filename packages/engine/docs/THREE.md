@@ -1,18 +1,43 @@
-# When the engine lacks a feature: use three.js directly
+# Write three.js; the engine adopts it
 
-The scene, camera, lights, characters and models in the engine are **plain three.js objects** (three 0.187). For anything the engine does not provide,
-write it the three.js way you already know, as long as you follow the conventions below.
-Looks (materials, shaders, textures, lights, post passes) are always this route; engine look features are optional extras on top.
+The scene, camera, lights, characters and models in the engine are **plain three.js objects** (three 0.187). Write the three.js you already
+know: what the engine can see, it plugs in with no extra call. Only where it cannot know your intent do you write one line.
+Looks (materials, shaders, textures, lights, post passes) always take this route first; engine look features are optional conveniences on top.
+This is the one place that order is stated: a material is `new THREE.*Material` / `ShaderMaterial` before a slot patch or a style role, a post
+pass is a three.js Pass (`engine.look.post.add(pass)`) before a ready-made effect.
 
-## What importing the engine changes in three.js (page-wide)
-Everything else in three is untouched. These four are global because three has no per-object hook for them:
+| You write (plain three.js) | The engine does | The one line, only when you mean it |
+|---|---|---|
+| `engine.scene.add(obj)` / `group.add(obj)` | registers each root under the scene like `engine.add`: `engine.thing`, `describe().scene`, `thing.set` / `thing.remove` | a stable id so a save finds it: `engine.add(obj, { id: 'mill' })` |
+| `new THREE.PointLight(...)` / `SpotLight` added to the scene | a real light, adopted as a thing; counted by `engine.budget` `lights` / `shadowLights`, listed in `describe().render.lights`; a casting light at intensity 0 stops redrawing its shadow map; weather and day-night leave its values alone | many sources, few real lights: `lightPool` (recipe 52) |
+| `new THREE.MeshStandardMaterial(...)` | scene fog (height fog too), cascaded shadows | wind sway: `applyEffects(mat, { wind: 0.03 })` |
+| `engine.look.post.add(pass)`, the one way into the chain (the other renderer's form: recipe 56) | slots it after the scene render and before tone mapping (FXAA / SMAA last), or after tone mapping when you added it after an OutputPass; a pass that renders `engine.scene` itself (RenderPixelatedPass, SSAA, TAA) replaces the scene render, so the scene is drawn once; skips a RenderPass / OutputPass it already has; listed in `post.list()`; `remove()` leaves it undisposed | a settings name and position: `add(pass, { name: 'glow', order })`, then `look.post.set({ glow: false })` |
+| your own `EffectComposer` / `renderer.render` of the whole canvas, every frame | yields the frame (stops drawing its own, warns once `[own-frame]`); delete your render call to hand it back. A minimap / HUD layer on top (scissor, smaller viewport, or `autoClear = false` with another scene) is not a takeover | - |
+| `renderer.setSize` / `setPixelRatio` yourself | the post chain follows on its next draw | - |
+| `scene.fog.far = 80`, `sun.intensity = 3`, `renderer.toneMappingExposure = 1.4` | yields that value (recipe 52 "Who writes it") | dim on top of weather instead of taking it: `engine.mod('look.fog.far', { owner: 'storm', mul: 0.6 })` |
+| one file per piece in `plugins/` next to index.html (`export default mesh`, a Pass, a post effect such as `grain()`, a Material, a ShaderPatch `{ slot, glsl, roles }`, a module; never a bare function) | plugs each at `engine.start()` by what it exports, through the same calls as above (`scene.add`, `look.post.add`, `look.materials.replace` / `patch`, `engine.use`); order by file name or a `plugins.json` beside them; anything else is a `[plugin-shape]` error naming the file | switch one off: `plugins.json` `"off": ["20-bloom"]` or `engine.plugins.off('20-bloom')` |
+| a static mesh you want `engine.pick` to hit | - | `engine.rays.addStatic(obj)` (a BVH only pays off for things that do not move) |
 
-| Change | When | Effect on your code | Turn it off |
+`describe().slots` is the one table of what is plugged in where: each row is `{ slot, plugged, file, on, affects }`, for the plugins folder,
+`scene.add` roots (with the file:line that added them), `look.post.add` effects, modules and plain lights. Without the vite preset, hand the folder over
+yourself: `engine.plugins.add(import.meta.glob('./plugins/*.js', { eager: true }))` before `engine.start()`.
+
+## What the engine changes in three.js (Global changes)
+Everything else in three is untouched. Every change below is listed in `describe().threePatches` (`{ id, what, scope, on, offable, lost }`);
+an offable one is undone page-wide with `threePatches.off(id)` (`import { threePatches } from 'threedog'`), call it before creating the objects
+that should not see it. `lost` says what stops working; a change that cannot be undone says why and `off` throws.
+
+| id | Change | Effect on your code | Off |
 |---|---|---|---|
-| `Mesh.prototype.raycast` = three-mesh-bvh `acceleratedRaycast`; `BufferGeometry.prototype.computeBoundsTree / disposeBoundsTree` added | On `import 'threedog'` | Same hits as three. Only a geometry with a `boundsTree` takes the fast path; the engine builds one for registered static meshes from 256 triangles up | Per mesh: `mesh.geometry.disposeBoundsTree()` (three's path again). Page-wide: not possible |
-| `Mesh.prototype.customDepthMaterial / customDistanceMaterial` become accessors | On import | Unassigned, they return a shadow material only for a mesh whose material carries a vertex-moving engine patch (wind), so its shadow sways too; otherwise `undefined` as in three | Assign your own: `mesh.customDepthMaterial = new THREE.MeshDepthMaterial()` (a still shadow) or any depth material; an assignment always wins, `undefined` returns to the default. Page-wide: not possible |
-| `THREE.ShaderChunk.fog_pars_vertex / fog_vertex / fog_pars_fragment / fog_fragment` replaced | Only when a sky fog is `kind: 'exp'`, `'height'` or has `glsl` (default `'linear'` / `'exp2'`: untouched) | Every material on the page uses that fog math (yours too) | Use `'linear'` / `'exp2'` without `glsl`, or `sky({ fog: false })`; the originals return when the last engine using it is disposed |
-| `THREE.ShaderChunk.threedog_*` added (new names, nothing replaced) | On import | None until you `#include` one | - |
+| `shadow-accessors` | `Mesh.prototype.customDepthMaterial / customDistanceMaterial` become accessors | Unassigned, they return a shadow material only for a mesh whose material carries a vertex-moving engine patch (wind), so its shadow sways too; otherwise `undefined` as in three. An assignment always wins | yes |
+| `node-setup-position` | `NodeMaterial.prototype.setupPosition` wrapped | WebGPU only: runs the engine's vertex-moving patches (wind) first; other node materials unchanged | yes |
+| `scene-add-hook` | `Object3D.prototype.add / remove` wrapped (page-wide) | None to the call itself; the engine sees what enters and leaves its scene at any depth (adopting `scene.add`, fog, cascades, cloud shadow, light counts). Another library wrapping the same methods stacks with it | yes (`scene.add` no longer adopted) |
+| `mesh-material-accessor` | `material` on each object entering the engine's scene: an own get / set on that object (a class accessor, e.g. troika text, still runs) | In devtools `mesh.material` shows as an accessor; `mesh.material = other` works as in three and is seen | yes (new objects) |
+| `material-compile-accessor` | `onBeforeCompile` / `customProgramCacheKey` on each material the engine patches (cloud shadow on plain lit materials, wind, fog) | Your own hook, assigned before or after, runs first, then the engine's | yes (new materials) |
+| `renderer-render` | `engine.renderer.render` (that instance only) wrapped | Counts your full-canvas draws so the engine yields the frame; a scissored / smaller-viewport / `autoClear = false` layer (minimap, HUD) does not count | yes |
+| `shader-chunks` | `THREE.ShaderChunk.threedog_*` added (new names, nothing replaced) | None until you `#include` one | no (the engine's patches include them) |
+| `light-idle-shadow` | `shadow.autoUpdate` of your shadow-casting point / spot lights: off while intensity is 0, back on when lit | Only lights whose autoUpdate was on; writing autoUpdate yourself hands the light back; `light.userData.idleShadow = false` opts one out; `describe().render.lights` shows `shadowIdled` | yes |
+| `hlod-visible` | `visible` on meshes registered with `engine.hlod.add` (and their `xxx_LOD1` nodes): an own get / set | Reads "your value and not hidden far"; your writes keep your value | per handle: `remove()` |
 
 
 ## Getting three.js objects from the engine
@@ -28,14 +53,14 @@ Everything else in three is untouched. These four are global because three has n
 | Water | `engine.water.sea` (Mesh; null when the game sets no water level), `water.material`, `water.bodies.get(body)` |
 | Particles, weather particles | `.points` (THREE.Points) of the value returned by `particles.define(...)`; the weather's look in the style (`style.weather`) |
 | Rigid bodies | `engine.rigid.addBox(mesh)` returns a handle `{ object, body, remove() }`, or null before Rapier is ready (object is your mesh; `castShadow` / `receiveShadow` keep the values you set, the engine does not change them) |
-| Terrain chunks | `engine.terrain.chunks` (Map; each chunk has `.group` and a `.terrain` mesh) |
+| Terrain chunks | `engine.terrain.chunks` (Map of chunk data); a chunk's three.js objects: `engine.terrainLook.meshes.get(chunk)` (`{ group, mesh }`) |
 | Models, textures, animation | `await engine.assets.model('name or path')` (an Object3D copy), `assets.texture(...)`, `assets.animate(model).mixer` |
 | Vehicles, navigation, character controller | `engine.rigid.addWheeled(mesh, ...)` returns `{ body, controller }`; `engine.nav.navMesh / query / tileCache / crowd` (they are destroyed and replaced on rebuild; code that caches them compares `engine.nav.version`); `engine.player.mover.controller` (mover: 'rapier') |
 | glTF / compression decoders | `engine.assets.gltf` (GLTFLoader, Meshopt installed), `assets.draco` (DRACOLoader), `assets.ktx2` (KTX2Loader); the last two are created the first time compressed data is met and are null before that |
 | Rays | `engine.raycast(origin, direction)` / `engine.pick(ndcX, ndcY)` return three hits (`object` is the mesh, `face` and `point` unchanged); `{ targets: 'all' }` hits rigid bodies too (the hit carries `entry` and `kind: 'rigid'`); the underlying `engine.rays.ray` (THREE.Raycaster, `firstHitOnly` on) |
-| Ray acceleration (BVH) | three-mesh-bvh: on import (`import 'threedog'`) the engine replaces `Mesh.prototype.raycast` page-wide, the way three-mesh-bvh recommends, so your own `new THREE.Raycaster()` uses it too (meshes without a `boundsTree` take three's normal path); a registered mesh has `mesh.geometry.boundsTree` (MeshBVH, built only from 256 triangles up) |
+| Ray acceleration (BVH) | three-mesh-bvh, without touching three's prototypes: a static mesh the engine registers (from 256 triangles up) gets `mesh.geometry.boundsTree` and its own `mesh.raycast`, so `engine.raycast / pick` are fast and your own `new THREE.Raycaster()` is plain three. Page-wide BVH for your rays: three-mesh-bvh's documented setup (`Mesh.prototype.raycast = acceleratedRaycast`, ...) |
 | Streamed-in objects | `.object` of the handle returned by `engine.stream.add({ position, build })` (the Object3D that build returned; null before it is built) |
-| Post-processing | `engine.look.post.add({ name, slot, create: ctx => pass })` adds any three.js Pass as a named effect in a slot (`scene` / `hdr` / `ldr` / `final`) next to the style's chain; `replace([...])` swaps the whole chain; `look.post.set({ 'name.enabled': false })` |
+| Post-processing | `engine.look.post.add(pass)`, the one way in (a Pass, or an effect `{ name, slot, create: ctx => pass }` plus its twin for the other renderer, recipe 56; slots `scene` / `hdr` / `tone` / `ldr` / `final`; on / off with `look.post.set`); `replace([...])` swaps the whole chain |
 | Where the mouse points | Ground: `screenToGround(engine, input.pointer.ndcX, ndcY)` -> Vector3; objects: `engine.pick(input.pointer.ndcX, ndcY)` (registered static objects; for any object pass `{ targets: [object] }`) |
 
 Returned positions are all `THREE.Vector3` (the camera's `forward()/right()` are planar directions `{x, z}`; positions in photo records are saveable `{x, z}`).
@@ -53,13 +78,12 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    wind / clouds / season patches after it). The engine adds effects only to materials it made; yours opt in with `applyEffects(mat, { wind: 0.03 })`.
    One exception, named: with cascaded shadows on (`look.shadow.set({ cascades: 3 })`) every built-in lit material gets the `csm` patch, or it would
    be lit N times; a lit `ShaderMaterial` of yours joins with `engine.look.shadow.include(mat)` (recipe 45).
-2. **Adding to the scene**: `engine.add(obj)` returns obj so it fits on one line. `engine.scene.add(obj)` is plain three.js that the engine does not
-   track, and is just as legal. Plain three.js and templates (`engine.content.spawn`, content props) are two doors into one scene (`recipes/40-scene.md`).
-   `engine.add(obj, { id })` registers the object under a stable id so `engine.thing(id)` can say what it is and what a save keeps. To
-   attach to a character use `player.object.add(hat)`.
+2. **Adding to the scene**: `engine.scene.add(obj)` is all it takes: every root under the scene is registered (`engine.thing(obj)` says what it
+   is and what a save keeps). `engine.add(obj, { id })` is only for a stable id, so `thing.set` changes to it are saved. Plain three.js and
+   templates (`engine.content.spawn`, content props) are two doors into one scene (`recipes/40-scene.md`). To attach to a character use `player.object.add(hat)`.
 3. **Per-frame logic goes in `engine.onFrame(dt => ...)`** (movement and timing use `engine.onFixed`); it returns a handle, cancel with `h.remove()`.
-   Don't start your own `requestAnimationFrame` loop or render the main frame yourself: the engine owns pausing, fast-forward in tests,
-   post-processing and ordering. Rendering into your own render target is fine (mirror, minimap, portal, picking): do it in
+   Don't start your own `requestAnimationFrame` loop: the engine owns pausing, fast-forward in tests and ordering. Rendering the canvas
+   yourself (own `EffectComposer`) takes the frame over: the engine stops drawing it and its post chain, adaptive resolution and photo mode stop applying. Rendering into your own render target is fine (mirror, minimap, portal, picking): do it in
    `engine.onRender(({ renderer, scene, camera, dt }) => ...)`, which runs after the camera update and batching, just before the frame
    (`{ when: 'after' }` runs right after it). Plain three.js idioms and where each goes: `recipes/54-three-idioms.md`.
 4. **Snap to ground**: get ground height with `engine.surface(x, z)`, or `engine.snapToGround(obj, heightAboveGround)`. Don't raycast the terrain.
@@ -71,7 +95,7 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    `engine.detach(obj)`. A copy from `assets.model()` shares resources with other copies (`remove` skips them); they are freed together by
    `assets.release(name)`.
 6. **Sky lighting is recomputed every frame**, and you choose how much of it to keep: adjust it and keep the day cycle with a modifier layer
-   `engine.mod('sky.sunLight', { owner: 'cave', mul: 0.3 })` (also `sky.ambient` / `sky.fog`; entries multiply; `remove()` ends it) or `look.lights.set(...)`;
+   `engine.mod('look.lights.sun.intensity', { owner: 'cave', mul: 0.3 })` (also `look.lights.hemi.intensity` / `look.fog.far`; entries multiply; `remove()` ends it) or `look.lights.set(...)` as the base they multiply;
    take a value with `engine.look.lights.manual('sun')` and then set `engine.lights.sun.intensity` yourself (`manual('sun', false)` gives it back).
    Writing it directly without `manual` also takes it (the engine stops writing it and warns once). Every engine-written value: recipe 52
    "Who writes it". Adding your own point lights (street lamps, campfires) is fine.
@@ -84,6 +108,9 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    `npm run bake` it reads the file.
    Things needed only nearby use `engine.stream.add({ position, build })`; put long loops in `engine.jobs.add(function* () { ...; yield; })` so they
    are spread over frames and the start does not stall.
+   Smooth normals on built shapes: a non-indexed geometry (`geometry.toNonIndexed()`, a `mergeGeometries` result where one part has no index) gives
+   every triangle its own vertices, so `geometry.computeVertexNormals()` shades each face flat (a low-poly look). Weld first with `mergeVertices` from
+   `three/addons/utils/BufferGeometryUtils.js` (per part, so hard edges between parts stay), then compute the normals.
 10. **One copy of the engine and of three per page**: `resolve: { dedupe: ['threedog', 'three'] }` in vite.config.js. A second engine copy
    (a pack that lists threedog under `dependencies` instead of `peerDependencies`, a linked plus an installed copy) breaks shadows of wind and
    cascaded-shadow materials; the engine warns once at load, naming both paths [engine-two-copies].
@@ -105,7 +132,7 @@ for (let i = 0; i < 4; i++) {
 mill.add(tower, blades);
 mill.position.set(20, 0, -10);
 engine.snapToGround(mill);                         // snap to ground
-engine.add(mill);
+engine.scene.add(mill);                            // registered like engine.add; engine.add(mill, { id: 'mill' }) also keeps thing.set changes in saves
 engine.collision?.addCircle(mill, { radius: 1.3 }); // block the player (when the collision module is installed)
 engine.onFrame(dt => { blades.rotation.z += dt * 1.5; });
 ```

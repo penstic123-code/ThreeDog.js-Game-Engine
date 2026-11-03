@@ -16,6 +16,7 @@ export class NetHost {
   constructor(e, t, o) {
     this.e = e; this.t = t; this.o = o;
     /** peer id -> { id, actor, tokens, results, posTick } */ this.peers = new Map();
+    /** [message, from] of ops and positions received since the last fixed step (see receive) */ this.inbox = [];
     this.n = 0;                  // diff counter: a client that sees a gap asks for a snapshot
     this.base = new Map();       // shared baseline (sync.js)
     this.keys = null;
@@ -50,9 +51,18 @@ export class NetHost {
     const peer = this.peers.get(from);
     if (!peer || !m || typeof m !== 'object') return;
     this.stats.in++;
-    if (m.t === 'op') this.request(peer, m);
-    else if (m.t === 'p') this.position(peer, m);
+    // ops and positions change gameplay state, so they wait for the next fixed step (game logic only in fixed steps): run here, inside a network
+    // callback, they landed between steps at a time set by the network, not by the tick (review 0.4 B). A resync only sends, so it answers now
+    if (m.t === 'op' || m.t === 'p') this.inbox.push([m, from]);
     else if (m.t === 'resync') this.snapshot(peer);
+  }
+  /** @internal start of the fixed step: apply what arrived since the last one, in arrival order (a peer that left meanwhile is skipped) */
+  drain() {
+    const box = this.inbox; this.inbox = [];
+    for (const [m, from] of box) {
+      const peer = this.peers.get(from); if (!peer) continue;
+      if (m.t === 'op') this.request(peer, m); else this.position(peer, m);
+    }
   }
 
   request(peer, m) {
@@ -62,7 +72,7 @@ export class NetHost {
     const reason = this.gate(peer, d, args);
     if (reason) {
       this.stats.rejected++;
-      if (d) e.ops._log(name, args, { source: 'net', actor: peer.actor, tick: e.tick }, false, reason, 0);   // keep refusals in the op history too
+      if (d) e.ops.refused(name, args, { reason, actor: peer.actor });   // keep refusals in the op history too
       reply(false, reason);
       return;
     }
@@ -87,7 +97,8 @@ export class NetHost {
   position(peer, m) {
     const e = this.e, rec = e.world?.get(peer.actor), p = m.p;
     if (!rec || !Array.isArray(p) || p.length !== 3 || !p.every(isNum)) return;
-    const dt = Math.min(0.25, Math.max(STEP, (e.tick - peer.posTick) * STEP));   // idle time earns no long jump peer.posTick = e.tick;
+    const dt = Math.min(0.25, Math.max(STEP, (e.tick - peer.posTick) * STEP));   // idle time earns no long jump
+    peer.posTick = e.tick;
     const c = rec.position, dx = p[0] - c.x, dy = p[1] - c.y, dz = p[2] - c.z, d = Math.hypot(dx, dy, dz), max = this.o.maxSpeed * dt + 0.5;
     const k = d > max ? max / d : 1;
     e.ops.allow(() => {
@@ -99,6 +110,7 @@ export class NetHost {
 
   fixed(dt) {
     const o = this.o;
+    this.drain();
     for (const p of this.peers.values()) p.tokens = Math.min(o.burst, p.tokens + o.rate * dt);
     if (++this.steps % o.syncEvery) return;
     this.keys ??= partKeys(this.e, o.sync);
@@ -107,7 +119,9 @@ export class NetHost {
     else if (this.steps - this.lastSent >= o.keepAlive) { this.lastSent = this.steps; for (const p of this.peers.values()) this.send({ t: 'k', n: this.n }, p); }   // lets a client notice a lost last diff
     for (const p of this.peers.values()) { for (const r of p.results) this.send(r, p); p.results.length = 0; }
   }
-  dispose() { for (const s of this.subs) s.remove(); }
+  // close the transport as the client does: otherwise a webSocket host stays in the relay room after engine.dispose() (heartbeat still
+  // running) and the other players never see the host leave
+  dispose() { for (const s of this.subs) s.remove(); this.t.close?.(); }
 }
 
 /** op return values travel as plain data; anything else (a three.js object, a function) is dropped */

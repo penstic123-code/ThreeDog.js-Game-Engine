@@ -14,7 +14,7 @@
 // D. Methods named tick / update / apply on public types are module plumbing the module calls itself: they must be @internal (or _x), so an
 //    AI does not call weather.apply() to "apply weather". Module definitions (hooks) and ALLOW are exempt. Error.
 // E. Shape-based cancel check: any method (whatever its name, e.g. grids.preview) returning an object with stop() or cancel() but no remove()
-//    breaks the handle convention. Media / promise types where stop() is the natural verb are on ALLOW_STOP. Warning.
+//    breaks the handle convention (sounds, tweens and say() promises included: they all end with remove()). Error.
 // G. No Engine member named after a three.js class (raycaster, loader, mixer, composer: engine.rays is not a THREE.Raycaster) or after a verb that
 //    names other APIs (load: saves.load, session.load, level.load...). Error.
 // H. Every [file, name] in STABILITY.experimental (paths.mjs) has @experimental in the JSDoc right above its declaration. Error.
@@ -34,8 +34,6 @@ const ENGINE_BANNED = new Map([['raycaster', 'engine.rays'], ['loader', 'engine.
   ['load', 'engine.stream (sources) or saves / session / content load']]);
 // hooks the game implements (module definitions, UI parts) and user-driven objects (Animator, like AnimationMixer)
 const HOOK_OWNERS = /^(ModuleDef|Module\w*Def|\w*Hooks|UIPart|Animator)$/;
-// Return types where stop() / cancel() is the right verb: ['TypeName', reason]
-const ALLOW_STOP = [['SoundHandle', 'media: a playing sound stops'], ['TweenPromise', 'a promise is cancelled'], ['MusicHandle', 'media: music stops']];
 const NAMES = { off: 'returns a cancel function off()', handle: 'returns a handle with .remove()', stop: 'returns { stop() }' };
 export const CONVENTION_FILE = '.claude/rules/api-design.md';
 const SECTION = /^## Interface conventions\s*$/m;
@@ -108,13 +106,11 @@ export default {
         if (isMethod) {
           const sig = checker.getSignatureFromDeclaration(m), ret = sig && checker.getNonNullableType(sig.getReturnType());
           const has = n => { const p = ret && checker.getPropertyOfType(ret, n); return p && isFn(checker.getTypeOfSymbol(p)); };
-          const tn = ret?.getSymbol()?.name ?? '';
           // returning this is chaining (music.addTracks), not a handle
           const selfRet = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);
-          if (ret && !selfRet && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove') && !ALLOW_STOP.some(([t]) => t === tn)
-            && !/Promise/.test(checker.typeToString(ret)))
-            shape.push({ level: 'warn', ...at(m), msg: `${who}() returns ${has('stop') ? 'stop()' : 'cancel()'} without remove()`,
-              fix: 'return a handle with remove() (the cancel convention), or add the type to ALLOW_STOP with a reason' });
+          if (ret && !selfRet && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove'))
+            shape.push({ level: 'error', ...at(m), msg: `${who}() returns ${has('stop') ? 'stop()' : 'cancel()'} without remove()`,
+              fix: 'return a handle with remove() (the cancel convention)' });
         }
         const chain = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);   // returning this is chaining, not cancelling
         if (PREFIX.test(name) && !chain && (ts.isMethodSignature(m) || ts.isMethodDeclaration(m))) {

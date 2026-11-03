@@ -39,7 +39,7 @@ Buses are real Web Audio `GainNode`s: `master`, `music`, `sfx`, `ambience`, `ui`
 engine.audio.sfx('door');                                   // plays on its bus (default sfx)
 const h = engine.audio.sfx('shot', { at: enemy.root });    // 3D: a PannerNode that follows the Object3D every frame
 const hum = engine.audio.sfx('engine-hum', { loop: true, at: [4, 0, 2] });
-hum?.fade(0.2, 1.5); hum?.stop(1);                          // the handle (null while silent, see below): fade(to, seconds), stop(fade), setPosition(at)
+hum?.fade({ to: 0.2, seconds: 1.5 }); hum?.stop({ fade: 1 });                          // the handle (null while silent, see below): fade({ to, seconds }), stop({ fade }), remove(), setPosition(at)
 engine.audio.sfx('click', { bus: 'ui' });
 ```
 `sfx` returns `null` when the sound is silent: neither a rule nor an asset of that name, a built-in synth no rule names, audio still locked (before

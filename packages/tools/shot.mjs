@@ -20,8 +20,8 @@
 //                   spots, DESIGN.md intent, --ref). What needs the live page (which light or material glares, shadows, noon / midnight) says so
 //   --time HH:MM   set the time of day (needs the sky module)
 //   --weather name  clear / cloudy / overcast / rain / storm / snow / fog (needs the weather module)
-//   --pos x,z      put the player here (on the ground)
-//   --view name    a named camera view: engine.views.define(name, { pos, target, fov }) in any game, or a page's own ?view= (the style test: overview, character, water, room, path, ui)
+//   --pos x,z      put the player here (on the ground; the same pos as applyState({ pos }) and ?pos=). The camera's own spot is --view
+//   --view name    a named camera view: engine.views.define(name, { position, target, fov }) (camera position and target [x, y, z]) in any game, or a page's own ?view= (the style test: overview, character, water, room, path, ui)
 //   --wait seconds  game seconds to advance after setup (default 1)
 //   --load-timeout s  wall seconds to wait for loading (engine.loading) to finish before the shot, default 120; on timeout it fails naming what is pending
 //   --size WxH      screenshot resolution, default 960x540
@@ -48,17 +48,16 @@ process.env.THREEDOG_TEST = '1';
 import { launchBrowser, newGamePage, buildAndPreview } from './browser.mjs';
 import { mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
-import { pickWorkspace, rel } from './paths.mjs';
+import { cli, rel } from './paths.mjs';
 import { waitEngine, waitLoaded } from './wait-engine.mjs';
 import { shotName, shotFile, viewSize } from './lib/shot-name.mjs';
-import { cliOptions } from './lib/cli-args.mjs';
 import { formatLook, pageLook, imageLook, NO_PAGE } from './style/look.mjs';
 import { PICTURE } from './threedog/pageFns.mjs';
 
 const t0 = Date.now();
-const { dir, args } = pickWorkspace(process.argv.slice(2));
+
 // switches never take a value (so `--keep /page` keeps /page as the page); an unknown option fails naming the closest one
-let { page: url, opt } = cliOptions(args, { flags: ['keep', 'no-look', 'json', 'describe-only', 'no-build', 'keep-cutscene', 'gpu', 'software'],
+let { dir, page: url, opt } = cli(process.argv.slice(2), { page: '/', flags: ['keep', 'no-look', 'json', 'describe-only', 'no-build', 'keep-cutscene', 'gpu', 'software'],
   values: ['time', 'weather', 'pos', 'view', 'wait', 'load-timeout', 'size', 'compare', 'out', 'ref', 'tier', 'image'],
   // an option the other switches off used to be dropped without a word (--ref under --no-look compared nothing)
   conflicts: [['ref', 'no-look', 'the reference is compared inside the look check'],
@@ -123,7 +122,7 @@ try {
     Object.assign(result, { file, size: [W, H], renderer: browser.render.kind, tier, skipped });
     say(`Screenshot: ${rel(file)} (${W}×${H}, ${browser.render.kind} rendering, ${tier} tier)`);
     if (skipped.length) say(`  Not in this picture: ${skipped.join(', ')} (costly post, off by default on the ${tier} tier). `
-      + `To see them: shot --tier high, or force them in the game: createEngine({ post: { ${skipped.map(n => `${n}: true`).join(', ')} } })`);
+      + `To see them: shot --tier high, or force them in the game: engine.look.post.set({ ${skipped.map(n => `${n}: true`).join(', ')} })`);
     if (opt.compare && opt.compare !== true) {   // before / after: the earlier picture against this one
       const { compareImages, formatCompare, pixelDiff } = await import('./style/compare.mjs');
       const diff = await pixelDiff(opt.compare, file), cmp = await compareImages(opt.compare, file);

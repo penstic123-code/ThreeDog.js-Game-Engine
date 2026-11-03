@@ -8,7 +8,8 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const p = engine.player, col = engine.collision;
-        const walk = (x, z, dx, dz, n = 60) => { p.placeAt([x, 0, z]); for (let i = 0; i < n; i++) p.move(dx, dz, false, 0.05); return [p.position.x, p.position.z]; };
+        const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/control.js
+        const walk = (x, z, dx, dz, n = 60) => { p.placeAt([x, 0, z]); for (let i = 0; i < n; i++) h.move(dx, dz, false, 0.05); return [p.position.x, p.position.z]; };
         // fence along x=-18 for z in -12..-4; z=2 is the gate (no segment there)
         const fence = col.addSegment([-18, 0, -12], [-18, 0, -4], { thickness: 0.4 });
         const beforeFence = walk(-19, -8, 1, 0), through = walk(-19, 2, 1, 0);
@@ -20,6 +21,7 @@ export const specs = [
         const walkable = [!col.blockedAt(7, -8, 0.3), !col.blockedAt(7, 0, 0.3)];
         river.remove();
         const freed = walk(0, -8, 1, 0);
+        h.remove();
         return { beforeFence, through, afterRemove, stopped, bridged, walkable, freed };
       });
       check('fence stops walker (x < -18)', r.beforeFence[0] < -18, JSON.stringify(r.beforeFence));

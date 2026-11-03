@@ -4,8 +4,7 @@ Dialogue (dialogue() module). Ops: `dialogue.advance` (finish typing the line, e
 
 - Options `DialogueOptions`:
   - `charsPerSecond?: number` Typing speed (characters/second, game time: advanced by engine.step), default 40
-  - `advanceActions?: string[]` Actions that advance the dialogue, default ['confirm', 'interact'] (interact only when the game bound it)
-  - `choiceKeys?: boolean` Number keys 1-9 pick choices (read only while the main dialogue runs; rebind them as actions choice1...choice9), false = cursor / click / op only. Default true
+  - `advanceActions?: string[]` Actions that advance the dialogue, default ['confirm'] (a basic key); e.g. ['confirm', 'interact'] to also advance on the game's interact key. Choices: the cursor, clicks, and the actions choice1..choice9 (context 'dialog', no keys of their own: presets.bindings.dialogNumbers binds 1-9)
   - `holdSeconds?: number` A bubble line stays this many seconds plus its reading time (about 15 characters a second) unless say() gives seconds, default 2
 
 ## Methods and properties

@@ -12,7 +12,7 @@ import * as postEffects from '@threedog/post-effects';
 const canvas = document.getElementById('view');
 const mixers = [];
 const engine = window.engine = createEngine({ canvas, headless: true, ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false, saveKey: 'stress' });
-engine.use({ name: 'stressAnim', frame(dt) { for (const m of mixers) m.update(dt); } });   // skinned axis: one mixer per character, like a crowd of NPCs
+engine.use({ name: 'stressAnim', type: 'rules', frame(dt) { for (const m of mixers) m.update(dt); } });   // skinned axis: one mixer per character, like a crowd of NPCs
 engine.camera.position.set(0, 32, 52); engine.camera.lookAt(0, 0, -4);
 const sun = engine.lights.sun;
 sun.castShadow = false;

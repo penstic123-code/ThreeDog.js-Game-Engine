@@ -6,10 +6,14 @@
 // labelled with the renderer string it printed.
 process.env.THREEDOG_TEST = '1';
 import { launchBrowser, buildAndPreview } from './browser.mjs';
-import { ENGINE } from './paths.mjs';
+import { ENGINE, cli } from './paths.mjs';
+import { intOption } from './lib/cli-args.mjs';
 
-const arg = k => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : undefined; };
-const ONLY = arg('only')?.split(','), FRAMES = +(arg('frames') ?? 30), JSON_OUT = process.argv.includes('--json');
+// --only a,b / --only=a,b (the axes are checked against the page's list below); --frames N a whole number
+const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['json', 'gpu', 'software'], values: ['only', 'frames'] });
+const ONLY = opt.only?.split(','), JSON_OUT = !!opt.json;
+let FRAMES = 30;
+try { FRAMES = intOption(opt, 'frames') ?? FRAMES; } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
 const say = (...a) => { if (!JSON_OUT) console.log(...a); };
 const t0 = Date.now();
 const server = await buildAndPreview(ENGINE);

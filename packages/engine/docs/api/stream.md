@@ -7,7 +7,7 @@
 - `stream.readyCheck(name: string, fn: (source: StreamSource) => boolean) → { remove(): void }` — (experimental) Register a readiness check for loaders: fn(source) returns whether this loader finished what that source asks for. For module authors whose loader reads stream sources; games only read source.ready. Example: `engine.stream.readyCheck('props', s => s.detail !== 'full' // props.queued === 0)`
 - `stream.sources(pick?: { detail?, physics? }) → StreamSource[]` — (experimental) Sources with fresh positions, filtered: { detail: 'full' } for models and stream entries, { physics: true } for colliders, no filter for terrain
 - Properties:
-  - `radius: number | null` Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance engine.fogFar without terrain)
+  - `radius: number | null` Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance the fog distance without terrain)
   - `cellSize: number` Grid cell edge in meters, shared with hlod, default 64
   - `unloadFactor: number` Unload only beyond radius x this (walking back and forth does not rebuild), default 1.25
   - `player: StreamSource` Built-in source at the gameplay anchor (world.anchor, else the player, else engine.focus): full detail and physics

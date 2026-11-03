@@ -10,13 +10,15 @@ import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, rmSync
 import { join } from 'node:path';
 import ts from 'typescript';
 import { pathToFileURL } from 'node:url';
-import { API_MD_REL, API_DIR_REL, RECIPES_REL, CONTENT_RULES_REL, ENGINE, abs } from './paths.mjs';
+import { API_MD_REL, API_DIR_REL, RECIPES_REL, CONTENT_RULES_REL, ENGINE, abs, cli } from './paths.mjs';
 import {
   ROOT, OUT, PAGES, TYPES, GEN, files, decls, indexFns, reexported, shown, get, clean,
   docOf, balance, first, full, brief, raw, typeText, params, ret, sig,
   INTERNAL, missingDocs, members, split, ext, methodLine, fieldLines, renderApi, renderOptions, renderStruct,
   names, pages, page, link, fnLine, idx, STRUCTS, structs,
 } from './apidoc/lib.mjs';
+
+const { opt: OPT } = cli(process.argv.slice(2), { workspace: false, flags: ['check', 'report'] });
 
 const recipeNames = readdirSync(abs(RECIPES_REL)).filter(f => f.endsWith('.md')).map(f => f.replace(/\.md$/, '')).sort();
 idx.push('# Engine API index (generated, do not edit by hand; produced by npm run map)', '',
@@ -162,7 +164,7 @@ for (const p of engProps) {
 
 // ---------- Style ----------
 {
-  const L = page('style', 'Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style-pack.md)');
+  const L = page('style', 'Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style.md)');
   const { props } = split(get('Style'), 'Style');
   L.push('- **Style** fields (all optional):', ...fieldLines(props));
   L.push('', '## Sub-structures');
@@ -200,8 +202,8 @@ idx.push('');
 // ---------------------------------------------------------------------
 // llms.txt at the package root (llmstxt.org convention): where an AI starts, the reading order, one line per recipe from its title
 const LLMS = join(ENGINE, 'llms.txt');
-const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain three.js, no React): core, modules installed with engine.use, and style ' +
-  'packs for all art.', '',
+const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain three.js, no React): core and modules installed with engine.use. ' +
+  'It ships no art: each game draws its own look (plain three.js, its style/ folder and assets).', '',
   "Reading order: docs/AI.md (the index: one line per task) -> the recipe for the task -> docs/api/<module>.md for details -> the game's GAMEMAP.md.", '',
   '## Start', '', '- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions',
     '- [API.md](docs/API.md): API index; one page per module in docs/api/', '',
@@ -209,7 +211,7 @@ const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain
 const outputs = new Map([[OUT, idx.join('\n')], [LLMS, llms]]);
 for (const [file, lines] of pages) outputs.set(join(PAGES, file + '.md'), [...lines, ''].join('\n'));
 const relp = f => f.slice(ROOT.length + 1);
-if (process.argv.includes('--check')) {
+if (OPT.check) {
   const stale = [...outputs].filter(([f, c]) => (existsSync(f) ? readFileSync(f, 'utf8') : '') !== c).map(([f]) => relp(f));
   const extra = existsSync(PAGES) ? readdirSync(PAGES).map(f => join(PAGES, f)).filter(f => !outputs.has(f)).map(relp) : [];
   if (stale.length || extra.length) { console.log(`✗ API docs are not up to date (${[...stale, ...extra].join(', ')}), run npm run map`); process.exit(1); }
@@ -220,5 +222,5 @@ if (process.argv.includes('--check')) {
   for (const [f, c] of outputs) writeFileSync(f, c);
   const n = c => c.split('\n').length;
   console.log(`Generated ${API_MD_REL} (${n(outputs.get(OUT))} lines) + ${API_DIR_REL}/ ${pages.size} pages (${[...pages.keys()].map(k => `${k} ${n(outputs.get(join(PAGES, k + '.md')))}`).join(', ')})`);
-  if (process.argv.includes('--report') && missingDocs.length) console.log('Methods without a description: ' + [...new Set(missingDocs)].join(', '));
+  if (OPT.report && missingDocs.length) console.log('Methods without a description: ' + [...new Set(missingDocs)].join(', '));
 }

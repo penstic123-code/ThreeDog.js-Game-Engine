@@ -28,6 +28,7 @@
   - `load: (data: any) => void | Promise<void>`
   - `first?: boolean` Load before the other parts (such as the level)
   - `atomic?: boolean` Join atomic ops: copied before an atomic op runs, put back if it fails (plain data; afterLoad does not run on rollback)
+  - `checkNewGame?: (data: any) => void` Dev only: called once start() finished with this part's data in the new-game state, to warn about what should not be there yet (world: records placed by code)
   - `version?: number` This part's format version, default 1: raise it by 1 when what save() returns changes shape. A save with a newer version is refused
   - `migrate?: Record<number, (data: any, save: { parts: Record<string, an…` Upgrade steps: old version -> data => data in the next version's shape, e.g. { 1: d => ({ ...d, beds: [] }) }. The second argument is the whole save as read ({ parts, versions }, read only), for a step that depends on another part
   - `movedFrom?: Record<string, (data: any) => any>` This part's data used to be saved under another part's name: { oldPart: data => newData } (newData in this version's shape). An old save without this part but with oldPart loads it here; oldPart is then dropped unless a registered part still owns that name

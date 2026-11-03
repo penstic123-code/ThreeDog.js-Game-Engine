@@ -1,5 +1,5 @@
 // Save format guards for the gameplay modules: saves store stable names and only what differs, and old saves still load.
-// Same format as specs.mjs, appended at the end of it.
+// Same format as the other files here.
 
 export const specs = [
   {

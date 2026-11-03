@@ -53,7 +53,7 @@ export const specs = [
           const a = engine.adaptive; a.on = true; a.paused = false; a.target = 60; a.lowered = false; a.from = null; a.age = 10;   // past the startup grace
           const max = a.max; engine.setPixelRatio(max);
           const slow = () => { for (let i = 0; i < 10; i++) engine._adapt(0.1, 60, false, true); };   // 60 ms frames with GPU time known: overload
-          engine.ready = true; slow(); slow();
+          slow(); slow();
           const low = engine.describe().render.scale;
           const text = engine.describeText({ full: true });
           engine.setPixelRatio(max); a.on = false;

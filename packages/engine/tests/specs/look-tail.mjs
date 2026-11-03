@@ -1,5 +1,5 @@
 // 画面架构第一阶段收尾（docs/plans/done/2026-11-02-look-architecture.md）的"不许绕开"检查。
-// Same format as specs.mjs; appended at the end of specs.mjs.
+// Same format as the other files here.
 import { readFileSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
@@ -132,7 +132,7 @@ export const specs = [
         };
         const bare = new THREE.MeshStandardMaterial({ color: 0x6a8a4a }), fx = new THREE.MeshStandardMaterial({ color: 0x6a8a4a });
         const A = await make({ material: bare, effects: false }, 'a'), B = await make({ material: fx }, 'b');
-        const out = { a: { same: A.look.ground._spec.object() === bare, patched: patched(bare), mesh: A.terrain.chunks.get('0,0')?.terrain?.material === bare },
+        const out = { a: { same: A.look.ground._spec.object() === bare, patched: patched(bare), mesh: A.terrainLook.meshes.get(A.terrain.chunks.get('0,0'))?.mesh.material === bare },
           b: { same: B.look.ground._spec.object() === fx, patched: patched(fx) } };
         try { terrain({ effects: false }); } catch (e) { out.bad = e.message; }
         A.dispose(); B.dispose();

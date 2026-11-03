@@ -1,9 +1,9 @@
-// 三种包（packages/engine/docs/recipes/09-style-pack.md）各配一条"不许绕开"的守护：
-//   风格包只放外观（lowpoly 默认导出里没有 models、没有 sky.hoursPerDay），部件列表按规矩深合并且不改原包；
+// 三种包（packages/engine/docs/recipes/09-style.md）各配一条"不许绕开"的守护：
+//   the game's own style holds looks only (the world example's style has no models and no sky.hoursPerDay); part lists deep-merge by the rules without changing the original pack;
 //   资源包靠 manifest 的 name / base 登记，名字解析到文件或生成函数（content 只能经 assets 找模型，不再读 style.models）；
 //   内容包一次 load 多包时同一 id 两包都写就报错，模型写路径会警告、写函数会抛错。
 //   字体是资源包条目（manifest fonts），风格只写名字（style.ui.fonts）；手写 new FontFace 绕开 assets 由规则 R21 抓，
-//   风格包里写地形生成器 / 字体文件由规则 R34 抓（npm run check）。
+//   游戏自己的 style里写地形生成器 / 字体文件由规则 R34 抓（npm run check）。
 export const specs = [
   {
     name: '[守] 字体走资源包：manifest fonts 按 base 解析、family 默认是名字；未登记的名字报错给写法；坏文件退回系统字体并记在 engine.loading；不点名不下载（perf 页）',
@@ -34,22 +34,25 @@ export const specs = [
     },
   },
   {
-    name: '[守] 风格包只放外观、部件深合并；资源包 name / base / builder（perf 页）',
+    name: '[守] 游戏自己的 style只放外观、部件深合并；资源包 name / base / builder（perf 页）',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { createEngine, lowpoly, lowpolyAssets } = threedogTest, out = {};
-        out.visualOnly = { models: 'models' in lowpoly, hours: 'hoursPerDay' in (lowpoly.sky || {}) };
-        const before = JSON.stringify(lowpoly.sky.clouds);
+        const { createEngine, worldStyle, worldArt } = threedogTest, out = {};
+        // a tiny in-test style: these checks are about how parts merge, not about any one look
+        const T = { name: 'tiny', sky: { keyframes: [[0, 0x112233, 0x445566, 0xffffff, 1, 0.5], [1, 0x112233, 0x445566, 0xffffff, 1, 0.5]], sunSize: 900, clouds: { color: 0xf8f6f0, coverage: 1 } },
+          ui: { fg: '#eeeeee', accent: '#f0b450' }, materials: { default: { type: 'lambert' } } };
+        out.visualOnly = { models: 'models' in worldStyle, hours: 'hoursPerDay' in (worldStyle.sky || {}) };
+        const before = JSON.stringify(T.sky.clouds);
         const e2 = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'packs-test',
-          style: [lowpoly, [{ sky: { sunSize: 600, clouds: { coverage: 0.2 } } }], null, { post: null, ui: { accent: '#123456' } }] });
+          style: [T, [{ sky: { sunSize: 600, clouds: { coverage: 0.2 } } }], null, { post: null, ui: { accent: '#123456' } }] });
         const s = e2.style;
-        out.merge = { sunSize: s.sky.sunSize, keyframes: s.sky.keyframes === lowpoly.sky.keyframes, cloudColor: s.sky.clouds.color === lowpoly.sky.clouds.color,
-          coverage: s.sky.clouds.coverage, post: 'post' in s, accent: s.ui.accent, fg: s.ui.fg === lowpoly.ui.fg, untouched: JSON.stringify(lowpoly.sky.clouds) === before && lowpoly.ui.accent !== '#123456' };
-        const e3 = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'packs-test-3', style: lowpoly });
-        out.same = e3.style === lowpoly;
+        out.merge = { sunSize: s.sky.sunSize, keyframes: s.sky.keyframes === T.sky.keyframes, cloudColor: s.sky.clouds.color === T.sky.clouds.color,
+          coverage: s.sky.clouds.coverage, post: 'post' in s, accent: s.ui.accent, fg: s.ui.fg === T.ui.fg, untouched: JSON.stringify(T.sky.clouds) === before && T.ui.accent !== '#123456' };
+        const e3 = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'packs-test-3', style: T });
+        out.same = e3.style === T;
         const A = e3.assets;
-        A.manifest(lowpolyAssets);
+        A.manifest(worldArt);
         A.manifest({ name: 'forest', base: '/packs/forest', models: { oak: 'oak.glb', abs: '/m/abs.glb', cdn: 'https://x.test/a.glb' }, textures: { bark: { url: 'bark.png', color: true } } });
         out.assets = { pine: typeof A.builder('pine'), oak: A.builder('oak'), oakUrl: A.entries.get('oak').url, abs: A.entries.get('abs').url, cdn: A.entries.get('cdn').url,
           bark: A.entries.get('bark').url, list: A.entries.get('oak').manifest };
@@ -59,7 +62,7 @@ export const specs = [
         e2.dispose(); e3.dispose();
         return out;
       });
-      check('lowpoly 默认导出只放外观：没有 models（在资源包 assets 里）、没有 sky.hoursPerDay（玩法计时，calendar() 选项）', !r.visualOnly.models && !r.visualOnly.hours, JSON.stringify(r.visualOnly));
+      check('world 示例的画风只放外观：没有 models（在资源包 assets 里）、没有 sky.hoursPerDay（玩法计时，calendar() 选项）', !r.visualOnly.models && !r.visualOnly.hours, JSON.stringify(r.visualOnly));
       check('部件深合并：只改 sunSize / clouds.coverage，其余 sky 字段和数组原样；null 去掉 post；嵌套列表展平；原包不被改', r.merge.sunSize === 600 && r.merge.keyframes && r.merge.cloudColor && r.merge.coverage === 0.2 && !r.merge.post && r.merge.accent === '#123456' && r.merge.fg && r.merge.untouched, JSON.stringify(r.merge));
       check('只给一个对象：engine.style 就是它本身（不用就零成本）', r.same);
       check('资源包：生成函数可查 builder，base 只解析相对路径，/ 开头和完整网址原样，name 标在条目上', r.assets.pine === 'function' && r.assets.oak === null && /\/packs\/forest\/oak\.glb$/.test(r.assets.oakUrl) && r.assets.abs === '/m/abs.glb' && r.assets.cdn === 'https://x.test/a.glb' && /\/packs\/forest\/bark\.png$/.test(r.assets.bark) && r.assets.list === 'forest', JSON.stringify(r.assets));
@@ -67,45 +70,40 @@ export const specs = [
     },
   },
   {
-    name: '[守] 风格边界：风格里写水位 / 海 / 地形形状 dev 下报错并写明改到哪；材质按引擎归属（两个引擎两套风格互不拿对方的）；palette 一处改色；postAdd / postRemove 按名称改后期',
+    name: '[守] 风格边界：风格里写水位 / 海 / 地形形状 dev 下报错并写明改到哪；材质按引擎归属（两个引擎两套风格互不拿对方的）；palette 一处改色',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, createEngine, lowpoly, lowpolyModels, styleFrom, postAdd, postRemove } = threedogTest, out = {};
+        const { THREE, createEngine, worldStyle, worldModels, styleFrom } = threedogTest, out = {};
+        const T = { name: 'tiny', materials: { default: { type: 'lambert' } }, palette: { leaf: 0x77ad4a } };   // a tiny in-test style
         const msg = style => { try { styleFrom(style); return ''; } catch (e) { return e.message; } };
         out.world = { level: msg({ water: { level: 3 } }), sea: msg({ water: { sea: false } }), size: msg({ water: { size: 10 } }), terrain: msg({ terrain: { config: { seed: 1 } } }),
-          okShading: msg({ terrain: { config: { shading: 'flat' } }, water: { color: 1, segments: 50 } }), okPack: msg(lowpoly) };
+          okShading: msg({ terrain: { config: { shading: 'flat' } }, water: { color: 1, segments: 50 } }), okPack: msg(worldStyle) };
         // two engines, two styles: nothing falls back to the first engine's pack
         const mk = (style, key) => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key, style });
         // the humanoid body is an asset now: its part roles (cloth / skin / trousers / hair) follow the engine whose builder context it gets
-        const toon = { type: 'toon' }, b = mk([lowpoly, { materials: { cloth: toon, skin: toon, trousers: toon, hair: toon, pickup: toon, default: toon } }], 'bound-b');
-        const a = mk(lowpoly, 'bound-a');
+        const toon = { type: 'toon' }, b = mk([T, { materials: { cloth: toon, skin: toon, trousers: toon, hair: toon, pickup: toon, default: toon } }], 'bound-b');
+        const a = mk(T, 'bound-a');
         const types = root => { const t = new Set(); root.traverse(o => { if (o.isMesh) t.add(o.material.type); }); return [...t]; };
-        out.iso = { a: types(lowpolyModels.humanoid.call({ engine: a })), b: types(lowpolyModels.humanoid.call({ engine: b })),
+        out.iso = { a: types(worldModels.humanoid.call({ engine: a })), b: types(worldModels.humanoid.call({ engine: b })),
           pickupA: a.makeMaterial('pickup').type, pickupB: b.makeMaterial('pickup').type,
           methodA: a.makeMaterial('prop').type, methodB: b.makeMaterial('prop').type };
         // palette: one value recolors the generated models; without it the old colors
         const has = (geo, hex) => { const c = new THREE.Color(hex), at = geo.attributes.color; for (let i = 0; i < at.count; i++) if (Math.abs(at.getX(i) - c.r) + Math.abs(at.getY(i) - c.g) + Math.abs(at.getZ(i) - c.b) < 1e-4) return true; return false; };
-        const red = mk([lowpoly, { palette: { pine: 0xff0000 } }], 'bound-red');
-        const build = async e => { e.assets.manifest(threedogTest.lowpolyAssets); return e.assets.cached('pine', e.assets.builder('pine')); };
+        const red = mk([T, { palette: { pine: 0xff0000 } }], 'bound-red');
+        const build = async e => { e.assets.manifest(threedogTest.worldArt); return e.assets.cached('pine', e.assets.builder('pine')); };
         return Promise.all([build(red), build(a)]).then(([gr, ga]) => {
-          out.pal = { redHas: has(gr, 0xff0000), redKeepsBark: has(gr, 0x7a5536), redNoOldPine: !has(gr, 0x4c8a3b), defHas: has(ga, 0x4c8a3b), hand: has(lowpolyModels.pine(), 0x4c8a3b), styleKeep: red.style.palette.leaf === lowpoly.palette.leaf };
-          // post helpers
-          const g = { name: 'grain', create: () => ({}) }, bl = { name: 'bloom', create: () => ({}) };
-          const names = parts => styleFrom(parts).post.map(p => p.name).join();
-          out.post = { base: lowpoly.post.map(p => p.name).join(), appended: names([lowpoly, postAdd(g)]), swap: names([lowpoly, postAdd(bl)]), rm: names([lowpoly, postRemove('ao', 'outline')]),
-            first: names([postAdd(g)]), replace: names([lowpoly, { post: [g] }]), untouched: lowpoly.post.length === 3 };
+          out.pal = { redHas: has(gr, 0xff0000), redKeepsBark: has(gr, 0x7a5536), redNoOldPine: !has(gr, 0x4c8a3b), defHas: has(ga, 0x4c8a3b), hand: has(worldModels.pine(), 0x4c8a3b), styleKeep: red.style.palette.leaf === T.palette.leaf };
           a.dispose(); b.dispose(); red.dispose();
           return out;
         });
       });
       const w = r.world;
       check('风格里写 water.level / sea / size、terrain.config 非 shading 键：报错并点名改到 water({...}) / terrain({...})', /water\.level/.test(w.level) && /water\(\{/.test(w.level) && /water\.sea/.test(w.sea) && /water\.size/.test(w.size) && /terrain\.config\.seed/.test(w.terrain) && /terrain\(\{/.test(w.terrain), JSON.stringify(w));
-      check('风格里写 terrain.config.shading、水色、水网格细分不报错；lowpoly 自己通过', w.okShading === '' && w.okPack === '', JSON.stringify(w));
-      check('材质按引擎归属：第二个引擎（toon）的角色、拾取物、engine.makeMaterial 都是 toon，第一个引擎（lowpoly）的是 lambert，不串',
+      check('风格里写 terrain.config.shading、水色、水网格细分不报错；world 示例的画风自己通过', w.okShading === '' && w.okPack === '', JSON.stringify(w));
+      check('材质按引擎归属：第二个引擎（toon）的角色、拾取物、engine.makeMaterial 都是 toon，第一个引擎（lambert 小画风）的是 lambert，不串',
         r.iso.a.join() === 'MeshLambertMaterial' && r.iso.b.join() === 'MeshToonMaterial' && r.iso.pickupA === 'MeshLambertMaterial' && r.iso.pickupB === 'MeshToonMaterial' && r.iso.methodA === 'MeshLambertMaterial' && r.iso.methodB === 'MeshToonMaterial', JSON.stringify(r.iso));
       check('style.palette 一处改色：改 pine 后松树锥体是新色，树干等没改的键保持，旧色消失；不改时和原来一样；手工调 models.pine() 用默认色', r.pal.redHas && r.pal.redKeepsBark && r.pal.redNoOldPine && r.pal.defHas && r.pal.hand && r.pal.styleKeep, JSON.stringify(r.pal));
-      check('post 追加、同名替换原位置；按名删；整体替换规则不变；原包不被改', r.post.appended === r.post.base + ',grain' && r.post.swap === r.post.base && r.post.rm === 'bloom' && r.post.first === 'grain' && r.post.replace === 'grain' && r.post.untouched, JSON.stringify(r.post));
     },
   },
   {
@@ -130,7 +128,7 @@ export const specs = [
         console.warn = warn; out.path = w;
         return out;
       });
-      check('content 只经 assets 找模型：style 里没有 models，pine 是 lowpoly 资源包登记的生成函数', r.noStyleModels);
+      check('content 只经 assets 找模型：style 里没有 models，pine 是 world 示例资源包（art/）登记的生成函数', r.noStyleModels);
       check('按顺序加载：level 包的摆放用上 base 包的模板', r.order === null && r.placed, JSON.stringify(r));
       check('两包定义同一个 items id：报错并点名两包', /items\.packsX/.test(r.dupItem ?? '') && /pack "a"/.test(r.dupItem) && /pack "b"/.test(r.dupItem), r.dupItem);
       check('两包里同一个 props id：报错', /packs-p/.test(r.dupProp ?? ''), r.dupProp);

@@ -11,10 +11,10 @@ Pick one at the start: `openWorld({ camera: 'firstPerson' })`, or by hand `engin
 
 ## 1. Press V to switch between first and third person (copy it)
 ```js
-engine.input.define('toggleView', ['KeyV'], '切换视角');
+engine.input.action('toggleView', { label: '切换视角', keys: ['KeyV'] });
 engine.onFrame(() => {                                   // UI-type actions read pressed in onFrame
   if (!engine.input.pressed('toggleView')) return;
-  engine.setCamera?.(engine.cameraRig?.kind === 'follow' ? 'firstPerson' : 'follow');   // kind is the current kind
+  engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' : 'follow');   // kind is the current kind
 });
 ```
 Starting in first person and switching later: `openWorld({ camera: 'firstPerson' })` can still `setCamera('follow')`; you don't need to install two cameras.
@@ -31,8 +31,8 @@ Starting in first person and switching later: `openWorld({ camera: 'firstPerson'
 - **Settings are kept**: the camera you switched away from is kept, so switching back keeps the zoom distance and pitch. To use a different set of
   parameters pass options (that camera is rebuilt with the new parameters):
 ```js
-engine.setCamera?.('firstPerson', { height: 1.7, fov: 80 });
-engine.setCamera?.('follow', { distance: 8, pitch: 0.3 });
+engine.setCamera('firstPerson', { height: 1.7, fov: 80 });
+engine.setCamera('follow', { distance: 8, pitch: 0.3 });
 ```
 - A wrong kind name throws and lists the valid ones; a wrong option name gets the closest name suggested in development.
 
@@ -88,15 +88,15 @@ The engine has no default here: `createPlayer` needs `control` (a preset such as
 run, Space jump, turning toward where it walks and `cameraFollow: true`). Each piece below replaces one part and keeps the rest (world record, saving,
 `describe().player`).
 ```js
-import { presets, pickTarget, switchTarget } from 'threedog';
+import { pickTarget, switchTarget } from 'threedog';
 
-// who moves the player: 'camera' (keys relative to the camera) | 'none' (you call move) | (player, input, dt) => ({ x, z, run?, speed? }) | null
-const player = engine.characters.createPlayer({ ...presets.player.none, cameraFollow: true, runKeys: ['ShiftLeft'] });   // runKeys: moveInput().run reads it
-engine.input.define('lockOn', ['KeyQ'], 'Lock on').define('switchTarget', ['KeyR'], 'Switch target');   // no key is bound by itself
+// how the input steers the player: 'camera' (keys relative to the camera) | (player, input, dt) => ({ x, z, run? }) | null (stand still)
 let lock = null, hitStun = 0, knockX = 0, knockZ = 0;
+const player = engine.characters.createPlayer({ cameraFollow: true, faceMode: 'manual', control: steer });   // moveInput().run reads the bound 'run' action
+engine.input.bind({ lockOn: ['KeyQ'], switchTarget: ['KeyR'] });   // no module binds a key by itself
 const enemies = () => engine.world.query({ kind: 'enemy', near: player.position, radius: 20 });
 
-engine.onFixed(dt => {
+function steer(player, input, dt) {                    // called once per fixed step while the input is in charge of the player
   const m = engine.characters.moveInput();             // the 'camera' key direction as a value, relative to the camera (a reused object: copy x / z if you keep it)
   if (engine.input.pressed('lockOn')) {                // pick what is in view; press again to let go
     lock = lock ? null : pickTarget(player, engine.cameraRig.forward(), enemies(), { radius: 15 });
@@ -105,14 +105,16 @@ engine.onFixed(dt => {
   if (lock && engine.input.pressed('switchTarget')) lock = switchTarget(player, engine.cameraRig.forward(), lock, enemies(), 1) ?? lock;
   player.faceMode = lock ? 'target' : 'move';          // 'move' toward velocity | 'camera' along the camera | 'target' toward faceTarget | 'manual' only face() turns it
   player.faceTarget = lock ? engine.world.view(lock.id) : null;
-  if (hitStun > 0) { hitStun -= dt; player.push(knockX, knockZ, dt); player.move(0, 0, false, dt); }   // knockback / roll: fixed velocity, never turns
-  else player.move(m.x, m.z, m.run, dt);               // with control 'none' you must call move() once per fixed step
-});
+  if (hitStun > 0) { hitStun -= dt; player.push(knockX, knockZ, dt); return null; }   // knockback / roll: fixed velocity, never turns
+  return m;                                            // the engine calls player.move() with it (one move per step)
+}
 ```
-- **`control: 'none'`**: the engine never calls `move()` or reads the movement keys for the player. A `function` keeps jump and vehicles and only
-  replaces direction and speed (a side-scroller returns `{ x: input.axis.x, z: 0 }`); to wrap the camera-relative keys use
-  `control: (p, input) => busy ? null : engine.characters.moveInput()`. `player.control` can be changed at any time. Leaving `control` out throws
-  `[player-control]`.
+- **`control`** is how the input steers the player: `'camera'` or a function. A function keeps jump and vehicles and only replaces direction
+  and speed (a side-scroller returns `{ x: input.axis.x, z: 0 }`); to wrap the camera-relative keys use
+  `control: (p, input) => busy ? null : engine.characters.moveInput()`. It is given once; for a while-it-lasts takeover (a scripted walk, a
+  roll, a tutorial) take the player's control instead: `engine.control.take(player, { owner: 'roll', layer: 'script', step })`, then
+  `h.remove()` gives the keys back (recipe 57). Calling `player.move()` yourself while the input holds it is `[control-bypass]`. Leaving
+  `control` out throws `[player-control]`.
 - **`cameraFollow: true`** points the camera module at the player (again after a vehicle and on a new session); without it the camera stays where the
   game puts it (`engine.cameraRig.follow(obj)`), and dev builds warn once if a camera is installed and the option was left out.
 - **`faceMode`** is a plain property of every Character (NPCs too), change it per state. `player.face(angle)` turns at once (0 = +Z, PI / 2 = +X),

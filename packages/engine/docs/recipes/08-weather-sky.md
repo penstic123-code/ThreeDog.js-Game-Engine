@@ -1,5 +1,7 @@
 # Add weather or change the sky
 
+**In this recipe**: 1. Switching weather · 2. The game's own weather table · 3. Sky colors, sun, stars (and the sky color for your own shader) · 4. Time and brightness (how a game's value and the weather multiply) · 5. Verify · 6. Day and night in game logic · 7. Wet roads
+
 Modules: `sky()` (draws day/night from `engine.calendar`, sun and moon, fog; the time itself is `calendar()`, recipe 06), `weather()` (needs sky; the game's weather types, smooth transitions, rain and snow,
 lightning). All look data lives in the style; the engine has only a neutral fallback.
 
@@ -11,11 +13,14 @@ engine.look.fog.set({ color: ({ state }) => state.boss ? '#400' : 'horizon' }); 
 engine.look.sky.replace(mySky);  mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir;   // the same Vector3, refreshed every frame
 ```
 
+WebGPU (recipe 56): same dome and fog kinds as node materials. Hooks take `{ glsl, tsl: (ctx) => vec4 }` ([52](52-look.md#tsl-forms)); GLSL alone throws `[webgpu-needs-tsl]`. Own sky: three's `SkyMesh` via `look.sky.replace`.
+
 The sky follows one contract: **inputs** `{ time, weather, season, day, state, sky }` (state = what the game gave `engine.look.state(...)`),
 **outputs** sun direction / color / intensity, hemisphere, fog, environment, exposure and background, plus the shared `engine.uniforms`
 (`uSunDir`, `uDaylight`, `uTimeOfDay`, `uWind`, `uCloud`, season tints) and events (`day:start`, `season:change`, `weather:change`) that wind,
 rain and vegetation read. The keyframes are only the default implementation: a function replaces one key, `replace` the whole dome, and
-everything else keeps running. The function gets `{ time, weather, season, day, state, sky }`: write `({ sky }) => sky.isDay ? ...`.
+everything else keeps running (`replace` swaps the one thing a part draws; the whole sky module with time, lights and fog is
+`engine.use(mySky(), { replaces: 'sky' })`, recipe 52 [verbs](52-look.md#verbs)). The function gets `{ time, weather, season, day, state, sky }`: write `({ sky }) => sky.isDay ? ...`.
 
 ### Your own sky object: what `look.sky.replace(obj)` does with it
 The engine hides its dome, adds `obj` to the scene root when it has no parent yet (and removes it again on `replace(null)` only then), and from
@@ -60,7 +65,8 @@ Time of day still reaches it through `engine.uniforms` (`uSunDir`, `uDaylight`, 
 
 ## 1. Switching weather / automatic weather (main.js)
 ```js
-engine.weather.set('rain', 20);          // transition to rain over 20 seconds (a type of the game's table, see 2)
+engine.weather.set('rain', { seconds: 20 });          // transition to rain over 20 seconds (a type of the game's table, see 2)
+engine.weather.set('storm', { seconds: 0 });          // at once: the full storm before the next step (a screenshot or test right after the call)
 engine.weather.setAuto(true);            // change weather at random (openWorld({ camera: 'follow', autoWeather: true }) also works)
 engine.events.on('weather:lightning', () => { /* thunder */ });
 ```
@@ -80,7 +86,7 @@ engine.use(sky(), weather({
   types: { clear: { cloud: 0.1 }, dust: { cloud: 0.5, sun: 0.6, fog: 0.35, wind: 2.2, grey: 0.4, heat: 1 } },   // heat: a field of the game's own, blends too
   autoPool: ['clear', 'clear', 'dust'],     // candidates for automatic weather (repeats = higher probability; default: each type once)
 }));
-engine.weather.set('dust', 15);  engine.weather.current.heat;   // 0..1 during the change
+engine.weather.set('dust', { seconds: 15 });  engine.weather.current.heat;   // 0..1 during the change
 ```
 Fields: `cloud` cloud cover 0-1, `sun` sunlight multiplier, `fog` fog distance multiplier (smaller = denser fog), `wind` wind strength, `rain`/`snow`
 0-1, `grey` how gray the sky turns, `lightning` lightning. A table where nothing rains or snows builds no particles.
@@ -103,11 +109,25 @@ them (`room` / `sky` / `asset:<name>` / `game`) and `followsTime`; `look.env.rep
 show the sky, not a studio; it darkens by itself), an asset map is a fixed photo and does not follow. Check with `shot --time 12:00` and `--time 22:00`.
 The look of rain and snow is in `style.weather.rain / snow` (shape, density, shaders, the game's own particles: recipe 44).
 
+### Sky color for my shader (horizon color, zenith color)
+A shader of your own that should meet the sky (a sea fading to the horizon, distant cards, a reflection) reads the colors the sky draws this frame:
+`engine.uniforms.uSkyHorizon` and `engine.uniforms.uSkyTop` (`THREE.Color`, linear). They hold the keyframes, a `look.sky.set({ top, horizon })`,
+the weather's grey tint and lightning; with `style.sky.backdrop` the horizon is the backdrop color. The fog in its default color (`'horizon'`) is
+this same color every frame, at night and in rain too; it differs only when the game sets `look.fog.set({ color })`, or takes the fog
+(`look.fog.manual()`, `scene.fog = ...`). Share the object, do not copy it in `onFrame`: `onFrame` runs before the sky updates, so a copy is one
+frame old (after a time jump, the first picture shows the old hour's color).
+```js
+const sea = new THREE.ShaderMaterial({ uniforms: { uHorizon: engine.uniforms.uSkyHorizon, uTop: engine.uniforms.uSkyTop, uSunDir: engine.uniforms.uSunDir },
+  fragmentShader: '... gl_FragColor = vec4(mix(base, uHorizon, fresnel), 1.0); #include <tonemapping_fragment> #include <colorspace_fragment>' /* ... */ });
+engine.uniforms.uSkyHorizon.value.getHexString();   // read it in JS too (game logic, a HUD swatch)
+```
+`look.sky.value('horizon')` is the override a game set (`null` = the keyframes), not the drawn color.
+
 ## 4. Time and brightness (game code)
 ```js
 await engine.skip({ to: '19:30' });   // jump forward to a time: timers, calendar.at / daily, day:start fire on the way (needs a calendar dayLength; recipe 06)
 engine.mod('clock.rate', { owner: 'game', set: 0 });   // the calendar and calendar seconds stop together, so the sky stops moving (set: 2 = double speed; remove() undoes it); game seconds per day: calendar({ dayLength: 600 }); the three kinds of time are in recipe 06
-engine.look.fog.set({ far: 300 });        // base fog distance (meters); weather scales it (engine.setFogFar is the terrain's internal view-distance path)
+engine.look.fog.set({ far: 300 });        // base fog distance (meters); weather multiplies it; terrain({ viewFog: true }) writes the layer below
 ```
 **The sky draws the calendar's time; it does not own it.** Day, time of day and seasons are the `calendar()` module (recipe 06 "The time table");
 the sky reads `engine.calendar.timeOfDay` each frame to place the sun and blend the keyframes, and `engine.calendar.season` for the season tint.
@@ -128,18 +148,18 @@ calendar({ seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }], dayL
 **A direct write to** `engine.lights.sun.intensity / color`, `engine.lights.hemi` or `scene.fog` **takes that value over**: the sky stops writing it and
 keeps yours, so the day cycle no longer changes it (warned once). To adjust and keep the cycle: `engine.look.lights.set(...)` / `look.fog.set(...)` or a
 modifier layer below; to take it on purpose: `engine.look.lights.manual('sun')` (recipe 52 "Who writes it").
-To darken or tint everything (a cave, a horror segment), write a modifier layer of your own; it stacks with the weather's 'weather' layer without
-overwriting it (multiplier layers vs `look.lights` overrides: [recipe 52](52-look.md#sky-multipliers-enginemod-vs-looklights)):
+To darken or tint everything (a cave, a horror segment), add multipliers of your own on the look values; they stack with the weather's without
+overwriting it ([recipe 52](52-look.md#how-look-values-stack)):
 ```js
-const cave = [engine.mod('sky.sunLight', { owner: 'cave', mul: 0.3 }), engine.mod('sky.ambient', { owner: 'cave', mul: 0.4 }),
-  engine.mod('sky.fog', { owner: 'cave', mul: 0.5 }),                                          // enter the cave: entries multiply
-  engine.mod('sky.tint', { owner: 'cave', value: { color: 0x402030, amount: 0.5 } })];         // amount = zenith, horizon: = horizon
+const cave = [engine.mod('look.lights.sun.intensity', { owner: 'cave', mul: 0.3 }), engine.mod('look.lights.hemi.intensity', { owner: 'cave', mul: 0.4 }),
+  engine.mod('look.fog.far', { owner: 'cave', mul: 0.5 }),                                          // enter the cave: entries multiply
+  engine.mod('look.sky.tint', { owner: 'cave', value: { color: 0x402030, amount: 0.5 } })];         // amount = zenith, horizon: = horizon
 cave.forEach(h => h.remove());                                                                 // leave the cave
 ```
-These are ordinary `engine.mod` stacks (recipe 55): `sky.sunLight / sky.ambient / sky.fog` multiply, `sky.flash` adds, `sky.tint` entries blend
-weighted by their amount, `{ for: 3 }` ends one by itself.
-Write once and it stays in effect; no need to write every frame. For a gradual change, write a new value every frame. `engine.sky.modifiers` is the
-combined result and is read-only (changing it directly triggers a warning during development).
+These are ordinary shared points (recipe 55): the light and fog values multiply, `look.sky.flash` adds, `look.sky.tint` / `look.ground.cover`
+entries blend weighted by their amount, `{ for: 3 }` ends one by itself. A game's own `look.lights.set({ sun: { intensity: 3 } })` is the base they
+multiply: rain still dims it and the sunset still fades it (`engine.describe().shared['look.lights.sun.intensity'].how` says `arena 3 × weather 0.6`).
+Write once and it stays in effect; no need to write every frame. For a gradual change, write a new value every frame.
 
 ## 5. Verify
 - Text: `npm run shot -- / --time 19:30 --weather dust --wait 2 --describe-only`, then look for "Time: 19:30..." and "Weather: dust (rain 0, snow 0, fog 0.35)".

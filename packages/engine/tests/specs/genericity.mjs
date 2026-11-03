@@ -1,5 +1,5 @@
 // Genericity: interaction picking and actors, quest fail / parallel / optional goals,
-// game content kinds, content positions with y / floor, item words without an inventory. Same format as specs.mjs; appended at its end.
+// game content kinds, content positions with y / floor, item words without an inventory. Same format as the other files here.
 export const specs = [
   {
     name: 'genericity: content item words without an inventory say which module is missing',
@@ -143,7 +143,7 @@ export const specs = [
         out.fn = I.pick()?.id;
         I.pickMode = 'nearest';
         // second verb on the same object: its own key, its own pick
-        inp.define('g-harvest', ['KeyG'], 'harvest');
+        inp.bind('g-harvest', ['KeyG']);
         const harvest = I.add(I.get('g-back').object, { id: 'g-back-harvest', label: 'harvest', action: 'g-harvest', onUse: () => used.push('harvest') });
         engine.step(1 / 30, { render: false });
         inp._keyDown('KeyG', 'keyboard'); engine.step(1 / 30, { render: false }); inp._keyUp('KeyG'); engine.step(1 / 30, { render: false });
@@ -211,22 +211,24 @@ export const specs = [
       const r = await ev(() => {
         engine.timeline.skip(); engine.pause();
         const Cal = engine.calendar.constructor, made = [];
-        // a second Calendar on the same engine, only to read it (not installed: nothing steps it but the test)
-        const make = o => { const s = new Cal(engine, o); made.push(s); return s; };
+        // extra Calendars, only to read them (not installed): they view a clock of their own that the test moves, as the time source would
+        const clk = { now: 0 }, view = Object.create(engine, { clock: { value: clk } });
+        const make = o => { const s = new Cal(view, o); made.push(s); return s; };
+        const run = (s, n) => { for (let i = 0; i < n; i++) { clk.now += 1; s.moved(); } };
         const out = {}, changes = [];
         const off = engine.events.on('season:change', n => changes.push(n));
         const none = make({ dayLength: 1 });
-        for (let i = 0; i < 100; i++) none.tick(1);
+        run(none, 100);
         out.none = { season: none.season, idx: none.seasonIndex, progress: none.seasonProgress, dayOf: none.dayOfSeason, day: none.day, changes: changes.length };
         try { none.onSeason('summer', () => {}); } catch (err) { out.noSeasonErr = err.message; }
         const wd = make({ dayLength: 1, seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }] });
         const at = d => { wd.day = d; return wd.season + wd.dayOfSeason; };
         out.lengths = [at(1), at(10), at(11), at(30), at(31)].join(',');
         wd.day = 1; wd._season = wd.season; changes.length = 0;
-        for (let i = 0; i < 30; i++) wd.tick(1);
+        run(wd, 30);
         out.wdChanges = changes.join(',');
         const still = make({ dayLength: Infinity, time: 0.5 });
-        for (let i = 0; i < 600; i++) still.tick(1);
+        run(still, 600);
         out.still = { t: still.timeOfDay, day: still.day, mark: still.untilMark() };
         try { make({ seasons: 'spring' }); } catch (err) { out.badSeasons = err.message; }
         try { make({ dayLength: 0 }); } catch (err) { out.badDay = err.message; }
@@ -258,16 +260,15 @@ export const specs = [
           out.calm = w.types.dust.cloud === 0 && w.types.dust.rain === 0 && w.types.dust.sun === 1;
           out.gameWins = w.types.clear.cloud === 0.1;
           out.heatOnClear = w.types.clear.heat;
-          out.noParticles = w.systems.size === 0;
-          w.set('snow', 1); out.afterSnow = w.name;
-          w.set('dust', 1); for (let i = 0; i < 120; i++) w.tick(1 / 60);
+          out.stateOnly = !('systems' in w);   // particles are the look half's (weatherLook.js); appearance-water checks none are built without rain / snow
+          w.set('snow', { seconds: 1 }); out.afterSnow = w.name;
+          w.set('dust', { seconds: 1 }); for (let i = 0; i < 120; i++) w.tick(1 / 60);
           out.heat = w.current.heat; out.dust = w.name;
           // no table: the engine assumes no climate, only a calm clear (no rain particles); the preset is opt-in and the style fills its fields
           const def = new Weather(engine, {});
-          out.bare = Object.keys(def.types).join(',') + (def.systems.size ? '+rain' : '');
+          out.bare = Object.keys(def.types).join(',') + (def.types.rain ? '+rain' : '');
           const t = new Weather(engine, { types: { ...temperate, storm: { lightning: 1 } } });
           out.preset = Object.keys(t.types).length; out.styleFills = t.types.storm.cloud === 0.123 && t.types.clear.cloud === 0.15;
-          for (const { object: o } of t.systems.values()) { o.removeFromParent(); o.geometry.dispose(); o.material.dispose(); }
           try { new Weather(engine, { types: { dust: {} }, start: 'clear' }); } catch (err) { out.badStart = err.message; }
           try { new Weather(engine, { types: { dust: { wind: 'strong' } } }); } catch (err) { out.badField = err.message; }
         } finally { engine.style.weather = style; }
@@ -276,15 +277,15 @@ export const specs = [
       check('[guard] the table is the whole list: no built-in or style-only type mixed in; switching to a missing type is refused', r.names === 'clear,dust' && r.afterSnow === 'clear', JSON.stringify(r));
       check('start defaults to clear, autoPool to each type once; left-out fields are calm; the game\'s numbers beat the style\'s', r.start === 'clear' && r.pool === 'clear,dust' && r.calm && r.gameWins, JSON.stringify(r));
       check('a field of the game\'s own (heat) is 0 on other types and blends to 1', r.heatOnClear === 0 && r.dust === 'dust' && Math.abs(r.heat - 1) < 1e-6, JSON.stringify(r));
-      check('zero cost: a table without rain or snow builds no particle meshes', r.noParticles, JSON.stringify(r));
+      check('weather state holds no particles (they are the look half, engine.weatherLook)', r.stateOnly, JSON.stringify(r));
       check('[guard] no table: only a calm clear and no rain particles (the engine assumes no climate); the temperate preset is opt-in and the style fills its fields', r.bare === 'clear' && r.preset === 7 && r.styleFills, JSON.stringify(r));
       check('bad start / non-number field throw with the fix', /not one of this game's weather types/.test(r.badStart) && /must be a number/.test(r.badField), JSON.stringify([r.badStart, r.badField]));
     },
   },
   {
     // [守] 引擎核心不带玩法按键：Shift 跑 / E 交互 / 空格跳不在核心默认表里，只有游戏（或它挑的预设）给了才有；interactions() 没有默认选法和按键
-    name: 'genericity: no gameplay keys unless the game binds them (no core run / interact / jump), interactions needs pick and keys',
-    url: '/tests/a/',   // createPlayer({ ...presets.player.thirdPerson }) and no interactions module: run / jump come from the preset, interact from nobody
+    name: 'genericity: no gameplay keys unless the game binds them (no core run / interact / jump), interactions needs a pick',
+    url: '/tests/a/',   // createPlayer({ ...presets.player.thirdPerson }) and no interactions module: run / jump come from presets.bindings.walk, interact from nobody
     async run({ check, ev }) {
       const r = await ev(() => {
         const inp = engine.input, keys = a => inp.actions.has(a) ? inp.keysOf(a).filter(k => !k.startsWith('Pad')).join('+') : null;
@@ -297,26 +298,26 @@ export const specs = [
         return out;
       });
       check('[guard] interact is not bound when the game gave no key (no core E)', r.interact === null, JSON.stringify(r));
-      check('run / jump exist only because the preset the game picked binds them; move and confirm stay neutral core keys', r.run === 'ShiftLeft+ShiftRight' && r.jump === 'Space' && !!r.confirm && !!r.move, JSON.stringify(r));
+      check('run / jump keys exist only because the game bound presets.bindings.walk; move and confirm stay neutral core keys', r.run === 'ShiftLeft+ShiftRight' && r.jump === 'Space' && !!r.confirm && !!r.move, JSON.stringify(r));
       check('camera control without a run action just walks (no missing-action warning)', r.runWithout === false && !r.warned, JSON.stringify(r));
     },
   },
   {
     // [守] interactions() 不替游戏选"哪个算在面前"和"按哪个键"
-    name: 'genericity: interactions() has no default pick or key (errors name the preset); the nearest preset gives E',
+    name: 'genericity: interactions() has no default pick (the error names the preset) and takes no keys; presets.bindings.interact gives E',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r2 = await ev(() => {
         const Ctor = /** @type {any} */ (engine.interactions?.constructor), out = {};
         // the page of the examples installs interactions with the nearest preset; a second constructor only to read its argument checks (it throws before touching the engine)
         try { new Ctor(engine, {}); } catch (err) { out.noPick = String(err.message); out.code = err.code; }
-        try { new Ctor(engine, { pick: 'nearest', action: 'genericityNoKeys' }); } catch (err) { out.noKeys = String(err.message); }
+        out.declBy = engine.input.actions.get('interact')?.by;
         out.interactKeys = engine.input.keysOf('interact').filter(k => !k.startsWith('Pad'));
         return out;
       });
       check('[guard] interactions() without pick throws interaction-setup and names the preset', r2.code === 'interaction-setup' && /presets\.interactions\.nearest/.test(r2.noPick), JSON.stringify(r2));
-      check('[guard] an action with no keys throws with keys / bindings as the fix', /has no keys/.test(r2.noKeys) && /bindings/.test(r2.noKeys), r2.noKeys);
-      check('with presets.interactions.nearest the game gets E', r2.interactKeys.join() === 'KeyE', JSON.stringify(r2));
+      check('[guard] interactions declares the interact action (the game binds it)', r2.declBy === 'interactions', JSON.stringify(r2));
+      check('with presets.bindings.interact the game gets E', r2.interactKeys.join() === 'KeyE', JSON.stringify(r2));
     },
   },
 ];

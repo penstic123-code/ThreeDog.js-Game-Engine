@@ -75,9 +75,9 @@ Cost (1280x720, laptop GPU, this demo; median of 120 frames):
 
 Rules (correctness):
 - Never toggle `light.visible` (or add / remove lights) as the day turns: a light-count change recompiles every lit material. Write intensity.
-- Under a cycle, adjust brightness through the keyframes or `engine.mod('sky.ambient' | 'sky.sunLight', { mul })`; `look.lights.set` replaces
+- Under a cycle, adjust brightness through the keyframes or `engine.mod('look.lights.hemi.intensity' | 'look.lights.sun.intensity', { mul })`; `look.lights.set` replaces
   the keyframe value. Fixing night brightness with `look.lights.set({ hemi })` freezes the cycle; use the keyframe ambient, or
-  `engine.mod('sky.ambient', { mul })` for a place (a cave).
+  `engine.mod('look.lights.hemi.intensity', { mul })` for a place (a cave).
 - Lamps and gameplay read `calendar.daylight` / `isDay` / `between`, never the clock text (`if (clock === '18:00')` breaks other day
   lengths; recipe 08).
 - `lut()` comes from `@threedog/post-effects`; install it in the game.

@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from '
 import { join, relative, basename, sep } from 'node:path';
 import { findGames, loadGame, levelIsFile } from './content-check.mjs';
 import { describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
-import { ENGINE, onlyGames, workspaceOf, docRef, rel } from './paths.mjs';
+import { ENGINE, cli, within, workspaceOf, docRef, rel } from './paths.mjs';
 import { MAX_ROWS, read, uniq, walk, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
 import { contentLine, templateLines, gridLines, declaredEvents, eventLines, readForLines } from './gamemap/extra.mjs';
 
@@ -174,9 +174,11 @@ async function buildMap(dir) {
   return md.join('\n');
 }
 
-const check = process.argv.includes('--check');
+// -w (or the current folder) narrows the run to the games inside that workspace (the engine's examples, or one game)
+const { dirs, named, opt } = cli(process.argv.slice(2), { workspace: 'targets', flags: ['check'] });
+const check = !!opt.check;
 let stale = 0;
-for (const dir of onlyGames(findGames())) {
+for (const dir of findGames().filter(g => !named || dirs.some(d => within(g, d)))) {
   const out = join(dir, 'GAMEMAP.md'), content = await buildMap(dir);
   if (check) {
     if ((existsSync(out) ? read(out) : '') !== content) { console.log(`✗ ${rel(out)} is not up to date, run npm run map`); stale++; }

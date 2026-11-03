@@ -36,5 +36,10 @@ export function fadeBand(fade, nearOnly, maxRing, chunk) {
 /** The shader patch plus the uniform objects (move center each frame) @param {{ start: number, end: number }} band */
 export function nearFadePatch(band) {
   const uniforms = { uNearFade: { value: new THREE.Vector2(band.start, band.end) }, uNearFadeCenter: { value: new THREE.Vector3() } };
-  return { patch: { name: 'nearFade', cacheKey: 'v1', shadow: true, uniforms, slot: 'position', pars: PARS, glsl: VERTEX }, uniforms };
+  // tsl: the same line for WebGPURenderer (ctx.position is object space before instancing, objectOrigin() is the GLSL `ip`)
+  const tsl = c => {
+    const T = c.tsl, band = c.fx.patchUniform(uniforms.uNearFade), center = c.fx.patchUniform(uniforms.uNearFadeCenter);
+    return c.position.mul(T.float(1).sub(T.smoothstep(band.x, band.y, T.distance(c.fx.objectOrigin().xz, center.xz))));
+  };
+  return { patch: { name: 'nearFade', cacheKey: 'v1', shadow: true, uniforms, slot: 'position', pars: PARS, glsl: VERTEX, tsl }, uniforms };
 }

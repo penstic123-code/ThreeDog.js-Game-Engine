@@ -14,7 +14,7 @@ import { terrainPreset } from '@threedog/terrain-noise';
 
 const engine = createEngine({ canvas: document.getElementById('view'), style, saveKey: 'range' });
 engine.use(openWorld({ seed: 7, terrain: terrainPreset(), camera: 'firstPerson' }), hud());   // camera (required): 'follow' | 'firstPerson' | 'rts' | 'fixed', or pass a module like firstPersonCamera({ height: 1.7 })
-engine.input.define('shoot', ['Mouse0', 'KeyF'], 'Shoot');      // the left mouse button is a key too (Mouse0 / Mouse1 / Mouse2); either it or KeyF works
+engine.input.action('shoot', { label: 'Shoot', keys: ['Mouse0', 'KeyF'] });      // the left mouse button is a key too (Mouse0 / Mouse1 / Mouse2); either it or KeyF works
 engine.characters.createPlayer({ ...presets.player.aim, spawn: engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 }) });
 await engine.start();                                    // place targets after the terrain is generated
 
@@ -52,7 +52,7 @@ engine.onFixed(() => {                                   // firing is gameplay: 
 - **The first click**: on desktop, first person by default needs one click on the canvas to lock the mouse. That press only locks: it is not delivered
   as `Mouse0` and not as a click, so it cannot fire (every later click after Esc and a re-lock behaves the same). `swallowLockClick: false` on the
   camera delivers it too.
-- **Adding a gamepad button**: `engine.input.define('shoot', ['Mouse0', 'KeyF', 'PadRT'], 'Shoot')`; the key names go into the settings key table and the
+- **Adding a gamepad button**: `engine.input.action('shoot', { label: 'Shoot', keys: ['Mouse0', 'KeyF', 'PadRT'] })`; the key names go into the settings key table and the
   UI prompts. A touch tap does not count as `Mouse0` (give phones a button: `engine.input.touchButton('shoot', 'Shoot')`).
 - To hit terrain / houses / registered static objects, don't pass `targets` (the default hits what was registered with `rays.addStatic`); to hit rigid
   bodies too, pass `targets: 'all'`.

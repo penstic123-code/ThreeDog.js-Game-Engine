@@ -60,7 +60,7 @@ contact-shadows` copies the file, then tune `PARAMS` against your DESIGN.md look
 |---|---|---|
 | 1. Size the shadow box to what the player sees up close | `look.shadow.set({ extent: 8 })`: 16 m / 2048 = **0.8 cm per texel** | none: same map, same draws (4.1 -> 4.3 ms a frame) |
 | 2. Bias in texels, not by habit | `normalBias` about 1.5 texels (1.2 cm here), `bias` near 0; re-check after changing `extent` | none |
-| 3. Fill balance | `engine.mod('sky.ambient', { mul: 0.4 })`: shadows go from 11% to 26% darker on average (shot look numbers) | none |
+| 3. Fill balance | `engine.mod('look.lights.hemi.intensity', { mul: 0.4 })`: shadows go from 11% to 26% darker on average (shot look numbers) | none |
 | 4. Baked vertex AO on static code-built models | `groundStatic(geometry)`: dark foot, dark creases between parts | load time only: ~95 ms for 880 vertices x 32 rays; 0 per frame |
 | 5. Screen-space AO (optional) | `applyContactShadows(engine, { ao: true })` (GTAO from `@threedog/post-effects`) | **+6.3 ms a frame** (4.3 -> 10.6 ms): only where contact must hold for moving things too |
 | 6. Light probes (optional) | `await engine.bakeProbes({ bounds, spacing })`: bounce light, darker under roofs, lighter beside a sunlit wall | load: 3.6 s for 75 probes (ship the JSON, `engine.loadProbes`); +0.8 ms a frame |
@@ -70,14 +70,14 @@ Measured with `engine.step` + a 1 px `readPixels` per frame, median of 120 frame
 - The box follows `engine.focus`, so a compact box is fine for a third-person or fixed camera; the far ground loses its sun shadow, which is
   what cascades are for (`look.shadow.set({ cascades: 3 })`, recipe 45) when the view is long.
 - The sky's ambient column feeds the hemisphere light AND the environment map (recipe 34), so a strong env plus a strong hemi doubles the
-  fill. A multiplier (`engine.mod('sky.ambient')`) keeps the day-night cycle.
+  fill. A multiplier (`engine.mod('look.lights.hemi.intensity')`) keeps the day-night cycle.
 - Which steps where: small props on tables, a tidy room, a yard: 1-3, plus 4 for every static code-built model (free at run time).
   Characters and moving props that must look planted close up: add 5 on desktop, keep it off on low-tier devices (`look.post` lists
   `ao.enabled` as costly).
 
 Rules (correctness):
 - Vertex AO needs `vertexColors: true` on the material and vertices where the darkening should be; it is baked once, so only static geometry.
-- Under a day-night cycle change the fill with a multiplier (`engine.mod('sky.ambient')`), not `look.lights.set({ hemi })`: a set value replaces the keyframes.
+- Under a day-night cycle change the fill with a multiplier (`engine.mod('look.lights.hemi.intensity')`), not `look.lights.set({ hemi })`: a set value replaces the keyframes.
 - `look.shadow` is a sky-module part: `applyContactShadows` needs `sky()` installed. Change cascades / map type on a settings screen (they recompile).
 - `ao()` comes from `@threedog/post-effects`; install it in the game.
 

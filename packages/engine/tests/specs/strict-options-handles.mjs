@@ -1,7 +1,7 @@
 // 未知选项一律报错 + 句柄和动词统一（W3 / W7，2026-11-02）：每条删掉的旧路一条"不许绕开"的检查。
 // 为什么要守：选项从 checkOptions（只警告）搬到 readParams（开发时抛错）以后，有人新加一个入口又用回只警告的写法，别的测试不会红；
 // 交还从 null / false 统一成 handle.remove()、vegetation.add 改名 define、time.after 收成内部，旧写法加回来也没人发现。这里直接试每条旧路。
-// Same format as specs.mjs; appended at the end of specs.mjs.
+// Same format as the other files here.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -21,7 +21,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {};
-        out.engine = err(() => createEngine({ ...base, shadwos: false }).dispose());
+        out.engine = err(() => createEngine({ ...base, antialas: false }).dispose());
         out.audio = err(() => createEngine({ ...base, audio: { levles: { sfx: 1 } } }).dispose());
         out.music = err(() => createEngine({ ...base, audio: { music: { trakcs: {} } } }).dispose());
         const e = createEngine(base);
@@ -39,7 +39,7 @@ export const specs = [
         return out;
       }));
       const dym = (s, k) => s.includes('did you mean') && s.includes(k);
-      check('createEngine({ shadwos }) throws: did you mean shadows', dym(r.engine, 'shadows'), r.engine);
+      check('createEngine({ antialas }) throws: did you mean antialias', dym(r.engine, 'antialias'), r.engine);
       check('createEngine({ audio: { levles } }) / music.trakcs throw with did-you-mean', dym(r.audio, 'levels') && dym(r.music, 'tracks'), JSON.stringify([r.audio, r.music]));
       check('grids.add({ cel }) / grids.define({ sizee }) throw with did-you-mean', dym(r.gridAdd, 'cell') && dym(r.gridDefine, 'size'), JSON.stringify([r.gridAdd, r.gridDefine]));
       check('particles.define / emit / attach typo throws with did-you-mean; a number as options throws', dym(r.fxDefine, 'lifetime') && dym(r.fxEmit, 'count') && dym(r.fxAttach, 'rate') && /options argument must be an object/.test(r.fxPositional),
@@ -49,7 +49,7 @@ export const specs = [
     },
   },
   {
-    name: '[guard] handles: audio.addBus / time.manual / defineState return { remove() }; old give-back forms are gone; vegetation.add and time.after are not public',
+    name: '[guard] handles: audio.addBus / defineState return { remove() }; old give-back forms are gone; vegetation.add and time.after are not public',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(page(() => {
@@ -60,11 +60,7 @@ export const specs = [
         out.busTwice = err(() => e.audio.addBus('radio'));
         out.busOld = err(() => e.audio.addBus('radio2', 0.5));   // the old positional level is an options error now
         bus.remove(); out.busGone = 'radio' in e.audio.levels;
-        e.time.channel('enemies');
-        const m = e.time.manual('enemies', () => 0.25);
-        out.manual = [typeof m.remove, e.time.scale('enemies')];
-        out.manualNull = err(() => e.time.manual('enemies', null));   // the old hand-back form
-        m.remove(); out.manualBack = e.time.scale('enemies');
+        out.noManual = typeof e.time.manual;   // channel speeds change only through engine.mod
         const st = e.defineState('corner', { pos: '30,30' });
         out.state = [typeof st?.remove, e._urlState.states.has('corner')];
         st.remove(); out.stateGone = e._urlState.states.has('corner');
@@ -73,7 +69,7 @@ export const specs = [
       }));
       check('audio.addBus returns { owner, remove() }; remove deletes the bus; a second add of the same name throws; a positional level throws',
         r.bus[0] === 'function' && r.bus[1] === 'test' && r.bus[2] === 0.6 && !r.busGone && /already a bus/.test(r.busTwice) && /options argument/.test(r.busOld), JSON.stringify(r));
-      check('time.manual returns a handle; manual(name, null) throws; remove() hands the channel back', r.manual[0] === 'function' && r.manual[1] === 0.25 && /must be a function/.test(r.manualNull) && r.manualBack === 1, JSON.stringify(r));
+      check("time.manual is gone (a channel's speed changes only through engine.mod('time.<channel>'))", r.noManual === 'undefined', JSON.stringify(r));
       check('defineState returns a handle; remove() forgets the name', r.state[0] === 'function' && r.state[1] && !r.stateGone, JSON.stringify(r));
       const world = dts('world.d.ts'), gameplay = dts('gameplay.d.ts');
       const veg = world.slice(world.indexOf('export interface Vegetation {'), world.indexOf('}', world.indexOf('export interface Vegetation {') + 500) + 1);

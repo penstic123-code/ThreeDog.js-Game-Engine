@@ -4,6 +4,7 @@
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 天空云：默认云画面和旧着色器逐字节一致；horizon / fade / opacity / noise 参数生效；cumulus 与自定义 glsl 编译通过且画面不同；错误写法报错给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -165,6 +166,35 @@ void main(){
     },
   },
   {
+    name: '[guard] patches sharing engine.uniforms.uTime: a game patch declaring uTime next to clouds / wind compiles (the patch system declares it once)',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE, applyEffects } = threedogTest, R = engine.renderer, out = {};
+        const rt = new THREE.WebGLRenderTarget(8, 8), cam = new THREE.PerspectiveCamera(60, 1, 0.1, 50); cam.position.set(0, 1, 4);
+        const pulse = { name: 'pulse', slot: 'color', uniforms: { uTime: engine.uniforms.uTime }, pars: 'uniform float uTime;', glsl: 'diffuseColor.rgb *= 0.9 + 0.1 * sin(uTime);' };
+        const sway = { name: 'sway', slot: 'position', uniforms: { uTime: engine.uniforms.uTime }, pars: 'uniform float uTime;', glsl: 'transformed.y += 0.01 * sin(uTime);' };
+        const compile = (opts) => {
+          const sc = new THREE.Scene(); sc.add(new THREE.HemisphereLight(0xffffff, 0x888888, 2));
+          sc.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), applyEffects(new THREE.MeshLambertMaterial(), opts)));
+          let err = ''; const prev = R.debug.onShaderError;
+          R.debug.onShaderError = (gl, p, vs, fs) => { err += (gl.getShaderInfoLog(vs) || '') + (gl.getShaderInfoLog(fs) || ''); };
+          R.setRenderTarget(rt); R.render(sc, cam); R.setRenderTarget(null); R.debug.onShaderError = prev;
+          return err.slice(0, 300);
+        };
+        out.fragment = compile({ patches: [pulse] });                  // clouds (on by default) declares uTime in the fragment stage too
+        out.vertex = compile({ wind: 0.3, clouds: false, patches: [sway] });   // wind declares uTime in the vertex stage
+        out.both = compile({ wind: 0.3, patches: [pulse, sway] });
+        rt.dispose();
+        return out;
+      });
+      check('fragment: clouds + a patch declaring uTime compiles', r.fragment === '', r.fragment);
+      check('vertex: wind + a patch declaring uTime compiles', r.vertex === '', r.vertex);
+      check('clouds + wind + both game patches compile', r.both === '', r.both);
+    },
+  },
+  {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 风摆：style.wind.glsl 替换摆动函数（照抄默认写法时与默认逐像素相同，换写法则画面不同，含自定义 uniform）；写错报错给签名；1 万株草 = 1 次 draw call（附耗时）',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {

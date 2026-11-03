@@ -1,29 +1,25 @@
-// Input defaults and strings. Split out of Input.js: neutral actions, bound-action labels, gamepad menu keys, the redefine warning.
-// Only neutral input lives here: the direction axis (input.axis, the touch stick) and menu confirm / cancel. Nothing in it does anything until a game or module
-// reads it.
-// Gameplay keys (run, interact, jump...) are not core defaults: the game binds them (createEngine({ bindings }), input.define, a module's keys option or a
-// preset such as
-// presets.player.thirdPerson / presets.interactions.nearest), so no game inherits another game's Shift-to-run or E-to-use.
-export const DEFAULT_ACTIONS = {
-  moveForward: [['KeyW', 'ArrowUp'], 'input.moveForward'],
-  moveBack: [['KeyS', 'ArrowDown'], 'input.moveBack'],
-  moveLeft: [['KeyA', 'ArrowLeft'], 'input.moveLeft'],
-  moveRight: [['KeyD', 'ArrowRight'], 'input.moveRight'],
-  confirm: [['Space', 'Enter'], 'input.confirm'],
-  cancel: [['Escape'], 'input.cancel'],
-  // The UI choice cursor (ui/Focus.js) moves between dialogue choices and window controls with these. Menu keys like confirm / cancel: read with
-  // pressedRaw only while a window or dialogue is on top of the UI focus stack (which holds an opaque input context), so sharing WASD / arrows with
-  // walking never moves the player and the cursor at once. Rebind like any action (createEngine({ bindings, padBindings }), input.rebind).
-  uiUp: [['ArrowUp', 'KeyW'], 'input.uiUp'],
-  uiDown: [['ArrowDown', 'KeyS'], 'input.uiDown'],
-  uiLeft: [['ArrowLeft', 'KeyA'], 'input.uiLeft'],
-  uiRight: [['ArrowRight', 'KeyD'], 'input.uiRight'],
-};
-// display names for actions a game creates through createEngine({ bindings }) before the module that reads them defines its label
+// The one default key preset and its labels. Split out of Input.js.
+// Only the basics live here: the direction axis (input.axis, the touch stick), menu confirm / cancel and the UI cursor. Every game needs them and
+// nothing in them does anything until a game or module reads them, so they are the base value of their action (the game's bind hides it).
+// Every other key is the game's choice: modules declare actions and their context, never keys (input.action), and the game binds them
+// (createEngine({ bindings }), engine.input.bind, or a presets.bindings.* map). This file and presets.js are the only places in the engine that
+// may name a key (the static check in tests/specs/input-owners.mjs).
+export const BASIC_KEYS = Object.freeze({
+  moveForward: Object.freeze(['KeyW', 'ArrowUp']),
+  moveBack: Object.freeze(['KeyS', 'ArrowDown']),
+  moveLeft: Object.freeze(['KeyA', 'ArrowLeft']),
+  moveRight: Object.freeze(['KeyD', 'ArrowRight']),
+  confirm: Object.freeze(['Space', 'Enter', 'PadA']),
+  cancel: Object.freeze(['Escape', 'PadB']),
+  // The UI choice cursor (ui/Focus.js) moves between dialogue choices and window controls with these. Read with pressedRaw only while a window or
+  // dialogue is on top of the UI focus stack (which holds an opaque input context), so sharing WASD / arrows with walking never moves the player
+  // and the cursor at once.
+  uiUp: Object.freeze(['ArrowUp', 'KeyW', 'PadUp']),
+  uiDown: Object.freeze(['ArrowDown', 'KeyS', 'PadDown']),
+  uiLeft: Object.freeze(['ArrowLeft', 'KeyA', 'PadLeft']),
+  uiRight: Object.freeze(['ArrowRight', 'KeyD', 'PadRight']),
+});
+export const BASIC_LABELS = { moveForward: 'input.moveForward', moveBack: 'input.moveBack', moveLeft: 'input.moveLeft', moveRight: 'input.moveRight',
+  confirm: 'input.confirm', cancel: 'input.cancel', uiUp: 'input.uiUp', uiDown: 'input.uiDown', uiLeft: 'input.uiLeft', uiRight: 'input.uiRight' };
+// display names for actions a game binds before the module that reads them declares its label
 export const BOUND_LABELS = { run: 'input.run', interact: 'input.interact', jump: 'input.jump' };
-// Default gamepad keys for the neutral menu actions only (confirm / cancel / menu): added when the action is registered (override in createEngine({ padBindings
-// })).
-// Gameplay actions (jump, run, interact, inventory...) get pad keys the same way as keyboard keys: from the game or a preset (presets.player.*, presets.keys.*)
-export const PAD_DEFAULTS = { confirm: 'PadA', cancel: 'PadB', menu: 'PadStart', uiUp: 'PadUp', uiDown: 'PadDown', uiLeft: 'PadLeft', uiRight: 'PadRight' };
-const STRINGS = { redefine: 'Input action "{action}" defined twice: it already had keys {from}, now {to}; the later definition overrides. Ignore this if the change is intended; to change only the label, pass the same keys' };
-export const fmtRedefine = (action, from, to) => STRINGS.redefine.replace('{action}', action).replace('{from}', from.join(', ')).replace('{to}', to.join(', '));

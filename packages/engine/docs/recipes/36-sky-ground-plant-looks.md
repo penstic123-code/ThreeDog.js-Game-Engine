@@ -1,6 +1,6 @@
 # Sky, ground and plant looks: what a style can change
 
-For an AI turning a reference picture into a style and hitting "the engine draws it this way". Colors and materials are in `09-style-pack.md`, the
+For an AI turning a reference picture into a style and hitting "the engine draws it this way". Colors and materials are in `09-style.md`, the
 order of work in `35-style-from-reference.md`. This page lists the places where the *shape* of a look was fixed in engine code and is now a style
 setting. Each table lists the engine default; a style that sets nothing here gets those defaults. Styles hold looks only
 (rule R34): none of these settings move a hill, a river or a species list.
@@ -22,7 +22,7 @@ and the noise is dense and small; overhead one pixel covers little and the same 
 2.7x the noise work of plane on the cloudy pixels (pixels below the horizon or with no cloud cover skip it). Cloud shadows on the ground
 (`style.clouds.shadow`, a separate setting) follow the same weather cover, so more clouds still means more shadow.
 
-```js
+```js fragment
 sky: { clouds: { kind: 'cumulus', coverage: 1, scale: 0.45, color: 0xfff4e4, shade: 0x8a9cb8, speed: [0.003, 0.001] } }
 ```
 
@@ -54,7 +54,7 @@ engine.look.sky.patch('clouds', { uniforms: { uPaper: paperTexture, uEdge: 0.06 
 ## Ground color: `style.terrain.variation`
 Terrain colors are baked by the (worker) generator from the palette: two palette colors blended by a noise, a small brightness grain, and an
 optional layer of large patches. The defaults are shown (plain data, so it travels to the workers; unknown keys throw):
-```js
+```js fragment
 terrain: { colors: { ... }, biomeColors: { ... },
   variation: {
     blend:   { size: 33, strength: 1 },          // wavelength in m of the two-color noise; strength > 1 = harder contrast, < 1 = flatter
@@ -91,7 +91,7 @@ Audit of what the vegetation code fixes, split into mechanism (stays) and look (
 | Where | What | Kind |
 |---|---|---|
 | `Vegetation.define` | per species: `wind` amplitude, `rule`, `positions`, `densityMap`, `lodRing`, `maxRing`, `nearOnly`, `castShadow`, `shadowRing`, `material`, `effects` | already options (game content) |
-| `GroundChunks`, `Vegetation.levelOf` | one InstancedMesh per species per chunk; rings decide LOD swap, draw distance, shadow distance; 3 ms placement budget; collision lag | mechanism, stays |
+| `GroundChunks`, `VegetationLook` (`modules/vegetation/look.js`) | one InstancedMesh per species per chunk; rings decide LOD swap, draw distance, shadow distance; 3 ms placement budget; collision lag | mechanism, stays (the whole look is replaceable: recipe 28 section 6) |
 | wind sway shape | two sines (speed `1.2 + 0.6*uWind` and `2.9`, spatial phase from the instance origin), height-weighted, lean with wind strength | look: **`engine.look.wind.patch('sway', glsl)`** replaces it |
 | wind speed | `uWindFreq` | already `style.wind.frequency` |
 | season tint | `diffuseColor.rgb *= tint` (default) or a blend towards the tint; colors from `style.seasons` | look, both settings: `style.seasons.mode: 'multiply' \| 'mix'` (+ `strength`); see recipe 43 |

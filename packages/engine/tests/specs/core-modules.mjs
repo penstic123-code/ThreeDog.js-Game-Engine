@@ -27,14 +27,14 @@ export const specs = [
         const err = fn => { try { fn(); return null; } catch (e) { return e; } };
         const hooks = () => E._hooks.fixed.length;
         const h0 = hooks();
-        const e1 = err(() => E.use({ name: 'cmA', fixed() {} }, { name: 'cmB', stage: 'bogus' }));
+        const e1 = err(() => E.use({ name: 'cmA', type: 'rules', fixed() {} }, { name: 'cmB', type: 'rules', stage: 'bogus' }));
         const afterValidate = { has: E.has('cmA'), prop: E.cmA, hooks: hooks() - h0 };
         let disposed = 0;
-        const e2 = err(() => E.use({ name: 'cmC', fixed() {}, install: () => ({}), dispose() { disposed++; } }, { name: 'cmD', install() { throw new Error('install boom'); } }));
+        const e2 = err(() => E.use({ name: 'cmC', type: 'rules', fixed() {}, install: () => ({}), dispose() { disposed++; } }, { name: 'cmD', type: 'rules', install() { throw new Error('install boom'); } }));
         const afterInstall = { has: E.has('cmC'), prop: E.cmC, hooks: hooks() - h0, disposed, order: E.moduleOrder.filter(n => n.startsWith('cm')) };
-        const e3 = err(() => E.use({ name: 'cmE' }, { name: 'cmF', requires: ['cmE'], after: ['cmG'] }, { name: 'cmG', after: ['cmF'] }));
+        const e3 = err(() => E.use({ name: 'cmE', type: 'rules' }, { name: 'cmF', type: 'rules', requires: ['cmE'], after: ['cmG'] }, { name: 'cmG', type: 'rules', after: ['cmF'] }));
         const afterCycle = E.has('cmE');
-        E.use({ name: 'cmH', fixed() {} }, { name: 'cmI', requires: ['cmH'], fixed() {} });   // a later module in the same batch may require an earlier one
+        E.use({ name: 'cmH', type: 'rules', fixed() {} }, { name: 'cmI', type: 'rules', requires: ['cmH'], fixed() {} });   // a later module in the same batch may require an earlier one
         const ok = { h: E.has('cmH'), i: E.has('cmI'), hooks: hooks() - h0 };
         E.dispose();
         return { e1: e1?.message, afterValidate, e2: e2?.message, afterInstall, e3: e3?.message, afterCycle, ok };
@@ -52,14 +52,14 @@ export const specs = [
       const r = await ev(() => {
         const E = threedogThreads.createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cm-stage' });
         const err = fn => { try { fn(); return null; } catch (e) { return e; } };
-        const bad = err(() => E.use({ name: 'cmA', stage: 'control' }, { name: 'cmB', stage: 'audio', before: ['cmA'] }));
+        const bad = err(() => E.use({ name: 'cmA', type: 'rules', stage: 'control' }, { name: 'cmB', type: 'rules', stage: 'audio', before: ['cmA'] }));
         const afterBad = E.has('cmA') || E.has('cmB');
-        E.use({ name: 'cmX', stage: 'control' });
-        const badAfter = err(() => E.use({ name: 'cmY', stage: 'control', after: ['cmZ'] }, { name: 'cmZ', stage: 'audio' }));
-        const badAgainstInstalled = err(() => E.use({ name: 'cmW', stage: 'audio', before: ['cmX'] }));
-        E.use({ name: 'cmS1', stage: 'gameplay' }, { name: 'cmS2', stage: 'gameplay', before: ['cmS1'] });   // same stage: before / after decide as before
+        E.use({ name: 'cmX', type: 'rules', stage: 'control' });
+        const badAfter = err(() => E.use({ name: 'cmY', type: 'rules', stage: 'control', after: ['cmZ'] }, { name: 'cmZ', type: 'rules', stage: 'audio' }));
+        const badAgainstInstalled = err(() => E.use({ name: 'cmW', type: 'rules', stage: 'audio', before: ['cmX'] }));
+        E.use({ name: 'cmS1', type: 'rules', stage: 'gameplay' }, { name: 'cmS2', type: 'rules', stage: 'gameplay', before: ['cmS1'] });   // same stage: before / after decide as before
         const same = E.moduleOrder.filter(n => n.startsWith('cmS'));
-        const good = err(() => E.use({ name: 'cmP', stage: 'control', before: ['cmQ'] }, { name: 'cmQ', stage: 'audio' }));   // consistent with the stage order
+        const good = err(() => E.use({ name: 'cmP', type: 'rules', stage: 'control', before: ['cmQ'] }, { name: 'cmQ', type: 'rules', stage: 'audio' }));   // consistent with the stage order
         E.dispose();
         return { bad: bad?.message, code: bad?.code, afterBad, badAfter: badAfter?.message, badAgainstInstalled: badAgainstInstalled?.message, same, good: good?.message ?? null };
       });
@@ -83,15 +83,15 @@ export const specs = [
           E.dispose();
           return out;
         };
-        const crit = await run('cm-crit', { name: 'cmCrit', critical: true, init() { throw new Error('crit boom'); } });
-        const soft = await run('cm-soft', { name: 'cmSoft', presentation: true, init() { throw new Error('soft boom'); } });
-        const dflt = await run('cm-dflt', { name: 'cmDflt', init() { throw new Error('dflt boom'); } });
-        const never = await run('cm-never', { name: 'cmNever', isReady: () => false }, E => { E.loading.timeoutMs = 300; });
+        const crit = await run('cm-crit', { name: 'cmCrit', type: 'rules', critical: true, init() { throw new Error('crit boom'); } });
+        const soft = await run('cm-soft', { name: 'cmSoft', type: 'look', init() { throw new Error('soft boom'); } });
+        const dflt = await run('cm-dflt', { name: 'cmDflt', type: 'rules', init() { throw new Error('dflt boom'); } });
+        const never = await run('cm-never', { name: 'cmNever', type: 'rules', isReady: () => false }, E => { E.loading.timeoutMs = 300; });
         [console.error, console.warn] = quiet;
         return { crit, soft, dflt, never };
       });
       check('critical init failure: start() rejects, message has the module name and "crit boom", engine not ready', /cmCrit/.test(r.crit.rejected ?? '') && /crit boom/.test(r.crit.rejected) && !r.crit.ready && r.crit.state === 'failed', JSON.stringify(r.crit));
-      check('non-critical presentation module failing init: start() resolves, the module is disabled', r.soft.rejected === null && r.soft.ready && r.soft.disabled.includes('cmSoft'), JSON.stringify(r.soft));
+      check('non-critical look module failing init: start() resolves, the module is disabled', r.soft.rejected === null && r.soft.ready && r.soft.disabled.includes('cmSoft'), JSON.stringify(r.soft));
       check('a module is not critical by default: gameplay init failure is reported (engine.error) but start() still resolves', r.dflt.rejected === null && r.dflt.ready && r.dflt.state === 'failed', JSON.stringify(r.dflt));
       check('isReady that never turns true: start() rejects after loading.timeoutMs naming the module', /cmNever/.test(r.never.rejected ?? '') && r.never.code === 'module-not-ready', JSON.stringify(r.never));
     },
@@ -106,7 +106,7 @@ export const specs = [
         await E.start();
         let release, fixed = 0, frames = 0;
         const gate = new Promise(res => { release = res; });
-        const ret = E.use({ name: 'cmLate', async init() { await gate; }, fixed() { fixed++; }, frame() { frames++; } });
+        const ret = E.use({ name: 'cmLate', type: 'rules', async init() { await gate; }, fixed() { fixed++; }, frame() { frames++; } });
         E.step(0.2);
         const during = { ret: ret === E, state: E.moduleStates.cmLate, fixed, frames, describe: E.describe().moduleStates?.cmLate, order: E.moduleOrder.includes('cmLate') };
         release();
@@ -114,7 +114,7 @@ export const specs = [
         E.step(0.2);
         const after = { state: E.moduleStates.cmLate, fixedRan: fixed > 0, framesRan: frames > 0, describe: E.describe().moduleStates?.cmLate ?? null };
         let bad = 0;
-        E.use({ name: 'cmBad', init() { throw new Error('late boom'); }, fixed() { bad++; } });
+        E.use({ name: 'cmBad', type: 'rules', init() { throw new Error('late boom'); }, fixed() { bad++; } });
         await E.loading.settled();
         E.error = null; E.unfreeze?.('error');
         E.step(0.2);
@@ -136,11 +136,11 @@ export const specs = [
         const E = threedogThreads.createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cm-step' });
         await E.start();
         let n = 0;
-        E.use({ name: 'cmCount', fixed() { n++; } });
+        E.use({ name: 'cmCount', type: 'rules', fixed() { n++; } });
         const err = v => { try { E.step(v); return null; } catch (e) { return e.message; } };
-        const t0 = E.elapsed;
+        const t0 = E.time.now('real');
         E.step(0);
-        const zero = { n, moved: E.elapsed - t0 };
+        const zero = { n, moved: E.time.now('real') - t0 };
         const neg = err(-1), nan = err(NaN), inf = err(Infinity), str = err('1');
         const afterBad = n;
         E.step(0.001);

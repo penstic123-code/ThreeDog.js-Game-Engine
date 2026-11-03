@@ -29,7 +29,7 @@ export function inspect(e, at, { radius = 10 } = {}) {
   const actor = typeof at === 'string' ? at : 'player';
   const p = typeof at === 'string' ? placeOf(e, at) : Array.isArray(at) ? { x: at[0], z: at[at.length - 1] } : at ?? placeOf(e, 'player');
   if (!p) throw codedError('world-record', `engine.inspect('${at}'): no world record or engine.add object with this id${hintThing(e, at)}. Pass an id engine.thing knows, [x, z] or nothing for the player`);
-  const near = e.describe({ radius, center: { x: p.x, z: p.z } }).nearby;
+  const near = e.describe({ radius, center: { x: p.x, z: p.z }, only: ['nearby'] }).nearby;
   const ops = e.ops.list({ available: true, actor }).sort((a, b) => b.ok - a.ok).slice(0, OPS_MAX)
     .map(o => ({ op: o.name, args: o.args, ok: o.ok, ...(o.ok ? {} : { code: o.code, why: note(e, o.name, o.code) ?? null, facts: o.facts, nextActions: o.nextActions }) }));
   const thing = typeof at === 'string' && at !== 'player' ? findThing(e, at) : null;
@@ -39,7 +39,7 @@ export function inspect(e, at, { radius = 10 } = {}) {
 /**
  * Point -> thing: what a ray hit is. A hit on a batched instance resolves to its original object first (engine.batching.item).
  * Returns the record's thing (a source's explain), else the engine.add object's (engine.thing), plus the mesh and material names; for an object neither knows
- * (engine.scene.add) id is null and only those are known.
+ * (not in the scene, or an engine module's internal mesh) id is null and only those are known.
  * @param {any} e @param {any} obj the hit object @param {{ instanceId?: number }} [hit] @internal
  */
 export function thingOf(e, obj, hit) {

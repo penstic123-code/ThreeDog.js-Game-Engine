@@ -3,10 +3,10 @@
 // at the repo root said "no dev server" while a game's ran, a 21 KB art generator was "too big", `threedog hold` was missing from COMMANDS.md).
 import { readFileSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ROOT, ENGINE, TOOLS, pickWorkspace, workspaces, isArtFile } from '../paths.mjs';
+import { ROOT, ENGINE, TOOLS, workspaceFor, workspaces, isArtFile } from '../paths.mjs';
 import { devServerInfo } from '../devinfo.mjs';
 import { pagePath, parseOptions } from '../lib/cli-args.mjs';
-import { SCRIPTS, BRIDGE, VITE } from '../bin/threedog.mjs';
+import { SCRIPTS, BRIDGE, VITE, main } from '../bin/threedog.mjs';
 import { BRIEF } from '../threedog/pageFns.mjs';
 import { oneLine, ONE_LINE_MAX } from '../lib/oneline.mjs';
 
@@ -41,14 +41,33 @@ export async function run({ check }) {
   check('values (both spellings), switches and the page are read', ok.opt.out === 'day.png' && ok.opt.look === true && ok.opt.time === '18:30' && ok.page === '/x.html');
   check('an unknown option fails with did-you-mean', /unknown option --ot; did you mean --out\?/.test(throws(() => parseOptions(['--ot', 'x.png'], spec))));
   check('a value option without its value fails', /--out needs a value/.test(throws(() => parseOptions(['--out', '--look'], spec))));
-  check('a command without pages refuses a stray argument', /takes no page/.test(throws(() => parseOptions(['x'], { ...spec, page: null }))));
+  check('a command without pages refuses a stray argument', /takes only options/.test(throws(() => parseOptions(['x'], { ...spec, page: null }))));
+  const many = parseOptions(['a', '-j4', 'b', '-w', 'g', '--', '--c'], { positional: true, values: ['jobs'], short: { j: 'jobs' }, workspace: true });
+  check('short spellings, -w, plain arguments and everything after -- are read', many.opt.jobs === '4' && many.workspace === 'g' && many.rest.join() === 'a,b,--c', JSON.stringify(many));
+  check('-w is refused by a command that takes no workspace', /unknown option -w/.test(throws(() => parseOptions(['-w', 'g'], spec))));
   // 为什么：第二个页面参数以前悄悄顶掉第一个（shot a b 拍的是 b），被另一个选项架空的选项（shot --ref x --no-look）什么也不做也不说
-  check('[guard] a second page argument fails instead of replacing the first', /one page argument.*"\/a\.html".*"b"/.test(throws(() => parseOptions(['/a.html', 'b'], spec))));
+  check('[guard] a second page argument fails instead of replacing the first', /one page argument.*"\/a\.html".*"b"/.test(throws(() => parseOptions(['/a.html', 'b'], { ...spec, page: '/' }))));
+  // why: a repeated value option used to keep only the last one (check --rule R10 --rule R2 ran R2 alone and said 0 errors)
+  check('[guard] a value option given twice fails naming both values', /--out given twice \("a\.png" and "b\.png"\)/.test(throws(() => parseOptions(['--out', 'a.png', '--out=b.png'], spec))));
+  check('a list option given twice keeps both, comma-joined', parseOptions(['--rule', 'R10', '--rule=R2'], { values: ['rule'], lists: ['rule'] }).opt.rule === 'R10,R2');
   const off = { ...spec, flags: [...spec.flags, 'no-look'], values: [...spec.values, 'ref'], conflicts: [['ref', 'no-look', 'the reference is compared in the look check']] };
   check('[guard] an option another one switches off fails naming why', /--ref does nothing with --no-look: the reference is compared in the look check/.test(throws(() => parseOptions(['--ref', 'r.png', '--no-look'], off)))
     && parseOptions(['--ref', 'r.png'], off).opt.ref === 'r.png');
   const shot = readFileSync(join(ROOT, 'packages/tools/shot.mjs'), 'utf8');
-  check('shot reads --out and parses through the shared parser', /cliOptions\(/.test(shot) && /shotFile\(dir, opt\.out/.test(shot));
+  check('shot reads --out and parses through the shared parser', /\bcli\(process\.argv/.test(shot) && /shotFile\(dir, opt\.out/.test(shot));
+  // [guard] one reading of options and -w: a tool that looks up its own switches in argv (argv.includes('--x')) or its own -w
+  // (=== '-w') silently ignores a typo again. The allowed few read a switch that crosses process boundaries, each with its reason
+  const HAND_OK = {
+    'browser.mjs': '--gpu / --software are read where the browser starts, under every command that declared them',
+    'lib/scope.mjs': '--tally-json is passed by check to types, which declares it',
+    'rules/R10-duplicates.mjs': '--r10-anon is passed through check, which declares it',
+    'rules/R18-doc-refs.mjs': 'reads -w inside command lines quoted in docs, not its own arguments',
+  };
+  const toolFiles = dir => readdirSync(join(TOOLS, dir), { withFileTypes: true }).flatMap(e => e.isDirectory()
+    ? (['tests', 'templates', 'node_modules'].includes(e.name) ? [] : toolFiles(join(dir, e.name))) : /\.m?js$/.test(e.name) ? [join(dir, e.name).split('\\').join('/')] : []);
+  const byHand = toolFiles('.').map(f => f.replace(/^\.\//, '')).filter(f => f !== 'lib/cli-args.mjs' && !HAND_OK[f])
+    .filter(f => /argv\.(includes|indexOf|find(Index)?)\(|===? '-w'|=== '--workspace'/.test(readFileSync(join(TOOLS, f), 'utf8')));
+  check('[guard] no tool parses its own options or -w (paths.mjs cli() / command(), lib/cli-args.mjs parseOptions)', !byHand.length, byHand.join(', '));
 
   // ── bridge commands at the repo root: the running dev server, not the engine fallback ──
   const before = workspaces().filter(w => devServerInfo(w).state === 'live');
@@ -60,10 +79,10 @@ export async function run({ check }) {
       const a = fake('zz-live-a');
       writeFileSync(join(a, '.threedog/dev.json'), JSON.stringify({ port: 5999, pid: process.pid }));
       fake('zz-live-b');
-      check('one live dev server: the bridge talks to it from the repo root', pickWorkspace([], { cwd: ROOT, live: true }).dir === a);
-      check('without live (shot, build tools) the fallback stays', pickWorkspace([], { cwd: ROOT }).dir === ENGINE);
+      check('one live dev server: the bridge talks to it from the repo root', workspaceFor(undefined, { cwd: ROOT, live: true }) === a);
+      check('without live (shot, build tools) the fallback stays', workspaceFor(undefined, { cwd: ROOT }) === ENGINE);
       writeFileSync(join(gamesDir, 'zz-live-b/.threedog/dev.json'), JSON.stringify({ port: 5998, pid: process.pid }));
-      check('two live dev servers: the error lists both and says -w', /2 dev servers are running \(games\/zz-live-a, games\/zz-live-b\): pick one with -w/.test(throws(() => pickWorkspace([], { cwd: ROOT, live: true }))));
+      check('two live dev servers: the error lists both and says -w', /2 dev servers are running \(games\/zz-live-a, games\/zz-live-b\): pick one with -w/.test(throws(() => workspaceFor(undefined, { cwd: ROOT, live: true }))));
     } finally {
       for (const g of made) rmSync(join(gamesDir, g), { recursive: true, force: true });
       if (!hadGames && existsSync(gamesDir) && !readdirSync(gamesDir).length) rmSync(gamesDir, { recursive: true });
@@ -97,13 +116,20 @@ export async function run({ check }) {
   const esc = s => s.replace(/[-.]/g, '\\$&');
   const missing = [...Object.keys(SCRIPTS), ...BRIDGE, ...VITE, 'map'].filter(c => !new RegExp(`(threedog(\\.mjs)?|npm run|npm) ${esc(c)}(?![\\w-])`).test(doc));
   check('every threedog command appears in COMMANDS.md as `threedog <cmd>` or `npm run <cmd>`', !missing.length, 'missing: ' + missing.join(', '));
-  // options too, for the tools that declare them through cliOptions (the declaration is the source): an option nobody can find is not there
+  // options too, for the tools that declare them through cli() (the declaration is the source): an option nobody can find is not there
   const flagGaps = [];
   for (const tool of ['shot', 'capture', 'gallery']) {
-    const src = readFileSync(join(ROOT, `packages/tools/${tool}.mjs`), 'utf8'), decl = src.match(/cliOptions\(args, \{([\s\S]*?)\}\s*\)/)?.[1] ?? '';
+    const src = readFileSync(join(ROOT, `packages/tools/${tool}.mjs`), 'utf8'), decl = src.match(/\bcli\(process\.argv\.slice\(2\), \{([\s\S]*?)\}\s*\)/)?.[1] ?? '';
     const opts = [...decl.matchAll(/'([\w-]+)'/g)].map(m => m[1]);
-    if (!opts.length) flagGaps.push(`${tool}: cliOptions declaration not found`);
+    if (!opts.length) flagGaps.push(`${tool}: cli() declaration not found`);
     for (const o of opts) if (!new RegExp(`--${esc(o)}(?![\\w-])`).test(doc)) flagGaps.push(`${tool} --${o}`);
   }
   check('every option shot / capture / gallery declare appears in COMMANDS.md as --<option>', !flagGaps.length, 'missing: ' + flagGaps.join(', '));
+
+  // ── --help prints the script's header and runs nothing (threedog test --help used to start the whole suite) ──
+  const log = console.log, said = [];
+  console.log = (...a) => said.push(a.join(' '));
+  let codes;
+  try { codes = ['test', 'shot', 'map'].map(c => main([c, '--help'])); } finally { console.log = log; }
+  check('--help: test / shot / map print their header and exit 0 without running', codes.every(c => c === 0) && /One-shot test/.test(said[0] ?? '') && /screenshot/.test(said[1] ?? '') && said.length === 3, said.map(t => t.split('\n')[0]).join(' | '));
 }

@@ -3,12 +3,22 @@
 // A critical asset (manifest critical: true) that fails stops start() with the reason instead of starting a broken game.
 
 import { reportError } from './errors.js';
+import { asModule } from './moduleTypes.js';
 import { catalogSnap, catalogClaim } from './catalog.js';
-import { codedError } from './errorHints.js';
+import { codedError, coded } from './errorHints.js';
+import { warnOnce, DEV_SERVER } from './validate.js';
 import { touchStart } from './inputTouch.js';
 import { Loading, failureText } from './Loading.js';
 import { syncRoomEnvironment } from '../render/lights.js';
 import { startHeadlessLoad } from './headlessLoad.js';
+import * as THREE from 'three';
+import { isWebGPU, backendName, whyNoWebGPU, firstNodeMaterial, webglOnlyOn, tier as detectTier, timerContext, rendererSwapped } from '../render/backend.js';
+import { bindUniforms } from '../render/engineUniforms.js';
+import { nameShaderErrors } from '../render/shaderErrors.js';
+import { forcedTier, defaultPixelRatio } from './tier.js';
+import { GpuTimer } from './adaptive.js';
+import { sceneVisitor } from './sceneDelta.js';
+import { plugAtStart } from './plugins.js';
 
 const DEV_STRINGS = {
   initFailed: 'init of module {name}',
@@ -34,10 +44,15 @@ export const startupMethods = {
   /** @internal */
   async _start() {
     // Dev server only (npm run dev): if main.js forgot window.engine = engine, set it so the dev bridge and console can find the engine; leave an existing one alone (including tests with several engines)
-    if (import.meta.env?.DEV && typeof window !== 'undefined' && !window.engine) window.engine = this;
+    if (DEV_SERVER && typeof window !== 'undefined' && !window.engine) window.engine = this;
+    this._alive('starting');
+    this.phase = 'loading';                    // from here until the world is built: frame hooks only, no fixed step (loop.js)
     await this.saves.whenReady;                    // read the save index into memory (IndexedDB is async) so saves.list / check are synchronous afterwards
     this._alive('reading saves');
-    this._checkOptional();                     // optional dependencies that affect gameplay are missing: warn once in dev (modules.js)
+    await this._startRenderer();               // WebGPURenderer: init (or fall back) before anything draws or compiles; WebGL: nothing to do
+    plugAtStart(this);                         // the plugins folder: before module init, so a module from a plugin inits with the others (plugins.js)
+    this._alive('plugging plugins');
+    this._checkOptional();                    // optional dependencies that affect gameplay are missing: warn once in dev (modules.js)
     if (!this.headless) this._loop();
     this.ui._check();                          // a UI part name the game set but no module declared is a typo: fail now, not silently
     touchStart(this.input);                    // on-screen stick / buttons are a UI part too, so they are drawn only once the parts are settled
@@ -51,9 +66,9 @@ export const startupMethods = {
       const t = performance.now();   // measure
       this._setModState(m, 'initializing');      // no hooks until init succeeded (modules.js)
       const snap = catalogSnap(this);   // what init registers belongs to this module in engine.catalog()
-      try { await m.init(this); catalogClaim(this, m.name, snap); L._done(task); this._setModState(m, 'running'); }
+      try { await asModule(this, m, () => m.init(this, this._modCtx(m))); catalogClaim(this, m.name, snap); L._done(task); this._setModState(m, 'running'); }
       catch (e) {
-        L._fail(task, e); this._setModState(m, 'failed');
+        L._fail(task, e); this._setModState(m, 'failed'); this._dropTracked(m.name);   // a failed module keeps no listener on half-built state
         // a critical module stops start() with the reason (below); any other failure is reported by severity and start() goes on
         if (!m.critical) reportError(this, e, DEV_STRINGS.initFailed.replace('{name}', m.name), { module: m });
       }
@@ -77,8 +92,9 @@ export const startupMethods = {
     await this._waitReady(timing, tr, ms, v => { streamMs = v; }, () => streamMs).catch(why => Array.isArray(why) ? this._blocked(why) : Promise.reject(why));
     // Compile every visible material for the current lights now, behind the loading screen, instead of stalling the first frame that shows it
     // (async where the browser has KHR_parallel_shader_compile). A later change in the number of lights compiles again: see recipes/09 "Lights and stalls"
+    this._checkBackendScene();                 // the scene is built now: materials the chosen backend cannot draw fail by name, not as a blank picture
     const tc = performance.now();   // measure
-    syncRoomEnvironment(this);                 // the baseline room map, if a material reads scene.environment: before compiling, since it is part of the program key
+    syncRoomEnvironment(this);                // the baseline room map, if a material reads scene.environment: before compiling, since it is part of the program key
     // compile for the target the scene really draws into (the composer's when post is on): see PostFX._sceneTarget.
     // compile() runs synchronously inside compileAsync, so the target only needs to be set around the call, not across the await
     const r = this.renderer, target = this.post._sceneTarget();
@@ -91,7 +107,7 @@ export const startupMethods = {
     // never sees, and without this frame they compiled in the first frame the player saw (a 300 ms hitch measured)
     if (!this.headless) { try { this._render(0); } catch (err) { reportError(this, err, 'render (warm-up frame)', { soft: true }); } }
     const compileMs = ms(tc);
-    this.ready = true;
+    this.phase = 'ready';                     // fixed steps run from the next one on: game time starts here on every machine (loop.js)
     this.commits.rebase();                     // background results registered during loading restart timing from now (see Commits.js)
     // Startup timing: totalMs from page open to playable, startMs from start() to playable
     this.startup = { totalMs: Math.round(performance.now()), startMs: ms(t0), preloadMs, streamMs, compileMs, modules: timing };   // measure
@@ -102,7 +118,103 @@ export const startupMethods = {
     this.ui.open('title');                     // the title screen, only when the game turned it on (createEngine({ ui: { title: {...} } }))
     await this._urlState.late();              // scenario parameters: skip the cutscene, wait, align the time, then emit state:applied
     startHeadlessLoad(this);                  // headless: what the game sets up after start (a species, a teleport) still loads with no step() (headlessLoad.js)
+    this._alive('applying scenario parameters');
+    this.phase = 'running';
     return this;
+  },
+
+  /**
+   * @internal The WebGPU route (docs/plans/2026-11-03-webgpu-phase2.md section 1.2; Engine already checked threedog/tsl is loaded): find out
+   * whether WebGPU is there, then init or fall back by createEngine({ fallback }). Whatever it falls back to is said loudly and kept in
+   * describe().renderer. Why probe before init(): three falls back to WebGL2 silently and loses the reason, and once its WebGL2 backend took
+   * the canvas, fallback 'webgl' could not hand a clean canvas to WebGLRenderer.
+   */
+  async _startRenderer() {
+    const r = this.renderer, want = this._backendWant;
+    if (!isWebGPU(r)) { this._backend = { requested: 'webgl', backend: 'webgl', reason: null }; return; }
+    const forced = !!r.backend?.parameters?.forceWebGL;   // the game asked for the WebGL2 backend itself: not a fallback
+    let reason = forced || (r.initialized && r.backend.isWebGPUBackend) ? null : await whyNoWebGPU();
+    this._alive('looking for WebGPU');
+    if (reason && want.fallback === 'error') {
+      throw codedError('renderer-backend', `[threedog] WebGPU unavailable (${reason}) and createEngine({ fallback: 'error' }) asked not to fall back; `
+        + "fallback: 'webgl2' runs the same renderer on WebGL2 (your TSL keeps working), 'webgl' runs WebGLRenderer (GLSL only)");
+    }
+    if (reason && want.fallback === 'webgl') this._swapToWebGL(r);
+    else if (!r.initialized) { await r.init(); this._alive('initializing WebGPU'); }
+    const backend = backendName(this.renderer);
+    // the probe said yes but three still fell back (a device lost in between): say so all the same
+    if (!forced && backend === 'webgl2') reason ??= 'three fell back to its WebGL2 backend during init()';
+    if (reason && want.fallback === 'error') throw codedError('renderer-backend', `[threedog] WebGPU unavailable (${reason}) and createEngine({ fallback: 'error' }) asked not to fall back`);
+    this._backend = { requested: 'webgpu', backend, reason: forced ? 'forceWebGL: true (asked for by the game)' : reason };
+    // loud on purpose: a game that chose WebGPU runs 1.5-1.9x slower on the WebGL2 backend, or without its TSL on WebGLRenderer
+    if (reason && !forced) warnOnce(coded('renderer-backend', `[threedog] WebGPU unavailable (${reason}), running ${backend}; createEngine({ renderer: 'webgpu', fallback: 'webgl2' | 'webgl' | 'error' })`));
+    // the GPU is known only now (adapterInfo after init): the default quality follows the real device
+    if (!(this.headless && forcedTier())) {
+      const t = detectTier(this.renderer);
+      if (t !== this.tier && this._ownsRenderer && this._createParams.pixelRatio == null) this.renderer.setPixelRatio(defaultPixelRatio(devicePixelRatio || 1, t));
+      // MSAA defaults from the tier too (Engine.js: antialias ?? style.antialias ?? tier !== 'low'); decided from a WebGL probe before the WebGPU
+      // adapter was known, so a low-tier device could keep MSAA on the WebGPU route (found by the WebGPU parity test). Untouched when the game or
+      // style chose, or changed it since. The renderer's own samples stay as made: the new value then runs through the post chain (PostFX active)
+      const aaDefault = this._createParams.antialias == null && this.style?.antialias == null && this.post.antialias === (this.tier !== 'low');
+      if (t !== this.tier && aaDefault) this.post.setAntialias(t !== 'low');
+      this.tier = t;
+    }
+  },
+
+  /**
+   * @internal fallback 'webgl': drop the WebGPURenderer (never initialized, so the canvas has no context yet) for a WebGLRenderer on the
+   * same canvas, carrying over what was already set on it (size, scale, tone, shadows, clear color) and what the engine hooked onto it.
+   * @param {any} old
+   */
+  _swapToWebGL(old) {
+    // the canvas's own MSAA as the post chain wants it, so an effect-free frame still draws straight to the canvas (PostFX active)
+    const r = new THREE.WebGLRenderer({ canvas: old.domElement, antialias: this.post.antialias, powerPreference: 'high-performance' });
+    const size = old.getSize(new THREE.Vector2());
+    r.setPixelRatio(old.getPixelRatio()); r.setSize(size.x, size.y, false);
+    r.shadowMap.enabled = old.shadowMap.enabled; r.shadowMap.type = old.shadowMap.type;
+    r.toneMapping = old.toneMapping; r.toneMappingExposure = old.toneMappingExposure; r.outputColorSpace = old.outputColorSpace;
+    r.setClearColor(old.getClearColor(new THREE.Color()), old.getClearAlpha());
+    r.info.autoReset = false;
+    nameShaderErrors(r); bindUniforms(r, this.uniforms);
+    try { old.dispose(); } catch { /* never initialized: nothing of it reached the GPU */ }
+    // owned rows name the renderer object they live on (tween exemptions, core/owned.js)
+    for (const row of [this._oTone, this._oPixelRatio]) if (row) row.objects = row.objects.map(o => (o === old ? r : o));
+    this.renderer = r;
+    // parts built for the old renderer before start(): the post chain (its backend and every effect's part), then whatever registered a rebuild
+    this.post._setBackend();
+    rendererSwapped(this);
+    if (this._gpu) this._gpu = new GpuTimer(timerContext(r));
+  },
+
+  /** @internal After the world is built, before compiling: what the backend in use cannot draw is an error naming it (plan section 1.3) */
+  _checkBackendScene() {
+    const b = this._backend;
+    if (b?.requested !== 'webgpu') return;
+    if (b.backend === 'webgl') {
+      const hit = firstNodeMaterial(this.scene);
+      if (hit) throw codedError('renderer-backend', `[threedog] ${hit.material.type} on ${hit.object.type} '${hit.object.name || '(unnamed)'}' is a NodeMaterial (TSL), and `
+        + `createEngine({ fallback: 'webgl' }) is running WebGLRenderer, which cannot draw it (WebGPU unavailable: ${b.reason}). Use fallback: 'webgl2' `
+        + '(the same WebGPURenderer on WebGL2: TSL keeps working), or give these objects a GLSL material too');
+      return;
+    }
+    // one visitor on the engine's "entered the scene" mechanism (core/sceneDelta.js): the whole scene now, then only what is added later,
+    // checked each frame by _checkBackendAdds; a material swapped in (mesh.material = m) counts as an add.
+    // shortcut: an onBeforeCompile assigned to a material already in the scene is not seen; an add after it is. Upgrade if games do that.
+    const found = [];
+    this._webglOnlyView = sceneVisitor(this.scene, { enter: o => { if (o.material) { const msg = webglOnlyOn(o); if (msg) found.push(msg); } } });
+    this._webglOnlyFound = found;
+    this._webglOnlyView.sync();
+    if (found.length) { const msg = found[0]; found.length = 0; throw codedError('renderer-backend', `[threedog] ${msg}`); }
+  },
+  /** @internal Per frame on the WebGPU route: what entered the scene since the last frame and will not draw there is an error naming it (reportError) */
+  _checkBackendAdds() {
+    const v = this._webglOnlyView;
+    if (!v) return;
+    v.sync();
+    const found = this._webglOnlyFound;
+    if (!found.length) return;
+    const msgs = found.splice(0);
+    for (const msg of msgs) reportError(this, codedError('renderer-backend', `[threedog] ${msg} (added after start())`), msg);
   },
 
   /** Critical items that failed: assets, track() steps and modules declared critical: true (a non-critical module's init error goes through reportError instead) */

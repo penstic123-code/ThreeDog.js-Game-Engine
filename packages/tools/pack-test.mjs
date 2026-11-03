@@ -9,7 +9,7 @@ import { join, extname, normalize, basename } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { rel } from './paths.mjs';
+import { rel, ownViteConfig, VITE_DEFAULT_CONFIG } from './paths.mjs';
 import { waitEngine } from './wait-engine.mjs';
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.ktx2': 'image/ktx2', '.bin': 'application/octet-stream' };
@@ -39,7 +39,7 @@ export async function packTest(dir, browser) {
   let b;
   if (scripts.build) b = npm(['run', 'build'], { cwd: dir, env });
   else { const pkg = createRequire(join(dir, 'package.json')).resolve('vite/package.json');
-    b = spawnSync(process.execPath, [join(pkg, '..', JSON.parse(readFileSync(pkg, 'utf8')).bin.vite), 'build'], { cwd: dir, env, encoding: 'utf8' }); }
+    b = spawnSync(process.execPath, [join(pkg, '..', JSON.parse(readFileSync(pkg, 'utf8')).bin.vite), 'build', ...(ownViteConfig(dir) ? [] : ['--config', VITE_DEFAULT_CONFIG])], { cwd: dir, env, encoding: 'utf8' }); }
   check('production build succeeds', b.status === 0, (b.stdout + b.stderr).split('\n').filter(l => /error/i.test(l)).slice(0, 3).join(' | '));
   if (b.status !== 0) return { name, results };
   const { server, base } = await serve(join(dir, 'dist'));

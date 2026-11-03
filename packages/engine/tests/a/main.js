@@ -5,7 +5,7 @@ import { toGLB, fromGLTF } from '../../core/Baked.js';
 import { defineOwned, allowOwned } from '../../core/owned.js';
 import { buildTestBlock, buildHeavy } from '../fixtures/block.js';
 
-const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: false }, saveKey: 'test-a' });
+const engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: document.getElementById('view'), ui: { loading: false }, saveKey: 'test-a' });
 engine.use(world(), level({ scene: buildTestBlock() }), collision(), characters());
 engine.createdPlayer = engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: engine.level.spawn });
 engine.defineState('corner', { pos: '30,30' });

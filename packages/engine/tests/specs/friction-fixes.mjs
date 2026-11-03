@@ -44,10 +44,10 @@ export const specs = [
       });
       await frames(10);
       const r = await ev(() => {
-        // 旧名 reason 不是数据字段（不在 JSON 里），读它报 renamed-field（core/opsFail.js 那一处统一做）
-        const renamed = o => { try { void o.reason; return false; } catch (x) { return x.code === 'renamed-field' && !Object.keys(o).includes('reason'); } };
-        const res = engine.ops.run('interaction.use', { id: 'p-full' }); const trap = !renamed(res);
-        const t = engine.ops.allow(() => engine.inventory.bag.trade('ring', 'gem')); const trap2 = !renamed(t);
+        // a failed result has code, never a reason field
+        const hasReason = o => 'reason' in o;
+        const res = engine.ops.run('interaction.use', { id: 'p-full' }); const trap = hasReason(res);
+        const t = engine.ops.allow(() => engine.inventory.bag.trade('ring', 'gem')); const trap2 = hasReason(t);
         return { res, trap, trade: { ok: t.ok, code: t.code }, trap2, still: !!engine.world.get('p-full') };
       });
       check('full bag: interaction.use fails with code full (no reason field), and the pickup stays on the ground', !r.res.ok && r.res.code === 'full' && r.trap === false && r.still, JSON.stringify(r));

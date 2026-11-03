@@ -6,7 +6,8 @@ export class PostFX {
      */
     get antialias(): boolean;
     /**
-     * Whether any post work runs (antialias or an enabled effect)
+     * Whether the post chain runs: an effect is on, or antialias differs from the canvas's own MSAA (fixed when the renderer was made, so a
+     * runtime switch away from it goes through the chain's targets)
      * @returns {boolean}
      */
     get active(): boolean;
@@ -42,7 +43,8 @@ export class PostFX {
      */
     get(name: string): PostHandle | undefined;
     /**
-     * Turn MSAA (antialiasing of the post chain) on or off. It is a render target setting, not a look part.
+     * Turn MSAA on or off. It is a render setting, not a look part. With no effect on, the start value is the canvas's own MSAA (free: no
+     * post chain); the other value, and any effect, draws through the chain, whose render targets carry the MSAA.
      * @example engine.post.setAntialias(false);
      * @param {boolean} on
      * @returns {void}
@@ -60,18 +62,21 @@ export class PostFX {
         order: number;
         enabled: boolean;
     }[];
-    /** @param {number} w @param {number} h @returns {void} */
-    setSize(w: number, h: number): void;
-    /** @param {number} r @returns {void} */
-    setPixelRatio(r: number): void;
-    /** @param {number} dt @returns {void} */
-    render(dt: number): void;
+    /**
+     * Draw the frame through the chain. target: a render target to draw the finished picture into instead of the canvas (engine.renderOnce(target));
+     * it gets the canvas's pixels (tone mapped, output color space). Why a target argument and not "set the render target first": the WebGL chain's
+     * last pass always writes to the canvas (EffectComposer renderToScreen); the WebGPU pipeline draws into whatever target is set.
+     * @param {number} dt @param {any} [target] @returns {void}
+     */
+    render(dt: number, target?: any): void;
 }
 /**
  * scene: replaces the scene render (one at a time, e.g. a pixelating render); hdr: linear color before tone mapping (bloom, AO,
- * outline); ldr: sRGB color after tone mapping (LUT, palette, grain, vignette); final: last of all (FXAA / SMAA).
+ * outline); tone: replaces the engine's tone-mapping output stage (one at a time: an own curve, a filmic grade; it receives linear HDR
+ * color and must output display color, tone mapped AND converted to the output color space, as three's OutputPass / renderOutput do);
+ * ldr: sRGB color after tone mapping (LUT, palette, grain, vignette); final: last of all (FXAA / SMAA).
  */
-export type PostSlot = "scene" | "hdr" | "ldr" | "final";
+export type PostSlot = "scene" | "hdr" | "tone" | "ldr" | "final";
 /**
  * width / height are in device pixels.
  */
@@ -89,6 +94,9 @@ export type PostContext = {
  * declares extra ones by GLSL type ({ uVigStrength: 'float' }; names must be unique across effects, prefix with the effect name);
  * values(params) returns their current values. reads: true when the snippet samples tDiffuse at other uvs (blur, color fringe):
  * it then starts a new group, so it sees the real input.
+ * tsl (WebGPURenderer): (color, uv, t) => color, the same snippet as a TSL expression on the vec4 color node; t holds tsl (three/tsl),
+ * p (a uniform node per number / color param, live: set() changes .value, no rebuild), input (the image so far, sample it at other uvs with
+ * t.input.sample(uv)), time (s), resolution (device px). Neighbors are chained into one node, so three draws them in one pass.
  */
 export type PostFuse = {
     uniforms?: Record<string, string>;
@@ -97,9 +105,32 @@ export type PostFuse = {
     reads?: boolean;
 };
 /**
+ * WebGPU only. scenePass: the scene's pass() node (.getTextureNode('depth'), getViewZNode() ...); tsl: three/tsl; display: three's display nodes
+ * (bloom, ao from three/addons/tsl/display) plus pass (an extra scene render) and texture (the color so far as a texture to sample at other uvs),
+ * handed in so effect packages never import three/webgpu themselves and so the nodes they make are disposed with the chain;
+ * p: live uniform nodes of the number / color params (as in PostFuse tsl), so set() of those never rebuilds the pipeline; a param read from
+ * ctx.params while node() runs is a constant in the graph, so set() of it rebuilds the chain (as WebGL rebuilds an effect without update()).
+ */
+export type PostNodeContext = {
+    engine: Engine;
+    scene: import("three").Scene;
+    camera: import("three").Camera;
+    width: number;
+    height: number;
+    params: Record<string, any>;
+    scenePass: any;
+    tsl: any;
+    display: Record<string, Function>;
+    p: Record<string, any>;
+};
+/**
+ * node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
+ * that is not a number / color changes (those are live in ctx.p). An effect with only create cannot run on WebGPURenderer (it throws by name).
  * create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
  * fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params
  * update in place (no update() needed).
+ * slot: a PostSlot; typed as any string too because a slot in a plain JS object (an effect returned from a function) is a string to
+ * TypeScript, and the chain throws on an unknown slot naming the valid ones.
  * order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
  * needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  * scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
@@ -109,8 +140,9 @@ export type PostFuse = {
 export type PostEffect = {
     name: string;
     create?: (ctx: PostContext) => object;
+    node?: (input: any, ctx: PostNodeContext) => any;
     fuse?: PostFuse;
-    slot?: PostSlot;
+    slot?: PostSlot | (string & {});
     order?: number;
     enabled?: boolean;
     costly?: boolean;

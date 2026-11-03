@@ -4,8 +4,6 @@ Inventory (inventory() module)
 
 - Options `InventoryOptions`:
   - `action?: string` Action name that opens the inventory, default 'inventory'
-  - `keys?: string[]` Keys that open the bag: required unless createEngine({ bindings }) binds the action ([] = no key); presets.keys.inventory has ['KeyI']
-  - `pad?: string[]` Gamepad button, none by default; presets.keys.inventory has ['PadY']
   - `pauseGame?: boolean` true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame
   - `capacity?: number` Slot limit of the player inventory, default Infinity (no limit)
   - `maxWeight?: number` Weight limit of the player inventory, default Infinity
@@ -26,6 +24,8 @@ Inventory (inventory() module)
 - `inventory.container(id: string, opts?: { capacity?, maxWeight?, items? }) → Container` — Get or create a container (chest, corpse, shelf...); the id can be the id of a world record, and the contents are saved. A second call returns the same one; deleting the world record does not delete the container automatically
 - `inventory.transfer(from: Container | string, to: Container | string, item: string, n?: number) → number` — Move n (default 1) of an item or one entry key between containers (pieces keep data and key); moves fewer if the target cannot hold them all, returns how many were actually moved
 - `inventory.removeContainer(id: string) → boolean` — Delete a container together with its contents ('player' cannot be deleted), returns whether one was deleted
+- `inventory.contents() → Record<string, any[]>` — Every container's items as plain data, the player bag included: { [containerId]: entries } (what setContents takes; net syncs through these two)
+- `inventory.setContents(data: Record<string, any[] | null>, opts?: { only?: boolean })` — Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too
 - Properties:
   - `pauseGame: boolean` true: gameplay freezes while the inventory window is open (set from inventory({ pauseGame }) or at runtime)
   - `defs: Map<string, ItemDef>` Item definitions

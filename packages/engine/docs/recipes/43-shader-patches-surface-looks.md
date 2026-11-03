@@ -6,10 +6,9 @@ Lead with three.js: **write your own material or `ShaderMaterial`**, or **patch 
 game's own; this page gives building blocks, not looks.
 
 ```js
+const fragmentShader = '#include <threedog_lighting>\n' + myFragmentBody;                                       // 3. engine GLSL, called inside 1 or 2
 const mat = new THREE.ShaderMaterial({ uniforms: { ...engine.uniforms }, vertexShader, fragmentShader });                    // 1. your own shader
 applyEffects(mat2, { patches: [{ name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }] });                         // 2. patch a slot
-fragmentShader: '#include <threedog_lighting>
-...'                                                                      // 3. call engine GLSL inside 1 or 2
 ```
 
 **1. Your own material or shader** works exactly as in three.js (`new THREE.MeshStandardMaterial`, `ShaderMaterial`, `onBeforeCompile`), as a
@@ -29,7 +28,7 @@ lit materials returned by it. Nothing else is applied: textures, `detail` and `l
 name is fine** (`cloth`, `metal`, `glass`): code asks for it with `engine.makeMaterial('cloth', { color })`, an unlisted role uses `materials.default`.
 Only a name very close to an existing one (`props`, `charcter`) warns, as a probable typo.
 
-```js
+```js fragment
 materials: {
   default: { type: 'lambert' },
   cloth:   { type: 'standard', roughness: 1, color: 0x8a6f5a },
@@ -49,15 +48,15 @@ three.js Material. A **spec** is plain data (`type: lambert | phong | standard |
 0 shadowed; change `light.directDiffuse` / `indirectDiffuse`, the lights are already summed).
 
 For anything else write a **named patch** that names a **slot** (where the code goes) and add it with `applyEffects(material, { patches: [...] })`
-(or in a `materials` function, or `look.materials.patch(name, patch, { roles })`):
-```js
+(or in a `materials` function, or `look.materials.add(name, patch, { roles })`):
+```js fragment
 { name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }                                   // one slot
 { name: 'sway', slot: 'position', shadow: true, glsl: 'transformed.x += sin(position.y) * 0.1;' }  // moves vertices: the shadow follows
 { name: 'glow', pars: 'uniform float uGlow;', uniforms: { uGlow: { value: 0.5 } },
   glsl: { color: 'diffuseColor.rgb *= 0.95;', output: 'outgoingLight += uGlow * 0.1;' } }          // several slots; pars = declarations
 ```
 The full form, with every field:
-```js
+```js fragment
 { name: 'fuzz',                          // one name per effect; the same name again replaces it
   slot: 'color',                         // where the code goes (table below)
   glsl: 'diffuseColor.rgb *= 1.0 - uFuzz * 0.5;',
@@ -68,26 +67,26 @@ The full form, with every field:
   conflicts: ['wind'],                   // patches it cannot share a material with (checked when added)
   shadow: false }                        // true = the patch MOVES vertices, so its vertex code also runs in the shadow passes (wind does)
 ```
-Slots (the one table is `render/slots.js`; the engine's own wind, clouds, season, detail, lighting and cascades use the same names, and the WebGPU
-path will map the same names to node properties, so a patch written today keeps its meaning). An unknown slot throws with this list.
+Slots (the one table is `render/slots.js`; the engine's own wind, clouds, season, detail, lighting and cascades use the same names, and on WebGPU
+the same names map to node properties through a patch's `tsl` field, recipe 56). An unknown slot throws with this list.
 
 <!-- slots:begin (generated from render/slots.js slotTable(); threedog check R42 compares) -->
-| slot | GLSL (WebGL, today) | WebGPU node (phase 2) | in scope | meaning |
+| slot | GLSL (WebGL) | WebGPU (NodeMaterial) | in scope | meaning |
 |---|---|---|---|---|
-| `position` | after `begin_vertex` | `positionNode` | transformed (vec3, object space, write), position, normal, uv | move vertices in object space, before skinning / instancing / the model matrix |
+| `position` | after `begin_vertex` | `positionNode` | transformed (vec3, object space, write), position, normal, uv | move vertices in object space, before skinning / instancing / the model matrix; WebGPU: the same place (the engine runs the chain before three's instancing; a game's own positionNode still applies after it) |
 | `shadowPosition` | after `begin_vertex` (shadow passes) | `castShadowPositionNode` | transformed (vec3, object space, write), position | vertex code for the shadow passes only (depth / point-light distance), replacing this patch's position code there |
 | `clipPosition` | after `project_vertex` | `vertexNode` | transformed, mvPosition (view space), gl_Position (clip space, write) | after projection: snap or offset on screen, or write world-space varyings |
-| `map` | after `map_fragment` | `colorNode (before vertex colors)` | diffuseColor (vec4, write; the map applied, vertex colors not yet) | the base color / texture, before vertex colors and every color patch |
-| `color` | after `color_fragment` | `colorNode` | diffuseColor (vec4, write; map and vertex colors already applied), vUv when the material has a map | the surface (diffuse) color before lighting |
-| `normal` | after `normal_fragment_maps` | `normalNode` | normal (vec3, view space, write), faceDirection, vViewPosition | the shading normal (bump, detail) after normal / bump maps |
+| `map` | after `map_fragment` | `colorNode` | diffuseColor (vec4, write; the map applied, vertex colors not yet) | the base color / texture, before vertex colors and every color patch |
+| `color` | after `color_fragment` | inside `setupDiffuseColor` | diffuseColor (vec4, write; map and vertex colors already applied), vUv when the material has a map | the surface (diffuse) color before lighting |
+| `normal` | after `normal_fragment_maps` | inside `setupNormal` | normal (vec3, view space, write), faceDirection, vViewPosition | the shading normal (bump, detail) after normal / bump maps |
 | `roughness` | after `roughnessmap_fragment` | `roughnessNode` | roughnessFactor (float, write); MeshStandard / MeshPhysical only | roughness after the roughness map |
 | `emissive` | after `emissivemap_fragment` | `emissiveNode` | totalEmissiveRadiance (vec3, write), diffuseColor | emitted light after the emissive map |
-| `lightsPars` | after `shadowmap_pars_fragment` | `(TSL Fn)` | declarations; three's light structs, getShadow() and directionalLights[] are already declared | functions that call three's light / shadow helpers (pars goes before them) |
-| `lightingModel` | replace `lights_fragment_begin` | `LightingModel (setupLightingModel)` | geometryPosition, geometryNormal, material, reflectedLight; your code replaces three's light loop | replace how lights are summed (one patch per material may take it) |
-| `lighting` | after `lights_fragment_end` | `lightsNode (wrapped)` | reflectedLight.directDiffuse / directSpecular / indirectDiffuse (write), normal, diffuseColor, vViewPosition | after lights are summed: cloud shadows, wrap, shadow tint, rim |
-| `output` | before `opaque_fragment` | `outputNode` | outgoingLight (vec3, write), diffuseColor.a | the final lit color, before fog and tone mapping |
-| `fogPars` | after `fog_pars_fragment` | `fogNode (TSL Fn)` | declarations; fogColor and fogNear / fogFar or fogDensity are already declared (inside #ifdef USE_FOG) | fog functions that read three's fog uniforms (wrap them in #ifdef USE_FOG) |
-| `fog` | replace `fog_fragment` | `fogNode` | gl_FragColor (write, tone mapped already), fogColor, vFogDepth, fogNear / fogFar or fogDensity (inside #ifdef USE_FOG) | replace how fog mixes into the final color (one patch per material may take it) |
+| `lightsPars` | after `shadowmap_pars_fragment` | WebGL only | declarations; three's light structs, getShadow() and directionalLights[] are already declared | functions that call three's light / shadow helpers (pars goes before them); WebGPU: TSL has no declaration area: the light's direction and shadow come to the lighting slot's direct(light, ctx) hook |
+| `lightingModel` | replace `lights_fragment_begin` | WebGL only | geometryPosition, geometryNormal, material, reflectedLight; your code replaces three's light loop | replace how lights are summed (one patch per material may take it); WebGPU: use the lighting slot's hooks { start, light, direct, after }, or a NodeMaterial with your own setupLightingModel |
+| `lighting` | after `lights_fragment_end` | inside `setupLightingModel` | reflectedLight.directDiffuse / directSpecular / indirectDiffuse (write), normal, diffuseColor, vViewPosition | after lights are summed: cloud shadows, wrap, shadow tint, rim; WebGPU: hooks { start, light, direct, after }: light(light, ctx) returns a new color for one light before three lights the surface with it (what GLSL does by wrapping three's light info in lightsPars), direct(light, ctx) sees each light in three's loop and adds to its own sums, which join the summed light at the patch's place in the list, then its after() runs: the same order as WebGL |
+| `output` | before `opaque_fragment` | inside `setupOutput` | outgoingLight (vec3, write), diffuseColor.a | the final lit color, before fog and tone mapping |
+| `fogPars` | after `fog_pars_fragment` | WebGL only | declarations; fogColor and fogNear / fogFar or fogDensity are already declared (inside #ifdef USE_FOG) | fog functions that read three's fog uniforms (wrap them in #ifdef USE_FOG); WebGPU: fog on WebGPU is scene.fogNode (the sky fog kinds and look.fog hooks have a tsl form) |
+| `fog` | replace `fog_fragment` | WebGL only | gl_FragColor (write, tone mapped already), fogColor, vFogDepth, fogNear / fogFar or fogDensity (inside #ifdef USE_FOG) | replace how fog mixes into the final color (one patch per material may take it); WebGPU: fog on WebGPU is scene.fogNode (the sky fog kinds and look.fog hooks have a tsl form) |
 <!-- slots:end -->
 
 Several patches in one slot run in the order added. A compile error names the patch and slot:
@@ -149,10 +148,12 @@ The engine never patches a ShaderMaterial of yours; call its effects as function
 
 | include | function |
 |---|---|
-| `#include <threedog_uniforms>` | declares every engine uniform: `uTime`, `uWind`, `uWindFreq`, `uWindAmp`, `uCloud`, `uCloudShadow`, `uCloudScale`, `uCloudSpeed`, `uFoliageTint`, `uGroundTint`, `uFoliageMix`, `uGroundMix` (include once, in each stage that uses them) |
+| `#include <threedog_uniforms>` | declares every engine uniform: `uTime`, `uWind`, `uWindFreq`, `uWindAmp`, `uCloud`, `uCloudShadow`, `uCloudScale`, `uCloudSpeed`, `uFoliageTint`, `uGroundTint`, `uFoliageMix`, `uGroundMix`, `uCover` (snow / ash cover amount alone: x foliage, y ground), `uSunDir`, `uDaylight`, `uTimeOfDay` (include once, in each stage that uses them) |
 | `#include <threedog_wind>` | `vec3 threedogWind(vec3 position, vec3 origin, float amplitude)`: object-space sway offset, higher vertices sway more; `origin` is the object's world origin (its phase) |
 | `#include <threedog_cloudShadow>` | `float threedogCloudShadow(vec3 worldPos)`: light factor 0-1 under the drifting clouds |
 | `#include <threedog_season>` | `vec3 threedogSeason(vec3 color, int kind)`: season tint, kind 0 foliage, 1 ground |
+
+To change the cloud shadow or the season tint on the engine's own materials (not only in your shader), replace the term: `engine.look.cloudShadow.replace({ glsl, tsl })` / `engine.look.season.replace(kind => ({ glsl, tsl }))`, or `replace(false)` to drop it (recipe 52).
 | `#include <threedog_detail>` | `vec4 threedogDetailNoise(vec2 p, int kind, float octaves)`: the detail noises, kind 0 grain, 1 paper, 2 stroke, 3 dabs, returns (gray rgb, height 0-1); `vec3 threedogDetailBump(vec3 surfPos, vec3 surfNorm, float h, float k, float faceDir)`: screen-space bump. No uniforms. `p` is yours: world xz for a pattern fixed to the ground (it shrinks with distance), `gl_FragCoord.xy / 3.0` for one the same size all over the screen (3-pixel cells; device pixels, so it follows the pixel ratio) |
 | `#include <threedog_lighting>` | `vec3 threedogWrapDiffuse(float nl, float wrap, vec3 lightColor, float shadow, vec3 albedo)` (light to add), `vec3 threedogShadowTint(vec3 ambient, vec3 tint, float strength, float soft, float nl, float shadow)` (the new ambient), `vec3 threedogRim(vec3 normal, vec3 viewDir, vec3 color, float strength, float power, float shadowSide, float nl)` (light to add); nl = dot(normal, sunDir), shadow 1 lit / 0 shadowed. No uniforms |
 
@@ -177,7 +178,10 @@ stand-in (flat normal, white) sits in the slot until the image arrives. `style c
 covers the keys that add shader code: `detail`, `lighting`, toon `ramp`, seasons.
 
 **`detail`**: a noise pattern, a texture or your own GLSL laid over the surface in world space (needs no UVs). Off unless written; every number is a uniform, so
-100 materials with different `scale` / `strength` / `direction` compile **one** program (tested: 8 variants, +0 programs).
+100 materials with different `scale` / `strength` / `direction` compile **one** program on WebGL (tested: 8 variants, +0 programs).
+WebGPURenderer keys its program by the patch's uniform objects instead: materials with the same `detail` / `lighting` options share one
+patch object, so they share one program there too (tested: 8 materials of one role, 1 build); different numbers build one each. Sharing
+means one set of values: a uniform changed on one of them changes all of that spec.
 
 | key | meaning |
 |---|---|

@@ -17,7 +17,7 @@ export const specs = [
       await page.waitForFunction(() => engine.world.ready, null, READY);
       const s0 = await ev(() => ({ d: engine.describe().styletest, water: engine.waterLevel, player: !!engine.player,
         ids: ['pine', 'round-tree', 'rock', 'wood', 'stone', 'metal', 'glass', 'shadow-stage', 'room', 'guide'].filter(id => !engine.world.get(id)) }));
-      check('默认机位是总览，风格 lowpoly，环境照明关', s0.d?.view === 'overview' && s0.d.style === 'lowpoly' && s0.d.env === false, JSON.stringify(s0.d));
+      check('默认机位是总览，风格 world，环境照明关', s0.d?.view === 'overview' && s0.d.style === 'world' && s0.d.env === false, JSON.stringify(s0.d));
       check('展品都登记了（树、石头、木/石/金属、玻璃、阴影接收面、房间、角色），有水面和玩家', s0.ids.length === 0 && s0.water > -1e6 && s0.player, JSON.stringify(s0));
 
       const seen = {};
@@ -35,9 +35,9 @@ export const specs = [
       // path: constant speed along a fixed line, so the distance between two readings is speed x elapsed time (the line is 24 m, so 2 s never reaches the turn)
       await ev(() => engine.ops.run('styletest.view', { name: 'path' }));
       await frames(2);
-      const a = await ev(() => [engine.camera.position.x, engine.elapsed]);
+      const a = await ev(() => [engine.camera.position.x, engine.time.now('real')]);
       await ev(() => engine.step(2, { render: false }));
-      const b = await ev(() => [engine.camera.position.x, engine.elapsed]);
+      const b = await ev(() => [engine.camera.position.x, engine.time.now('real')]);
       check('移动镜头路径：走过的距离 = 2.5 米/秒 x 经过的时间，匀速', Math.abs(Math.abs(b[0] - a[0]) - 2.5 * (b[1] - a[1])) < 0.4 && b[1] - a[1] > 1.9, JSON.stringify([a, b]));
 
       // ui: dialogue line and bag open; leaving closes them
@@ -61,7 +61,7 @@ export const specs = [
       await open(page, '?style=none&time=night&weather=snow&view=water');
       await frames(3);
       r = await ev(() => { engine.step(1 / 30, { render: true }); return { d: engine.describe().styletest, t: engine.calendar.timeOfDay }; });
-      check('style=none：不带风格包也能渲染，仍是水面机位、夜里', r.d.style === 'none' && r.d.view === 'water' && r.t > 0.9, JSON.stringify(r));
+      check('style=none：不带游戏自己的 style也能渲染，仍是水面机位、夜里', r.d.style === 'none' && r.d.view === 'water' && r.t > 0.9, JSON.stringify(r));
       const warns = [];
       page.on('console', m => { if (m.type() === 'warning') warns.push(m.text()); });
       await open(page, '?view=nowhere');
@@ -69,7 +69,7 @@ export const specs = [
     },
   },
   {
-    name: '风格工作台（?panel=1）：实时项立刻生效，需重建项不假装实时，导出可粘贴，原风格包不被改写',
+    name: '风格工作台（?panel=1）：实时项立刻生效，需重建项不假装实时，导出可粘贴，原游戏自己的 style不被改写',
     url: '/styletest.html',
     async run({ page, check, ev, frames }) {
       await page.goto(new URL('/styletest.html?panel=1', page.url()).href);

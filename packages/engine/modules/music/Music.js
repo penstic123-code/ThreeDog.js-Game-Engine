@@ -8,7 +8,7 @@
 //   engine.music.play('explore')          // 2 s cross-fade by default; play('explore', { fade: 0 }) cuts at once
 //   engine.music.intensity = 0.8          // stems fade in as it rises through their `at` range (0-1)
 //   engine.music.stinger('win')           // a short piece over the music; the music dips under it
-//   engine.music.stop(3)                  // fade out over 3 s
+//   engine.music.stop({ fade: 3 })        // fade out over 3 s
 //
 // Rules (checked about once a second; the highest-priority match wins; a new result must hold `hold` seconds before switching):
 //   engine.music.rules([
@@ -29,6 +29,7 @@ import { warnMissing, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { pickTrack, evaluateRules } from './rules.js';
 import { codedError } from '../../core/errorHints.js';
+const STOP_KEYS = ['fade'];   // a module constant: keysSchema caches by the array object
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
 
@@ -38,8 +39,8 @@ const stemLevel = (st, x) => { const [lo, hi] = st.at ?? [0, 1]; return (st.volu
 
 /** engine.music */
 export class Music {
-  /** @internal */
-  constructor(engine, opts = {}) {
+  /** @internal track: the module's ctx.track, so its listeners leave with the module */
+  constructor(engine, opts, track) {
     /** @internal */ this.engine = engine;
     const st = engine.audio.config.music;
     /** @internal */ this.opts = { ...DEFAULTS, ...st, ...opts };
@@ -70,17 +71,17 @@ export class Music {
     // content packs (audio: { music: { tracks, rules } }): tracks by name, rules appended; a pack loaded again replaces its own rules
     // (createEngine({ audio: { music: { tracks } } }) names are checked by engine.audio.contentPack; music({ tracks }) ones here)
     const code = new Set(Object.keys(opts.tracks || {}));
-    engine.audio.onPack((key, pack) => {
+    track(engine.audio.onPack((key, pack) => {
       for (const name of Object.keys(pack.music.tracks)) if (code.has(name)) throw codedError('music-track', `music track '${name}' is defined both in music({ tracks }) `
         + `and in content ${pack.from}. One name, one place: keep it in one of them [audio-name-clash]`);
       this.addTracks(pack.music.tracks);
       this._packRules.set(key, { from: pack.from, rules: pack.music.rules });
       this._setRules();
-    });
+    }));
     // Duck the music bus during dialogue only when the game asks: music({ duckDialogue: 0.35 }) (0-1 multiplier; false / 1 = no duck)
     if (this.opts.duckDialogue !== false && this.opts.duckDialogue != null && this.opts.duckDialogue < 1) {
-      engine.events.on('dialogue:start', () => { this._duck?.remove(); this._duck = engine.audio.duck({ music: this.opts.duckDialogue }, { fade: this.opts.duckFade }); });
-      engine.events.on('dialogue:end', () => { this._duck?.remove(this.opts.duckFade * 2); this._duck = null; });
+      track(engine.events.on('dialogue:start', () => { this._duck?.remove(); this._duck = engine.audio.duck({ music: this.opts.duckDialogue }, { fade: this.opts.duckFade }); }));
+      track(engine.events.on('dialogue:end', () => { this._duck?.remove(this.opts.duckFade * 2); this._duck = null; }));
     }
   }
 
@@ -124,7 +125,7 @@ export class Music {
    */
   play(name, opts = {}) {
     const { fade = this.opts.fade, force = false } = opts;
-    if (name == null) return this.stop(fade);
+    if (name == null) return this.stop({ fade });
     const tr = this.tracks.get(name);
     if (!tr) { warnMissing('track', name, [...this.tracks.keys()]); return; }
     if (!force && this.current === name && (this.playing?.name === name || this.pending?.name === name)) return;
@@ -153,11 +154,12 @@ export class Music {
     }).catch(err => { warnOnce(err.message); if (this.playing === slot) this.playing = null; });   // a missing file is said once; the game goes on silent
   }
   /**
-   * Fade out and stop (fade over fade seconds)
-   * @param {number} [fade]
+   * Fade out and stop (fade over fade seconds; default the music({ fade }) option). An options object like play's: stop(3) throws in dev
+   * @param {{ fade?: number }} [opts]
    * @returns {void}
    */
-  stop(fade = this.opts.fade) {
+  stop(opts = {}) {
+    const { fade = this.opts.fade } = readParams('music.stop()', keysSchema(STOP_KEYS), opts);
     const from = this.current;
     this.pending = null; this.current = null; this._token++;
     this._fadeOutCurrent(fade);
@@ -249,6 +251,17 @@ export class Music {
   /** @internal */
   _evaluate(immediate = false) { return evaluateRules(this, immediate); }
   /**
+   * @internal the 'music' save part: a hand-picked track and the intensity are playthrough state, so a new game starts with the rules in charge
+   * and a load picks up the save's (an override kept across playthroughs would stop the rules for good)
+   */
+  _load(d) {
+    this._override = typeof d?.override === 'string' ? d.override : undefined;
+    this.intensity = Number.isFinite(d?.intensity) ? d.intensity : 0;
+    this._candidate = undefined; this._candidateT = 0; this._ruleT = 0;
+    if (this._override !== undefined) this.play(this._override);
+    else if (this._rules) this._evaluate(true);
+  }
+  /**
    * Per-frame update (plays queued tracks, follows intensity, picks tracks by rules; the module calls it every frame)
    * @param {number} dt
    * @returns {void}
@@ -284,10 +297,11 @@ export function music(opts = {}) {
   readParams('music', MUSIC_PARAMS, opts);
   let m = null;
   return {
-    name: 'music', params: MUSIC_PARAMS, options: opts, label: 'Music', optional: ['dialogue'], stage: 'audio', presentation: true,
-    install(e) {
-      m = new Music(e, opts);
-      e.events.on('session:end', () => m.stop(0));   // a playthrough ends: its music stops at once
+    name: 'music', type: 'look', params: MUSIC_PARAMS, options: opts, label: 'Music', optional: ['dialogue'], stage: 'audio',
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.music': '音乐' }, en: { 'module.music': 'music' } });
+      m = new Music(e, opts, ctx.track);
+      ctx.track(e.events.on('session:end', () => m.stop({ fade: 0 })));   // a playthrough ends: its music stops at once
+      e.saves.register('music', { save: () => ({ override: m._override ?? null, intensity: m.intensity }), load: d => m._load(d) });
       return m;
     },
     frame(dt) { m.frame(dt); },

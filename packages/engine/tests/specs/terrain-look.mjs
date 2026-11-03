@@ -1,6 +1,6 @@
 // Terrain look open points (recipes/37-terrain-look-hooks.md): shading 'texture' (per-chunk color map), diagonal, normalFn, boundsPad.
 // Defaults draw what they always drew (golden hashes computed with the code before these options existed); the river-bank check renders
-// the real engine into a render target and measures the color border. Same format as specs.mjs.
+// the real engine into a render target and measures the color border. Same format as the other files here.
 const PAGE = '/tests/perf/index.html?mode=world';
 
 export const specs = [
@@ -69,6 +69,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '河岸：真实引擎渲染，resolution 16 下 texture 的地貌边界比 smooth 平滑得多；贴图随 terrain.edit 涂色更新；卸载释放贴图',
     url: PAGE,
     async run({ check, ev }) {
@@ -123,11 +124,11 @@ export const specs = [
         out.snowMix = [plain, lo(shot())];
         U.uGroundMix.value = 0;
         // texture mode now: material per chunk, texture size, paint refreshes it, dispose frees it
-        const c = T.chunks.get('40,40'), tex = c.colorTex;
-        out.mount = !!tex && tex.image.width === 130 && tex.colorSpace === THREE.SRGBColorSpace && c.terrain.material === c.colorMat && c.colorMat !== T.terrainMat;
+        const c = T.chunks.get('40,40'), rec = engine.terrainLook.meshes.get(c), tex = rec.colorTex;
+        out.mount = !!tex && tex.image.width === 130 && tex.colorSpace === THREE.SRGBColorSpace && rec.mesh.material === rec.colorMat && rec.colorMat !== engine.terrainLook.material;
         const before = tex.image.data.slice();
         engine.terrain.edit({ x: OX + 32, z: OZ + 20 }, { shape: 'square', radius: 6, paint: 'paint' });
-        out.paintChanged = c.colorTex === tex && tex.image.data.some((v, i) => v !== before[i]);
+        out.paintChanged = rec.colorTex === tex && tex.image.data.some((v, i) => v !== before[i]);
         for (let i = 0; i < 3; i++) engine.step(1 / 30, { describe: false });
         const px = shot(), mid = (Math.round((64 - 20) / 64 * N) * N + Math.round(32 / 64 * N)) * 4;
         out.paintGreen = px[mid + 1] > 30 && px[mid + 1] > 3 * px[mid] && px[mid + 1] > 3 * px[mid + 2];   // the painted square renders green

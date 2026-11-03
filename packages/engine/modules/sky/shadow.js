@@ -1,7 +1,7 @@
 // Sky shadow part (mixed into Sky.prototype): shadow params, placing the shadow center at the focus (snapped to a grid or shadow pixels), updating shadows every N frames.
 import * as THREE from 'three';
-import { shadowTypeOf } from '../../core/shadowTypes.js';
 import { checkCascades, syncCascades } from './cascades.js';
+import { setShadowUpdate, shadowUpdatePending, isWebGPU } from '../../render/backend.js';
 
 /**
  * Default sun shadow depth bias. three adds it in the shadow camera's 0-1 depth, which here spans near 1 to far 420 m, so it is a world offset of
@@ -22,32 +22,41 @@ export function shadowFor(tier, styleShadow = {}, optionShadow = undefined) {
 }
 
 export const shadowMethods = {
-  /** Apply shadow fields (engine.look.shadow.set(o): bias / normalBias, updateEvery, snap, ahead, type, radius, blurSamples, cascades / maxFar / fade / lightMargin / split; lookShadow.js calls this) to the sun and the cascades (look.shadow's apply; the part checked the values when it took them) */
+  /** Apply shadow fields (engine.look.shadow.set(o): bias / normalBias, updateEvery, snap, ahead, radius, blurSamples, cascades / maxFar / fade / lightMargin / split; lookShadow.js calls this) to the sun and the cascades (look.shadow's apply; the part checked the values when it took them) */
   _applyShadow(o) {
     const s = this.shadow;
-    if (o.type !== undefined) shadowTypeOf(o.type, 'look.shadow.set({ type })');
     checkCascades(this, o);
     for (const k of Object.keys(s)) if (o[k] !== undefined) s[k] = o[k];
-    const sm = this.engine.renderer.shadowMap, sun = this._sun.shadow;
-    // validate before applying so a typo leaves the previous type in place
-    if (o.type !== undefined) { sm.type = shadowTypeOf(o.type, 'look.shadow.set({ type })'); this.engine.shadowType = o.type; }
-    else s.type = this.engine.shadowType;
+    const sun = this._sun.shadow;
     sun.bias = s.bias; sun.normalBias = s.normalBias; sun.radius = s.radius; sun.blurSamples = s.blurSamples;
     if (o.extent !== undefined) { const c = sun.camera; c.left = c.bottom = -s.extent; c.right = c.top = s.extent; c.updateProjectionMatrix(); }   // one map only: cascades size their own
-    sm.autoUpdate = s.updateEvery <= 1;
     syncCascades(this);
-    // needed after a type switch when autoUpdate is off: otherwise the rebuilt map stays empty until the next scheduled update
-    sm.needsUpdate = true;
+    // after the cascades: on WebGPU the switch is per light, so the cascade lights just made get it too (render/backend.js).
+    // now: needed after a type switch when autoUpdate is off, otherwise the rebuilt map stays empty until the next scheduled update
+    setShadowUpdate(this.engine.renderer, this.engine.scene, { auto: s.updateEvery <= 1, now: true });
     return this;
   },
   /** Call after rendering: when updateEvery > 1, request a shadow update every N frames */
   afterRender() {
     const n = this.shadow.updateEvery;
-    if (n > 1 && ++this._shadowFrame >= n) { this._shadowFrame = 0; this.engine.renderer.shadowMap.needsUpdate = true; this._shadowAt?.copy(this._sun.target.position); }
+    if (n > 1 && ++this._shadowFrame >= n) { this._shadowFrame = 0; setShadowUpdate(this.engine.renderer, this.engine.scene, { now: true }); this._shadowAt?.copy(this._sun.target.position); }
   },
 
-  /** Change shadow resolution (raise temporarily for photo mode); with cascades it is the nearest cascade's map (the sun's) */
-  setShadowMapSize(n) { const sh = this._sun.shadow; if (sh.mapSize.x === n) return; sh.mapSize.set(n, n); sh.map?.dispose(); sh.map = null; },
+  /**
+   * Change shadow resolution (raise temporarily for photo mode); with cascades, every cascade's map. Why each one: the cascades copied the
+   * sun's size only when built (WebGL: extra lights; WebGPU: the node's per-cascade shadows), so a later change reached the nearest one at most.
+   * WebGL allocates a map only while shadow.map is null; WebGPU's shadow node resizes its own map from mapSize on every redraw.
+   */
+  setShadowMapSize(n) {
+    const gpu = isWebGPU(this.engine.renderer), sun = this._sun;
+    let changed = false;
+    for (const sh of [sun.shadow, ...(this.csm?.lights ?? []).filter(l => l !== sun).map(l => l.shadow)]) {
+      if (sh.mapSize.x === n) continue;
+      sh.mapSize.set(n, n); changed = true;
+      if (!gpu) { sh.map?.dispose(); sh.map = null; }
+    }
+    if (changed) setShadowUpdate(this.engine.renderer, this.engine.scene, { now: true });   // a resized map is empty until redrawn (updateEvery > 1)
+  },
 
   // Shadow center: the focus (optionally shifted ahead of the view) snapped to a grid or shadow pixels; request an update when the snapped cell changes and shadows are not updated every frame
   _placeShadow(focus, lightDir) {
@@ -79,8 +88,8 @@ export const shadowMethods = {
     }
     // when not updating every frame: update early only if the center is over 1/4 of the coverage radius from the last update (teleport, fast movement); otherwise follow the updateEvery cadence
     if (S.updateEvery > 1 && key !== this._snapKey) {
-      const sm = this.engine.renderer.shadowMap, last = this._shadowAt ??= tp.clone();
-      if (sm.needsUpdate || last.distanceToSquared(tp) > (this._sun.shadow.camera.right / 4) ** 2) { sm.needsUpdate = true; last.copy(tp); }
+      const e = this.engine, last = this._shadowAt ??= tp.clone();
+      if (shadowUpdatePending(e.renderer, e.scene) || last.distanceToSquared(tp) > (this._sun.shadow.camera.right / 4) ** 2) { setShadowUpdate(e.renderer, e.scene, { now: true }); last.copy(tp); }
     }
     this._snapKey = key;
     this._sun.position.copy(tp).addScaledVector(lightDir, this.orbit.distance);

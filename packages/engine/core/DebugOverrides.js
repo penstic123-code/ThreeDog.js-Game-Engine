@@ -8,8 +8,10 @@
 // here disposes a material it did not create (stand-ins are cached on the original, so the original is never touched).
 import { codedError } from './errorHints.js';
 import { DebugView } from './debugView.js';
+import { isWebGPU, webgpuPart } from '../render/backend.js';
 import { reloadGlsl } from '../render/hotGlsl.js';
 import { reloadAssets } from './assetHot.js';
+import { ownersOn, ownerValues } from './look/points.js';
 
 const KEYS = ['visible', 'material', 'apply'];
 const MATERIALS = ['flat', 'wire'];   // 'cost' (the shaderCost view) is internal: it needs patch.colorOf
@@ -93,14 +95,14 @@ export class DebugOverrides {
     const mine = this._l.filter(o => o.owner === owner && !o.view);
     if (mine.length) this._rebuild(() => { this._l = this._l.filter(o => !mine.includes(o)); });
     let looks = 0;
-    for (const p of Object.values(this.e.look ?? {})) if (p._owners.debug.has(owner)) { p._drop('debug', owner); looks++; }
+    for (const p of Object.values(this.e.look ?? {})) if (p._drop('debug', owner)) looks++;
     const view = this._view.releaseOwner(owner) ? 1 : 0;
     return mine.length + looks + view;
   }
   /** Active overrides as plain data (describe().scene.overrides) */
   overrides() {
     this._prune();
-    const looks = Object.values(this.e.look ?? {}).flatMap(p => [...p._owners.debug].map(([owner, r]) => ({ owner, target: p.id, ...Object.fromEntries(r.values) })));
+    const looks = Object.values(this.e.look ?? {}).flatMap(p => ownersOn(p, 'debug').map(owner => ({ owner, target: p.id, ...ownerValues(p, 'debug', owner) })));
     return [...this._l.filter(o => !o.view).map(o => ({ owner: o.owner, target: o.id, ...patchInfo(o.patch) })), ...looks];
   }
   /** A look part's debug layer (look/part.js): same validation as set(), describe().look tags the keys 'debug:<owner>' */
@@ -160,8 +162,13 @@ export class DebugOverrides {
     const cache = m.userData._dbg ??= {};
     if (cache[kind]) { if (colorOf) cache[kind].color.setHex(colorOf(m)); return cache[kind]; }
     // a plain material on purpose: a diagnostic stand-in must not depend on the style it is diagnosing (rule 1 allows dev-only debug overlays)
-    const s = new this.e.THREE.MeshBasicMaterial({ color: colorOf ? colorOf(m) : m.color ?? 0xffffff, map: colorOf ? null : m.map ?? null, alphaMap: m.alphaMap ?? null, vertexColors: !!m.vertexColors,
+    // on WebGPURenderer a MeshBasicNodeMaterial carrying the material's shape nodes (a NodeMaterial's own, or a patched material's tsl chain): a
+    // plain stand-in would drop positionNode / vertexNode, so swaying trees froze and TSL-displaced meshes changed shape in the very view meant to
+    // show them; colorNode is its base color (not for cost)
+    const Node = isWebGPU(this.e.renderer) ? webgpuPart('classes', 'debug.view').MeshBasicNodeMaterial : null;
+    const s = new (Node ?? this.e.THREE.MeshBasicMaterial)({ color: colorOf ? colorOf(m) : m.color ?? 0xffffff, map: colorOf ? null : m.map ?? null, alphaMap: m.alphaMap ?? null, vertexColors: !!m.vertexColors,
       transparent: !!m.transparent, opacity: m.opacity ?? 1, side: m.side, alphaTest: m.alphaTest ?? 0, wireframe: kind === 'wire', fog: false });
+    if (Node) { s.positionNode = m.positionNode ?? null; s.vertexNode = m.vertexNode ?? null; if (!colorOf) s.colorNode = m.colorNode ?? null; }
     s.name = `debug:${kind}:${m.name || ''}`; s.userData._dbgOf = m;
     return cache[kind] = s;
   }

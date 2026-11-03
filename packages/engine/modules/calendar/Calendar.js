@@ -11,7 +11,11 @@
 // calendar({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28 }), or each with its own length: [{ name: 'wet', days: 10 },
 // { name: 'dry', days: 20 }]; then season, seasonProgress (0-1), dayOfSeason and the season:change event.
 // A game's own calendar (a turn counter, a lunar calendar) replaces this module by meeting modules/calendar/contract.js.
-import { parseSeasons, seasonIndexOf, dayOfSeasonOf, seasonProgressOf, advance } from './seasons.js';
+// Time of day and day are views of the engine's 'calendar' time channel (engine.time.now('calendar') = engine.clock.now), not a second counter:
+// the calendar keeps an origin (the day and time of day at channel second t0) and reads the rest from the channel. Why: one time source
+// (core/time.js); a calendar that added its own dt drifted from clock timers, and skip had to advance both. Writing timeOfDay or day moves the
+// origin. day:start / season:change and the clock timers fire right after the channel moves (engine.time.onMove), on a step and on a skip alike.
+import { parseSeasons, seasonIndexOf, dayOfSeasonOf, seasonProgressOf } from './seasons.js';
 import { formatClock, parseClock } from '../../core/dayTime.js';
 import { Schedule } from './schedule.js';
 import { codedError } from '../../core/errorHints.js';
@@ -31,19 +35,13 @@ export class Calendar {
    */
   constructor(engine, { time = 0.33, dayLength = Infinity, day = 1, daysPerSeason = 7, seasons = [], hoursPerDay = 24 } = {}) {
     /** @internal */ this.engine = engine;
-    /**
-     * Time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Writing it later
-     * in the day counts as time passing (at timers crossed fire); writing it earlier only resets the timers' baseline @type {number}
-     */
-    this.timeOfDay = parseClock(time, hoursPerDay) % 1;
     if (!(dayLength > 0)) throw codedError('calendar-option', STRINGS.badDayLength.replace('{got}', String(dayLength)));
-    /**
-     * Game seconds per day (1 hour = dayLength / hoursPerDay game seconds; at clock.rate 1 calendar seconds equal real seconds); Infinity = the time of
-     * day never moves @type {number}
-     */
-    this.dayLength = dayLength;
-    /** Day number (1-based) @type {number} */
-    this.day = day;
+    // the origin: day _day0 at time of day _tod0 when the calendar channel read _t0 (kept apart, so a time just set reads back exactly)
+    /** @internal */ this._day0 = day;
+    /** @internal */ this._tod0 = parseClock(time, hoursPerDay) % 1;
+    /** @internal */ this._t0 = engine.clock.now;
+    /** @internal */ this._dayLength = dayLength;
+    /** @internal the day the last move saw (day:start fires when a move changes it) */ this._lastDay = day;
     /** Hours per day (clock notation 'HH:MM', schedules, at / between) @type {number} */
     this.hoursPerDay = hoursPerDay;
     /** Days per season for seasons given by name only @type {number} */
@@ -58,6 +56,28 @@ export class Calendar {
     /** @internal */ this._sched = new Schedule(this);
   }
 
+  /** @internal days since the origin, fractional (0 while dayLength is Infinity) */
+  _x() { return this._tod0 + (this.engine.clock.now - this._t0) / this._dayLength; }
+  /** @internal move the origin to `day` at `tod` now */
+  _origin(day, tod) { this._day0 = day; this._tod0 = tod; this._t0 = this.engine.clock.now; }
+  /**
+   * Time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Writing it later
+   * in the day counts as time passing (at timers crossed fire); writing it earlier only resets the timers' baseline @type {number}
+   */
+  get timeOfDay() { const x = this._x(); return x - Math.floor(x); }
+  set timeOfDay(v) { this._origin(this.day, v - Math.floor(v)); }   // not ((v % 1) + 1) % 1: that turns 0.3 into 0.30000000000000004
+  /** Day number (1-based); writing it fires no day:start @type {number} */
+  get day() { return this._day0 + Math.floor(this._x()); }
+  set day(v) { this._origin(v, this.timeOfDay); this._lastDay = v; }
+  /**
+   * Game seconds per day (1 hour = dayLength / hoursPerDay game seconds; at clock.rate 1 calendar seconds equal real seconds); Infinity = the time of
+   * day never moves. Changing it keeps the current time of day @type {number}
+   */
+  get dayLength() { return this._dayLength; }
+  set dayLength(v) {
+    if (!(v > 0)) throw codedError('calendar-option', STRINGS.badDayLength.replace('{got}', String(v)));
+    this._origin(this.day, this.timeOfDay); this._dayLength = v;
+  }
   /** Clock text, e.g. "18:00" */
   get clock() { return formatClock(this.timeOfDay, this.hoursPerDay); }
   /** Daylight from the clock 0-1 (0 from 18:00 to 06:00, 1 at noon; a sine over the day). Audio rules { daylight }, ambience and the sky's default sun read it */
@@ -73,15 +93,24 @@ export class Calendar {
   /** Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons */
   get seasonProgress() { return seasonProgressOf(this); }
   /** Total game time in days (fractional), for growth, cooldowns and the like */
-  get totalDays() { return this.day - 1 + this.timeOfDay; }
+  get totalDays() { return this._day0 - 1 + this._x(); }
 
   /**
-   * Advance time (called by the module every fixed step)
-   * @param {number} dt
+   * After the calendar channel moved (engine.time.onMove; the module registers it): a new day emits day:start (and season:change when the season
+   * turned), then the clock-time timers that were crossed fire
    * @returns {void}
    * @internal
    */
-  tick(dt) { advance(this, dt); }
+  moved() {
+    const d = this.day;
+    if (d !== this._lastDay) {
+      const forward = d > this._lastDay;
+      this._lastDay = d;
+      if (forward) this.engine.events.emit('day:start', d);
+      if (this.season !== this._season) { this._season = this.season; if (forward) this.engine.events.emit('season:change', this.season); }
+    }
+    this._sched.tick();
+  }
 
   // ---------- Clock-time / season timers (read the calendar's time of day; for "after N seconds" use engine.clock.after) ----------
   /**

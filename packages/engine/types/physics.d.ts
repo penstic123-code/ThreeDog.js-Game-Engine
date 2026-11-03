@@ -58,9 +58,9 @@ export interface Collision {
   /** What camera occlusion checks (see CollisionOptions.cameraOcclusion) */
   cameraOcclusion: 'colliders' | 'meshes' | 'both';
   /** Circle colliders added by hand */
-  circles: CircleCollider[];
+  circles: Set<CircleCollider>;
   /** Box colliders added by hand */
-  boxes: BoxCollider[];
+  boxes: Set<BoxCollider>;
   /** +1 each time a static collider is added or removed */
   version: number;
   /** Add a circle collider (pillar, campfire): position is the center, e.g. addCircle(mesh, { radius: 1 }). Returns a handle { remove() } */
@@ -77,6 +77,8 @@ export interface Collision {
   addObject(obj: Object3D, opts?: { pad?: number }): Handle;
   /** Iterate all static colliders added by hand */
   forEachStatic(fn: (type: 'box' | 'circle', data: any) => void): void;
+  /** Keep an outside copy of the static colliders in step (physics colliders, navmesh obstacles): add builds one piece, remove drops one; sync() diffs only when colliders changed and returns whether it compared; clear() forgets every piece without remove (the outside world was thrown away) */
+  mirror<P>(fns: { add(type: 'box' | 'circle', data: any): P; remove(piece: P, data: any): void }): { sync(): boolean; clear(): void; readonly size: number };
   /** Whether someone can stand at this position (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (meters, default engine.movement.radius) */
   walkable(position: PositionLike, opts?: { radius?: number }): boolean;
   /** walkable with plain numbers, allocating nothing (A* inner loops); radius defaults to engine.movement.radius */
@@ -177,7 +179,7 @@ export interface RigidBodies {
   R: any;
   /** Rapier world */
   world: any;
-  /** Add a box (crate). Returns null if not ready */
+  /** Add a box (crate). Physics is ready after engine.start() (or on engine:ready): called before, it throws in development, a release build warns once and returns null */
   addBox(mesh: Object3D, opts?: RigidBoxOptions): RigidEntry | null;
   /** Add a ball */
   addBall(mesh: Object3D, opts?: RigidBallOptions): RigidEntry | null;
@@ -198,7 +200,7 @@ export interface RigidBodies {
   vehicles: Vehicle[];
   /**
    * Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out
-   * first). Returns null if not ready. Boats, mounts and mechs are the game's own objects with the same seat interface
+   * first). Before physics is ready it throws in development (release: warns, null), like addBox. Boats, mounts and mechs are the game's own objects with the same seat interface
    */
   addWheeled(mesh: Object3D, opts: VehicleOptions): Vehicle | null;
   /** Statistics */
@@ -353,10 +355,10 @@ export declare class Animator {
   params: Record<string, number>;
   /** Set a parameter, e.g. set('speed', 3) */
   set(param: string, value: number): this;
-  /** Switch to a state (fade is the transition seconds); null (dev warning) if there is no such state / clip; ignored while sync() drives a state */
-  go(state: string, fade?: number): any;
+  /** Switch to a state ({ fade }: transition seconds); null (dev warning) if there is no such state / clip; ignored while sync() drives a state */
+  go(state: string, opts?: { fade?: number }): any;
   /** One-shot clip: state name or clip name, returns to then or the previous state when done; go() cannot interrupt it while playing */
-  action(name: string, fade?: number): any;
+  action(name: string, opts?: { fade?: number }): any;
   /**
    * Gameplay drives the clock: show state at gameplay time t (fixed-step seconds) through its timing.
    * The clip never advances or ends by itself and go() leaves it alone; sync(null) hands control back
@@ -605,8 +607,8 @@ export interface FixedCamera extends CameraRigBase {
   add(name: string, shot: CameraShot): this;
   /** Cut to a shot immediately */
   cut(name: string): void;
-  /** Transition smoothly to a shot (over seconds seconds); the Promise resolves when done */
-  blend(name: string, seconds?: number, ease?: Ease): Promise<void>;
+  /** Transition smoothly to a shot ({ seconds = 1, ease }); the Promise resolves when done */
+  blend(name: string, opts?: { seconds?: number; ease?: Ease }): Promise<void>;
   /** Name of the shot nearest to a point */
   nearest(p: Vector3): string | null;
 }
@@ -631,8 +633,8 @@ export interface RtsCameraOptions {
   edgeSize?: number;
   /** Focus range (meters) */
   bounds?: { minX?: number; maxX?: number; minZ?: number; maxZ?: number } | null;
-  /** Rotate keys, false turns rotation off */
-  rotateKeys?: { left?: string[]; right?: string[] } | false;
+  /** false: no turning. Default true: declares the actions rotateLeft / rotateRight (no keys; presets.bindings.rtsRotate binds Q / R) */
+  rotate?: boolean;
   /** Rotation speed (radians/second) */
   rotateSpeed?: number;
   /** Zoom ratio per wheel notch */
@@ -647,7 +649,7 @@ export interface RtsCameraOptions {
   start?: PositionLike | null;
 }
 /** Strategy top-down camera */
-export interface RtsCamera extends CameraRigBase, Required<Omit<RtsCameraOptions, 'rotateKeys' | 'fov' | 'start'>> {
+export interface RtsCamera extends CameraRigBase, Required<Omit<RtsCameraOptions, 'rotate' | 'fov' | 'start'>> {
   /** Is it following target */
   following: boolean;
   /** Focus (on the ground) */

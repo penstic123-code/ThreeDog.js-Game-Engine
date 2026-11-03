@@ -68,8 +68,8 @@ import { coded } from '../../core/errorHints.js';
 import { reportError } from '../../core/errors.js';
 
 const STRINGS = {
-  'zh-CN': { 'level.loadFailed': '关卡加载失败：{url}', 'level.noScene': '关卡模块需要 url 或 scene 参数' },
-  en: { 'level.loadFailed': 'Failed to load level: {url}', 'level.noScene': 'The level module needs a url or scene option' },
+  'zh-CN': { 'module.level': '关卡', 'level.loadFailed': '关卡加载失败：{url}', 'level.noScene': '关卡模块需要 url 或 scene 参数' },
+  en: { 'module.level': 'level', 'level.loadFailed': 'Failed to load level: {url}', 'level.noScene': 'The level module needs a url or scene option' },
 };
 
 const WALK_RE = /ground|floor|road|terrain|stairs?|ramp/i;
@@ -117,20 +117,28 @@ export function level(opts = {}) {
       walkMeshes.length = 0; hf = null; trimeshCache = null; api.markers = {}; api.root = null; current = null; version++;
     },
     /** Switch level: unload the current one, load a new one (glTF path/asset name, or THREE object), emit level:loaded when done */
-    async load(urlOrScene) {
-      api.unload(); done = false;
-      e.commits.invalidate();   // background results requested for the old level must not land on the new one
-      // world-data zone = level name: other levels' NPCs etc. only lose models, data stays and is rebuilt on return (code-built scenes have no name, record
-      // null, no zoning)
-      if (e.world) e.world.zone = typeof urlOrScene === 'string' ? urlOrScene : null;
-      if (typeof urlOrScene === 'string') {
-        current = urlOrScene;
-        try { process(await e.assets.model(urlOrScene)); }
-        catch (err) { reportError(e, err, `level.load('${urlOrScene}')`, { soft: true }); toast(e, e.t('level.loadFailed', { url: urlOrScene }), { kind: 'error' }); }
-      } else process(urlOrScene);
-      loaded();
-    },
+    async load(urlOrScene) { return loadLevel(urlOrScene, false); },
   };
+
+  /** hard: the first load from init() (the module is critical, so a missing level file must stop start() instead of opening an empty world);
+   *  a switch while playing or a save load stays soft (reported + toast) so the running game is not torn down by one bad path */
+  async function loadLevel(urlOrScene, hard) {
+    api.unload(); done = false;
+    e.commits.invalidate();   // background results requested for the old level must not land on the new one
+    // world-data zone = level name: other levels' NPCs etc. only lose models, data stays and is rebuilt on return (code-built scenes have no name, record
+    // null, no zoning)
+    if (e.world) e.world.zone = typeof urlOrScene === 'string' ? urlOrScene : null;
+    if (typeof urlOrScene === 'string') {
+      current = urlOrScene;   // set before process(): level nodes read it as their zone
+      try { process(await e.assets.model(urlOrScene)); }
+      catch (err) {
+        current = null;   // the save must not name a level that never loaded
+        if (hard) throw err;
+        reportError(e, err, `level.load('${urlOrScene}')`, { soft: true }); toast(e, e.t('level.loadFailed', { url: urlOrScene }), { kind: 'error' });
+      }
+    } else process(urlOrScene);
+    loaded();
+  }
 
   function loaded() {
     addColliders();                    // if the collision module is installed after level, add colliders here
@@ -203,7 +211,7 @@ export function level(opts = {}) {
   }
 
   return {
-    name: 'level', params: LEVEL_PARAMS, options: opts, label: 'Level', stage: 'world', after: ['terrain'], optional: ['world', 'content'],
+    name: 'level', type: 'world', provides: ['level'], params: LEVEL_PARAMS, options: opts, label: 'Level', stage: 'ground', after: ['terrain'], optional: ['world', 'content'],
     install(engine) {
       e = engine;
       nodeSet = levelNodes(e, () => api.root, () => current);
@@ -227,7 +235,7 @@ export function level(opts = {}) {
     critical: true,   // the level file is the game's world: a failed load stops start() with the reason
     async init(engine) {
       if (scene) return loaded();
-      if (url) return api.load(url);
+      if (url) return loadLevel(url, true);
       warnOnce(coded('level-node', engine.t('level.noScene')));
       loaded();
     },

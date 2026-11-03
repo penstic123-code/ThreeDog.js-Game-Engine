@@ -1,5 +1,5 @@
 ﻿// engine.catalog() (core/catalog.js), params schemas (core/params.js) and the bridge `threedog catalog` (tools/threedog/catalog.mjs).
-// Same format as specs.mjs; appended at the end of specs.mjs.
+// Same format as the other files here.
 export const specs = [
   {
     name: 'catalog: modules, ownership of ops / saves / describe, params, time model, op detail, find',
@@ -9,7 +9,7 @@ export const specs = [
         const PARAMS = { power: { type: 'number', default: 2, min: 0, desc: 'push strength' }, mode: { type: 'string', default: 'soft', values: ['soft', 'hard'] } };
         let seen = null;
         const mod = {
-          name: 'catTest', label: 'Catalog test', stage: 'gameplay', optional: { sky: 'no dusk bonus' }, params: PARAMS, options: { power: 3 },
+          name: 'catTest', type: 'rules', label: 'Catalog test', stage: 'gameplay', optional: { sky: 'no dusk bonus' }, params: PARAMS, options: { power: 3 },
           install(e) {
             e.ops.define('catTest.poke', { desc: 'poke it', args: { n: { type: 'int', default: 1, min: 1, max: 5 }, who: 'string?' },
               can: (e2, a) => a.n < 5 ? true : 'tooMany', run: (e2, a) => { seen = a.n; return a.n; }, reasons: { tooMany: 'At most 4' } });
@@ -57,7 +57,7 @@ export const specs = [
       check('Op detail: owner, reasons, last attempt', r.op.kind === 'op' && r.op.owner === 'catTest' && r.op.reasons.tooMany === 'At most 4' && r.op.last?.ok === false, JSON.stringify(r.op));
       check('Live view: a removed op leaves the catalog', r.withTemp.includes('catTest.temp') && !r.without.includes('catTest.temp'), JSON.stringify([r.withTemp, r.without]));
       check('No bypass: every op and save part is in exactly one catalog entry', r.opsOk && r.savesOk);
-      check('Core entry has engine-owned ops and saves; find filters; unknown id is null', r.coreOps.includes('time.skip') && r.coreSaves.includes('clock')
+      check('Core entry has engine-owned ops and saves; find filters; unknown id is null', r.coreOps.includes('time.skip') && r.coreSaves.includes('time')
         && r.found.join() === 'catTest' && r.unknown === null, JSON.stringify([r.coreOps, r.coreSaves, r.found]));
     },
   },

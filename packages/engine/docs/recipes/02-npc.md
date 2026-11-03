@@ -150,6 +150,9 @@ For a one-off (guard, pet, follower) that `schedule` / `wander` do not cover: `n
 `character.walkTo(target, { speed, arrive, turnRate, run })` follows `characters.findPath` on fixed steps (turns at `turnRate` rad/s, skips passed
 points, re-plans when it makes no progress for `stuckSeconds`, up to `maxRepaths`). It returns a promise of `{ status }`: `'arrived'` | `'noPath'` |
 `'stuck'` | `'cancelled'` (never rejects), with `remove()` to cancel.
+A walk holds the character's control on layer `script` ([57-control](57-control.md)): an NPC's behaviour waits meanwhile, a cutscene pauses the
+walk, and an escort quest that wants the same NPC takes control itself (`engine.control.take(npc, { owner: 'escort', step })`) instead of
+editing its record.
 
 ```js
 const guard = new Character(engine, { rig: { root: myGuardMesh } }).addTo();

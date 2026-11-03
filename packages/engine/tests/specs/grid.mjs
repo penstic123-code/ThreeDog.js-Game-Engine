@@ -1,4 +1,4 @@
-// grids() module: placement grids, occupancy derived from world records, per-cell layers, tiles, preview. Same format as specs.mjs.
+// grids() module: placement grids, occupancy derived from world records, per-cell layers, tiles, preview. Same format as the other files here.
 // Runs on the level test page: flat floor at y = 0 for x < 2, a ramp x 2 -> 8 rising 0 -> 2 m, no terrain module.
 const URL = '/tests/level/index.html';
 // shared page setup: install grids, a 8x8 farm on the flat floor and a few items
@@ -112,25 +112,27 @@ export const specs = [
         // preview on the farm, target from a function (cell [3, 3])
         engine.style.grid = { ok: 0x00ff00, bad: 0xff0000 };   // this page has no style: give the preview its two colors
         const farm = G.get('farm'), st = engine.style.grid;
-        const pv = G.preview({ grid: 'farm', item: 'bed', rotateKeys: ['KeyR'], from: () => ({ x: -6.5, z: -6.5 }) });
+        engine.input.bind({ rotate: ['KeyR'] });   // the game binds the key (what presets.bindings.gridRotate holds)
+        const pv = G.preview({ grid: 'farm', item: 'bed', from: () => ({ x: -6.5, z: -6.5 }) });
         engine.step(1 / 30, { render: false });
         const box = engine.scene.getObjectByName('grid:preview'), okColor = box.material.color.getHex(), first = { cell: pv.cell, ok: pv.ok };
         engine.input.simulate('rotate'); engine.step(1 / 30, { render: false }); engine.input.simulate('rotate', false);
         const turned = pv.rotation, size = [box.scale.x, box.scale.z].map(v => Math.round(v * 100) / 100);
         const placed = pv.place();
         engine.step(1 / 30, { render: false });
-        const after = { ok: pv.ok, code: pv.code, noReason: (o => { if (Object.keys(o).includes('reason')) return false; try { return o.reason === undefined; } catch (x) { return x.code === 'renamed-field'; } })(pv), color: box.material.color.getHex() };
+        const after = { ok: pv.ok, code: pv.code, noReason: !('reason' in pv), color: box.material.color.getHex() };
         pv.remove();
         // the engine binds no key itself: a preview whose rotate action is unbound leaves it unbound (and only warns)
         const pv2 = G.preview({ grid: 'farm', item: 'bed', rotate: 'unboundRot', from: () => null }); engine.step(1 / 30, { render: false });
-        const unbound = !engine.input.actions.has('unboundRot'); pv2.remove();
+        const unbound = engine.input.actions.has('unboundRot') && !engine.input.keysOf('unboundRot').length; pv2.remove();
+        const declGone = !engine.input.actions.has('unboundRot');
         engine._resume();
-        return { unbound, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
+        return { unbound, declGone, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
       }, setup.toString());
       check('[guard] tiles: one quad per cell, every corner on engine.surface + lift (a level ramp, no terrain module)', r.tiles === 6 && r.worst < 1e-3 && r.ys[1] > r.ys[0] + 1, JSON.stringify(r));
       check('preview: target cell from the function, green from style.grid.ok', JSON.stringify(r.first) === '{"cell":[3,3],"ok":true}' && r.okColor === r.st.ok, JSON.stringify(r));
       check('preview: the rotate action turns it (2x1 box becomes 1x2), place() runs grid.place with the shown rotation', r.turned === 1 && r.size[0] < r.size[1] && r.placed.ok && r.at === r.placed.value, JSON.stringify(r));
-      check('[guard] preview binds no rotate key by itself (needs rotateKeys or your own binding)', r.unbound, JSON.stringify(r));
+      check('[guard] preview declares its rotate action but binds no key; remove() takes the declaration away', r.unbound && r.declGone, JSON.stringify(r));
       check('preview turns red (style.grid.bad) on the now occupied cell; stop() removes it', !r.after.ok && r.after.code === 'occupied' && r.after.noReason && r.after.color === r.st.bad && r.gone, JSON.stringify(r.after));
     },
   },

@@ -1,4 +1,4 @@
-// engine.batching (core/Batching.js): repeated static props drawn as one InstancedMesh per cell. Same style as specs.mjs; appended at the end.
+// engine.batching (core/Batching.js): repeated static props drawn as one InstancedMesh per cell. Same style as the other files here.
 // Uses the open-world example: 24 'rock' props placed in one 64 m cell next to the player (ids bt-<i>), plus 10 with batch: false.
 
 /** Load the test props and wait until their models are built (prop models are async) */

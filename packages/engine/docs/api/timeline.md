@@ -2,11 +2,10 @@
 
 Cutscenes, tweens (timeline() module)
 
-- Options `TimelineOptions`:
-  - `skipKeys?: string[]` Keys that skip a cutscene, default ['Escape', 'Backspace'] (Esc is the back key, which the UI focus stack hands to the topmost cutscene; cutscenes do not advance while frozen)
+- Options `TimelineOptions`
 
 ## Methods and properties
-- `timeline.tween(target: any, to: TweenTo, duration?: number, ease?: Ease) → TweenPromise` — General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, 1, 'outCubic'); duration in seconds. Returns a Promise (with finish()/cancel())
+- `timeline.tween(target: any, to: TweenTo, opts?: { duration?: number; ease?: Ease }) → TweenPromise` — General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, { duration: 1, ease: 'outCubic' }); duration in seconds (default 1), ease default 'inOutCubic'; tween(mesh, to, 1) throws in dev. Returns a Promise (with finish() / remove())
 - `timeline.play(steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions) → Promise<{ skipped: boolean }>` — Play a timeline; resolves with { skipped } when it ends
 - `timeline.skip(run?: any)` — Skip all (or one) playing timelines
 - Properties:
@@ -32,7 +31,7 @@ Cutscenes, tweens (timeline() module)
 - **TimelinePlayOptions**
   - `skippable?: boolean` Can be skipped, default true
   - `letterbox?: boolean` Letterbox bars, default false
-  - `lockInput?: boolean` Lock player input while playing, default true
+  - `actors?: any[]` The characters the cutscene drives (their control slot on layer 'cutscene'; keys / walks / NPC behaviours pause and come back after). Default: [engine.player] when there is a player; [] drives nobody (a bubble scene the player walks through). A path step adds its character
 - **CameraPose** One end point of a camera move
   - `position?: Vec3Like` Camera position
   - `lookAt?: Vec3Like | Object3D` The point to look at, or a moving object

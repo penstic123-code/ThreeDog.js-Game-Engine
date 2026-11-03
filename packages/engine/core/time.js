@@ -1,79 +1,109 @@
-// Time channels, engine.time: separate speeds for separate groups of things, changed only through engine.mod (core/stacks.js).
+// engine.time: the one time source. Every other time in the engine is a read-only view of what this module counts.
+//   engine.time.tick                  fixed steps run (the gameplay timeline: commits, op history, input records); stops while frozen
+//   engine.time.now('real')           tick / 60 (+ the part of a skip shorter than one step): no scale, stops while frozen. Cooldowns that ignore bullet time
+//   engine.time.now('ambient')        wind, water, clouds (= uniforms.uTime): moves while frozen too, unless a freezer asked freeze(owner, { ambient: true })
+//   engine.time.now('world' | 'player' | 'enemies' ...)   channel seconds: each step adds 1/60 x the channel's speed. Movement, AI, status effects
+//   engine.time.now('calendar')       calendar seconds = world seconds x the calendar rate (stack 'clock.rate'); engine.clock.now is the same number
+// Channel speeds change only through engine.mod (core/stacks.js):
 //   engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });          // bullet time: enemies at 35% for 2 real seconds
-//   engine.mod('time.player', { owner: 'haste', mul: 1.2, for: 5 });                  // haste on the player
-//   engine.mod('time.local', { owner: 'stopwatch', id: 'e1', set: 0, priority: 'effect' });   // stop one record only
+//   engine.mod('time.local', { owner: 'stopwatch', id: 'e1', set: 0, layer: 'effect' });      // stop one record only
 //   engine.onFixed(dt => moveEnemies(dt), { channel: 'enemies' });                     // this dt is already scaled
-// Three rulers, and only these three words in docs:
-//   real seconds   engine.time.real (= engine.elapsed): fixed seconds, no scale; stop while frozen. UI, cooldowns that ignore bullet time.
-//   channel secs   engine.time.now(ch) / engine.time.dt(ch, id?): each fixed step adds STEP x the effective scale = parent x the channel's
-//                  stack ('time.<ch>') x the record's own stack ('time.local', by id). Movement, AI, projectiles, status effects.
-//   calendar secs  engine.clock.now: world-channel seconds x the calendar rate (stack 'clock.rate'). Sky, schedules, crops.
-// Why channels and not one global scale: the old global scale only moved the calendar, so bullet time was hand-written dt * 0.35 in every system,
-// and two effects that each saved / restored it broke each other. A channel's speed is a stack: every effect is an entry, ending one recomputes.
-// Freeze is not "scale 0": a frozen engine runs no fixed step at all (loop.js), so no channel and no `for` timer moves; describe shows both apart.
-// A plain onFixed without { channel } gets real seconds (always 1 / 60): the stated default, so cooldowns and UI are never slowed by accident.
-// Built in: world (the root) and player (parent world). Physics (rapier) has one world step and follows nothing here.
+// Timers: one queue for every channel, written as engine.clock.after(s, fnOrEvent, data, { channel }) / clock.every (default channel 'calendar').
+//
+// Why one source: separate counters for real seconds, shader time, channels and the calendar, each added to and zeroed in its own place, drift
+// apart (a skip that moves some, a new game that zeroes some; review 0.4, B). So only this file adds to any of them, and three entry points move them together: a fixed step (_beginStep / _endStep), engine.skip
+// (_skip), and a new playthrough (_restart). A spec greps core/ and modules/ so no second counter comes back.
+// Freeze is not "scale 0": a frozen engine runs no fixed step at all (loop.js), so tick, real, channels and timers stay put; only ambient moves.
+// A plain onFixed without { channel } gets real seconds (always 1 / 60), so cooldowns and UI are never slowed by accident.
+// Built in: world (the root), player (parent world), calendar (parent world, speed 'clock.rate'). Physics (rapier) has one world step and follows nothing here.
 import { codedError } from './errorHints.js';
 import { reportError } from './errors.js';
 import { saveValues } from './saveValues.js';
 
 export const STEP = 1 / 60;
-const STRINGS = { where: 'time channel timer' };
+const STRINGS = { where: 'clock timer', onMove: 'time.onMove listener' };
+const EPS = 1e-9;   // float sums of STEP x scale land a hair short of a whole second: due within 1e-9 counts as due
 
 export class Time {
   constructor(engine) {
     this.engine = engine;
-    /** @internal fixed seconds since start (not saved, like engine.elapsed): the 'real' clock of mod({ for }) */ this._real = 0;
-    /** @type {Map<string, { name: string, parent: string | null, now: number, timers: any[], manual: ((id?: string) => number) | null }>} */
+    /** @internal whole fixed steps (public: tick) */ this._tick = 0;
+    /** @internal real seconds a skip moved past the last whole step (< STEP): kept so real stays exact after a skip */ this._carry = 0;
+    /** @internal ambient seconds (public: now('ambient'), uniforms.uTime) */ this._amb = 0;
+    /** @type {Map<string, { name: string, parent: string | null, now: number, stack: string }>} */
     this._ch = new Map();
-    /** @internal saved now / event timers of channels the game has not defined yet (a load before channel()): applied when it does */ this._pending = {};
+    /** @internal listeners of onMove */ this._onMove = [];
+    /** @internal the one timer queue: { ch, due, fn?, event?, data?, every?, dead? } (due is in that channel's seconds) */ this._timers = [];
+    /** @internal saved now of channels the game has not defined yet (a load before channel()): applied when it does */ this._pending = {};
     this._local = engine.stacks.define('time.local', { per: true, min: 0 });
-    engine.stacks._nowOf = clock => clock === 'real' ? this._real : this.now(clock);
+    engine.stacks._nowOf = name => this.now(name);
     this.channel('world', { parent: null });
     this.channel('player');
+    this.channel('calendar', { stack: 'clock.rate' });
     engine.saves.register('time', {
+      version: 2,
+      // v1 kept the calendar in its own 'clock' part ({ now, timers }); v2 has it as the 'calendar' channel of this part
+      migrate: { 1: (d, save) => {
+        const c = save?.parts?.clock ?? {};
+        return { channels: { ...(d?.channels ?? {}), calendar: c.now ?? 0 },
+          timers: [...(d?.timers ?? []), ...(Array.isArray(c.timers) ? c.timers : []).map(t => ({ ...t, channel: 'calendar' }))] };
+      } },
       save: () => ({ channels: Object.fromEntries([...this._ch.values()].map(c => [c.name, c.now])),
-        timers: [...this._ch.values()].flatMap(c => c.timers.filter(t => t.event).map(({ due, event, data }) => ({ channel: c.name, due, event, data }))) }),
-      load: d => {
-        // saved seconds pass saveValues first: a negative / non-finite channel time ran its timers backwards (durability audit); clamped to >= 0, one warning
-        const v = saveValues('time'), chans = {};
-        for (const [name, now] of Object.entries(d?.channels ?? {})) chans[name] = v.num(now, `channels.${name}`, { min: 0, fallback: 0 });
-        const timers = (Array.isArray(d?.timers) ? d.timers : []).filter(t => { if (Number.isFinite(t?.due) && typeof t.event === 'string') return true; v.drop('timers[]', t); return false; });
-        v.done();
-        d = { channels: chans, timers };
-        // in the save but not yet defined by the game (channel('enemies') only after load): note it down, fill in when channel() defines it, same as stacks' _pending; otherwise its now and event timing are lost
-        this._pending = {};
-        for (const [name, now] of Object.entries(d?.channels ?? {})) if (!this._ch.has(name))
-          this._pending[name] = { now, timers: (d?.timers ?? []).filter(t => t.channel === name).map(({ due, event, data }) => ({ due, event, data })) };
-        for (const c of this._ch.values()) {
-          const now = d?.channels?.[c.name] ?? 0, delta = now - c.now;
-          c.now = now; engine.stacks._rebase(c.name, delta);
-          const fn = c.timers.filter(t => !t.event); for (const t of fn) t.due += delta;   // function timers (not saveable) keep their time left
-          c.timers = fn.concat((d?.timers ?? []).filter(t => t.channel === c.name).map(({ due, event, data }) => ({ due, event, data })));
-        }
-      },
+        timers: this._timers.filter(t => t.event && !t.dead).map(({ ch, due, event, data }) => ({ channel: ch, due, event, data })) }),
+      load: d => this._load(d),
     });
+  }
+  /** @internal the save part: channel seconds and event timers come from the save; function timers (not saveable) keep their time left */
+  _load(d) {
+    // saved seconds pass saveValues first: a negative / non-finite channel time ran its timers backwards (durability audit); clamped to >= 0, one warning
+    const v = saveValues('time'), chans = {};
+    for (const [name, now] of Object.entries(d?.channels ?? {})) chans[name] = v.num(now, `channels.${name}`, { min: 0, fallback: 0 });
+    const timers = (Array.isArray(d?.timers) ? d.timers : []).filter(t => {
+      if (Number.isFinite(t?.due) && typeof t.event === 'string' && typeof t.channel === 'string') return true;
+      v.drop('timers[]', t); return false;
+    });
+    v.done();
+    // in the save but not yet defined by the game (channel('enemies') only after load): note it down, fill in when channel() defines it
+    this._pending = {};
+    for (const [name, now] of Object.entries(chans)) if (!this._ch.has(name)) this._pending[name] = now;
+    const delta = {};
+    for (const c of this._ch.values()) { const now = chans[c.name] ?? 0; delta[c.name] = now - c.now; c.now = now; this.engine.stacks._rebase(c.name, delta[c.name]); }
+    const fn = this._timers.filter(t => !t.event && !t.dead);
+    for (const t of fn) t.due += delta[t.ch] ?? 0;
+    this._timers = fn.concat(timers.map(({ channel, due, event, data }) => ({ ch: channel, due, event, data })));
   }
   /**
    * Define a channel (its speed stack is 'time.<name>'). parent: the channel whose speed it multiplies (default 'world').
-   * @param {string} name @param {{ parent?: string | null }} [o]
+   * @param {string} name @param {{ parent?: string | null, stack?: string }} [o]
    * @example engine.time.channel('enemies');  engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });
    */
-  channel(name, { parent = 'world' } = {}) {
+  channel(name, { parent = 'world', stack = 'time.' + name } = {}) {
     if (this._ch.has(name)) return this;
+    if (name === 'real' || name === 'ambient') throw codedError('unknown-name', `engine.time.channel('${name}'): '${name}' is a built-in view of the time source, pick another name`);
     if (parent != null && !this._ch.has(parent)) throw codedError('unknown-name', `engine.time.channel('${name}', { parent: '${parent}' }): no channel '${parent}'. Channels: ${this.channels().join(', ')}`);
     const saved = this._pending[name]; delete this._pending[name];
     // put now in place before defining the speed stack: entries in the stack saved against this channel's clock restore the remaining time from its now
-    this._ch.set(name, { name, parent, now: saved?.now ?? 0, timers: saved?.timers ?? [], manual: null });
-    this.engine.stacks.define('time.' + name, { min: 0 });
+    this._ch.set(name, { name, parent, now: saved ?? 0, stack });
+    this.engine.stacks.define(stack, { min: 0 });
     return this;
+  }
+  /**
+   * Call fn() right after the channels moved (each fixed step, each engine.skip segment; not while frozen), before timed mods end and timers fire.
+   * For views derived from a channel: the calendar's day and time of day are read from the 'calendar' channel, and its day:start fires here.
+   * @param {() => void} fn
+   * @returns {{ remove(): void }}
+   * @example ctx.track(engine.time.onMove(() => { if (engine.clock.now > nextTide) tide.turn(); }))
+   */
+  onMove(fn) {
+    this._onMove.push(fn);
+    return { remove: () => { const i = this._onMove.indexOf(fn); if (i >= 0) this._onMove.splice(i, 1); } };
   }
   /** Channel names */
   channels() { return [...this._ch.keys()]; }
   /** @internal */
   _get(name) {
     const c = this._ch.get(name);
-    if (!c) throw codedError('unknown-name', `engine.time: no channel '${name}'. Channels: ${this.channels().join(', ')}; add one with engine.time.channel('${name}')`);
+    if (!c) throw codedError('unknown-name', `engine.time: no channel '${name}'. Channels: real, ambient, ${this.channels().join(', ')}; add one with engine.time.channel('${name}')`);
     return c;
   }
   /**
@@ -81,91 +111,126 @@ export class Time {
    * @param {string} name @param {string} [id]
    */
   scale(name, id) {
+    if (name === 'real' || name === 'ambient') return 1;
     const c = this._get(name);
-    let s = c.manual ? c.manual(id) : (c.parent ? this.scale(c.parent) : 1) * this.engine.stacks.get('time.' + name).value();
+    let s = (c.parent ? this.scale(c.parent) : 1) * this.engine.stacks.get(c.stack).value();
     if (id != null) s *= this._local.value(id);
     return s;
   }
-  /** Fixed seconds since start: no scale, stops while frozen (= engine.elapsed) */
-  get real() { return this._real; }
-  /** Seconds lived by a channel @param {string} name */
-  now(name) { return this._get(name).now; }
+  /** Fixed steps run since the start of this playthrough (the one counter; read-only) */
+  get tick() { return this._tick; }
+  /** Seconds on a view: 'real', 'ambient', 'calendar' or a channel @param {string} name */
+  now(name) {
+    if (name === 'real') return this._tick * STEP + this._carry;
+    if (name === 'ambient') return this._amb;
+    return this._get(name).now;
+  }
   /** This fixed step's dt on a channel (STEP x scale), for a record when id is given @param {string} name @param {string} [id] */
   dt(name, id) { return STEP * this.scale(name, id); }
+
+  // ---------- the one timer queue (public form: engine.clock.after / every) ----------
   /**
-   * Manual level: the engine stops computing this channel's speed from its stack; fn(id?) returns the speed (the game owns it) until the handle is removed.
-   * Why a handle: giving back has only handle.remove(), like elsewhere (the old manual(name, null) was a second form, removed); when a later caller takes over, an earlier handle's remove() does not hand back by mistake.
-   * @param {string} name @param {(id?: string) => number} fn @param {{ owner?: string }} [opts]
-   * @returns {{ owner?: string, remove(): void }}
+   * @internal Add a timer on a view ('real', a channel, 'calendar'). Returns { remove() }.
+   * Why remove() marks the timer dead as well as dropping it: the step that fires timers takes its due list first, so a timer removed by an
+   * earlier callback in that same list used to fire anyway (review 0.4, B). A dead timer never fires, whatever list it is in.
    */
-  manual(name, fn, { owner } = {}) {
-    const c = this._get(name);
-    if (typeof fn !== 'function') throw codedError('engine-misuse', `engine.time.manual('${name}', fn): fn must be a function (id?) => speed, got ${typeof fn}; hand the channel back with the handle's remove()`);
-    c.manual = fn;
-    return { owner, remove: () => { if (c.manual === fn) c.manual = null; } };
+  _add(ch, seconds, fnOrEvent, data, every = 0) {
+    if (ch !== 'real') this._get(ch);
+    const t = typeof fnOrEvent === 'string' ? { ch, due: this.now(ch) + seconds, event: fnOrEvent, data, every, dead: false }
+      : { ch, due: this.now(ch) + seconds, fn: fnOrEvent, every, dead: false };
+    this._timers.push(t);
+    return { remove: () => { t.dead = true; this._timers = this._timers.filter(x => x !== t); } };
+  }
+  /** Timers in the queue (engine.counts) */
+  get size() { return this._timers.length; }
+  /** @internal timers fire per view in this order: real, the channels as defined, the calendar last (calendar timers see this step's channel results) */
+  _fireOrder() { const names = this.channels().filter(n => n !== 'calendar'); return ['real', ...names, 'calendar']; }
+  /** @internal */
+  _runTimers() {
+    if (!this._timers.length) return;
+    for (const ch of this._fireOrder()) {
+      const at = this.now(ch) + EPS;
+      const due = this._timers.filter(t => t.ch === ch && t.due <= at).sort((a, b) => a.due - b.due);
+      if (!due.length) continue;
+      this._timers = this._timers.filter(t => !(t.ch === ch && t.due <= at) || t.every);
+      for (const t of due) {
+        if (t.every) { while (!t.dead && t.due <= at) { t.due += t.every; this._call(t); } continue; }
+        if (!t.dead) { t.dead = true; this._call(t); }
+      }
+    }
+  }
+  /** @internal a callback that throws is a gameplay error; the other timers still run */
+  _call(t) {
+    if (t.event) { this.engine.events.emit(t.event, t.data); return; }
+    try { t.fn(); } catch (err) { reportError(this.engine, err, STRINGS.where); }
+  }
+  /** @internal engine.session: the function timers now, each with its time left (what a new playthrough starts with) @returns {{ t: any, rem: number }[]} */
+  _snapshotFn() { return this._timers.filter(t => !t.event && !t.dead).map(t => ({ t, rem: t.due - this.now(t.ch) })); }
+  /** @internal engine.session: keep the event timers (they came with the save), put back exactly the snapshotted function timers with their original delay */
+  _restoreFn(list) { this._timers = this._timers.filter(t => t.event).concat(list.map(({ t, rem }) => Object.assign(t, { due: this.now(t.ch) + rem, dead: false }))); }
+
+  // ---------- the three ways time moves ----------
+  /** @internal loop.js, at the start of a fixed step: count it, so this step's commits, ops and input records carry the new tick */
+  _beginStep() { this._tick++; }
+  /** @internal loop.js, after the step's gameplay: everything else moves by one step (real already moved with the tick) */
+  _endStep() { this._move(STEP, null); }
+  /** @internal loop.js, a frozen step: only ambient moves (and not even that while a freezer holds ambient) */
+  _frozenStep(ambient) { if (ambient) this._setAmbient(this._amb + STEP); }
+  /**
+   * @internal engine.skip, one segment: `fixed` fixed seconds as if stepped (tick and real too, so skip and stepping agree on every view);
+   * calendar = the calendar seconds of the segment when skip measured it itself (exact segment ends; a stopped calendar skips as if at 1x).
+   */
+  _skip(fixed, calendar) {
+    const c = this._carry + fixed, n = Math.floor(c / STEP + EPS);
+    this._tick += n; this._carry = Math.max(0, c - n * STEP);
+    this._move(fixed, calendar);
   }
   /**
-   * @internal The public timer is engine.clock.after(s, fnOrEvent, data, { channel }) (one timer entry): it calls this.
-   * Call fn (or emit event with data, which saves) after seconds on a channel: a poison tick on 'enemies' slows down in bullet time. Returns { remove() }.
+   * @internal engine.session (new game / load / quit): tick, real and ambient start from 0 like a fresh page (channels and the calendar come
+   * from the save part). Returns undo(): a refused or rolled-back load puts them back, else 'real' mods and shader time restart mid-play.
    */
-  after(name, seconds, fnOrEvent, data) {
-    const c = this._get(name);
-    if (!Number.isFinite(seconds)) throw codedError('clock-interval', `clock.after(seconds, ..., { channel: '${name}' }): seconds must be a finite number of channel seconds, got ${seconds}`);
-    const t = typeof fnOrEvent === 'string' ? { due: c.now + seconds, event: fnOrEvent, data } : { due: c.now + seconds, fn: fnOrEvent };
-    c.timers.push(t);
-    return { remove: () => { c.timers = c.timers.filter(x => x !== t); } };
-  }
-  /** Timers on every channel (engine.counts) */
-  get size() { let n = 0; for (const c of this._ch.values()) n += c.timers.length; return n; }
-  /**
-   * @internal Advance every clock by `fixed` fixed seconds (the loop: one STEP after the step's gameplay; engine.skip: one segment).
-   * Speeds are read once before anything moves, so every channel advances with the scales this step's gameplay saw; then timed mods end
-   * (earliest first, mod:end each), then channel timers fire, then the calendar (engine.clock) advances with the world speed of this step.
-   */
-  _advance(fixed, calendar) {
-    const scales = [...this._ch.values()].map(c => [c, this.scale(c.name)]);
-    const world = this.scale('world');
-    this._real += fixed;
-    for (const [c, s] of scales) c.now += fixed * s;
-    this.engine.stacks._expire();
-    for (const [c] of scales) this._runTimers(c);
-    // engine.skip passes the calendar span itself (exact segment ends; a stopped calendar skips as if at 1x)
-    this.engine.clock._advance(calendar ?? fixed * world * this.engine.clock.rate);
+  _restart() {
+    const was = [this._tick, this._carry, this._amb];
+    this._tick = 0; this._carry = 0; this._setAmbient(0);
+    return () => { [this._tick, this._carry] = was; this._setAmbient(was[2]); };
   }
   /** @internal */
-  _runTimers(c) {
-    if (!c.timers.length) return;
-    const at = c.now + 1e-9;   // float sums of STEP x scale land a hair short of a whole second: due within 1e-9 counts as due
-    const due = c.timers.filter(t => t.due <= at).sort((a, b) => a.due - b.due);
-    if (!due.length) return;
-    c.timers = c.timers.filter(t => t.due > at);
-    for (const t of due) {
-      if (t.event) this.engine.events.emit(t.event, t.data);
-      else { try { t.fn(); } catch (err) { reportError(this.engine, err, STRINGS.where); } }
-    }
+  _setAmbient(v) { this._amb = v; const u = this.engine.uniforms?.uTime; if (u) u.value = v; }   // uTime is this view, written only here
+  /**
+   * @internal Move ambient, channels and the calendar by `fixed` fixed seconds, end timed mods, fire timers.
+   * Speeds are read once before anything moves, so every channel advances with the scales this step's gameplay saw; then timed mods end
+   * (earliest first, mod:end each), then timers fire.
+   */
+  _move(fixed, calendar) {
+    const scales = [...this._ch.values()].map(c => [c, this.scale(c.name)]);
+    this._setAmbient(this._amb + fixed);
+    for (const [c, s] of scales) c.now += c.name === 'calendar' && calendar != null ? calendar : fixed * s;
+    for (const fn of [...this._onMove]) { try { fn(); } catch (err) { reportError(this.engine, err, STRINGS.onMove); } }
+    this.engine.stacks._expire();
+    this._runTimers();
   }
   /**
-   * @internal engine.skip: game (calendar) seconds until the next channel timer or timed mod ends, at the current speeds (a segment ends there so
-   * they fire in the same order as when stepping).
+   * @internal engine.skip: calendar seconds until the next timer or timed mod is due, at the current speeds (a segment ends there so they fire in
+   * the same order as when stepping). gamePerFixed = calendar seconds per fixed second of the skip.
    */
   _untilNext(gamePerFixed) {
+    const toGame = (ch, left) => {
+      if (ch === 'calendar') return left;
+      const s = this.scale(ch); return s > 0 ? left / s * gamePerFixed : Infinity;
+    };
     let best = Infinity;
-    for (const c of this._ch.values()) {
-      const s = this.scale(c.name); if (!(s > 0)) continue;
-      for (const t of c.timers) best = Math.min(best, Math.max(0, t.due - c.now) / s * gamePerFixed);
-    }
-    const toGame = (clock, left) => { if (clock === 'real') return left * gamePerFixed; const s = this.scale(clock); return s > 0 ? left / s * gamePerFixed : Infinity; };
+    for (const t of this._timers) best = Math.min(best, toGame(t.ch, Math.max(0, t.due - this.now(t.ch))));
     return Math.min(best, this.engine.stacks._untilNext(toGame));
   }
   /** describe().time.channels: { name: { scale, now, holders? } } */
   describe() {
     const out = {};
     for (const c of this._ch.values()) {
-      const h = this.engine.stacks.get('time.' + c.name).holders();
-      out[c.name] = { scale: Math.round(this.scale(c.name) * 1000) / 1000, now: Math.round(c.now * 100) / 100, ...(h.length ? { holders: h } : {}), ...(c.manual ? { manual: true } : {}) };
+      const h = this.engine.stacks.get(c.stack).holders();
+      out[c.name] = { scale: Math.round(this.scale(c.name) * 1000) / 1000, now: Math.round(c.now * 100) / 100, ...(h.length ? { holders: h } : {}) };
     }
     return out;
   }
-  /** Clear all channel timers (engine.dispose) */
-  dispose() { for (const c of this._ch.values()) c.timers = []; }
+  /** Clear all timers (engine.dispose) */
+  dispose() { for (const t of this._timers) t.dead = true; this._timers = []; }
 }

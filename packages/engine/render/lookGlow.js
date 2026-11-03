@@ -26,8 +26,10 @@ function matcher(match) {
   return null;
 }
 
-/** Daylight 0..1: calendar first (gameplay day / night), else the drawn sun; null when nothing tells day from night */
-export const daylightOf = e => { const d = e.calendar?.daylight ?? e.sky?.daylight; return typeof d === 'number' ? d : null; };
+/** Daylight 0..1 from the 'daylight' measure (engine.audio.measure): the calendar registers it (gameplay day / night), the sky only when no
+ * calendar did (the drawn sun). Read through the measure, not e.calendar / e.sky, so render/ names no module and a game's own clock module counts
+ * the same by registering the measure. null when nothing tells day from night */
+export const daylightOf = e => { const d = e.audio?.measures.get('daylight')?.(e); return typeof d === 'number' ? d : null; };
 /**
  * 0 by day, 1 at night for one rule's dusk (daylight below which it fades in); null daylight -> 0 (the day value is kept). dusk 0 has no fade:
  * on only while daylight is 0 (a cave mushroom that glows only in full dark); the d / dusk curve would divide by zero there
@@ -81,7 +83,7 @@ export function addGlowVerb(e, part) {
     if (part._rev !== rev) {
       rev = part._rev;
       // every rule in effect now (layers decide which owner's value wins, as for any look key)
-      list = part.resolved(KEY).filter(([, v]) => v).map(([k, v]) => ({ key: k, test: tests.get(k), night: v.night, day: v.day, dusk: v.dusk ?? DUSK }));
+      list = part.author.resolved(KEY).filter(([, v]) => v).map(([k, v]) => ({ key: k, test: tests.get(k), night: v.night, day: v.day, dusk: v.dusk ?? DUSK }));
       byKey = new Map(list.map(r => [r.key, r]));
       const s = list.map(r => r.key).join('|') + '#' + testsRev;
       if (s !== sig) {
@@ -103,6 +105,7 @@ export function addGlowVerb(e, part) {
     }
   }
 
+  /** @param {any} match @param {{ night?: number, day?: number, dusk?: number, owner?: string, [k: string]: any }} [o] */
   part.glow = (match, o = {}) => {
     const t = matcher(match);
     if (!t) throw part._lacks('glow', `match is a material role or material name ('window'), a Material, or (material) => boolean; got ${typeof match}`, `Call it as look.materials.${SIG}`);
@@ -114,7 +117,7 @@ export function addGlowVerb(e, part) {
     // a string names its rule (a second glow('window') replaces the first); a Material / filter gets its own key so two never overwrite each other
     const key = KEY + t.label + (typeof match === 'string' ? '' : `#${++seq}`);
     tests.set(key, t.test); testsRev++;
-    const handle = part.write(owner ?? key, { [key]: { night, day, dusk, match: t.label } });
+    const handle = part.author.write(owner ?? key, { [key]: { night, day, dusk, match: t.label } });
     frame ??= e.onFrame(update);
     update();   // at once: a test or screenshot right after the call sees the value
     // the handle undoes this write only (a second rule under the same owner stays). A Material / filter key is this call's alone, so its test goes too

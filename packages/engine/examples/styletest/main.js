@@ -5,9 +5,9 @@
 // main.js holds wiring only: modules, finding the stage, view switching, the lamp. The exhibits are content (rule R33).
 import { params } from './params.js';   // first: rewrites ?time=dusk style words before the engine reads the URL
 import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, fixedCamera, hud, lightPool, createTerrain } from '../../index.js';
-// The style under test: the world example's style folder (its look, named 'lowpoly'); its procedural trees / rocks / humanoid are registered from assets.js.
+// The style under test: the world example's style folder (its look, named 'world'); the world example's procedural trees / rocks / humanoid are registered from assets.js.
 // To judge your own look, point this import and the one in assets.js at your game's style/index.js.
-import lowpoly from '../world/style/index.js';
+import worldStyle from '../world/style/index.js';
 import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';
 import look from './look.js';
 import data from './content/index.js';
@@ -34,18 +34,18 @@ for (let r = 0, found = false; r < 3000 && !found; r += 10) {
 }
 
 // ---------- 1. Engine: style under test + open-world preset with a fixed sky (no clock drift between screenshots) ----------
-const parts = params.style === 'none' ? [] : [lowpoly, look];
+const parts = params.style === 'none' ? [] : [worldStyle, look];
 if (params.overrides) parts.push(params.overrides);   // the workbench's "rebuild preview" values
-const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style: parts.length ? parts : undefined, strings: terrainStrings, saveKey: 'threedog-styletest',
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.debug, ...presets.bindings.dialogNumbers }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style: parts.length ? parts : undefined, strings: terrainStrings, saveKey: 'threedog-styletest',
   ui: { loading: { title: 'style test' } } });
 engine.use(openWorld({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, radius: 30 }], calendar: { ...presets.calendar.fixedTime, time: 0.5 },
   weather: presets.weather.temperate, autoWeather: false }),
-  interactions({ ...presets.interactions.nearest }), dialogue({ holdSeconds: 1e6 }), inventory({ ...presets.keys.inventory }), hud(), lightPool({ point: 2 }), content());
+  interactions({ ...presets.interactions.nearest }), dialogue({ holdSeconds: 1e6 }), inventory(), hud(), lightPool({ point: 2 }), content());
 
-engine.assets.manifest(packs);   // assets.js: lowpoly's trees / rocks and the test models content/templates.js uses
+engine.assets.manifest(packs);   // assets.js: the world example's trees / rocks and the test models content/templates.js uses
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: params.style === 'none' ? null : 'humanoid', spawn: { x: stage.x + 0.5, z: stage.z + 6 } });   // style=none: the gray capsule
 engine.content.load(data, { places: { stage, water } });
-if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.mod('sky.ambient', { owner: 'env', mul: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
+if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.mod('look.lights.hemi.intensity', { owner: 'env', mul: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
 
 // ---------- 2. The room's lamp: emissive plus one pooled light, on from 18:00 to 06:00 ----------
 const lampPos = [stage.x + 14, engine.surface(stage.x + 14, stage.z - 2) + 2.7, stage.z - 2];
@@ -72,12 +72,12 @@ function showUi(on) {
 function setView(name) {
   const cam = /** @type {any} */ (engine.cameraRig), views = makeViews(engine, stage, water);
   for (const [n, v] of Object.entries(views)) cam.add(n, { position: v.pos, lookAt: v.look });
-  state.view = name; state.since = engine.elapsed; state.views = views;
+  state.view = name; state.since = engine.time.now('real'); state.views = views;
   showUi(name === 'ui');
   cam.cut(name);
 }
 engine.onFrame(() => {
-  if (state.view === 'path' && state.views) /** @type {any} */ (engine.cameraRig).shots.path.position.fromArray(pathAt(state.views.path, engine.elapsed - state.since));
+  if (state.view === 'path' && state.views) /** @type {any} */ (engine.cameraRig).shots.path.position.fromArray(pathAt(state.views.path, engine.time.now('real') - state.since));
 });
 engine.ops.define('styletest.view', {
   desc: 'Move the camera to a named view: overview, character, water, room, path, ui', args: { name: 'string' },

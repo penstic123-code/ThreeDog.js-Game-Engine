@@ -1,17 +1,19 @@
 // Baked light probes. A grid of SH probes from the scene (bake / load / JSON), fed into one scene LightProbe each frame.
-// Why only plain three.js (CubeCamera, LightProbeGenerator, LightProbe, no GLSL): the same code runs on a WebGPU renderer later, and the game can
+// Why only plain three.js (CubeCamera, LightProbeGenerator, LightProbe, no GLSL): it runs on both renderers, and the game can
 // read or replace every piece (handle.probe is an ordinary LightProbe; handle.sample feeds the game's own).
 // How the light reaches materials: one scene LightProbe whose SH is interpolated (trilinear) at a followed point every frame. Every lit material
 // already reads scene light probes, so nothing is patched and no program changes when the point moves.
 // shortcut: one SH for the whole scene (at the followed point): an object far from that point gets the light of where the point is, not its own.
 //   Upgrade when a scene needs per-object light (a dark cave next to a bright square, both on screen): give each mesh its own SH (a material
 //   uniform fed from sample()), or a 3D texture the shader reads; both need a material patch, which this scaffold avoids.
+import { engineOwned } from '../core/things.js';
 import * as THREE from 'three';
 import { LightProbeGenerator } from 'three/addons/lights/LightProbeGenerator.js';
 import { readParams } from '../core/params.js';
 import { codedError } from '../core/errorHints.js';
 import { defineOwned, dropOwned } from '../core/owned.js';
 import { vec3 } from '../core/math.js';
+import { cubeRender, cubeTarget } from './backend.js';
 
 const FORMAT = 'threedog-probes', VERSION = 1, MAX_PROBES = 4096, SH = 27;
 const BAKE = {
@@ -70,7 +72,7 @@ class ProbeSet {
     this.probe = null;
     if (follow !== false) {
       this.probe = new THREE.LightProbe(); this.probe.name = 'probes:' + owner;
-      e.scene.add(this.probe);
+      e.scene.add(engineOwned('probes', this.probe));
       // the engine writes probe.sh every frame: a game that writes it itself (its own SH) takes it over, the engine yields (core/owned.js)
       const n = e._probeN = (e._probeN ?? 0) + 1;   // unique per engine: a reused id would replace another live set's record
       this._owned = defineOwned(e, { id: `probes.sh#${n}`, part: 'lights', key: 'probes', read: () => this.probe.sh.toArray(), objects: [this.probe],
@@ -135,7 +137,7 @@ class ProbeSet {
 async function bakeOne(e, cam, rt, p, hide) {
   cam.position.copy(p); cam.updateMatrixWorld();
   for (const o of hide) o.visible = false;
-  try { cam.update(e.renderer, e.scene); } finally { for (const o of hide) o.visible = true; }
+  try { cubeRender(e.renderer, e.scene, cam); } finally { for (const o of hide) o.visible = true; }
   return (await LightProbeGenerator.fromCubeRenderTarget(e.renderer, rt)).sh.toArray();
 }
 
@@ -151,7 +153,7 @@ function drawProbes(e, scene) {
     const b = i * SH, Y00 = 0.282095;   // the SH constant term times Y00 is the probe's average radiance
     dots.setColorAt(k, c.setRGB(s.sh[b] * Y00, s.sh[b + 1] * Y00, s.sh[b + 2] * Y00));
   }
-  dots.name = 'debug:probes'; scene.add(dots);
+  dots.name = 'debug:probes'; scene.add(engineOwned('debug', dots));
   return () => { dots.removeFromParent(); geo.dispose(); mat.dispose(); dots.dispose(); };
 }
 function addSet(e, data, o) {
@@ -201,7 +203,7 @@ export const probeMethods = {
     const { origin, step, counts } = layout(o.bounds, o.spacing, o.height), n = counts[0] * counts[1] * counts[2];
     if (n > MAX_PROBES) throw codedError('probes-option', STRINGS.tooMany.replace('{n}', n).replace('{dims}', counts.join(' x ')).replace('{max}', MAX_PROBES));
     const t0 = performance.now();   // measure
-    const rt = new THREE.WebGLCubeRenderTarget(o.resolution, { type: THREE.HalfFloatType, generateMipmaps: false });
+    const rt = cubeTarget(this.renderer, THREE, o.resolution, { type: THREE.HalfFloatType, generateMipmaps: false });
     const cam = new THREE.CubeCamera(0.05, this.camera.far, rt);
     // hidden while each cube renders: meshes the filter rejects, and every scene probe (an earlier set lighting the capture would count twice)
     const hide = [];

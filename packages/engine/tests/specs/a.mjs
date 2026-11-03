@@ -1,4 +1,4 @@
-// Batch-3 group A specs (same format as packages/engine/tests/specs.mjs), appended at the end of specs.mjs.
+// Batch-3 group A specs (same format as the other files here).
 // Checks use engine.step / describe, no screenshots. Timing numbers go into the detail text (visible in npm test output).
 export const specs = [
   {
@@ -82,6 +82,24 @@ export const specs = [
     },
   },
   {
+    software: false,   // nothing is compared: the shot throws on purpose
+    name: '[guard] photo.take that throws mid-shot restores pixel ratio, shadow map size and the bloom hold',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const R = engine.renderer, sky = engine.sky, el = R.domElement, toURL = el.toDataURL;
+        const before = { pr: R.getPixelRatio(), map: sky?.shadowMapSize, bloom: engine.post.get('bloom')?.enabled };
+        el.toDataURL = () => { throw new Error('tainted canvas (test)'); };
+        let err = null;
+        try { engine.photo.take({ bloom: !before.bloom }); } catch (e) { err = e.message; } finally { el.toDataURL = toURL; }
+        return { err, before, after: { pr: R.getPixelRatio(), map: sky?.shadowMapSize, bloom: engine.post.get('bloom')?.enabled } };
+      });
+      check('the error reaches the caller', /tainted canvas/.test(r.err ?? ''), JSON.stringify(r));
+      check('pixel ratio, shadow map size and bloom are back to what they were', JSON.stringify(r.after) === JSON.stringify(r.before), JSON.stringify(r));
+    },
+  },
+  {
+    software: false,   // photo.take reads pixels, but the test only checks the subject it names: no pixel comparison, runs on the GPU
     name: 'A: photo subject',
     url: '/',
     async run({ check, ev }) {
@@ -105,7 +123,7 @@ export const specs = [
           engine.step(1 / 30);
           const lv = engine.level, mats = new Set();
           lv.root.traverse(o => { if (o.isMesh) mats.add(o.material.type + ':' + (o.material.userData.purpose ?? '')); });
-          return { boxes: engine.collision.boxes.length, markers: Object.keys(lv.markers).sort().join(','), calls: engine.renderer.info.render.calls, mats: [...mats].sort().join(','),
+          return { boxes: engine.collision.boxes.size, markers: Object.keys(lv.markers).sort().join(','), calls: engine.renderer.info.render.calls, mats: [...mats].sort().join(','),
             spawn: lv.spawn.toArray().map(v => +v.toFixed(2)).join(','), height: +engine.surface(0, -14).toFixed(2) };
         };
         engine.player.placeAt([1000, 0, 1000]); engine.focus.set(1000, 0, 1000); engine.step(0.2);   // both stream sources leave: unload streamed blocks first so they do not affect draw calls
@@ -169,7 +187,7 @@ export const specs = [
     name: 'A: URL scenario (?state= / ?pos=)',
     url: '/tests/a/?state=corner&wait=1',
     async run({ check, ev }) {
-      const r = await ev(() => ({ applied: engine.stateApplied, x: engine.player.position.x, z: engine.player.position.z, t: engine.elapsed }));
+      const r = await ev(() => ({ applied: engine.stateApplied, x: engine.player.position.x, z: engine.player.position.z, t: engine.time.now('real') }));
       check('?state=corner expands to pos=30,30 and wait=1 advanced 1 second', r.applied && Math.abs(r.x - 30) < 0.5 && Math.abs(r.z - 30) < 0.5 && r.t >= 0.99, JSON.stringify(r));
     },
   },

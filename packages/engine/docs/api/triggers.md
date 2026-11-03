@@ -4,7 +4,6 @@ Trigger zones (triggers() module)
 
 - Options `TriggersOptions`:
   - `action?: string` Action name that toggles the debug view 'triggers' (engine.debug.view), default 'triggersDebug'
-  - `keys?: string[]` Key that toggles that view: default ['F4'] in dev builds, none in release builds
 
 ## Methods and properties
 - `triggers.list() → Trigger[]` — All trigger zones (a new array)

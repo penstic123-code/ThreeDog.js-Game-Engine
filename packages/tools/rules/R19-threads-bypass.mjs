@@ -1,4 +1,4 @@
-// R19 workers only through engine.threads: in engine source (packages/engine: index.js, core, modules, render, ui, styles, examples, vite.config.js;
+// R19 workers only through engine.threads: in engine source (packages/engine: index.js, core, modules, render, ui, examples, vite.config.js; the add-on packages;
 //   not tests / docs / public), `new Worker(` outside a lane factory and `.postMessage(` outside core/Threads.js / core/threadServe.js → error
 //   (a line naming BroadcastChannel is exempt: cross-tab notes such as core/Saves.js carry no work and bypass nothing).
 // Detection: line-based regex on raw lines, lines starting with // or * skipped. A Worker is accepted only when written as `create: () => new Worker(`
@@ -12,7 +12,7 @@ import { walk, lines, P } from './_lib.mjs';
 const POOL = new Set([`${P.CORE_REL}/Threads.js`, `${P.CORE_REL}/threadServe.js`]);
 export const engineSource = (exts = ['.js']) => [
   P.INDEX_JS_REL, `${P.ENGINE_REL}/vite.config.js`,
-  ...[...P.ENGINE_CODE_DIRS_REL, P.STYLES_REL, ...P.ADDONS_REL, P.EXAMPLES_REL].flatMap(d => walk(d, exts)),
+  ...[...P.ENGINE_CODE_DIRS_REL, ...P.ADDONS_REL, P.EXAMPLES_REL].flatMap(d => walk(d, exts)),
 ].filter(f => exts.some(e => f.endsWith(e)));
 
 export default {

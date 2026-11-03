@@ -10,7 +10,7 @@ import { failure } from '../../core/opsFail.js';
 
 // tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot); a style may override them
 const OK = 0xe0e0e0, BAD = 0x3a3a3a;
-const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview cannot be turned by input. Bind it yourself (engine.input.define("{a}", ["KeyR"])), pass rotateKeys: ["KeyR"] / ...presets.keys.gridRotate, or pass rotate: false and call pv.rotate() from your own control';
+const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview cannot be turned by input. Bind it (engine.input.bind("{a}", ["KeyR"]) or presets.bindings.gridRotate), or pass rotate: false and call pv.rotate() from your own control';
 
 /** Default look: a flat translucent box over the footprint @internal */
 function boxLook(e) {
@@ -46,13 +46,12 @@ function target(e, from, g) {
 
 /** Create a preview handle @internal */
 export function makePreview(e, grids, opts) {
-  const { grid, item, from = 'pointer', rotate = 'rotate', rotateKeys, look } = opts;
+  const { grid, item, from = 'pointer', rotate = 'rotate', look } = opts;
   const g = grids._must(grid), rule = grids._rule(item);
-  // the engine binds no key itself: the rotate action comes from the game (input.define / bindings) or from rotateKeys (e.g. presets.keys.gridRotate)
-  if (rotate && !e.input.actions.has(rotate)) {
-    if (rotateKeys?.length) { e.input.define(rotate, rotateKeys, 'grid.rotate'); }
-    else warnOnce(NO_KEY.replaceAll('{a}', rotate));
-  }
+  // declared by the preview, owned by the grid module and taken away with the preview (or the module), so nothing outlives it; the game binds
+  // the key (presets.bindings.gridRotate) like every module action
+  const decl = rotate ? e.input.action(rotate, { label: 'grid.rotate', owner: 'grids', optional: true }) : null;
+  if (rotate && !e.input.keysOf(rotate).length) warnOnce(NO_KEY.replaceAll('{a}', rotate));
   const part = look === false ? null : typeof look === 'function' ? look(e) : boxLook(e);
   const h = {
     /** target cell or null (nothing under the pointer) */ cell: null,
@@ -66,10 +65,10 @@ export function makePreview(e, grids, opts) {
       return e.ops.run('grid.place', { grid, item, cell: h.cell, rotation: h.rotation, ...(fields ? { fields } : {}) });
     },
     /** Remove the preview (cancel convention: safe to call again) */
-    remove() { grids._previews.delete(h); part?.dispose?.(); },
+    remove() { grids._previews.delete(h); decl?.remove(); part?.dispose?.(); },
     /** @internal */
     frame() {
-      if (rotate && e.input.actions.has(rotate) && e.input.pressed(rotate)) h.rotate(1);
+      if (rotate && e.input.pressed(rotate)) h.rotate(1);
       const p = target(e, from, g);
       h.cell = p ? g.toCell(p) : null;
       if (!h.cell) { h.ok = false; h.code = 'noTarget'; part?.hide?.(); return; }

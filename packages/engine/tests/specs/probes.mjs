@@ -6,6 +6,7 @@
 export const specs = [
   {
     name: 'light probes: bake sees the red wall, sample interpolates, toJSON -> loadProbes round-trips, no render target left, describe / owned / view',
+    software: true,   // reads the baked colors
     url: '/tests/probes/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {

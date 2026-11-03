@@ -21,7 +21,7 @@
 //   createEngine({ batching: false }) turns it off (nothing is watched, zero cost); engine.batching.enabled = false at runtime dissolves every batch.
 /** @import { BatchingOptions, BatchingStats, BatchInfo } from '../types/core' */
 import * as THREE from 'three';
-import { warnOnce, DEV } from './validate.js';
+import { warnOnce, DEV, note } from './validate.js';
 import { BATCH_LAYER, build, join, leave, dissolve, color, localTint, bounds, snap, same, stored, under } from './batchGroups.js';
 import { codedError } from './errorHints.js';
 
@@ -109,7 +109,7 @@ export class Batching {
   _notice(g) {
     if (this._told || !DEV) return;
     this._told = true;
-    console.info(`[threedog] batching: ${g.members.size} copies of "${g.geometry.name || g.material.name || 'a mesh'}": ${STRINGS.note}`);
+    note(`batching: ${g.members.size} copies of "${g.geometry.name || g.material.name || 'a mesh'}": ${STRINGS.note}`);
   }
   /**
    * batches: InstancedMesh count, instances: meshes drawn through them, saved: draw calls saved per pass (instances - batches); note while anything
@@ -238,7 +238,7 @@ export class Batching {
       // the hint names the most repeated one
       if (++c.n >= this.minCount && c.n > (this.plain.get(this._hintKey)?.n ?? 0)) this._hintKey = k;
     }
-    if (this._hintKey && !this._hinted) { this._hinted = true; console.info(`[threedog] batching: ${this._hint()}`); }   // the console line once per engine
+    if (this._hintKey && !this._hinted) { this._hinted = true; note(`batching: ${this._hint()}`); }   // the console line once per engine
   }
   /** @internal a game root left the scene: its meshes no longer count toward the hint */
   _uncount(root) {

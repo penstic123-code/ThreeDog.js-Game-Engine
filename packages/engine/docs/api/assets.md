@@ -11,6 +11,7 @@
 - `assets.geometry(nameOrUrl: string) → Promise<BufferGeometry>` — Get the geometry of the first mesh in a model
 - `assets.gridFromImage(nameOrUrl: string, opts?: { channel?, range?, bits? }) → Promise<{ data: Float32Array; wid…` — An image as grid data for sampleGrid: PNG at 8 or 16 bits (jpg / webp 8). channel 'r' (default) 'g' 'b' 'a' or 0-3; range maps pixels to [min, max] (default [0, 1])
 - `assets.texture(nameOrUrl: string, opts?: { color?, pixelated?, repeat? }) → Promise<Texture>` — Get a texture (.ktx2 compressed textures also work)
+- `assets.useTexture(nameOrUrl: string, use: (texture: Texture) => void, o?: { where?, instead?, opts? }) → Promise<boolean>` — Fetch a texture for something that already shows a stand-in: use(texture) runs when it arrives; a failed load is one load-failed dev warning naming `where` and what shows `instead`, and resolves false (an error inside use() is not swallowed). opts are texture()'s options
 - `assets.release(name: string)` — Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is removed with engine.remove
 - `assets.trim() → string[]` — Release every model that has no copy in use (called automatically after level changes). Models whose shared geometry was taken by geometry() and code-generated models are not released automatically. Returns the released names
 - `assets.users(name: string) → number` — How many copies of this model are in use now (taken with model() and not yet removed with engine.remove)
@@ -56,8 +57,8 @@
   - `states: Record<string, AnimatorState>` State configuration (states can be added directly)
   - `params: Record<string, number>` Parameters (used by blend trees)
   - `set(param: string, value: number)` — Set a parameter, e.g. set('speed', 3)
-  - `go(state: string, fade?: number) → any` — Switch to a state (fade is the transition seconds); null (dev warning) if there is no such state / clip; ignored while sync() drives a state
-  - `action(name: string, fade?: number) → any` — One-shot clip: state name or clip name, returns to then or the previous state when done; go() cannot interrupt it while playing
+  - `go(state: string, opts?: { fade?: number }) → any` — Switch to a state ({ fade }: transition seconds); null (dev warning) if there is no such state / clip; ignored while sync() drives a state
+  - `action(name: string, opts?: { fade?: number }) → any` — One-shot clip: state name or clip name, returns to then or the previous state when done; go() cannot interrupt it while playing
   - `sync(state: string | null, t?: number) → any` — Gameplay drives the clock: show state at gameplay time t (fixed-step seconds) through its timing. The clip never advances or ends by itself and go() leaves it alone; sync(null) hands control back
   - `describe() → AnimatorInfo` — What is showing: state, clip, clip time, progress, driven, weights
   - `check(actions?: string[]) → string[]` — Check the mapping against the action names the game plays: each problem as text with its fix ([] = all will play). Example: `anim.check(['idle', 'walk', 'attack', 'hurt'])`

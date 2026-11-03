@@ -146,7 +146,7 @@ export const OPTIONAL_SECTIONS = {
       s.define('camera.invertY', rig()?.invertY ?? false, v => { if (rig() && 'invertY' in rig()) rig().invertY = v; });
       s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (look.view.manual('fov'))
       // a new rig starts from its own defaults (and setCamera resets the fov): put the player's choices back on it
-      e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); });
+      s._track(e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); }));
     },
     render(tools, e, s) {
       const { esc, t } = tools, v = s.values;

@@ -4,10 +4,12 @@
 // sky colors, fog, shadows and exposure come from the style through the sky module, which drives these same two lights instead of
 // adding its own. A game that wants different lighting edits or hides them (engine.lights.sun.visible = false) and adds its own three.js lights,
 // before engine.start(): a light count that changes during play recompiles shaders (recipes/09 "Lights and stalls", lightPool() for many lights).
+import { engineOwned } from '../core/things.js';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { defineOwned, markOwned } from '../core/owned.js';
 import { sceneVisitor } from '../core/sceneDelta.js';
+import { isWebGPU, webgpuPart } from './backend.js';
 
 const BOX = 30, OFFSET = new THREE.Vector3(40, 80, 30), SNAP = 0.5;
 
@@ -16,7 +18,7 @@ export function createDefaultLights(engine, { add = true } = {}) {
   const hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2);
   const sun = new THREE.DirectionalLight(0xffffff, 2);
   sun.position.set(40, 80, 30);   // above and to the side, so faces read with some shading
-  sun.castShadow = false;         // look.lights 'sun.shadow' turns it on (no style: on); an installed sky module drives it (sizes from style.sky.shadow)
+  sun.castShadow = true;          // the engine's light casts; whether anything draws shadows is look.shadow enabled (core/look/shadowPart.js)
   // baseline shadow box: 2048 map over 60 m around engine.focus (~3 cm texels), PCF with a small blur radius = soft edges; bias / normalBias keep
   // acne off flat ground and slopes without visible peter-panning at this texel size. bias is in the shadow camera's 0-1 depth (near 1 - far 250 m):
   // -0.0001 = 2.5 cm; the old -0.0005 was 12 cm and cut the shadow at the base of things standing on the ground
@@ -26,6 +28,7 @@ export function createDefaultLights(engine, { add = true } = {}) {
   sun.shadow.bias = -0.0001; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
   // add: false (createEngine({ lights: false })): the objects still exist so engine.lights.sun / hemi and the sky module never hit undefined, but they
   // are not in the scene, so nothing is lit by them and they cost no shader light slots; the game brings all its own lights
+  engineOwned('lights', hemi, sun, sun.target);   // the module's, not the game's, when the scene adopts what is added (core/things.js)
   if (add) engine.scene.add(hemi, sun, sun.target);
   return { sun, hemi };
 }
@@ -37,10 +40,14 @@ export function createDefaultLights(engine, { add = true } = {}) {
  */
 export function followFocus(e) {
   const sun = e.lights?.sun;
-  if (!sun?.castShadow || e.sky || !sun.parent) return;
-  // the same 'shadow.follow' id the sky registers (one row in describe().owned): a game that places sun.target itself keeps it. Without a sky
-  // there is no look.shadow part, so the takeover lives on look.lights. Registered again whenever it is not the current one (a sky came and went)
-  const o = e._owned?.get('shadow.follow') === e._oBaseFollow && e._oBaseFollow ? e._oBaseFollow : (e._oBaseFollow = defineOwned(e, {
+  if (!sun?.castShadow || !sun.parent) return;
+  // 'shadow.follow' is one row in describe().owned: a module that moves the sun itself (a sky) defines it while installed, and then this
+  // baseline steps aside. Asking who holds the row, not whether e.sky exists, keeps render/ free of module names and lets a game's own sun
+  // driver take over the same way. A game that places sun.target itself keeps it (manual level).
+  const held = e._owned?.get('shadow.follow');
+  if (held && held !== e._oBaseFollow) return;
+  // without a sky there is no look.shadow part, so the takeover lives on look.lights. Registered again whenever it is not the current one (a sky came and went)
+  const o = held && held === e._oBaseFollow ? e._oBaseFollow : (e._oBaseFollow = defineOwned(e, {
     id: 'shadow.follow', part: 'lights', key: 'shadow.follow', read: () => sun.target.position.toArray(), objects: [sun.target, sun.target.position],
     levels: { manual: "engine.look.lights.manual('shadow.follow')" } }));
   if (!o._snap) o.mark();
@@ -166,7 +173,9 @@ export function syncRoomEnvironment(e) {
  */
 function roomEnvironment(e) {
   if (e._roomEnv) return e._roomEnv.texture;
-  const pmrem = new THREE.PMREMGenerator(e.renderer), room = new RoomEnvironment();
+  // WebGPURenderer needs three/webgpu's PMREMGenerator (registered by threedog/tsl); start() inits the renderer before this can run
+  const PMREM = isWebGPU(e.renderer) ? webgpuPart('classes', 'the room environment').PMREMGenerator : THREE.PMREMGenerator;
+  const pmrem = new PMREM(e.renderer), room = new RoomEnvironment();
   // the prefilter renders a few times, but no game frame was drawn: keep renderer.info.render.frame at what it was, because modules read
   // "has the engine drawn yet" from it (look.fog: shader-chunk fog kinds can only change before the first frame). Since the baseline runs
   // under every style this happens at createEngine, before any sky is installed

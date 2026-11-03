@@ -13,8 +13,8 @@
  */
 export function touchButton(inp, action, labelKey) {
   if (!inp.touch || inp._touch.some(b => b.action === action)) return;
-  const code = 'Touch:' + action, a = inp.actions.get(action);
-  if (a && !a.keys.includes(code)) a.keys.push(code);
+  inp._touchKeys.set(action, 'Touch:' + action);   // kept beside the bound keys, so a rebind never drops the on-screen button
+  inp._readable = null;
   inp._touch.push({ action, labelKey });
   touchRefresh(inp);
 }

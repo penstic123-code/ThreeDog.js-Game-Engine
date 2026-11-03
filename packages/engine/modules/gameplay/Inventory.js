@@ -1,4 +1,4 @@
-// Inventory module: define items first, then add/remove. The game's key (inventory({ keys }) or presets.keys.inventory; none built in) opens the window (the 'inventory' UI part).
+// Inventory module: define items first, then add/remove. The game's key (createEngine({ bindings: presets.bindings.inventory }) or its own; none built in) opens the window (the 'inventory' UI part).
 // Items lying on the ground are the separate pickups() module (pickups.js): it puts what is picked up into the picker's container.
 //
 // Every actor has its own container, the one whose id is the actor id ('player' locally, each net peer's actor id, an NPC's id): inventory.of(actor).
@@ -13,7 +13,7 @@
 // Look:
 // window UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via style.ui.templates.inventory(data, { esc, t, icon })
 //   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in style.ui.css)
-import { checkOptions, warnMissing, freezeDef, moduleKeys } from '../../core/validate.js';
+import { checkOptions, warnMissing, freezeDef } from '../../core/validate.js';
 import { readParams } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
 import { Container } from './Container.js';
@@ -22,7 +22,8 @@ import { followRuntimeIds } from '../../core/saveIds.js';
 import { inventoryWindow, windowData, defineInventoryOps, INVENTORY_STRINGS } from './inventoryOps.js';
 
 export class Inventory {
-  constructor(engine, { action = 'inventory', keys, pad, capacity = Infinity, maxWeight = Infinity, defaultStack = 99 } = {}) {
+  /** @internal track: the module's ctx.track */
+  constructor(engine, { action, capacity = Infinity, maxWeight = Infinity, defaultStack } = {}, track) {
     this.engine = engine;
     this.defs = new Map();
     this.defaultStack = defaultStack;
@@ -33,10 +34,11 @@ export class Inventory {
     this.action = action;
     this._seq = 0;              // entry key counter ('sword#7'), saved so keys never repeat
     engine.i18n.add(INVENTORY_STRINGS);
-    keys = moduleKeys('inventory()', action, keys, 'inventory', engine.input);   // the game's key or a presets.keys bundle, never a built-in one
-    if (keys.length || pad) { engine.input.define(action, keys, 'inventory.action', { pad }); engine.input.touchButton(action, 'inventory.action'); }
+    // declared only: the game binds the key (presets.bindings.inventory or its own; [] = no key), so every key in a game comes from one bindings table
+    track(engine.input.action(action, { label: 'inventory.action', owner: 'inventory' }));
+    if (engine.input.keysOf(action).length) engine.input.touchButton(action, 'inventory.action');
     engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), freeze: () => this.pauseGame, data: () => windowData(this) } });
-    for (const ev of ['i18n:change', 'input:rebind']) engine.events.on(ev, () => this._refresh());
+    for (const ev of ['i18n:change', 'input:rebind']) track(engine.events.on(ev, () => this._refresh()));
     // version 1 is the current shape; raise it with a migrate step when it changes. seq: the numbering of entry keys (sword#3); a save without it continues
     // after the highest key it holds
     engine.saves.register('inventory', { atomic: true, version: 1, save: () => ({ seq: this._seq, items: this.home._save() }), load: d => {
@@ -86,7 +88,7 @@ export class Inventory {
    */
   container(id, opts) { return this._containers.get(id, opts); }
   /**
-   * @internal content/renames.js: containers saved under an old authored id move to the new one (content.load calls it before adding containers)
+   * Content renames (content/renames.js): containers saved under an old authored id move to the new one (content.load calls it before adding containers)
    * @param {Record<string, string | null>} map
    * @returns {void}
    */
@@ -105,6 +107,28 @@ export class Inventory {
   transfer(from, to, item, n = 1) { return this._containers.transfer(from, to, item, n); }
   /** Delete a container with its contents (the home bag 'player' cannot be deleted); returns whether one was deleted. */
   removeContainer(id) { return this._containers.remove(id); }
+  /**
+   * Every container's items as plain data, the player bag included: { [containerId]: entries } (the shape setContents takes).
+   * With setContents, what a sync (net) or a mirror reads and writes, so it never touches the containers' internals.
+   * @returns {Record<string, any[]>}
+   */
+  contents() { const out = {}; for (const [id, c] of this._containers.map) out[id] = c._save(); return out; }
+  /**
+   * Replace containers' items with plain data from contents() (another machine's); silent like a save load, the inventory window redraws once.
+   * A null entry empties that container if it exists (gone on the other side). only: true also empties every container not in `data`.
+   * @param {Record<string, any[] | null>} data
+   * @param {{ only?: boolean }} [opts]
+   * @returns {void}
+   */
+  setContents(data, { only = false } = {}) {
+    const seen = new Set();
+    for (const id in data) {
+      const c = data[id] ? this.container(id) : this._containers.map.get(id);
+      if (c) { seen.add(c.id); c._load(data[id] ?? []); }
+    }
+    if (only) for (const [id, c] of this._containers.map) if (!seen.has(id)) c._load([]);
+    this._refresh();
+  }
 
   /**
    * Define an item. stack = pieces per slot (default 99); weight counts against maxWeight; use(e, { actor, item, key, data }) makes it usable with the
@@ -117,8 +141,6 @@ export class Inventory {
    */
   define(id, def) {
     if (id.includes('#')) throw codedError('inventory-misuse', `inventory.define('${id}'): '#' is reserved for entry keys (sword#3); pick an id without it`);
-    // shape only accepts a model name from assets (same path as content); the old mesh function is no longer read, and using it says how to fix it, instead of silently becoming a grey box
-    if (def.mesh !== undefined) throw codedError('item-mesh', `inventory.define('${id}'): mesh is not an item field; register the shape in an asset pack (engine.assets.manifest({ models: { ${id}: fn } })) and write model: '${id}'`);
     checkOptions(`inventory.define('${id}')`, def, ['name', 'icon', 'iconUrl', 'desc', 'stack', 'color', 'weight', 'use', 'canUse', 'consume', 'model'], { loose: true });   // only near-miss spellings warn
     this.defs.set(id, freezeDef({ stack: this.defaultStack, name: id, ...def })); return this;   // shared by every entry of this item: read-only
   }
@@ -158,8 +180,6 @@ export class Inventory {
 
 const INVENTORY_PARAMS = {
   action: { type: 'string', default: 'inventory', desc: 'input action that opens the bag' },
-  keys: { type: 'array', optional: true, desc: 'keys that open the bag (required unless createEngine({ bindings }) binds the action; [] = no key)' },
-  pad: { type: 'array', optional: true, desc: 'gamepad buttons that open the bag' },
   capacity: { type: 'number', optional: true, min: 0, desc: 'slot limit of the player inventory (default Infinity = no limit)' },
   maxWeight: { type: 'number', optional: true, min: 0, desc: 'weight limit of the player inventory (default Infinity = no limit)' },
   defaultStack: { type: 'number', default: 99, min: 1, desc: 'stack limit of items that set none' },
@@ -169,21 +189,20 @@ const INVENTORY_PARAMS = {
 /**
  * Inventory module. Installs engine.inventory, the 'inventory' UI part and the ops inventory.transfer / use / drop / trade (drop needs pickups()); items
  * on the ground are the pickups() module.
- * Options: action / keys / pad (the open key: required, keys: [] for none; presets.keys.inventory has I / gamepad Y), capacity / maxWeight / defaultStack (bag
+ * Options: action (the open action; the game binds it: presets.bindings.inventory has I / gamepad Y, [] for no key), capacity / maxWeight / defaultStack (bag
  * limits of the home bag 'player'),
  * pauseGame (default false): true freezes gameplay while the window is open (monsters, timers and the game clock stop; the picture and UI stay alive).
- * @example engine.use(inventory({ ...presets.keys.inventory, pauseGame: true }))   // opening the bag with I stops the world until it closes
+ * @example engine.use(inventory({ pauseGame: true }))   // with createEngine({ bindings: presets.bindings.inventory }): opening the bag with I stops the world until it closes
  */
 export function inventory(opts = {}) {
   const o = readParams('inventory', INVENTORY_PARAMS, opts);
   let inv = null;
   return {
-    name: 'inventory', label: 'Inventory', params: INVENTORY_PARAMS, options: o, noSkip: 'no timers or spatial state',
-    install(e) {
-      inv = new Inventory(e, opts);
+    name: 'inventory', type: 'rules', provides: ['inventory'], label: 'Inventory', params: INVENTORY_PARAMS, options: o, noSkip: 'no timers or spatial state',
+    install(e, ctx) {
+      inv = new Inventory(e, o, ctx.track);   // o: the schema defaults are filled in, the class repeats none
       // pauseGame: true freezes gameplay (engine.freeze('ui-inventory'), the part's own owner; the same mechanism flow's 'paused' and settings({ freezeWorld }) use) while the window is open.
       // Rendering and UI go on; the freeze is released when the window closes or the inventory is turned off with engine.ui.set('inventory', false).
-      if (opts.pauseGame != null && typeof opts.pauseGame !== 'boolean') throw codedError('inventory-misuse', `inventory({ pauseGame: ${JSON.stringify(opts.pauseGame)} }): pauseGame must be true or false. Example: engine.use(inventory({ pauseGame: true }))`);
       inv.pauseGame = !!opts.pauseGame;   // also settable at runtime: engine.inventory.pauseGame = true
       defineInventoryOps(e, inv);
       return inv;

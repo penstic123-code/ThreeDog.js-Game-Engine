@@ -6,17 +6,22 @@ import { ENGINE } from '../paths.mjs';
 import R45, { scanText } from '../rules/R45-failure-shape.mjs';
 
 const eng = f => import(pathToFileURL(join(ENGINE, f)).href);
-const [{ ERROR_CODES }, { ERROR_HINTS, hintFor }, { warnOnce, setValidate }] = await Promise.all(['core/errorCodes.js', 'core/errorHints.js', 'core/validate.js'].map(eng));
+const [{ ERROR_CODES }, { ERROR_HINTS, hintFor }, { warnOnce, trackValidate }] = await Promise.all(['core/errorCodes.js', 'core/errorHints.js', 'core/validate.js'].map(eng));
 const { sampleGrid } = await eng('core/grid.js');
 
 export const name = 'one failure shape: R45 flags plain throws / bare console in engine code, engine errors carry codes, warnOnce dedupes by key';
 
 export async function run({ check }) {
   // the rule on fixtures: each forbidden form is a finding; the coded forms, comments and strings are not
-  const bad = scanText("export function f(x) { if (!x) throw new Error('x is required'); }\nfunction g() { throw new TypeError('no'); }\nconsole.warn('careful'); console.error('broken');\n");
-  check('R45 flags throw new Error / TypeError and console.warn / error', bad.join() === 'throw new Error(,throw new TypeError(,console.warn(,console.error(', bad.join());
+  const bad = scanText("export function f(x) { if (!x) throw new Error('x is required'); }\nfunction g() { throw new TypeError('no'); }\nconsole.warn('careful'); console.error('broken'); console.info('fyi');\n");
+  check('R45 flags throw new Error / TypeError and console.warn / error / info', bad.join() === 'throw new Error(,throw new TypeError(,console.warn(,console.error(,console.info(', bad.join());
   const ok = scanText("// throw new Error('in a comment')\nconst s = 'console.warn(x)';\nthrow codedError('grid-data', 'bad');\nwarnOnce(coded('load-failed', 'x'));\nconsole.log('fine');\n");
   check('R45 passes codedError / warnOnce, comments, strings and console.log', ok.length === 0, ok.join());
+  // [guard] one dev switch: engine code reads import.meta.env only in core/validate.js (DEV, DEV_SERVER, BASE_URL). Why: a raw
+  // import.meta.env.DEV elsewhere is off in the npm test bundle (a production build with THREEDOG_TEST), so a dev check there silently never ran under tests
+  const { engineFiles, read } = await import('../rules/_lib.mjs');
+  const envReaders = engineFiles().filter(f => !f.endsWith('core/validate.js') && /^(?!\s*\/\/).*import\.meta\.env/m.test(read(f)));
+  check('[guard] import.meta.env is read only in core/validate.js (one dev-mode switch)', envReaders.length === 0, envReaders.join(', '));
   // not bypassable: the real engine has no finding left
   const found = R45.run();
   check('R45 passes on the engine as it is (0 findings)', found.length === 0, found.slice(0, 5).map(r => `${r.file}:${r.line} ${r.msg}`).join('; '));
@@ -36,9 +41,18 @@ export async function run({ check }) {
   const seen = [], w0 = console.warn;
   console.warn = m => seen.push(String(m));
   try {
-    setValidate(true);
     warnOnce('w4 test budget 61 ms [budget-over]', 'w4-key'); warnOnce('w4 test budget 72 ms [budget-over]', 'w4-key');
     warnOnce('w4 test plain'); warnOnce('w4 test plain');
   } finally { console.warn = w0; }
   check('warnOnce: once per key, once per text', seen.length === 2 && /61 ms/.test(seen[0]), JSON.stringify(seen));
+  // [guard] validate is per engine: a later engine with validate: false no longer silences the page for an engine that wants checks (it used to: last createEngine won)
+  const said = [], w1 = console.warn, says = t => { const n = said.length; warnOnce(t); return said.length > n; };
+  console.warn = m => said.push(String(m));
+  let mixed, quietOnly, after;
+  try {
+    const a = trackValidate(undefined), b = trackValidate(false);
+    mixed = says('w4 validate mixed'); a(); quietOnly = says('w4 validate quiet'); b(); b(); after = says('w4 validate after');
+  } finally { console.warn = w1; }
+  check('[guard] validate per engine: page warnings stay on while any live engine has checks on, off when only validate: false engines live',
+    mixed === true && quietOnly === false && after === true, JSON.stringify({ mixed, quietOnly, after }));
 }

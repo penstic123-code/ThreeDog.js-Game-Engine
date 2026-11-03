@@ -19,7 +19,8 @@ export function guardWrite(ops, where) {
   if (ops._client ? !e.ready || ops._allowDepth > 0 || where === 'world.move' : !e.ready || e._inFixed || ops._stack.length || ops._allowDepth > 0) return;
   // first caller outside the engine: skip frames in engine folders, or in the bundle file this guard itself lives in
   const lines = (new Error().stack || '').split('\n'), file = l => l.match(/\(?([^()\s]+?):\d+:\d+\)?$/)?.[1], own = file(lines[1] || '');
-  const at = lines.slice(4)   // 0 Error, 1 guardWrite, 2 Ops.guard, 3 the module method that called guard, then its callers.find(l => !/\/(core|modules)\//.test(l) && file(l) !== own)?.trim() ?? '';
+  // 0 Error, 1 guardWrite, 2 Ops.guard, 3 the module method that called guard, then its callers
+  const at = lines.slice(4).find(l => !/\/(core|modules)\//.test(l) && file(l) !== own)?.trim() ?? '';
   const key = where + '|' + at;
   warnOnce(coded('ops-guard', fmt(ops._client ? STRINGS.clientGuard : STRINGS.guard, { where, at: at ? ', called ' + at : '' })), 'ops-guard\0' + key);   // once per call site
 }

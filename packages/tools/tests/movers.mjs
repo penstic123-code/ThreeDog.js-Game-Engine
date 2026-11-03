@@ -36,7 +36,7 @@ function fake({ ground = () => 0 } = {}) {
 }
 const rig = () => ({ root: new THREE.Group() });
 const make = (e, o = {}) => { const c = new Character(e, { rig: rig(), ...o }); c.recordId = o.id ?? 'p1'; c.placeAt({ x: 0, z: 0 }); return c; };
-const step = (e, c, x = 0, z = 0, n = 1) => { for (let i = 0; i < n; i++) { c.move(x, z, false, STEP); e.time._advance(STEP); } };
+const step = (e, c, x = 0, z = 0, n = 1) => { for (let i = 0; i < n; i++) { c.move(x, z, false, STEP); (e.time._beginStep(), e.time._endStep()); } };
 const perms = a => a.length < 2 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map(p => [x, ...p]));
 const code = f => { try { f(); return 'no throw'; } catch (x) { return x.code; } };
 
@@ -93,7 +93,7 @@ export async function run({ check }) {
     e.time.channel('enemies');
     const en = make(e, { id: 'en', speed: 4, channel: 'enemies' }), x0 = en.position.x;
     e.mod('time.enemies', { owner: 'bullet-time', mul: 0.5 });
-    for (let i = 0; i < 120; i++) { en.move(1, 0, false, e.time.dt(en.channel, en.modId)); e.time._advance(STEP); }
+    for (let i = 0; i < 120; i++) { en.move(1, 0, false, e.time.dt(en.channel, en.modId)); (e.time._beginStep(), e.time._endStep()); }
     check('bullet time on the character\'s channel: it covers about half the distance (2 s x 4 m/s x 0.5 ~ 4 m)', Math.abs(en.position.x - x0 - 4) < 0.4, String(en.position.x - x0));
   }
   // ---- step 5: jumps (public API only)
@@ -168,7 +168,7 @@ export async function run({ check }) {
       c.move(0, 0, false, STEP);
       if (where === 'after') at(t);
       carryRiders(e, false);   // the characters module's fixed hook
-      e.time._advance(STEP);
+      (e.time._beginStep(), e.time._endStep());
       if (where === 'frame') at(t);
       carryRiders(e, true);    // the characters module's frame hook (a timeline moves things in frame)
       plat.updateWorldMatrix(true, false);

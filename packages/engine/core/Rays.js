@@ -15,12 +15,11 @@
 /** @import { RaycastOptions, RayHit, RayProvider } from '../types/core' */
 import * as THREE from 'three';
 import { vec3 } from './math.js';
-import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
+import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
 import { thingOf } from './Inspect.js';
 
-THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
-THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
-THREE.Mesh.prototype.raycast = acceleratedRaycast;
+// No three.js prototype is changed: a registered static mesh gets its own BVH and its own raycast (an own property on that mesh), so the engine's
+// rays are fast and the game's own Raycaster stays plain three.js. A game that wants BVH page-wide writes three-mesh-bvh's three documented lines.
 
 // Meshes under this many triangles get no BVH (blocky buildings etc.: the per-triangle check is faster)
 const BVH_MIN = 256;
@@ -65,7 +64,8 @@ export class Rays {
     const added = [];
     for (const o of [].concat(obj)) o.traverse(m => {
       if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || !m.geometry?.attributes.position) return;
-      if (!m.geometry.boundsTree && triangles(m.geometry) >= BVH_MIN) m.geometry.computeBoundsTree();
+      if (!m.geometry.boundsTree && triangles(m.geometry) >= BVH_MIN) computeBoundsTree.call(m.geometry);
+      if (m.geometry.boundsTree && m.raycast === THREE.Mesh.prototype.raycast) m.raycast = acceleratedRaycast;   // a game's own raycast override wins
       let s = this.statics.get(m);
       if (!s) {
         s = { refs: 0, occ: 0, geometry: m.geometry, onDispose: () => this._drop(m) };

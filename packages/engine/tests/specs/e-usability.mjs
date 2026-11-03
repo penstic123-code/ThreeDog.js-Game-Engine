@@ -1,4 +1,4 @@
-// Usability bits: openWorld camera option, engine.describe.add, engine.random.seeded. Same format as specs.mjs, appended at the end of specs.mjs.
+// Usability bits: openWorld camera option, engine.describe.add, engine.random.seeded. Same format as the other files here.
 import { openWorld, rtsCamera } from '../../index.js';
 
 export const specs = [

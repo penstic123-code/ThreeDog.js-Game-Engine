@@ -214,7 +214,10 @@ the DESIGN.md "Asset sources" row, and every source ends up the same way, as a n
 | Code (sections 2 and 2a: three.js geometry, `mergeColored`, material roles) | blockout, props, variations, anything tuned by `params` | a generator function in the manifest |
 | Blender -> glTF | sculpted or painted finish, rigs and clips | a `.glb` path; export settings, scale (1 unit = 1 m, Y-up, applied transforms), naming and which materials survive are in `recipes/46-blender-art-route.md` |
 | Free libraries (for example Kenney and Quaternius models, Poly Haven textures and HDRIs) | a lot of consistent content fast | the files in `public/` or an asset pack (section 3b), then `threedog assets` |
+| Your own earlier games | an effect, material, model or texture you already made and liked | `threedog lib list` / `lib pull` (below), or `threedog art copy ../earlier-game name` |
 | AI-generated 3D / textures | one-off props, texture variations | export glTF / PNG, then the same checks as any file: `threedog assets check`, scale, origin, triangle count, UVs |
+
+**Your own library.** `threedog lib add <file|folder|exportName> -w earlier-game` keeps a piece of a finished game in `~/.threedog/library` (outside the engine; `THREEDOG_LIBRARY` or `--lib` moves it) with a summary, the use line and the backends it works on; `threedog lib list [words]` searches it, `threedog lib pull <name>` copies it into this game and prints the use line, `threedog lib page` writes a page with all previews. Look here before writing an effect from scratch. A pulled entry is a copy with no link back and no update: change it to fit this game rather than keeping it as it was, or every game ends up looking alike.
 
 **Rules (correctness and licensing):**
 - Read the license of every asset you did not make, on the page you downloaded it from, before it goes into the game; a library can mix

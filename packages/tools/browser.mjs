@@ -3,15 +3,19 @@
 //   CHROMIUM_ARGS.software  WebGL through ANGLE's SwiftShader (--use-gl=swiftshader fails on some Windows setups): same pixels on every machine, so tests use it
 //   CHROMIUM_ARGS.gpu       WebGL through ANGLE on the real GPU (backend per platform): shot / gallery / perf / stress prefer it, it is several times faster
 import { chromium } from 'playwright';
-import { join } from 'node:path';
 import { trackPageErrors } from './wait-engine.mjs';
+import { viteOptions } from './paths.mjs';
 
 const COMMON = ['--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'];
 /** ANGLE backend that reaches the hardware GPU headless on this platform */
 const GPU_ANGLE = { win32: 'd3d11', darwin: 'metal' }[process.platform] ?? 'vulkan';
 export const CHROMIUM_ARGS = {
   software: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', ...COMMON],
-  gpu: [`--use-angle=${GPU_ANGLE}`, ...COMMON],
+  // --force_high_performance_gpu: on a laptop with two GPUs the discrete one (what a game asking powerPreference 'high-performance' gets);
+  // without it headless Chromium took the integrated one. --enable-unsafe-webgpu: WebGPU on adapters Chromium has not allow-listed yet;
+  // --disable-dawn-features=use_dxc: Playwright's Chromium ships without dxil.dll, so D3D12 WebGPU requestDevice() failed ("dxil.dll Windows Error 87")
+  // and every WebGPU page silently ran on the WebGL2 backend; FXC (built into Windows) compiles the shaders instead
+  gpu: [`--use-angle=${GPU_ANGLE}`, '--force_high_performance_gpu', '--enable-unsafe-webgpu', '--disable-dawn-features=use_dxc', ...COMMON],
 };
 /** Renderer strings of software rasterizers (SwiftShader, Mesa llvmpipe, the Windows basic adapter): not a hardware GPU */
 export const SOFTWARE_RENDERER = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i;
@@ -20,6 +24,8 @@ export const IGNORED_CONSOLE = /GL Driver|GPU stall due to ReadPixels|Automatic 
 
 /** What the user forced: --gpu / --software on the command line, else THREEDOG_RENDER=gpu|software, else null */
 export function forcedRender() {
+  // both given: an error, not a silent pick (gpu used to win)
+  if (process.argv.includes('--gpu') && process.argv.includes('--software')) throw new Error('--gpu and --software pick opposite renderers: give one of them');
   if (process.argv.includes('--gpu')) return 'gpu';
   if (process.argv.includes('--software')) return 'software';
   const e = process.env.THREEDOG_RENDER;
@@ -81,9 +87,12 @@ export async function newGamePage(browser, { errors = [], ...opts } = {}) {
 /** Build a workspace (unless build: false) and serve dist with vite preview on a free 127.0.0.1 port: { base, close() } */
 export async function buildAndPreview(dir, { build: doBuild = true } = {}) {
   const { build, preview } = await import('vite');
-  const configFile = join(dir, 'vite.config.js');
-  if (doBuild) await build({ root: dir, configFile, logLevel: 'error' });
-  const server = await preview({ root: dir, configFile, preview: { port: 0, host: '127.0.0.1', strictPort: false }, logLevel: 'error' });
+  if (doBuild) await build(await viteOptions(dir, { logLevel: 'error' }));
+  // Serve without compression. vite preview gzips every response on the fly, and the physics library is one 4 MB script (its wasm inlined as
+  //   base64): that was ~250 ms of CPU on the machine for every test page that loads it, and compressing over 127.0.0.1 saves nothing. The hook
+  //   runs before the compression middleware, so dropping Accept-Encoding here switches it off.
+  const noGzip = { name: 'threedog-preview-no-gzip', configurePreviewServer(s) { s.middlewares.use((req, _res, next) => { delete req.headers['accept-encoding']; next(); }); } };
+  const server = await preview(await viteOptions(dir, { plugins: [noGzip], preview: { port: 0, host: '127.0.0.1', strictPort: false }, logLevel: 'error' }));
   const base = (server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.httpServer.address().port}/`).replace(/\/$/, '');
   return { base, close: () => new Promise(r => server.httpServer.close(() => r())) };
 }

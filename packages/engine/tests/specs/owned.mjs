@@ -4,7 +4,7 @@
 //   (b) look.<part>.manual(key) → 引擎不再写，也不警告
 //   (c) manual(key, false) 交还 → 引擎恢复驱动
 // 另有原生对拍：同一个小场景，纯 three.js 渲染和引擎（画面捷径全关）渲染，像素一致。
-// Same format as specs.mjs; appended at the end of specs.mjs.
+// Same format as the other files here.
 
 // 每个 id：poke = 游戏直接写（返回写进去的值），get = 读当前值，drive = 让引擎有机会写一次（一帧，或该属性的引擎写入点）
 const CASES = `({
@@ -20,18 +20,19 @@ const CASES = `({
   'background': { poke: () => (engine.scene.background = window.__bg ??= new engine.THREE.Color(0.9, 0.1, 0.1)), get: () => engine.scene.background,
     // with the dome the sky does not write scene.background; it draws over it. Owned means: game takes it -> dome hides, hand back -> dome shows
     engineWrites: () => !!engine.sky._backdrop || !!engine.sky.skybox, domeShown: () => engine.sky.dome.visible },
-  'sky.modifiers': { poke: () => (engine.sky.modifiers.sun = 0.123), get: () => engine.sky.modifiers.sun },
   'env': { setup: () => (window.__hE = engine.look.env.replace('sky', { owner: 'ownedTest' })), teardown: () => window.__hE.remove(), poke: () => (engine.scene.environment = window.__envTex ??= new engine.THREE.Texture()), get: () => engine.scene.environment,
     drive: () => { if (engine.sky._env) engine.sky._env.key = null; engine.sky._envFrame(1e4); } },
   'camera.fov': { setup: () => (window.__fov0 = engine.camera.fov), poke: () => (engine.camera.fov = 33), get: () => engine.camera.fov,
     drive: () => engine._setFov(61.5), teardown: () => engine._setFov(window.__fov0) },
-  'camera.far': { poke: () => (engine.camera.far = 4321), get: () => engine.camera.far, drive: () => engine.setFogFar(engine.fogFar) },
+  'camera.far': { poke: () => (engine.camera.far = 4321), get: () => engine.camera.far, drive: () => engine.viewFar(engine.camera.far + 100) },
   'pixelRatio': { poke: () => { engine.renderer.setPixelRatio(0.77); return 0.77; }, get: () => engine.renderer.getPixelRatio(),
     drive: () => { const a = engine.adaptive, was = { on: a.on, paused: a.paused, min: a.min }; Object.assign(a, { on: true, paused: false, cooldown: 0, t: 0, age: 10, min: 0.3 }); engine._adapt(1, 1000, false, true); Object.assign(a, was); } },   // one heavy 1 s window past the startup grace
   // written once at creation, never per frame: drive = describe() (the read that notices a direct write); quiet = the yield warns nothing,
   // because a direct renderer.toneMapping write is the documented way to change the curve; hand-back writes the creation curve again
   'toneMapping': { poke: () => (engine.renderer.toneMapping = engine.THREE.NeutralToneMapping), get: () => engine.renderer.toneMapping, drive: () => engine.describe(), quiet: true },
   'camera': { skip: 'tests/specs/b.mjs "[guard] Camera" (the vehicle page has a camera module)' },
+  // never yields (a write to post.object() is replaced on the next chain change, post-fuse.mjs); manual() is checked on both backends there
+  'post.chain': { skip: 'tests/specs/post-webgpu.mjs "[guard] post on WebGPU" (manual() stops rebuilds)' },
 })`;
 
 import { readFileSync } from 'node:fs';
@@ -91,9 +92,23 @@ export const specs = [
   {
     name: "[guard] parity: a small scene in plain three.js and in the engine with the look shortcuts off render the same pixels (the engine adds nothing hidden)",
     url: '/tests/parity/index.html',
+    software: true,   // compares pixels; the read happens inside the page's parity()
     async run({ check, ev }) {
       const r = await ev(() => window.parity());
       check('engine vs plain three.js: mean channel difference < 0.5, max < 8 (of 255)', r.mean < 0.5 && r.max < 8 && r.lit > 0.2, JSON.stringify(r));
+    },
+  },
+  {
+    name: "[guard] parity on WebGPU: the same scene, createEngine({ renderer: 'webgpu' }) vs a plain WebGPURenderer on the same backend, same pixels",
+    url: '/tests/parity/index.html?backend=webgpu',
+    software: true,
+    async run({ check, ev }) {
+      const r = await ev(() => window.parity());
+      console.log('  webgpu parity numbers:', JSON.stringify(r));
+      check(`engine (${r.backend}) vs plain WebGPURenderer: mean channel difference < 0.5, max < 8 (of 255)`,
+        ['webgpu', 'webgl2'].includes(r.backend) && r.mean < 0.5 && r.max < 8 && r.lit > 0.2, JSON.stringify(r));
+      // the tier is known only after init() on WebGPU; the MSAA default must follow it (it once kept the pre-init 'high' guess: edge pixels off by 126)
+      check('MSAA default follows the tier detected after init (low -> off)', r.engine.msaa === (r.engine.tier !== 'low'), JSON.stringify(r.engine));
     },
   },
 ];

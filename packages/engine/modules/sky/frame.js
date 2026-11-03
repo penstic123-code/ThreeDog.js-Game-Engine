@@ -2,7 +2,7 @@
 // the modifier layers; plus the dev guard that warns when a game edits what this overwrites every frame.
 import { defineOwned } from '../../core/owned.js';
 import { applySeason } from './season.js';
-import { applyCover } from './layers.js';
+import { applyCover, skyTint } from './tint.js';
 import { updateFog, fogBand, fogMaterials } from './fog.js';
 import { cascadeFrame } from './cascades.js';
 import { fillContext, live } from '../../core/look/state.js';
@@ -25,7 +25,6 @@ const L = {
   fog: { manual: 'engine.look.fog.manual()', set: "engine.look.fog.set({ color: '#cfd8e0', far: 300 })" },
   exposure: { manual: "engine.look.tone.manual('exposure')", set: 'engine.look.tone.set({ exposure: 1.2 })' },
   background: { manual: "engine.look.sky.manual('background')", replace: 'engine.look.sky.replace(null)' },
-  modifiers: { manual: "engine.look.sky.manual('modifiers')", set: "engine.mod('sky.sunLight', { owner: 'cave', mul: 0.3 })" },
   follow: { manual: "engine.look.shadow.manual('follow')", set: 'engine.look.shadow.set({ follow: false })' },
 };
 
@@ -48,7 +47,7 @@ export function watchOwned(sky) {
   if (D.hemi !== false) list.push(sky._oHemi = own('hemi', 'lights', 'hemi', () => [hemi.intensity, ...hemi.color.toArray(), ...hemi.groundColor.toArray()], L.hemi, [hemi, hemi.color, hemi.groundColor]));
   // fog: the object itself, color, near and far (the values, not their ratio: a game writing far 50 / near 15 is an outside write too; the engine
   // only writes near / far inside updateFog, between check and mark, so its own writes never look like the game's).
-  // look.fog.replace(fog) puts this entry in manual mode itself (lookFog.js), so "who writes scene.fog" has one record, not a second flag
+  // scene.fog = a fog of yours is a change of the object this entry reads, so it yields: "who writes scene.fog" has one record, not a second flag
   if (D.fog !== false) list.push(sky._oFog = own('fog', 'fog', 'fog', () => [fog(), ...(fog()?.color?.toArray() ?? []), fog()?.near, fog()?.far, fog()?.density], L.fog,
     [scene, ...(fog() ? [fog(), fog().color] : [])]));
   list.push(sky._oExposure = own('exposure', 'tone', 'exposure', () => e.renderer.toneMappingExposure, L.exposure, [e.renderer]));
@@ -56,7 +55,6 @@ export function watchOwned(sky) {
   // takes it, and the dome hides (onChange) so the game's background shows; handing it back shows the dome again
   list.push(sky._oBg = own('background', 'sky', 'background', () => [scene.background, scene.backgroundIntensity], L.background, [scene]));
   sky._oBg._onChange = o => { if (!sky._backdrop && !sky.skybox && !sky._ownSky) sky.dome.visible = o.on; };   // a replaced sky keeps the dome hidden
-  list.push(sky._oMods = own('sky.modifiers', 'sky', 'modifiers', () => { const M = sky.modifiers; return [M.sun, M.ambient, M.fog, M.tintAmount, M.horizonTintAmount, M.flash, ...M.tint.toArray()]; }, L.modifiers, [sky.modifiers]));
   return list;
 }
 
@@ -65,6 +63,7 @@ export function updateSky(sky, focus) {
   applySeason(sky, sky.engine.uniforms);
   // the contract's inputs, once per frame: every function-valued look key below reads this one object (core/look/state.js)
   const ctx = fillContext(sky.engine, sky, sky.engine.weather?.name, sky.engine.calendar), P = sky.engine.look.sky;
+  for (const p of Object.values(sky.engine.look)) p.author.tick(ctx);   // function values on number keys (look.fog far, look.lights sun.intensity ...)
   const t = sky.drawnTime, kf = sky.kf;
   let i = 0; while (i < kf.length - 2 && t > kf[i + 1][0]) i++;
   const a = kf[i], b = kf[i + 1], f = (t - a[0]) / (b[0] - a[0]);
@@ -76,27 +75,27 @@ export function updateSky(sky, focus) {
   if (top != null) u.uTop.value.set(live(top, ctx));
   if (hor != null) u.uHorizon.value.set(live(hor, ctx));
   for (const o of sky._owned) if (o !== sky._oExposure || sky.engine.exposureDriver) o.check();   // exposure is engine-written only with a driver
-  if (sky._oMods.on) sky._combine();
   applyCover(sky, sky.engine.uniforms);   // after the season: snow / ash cover lies over the season tint
-  const M = sky.modifiers, hemiI = a[5] + (b[5] - a[5]) * f;
+  const M = skyTint(sky, sky._tintNow), flash = sky._points.flash.value(), hemiI = a[5] + (b[5] - a[5]) * f;
   // the sky's light now, 0-1 of its brightest keyframe row, read before any tint. Why: a sky.tint color (weather grey, a cave tint) is the color
   // under that brightest sky; lerping toward it as a fixed color turned a rainy night into a lit grey (#0d1628 -> #6b6b6d, R3). Dimmed by the
   // sky's own light it stays dark at night and is unchanged at the brightest row
   // sky. style.sky.dim.tint false keeps the tint at its full color at any hour (a style decision, not the engine's)
   const light = !sky.dim.tint ? 1 : sky._lightPeak > 0 ? Math.min(1, skyLight(u.uTop.value, u.uHorizon.value, hemiI) / sky._lightPeak) : 1;
-  if (M.tintAmount || M.horizonTintAmount) {
-    const tint = sky._tintLit.copy(M.tint).multiplyScalar(light);
-    if (M.tintAmount) u.uTop.value.lerp(tint, M.tintAmount);
-    if (M.horizonTintAmount) u.uHorizon.value.lerp(tint, M.horizonTintAmount);
+  if (M.amount || M.horizon) {
+    const tint = sky._tintLit.copy(M.color).multiplyScalar(light);
+    if (M.amount) u.uTop.value.lerp(tint, M.amount);
+    if (M.horizon) u.uHorizon.value.lerp(tint, M.horizon);
   }
-  if (M.flash) { u.uTop.value.addScalar(M.flash * 0.4); u.uHorizon.value.addScalar(M.flash * 0.3); }
+  if (flash) { u.uTop.value.addScalar(flash * 0.4); u.uHorizon.value.addScalar(flash * 0.3); }
   const bd = sky._backdrop;   // style.sky.backdrop (look.js): a flat background in place of the dome, fog follows it
   if (bd && sky._oBg.on) { if (bd.fn) bd.color.set(bd.fn(ctx)); sky.dome.visible = false; scene.background = bd.color; }
-  updateFog(sky, bd ? bd.color : u.uHorizon.value, M, ctx);
+  updateFog(sky, bd ? bd.color : u.uHorizon.value, ctx);
+  // the drawn sky colors for game shaders (render/effects.js uSkyTop / uSkyHorizon): the same horizon the fog's 'horizon' color copies
+  sky.engine.uniforms.uSkyTop.value.copy(u.uTop.value); sky.engine.uniforms.uSkyHorizon.value.copy(bd ? bd.color : u.uHorizon.value);
   fogMaterials(sky);   // the 'fog' patch onto materials added since the last scene change (nothing while three's own fog draws it)
   u.uFogBand.value = fogBand(scene.fog, u.uHorizon.value);   // compared to the dome's horizon (not the backdrop): the band is drawn on the dome
   u.uSunColor.value.copy(a[3]).lerp(b[3], f);   // the dome's sun disk follows the keyframes whatever drives the light
-  if (sky._oSunC?.on) sky._sun.color.copy(u.uSunColor.value);
   const sunI = a[4] + (b[4] - a[4]) * f;
 
   const ang = (t - 0.25) * Math.PI * 2, elev = Math.sin(ang);
@@ -108,23 +107,38 @@ export function updateSky(sky, focus) {
   EU.uDaylight.value = Math.max(0, elev); EU.uTimeOfDay.value = t;
   u.uNight.value = Math.min(1, Math.max(0, -elev * 4));
   const lightDir = elev >= 0 ? sky.sunDir : sky._lightDir.copy(sky.sunDir).negate().setZ(sky.orbit.tilt).normalize();
-  if (sky._oSunI?.on) sky._sun.intensity = sunI * Math.min(1, Math.abs(elev) * 7) * M.sun;   // fade out near the horizon so day/night switching does not pop
-  // one ambient budget (the style's ambient column x the weather's sky.ambient): the room map takes its share, the hemisphere light the rest
-  const amb = hemiI * M.ambient, share = roomShare(sky.engine);
+  // the keyframes are the style layer of the light keys (look.lights.drive in Sky.js); the sunset fade is an effect on top, like the weather's
+  // multiplier. So a game's look.lights.set({ sun: { intensity: 3 } }) replaces the keyframes and still dims at dusk and in rain (core/look/points.js)
+  const Lk = sky.engine.look.lights, La = Lk.author, D = sky._drive;
+  La.batch(() => {
+    if (D.sun === true) {
+      La.feed('sun.intensity', sunI); La.feed('sun.color', u.uSunColor.value.getHex());
+      // fade out near the horizon so day/night switching does not pop
+      sky._horizon = La.point('sun.intensity').take({ owner: 'sky:horizon', layer: 'effect', mul: Math.min(1, Math.abs(elev) * 7) });
+    }
+    if (D.hemi === true) {
+      La.feed('hemi.intensity', hemiI);
+      La.feed('hemi.color', sky._tmpC.copy(u.uTop.value).lerp(u.uHorizon.value, 0.5).getHex());
+      La.feed('hemi.ground', sky._tmpC.copy(sky.groundTint).multiplyScalar(0.4 + 0.6 * Math.min(1, hemiI)).getHex());
+    }
+  });
+  if (sky._oSunI?.on) sky._sun.intensity = Lk.value('sun.intensity');
+  if (sky._oSunC?.on) sky._sun.color.set(live(Lk.value('sun.color'), ctx));
+  // one ambient budget (look.lights hemi.intensity: the style's ambient column x the weather's multiplier): the room map takes its share, the hemisphere light the rest
+  const amb = Lk.value('hemi.intensity'), share = roomShare(sky.engine);
   if (sky._oHemi?.on) {
-    sky._hemi.intensity = amb * (1 - share) + M.flash * 3;
-    sky._hemi.color.copy(u.uTop.value).lerp(u.uHorizon.value, 0.5);
-    sky._hemi.groundColor.copy(sky.groundTint).multiplyScalar(0.4 + 0.6 * Math.min(1, hemiI));
+    sky._hemi.intensity = amb * (1 - share) + flash * 3;
+    sky._hemi.color.set(live(Lk.value('hemi.color'), ctx));
+    sky._hemi.groundColor.set(live(Lk.value('hemi.ground'), ctx));
   }
   // the room environment is its share of the same budget, in the same units: ambient x the luminance of the sky color the hemi light takes
   // (a neutral white map must not light a dark-blue night white: desert demo R4), turned into an environment intensity by what the map gives
   // at 1 (ROOM_RADIANCE; three's hemisphere light divides by PI, the environment does not). look.lights env.share is the share
   sky._envFollow(amb * skyLight(u.uTop.value, u.uHorizon.value, 1) / (Math.PI * ROOM_RADIANCE));
-  sky.engine.look.lights.applyTop(ctx);   // a game look.lights.set({ sun: { intensity } }) wins over the keyframes (look/part.js)
   const ex = sky.engine.exposureDriver;
   if (ex && sky._oExposure.on) sky.engine.renderer.toneMappingExposure = ex(ctx);   // style.exposure keyframes / function (engine.look.tone.set)
 
-  if (sky.skybox && sky._oBg.on) sky.engine.scene.backgroundIntensity = Math.max(0.05, hemiI * M.ambient / 1.2);
+  if (sky.skybox && sky._oBg.on) sky.engine.scene.backgroundIntensity = Math.max(0.05, amb / 1.2);
   if (sky.csm) cascadeFrame(sky, lightDir);   // cascades place their own lights from the camera (cascades.js)
   else if (sky._drive.sun !== false) sky._placeShadow(focus, lightDir);
   for (const o of sky._owned) o.mark();

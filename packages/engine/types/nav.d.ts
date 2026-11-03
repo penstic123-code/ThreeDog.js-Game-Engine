@@ -19,6 +19,12 @@ export interface NavOptions {
   crowd?: boolean;
   /** Show the navmesh (debug), default false */
   debug?: boolean;
+  /** Most TileCache obstacles (collision boxes are cut into several), default 1024 */
+  maxObstacles?: number;
+  /** Most crowd agents (with crowd: true), default 128 */
+  maxAgents?: number;
+  /** Meters past the character's radius a path may end short of its goal and still count as arrived, default 0.6 */
+  arrive?: number;
 }
 
 /**

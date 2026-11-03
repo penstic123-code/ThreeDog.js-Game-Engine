@@ -1,12 +1,12 @@
-# Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style-pack.md)
+# Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style.md)
 
 - **Style** fields (all optional):
   - `name?: string` Style name
   - `exposure?: number | number[][] | ((ctx: LookContext) => number)` Exposure, default 1: a number, or over the day [[time 0-1, exposure], ...] (sorted, wraps across midnight) or ({ time, state, sky }) => number, evaluated by the sky module every frame. engine.look.tone.set changes it at run time. Example: `exposure: [[0, 1.6], [0.3, 1], [0.75, 1.1]]   // brighter nights`
   - `toneMapping?: Loose<'aces' | 'agx' | 'neutral' | 'none'>` Tone mapping curve, written once when the engine creates its renderer (default 'agx', the render baseline). Later changes are plain three.js: engine.renderer.toneMapping = THREE.ACESFilmicToneMapping; the engine never writes it again
   - `background?: ColorLike` Background color (when there is no sky module)
-  - `post?: (Omit<import('./generate… & { slot? })[]` Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from '@threedog/post-effects'
-  - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material
+  - `materials?: Record<string, MaterialSpec | import('three').Material | ((…` Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a function (params, purpose) => Material. This table is the style layer of engine.look.materials (the one entry makeMaterial reads): the game's look.materials.set / replace go on top
+  - `plugins?: Record<string, any>` The style's own look plugins: what engine.plugins.add takes (import.meta.glob('./plugins/*.js', { eager: true }) from the style folder, or { name: { default: value } }), each file exporting the same shapes as the game's plugins/ folder. Example: `plugins: import.meta.glob('./plugins/*.js', { eager: true })`
   - `antialias?: boolean` Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier; createEngine({ antialias }) wins
   - `lighting?: MaterialLighting` Light shaping for every lit material of the pack (shadow tint, rim, wrap, glsl); a material's `lighting` wins, `lighting: false` opts out
   - `seasons?: StyleSeasons` Seasonal tint: { spring: { foliage, ground }, ... }. mode 'multiply' (default) multiplies the color onto the surface (pick tints near white: orange times green is muddy); 'mix' moves the surface `strength` (0-1, default 0.5) of the way to the color. Season names are the other keys, so none can be called mode or strength
@@ -56,7 +56,7 @@
   - `updateEvery?: number` Update shadows every N frames, default 1 (every frame); larger saves more, still updates promptly when the focus moves
   - `snap?: number | 'texel'` Shadow center snapping grid (meters), default 0.5; 'texel' snaps to shadow pixels (shadow edges do not shimmer while moving)
   - `ahead?: number` How far ahead of the view direction the shadow center is shifted (meters), default 0
-  - `type?: Loose<'basic' | 'pcf' | 'vsm'>` Shadow filter: 'basic' (hard edge, cheapest) / 'pcf' (default, soft edge) / 'vsm' (softest, costliest). Default: the engine's shadowType option
+  - `type?: Loose<'basic' | 'pcf' | 'vsm'>` Shadow filter: 'basic' (hard edge, cheapest) / 'pcf' (default, soft edge) / 'vsm' (softest, costliest). Default 'pcf' (look.shadow type)
   - `radius?: number` Edge softness for 'pcf' and 'vsm' (no effect on 'basic'), default 1
   - `blurSamples?: number` Blur sample count, 'vsm' only, default 8
   - `cascades?: number` Cascaded shadows (recipes/45): 1 (default) = one shadow map around the focus, the plain path; 2-4 split the sun's shadow along the view, sharp near the camera and wide far away. Each cascade draws the casters once more. Low-tier devices stay at 1 unless low.cascades says so. Example: `shadow: { cascades: 3, maxFar: 150, low: { cascades: 2, fade: false } }   // low-tier devices: 2 cascades instead of one map`

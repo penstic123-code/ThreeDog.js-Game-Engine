@@ -38,16 +38,15 @@ const V = new THREE.Vector3(), W = new THREE.Vector3(), O = new THREE.Vector3(),
 // when the circle covers more cells than exist)
 const CELL = 8;
 
-const SETUP_FIX = "e.g. engine.use(interactions({ ...presets.interactions.nearest })) (import { presets } from 'threedog'), or interactions({ pick: 'nearest' | 'facing' | 'aim' | fn, keys: ['KeyE'] })";
+const SETUP_FIX = "e.g. engine.use(interactions({ ...presets.interactions.nearest })) (import { presets } from 'threedog'), or interactions({ pick: 'nearest' | 'facing' | 'aim' | fn })";
 
 export class Interactions {
-  constructor(engine, { action = 'interact', promptHeight, radius = 2.5, pick, keys } = {}) {
+  constructor(engine, { action, promptHeight, radius, pick } = {}, track = h => h) {
     // No default pick and no default key: which object counts as "in front of you" and which key uses it are the game's choices (genericity rule:
-    // core carries no preset). presets.interactions.* bundle common pairs, so the fix is one spread.
+    // core carries no preset). presets.interactions.* are the picks, presets.bindings.interact the keys (declared here, bound by the game).
     if (pick === undefined) throw codedError('interaction-setup', `interactions(): no pick given; ${SETUP_FIX}`);
     if (typeof pick !== 'function' && !PICKS.includes(pick)) throw codedError('interaction-setup', `interactions({ pick }): '${pick}' is not a pick mode. Use ${PICKS.map(p => `'${p}'`).join(' | ')} or a function (candidates, ctx) => candidate`);
-    if (keys) engine.input.define(action, keys, 'input.interact');
-    else if (!engine.input.actions.has(action)) throw codedError('interaction-setup', `interactions(): the '${action}' action has no keys; pass keys: ['KeyE'] (or bind it: createEngine({ bindings: { ${action}: ['KeyE'] } })); ${SETUP_FIX}`);
+    track(engine.input.action(action, { label: 'input.interact', owner: 'interactions' }));
     this.engine = engine;
     this.action = action;
     this.radius = radius;
@@ -57,9 +56,11 @@ export class Interactions {
      * 'aim' | Function}
      */
     this.pickMode = pick;
-    this.items = [];
+    // id -> item, in the order added (a Map keeps it): get(id) and remove are O(1), where an array find on every add and a filter on every remove
+    // made adding or unloading n interactions O(n^2). Ties still go to the earlier added (_n), the order a linear scan had
+    /** @internal */ this._byId = new Map();
     /** @internal _cells: every item with a finite reach, at its world position; _wide: the unbounded ones; _moving: the indexed ones that follow an object */
-    this._cells = new Cells(CELL); this._wide = []; this._moving = [];
+    this._cells = new Cells(CELL); this._wide = new Set(); this._moving = [];
     /** @internal reach -> how many indexed items have it, so the query radius (the largest reach) drops back when the far-reaching one is removed */
     this._radii = new Map(); this._maxR = 0;
     /** @internal the pass the index was last brought up to date in */ this._fresh = 0;
@@ -114,17 +115,17 @@ export class Interactions {
     const it = { id, object, label, radius, action, onUse, enabled, height, hold, approach: !!approach, _p: new THREE.Vector3(), _at: target?.isObject3D ? -1 : Infinity,
       _n: this._order++, _en: null, _ix: null, _lx: NaN, _lz: NaN, _par: undefined };
     if (!target?.isObject3D) it._p.copy(object.position);
-    this.items.push(it);
+    this._byId.set(id, it);
     this._index(it);
-    return { remove: () => { if (it._gone) return; it._gone = true; this.items = this.items.filter(x => x !== it); this._unindex(it); if (this.current === it) this.current = null; } };
+    return { remove: () => { if (it._gone) return; it._gone = true; this._byId.delete(it.id); this._unindex(it); if (this.current === it) this.current = null; } };
   }
   /** @internal File a new item: unbounded reach in the plain list, else in the cells (a followed one is placed for real on the next refresh) */
   _index(it) {
     this._actions.set(it.action, (this._actions.get(it.action) ?? 0) + 1);
-    if (it.radius === Infinity) { this._wide.push(it); return; }
+    if (it.radius === Infinity) { this._wide.add(it); return; }
     // a fixed one is filed at its position; a followed one at its own xz (_ix), apart from _p, the exact per-pass measurement
     it._en = { id: '#' + it._n, position: it._at === Infinity ? it._p : (it._ix = { x: NaN, z: NaN }), it };
-    if (it._at === Infinity) this._cells.put(it._en); else { this._moving.push(it); this._fresh = 0; }
+    if (it._at === Infinity) this._cells.put(it._en); else { it._mi = this._moving.push(it) - 1; this._fresh = 0; }
     this._radii.set(it.radius, (this._radii.get(it.radius) ?? 0) + 1);
     if (it.radius > this._maxR) this._maxR = it.radius;
   }
@@ -132,9 +133,9 @@ export class Interactions {
   _unindex(it) {
     const a = this._actions.get(it.action) - 1;
     if (a) this._actions.set(it.action, a); else this._actions.delete(it.action);
-    if (!it._en) { const i = this._wide.indexOf(it); if (i >= 0) this._wide.splice(i, 1); return; }
+    if (!it._en) { this._wide.delete(it); return; }
     this._cells.delete(it._en); it._en = null;
-    if (it._at !== Infinity) { const m = this._moving, i = m.indexOf(it); m[i] = m[m.length - 1]; m.pop(); }
+    if (it._at !== Infinity) { const m = this._moving, last = m.pop(); if (last !== it) { m[it._mi] = last; last._mi = it._mi; } }   // swap-remove by stored slot
     const n = this._radii.get(it.radius) - 1;
     if (n) this._radii.set(it.radius, n);
     else { this._radii.delete(it.radius); if (it.radius === this._maxR) { this._maxR = 0; for (const r of this._radii.keys()) if (r > this._maxR) this._maxR = r; } }
@@ -166,13 +167,15 @@ export class Interactions {
     C.length = 0;
     this._refresh();
     if (this._maxR) this._cells.forEach(pos, this._maxR, this._onCell);
-    for (let i = 0; i < w.length; i++) C.push(w[i]);
+    for (const it of w) C.push(it);
     if (action !== undefined) { let k = 0; for (let i = 0; i < C.length; i++) if (C[i].action === action) C[k++] = C[i]; C.length = k; }
     return C;
   }
 
   /** The interaction with this id (null if none). @param {string} id */
-  get(id) { return this.items.find(x => x.id === id) ?? null; }
+  get(id) { return this._byId.get(id) ?? null; }
+  /** All interactions in the order added (a fresh array each read) */
+  get items() { return [...this._byId.values()]; }
 
   /** The interaction actor would use now for action (any action when omitted), by the pick mode; null if none in range. @internal */
   pick(actor = this.engine.actor, action) {
@@ -250,7 +253,7 @@ export class Interactions {
   /** @internal One fixed step of the hold: released / removed / disabled / out of reach interrupts it, else it counts; complete = the op interaction.use */
   _tickHold(dt) {
     const h = this._hold, it = h.it, e = this.engine, p = e.actorPosition();
-    const why = !e.input.down(h.action) ? 'released' : !this.items.includes(it) ? 'removed' : !it.enabled(it.object, { actor: e.actor }) ? 'disabled'
+    const why = !e.input.down(h.action) ? 'released' : it._gone ? 'removed' : !it.enabled(it.object, { actor: e.actor }) ? 'disabled'
       : !p || this._where(it).distanceTo(W.set(p.x, p.y ?? 0, p.z)) >= it.radius ? 'tooFar' : null;
     if (why) return this._interrupt(why);
     h.t += dt; this._holdView();
@@ -310,34 +313,32 @@ const walkerOf = (e, actor) => actor === 'player' && e.player?.walkTo ? e.player
 const INTERACTION_PARAMS = {
   action: { type: 'string', default: 'interact', desc: 'input action that uses the interaction' },
   pick: { type: 'any', optional: true, desc: "which one counts as in front of you: 'nearest' | 'facing' | 'aim' | a function (required; checked with a fix hint on install)" },
-  keys: { type: 'array', optional: true, desc: "keys that use it, e.g. ['KeyE'] (required unless createEngine({ bindings }) binds the action)" },
   radius: { type: 'number', default: 2.5, min: 0, desc: 'reach in meters (add() can set its own)' },
   promptHeight: { type: 'number', optional: true, desc: 'prompt height above the target (meters)' },
 };
 
 /**
  * Interactions module. Installs engine.interactions.
- * pick and keys are required (the engine picks neither; presets.interactions.* bundle them). radius: default reach of add() in meters (2.5); pick: how the
+ * pick is required (the engine picks none; presets.interactions.* name them); the game binds the action's keys (presets.bindings.interact: E / gamepad X). radius: default reach of add() in meters (2.5); pick: how the
  * interaction in front of the actor is chosen —
  * 'nearest' (top-down and third person), 'facing' (only what the actor faces, within 60°: souls-likes, the door behind you stays dark),
  * 'aim' (closest to the screen-center ray: first person and shooters), or a function (candidates, ctx) => one of candidates | null,
  * where candidates are the enabled ones in range ({ id, object, action, label, distance }, nearest first) and ctx is { engine, actor, position, action }.
- * keys: the action's keys (default action 'interact'); leave it out only when the game already bound the action (createEngine({ bindings })).
- * @example engine.use(interactions({ ...presets.interactions.nearest }));                       // E, the nearest one
- * engine.use(interactions({ pick: 'aim', keys: ['KeyF'], radius: 2 }));                           // first person
- * engine.use(interactions({ pick: (list) => list.find(c => c.id.startsWith('npc')) ?? list[0], keys: ['KeyE'] }));   // people before things
- * @param {{ action?: string, promptHeight?: number, radius?: number, pick: 'nearest' | 'facing' | 'aim' | ((candidates: any[], ctx: any) => any), keys?:
- * string[] }} opts
+ * @example engine.use(interactions({ ...presets.interactions.nearest }));   // + createEngine({ bindings: presets.bindings.interact }): E, the nearest one
+ * engine.use(interactions({ pick: 'aim', radius: 2 }));                                       // first person
+ * engine.use(interactions({ pick: (list) => list.find(c => c.id.startsWith('npc')) ?? list[0] }));   // people before things
+ * @param {{ action?: string, promptHeight?: number, radius?: number, pick: 'nearest' | 'facing' | 'aim' | ((candidates: any[], ctx: any) => any) }} opts
  */
 export function interactions(opts) {
   const o = readParams('interactions', INTERACTION_PARAMS, opts ?? {});
   let i = null;
-  return { name: 'interactions', label: 'Interactions', params: INTERACTION_PARAMS, options: o, noSkip: 'input and prompt state only', stage: 'gameplay',
-    install(e) { i = new Interactions(e, opts); defineUse(e, i); return i; },
+  return { name: 'interactions', type: 'rules', provides: ['interactions'], label: 'Interactions', params: INTERACTION_PARAMS, options: o, noSkip: 'input and prompt state only', stage: 'gameplay',
+    // o: the schema defaults are filled in, the class repeats none
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.interactions': '交互' }, en: { 'module.interactions': 'interactions' } }); i = new Interactions(e, o, ctx.track); defineUse(e, i); return i; },
     fixed(dt) { i.fixed(dt); }, frame() { i.update(); },
     // interactions are "weak" info: when an NPC, pickup or entity already reported the same object, only add "interactable: xxx"
     describe(e, ctx) {
-      for (const it of i.items) if (it.enabled(it.object, { actor: e.actor })) { const use = labelOf(it, e.actor); ctx.near(it.object, { name: use, kind: 'interactable', use }, true); }
+      for (const it of i._byId.values()) if (it.enabled(it.object, { actor: e.actor })) { const use = labelOf(it, e.actor); ctx.near(it.object, { name: use, kind: 'interactable', use }, true); }
       if (i.current) return { current: labelOf(i.current, e.actor) };
     } };
 }
@@ -370,7 +371,7 @@ function defineUse(e, i) {
       const ch = walkerOf(e, ctx.actor), q = it.object.getWorldPosition(new THREE.Vector3());
       if (Math.hypot(q.x - ch.position.x, q.z - ch.position.z) <= APPROACH_ARRIVE + 0.3) return it.onUse?.(it.object, { actor: ctx.actor });
       // used after arrival, so checked again then: removed or disabled while walking = not used
-      return { approaching: ch.walkTo(q, { arrive: APPROACH_ARRIVE }).then(r => r.status === 'arrived' && i.items.includes(it) && it.enabled(it.object, { actor: ctx.actor }) ? it.onUse?.(it.object, { actor: ctx.actor }) : r) };
+      return { approaching: ch.walkTo(q, { arrive: APPROACH_ARRIVE }).then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? it.onUse?.(it.object, { actor: ctx.actor }) : r) };
     },
     offers(e, ctx) { const it = find(undefined, undefined, ctx); return it ? [{ id: it.id }] : []; },
     reasons: { unknown: 'No interaction with this id', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A window or dialogue locks input' },

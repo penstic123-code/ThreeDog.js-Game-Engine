@@ -1,40 +1,45 @@
 // Review guards ("do not bypass"): the engine picks no gameplay key, no day cycle, no dialogue duck and no sea for a game; plus the bugs the
 // review found (autopilot speed, afterLoad on newGame, idle shadow slots, level nodes without world, canvas with one auto axis, audio before unlock...).
-// Same format as specs.mjs. Run: npm test -- "review guard"
+// Same format as the other files here. Run: npm test -- "review guard"
 const PAGE = '/tests/threads/';
 
 export const specs = [
   {
-    name: 'review guard: no module binds a gameplay key (inventory / quests / photo / brake / pad jump-run-interact); presets.keys bundles them',
+    name: 'review guard: no module binds a gameplay key or takes a keys option; presets.bindings holds them; module actions leave with the module',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { mk } = threedogThreads, T = threedogThreads.all, { createEngine, presets } = T, out = {};
-        const err = f => { try { f(); return null; } catch (e) { return String(e.message); } };
+        const err = f => { try { f(); return null; } catch (e) { return String(e.code || e.message); } };
         const E = mk(createEngine, 'rg-keys');
-        out.inv = err(() => E.use(T.inventory()));
-        out.quests = err(() => E.use(T.quests()));
-        out.photo = err(() => E.use(T.photo()));
-        const F = mk(createEngine, 'rg-keys2');
-        F.use(T.world(), T.inventory({ ...presets.keys.inventory }), T.quests({ keys: [] }));
-        out.invKeys = F.input.keysOf('inventory'); out.questsBound = F.input.actions.has('quests');
-        // core pad defaults are only the neutral menu ones: a game binding jump to Space gets no gamepad A behind its back
-        F.input.define('jump', ['Space'], 'Jump'); F.input.define('interact', ['KeyF'], 'Use'); F.input.define('run', ['ShiftLeft'], 'Run');
-        out.jump = F.input.keysOf('jump'); out.interact = F.input.keysOf('interact'); out.run = F.input.keysOf('run');
-        out.confirmPad = F.input.keysOf('confirm').includes('PadA');
-        out.walkJump = presets.player.thirdPerson.jumpKeys; out.brake = presets.keys.brake;
-        // a game that binds the action itself needs no keys option
-        const G = mk(createEngine, 'rg-keys3', { bindings: { inventory: ['Tab'] } });
-        out.bound = err(() => G.use(T.inventory())); out.boundKeys = G.input.keysOf('inventory');
+        // every module that used to take keys: installs without them, declares its action, binds nothing
+        out.use = err(() => E.use(T.world(), T.collision(), T.characters({ npcs: false }), T.interactions({ ...presets.interactions.nearest }), T.inventory(), T.quests(), T.photo(), T.grids(), T.rtsCamera()));
+        const acts = ['interact', 'inventory', 'quests', 'photo', 'jump', 'run', 'brake', 'rotateLeft', 'rotateRight'];
+        out.declared = acts.filter(a => E.input.actions.has(a));
+        out.bound = acts.filter(a => E.input.keysOf(a).length);
+        // a keys option is an unknown option now (the old way fails loudly instead of being ignored)
+        out.keysOpt = ['inventory', 'quests', 'photo', 'interactions'].map(n => err(() => T[n]({ keys: ['KeyX'], pick: 'nearest' })));
+        out.brakeOpt = err(() => T.characters({ brakeKeys: ['KeyB'] }));
+        out.presetKeys = 'keys' in presets;
+        // modules leave with their actions (ctx-tracked, also the rts camera's and the grid preview's)
+        for (const n of ['inventory', 'quests', 'photo', 'interactions', 'cameraRig', 'characters']) E._unuse(n);
+        out.left = acts.filter(a => E.input.actions.has(a));
+        const F = mk(createEngine, 'rg-keys2', { bindings: { ...presets.bindings.walk, ...presets.bindings.inventory, ...presets.bindings.brake } });
+        F.use(T.world(), T.inventory());
+        out.invKeys = F.input.keysOf('inventory'); out.jump = F.input.keysOf('jump'); out.brake = F.input.keysOf('brake');
+        // core pad keys are only in the basics: a game binding jump to Space gets no gamepad A behind its back
+        const G = mk(createEngine, 'rg-keys3', { bindings: { jump: ['Space'], interact: ['KeyF'], run: ['ShiftLeft'] } });
+        out.gJump = G.input.keysOf('jump'); out.gInteract = G.input.keysOf('interact'); out.gRun = G.input.keysOf('run');
+        out.confirmPad = G.input.keysOf('confirm').includes('PadA');
         E.dispose(); F.dispose(); G.dispose();
         return out;
       });
-      const named = (m, p) => typeof m === 'string' && m.includes(`presets.keys.${p}`) && m.includes('keys: []');
-      check('[guard] inventory() / quests() / photo() without keys throw naming presets.keys.* and keys: []', named(r.inv, 'inventory') && named(r.quests, 'quests') && named(r.photo, 'photo'), JSON.stringify([r.inv, r.quests, r.photo]));
-      check('presets.keys.inventory gives I + gamepad Y; keys: [] binds nothing', r.invKeys.includes('KeyI') && r.invKeys.includes('PadY') && !r.questsBound, JSON.stringify(r));
-      check('[guard] core adds no gamepad key to jump / interact / run; confirm keeps PadA', !r.jump.some(k => k.startsWith('Pad')) && !r.interact.some(k => k.startsWith('Pad')) && !r.run.some(k => k.startsWith('Pad')) && r.confirmPad, JSON.stringify(r));
-      check('the walking presets carry their gamepad keys; presets.keys.brake is B / LT', r.walkJump.includes('PadA') && r.brake.brakeKeys.includes('KeyB') && r.brake.brakePad.includes('PadLT'), JSON.stringify(r));
-      check('createEngine({ bindings }) stands in for the keys option', r.bound === null && r.boundKeys.includes('Tab'), JSON.stringify(r));
+      check('modules install without keys and declare their actions', r.use === null && r.declared.length === 9, JSON.stringify(r));
+      check('[guard] no module binds a key by itself', r.bound.length === 0, JSON.stringify(r.bound));
+      check('[guard] keys / brakeKeys options are unknown options; presets.keys is gone', r.keysOpt.every(x => x === 'module-params') && r.brakeOpt === 'module-params' && !r.presetKeys, JSON.stringify(r));
+      check('[guard] module actions leave with the module (rts camera and characters too)', r.left.length === 0, JSON.stringify(r.left));
+      check('presets.bindings: inventory I + Y, walk Space + A, brake B + LT', r.invKeys.includes('KeyI') && r.invKeys.includes('PadY') && r.jump.includes('PadA') && r.brake.includes('PadLT'), JSON.stringify(r));
+      check('[guard] core adds no gamepad key to jump / interact / run; confirm keeps PadA', !r.gJump.some(k => k.startsWith('Pad')) && !r.gInteract.some(k => k.startsWith('Pad')) && !r.gRun.some(k => k.startsWith('Pad')) && r.confirmPad, JSON.stringify(r));
     },
   },
   {
@@ -74,12 +79,17 @@ export const specs = [
       const r = await ev(async () => {
         const { mk } = threedogThreads, T = threedogThreads.all, { lightPool } = T, { createEngine } = T, out = {};
         out.water = T.createTerrain({}).waterLevel;
-        const E = mk(createEngine, 'rg-terrain', { fogFar: 333 });
+        const E = mk(createEngine, 'rg-terrain');
         E.use(T.terrain({ viewChunks: 2 })); await E.start();
-        out.fogFar = E.fogFar; out.engineWater = E.waterLevel;
-        const F = mk(createEngine, 'rg-terrain2', { fogFar: 333 });
-        F.use(T.terrain({ viewChunks: 2, viewFog: true })); await F.start(); out.viewFog = F.fogFar;
-        E.dispose(); F.dispose();
+        out.fogFar = E.terrain.viewFogFar; out.engineWater = E.waterLevel;
+        const F = mk(createEngine, 'rg-terrain2');
+        F.use(T.terrain({ viewChunks: 2, viewFog: true })); await F.start(); out.viewFog = F.terrain.viewFogFar;
+        // the fog write belongs to the terrain look (ctx.mod): it leaves with that module
+        const G = mk(createEngine, 'rg-terrain3');
+        G.use(T.sky(), T.terrain({ viewChunks: 2, viewFog: true })); await G.start(); G.step(0.1);
+        const owners = () => { const row = G.stacks.get('look.fog.far').row(); return [row.writer, ...(row.also ?? []).map(h => h.owner)]; };
+        out.fogOwners = owners(); G._unuse('terrainLook'); G.step(0.1); out.fogOwnersAfter = owners();
+        E.dispose(); F.dispose(); G.dispose();
         // light pool: 2 points, both cast; a source without castShadow still gets one, and a dark slot has autoUpdate off
         const warns = [], w0 = console.warn; console.warn = (...a) => warns.push(a.join(' '));
         const L = mk(createEngine, 'rg-lights');
@@ -96,7 +106,8 @@ export const specs = [
         return out;
       });
       check('[guard] terrain without waterLevel has no sea (-Infinity)', r.water === -Infinity && r.engineWater === -Infinity, JSON.stringify(r));
-      check('[guard] terrain keeps createEngine({ fogFar }); viewFog: true moves it to the view distance', r.fogFar === 333 && r.viewFog !== 333, JSON.stringify(r));
+      check('[guard] terrain leaves the fog alone; viewFog: true puts the view distance on the fog (engine layer)', r.fogFar === null && r.viewFog > 0, JSON.stringify(r));
+      check('[guard] the view fog is written by the terrain look and goes when that module is removed', r.fogOwners.includes('terrainLook') && !r.fogOwnersAfter.includes('terrainLook'), JSON.stringify([r.fogOwners, r.fogOwnersAfter]));
       check('[guard] idle shadow slots render no shadow map (autoUpdate false), a lit one does, released again after', r.idleAuto.every(a => a === false) && r.autoAfter === 1 && r.autoGone === 0, JSON.stringify(r));
       check('shadows >= point: a non-casting source still lights (and the pool warns once)', r.lit === 1 && r.allShadowWarn, JSON.stringify(r));
     },
@@ -108,7 +119,7 @@ export const specs = [
       const r = await ev(async () => {
         const { mk } = threedogThreads, T = threedogThreads.all, { level } = threedogThreads, { createEngine, THREE } = T, out = { hooks: 0 };
         const E = mk(createEngine, 'rg-load');
-        E.use(T.world(), { name: 'rgHook', afterLoad: async () => { out.hooks++; } });
+        E.use(T.world(), { name: 'rgHook', type: 'rules', afterLoad: async () => { out.hooks++; } });
         await E.start();
         const data = E.saves.collect();
         out.applied = await E.saves.apply(data); out.afterApply = out.hooks;
@@ -153,7 +164,7 @@ export const specs = [
         const A = mk(createEngine, 'rg-assets');
         A.assets.manifest({ name: 'packA', models: { tree: '/a/tree.glb' } }); A.assets.manifest({ name: 'packB', models: { tree: '/b/tree.glb' } });
         console.warn = w0; out.replaced = warns.some(m => m.includes('packA') && m.includes('packB') && m.includes('tree'));
-        A.use(T.world(), T.inventory({ keys: [] }), T.content()); await A.start();
+        A.use(T.world(), T.inventory(), T.content()); await A.start();
         A.content.load([{ name: 'base', items: { gold: { name: 'Gold' } }, startItems: { gold: 5 } }, { name: 'dlc', startItems: { gold: 3 } }]);
         out.gold = A.inventory.count('gold');
         A.dispose();

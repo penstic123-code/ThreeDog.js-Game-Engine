@@ -11,11 +11,11 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 
 ## Engine modules (engine.use)
 
-- createEngine: { style: parts.length ? parts : undefined, strings: terrainStrings, saveKey: 'threedog-styletest', ui: { load…
+- createEngine: { bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...prese…
 - openWorld preset ({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, …) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
 - interactions ({ ...presets.interactions.nearest })
 - dialogue ({ holdSeconds: 1e6 })
-- inventory ({ ...presets.keys.inventory })
+- inventory
 - hud
 - lightPool ({ point: 2 })
 - content
@@ -37,7 +37,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 Not used yet (check these before writing the system yourself):
 
 - saves: save your own state: `engine.saves.register(key, { version, save, load })` (node_modules/threedog/docs/recipes/20-content-actions-save.md)
-- quests: goals with steps, conditions and rewards: `quests({ ...presets.keys.quests })` (keys required), content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
+- quests: goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
 - grids: cell placement for farming and building: `grids()` (node_modules/threedog/docs/recipes/29-grid.md)
 
 ## Files
@@ -54,9 +54,9 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 17 |  |
 | content/templates.js | 10 |  |
 | content/vegetation.js | 32 |  |
-| look.js | 12 | This example's look, a style part merged over the style under test (createEngine({ style: [lowpoly,… |
+| look.js | 12 | This example's look, a style part merged over the style under test (createEngine({ style: [worldSty… |
 | main.js | 97 | @ts-check Style test: one fixed scene to judge a style by (and the check an AI runs after turning a… |
-| models.js | 88 | The exhibits that are not in the lowpoly asset pack, built in code and registered by name in main.j… |
+| models.js | 88 | The exhibits that are not in the world example's art (../world/art), built in code and registered b… |
 | params.js | 33 | URL parameters of the style test page. Import this file first in main.js: it rewrites word values i… |
 | views.js | 32 | Named camera positions of the style test. Same name = same framing every time, so two screenshots d… |
 

@@ -63,7 +63,7 @@ export async function openPanel(engine, opts = {}) {
     .on('change', e => { engine.renderer.toneMappingExposure = e.value; put(['exposure'], e.value); });
   sky.addBinding(light, 'time', { min: 0, max: 24, step: 0.1, label: '天空时间 hour (preview)' })
     .on('change', e => { if (engine.calendar) engine.calendar.timeOfDay = e.value / 24 % 1; });
-  const layer = () => { for (const [k, n] of [['sun', 'sky.sunLight'], ['ambient', 'sky.ambient'], ['fog', 'sky.fog']]) engine.mod(n, { owner: 'workbench', mul: light[k] }); };
+  const layer = () => { for (const [k, n] of [['sun', 'look.lights.sun.intensity'], ['ambient', 'look.lights.hemi.intensity'], ['fog', 'look.fog.far']]) engine.mod(n, { owner: 'workbench', mul: light[k] }); };
   for (const [k, label] of [['sun', '阳光倍率 sun x (preview)'], ['ambient', '环境光倍率 ambient x (preview)'], ['fog', '雾距离倍率 fog x (preview)']]) {
     sky.addBinding(light, k, { min: 0.1, max: 3, step: 0.05, label }).on('change', layer);
   }
@@ -202,7 +202,7 @@ export async function openPanel(engine, opts = {}) {
     let s = `// paste into createEngine({ style: [yourPack, { ... }] }):\n${literal(changes, colors)}`;
     const posts = [...notes].filter(([, v]) => Object.keys(v).length);
     if (posts.length) {
-      s += '\n// post effects are a list, not a literal: call the factory again with these (postAdd(bloom({ strength: 0.6 }))):\n';
+      s += '\n// post effects are plugin files, not a literal: call the factory there again with these (style/plugins/10-bloom.js: export default bloom({ strength: 0.6 })):\n';
       s += posts.map(([n, v]) => `//   ${n}: ${JSON.stringify(v)}`).join('\n');
     }
     return s;

@@ -6,14 +6,14 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
+import { TOOLS, ROOT, ENGINE, viteOptions } from '../paths.mjs';
 import { readFileSync } from 'node:fs';
 import { TIME } from '../threedog/runtime.mjs';
 
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['art_list', 'catalog', 'check', 'describe', 'errors', 'explain', 'hold', 'how', 'inspect', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'style_compare', 'style_palette', 'thing', 'verify'];
+const EXPECTED = ['art_list', 'catalog', 'check', 'describe', 'errors', 'explain', 'hold', 'how', 'inspect', 'lib_list', 'loading', 'op', 'ops', 'pick', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'style_compare', 'style_palette', 'thing', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -44,10 +44,10 @@ async function steps(check, plain) {
     const info = await plain.init, list = await plain.rpc('tools/list');
     check('initialize: answers with the protocol version, the tools capability and the server name',
       info.protocolVersion === '2025-06-18' && info.capabilities.tools && info.serverInfo.name === 'threedog', JSON.stringify(info).slice(0, 200));
-    // one source: the server instructions carry AI.md "When something happens -> which tool" (every row, backticks dropped)
-    const aiSec = readFileSync(join(ENGINE, 'docs/AI.md'), 'utf8').split(/^## /m).find(s => s.startsWith('When something happens')) ?? '';
+    // one source: the server instructions carry recipe 16 §11 "When something happens: which tool" (every row, backticks dropped)
+    const aiSec = readFileSync(join(ENGINE, 'docs/recipes/16-dev-bridge.md'), 'utf8').split(/^## /m).find(s => /^11\. When something happens/.test(s)) ?? '';
     const aiRows = aiSec.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).replaceAll('`', '').replace(/\.$/, '').trim());
-    check('initialize: the instructions carry every row of AI.md "When something happens -> which tool", and stay short',
+    check('initialize: the instructions carry every row of recipe 16 "When something happens: which tool", and stay short',
       aiRows.length >= 10 && aiRows.every(r => info.instructions.includes(r)) && info.instructions.length < 3000, `rows ${aiRows.length}, length ${info.instructions.length}`);
     check('tools/list: one tool per bridge command, each with an object schema and a description',
       JSON.stringify(names(list)) === JSON.stringify(EXPECTED) && list.tools.every(t => t.inputSchema.type === 'object' && t.description.length > 20), names(list).join(', '));
@@ -80,7 +80,7 @@ async function steps(check, plain) {
   }
 
   // 3. Against a running dev server: describe returns text, snap returns an image
-  const server = await createServer({ root: dir, configFile: join(dir, 'vite.config.js'), server: { port: 0, host: 'localhost' }, logLevel: 'error' });
+  const server = await createServer(await viteOptions(dir, { server: { port: 0, host: 'localhost' }, logLevel: 'error' }));
   await server.listen();
   try {
     const d = await plain.rpc('tools/call', { name: 'describe', arguments: {} });

@@ -38,18 +38,22 @@ export function sky(opts = {}) {
   readParams('sky', SKY_PARAMS, opts);
   let s = null;
   return {
-    name: 'sky', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
+    name: 'sky', type: 'look', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
+    // the one sky: a game's own sky module takes over with engine.use(mySky(), { replaces: 'sky' }) (this one unloads with its look changes)
+    provides: ['sky'],
     // weather: only its name for the look context (core/look/state.js); calendar: the time drawn (without it one fixed time, sky({ time }))
     optional: ['weather', 'calendar'],
-    install(e) {
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.sky': '天空' }, en: { 'module.sky': 'sky' } });
       // a time given while a calendar draws would sit silently unused (calendar() installed after sky checks the same: modules/calendar/index.js)
       if (opts.time != null && e.calendar) throw codedError('sky-option', STRINGS.timeTwice);
       s = new Sky(e, opts);
+      // without a calendar the drawn sun tells day from night (night glow reads the measure); a calendar installed later registers its own over it
+      if (!e.audio.measures.has('daylight')) ctx.track(e.audio.measure('daylight', () => s.daylight));
       return s;
     },
     frame(dt, e) { s.update(e.focus); s._envFrame(dt); },
     afterRender() { s.afterRender(); },
-    dispose() { s._envOff(); followRoomEnvironment(s.engine, null, s._oEnv.on); setFogPatch(s, null); dropCascades(s); dropOwned(s.engine, [...s._owned, s._oEnv]); dropOwnedRow(s.engine, 'shadow.csm'); dropOwnedRow(s.engine, 'fog.patch'); },
+    dispose() { s._shadowOff?.(); s._horizon?.remove(); s._swap.remove(); s._envOff(); followRoomEnvironment(s.engine, null, s._oEnv.on); setFogPatch(s, null); dropCascades(s); dropOwned(s.engine, [...s._owned, s._oEnv]); dropOwnedRow(s.engine, 'shadow.csm'); dropOwnedRow(s.engine, 'fog.patch'); },
     // scenario params time / season go to the calendar when there is one (its own applyState); without it time sets the fixed time drawn
     applyState(e, { time, season }) {
       if (e.calendar) return;

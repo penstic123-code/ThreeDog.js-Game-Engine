@@ -1,23 +1,23 @@
-// Style pack tools for making a look from a reference picture: threedog style check|palette|compare
-//   threedog style check [pack|folder|file] [--json] [--assets file]   check the merged final style (what style: [a, b, {...}] becomes):
+// Style tools for making a look from a reference picture: threedog style check|palette|compare
+//   threedog style check [folder|file|game] [--json] [--assets file]   check the merged final style (what style: [a, b, {...}] becomes):
 //       unknown fields (did-you-mean), world-state fields, missing palette keys, color formats, post-effect conflicts, material roles / types,
-//       asset names; plus R34's text checks for the same pack. Static only: it cannot prove a pack holds no gameplay logic.
+//       asset names; plus R34's text checks for the same folder. Default: the style/ folder of the game in the current folder. Static only: it cannot prove a style holds no gameplay logic.
 //   threedog style palette <image> [--n 8] [--average] [--region x,y,w,h] [--ignore-ui] [--crop out.png]
 //       dominant colors and light / saturation summary of a reference picture (a helper, not a decision); the output says what area was measured
 //   threedog style compare <reference> <screenshot> [--region x,y,w,h] [--json]   brightness / saturation / contrast / detail / color differences (an aid to the eye, not a score)
 // A game's look is its own style/ folder (templates/game/style/index.js); these tools work on that folder or file.
 import { pathToFileURL } from 'node:url';
-import { dirname } from 'node:path';
 import { rel } from './paths.mjs';
+import { parseOptions } from './lib/cli-args.mjs';
 import { loadSchema } from './style/schema.mjs';
 import { checkStyle, paletteRefs } from './style/check.mjs';
 import { resolveEntry, sourcesOf, loadStyle, assetNames } from './style/load.mjs';
 
 const PALETTE_USAGE = 'Usage: threedog style palette <image> [--n 8] [--average] [--region x,y,w,h] [--ignore-ui] [--crop out.png] [--json] (a path starting with - goes after --)';
 const COMPARE_USAGE = 'Usage: threedog style compare <reference> <screenshot> [--region x,y,w,h] [--ref-region x,y,w,h] [--shot-region x,y,w,h] [--out side.png] [--json]';
-const USAGE = `Usage: threedog style check [pack|folder|file] [--json] [--assets file]\n  ${PALETTE_USAGE.slice(7)}\n  ${COMPARE_USAGE.slice(7)}`;
+const USAGE = `Usage: threedog style check [folder|file|game] [--json] [--assets file]\n  ${PALETTE_USAGE.slice(7)}\n  ${COMPARE_USAGE.slice(7)}`;
 
-/** Findings of one pack: { entry, findings, errors, warnings } */
+/** Findings of one style: { entry, findings, errors, warnings } */
 export async function styleCheck(target, { assets: extra } = {}) {
   const entry = resolveEntry(target), { style, mod, closest, purposes } = await loadStyle(entry), sources = sourcesOf(entry);
   const names = assetNames(mod);
@@ -25,16 +25,17 @@ export async function styleCheck(target, { assets: extra } = {}) {
   const refs = new Map();
   for (const s of sources) for (const [k, line] of paletteRefs(s.text)) if (!refs.has(k)) refs.set(k, `${rel(s.file).split('/').pop()}:${line}`);
   const findings = checkStyle(style, { schema: loadSchema(), closest, purposes, assets: names, paletteRefs: refs });
-  // R34 already checks the text of packs (world-shape generators, world fields written as literals, font files): reuse it for this pack only
-  const dir = rel(dirname(entry)), r34 = (await import('./rules/R34-style-looks-only.mjs')).default;
-  for (const x of r34.run().filter(x => x.file.startsWith(dir + '/'))) findings.push({ level: x.level, path: `${x.file}:${x.line}`, msg: `[R34] ${x.msg}`, fix: x.fix });
+  // R34's text checks (world-shape generators, world fields written as literals, font files) on exactly this style's files: running the whole
+  // rule and filtering by folder would miss a style kept outside a style/ folder (style-toon/, a single file)
+  const { lookFindings } = await import('./rules/R34-style-looks-only.mjs');
+  for (const x of sources.flatMap(s => lookFindings(rel(s.file)))) findings.push({ level: x.level, path: `${x.file}:${x.line}`, msg: `[R34] ${x.msg}`, fix: x.fix });
   const count = l => findings.filter(x => x.level === l).length;
   return { entry: rel(entry), findings, errors: count('error'), warnings: count('warn'), notes: count('note') };
 }
 
 function printCheck(r) {
   for (const x of r.findings) console.log(`${{ error: '✗', warn: '!', note: '·' }[x.level]} ${x.path}: ${x.msg}${x.fix ? `\n    fix: ${x.fix}` : ''}`);
-  console.log(`${r.errors ? '✗' : '✓'} ${r.entry}: ${r.errors} error(s), ${r.warnings} warning(s)${r.notes ? `, ${r.notes} note(s)` : ''}. Static checks only: whether the pack holds gameplay logic is not proven here (R34 looks for the usual patterns by text).`);
+  console.log(`${r.errors ? '✗' : '✓'} ${r.entry}: ${r.errors} error(s), ${r.warnings} warning(s)${r.notes ? `, ${r.notes} note(s)` : ''}. Static checks only: whether the style holds gameplay logic is not proven here (R34 looks for the usual patterns by text).`);
 }
 
 /** `style palette` as text (the CLI prints it, the MCP tool returns it). Throws an Error with a readable message on bad input. */
@@ -51,15 +52,14 @@ export async function paletteText(image, { n = 8, average, ignoreUi, region, cro
     '(--json for every field)'].join('\n');
 }
 
-const VALUED = ['--assets', '--n', '--region', '--ref-region', '--shot-region', '--crop', '--out'];
 /**
- * Arguments after `style <sub>` (CLI and the bridge / MCP commands share this): flags, valued options, positional paths.
- * Everything after a bare `--` is positional, so a file name that starts with '-' still works: style compare -- -ref.png -shot.png
+ * Arguments after `style <sub>` (CLI and the bridge / MCP commands share this): flags, valued options, positional paths, parsed by the one
+ * strict parser (an unknown option throws naming the closest one). Everything after a bare `--` is positional, so a file name that starts
+ * with '-' still works: style compare -- -ref.png -shot.png
  */
 export function styleArgs(args) {
-  const cut = args.indexOf('--'), head = cut < 0 ? args : args.slice(0, cut), tail = cut < 0 ? [] : args.slice(cut + 1);
-  const flag = n => head.includes(n), val = n => { const i = head.indexOf(n); return i >= 0 ? head[i + 1] : undefined; };
-  return { flag, val, pos: [...head.filter((a, i) => !a.startsWith('-') && !VALUED.includes(head[i - 1])), ...tail] };
+  const { opt, rest } = parseOptions(args, { positional: true, flags: ['json', 'average', 'ignore-ui'], values: ['assets', 'n', 'region', 'ref-region', 'shot-region', 'crop', 'out'] });
+  return { flag: n => opt[n.slice(2)] === true, val: n => opt[n.slice(2)], pos: rest };
 }
 
 /** `style compare` as text; regions are "x,y,w,h" strings */
@@ -71,7 +71,8 @@ export async function compareText(reference, screenshot, { region, refRegion, sh
 }
 
 export async function main([sub, ...rest]) {
-  const { flag, val, pos } = styleArgs(rest);
+  let flag, val, pos;
+  try { ({ flag, val, pos } = styleArgs(rest)); } catch (e) { console.error(`✗ ${e.message}`); return 1; }
   const arg = pos[0];
   try {
     if (sub === 'check') {

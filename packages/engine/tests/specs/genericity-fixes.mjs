@@ -1,5 +1,5 @@
-// Genericity fixes (docs/plans/2026-11-02-genericity-fixes.md items 6, 8, 9, 10): character states hook and water modes, vehicles that keep riders
-// visible, hold / approach interactions, grid occupancy layers and levels, hud anchors, NPC interact ops. Same format as specs.mjs; appended at its end.
+// Genericity fixes (docs/plans/done/2026-11-02-genericity-fixes.md items 6, 8, 9, 10): character states hook and water modes, vehicles that keep riders
+// visible, hold / approach interactions, grid occupancy layers and levels, hud anchors, NPC interact ops. Same format as the other files here.
 // Each check drives the engine path itself (fixed steps, ops, real key state), so a shortcut around the mechanism fails it.
 
 export const specs = [
@@ -39,10 +39,11 @@ export const specs = [
         const off = engine.events.on('character:water', ({ character, in: inn, mode }) => { if (character === p) events.push(`${inn ? 'in' : 'out'}:${mode}`); });
         // deep water east of x = 20 (south of the maze wall), dry land west of it
         engine.waterAt = (x) => (typeof x === 'object' ? x.x : x) > 20 ? 10 : -Infinity;
-        const walk = mode => { p.water = mode; p.placeAt([17, 0, -8]); p.swimming = false; for (let i = 0; i < 90; i++) p.move(1, 0, false, 1 / 60); return { x: +p.position.x.toFixed(2), swim: p.swimming, state: p.state }; };
+        const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/control.js
+        const walk = mode => { p.water = mode; p.placeAt([17, 0, -8]); p.swimming = false; for (let i = 0; i < 90; i++) h.move(1, 0, false, 1 / 60); return { x: +p.position.x.toFixed(2), swim: p.swimming, state: p.state }; };
         const out = { swim: walk('swim'), block: walk('block'), wade: walk('wade'), fn: walk((c, { depth }) => depth > 5 ? 'block' : 'swim') };
-        p.water = 'swim'; p.placeAt([17, 0, -8]); for (let i = 0; i < 3; i++) p.move(0, 0, false, 1 / 60);
-        delete engine.waterAt; off.remove();
+        p.water = 'swim'; p.placeAt([17, 0, -8]); for (let i = 0; i < 3; i++) h.move(0, 0, false, 1 / 60);
+        delete engine.waterAt; off.remove(); h.remove();
         out.events = events;
         return out;
       });
@@ -62,12 +63,13 @@ export const specs = [
         engine.pause();
         const p = engine.player, car = window.car, Character = p.constructor;
         car.hideDriver = false; car.seats = 2;
-        p.enter(car); p.move(0, 0, false, 1 / 60);
+        const h = engine.control.take(p, { owner: 'test', layer: 'script' });
+        p.enter(car); h.move(0, 0, false, 1 / 60);
         const rider = new Character(engine, {}).addTo(); rider.enter(car); rider.move(0, 0, false, 1 / 60);
         const third = new Character(engine, {}).addTo(); third.enter(car);
         const out = { visible: p.object.visible, onSeat: p.position.distanceTo(car.seatPosition(0)) < 0.01, seat: p.seat, riderSeat: rider.seat,
           passengers: car.passengers.length, full: third.vehicle === null, driver: car.driver === p };
-        rider.exit(); p.exit();
+        rider.exit(); p.exit(); h.remove();
         out.after = { visible: p.object.visible, driver: car.driver, passengers: car.passengers.length };
         car.hideDriver = true; p.enter(car); out.hidden = !p.object.visible; p.exit();
         rider.dispose(); third.dispose(); car.seats = 1;

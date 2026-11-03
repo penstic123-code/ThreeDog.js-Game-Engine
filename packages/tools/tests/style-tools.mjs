@@ -1,10 +1,11 @@
-// style tools: `style check` on deliberately wrong styles, R34 on pack text, `style palette` on a generated PNG.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+// style tools: `style check` on deliberately wrong styles, R34 on game style/ folders, `style palette` on a generated PNG.
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { deflateSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
-import { ENGINE, styleDir } from '../paths.mjs';
+import * as P from '../paths.mjs';
+import { ENGINE } from '../paths.mjs';
 import { loadSchema } from '../style/schema.mjs';
 import { EXTRA } from '../threedog/dispatch.mjs';
 import { checkStyle, paletteRefs, colorProblem } from '../style/check.mjs';
@@ -88,26 +89,29 @@ export async function run({ check }) {
   r = find({ sky: { keyframes: [[0, 1, 2, 3, 1, 1], [0.5, 1, 2]] } });
   check('a sky keyframe with the wrong length is an error', has(r, 'sky.keyframes[1]', '6 entries'));
   const fx = (n, o = {}) => ({ name: n, create: () => ({}), ...o });
-  r = find({ post: [fx('bloom'), fx('bloom'), fx('p', { slot: 'weird' }), { name: 'empty' }, fx('s1', { slot: 'scene' }), fx('s2', { slot: 'scene' })] });
-  check('post: duplicate name, unknown slot, no create, two scene effects', has(r, 'post[1]', 'two post effects') && has(r, 'post[2]', "unknown slot") &&
-    has(r, 'post[3]', 'neither create') && has(r, 'post', "'scene'"));
-  // a listed effect is on (r4 D1): the real factories, no enabled given, count as on
+  // a style's post effects are its plugin files (look.post.add is the one way in): file i exports effect i, so findings name plugins/<i>-<name>
+  const pl = (...effects) => ({ plugins: Object.fromEntries(effects.map((e, i) => [`./plugins/${i}-${e.name}.js`, { default: e }])) });
+  r = find({ post: [fx('bloom')] });
+  check('post: style.post is an error that points to style plugin files', has(r, 'post', 'style.post is gone') && has(r, 'post', 'export default bloom()'));
+  r = find(pl(fx('bloom'), fx('bloom'), fx('p', { slot: 'weird' }), fx('s1', { slot: 'scene' }), fx('s2', { slot: 'scene' })));
+  check('post: duplicate name, unknown slot, two scene effects', has(r, 'plugins/1-bloom', 'two post effects') && has(r, 'plugins/2-p', "unknown slot") && has(r, 'post', "'scene'"));
+  // an added effect is on (r4 D1): the real factories, no enabled given, count as on
   { const P = await import('@threedog/post-effects');
-    const on = find({ post: [P.outline(), P.vignette(), P.grain()] }).filter(x => x.path === 'post' && x.msg.includes('post effect(s) on'));
-    check('post: listed effects without enabled count as on (3 listed -> 3 on)', on.length === 1 && on[0].msg.startsWith('3 post effect(s) on'), JSON.stringify(on)); }
-  r = find({ post: [fx('grade', { slot: 'hdr', order: 1, fuse: { glsl: '' } }), fx('outline', { needsDepth: true, order: 5 }), fx('late', { needsDepth: true, slot: 'ldr' })] });
-  check('post: a depth reader after a buffer-swapping (fuse) effect, and one after tone mapping, are errors', has(r, 'post[1]', 'reads scene depth') && has(r, 'post[2]', 'after tone mapping'));
-  r = find({ post: [fx('outline', { needsDepth: true, enabled: true, order: 10 }), fx('dof', { needsDepth: true, enabled: true, order: 15 })] });
-  check('post: outline sorted before dof (both on) is an error that says dof goes first', has(r, 'post[1]', "'dof' runs after 'outline'") && r[0].level === 'error');
-  r = find({ post: [fx('outline', { needsDepth: true, enabled: true, order: 10 }), fx('dof', { needsDepth: true, enabled: true, order: 5 })] });
+    const on = find(pl(P.outline(), P.vignette(), P.grain())).filter(x => x.path === 'post' && x.msg.includes('post effect(s) on'));
+    check('post: plugin effects without enabled count as on (3 files -> 3 on)', on.length === 1 && on[0].msg.startsWith('3 post effect(s) on'), JSON.stringify(on)); }
+  r = find(pl(fx('grade', { slot: 'hdr', order: 1, fuse: { glsl: '' } }), fx('outline', { needsDepth: true, order: 5 }), fx('late', { needsDepth: true, slot: 'ldr' })));
+  check('post: a depth reader after a buffer-swapping (fuse) effect, and one after tone mapping, are errors', has(r, 'plugins/1-outline', 'reads scene depth') && has(r, 'plugins/2-late', 'after tone mapping'));
+  r = find(pl(fx('outline', { needsDepth: true, enabled: true, order: 10 }), fx('dof', { needsDepth: true, enabled: true, order: 15 })));
+  check('post: outline sorted before dof (both on) is an error that says dof goes first', has(r, 'plugins/1-dof', "'dof' runs after 'outline'") && r[0].level === 'error');
+  r = find(pl(fx('outline', { needsDepth: true, enabled: true, order: 10 }), fx('dof', { needsDepth: true, enabled: true, order: 5 })));
   check('post: dof before outline, both on, is fine (dof passes the depth on)', r.filter(x => x.level !== 'note').length === 0);
-  r = find({ post: [fx('dof', { needsDepth: true, enabled: false }), fx('outline', { needsDepth: true, enabled: true })] });
+  r = find(pl(fx('dof', { needsDepth: true, enabled: false }), fx('outline', { needsDepth: true, enabled: true })));
   check('post: dof off with outline on is fine', r.filter(x => x.level !== 'note').length === 0);
-  r = find({ post: [fx('a'), fx('b'), fx('c'), fx('d', { enabled: false })] });
+  r = find(pl(fx('a'), fx('b'), fx('c'), fx('d', { enabled: false })));
   // how many effects is right is the game's call: the check reports which are on and how to see their cost, never a cap or "too many"
   check('post: effects on are one note (no warning, no cap); disabled ones do not count', r.length === 1 && r[0].level === 'note' &&
     has(r, 'post', "'a', 'b', 'c'") && !has(r, 'post', "'d'") && has(r, 'post', 'tier low') && !/more than|worse|necessary/.test(r[0].msg + r[0].fix));
-  check('post: a costly effect is named as such', has(find({ post: [fx('a', { costly: true })] }), 'post', "'a' costly"));
+  check('post: a costly effect is named as such', has(find(pl(fx('a', { costly: true }))), 'post', "'a' costly"));
   r = find({ materials: { vegtation: { type: 'lambert' }, default: { type: 'toom' }, furniture: {} } }, {});
   check('materials: misspelled role warns, unknown type errors, own role names are fine', has(r, 'materials.vegtation', "'vegetation'") &&
     has(r, 'materials.default.type', "Did you mean 'toon'") && !r.some(x => x.path === 'materials.furniture'));
@@ -123,9 +127,9 @@ export async function run({ check }) {
     !r.some(x => ['materials.rock.map', 'materials.rock.detail.texture', 'materials.wall.map'].includes(x.path)) &&
     !r.some(x => /^(seasons|lighting)/.test(x.path)), JSON.stringify(r.map(x => x.path + ': ' + x.msg.slice(0, 60))));
 
-  // ── a whole pack on disk: lowpoly passes, a wrong one fails ──
-  const lp = await styleCheck('lowpoly');
-  check('style check passes on lowpoly (its palette, post and materials)', lp.errors === 0);
+  // ── a whole style folder on disk: the world example's passes, a wrong one fails ──
+  const lp = await styleCheck(join(ENGINE, 'examples/world/style'));
+  check('style check passes on the world example style (its post, materials and terrain colors)', lp.errors === 0);
   const tmp = mkdtempSync(join(tmpdir(), 'threedog-style-'));
   try {
     const bad = join(tmp, 'bad.js');
@@ -135,21 +139,38 @@ export async function run({ check }) {
       has(b.findings, 'sky.sunSise', 'unknown'));
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 
-  // ── R34 on pack text ──
-  // A throwaway folder under packages/styles (the folder R34 walks), removed afterwards. No generator makes packs any more: a game's look
-  // is its own style/ folder (recipes/09-style-pack.md), so the test writes the one file it needs by hand.
-  const dir = styleDir('zz-test-style');
+  // ── R34 on a game's own style/ folder ──
+  // Looks are not packages: R34 must read every game's style/ folder (and nothing named like a style package). A throwaway game under games/
+  // (the folder R34 walks in the monorepo), removed afterwards together with games/ when the test created it.
+  const hadGames = existsSync(P.GAMES), game = join(P.GAMES, 'zz-test-style'), dir = join(game, P.GAME_STYLE_DIR);
   try {
     mkdirSync(dir, { recursive: true });
-    // R34 reads pack text: the water / weather look keys (one-line objects, sizes, glsl) are looks, never world state
+    // the water / weather look keys (one-line objects, sizes, glsl) are looks, never world state
     writeFileSync(join(dir, 'looks.js'), [
       "export const water = { depthColor: { shallow: 0x55ddcc, deep: 0x082040, by: 'wave' }, foam: { start: 0.5, end: 0.8 }, glsl: { waveMax: 0.3 }, uniforms: { uSize: 2 } };",
       "export const weather = { rain: { shape: 'soft', size: 9, count: 3000, density: a => a, glsl: { vertex: '', fragment: '' } }, snow: { sway: 2, size: 30 }, lightning: f => f };",
     ].join('\n'));
-    const r34 = (await import('../rules/R34-style-looks-only.mjs')).default;
+    // world shape in the same folder is caught: proves the rule really scans games/*/style, so a look cannot slip past it by living there
+    writeFileSync(join(dir, 'index.js'), "export function height(x, z) { return 0; }\nexport default { water: { level: 2 } };\n");
+    const { default: r34, styleFiles } = await import('../rules/R34-style-looks-only.mjs');
     const mine = r34.run().filter(x => x.file.includes('zz-test-style'));
-    check('R34 does not flag the water / weather look keys', mine.length === 0, JSON.stringify(mine));
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+    check('R34 does not flag the water / weather look keys', !mine.some(x => x.file.endsWith('looks.js')), JSON.stringify(mine));
+    check("R34 scans a game's style/ folder: world shape and world state there are errors",
+      mine.some(x => x.file.endsWith('index.js') && /world-shape/.test(x.msg)) && mine.some(x => /world state/.test(x.msg)), JSON.stringify(mine));
+    check('R34 reads the examples\' style folders too', styleFiles().some(f => f.startsWith(`${P.EXAMPLES_REL}/world/${P.GAME_STYLE_DIR}/`)));
+    // `style check` finds a game's look from the game (folder or workspace-like name), never from a style package name
+    check('style check on a game folder checks its style/ (and its R34 findings)', (await styleCheck(game)).findings.some(x => /^\[R34\] a style carries world-shape/.test(x.msg)));
+    // bake: a game's list is its bake.js files only (a style's `assets` export is not scanned), and hashing searches the game folder alone
+    writeFileSync(join(game, 'bake.js'), 'export const bake = { box: () => null };\n');
+    const { keyMaker } = await import('../vite/vite-threedog-cache.js');
+    const kb = keyMaker(game);
+    check("bake lists of a game are its bake.js files only, and a game's key search needs no styles folder",
+      JSON.stringify(kb.bakeLists()) === JSON.stringify([P.rel(join(game, 'bake.js'))]) && kb({ name: 'box', src: '() => null' }).files.length > 0, JSON.stringify(kb.bakeLists()));
+  } finally { rmSync(hadGames ? game : P.GAMES, { recursive: true, force: true }); }
+  check('style check by a style package name is gone: a bare name that is no folder or game fails with the way out',
+    await styleCheck('somepack').then(() => false, e => /no style found for "somepack".*style folder/.test(e.message)));
+  check('paths.mjs has no style-package lookups left (STYLE_PKG_PREFIX / STYLES_REL / styleName / styleDir)',
+    !['STYLE_PKG_PREFIX', 'STYLES_REL', 'styleName', 'styleDir'].some(k => k in P));
 
   // ── palette: 60×40 picture, 70% sand, 20% dark blue, 10% bright red ──
   const tmp2 = mkdtempSync(join(tmpdir(), 'threedog-pal-'));

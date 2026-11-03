@@ -1,7 +1,7 @@
 // R35 no hidden look defaults (packages/engine/docs/recipes/52-look.md): every param of a defineLookPart(engine, { params }) spec
 //   · declares default (the value the engine uses when nobody sets it), and
 //   · when that default changes the picture, says why it is there and off (how to turn it off); a default that changes nothing is marked neutral: true.
-// Level: error in engine code (core / modules / render / ui), warning in styles and games (third-party parts are told, not blocked).
+// Level: error in engine code (core / modules / render / ui), warning in add-ons, examples and games, their style/ folders included (third-party parts are told, not blocked).
 // Detection: the AST of each defineLookPart call; params is an object literal written inline or a const in the same file, each param an object
 //   literal (const ids resolve too). Known limit: params built at runtime (spread of an imported object, a computed key) are not seen; the
 //   runtime still throws for a missing default (core/look/part.js).
@@ -38,7 +38,7 @@ export default {
   id: 'R35', title: 'Look part defaults are declared (default, and why / off when they change the picture)', game: true,
   run() {
     const out = [];
-    const files = new Set([...engineFiles(), ...walk(P.STYLES_REL, ['.js', '.mjs']), ...P.SOURCE_DIRS_REL.flatMap(d => walk(d, ['.js', '.mjs']))]);
+    const files = new Set([...engineFiles(), ...P.SOURCE_DIRS_REL.flatMap(d => walk(d, ['.js', '.mjs']))]);
     for (const f of files) if (/defineLookPart\s*\(/.test(parse(f).text)) check(f, out);
     return out;
   },

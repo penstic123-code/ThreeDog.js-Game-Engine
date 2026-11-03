@@ -62,11 +62,13 @@ export class Music {
         force?: boolean;
     }): void;
     /**
-     * Fade out and stop (fade over fade seconds)
-     * @param {number} [fade]
+     * Fade out and stop (fade over fade seconds; default the music({ fade }) option). An options object like play's: stop(3) throws in dev
+     * @param {{ fade?: number }} [opts]
      * @returns {void}
      */
-    stop(fade?: number): void;
+    stop(opts?: {
+        fade?: number;
+    }): void;
     /**
      * Layer a one-shot piece (victory, discovered place...); the background dips to `duck` while it plays
      * @param {string} name

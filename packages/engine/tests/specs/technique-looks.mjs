@@ -29,6 +29,7 @@ const run = (body) => `(() => { try { engine.step(0.2); const render = ${PIXELS}
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'technique stylized-shading: toon bands show in the luminance histogram, every route darkens in the sun shadow, painterly shadows lean blue',
     url: '/technique-shading.html?threedog-headless',
     async run({ page, check, ev }) {
@@ -68,6 +69,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'technique procedural-surface: camera-scaled noise varies at the camera, close-up scale fades out, cavity darkens the foot, instance jitter',
     url: '/technique-surface.html?threedog-headless',
     async run({ page, check, ev }) {
@@ -91,6 +93,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: 'technique outlines-and-rim: post outline and both hulls darken the silhouette, the plain column does not, rim brightens the edge',
     url: '/technique-outlines.html?threedog-headless',
     async run({ page, check, ev }) {

@@ -5,38 +5,42 @@
 import * as THREE from 'three';
 import { applyEffects } from '../../render/materials.js';
 import { copyPatches } from '../../render/patches.js';
+import { maxAnisotropy } from '../../render/backend.js';
 
-/** Material for one chunk: `base` plus the color map `tex` ({ data, size }) of the chunk whose origin is (ox, oz) and edge length `chunk` */
-export function mountColorMap(m, c, t, ox, oz) {
-  const { data, size } = t, R = size - 2, chunk = m.T.CHUNK;
+/** Material for one chunk: `base` plus the color map `t` ({ data, size }) of the chunk whose origin is (ox, oz) and edge length `chunk`; kept on `rec` */
+export function mountColorMap(engine, base, rec, t, ox, oz, chunk) {
+  const { data, size } = t, R = size - 2;
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.colorSpace = THREE.SRGBColorSpace;   // stored sRGB-encoded: the GPU decodes on sampling, 8 bits keep dark colors smooth
   tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = true;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.anisotropy = Math.min(4, m.engine.renderer.capabilities.getMaxAnisotropy?.() ?? 1);   // ground is seen at grazing angles
+  tex.anisotropy = Math.min(4, maxAnisotropy(engine.renderer));   // ground is seen at grazing angles
   tex.needsUpdate = true;
   // world xz -> texture uv: pixel k is centered (k - 0.5) * chunk / R from the origin (see terrainColorMap.js); .zw = scale, offset
   const rect = new THREE.Vector4(ox, oz, R / (chunk * size), 1 / size);
-  const mat = copyPatches(m.terrainMat, m.terrainMat.clone());
+  const mat = copyPatches(base, base.clone()), texU = { value: tex }, rectU = { value: rect };
   applyEffects(mat, { clouds: false, patches: [{
     name: 'terrainColorMap', cacheKey: 1, needs: { patches: ['world'] },
-    uniforms: { uTColorMap: { value: tex }, uTColorRect: { value: rect } },
+    uniforms: { uTColorMap: texU, uTColorRect: rectU },
     pars: 'uniform sampler2D uTColorMap; uniform vec4 uTColorRect;',
     // slot 'map' (before the vertex colors, white on a textured top): every 'color' patch, such as the season tint in 'mix'
     // mode, then sees the mapped color instead of having it multiplied back over its result
     slot: 'map', glsl: 'diffuseColor.rgb *= texture2D(uTColorMap, (vThreedogWorld.xz - uTColorRect.xy) * uTColorRect.z + uTColorRect.w).rgb;',
+    // the same line for WebGPURenderer (positionWorld is vThreedogWorld)
+    tsl: c => { const r = c.fx.patchUniform(rectU), uv = c.tsl.positionWorld.xz.sub(r.xy).mul(r.z).add(r.w);
+      return c.tsl.vec4(c.map.rgb.mul(c.fx.patchTexture(texU, uv).rgb), c.map.a); },
   }] });
-  c.colorTex = tex; c.colorMat = mat;
+  rec.colorTex = tex; rec.colorMat = mat;
   return mat;
 }
 
 /** An edit rebuilt the chunk: upload the new pixels into the same texture */
-export function updateColorMap(c, t) {
-  c.colorTex.image.data.set(t.data);
-  c.colorTex.needsUpdate = true;
+export function updateColorMap(rec, t) {
+  rec.colorTex.image.data.set(t.data);
+  rec.colorTex.needsUpdate = true;
 }
 
-export function disposeColorMap(c) {
-  c.colorTex?.dispose();
-  c.colorMat?.dispose();
+export function disposeColorMap(rec) {
+  rec.colorTex?.dispose();
+  rec.colorMat?.dispose();
 }

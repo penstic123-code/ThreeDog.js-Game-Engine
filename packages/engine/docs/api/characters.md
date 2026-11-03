@@ -5,14 +5,12 @@ Characters: createPlayer() (characters() module)
 - Options `CharactersOptions`:
   - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
   - `npcTiers?: { fullRadius: number; nearEvery: number }` Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts)
-  - `brakeKeys?: string[]` Brake key when driving (action brake, registered when rigid is installed), none by default (no brake while driving; one warning names the fix); presets.keys.brake has ['KeyB'] (so it doesn't fight with Space for jump)
-  - `brakePad?: string[]` Gamepad button for braking, none by default; presets.keys.brake has ['PadLT']
 
 ## Methods and properties
 - `characters.findSpawn(position?: PositionLike, opts?: FindSpawnOptions) → Vector3` — Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
 - `characters.createPlayer(opts: PlayerOptions) → Character` — Create the player and set engine.player; control is required (no default feel), e.g. createPlayer({ ...presets.player.thirdPerson, spawn }). An existing player is deleted first
 - `characters.moveInput() → { x, z, run }` — The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it inside your own control function to wrap it
-- `characters.support(object: any, opts?: { id?, safe?, carry?, inherit? }) → { id: string; remove(): void }` — Something characters stand on and ride (moving platform, lift, raft). Move the object any way (onFixed before or after the player, a timeline, physics): riders follow how its matrix changed, so the order does not matter. safe: false = never a respawn spot; carry 'position+yaw' turns riders with it; inherit: false = jumping off keeps none of its speed. With mover 'rapier' give it a collider too. Example: `const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.real); });`
+- `characters.support(object: any, opts?: { id?, safe?, carry?, inherit? }) → { id: string; remove(): void }` — Something characters stand on and ride (moving platform, lift, raft). Move the object any way (onFixed before or after the player, a timeline, physics): riders follow how its matrix changed, so the order does not matter. safe: false = never a respawn spot; carry 'position+yaw' turns riders with it; inherit: false = jumping off keeps none of its speed. With mover 'rapier' give it a collider too. Example: `const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.now('real')); });`
 - `characters.removePlayer()` — Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first
 - `characters.findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }) → PathResult` — Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable
 - `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { remove(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
@@ -35,8 +33,8 @@ Characters: createPlayer() (characters() module)
 - `player.addTo(scene?: any)` — Add to the scene
 - `player.placeAt(position: PositionLike)` — Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z })
 - `player.syncRecord()` — After moving root yourself (a cutscene path, a scripted pose): write position and motion back to its world record (the player's), so a save right after has it
-- `player.walkTo(target: Vector3 | { x: number; z: number } | [number, number, number] | …, opts?: { speed?, arrive?, turnRate?, stuckSeconds?, maxRepaths?, run? }) → Promise<{ status: 'arri… & { remove(): void }` — Walk to a point along characters.findPath on fixed steps; never rejects. One walk per character: a new walkTo, dispose() or a save load ends the old one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip
-- `player.move(dirX: number, dirZ: number, run: boolean, dt: number)` — Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1 scales the speed), run to run, dt in seconds (used as given). Speed comes from the stats: engine.mod('move.speed', { owner, id: character.id, ... }) (the player: id 'player'), the one way to change speed
+- `player.walkTo(target: Vector3 | { x: number; z: number } | [number, number, number] | …, opts?: { speed?, arrive?, turnRate?, stuckSeconds?, maxRepaths?, run? }) → Promise<{ status: 'arri… & { remove(): void }` — Walk to a point along characters.findPath on fixed steps; never rejects. One walk per character: a new walkTo, dispose() or a save load ends the old one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip. Holds the character's control on layer 'script' (owner 'walkTo'): the player's keys / an NPC's schedule pause meanwhile, a cutscene pauses the walk, and another script owner on it is control-conflict
+- `player.move(dirX: number, dirZ: number, run: boolean, dt: number)` — Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1 scales the speed), run to run, dt in seconds (used as given). Speed comes from the stats: engine.mod('move.speed', { owner, id: character.id, ... }) (the player: id 'player'), the one way to change speed. A character someone controls (engine.control.of(ch)) moves only through its holder: called from anywhere else it is control-bypass in dev; take control and use handle.move() / step instead
 - `player.groundType() → string` — Ground type underfoot ('water' while swimming)
 - `player.face(target: PositionLike | number)` — Turn at once to a position, or to an angle in radians (0 = +Z)
 - `player.saveMotion(out?: CharacterMotion) → CharacterMotion` — Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
@@ -54,7 +52,6 @@ Characters: createPlayer() (characters() module)
   - `moveAmount: number` Current movement speed (m/s)
   - `faceMode: FaceMode` Facing mode, change at any time; see CharacterOptions.faceMode
   - `faceTarget: PositionLike | null` What faceMode 'target' faces
-  - `control?: PlayerControl` Player only: who moves it each fixed step (see PlayerOptions.control)
   - `cameraFollow?: boolean` Player only: whether the camera module follows it (see PlayerOptions.cameraFollow)
   - `maxJumps: number` Base jump values (the game's; modifiers go through engine.mod('move.jumpSpeed'))
   - `fall: false | { belowY }` Fall check (see CharacterOptions.fall); a plain property
@@ -113,9 +110,7 @@ Characters: createPlayer() (characters() module)
   - `z: number`
 - **PlayerOptions** (extends CharacterOptions) Parameters of createPlayer()
   - `spawn?: PositionLike` Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted
-  - `jumpKeys?: string[]` Keys of the 'jump' action; none bound when omitted (player.jump() still works). presets.player.* use ['Space', 'PadA']
-  - `runKeys?: string[]` Keys of the 'run' action read by control 'camera' / moveInput(); none bound when omitted. presets.player.* use Shift / gamepad LB
-  - `control: PlayerControl` Required, no default: 'camera' (keys relative to the camera) / 'none' (call player.move() yourself in onFixed) / (player, input, dt) => ({ x, z, run?, speed? }). Also the runtime property player.control. presets.player.* fill it
+  - `control: PlayerControl` Required, no default: 'camera' (keys relative to the camera) / (player, input, dt) => ({ x, z, run? }) (null stands still). presets.player.* fill it. Given once: a game that steers the player for a while takes control (engine.control.take(player, { owner, layer: 'script', step }))
   - `cameraFollow?: boolean` true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev
 - **CharacterOptions** Character parameters (shared by the player and NPCs)
   - `colors?: { body?, skin?, legs?, hair? }` Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair); the style tints by material role

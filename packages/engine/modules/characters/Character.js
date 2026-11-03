@@ -8,10 +8,11 @@
 // Radius and step height default to engine.movement (the single source of "can walk through" parameters); passing radius / stepHeight overrides it for this character only.
 // How to walk is decided by the mover (movers/: 'simple' default, 'rapier' character controller); feel parameters are identical for both.
 // The procedural body (capsule, rig read from a model asset, limb swing) is in proceduralRig.js; loading a body by asset name in assetModel.js.
+import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
-import { warnOnce, warnMissing } from '../../core/validate.js';
+import { warnOnce, warnMissing, DEV } from '../../core/validate.js';
 import { reportError } from '../../core/errors.js';
 import { simpleMover } from './movers/simple.js';
 import { rapierMover } from './movers/rapier.js';
@@ -22,7 +23,7 @@ import { loadAssetModel, buildNow } from './assetModel.js';
 import { NO_CHARACTER, capsule, useRig, animateRig, rigFromObject, tintParts } from './proceduralRig.js';
 import { walkTo } from './walkTo.js';
 import { useModel } from './useModel.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError, coded } from '../../core/errorHints.js';
 
 const STRINGS = { noClip: 'character has no skeletal animation; playAction(\'{name}\') skipped (the model needs this action)' };
 const MOVERS = { simple: simpleMover, rapier: rapierMover, manual: manualMover };
@@ -68,6 +69,7 @@ export class Character {
     canJump = true, maxJumps = 1, airJumpSpeed = null, jumpBuffer = 0.12, fall = false, channel = 'world',
     model = null, clips = null, animation = null, mover = 'simple', faceMode = 'move', faceTarget = null, rig = null, id = null } = {}) {
     /** @internal the id option (a character without a world record); the getter id below is the one public form */ this._ownId = id;
+    /** @internal true for a world NPC's model (npcView.js): disposing it keeps the NPC's control slot */ this.npcModel = false;
     this.engine = engine;
     if (typeof water !== 'function' && !WATER_MODES.includes(water)) throw codedError('character-option', `character option water: 'swim' | 'block' | 'wade' or (character, { depth }) => one of them; got ${JSON.stringify(water)}`, TypeError);
     if (states != null && typeof states !== 'function') throw codedError('character-option', 'character option states: (character, facts) => state name | null', TypeError);
@@ -194,7 +196,7 @@ export class Character {
   get position() { return this.root.position; }
   /** The character's three.js root object (= root): add children, set visible, scale on it */
   get object() { return this.root; }
-  addTo(scene = this.engine.scene) { scene.add(this.root); return this; }
+  addTo(scene = this.engine.scene) { scene.add(engineOwned('characters', this.root)); return this; }
   /** Place on the ground at a position (Vector3 / Object3D / [x, y, z] / { x, z }) */
   placeAt(position) {
     const [x, z] = xzOf(position);
@@ -219,6 +221,9 @@ export class Character {
    * drivers pass the character's channel dt); speed comes from the stats (character.stat, engine.mod('move.speed')), the direction's length scales it.
    */
   move(dirX, dirZ, run, dt) {
+    // a held character moves only through its holder (core/control.js): a second driver calling move() in the same step is the bug where keys,
+    // a walk and a cutscene all pushed the player and the last one won
+    if (DEV) this.engine.control?.checkMove(this);
     if (this.vehicle) {
       const v = this.vehicle;
       this.root.position.copy(v.seatPosition(this.seat));
@@ -248,7 +253,7 @@ export class Character {
     this.vehicle = vehicle; this.seat = seat;
     if (seat === 0) vehicle.driver = this; else ride.push(this);
     if (e.player === this) this._driveCtx = e.input.push('vehicle', { pass: true });   // driving: brake lives in this context, walking-only keys are shadowed
-    if (e.player === this && !e.input.actions.has('brake')) warnOnce("[input-keys] the player drives without a brake key: no module binds one by itself. characters({ ...presets.keys.brake }) (B / gamepad LT) or characters({ brakeKeys: ['KeyX'], brakePad: ['PadLT'] })");
+    if (e.player === this && !e.input.keysOf('brake').length) warnOnce(coded('input-keys', "the player drives without a brake key: no module binds one by itself. engine.input.bind(presets.bindings.brake) (B / gamepad LT) or engine.input.bind('brake', ['KeyX'])"));
     this.root.visible = vehicle.hideDriver === false; this.velocity.set(0, 0); this.vy = 0; this.swimming = false; this.state = this._stateMark = 'drive'; this._store();
     // only when the game asked the camera to follow the player (createPlayer({ cameraFollow }))
     if (e.player === this && this.cameraFollow) e.cameraRig?.follow(vehicle.object, vehicle.camera);
@@ -271,6 +276,9 @@ export class Character {
   dispose() {
     this._disposed = true;   // a model still loading by asset name is dropped on arrival
     this._walk?.remove();    // a walk in progress ends 'cancelled' (walkTo.js)
+    // a character without a world record or NPC id has nothing to come back as: its control slot goes with it (records drop theirs on world:remove,
+    // an NPC model torn down when far keeps its slot, the NPC lives on)
+    if (!this.recordId && !this.npcModel) this.engine.control?.forget(this.id);
     this.exit();
     this.anim?.dispose();
     for (const m of Object.values(this._movers)) m.dispose?.();
@@ -345,7 +353,7 @@ export class Character {
   }
   /** @internal */
   _animate(dt) {
-    const sp = this.moveAmount, t = this.engine.elapsed, st = this.state;
+    const sp = this.moveAmount, t = this.engine.time.now('real'), st = this.state;
     this.phase += dt * (2.2 + sp * 1.25);
     const s = Math.sin(this.phase);
     // footstep event: fires once per foot landing (swing direction flips); model and procedural animation share this rhythm

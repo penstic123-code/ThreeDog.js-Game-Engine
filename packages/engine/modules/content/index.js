@@ -39,6 +39,7 @@ export function content() {
   const pending = new Set();
   const st = {
     triggers: {}, subs: null, startOn: new Map(), ops: new Set(), kinds: {},
+    marks: new Map(),                                 // marker id -> [position, label]: what the marker effect shows (the content save part)
     templates: new Map(), templateViews: new Set(),   // template name -> frozen definition; names whose presenter is registered
     templateSims: new Set(),                          // names whose world.simulate (stages / update) is registered
     templateSrc: new Map(),                           // dev: template name -> 'content/templates.js:12'
@@ -56,6 +57,17 @@ export function content() {
     get ready() { return pending.size === 0 && (!e.world || e.world.ready); },
     /** marker markers added by the marker effect: id -> hud marker */
     markers: new Map(),
+    /**
+     * @internal the marker / clearMarker effects: set (v = position) or clear (v = null) marker id. What is shown is playthrough state, kept in
+     * the 'content' save part, so a load shows the save's markers and a new game none of the old ones (review 0.4 modules-a B5)
+     */
+    _mark(id, v, label) {
+      api.markers.get(id)?.remove(); api.markers.delete(id); st.marks.delete(id);
+      if (!v) return;
+      st.marks.set(id, [v, label ?? null]);
+      const m = e.hud?.marker(v, { label });
+      if (m) api.markers.set(id, m);
+    },
     /**
      * Load content data: one pack (the object of content/index.js) or a list of packs loaded together in order, where an id defined by two packs is an error
      * (packs.js).
@@ -185,16 +197,21 @@ export function content() {
     _floorOf(p) { return p.floor ?? (p.place ? api.place(p.place)?.y : undefined); },
   };
   return {
-    name: 'content', label: 'Content',
+    name: 'content', type: 'rules', label: 'Content',
     optional: ['level', 'calendar', 'inventory', 'pickups', 'quests', 'particles', 'hud', 'vegetation', 'dialogue', 'triggers', 'collision', 'world', 'interactions', 'grids', 'rigid'],
-    install(engine) {
+    install(engine, ctx) { engine.i18n.add({ 'zh-CN': { 'module.content': '内容' }, en: { 'module.content': 'content' } });
       e = engine;
+      st.track = ctx.track;   // loader.js subscribes on the first content.load: those listeners belong to the module too
       engine.explainWith(contentExplain);
+      e.saves.register('content', {
+        save: () => ({ marks: [...st.marks].map(([id, [v, label]]) => [id, v, label]) }),
+        load: d => { for (const id of [...st.marks.keys()]) api._mark(id, null); for (const [id, v, label] of d?.marks || []) api._mark(id, v, label ?? undefined); },
+      });
       // content may name ops that main.js defines after load: check once everything is set up, and again for loads after that
       const check = () => {
         for (const name of st.ops) if (!e.ops.defs.has(name)) throw codedError('unknown-name', `content: ${missingText('op', name, [...e.ops.defs.keys()])} (used in { op } / { can })`);
       };
-      e.events.on('engine:ready', check);
+      ctx.track(e.events.on('engine:ready', check));
       st.checkOps = () => { if (e.ready) check(); };
       return api;
     },

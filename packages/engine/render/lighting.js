@@ -1,4 +1,4 @@
-// The `lighting` surface patch and the toon ramp: extra, optional light shaping on three's lit materials (lambert, phong, standard, toon).
+// The `lighting` surface patch and the toon ramp. Extra, optional light shaping on three's lit materials (lambert, phong, standard, toon).
 // three has no "shadow color": a shadow just removes the sun's light. The patch therefore works after the lights are summed (lights_fragment_end):
 // it re-reads the first directional light (three sorts shadow-casting lights first, so that is the sun) and its shadow-map value for this
 // pixel, and shapes the result from them. Limits: one directional light is considered (point / spot lights are untouched); wrap does not
@@ -89,7 +89,38 @@ export function lightingPatch(o, label = 'lighting') {
   code += '#endif';
   for (const n of ['uLitWrap', 'uLitShadowColor', 'uLitShadow', 'uLitRimColor', 'uLitRim']) u[n] ??= { value: n === 'uLitWrap' ? 0 : n === 'uLitShadow' ? new THREE.Vector2() : n === 'uLitRim' ? new THREE.Vector3() : new THREE.Color() };
   const key = o.glsl ? 'g' + hashText(o.glsl) : `${wrap !== undefined ? 'w' : ''}${st ? 's' : ''}${rim ? 'r' : ''}`;
-  return { name: 'lighting', cacheKey: key, uniforms: u, pars, glsl: { lightsPars: (o.glsl ? o.glsl + '\n' : '') + SUN, lighting: code } };
+  return { name: 'lighting', cacheKey: key, uniforms: u, pars, glsl: { lightsPars: (o.glsl ? o.glsl + '\n' : '') + SUN, lighting: code },
+    // your own GLSL threedogLighting has no TSL twin: no tsl field, so a NodeMaterial names the patch instead of dropping it
+    ...(!o.glsl && { tsl: { lighting: lightingTsl(u, wrap !== undefined, !!st, !!rim) } }) };
+}
+
+/**
+ * The patch on a NodeMaterial, through the lighting slot's hooks (render/fx/patchNodes.tsl.js), same math as the GLSL above:
+ * direct() sees each light; the first directional one is the sun (GLSL directionalLights[0]), whose n.l and shadow factor are kept and whose
+ * wrap light is added there (its color already carries the shadow, hence shadow 1). after() shapes the summed ambient, as the GLSL code after
+ * lights_fragment_end does. No directional light: nothing changes (GLSL #if NUM_DIR_LIGHTS > 0).
+ * @param {Record<string, { value: any }>} u @param {boolean} wrap @param {boolean} st @param {boolean} rim
+ */
+function lightingTsl(u, wrap, st, rim) {
+  return {
+    start: c => { c.state.sun = false; c.state.nl = c.tsl.float(0).toVar('tdNL'); c.state.shadow = c.tsl.float(1).toVar('tdSun'); },
+    direct: (L, c) => {
+      if (!L.directional || c.state.sun) return;
+      const T = c.tsl;
+      c.state.sun = true;
+      c.state.nl.assign(T.dot(T.normalView, L.direction));
+      if (L.shadow) c.state.shadow.assign(L.shadow);
+      if (wrap) c.directDiffuse.addAssign(c.fx.wrapDiffuse(c.state.nl, c.fx.patchUniform(u.uLitWrap), L.color, 1, T.diffuseColor.rgb));
+    },
+    after: c => {
+      if (!c.state.sun || !(st || rim)) return undefined;
+      const T = c.tsl, U = k => c.fx.patchUniform(u[k]), { nl, shadow } = c.state;
+      let ind = c.indirectDiffuse;
+      if (st) { const s = U('uLitShadow'); ind = c.fx.shadowTint(ind, U('uLitShadowColor'), s.x, s.y, nl, shadow); }
+      if (rim) { const r = U('uLitRim'); ind = ind.add(c.fx.rim(T.normalView, T.positionViewDirection, U('uLitRimColor'), r.x, r.y, r.z, nl)); }
+      return { indirectDiffuse: ind };
+    },
+  };
 }
 
 // ---------- toon ramp ----------

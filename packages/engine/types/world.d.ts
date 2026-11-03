@@ -1,5 +1,6 @@
 // World modules: terrain, vegetation, sky, weather, water.
 import type { Object3D, Vector3, Color, Material, BufferGeometry, ColorLike, Handle, PositionLike } from './common';
+import type { Mesh, InstancedMesh } from 'three';
 import type { Engine, ModuleDef } from './core';
 import type { StyleSky, StyleShadow, StyleFog } from './style';
 
@@ -142,7 +143,7 @@ export interface TerrainOptions extends Partial<TerrainConfig> {
   viewChunks?: number;
   /** Vegetation density multiplier, default 1 */
   density?: number;
-  /** true: the fog distance (engine.fogFar) follows the view distance so the far chunk edge fades out; default false keeps the game's fog (openWorld() sets true) */
+  /** true: the fog distance (look.fog far, engine layer, owner 'terrainLook') follows the view distance so the far chunk edge fades out; default false keeps the game's fog (openWorld() sets true) */
   viewFog?: boolean;
   /** Ground material (default style.terrain.material, else the 'terrain' role with vertex colors); chunks have uv = world xz / chunk size. Cloud shadows and season tint are added */
   material?: Material | ((engine: Engine) => Material);
@@ -177,7 +178,43 @@ export interface TerrainGen {
   place(cx: number, cz: number, rule: VegetationRule, density?: number): any;
 }
 
-/** engine.terrain: chunk manager */
+/** A loaded chunk record (data only; the looks keep their meshes): c.data = generated arrays, c.plants = what grows there */
+export interface TerrainChunk {
+  cx: number; cz: number; key: string;
+  state: 'queued' | 'pending' | 'ready' | 'failed';
+  /** generated arrays: pos / nor / col (3 per vertex), uv (2 per vertex), tex (color map of shading 'texture') */
+  data: { pos: Float32Array; nor: Float32Array; col: Float32Array; uv: Float32Array; tex?: any; top?: number } | null;
+  /** species name -> placement (see VegetationPlants) */
+  plants: Record<string, VegetationPlants>;
+  /** species name -> felled instance slots (null = none) */
+  hidden?: Record<string, Set<number> | null> | null;
+  /** LOD ring from the nearest stream source; inView: in the camera view */
+  ring?: number; inView: boolean;
+}
+/** One species' placement in one chunk: n plants, m = 16 floats per plant (chunk-local matrix), c = 3 colors per plant, ids = stable ids */
+export interface VegetationPlants { n: number; m: Float32Array; c: Float32Array; ids?: Uint32Array; k?: Float32Array }
+
+/** engine.terrainLook: draws the terrain chunks (slot 'terrain-look'; engine.use(mine, { replaces: 'terrain-look' }) swaps it) */
+export interface TerrainLook {
+  /** The ground material every chunk draws with */
+  material: Material;
+  /** chunk record -> { group, mesh, colorTex, colorMat } */
+  meshes: Map<TerrainChunk, { group: Object3D; mesh: Mesh; colorTex: any; colorMat: any }>;
+  /** Swap the ground material on every loaded chunk at once (look.ground.replace uses it): nothing is regenerated, collision is untouched */
+  setMaterial(m: Material): void;
+}
+
+/** engine.vegetationLook: draws the plants (slot 'vegetation-look'; engine.use(mine, { replaces: 'vegetation-look' }) swaps it) */
+export interface VegetationLook {
+  /** The InstancedMesh drawing one species in one chunk, null when none */
+  mesh(c: TerrainChunk, name: string): InstancedMesh | null;
+  /** How one species is drawn: its geometry, low-poly geometry, patched material(s), near-fade uniforms; null for an unknown name */
+  kind(name: string): { geometry: BufferGeometry; lodGeometry: BufferGeometry | null; material: Material | Material[]; fadeUniforms: any } | null;
+  /** chunk record -> { group, ims: { species name: InstancedMesh } } */
+  meshes: Map<TerrainChunk, { group: Object3D; ims: Record<string, InstancedMesh> }>;
+}
+
+/** engine.terrain: the terrain data part (chunks, heights, edits, collision); engine.terrainLook draws it */
 export interface Terrain {
   engine: Engine;
   /** Pure-computation terrain (height, landform) */
@@ -191,19 +228,28 @@ export interface Terrain {
    */
   readonly voidY: number;
   /** Loaded chunks: 'cx,cz' → chunk */
-  chunks: Map<string, any>;
+  chunks: Map<string, TerrainChunk>;
   /** View distance (in chunks) */
   viewChunks: number;
   /** Vegetation density multiplier */
   density: number;
   /** Time budget (milliseconds) for uploading chunks per frame */
   applyBudgetMs: number;
-  /** Statistics (for the debug panel) */
-  stats: { builtThisFrame: number; applyMs: number; queued: number; visible?: number; loaded?: number; instances?: number };
+  /** Statistics (for the debug panel); failed = chunks that failed every try (terrain:chunkFailed) */
+  stats: { builtThisFrame: number; applyMs: number; queued: number; failed: number; visible?: number; loaded?: number; instances?: number };
   /** Change the view distance (in chunks); fog and camera far plane adjust too */
   setViewChunks(n: number): void;
-  /** Change the vegetation density (rebuilds all chunks) */
+  /** Change the vegetation density: plants are placed again on the loaded chunks; the ground and its collision stay */
   setDensity(d: number): void;
+  /**
+   * Draw these chunks: the hooks a look that replaces 'terrain-look' uses. add(c): generated (c.data holds pos / nor / col / uv / tex arrays,
+   * c.cx / c.cz the chunk); change(c): an edit rewrote c.data (same vertex count); remove(c): released; show(c, visible): in view or not.
+   * Chunks already loaded are added at once. Returns { remove() } (ctx.track it).
+   * @example ctx.track(engine.terrain.view({ add(c) { draw(c) }, remove(c) { undraw(c) } }))
+   */
+  view(hooks: { add?: (c: TerrainChunk) => void; change?: (c: TerrainChunk) => void; remove?: (c: TerrainChunk) => void; show?: (c: TerrainChunk, visible: boolean) => void }): { remove(): void };
+  /** Send chunks that failed every try (terrain:chunkFailed) again, e.g. after fixing what their rule reads. Returns how many were queued */
+  retry(): number;
   /** Rebuild all chunks */
   rebuild(): void;
   /** Grid spacing (meters) = chunkSize / resolution: edits snap to it, paint colors whole cells of this size */
@@ -315,10 +361,10 @@ export interface VegetationOptions {
   /** Double-sided rendering */
   doubleSided?: boolean;
 }
-/** A registered kind of vegetation */
+/** A defined species (data; how it is drawn: engine.vegetationLook.kind(name)). source = the options define() was given */
 export interface Species {
-  name: string; geometry: BufferGeometry; lodGeometry: BufferGeometry | null; rule: VegetationRule;
-  nearOnly: boolean; maxRing: number; fade: { start: number; end: number } | null; lodRing: number; castShadow: boolean; shadowRing: number; receiveShadow: boolean; material: Material | Material[];
+  name: string; rule: VegetationRule; source: VegetationOptions;
+  nearOnly: boolean; maxRing: number; fade: { start: number; end: number } | null; lodRing: number; castShadow: boolean; shadowRing: number; receiveShadow: boolean;
 }
 /** A found plant: species name, chunk cx/cz, stable id, world coordinates position */
 export interface VegetationHit { species: string; cx: number; cz: number; id: number; position: Vector3 }
@@ -338,8 +384,15 @@ export interface VegetationModuleOptions {
   seed?: number;
 }
 
-/** engine.vegetation */
+/** engine.vegetation: the vegetation data part (species, placement, tree collision, felling); engine.vegetationLook draws it */
 export interface Vegetation {
+  /**
+   * Draw the plants: the hooks a look that replaces 'vegetation-look' uses. species(sp): defined or defined again (sp.source = the define()
+   * options); change(c, name): c.plants[name] placed, replaced or gone, or c.hidden[name] (felled slots) changed; ring(c, ring): LOD ring;
+   * show(c, visible); drop(c): released. What is already there is replayed at once. Returns { remove() } (ctx.track it).
+   * @example ctx.track(engine.vegetation.view({ change(c, name) { draw(c, c.plants[name]) }, drop(c) { undraw(c) } }))
+   */
+  view(hooks: { species?: (sp: Species) => void; change?: (c: TerrainChunk, name: string) => void; ring?: (c: TerrainChunk, ring: number) => void; show?: (c: TerrainChunk, visible: boolean) => void; drop?: (c: TerrainChunk) => void }): { remove(): void };
   /**
    * Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is
    * followed automatically
@@ -378,7 +431,7 @@ export interface SkyOptions extends Omit<StyleSky, 'fog'> {
   /**
    * Whether the sky makes scene.fog: true (default; the sky creates it and writes color and distance every frame) | false (scene.fog = null, never
    * touched). An object is style.sky.fog settings (kind, color, density...) and means true. To keep the fog and write it yourself:
-   * engine.look.fog.manual() (or look.fog.replace(fog)), not an option here. See recipes/38
+   * engine.look.fog.manual() (or scene.fog = your own THREE.Fog), not an option here. See recipes/38
    * @example sky({ fog: false })   // no fog at all
    */
   fog?: boolean | StyleFog;
@@ -432,23 +485,6 @@ export interface CalendarBetweenOptions {
   /** Leaving the period (or found outside it when aligned) */
   off?: () => void;
 }
-/** Sky modifiers (sky.modifiers is the combined result of the engine.mod('sky.sunLight' | 'sky.ambient' | 'sky.fog' | 'sky.flash' | 'sky.tint' | 'sky.cover') entries, read-only) */
-export interface SkyModifiers {
-  /** Sunlight multiplier (layers multiply) */
-  readonly sun: number;
-  /** Ambient light multiplier (layers multiply) */
-  readonly ambient: number;
-  /** Fog distance multiplier (layers multiply, smaller = denser fog) */
-  readonly fog: number;
-  /** Sky tint (layers blend weighted by tint amount) */
-  readonly tint: Color;
-  /** Zenith tint amount 0–1 */
-  readonly tintAmount: number;
-  /** Horizon tint amount 0–1 */
-  readonly horizonTintAmount: number;
-  /** Lightning brightness (layers take the max) */
-  readonly flash: number;
-}
 
 // Sky (engine.sky) is generated from the JSDoc in modules/sky/Sky.js (npm run map); only the types are re-exported here
 import type { Sky } from './generated/modules/sky/Sky';
@@ -500,11 +536,18 @@ export interface WeatherOptions {
   transition?: number;
   /** Rain / snow coverage (meters) */
   area?: number;
+  /** Seconds to the first bolt once a type with lightning > 0.5 holds, default 5 */
+  lightningFirst?: number;
+  /** Seconds between later bolts [shortest, longest], default [6, 20] */
+  lightningInterval?: number[];
 }
 
 // Weather (engine.weather) is generated from the JSDoc in modules/weather/Weather.js (npm run map); only the types are re-exported here
 import type { Weather } from './generated/modules/weather/Weather';
 export type { Weather };
+// the look half of weather() (engine.weatherLook): particles, flash, look effects; generated from modules/weather/weatherLook.js
+import type { WeatherLook } from './generated/modules/weather/weatherLook';
+export type { WeatherLook };
 
 // ======================================================================
 // Water water()

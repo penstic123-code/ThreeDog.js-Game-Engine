@@ -2,7 +2,7 @@
 // This file only holds rules: installing engine modules, computing place coordinates, handing content/ to the engine, ops and presentation.
 // The level is content: the cabin, props, physics props, items, NPCs, dialogues, quests and vegetation all live in content/ (rule R33).
 import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, pickups, quests, photo, timeline, triggers, particles, music, hud, createTerrain, toast } from '../../index.js';
-import style from './style/index.js';   // this game's look (style/); its asset pack (procedural trees, rocks, the humanoid body) is registered from assets.js
+import style from './style/index.js';   // this game's look (style/); its art (procedural trees, rocks, the humanoid body, art/) is registered from assets.js
 import packs from './assets.js';
 import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';   // optional package: the terrain generator (world shape, not a look)
 import data from './content/index.js';
@@ -19,10 +19,14 @@ for (let r = 0; r < 3000; r += 10) {
 }
 
 // core + style + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
-const engine = createEngine({ canvas: document.getElementById('view'), style, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
+// Route switch for the WebGL vs WebGPU perf comparison (threedog perf --only=pages --renderer=webgpu): ?renderer=webgpu loads threedog/tsl
+// (it registers the WebGPU classes and node parts) and draws this same game on WebGPURenderer. Without the query nothing changes.
+const gpuRoute = new URLSearchParams(location.search).get('renderer') === 'webgpu';
+if (gpuRoute) await import('../../render/fx/index.js');
+const engine = createEngine({ ...(gpuRoute && { renderer: 'webgpu' }), bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests, ...presets.bindings.photo, ...presets.bindings.debug, ...presets.bindings.dialogNumbers, ...presets.bindings.cutsceneSkip }, canvas: document.getElementById('view'), style, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
 // opt-in presets: four seasons and temperate weather (the engine assumes neither)
 engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, calendar: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
-  interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), pickups(), quests({ ...presets.keys.quests }), photo({ ...presets.keys.photo }), timeline(), triggers(), particles(), music({ duckDialogue: 0.35 }), hud(),   // gameplay modules: not in the preset, this game uses them all
+  interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), pickups(), quests(), photo(), timeline(), triggers(), particles(), music({ duckDialogue: 0.35 }), hud(),   // gameplay modules: not in the preset, this game uses them all
   content());
 
 // ---------- 1. Places: nearest riverside to the cabin (fisherman goes there in the morning, barrel floats there) ----------
@@ -35,7 +39,7 @@ search: for (let r = 10; r < 400; r += 4) {
 }
 
 // ---------- 2. Cabin: placed by content/props.js (template 'cabin'); its model is built in code and registered by name ----------
-engine.assets.manifest(packs);   // assets.js: the lowpoly trees / rocks / flowers and this game's cabin
+engine.assets.manifest(packs);   // assets.js: this game's procedural trees / rocks / flowers (art/) and its cabin
 // Presentation that follows the clock: chimney smoke while the cabin's model is built, doorway lamp on 18:00-06:00
 // (sky.between re-aligns after start, load, applying a scenario, or rewinding time)
 let lampOn = false, smoke = null, smokeOn = null;
@@ -48,7 +52,7 @@ engine.onFrame(() => {
 });
 
 // ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, templates, props, physics props, custom conditions) ----------
-engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });   // body: the humanoid asset from style/
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: home.x + 4, z: home.z + 7 } });   // body: the humanoid asset from art/
 engine.content.load(data, { places: { home, river, water: waterSpot } });   // content names models only; the asset packs above resolve them
 
 // Show the film count at the top left (hud counter)

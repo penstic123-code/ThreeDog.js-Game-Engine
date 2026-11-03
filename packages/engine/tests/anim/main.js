@@ -14,7 +14,7 @@ const spawn = new THREE.Object3D(); spawn.name = 'spawn'; root.add(spawn);
 
 window.THREE = THREE;   // the test reads bone positions
 window.Character = Character;   // character-model spec builds characters directly
-const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'Animation test' } }, adaptiveResolution: false });
+const engine = window.engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: document.getElementById('view'), ui: { loading: { title: 'Animation test' } }, adaptiveResolution: false });
 engine.use(world(), sky({ time: 0.45 }), collision(), followCamera({ distance: 4, pitch: 0.25, height: 1.2 }), characters({ npcs: false }), level({ scene: root }));
 window.skinnedGlb = skinnedGlb;   // the generated-rig spec builds its own glb
 

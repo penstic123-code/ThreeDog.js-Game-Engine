@@ -3,7 +3,7 @@
 // or a key); a preset only bundles options the game could write itself, so spreading it and overriding a field is always the same as writing it out:
 //   engine.use(weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] }));
 //   engine.characters.createPlayer({ ...presets.player.lockOn, faceTarget: boss });
-//   engine.use(interactions({ ...presets.interactions.nearest, keys: ['KeyF'] }));
+//   engine.use(interactions({ ...presets.interactions.nearest, radius: 3 }));
 // No imports and no engine state: plain data plus small control functions that call public API only.
 
 /** @import { WeatherOptions, SkyOptions } from './types/world' */
@@ -11,10 +11,10 @@
 /** A side-scroller moves only along world X (left / right keys); W / S do nothing. Reads input by action like the 'camera' control */
 function sideScroll(p, input) { return { x: (input.autopilot || input.axis).x, z: 0, run: input.actions.has('run') && input.down('run') }; }
 
-// The keys the walking presets bind (the engine binds none by itself): Shift / gamepad LB runs, Space / gamepad A jumps
-const RUN = Object.freeze(['ShiftLeft', 'ShiftRight', 'PadLB']), JUMP = Object.freeze(['Space', 'PadA']);
-const walk = (control, faceMode) => Object.freeze({ control, faceMode, runKeys: RUN, jumpKeys: JUMP, cameraFollow: true });
-const use = pick => Object.freeze({ pick, keys: Object.freeze(['KeyE', 'PadX']) });
+// Presets carry no keys: keys live in presets.bindings only, so no module option binds a key and one table answers "what is pressed"
+const walk = (control, faceMode) => Object.freeze({ control, faceMode, cameraFollow: true });
+const use = pick => Object.freeze({ pick });
+const keys = (...k) => Object.freeze(k);
 
 /**
  * Opt-in presets, grouped by the option they fill. Each value is an options object for the function named in its group.
@@ -48,11 +48,9 @@ export const presets = Object.freeze({
     /** One time of day that never moves (dungeon, arena, space station), what calendar() does without a dayLength; pick the hour with time */
     fixedTime: Object.freeze({ dayLength: Infinity }),
   }),
-  /** characters.createPlayer({ ... }) movement, facing, run / jump keys and camera follow (createPlayer has no default: pick one of these or write the options) */
+  /** characters.createPlayer({ ... }) movement, facing and camera follow (createPlayer has no default: pick one of these or write the options; keys: presets.bindings.walk) */
   player: Object.freeze({
-    /** The engine does nothing: no key reads, no turning, no camera follow; the game calls player.move() and player.face() itself (add cameraFollow: true to keep the camera on it) */
-    none: Object.freeze({ control: 'none', faceMode: 'manual', cameraFollow: false }),
-    /** Keys relative to the camera, Shift runs, Space jumps, turn toward the move direction, camera follows (adventure, life sim) */
+    /** Keys relative to the camera, turn toward the move direction, camera follows (adventure, life sim) */
     thirdPerson: walk('camera', 'move'),
     /** Keys relative to the camera while facing faceTarget: strafe around a locked-on enemy (soulslike); set faceTarget */
     lockOn: walk('camera', 'target'),
@@ -61,30 +59,43 @@ export const presets = Object.freeze({
     /** Left / right only along world X, turn toward the move direction (2.5D side-scroller; pair with a side-on camera) */
     sideScroller: walk(sideScroll, 'move'),
   }),
-  /** interactions({ ... }) selection and key (interactions has no default pick or key: pick one of these or write { pick, keys }) */
+  /** interactions({ ... }) selection (interactions has no default pick: pick one of these or write { pick }; keys: presets.bindings.interact) */
   interactions: Object.freeze({
-    /** E / gamepad X uses the nearest one in reach (top-down, third person, life sim) */
+    /** Uses the nearest one in reach (top-down, third person, life sim) */
     nearest: use('nearest'),
-    /** E uses only what the actor faces, within 60° (soulslike: the door behind you stays dark) */
+    /** Uses only what the actor faces, within 60° (soulslike: the door behind you stays dark) */
     facing: use('facing'),
-    /** E uses the one closest to the screen-center ray (first person, shooters) */
+    /** Uses the one closest to the screen-center ray (first person, shooters) */
     aim: use('aim'),
   }),
   /**
-   * Keys for modules that open or do one thing (no module binds a key by itself): spread one into that module's options,
-   * e.g. inventory({ ...presets.keys.inventory, capacity: 20 }), characters({ ...presets.keys.brake })
+   * Key maps for the actions modules declare (modules never bind a key; the basics WASD / confirm / cancel / UI cursor are the only default).
+   * Bind with createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact } }) or engine.input.bind(presets.bindings.rtsRotate);
+   * an action bound to [] has deliberately no key.
    */
-  keys: Object.freeze({
+  bindings: Object.freeze({
+    /** characters.createPlayer(): Shift / gamepad LB runs, Space / gamepad A jumps */
+    walk: Object.freeze({ run: keys('ShiftLeft', 'ShiftRight', 'PadLB'), jump: keys('Space', 'PadA') }),
+    /** interactions(): E / gamepad X uses the picked one */
+    interact: Object.freeze({ interact: keys('KeyE', 'PadX') }),
     /** inventory(): I / gamepad Y opens the bag */
-    inventory: Object.freeze({ keys: Object.freeze(['KeyI']), pad: Object.freeze(['PadY']) }),
+    inventory: Object.freeze({ inventory: keys('KeyI', 'PadY') }),
     /** quests(): J / gamepad Select opens the quest log */
-    quests: Object.freeze({ keys: Object.freeze(['KeyJ']), pad: Object.freeze(['PadSelect']) }),
+    quests: Object.freeze({ quests: keys('KeyJ', 'PadSelect') }),
     /** photo(): P / gamepad RB takes a photo */
-    photo: Object.freeze({ keys: Object.freeze(['KeyP']), pad: Object.freeze(['PadRB']) }),
-    /** grids.preview(): R turns the placement preview (spread into the preview options; rotate names the action) */
-    gridRotate: Object.freeze({ rotateKeys: Object.freeze(['KeyR']) }),
+    photo: Object.freeze({ photo: keys('KeyP', 'PadRB') }),
+    /** grids.preview(): R turns the placement preview (action 'rotate') */
+    gridRotate: Object.freeze({ rotate: keys('KeyR') }),
     /** characters(): B / gamepad LT brakes while driving */
-    brake: Object.freeze({ brakeKeys: Object.freeze(['KeyB']), brakePad: Object.freeze(['PadLT']) }),
+    brake: Object.freeze({ brake: keys('KeyB', 'PadLT') }),
+    /** dialogue(): 1-9 (and the numpad) pick choices 1-9 while a conversation is open (context 'dialog', so 1-9 stay free for hotbars) */
+    dialogNumbers: Object.freeze(Object.fromEntries(Array.from({ length: 9 }, (_, i) => ['choice' + (i + 1), Object.freeze(['Digit' + (i + 1), 'Numpad' + (i + 1)])]))),
+    /** rtsCamera(): Q / R turn the view */
+    rtsRotate: Object.freeze({ rotateLeft: Object.freeze(['KeyQ']), rotateRight: Object.freeze(['KeyR']) }),
+    /** timeline(): Backspace skips a cutscene too (cancel / Esc always does) */
+    cutsceneSkip: Object.freeze({ skip: Object.freeze(['Backspace']) }),
+    /** debugPanel() / triggers(): F3 shows / hides the debug panel, F4 the trigger-zone wireframes */
+    debug: Object.freeze({ debugPanel: Object.freeze(['F3']), triggersDebug: Object.freeze(['F4']) }),
   }),
   /** followCamera({ ... }) options */
   camera: Object.freeze({

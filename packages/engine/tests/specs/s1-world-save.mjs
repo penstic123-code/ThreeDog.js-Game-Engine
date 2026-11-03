@@ -1,4 +1,4 @@
-// The "initial records + save diff" rule of world data, and level changes (top of world/World.js). Same format as specs.mjs; appended at the end of specs.mjs.
+// The "initial records + save diff" rule of world data, and level changes (top of world/World.js). Same format as the other files here.
 const READY = { timeout: 60000 };
 const reload = async page => { await page.reload(); await page.waitForFunction(() => window.engine?.stateApplied, null, READY); };
 

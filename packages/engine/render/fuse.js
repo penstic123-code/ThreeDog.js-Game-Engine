@@ -1,4 +1,4 @@
-// Fused post pass: several effects that each carry a small GLSL snippet (PostEffect.fuse) run as ONE fullscreen pass, so a chain of
+// Fused post pass. Several effects that each carry a small GLSL snippet (PostEffect.fuse) run as ONE fullscreen pass, so a chain of
 // light color effects (LUT, grain, vignette...) costs one read and one write of the screen instead of one per effect.
 // Why in the engine: only the engine knows which effects are neighbors in a slot; the effects themselves stay plain data + GLSL.
 import * as THREE from 'three';

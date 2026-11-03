@@ -2,11 +2,14 @@
 //   kind 'linear' (default, three.js Fog: near = 0.3 x far) | 'exp' | 'exp2' (three.js FogExp2) | 'height' (thick low, thin high)
 //   color 'horizon' (default: the dome's horizon color, so distant ground melts into the sky) | a color | ({ time, weather, season, state, sky }) => color
 //   color / near / far / density each also take such a function, evaluated every frame (core/look/state.js)
-//   density  per meter for exp / exp2 / height (default: derived from engine.fogFar, so the fog reaches the same distance as linear)
+//   density  per meter for exp / exp2 / height (default: derived from look.fog far, so the fog reaches the same distance as linear)
 //   height / falloff  'height' only: the fog's floor (world y) and how fast it thins above it (per meter)
 // Your own fog math is the look hook, never a style key: engine.look.fog.patch('fog', glsl) with
 //   `vec4 threedogFog(vec3 color, float depth, vec3 worldPos)` returning (fog rgb, amount 0..1). In scope: fogColor, cameraPosition, fogNear / fogFar
 //   (linear) or fogDensity (the other kinds), THREEDOG_FOG_HEIGHT / THREEDOG_FOG_FALLOFF. No custom uniforms: write constants in the GLSL.
+//   WebGPURenderer draws the hook's tsl form instead ({ glsl, tsl }; render/fx/sky.tsl.js): tsl: (ctx) => vec4 node (fog rgb, amount), ctx = { color,
+//   depth, worldPos (the same arguments as nodes), cameraPosition, density, near, far, height, falloff, fog (what the kind alone draws, the value
+//   so far), fx, tsl }. Each renderer needs its own form; a missing one throws by name.
 // How: 'linear' / 'exp2' without a hook are three's own fog, untouched (the default draws exactly what it always drew). 'exp', 'height' and the
 // hook are one named shader patch, 'fog', on the semantic slots fogPars / fog (render/slots.js), put on each material in this engine's scene
 // (fogMaterials below). Why per material and not THREE.ShaderChunk.fog_*: the chunks are one object per page, so a rewrite reached every
@@ -24,9 +27,11 @@ import { patchMaterial, unpatchMaterial, isEngineMade } from '../../render/patch
 import { hashText } from '../../render/effects.js';
 import { sceneVisitor } from '../../core/sceneDelta.js';
 import { codedError } from '../../core/errorHints.js';
+import { fogFarOf } from '../../core/sceneMethods.js';
+import { skyNodes } from './shader.js';
 
-/** A start distance for the fog object: a function far is evaluated per frame (updateFog), so the object starts at engine.fogFar */
-export const startFar = (f, fogFar) => (typeof f.far === 'number' ? f.far : fogFar);
+/** A start distance for the fog object: a function far is evaluated per frame (updateFog), so the object starts at the distance in effect */
+export const startFar = (f, e) => (typeof f.far === 'number' ? f.far : fogFarOf(e));
 
 const KINDS = ['linear', 'exp', 'exp2', 'height'];
 export const FOG_KINDS = KINDS;
@@ -54,7 +59,7 @@ export const FOG_SIGNATURE = /vec4\s+threedogFog\s*\(/;
 
 /**
  * Check style.sky.fog (+ sky({ fog }) on top) and return the resolved settings; throws with the fix on a bad kind.
- * @param {object} spec the settings @param {string} [hook] look.fog's 'hook:fog' GLSL (lookFog.js validated it)
+ * @param {object} spec the settings @param {string | { glsl?: string, tsl?: Function }} [hook] look.fog's 'hook:fog' value (lookFog.js validated it)
  */
 export function resolveFog(spec, hook) {
   const s = spec || {};
@@ -63,8 +68,10 @@ export function resolveFog(spec, hook) {
   const kind = s.kind ?? 'linear';
   if (!KINDS.includes(kind)) throw codedError('sky-option', `style.sky.fog.kind '${kind}' is not a fog kind; use ${KINDS.map(k => `'${k}'`).join(' | ')}` + (closest(kind, KINDS) ? ` (did you mean '${closest(kind, KINDS)}'?)` : ''));
   const color = s.color ?? 'horizon';
+  // the hook: GLSL text, or { glsl?, tsl? } (lookFog.js checked the shape); kept whole so each renderer picks its own form
+  const h = hook == null ? null : typeof hook === 'string' ? { glsl: hook } : hook;
   return { kind, color: color === 'horizon' || typeof color === 'function' ? color : new THREE.Color(color), density: s.density ?? null,
-    height: s.height ?? 0, falloff: s.falloff ?? 0.05, glsl: hook ?? FN[kind] ?? null, near: s.near ?? null, far: s.far ?? null, enabled: s.enabled !== false };
+    height: s.height ?? 0, falloff: s.falloff ?? 0.05, glsl: h ? h.glsl ?? null : FN[kind] ?? null, hook: h, near: s.near ?? null, far: s.far ?? null, enabled: s.enabled !== false };
 }
 
 /** The fog object for the kind: density-based kinds use FogExp2 (its fogDensity uniform is live), linear uses Fog */
@@ -111,6 +118,11 @@ const FOGGED = new Set(['MeshBasicMaterial', 'MeshLambertMaterial', 'MeshPhongMa
  * @param {any} sky @param {any} f resolved settings, or null (no fog: sky({ fog: false }), module disposed)
  */
 export function setFogPatch(sky, f) {
+  sky._fogSet = f;   // the settings in force: a renderer swap (fallback 'webgl') applies them again on the other route
+  // WebGPURenderer: one scene fog node instead of the per-material patch (render/fx/sky.tsl.js fogSide: kinds, the FogExp2 rule, the hook error)
+  const n = skyNodes(sky.engine);
+  if (n) { (sky._fogNode ??= n.fogSide(sky.engine.scene)).set(f); return; }
+  if (f?.hook && f.glsl == null) throw codedError('sky-option', "look.fog.patch('fog') has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })");
   const w = sky._fogWalk ??= { patch: null, mats: new Map(), view: null };
   const p = f ? fogPatch(f) : null;
   if ((p?.cacheKey ?? null) === (w.patch?.cacheKey ?? null)) return;
@@ -130,6 +142,7 @@ export function setFogPatch(sky, f) {
 /** Per frame (updateSky): put the fog patch on fogged materials of objects that entered the scene since the last frame (core/sceneDelta.js) */
 export function fogMaterials(sky) {
   sky._fogWalk?.view?.sync();
+  sky._fogNode?.sync();   // WebGPU: the scene fog node follows scene.fog's type (render/fx/sky.tsl.js)
 }
 
 /** describe().owned row 'fog.patch': the game's own materials the fog patch went on (undefined while none) */
@@ -142,19 +155,20 @@ export function fogGameMaterials(sky) {
 const FOG_OFF_FAR = 1e9;
 
 /** Per frame: fog color and distance / density from the sky's horizon and the modifier layers (fog multiplies the distance) */
-export function updateFog(sky, horizon, M, ctx) {
+export function updateFog(sky, horizon, ctx) {
   // only when the sky drives fog (sky({ fog: true })) and scene.fog is still a fog object: the game may have nulled or replaced it
   const fog = sky.engine.scene.fog, f = sky._fog;
-  if (!sky._oFog?.on || !fog?.color) return;   // off also after look.fog.replace(fog): replace puts the owned entry in manual mode (lookFog.js)
-  // look.fog: far / near set explicitly are the base distance (weather still scales it); enabled false pushes the fog out of reach without a recompile
-  const far = f.enabled ? (live(f.far, ctx) ?? sky.engine.fogFar) * M.fog : FOG_OFF_FAR, near = live(f.near, ctx), density = live(f.density, ctx);
+  if (!sky._oFog?.on || !fog?.color) return;   // off after scene.fog = yours (the owned entry yielded) or look.fog.manual()
+  // look.fog far is a shared point: its value already holds the weather's multiplier (engine.mod('look.fog.far', { mul })); near / density set
+  // explicitly are kept as given; enabled false pushes the fog out of reach without a recompile
+  const far = f.enabled ? fogFarOf(sky.engine) : FOG_OFF_FAR, near = live(f.near, ctx), density = live(f.density, ctx);
   // a function color may answer 'horizon' too (({ state }) => state.boss ? '#400' : 'horizon'), so the default stays one word away
   const color = live(f.color, ctx);
   if (color === 'horizon') fog.color.copy(horizon);
   else fog.color.set(color);
-  // near / far are written for every kind: engine.setFogFar and the dev guard read them
-  fog.far = far; fog.near = f.enabled && near != null ? near * M.fog : far * FOG_NEAR;
-  if (f.kind !== 'linear') fog.density = !f.enabled ? 0 : density != null ? density / M.fog : REACH[f.kind] / far;
+  // near / far are written for every kind: the dev guard reads them
+  fog.far = far; fog.near = f.enabled && near != null ? near : far * FOG_NEAR;
+  if (f.kind !== 'linear') fog.density = !f.enabled ? 0 : density != null ? density : REACH[f.kind] / far;
 }
 
 // The dome's fog band: its lower band fades to the fog color so the line where fogged ground meets the sky does not show.

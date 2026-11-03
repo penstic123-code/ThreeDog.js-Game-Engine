@@ -111,10 +111,18 @@ const opLine = o => `  ${o.name}(${argText(o.args)})${o.failures?.length ? ' fai
 const filesLines = l => [l.source?.length && `source: ${l.source.join(', ')}`, l.api && `api: ${l.api}`,
   l.recipes?.length && `recipes: ${l.recipes.join(', ')}`, l.examples?.length && `examples: ${l.examples.join(', ')}`].filter(Boolean);
 
-function summaryText(rows) {
-  return rows.map(s => `${s.id} [${[s.stage, s.state].filter(Boolean).join(', ') || s.kind}] ops: ${list(s.ops)} · saves: ${list(s.saves)}`
-    + `${s.time ? ' · time: ' + s.time : ''}${s.problems ? ` · ${s.problems} problem(s)` : ''}`).join('\n')
-    + '\nDetails: threedog catalog <id> (module, op name, core or game)';
+const rowLine = s => `${s.id} [${[s.stage, s.state].filter(Boolean).join(', ') || s.kind}] ops: ${list(s.ops)} · saves: ${list(s.saves)}`
+  + `${s.time ? ' · time: ' + s.time : ''}${s.problems ? ` · ${s.problems} problem(s)` : ''}`;
+/**
+ * Answer first: the rows that can do something (ops) or have problems get a line each; the rest are named on one line per kind.
+ * Why: 18 look parts and a dozen op-less modules were 35 of 50 lines on the world example, all saying "ops: — · saves: —". full = every row.
+ */
+function summaryText(rows, full) {
+  const loud = s => full || s.ops?.length || s.problems || s.state === 'failed' || s.state === 'initializing';
+  const quiet = rows.filter(s => !loud(s)), byKind = {};
+  for (const s of quiet) (byKind[s.kind === 'look' ? 'look parts' : 'modules without ops'] ??= []).push(s.id.replace(/^look\./, ''));
+  return [...rows.filter(loud).map(rowLine), ...Object.entries(byKind).map(([k, ids]) => `${ids.length} ${k}: ${ids.join(', ')}`),
+    `Details: threedog catalog <id> (module, op name, core or game)${full ? '' : '; --full for one line per module'}`].join('\n');
 }
 
 function moduleText(x, where) {
@@ -135,7 +143,7 @@ function moduleText(x, where) {
 
 function opText(o, where) {
   const out = [`${o.id} · op of ${o.owner}${o.desc ? ' — ' + o.desc : ''}`, `args: ${argText(o.args) || '(none)'}`,
-    `fails: ${Object.entries(o.reasons).map(([k, v]) => `${k} (${v})`).join(', ') || '—'} (plus unknownOp, halted, error from the engine)`,
+    `fails: ${Object.entries(o.reasons).map(([k, v]) => `${k} (${v})`).join(', ') || '—'} (plus unknownOp, halted, loading (save parts still loading), error from the engine; badOffer / offersFailed in ops.list({ available }) for a broken offers)`,
     `can: ${o.can ? 'yes' : 'no'} · offers: ${o.offers ? 'yes' : 'no'} · undo: ${o.undo ? 'yes' : 'no'} · net: ${o.net}`];
   if (o.last) out.push(`last: tick ${o.last.tick} ${o.last.ok ? '✓' : '✗ ' + o.last.code} ${JSON.stringify(o.last.args)} (${o.last.source})`);
   return [...out, ...filesLines(where)].join('\n');
@@ -144,7 +152,7 @@ function opText(o, where) {
 /** Bridge command: r is the page result { data, ids, ops } of engine.catalog(id) */
 export function catalogCommand(r, id, opt, dir) {
   const max = opt.max || MAX_TEXT, cut = s => s.length > max ? s.slice(0, max) + '\n… (--max N for more, --json for the data)' : s;
-  if (!id) return { ok: true, text: cut(summaryText(r.data)), data: r.data };
+  if (!id) return { ok: true, text: cut(summaryText(r.data, opt.full)), data: r.data };
   if (!r.data) return { ok: false, text: `✗ catalog: no module or op "${id}". Modules: ${r.ids.join(', ')}; ops: ${r.ops.slice(0, 20).join(', ')}` };
   const where = locate(id, r.data.kind, dir);
   const data = { ...r.data, files: where };

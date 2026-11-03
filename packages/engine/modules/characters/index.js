@@ -52,27 +52,34 @@ function solvePath(e, from, to, o) {
   return detailed ? res : res.path;
 }
 
-const CHARACTERS_PARAMS = keysSchema(['npcs', 'npcTiers', 'brakeKeys', 'brakePad']);
+const CHARACTERS_PARAMS = keysSchema(['npcs', 'npcTiers']);
 
 export function characters(opts = {}) {
   readParams('characters', CHARACTERS_PARAMS, opts);
-  const { npcs = true, npcTiers, brakeKeys, brakePad } = opts;   // no brake key by default: characters({ ...presets.keys.brake }) or the game's own
+  const { npcs = true, npcTiers } = opts;
   // the player's per-step drive / per-frame animation: set by createPlayer, run by this module's own fixed / frame hooks (not engine.onFixed), so a game
   // onFixed sees the same player position whether it was registered before or after createPlayer (phase 'early' = before the move, 'late' = after)
-  let mgr = null, paths = null, disposePlayer = null, drivePlayer = null, animatePlayer = null;
+  let mgr = null, paths = null, disposePlayer = null, animatePlayer = null;
   return {
     // before rigid: the player's move this step is in the physics step that follows (as when control was an onFixed)
-    name: 'characters', params: CHARACTERS_PARAMS, options: opts, label: 'Characters', before: ['rigid'], noSkip: 'fixed only flushes path requests; schedules read the calendar clock', optional: ['cameraRig', 'calendar', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
-    install(e) {
-      e.i18n.add(STRINGS);
+    name: 'characters', type: 'actor', params: CHARACTERS_PARAMS, options: opts, label: 'Characters', before: ['rigid'], noSkip: 'fixed only flushes path requests; schedules read the calendar clock', optional: ['cameraRig', 'calendar', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
+    install(e, ctx) {
+      e.i18n.add(STRINGS); e.i18n.add({ 'zh-CN': { 'module.characters': '角色' }, en: { 'module.characters': 'characters' } });
       // move.* are defined at module install: doc examples call engine.mod('move.speed', …) in setup before creating a character, and relying on the first Character's definition would give unknown-name
       moveStacks(e);
+      // the player's actions, declared once by the module (gone with it); the game binds their keys (presets.bindings.walk / .brake), so
+      // no option takes keys. optional: a player without jump or brake still works, reading them unbound stays silent
+      ctx.input.action('jump', { label: 'input.jump', optional: true });
+      ctx.input.action('run', { label: 'input.run', optional: true });
+      ctx.input.action('brake', { label: 'input.brake', context: 'vehicle', optional: true });
       builtInSounds(e.assets, { footstep: footstepSynth });   // sound asset 'footstep', silent until audio.sounds names it (step.grass: { src: 'footstep', params })
-      if (npcs) { mgr = new NPCManager(e); e.npcs = mgr; if (npcTiers) mgr.tiers(npcTiers); }
+      if (npcs) { mgr = new NPCManager(e, ctx.track); e.npcs = mgr; if (npcTiers) mgr.tiers(npcTiers); }
       else if (npcTiers) throw codedError('module-params', 'characters({ npcTiers }) needs NPCs: drop npcs: false, or drop npcTiers');
       paths = new AsyncPaths(e);
-      e.events.on('ground:change', b => paths.dropTiles(b));   // dug or raised ground: resample the path rasters there
-      e.events.on('level:loaded', () => paths.tiles.clear());   // another level: none of the cached rasters describe it
+      // control (core/control.js) finds a held character by id: the player, else an NPC's model (null while it is far)
+      e.control.resolveWith(id => (id === PLAYER ? e.player : mgr?.character(id)) ?? null);
+      ctx.track(e.events.on('ground:change', b => paths.dropTiles(b)));   // dug or raised ground: resample the path rasters there
+      ctx.track(e.events.on('level:loaded', () => paths.tiles.clear()));   // another level: none of the cached rasters describe it
       const api = {
         /**
          * Find a spawn point: spiral outward from position (default origin) for walkable ground (no obstacles, gentle slope) that is not in water. Returns a
@@ -87,7 +94,7 @@ export function characters(opts = {}) {
          * safe: false = never a respawn spot; carry: 'position+yaw' turns riders with it; inherit: false = jumping off keeps none of its speed.
          * The simple mover stands on its measured box top; with mover 'rapier' give it a collider too (the support only carries).
          * @param {import('three').Object3D} object @param {{ id?: string, safe?: boolean, carry?: 'position' | 'position+yaw', inherit?: boolean }} [o]
-         * @example const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.real); });
+         * @example const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.now('real')); });
          */
         support(object, o) { return addSupport(e, object, o); },
         /**
@@ -104,7 +111,7 @@ export function characters(opts = {}) {
          * @param {any} to
          * @param {(path: { x: number, z: number }[] | null, status: 'ok' | 'noPath' | 'notReady') => void} done
          * @param {{ radius?: number, step?: number, maxNodes?: number }} [opts]
-         * @returns {{ cancel: () => void }}
+         * @returns {{ remove: () => void }}
          * @example const req = engine.characters.findPathAsync(guard.position, target, (path, status) => { guard.path = path; });
          * req.remove();   // target changed before the answer came
          */
@@ -130,25 +137,26 @@ export function characters(opts = {}) {
          * The player is also the world record with id 'player' (needs the world module).
          * Without spawn and with an existing player record in world (loaded before the player was created) it continues from the record's position; move the
          * player with player.placeAt(position)
-         * control (required; also the plain property player.control, switch it at any time) decides who moves the player each fixed step:
+         * control (required) is how the player's input steers it; it holds the player's control slot on layer 'base' as owner 'player-input'
+         * (engine.control.of(player)): a walkTo or a game script (layer 'script') pauses it, a cutscene above that too, and it carries on when they end.
          *   'camera' moveInput(): movement keys relative to the camera, plus the jump key and vehicle driving
-         * function (player, input, dt) => ({ x, z, run? }) | null: you decide the direction (its length 0-1 scales the speed; null = stand still);
+         *   function (player, input, dt) => ({ x, z, run? }) | null: you decide the direction (its length 0-1 scales the speed; null = stand still);
          *   speed changes go through engine.mod('move.speed', { owner, id: 'player', ... }); jump key and vehicles stay.
-         * Side-scroller: return { x: input.axis.x, z: 0 }
-         *   'none': the engine never moves the player; call player.move(x, z, run, dt) yourself once per fixed step (rolls, attack lunges, hit stun)
-         * runKeys / jumpKeys bind the 'run' / 'jump' actions (no keys are bound otherwise; player.jump() still works); cameraFollow: true points the camera
+         *   Side-scroller: return { x: input.axis.x, z: 0 }
+         * The game moving the player itself (rolls, lunges, hit stun): engine.control.take(player, { owner: 'roll', layer: 'script', step }) while it
+         * lasts, then h.remove(); a direct player.move() while 'player-input' holds it is a control-bypass error in dev.
+         * The 'run' / 'jump' actions are the game's to bind (presets.bindings.walk; player.jump() works without); cameraFollow: true points the camera
          * module at the player (and back after a vehicle)
          * The world record, saving and describe().player work the same for every control. The engine drives the player on its channel (default
          * 'player': dt passed to move and to the control function is engine.time.dt('player', 'player'), so engine.mod('time.player', ...) slows it)
          * @example const player = engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: engine.characters.findSpawn() })
-         * @example const player = engine.characters.createPlayer({ ...presets.player.none, cameraFollow: true }); engine.onFixed(dt => player.move(0, 0, false,
-         * dt))
+         * @example const roll = engine.control.take(player, { owner: 'roll', layer: 'script', step: () => ({ x: 0, z: 1, run: true }) }); engine.clock.after(0.4, () => roll.remove())
          */
         // creating the player is setup (a game does it after loading its model, or on level:loaded), not a gameplay action: the ops guard lets its writes through
         createPlayer(opts = {}) { return e.ops.allow(() => api._createPlayer(opts)); },
         /** @internal */
         _createPlayer(opts) {
-          readParams('characters.createPlayer()', keysSchema([...CHARACTER_KEYS, 'spawn', 'jumpKeys', 'runKeys', 'control', 'cameraFollow']), opts);
+          readParams('characters.createPlayer()', keysSchema([...CHARACTER_KEYS, 'spawn', 'control', 'cameraFollow']), opts);
           const control = opts.control;
           if (control === undefined) throw codedError('player-control', DEV_STRINGS.noControl);
           if (!validControl(control)) throw codedError('player-control', DEV_STRINGS.badControl.replace('{got}', JSON.stringify(control) ?? String(control)));
@@ -158,7 +166,6 @@ export function characters(opts = {}) {
           const vehicleOf = v => v == null ? null : typeof v === 'number' ? (v >= 0 ? e.rigid?.vehicles[v] ?? null : null) : e.rigid?.vehicles.find(c => c.id === v) ?? null;
           disposePlayer?.();   // existing player: dispose the old one first (else two characters respond to keys)
           const p = new Character(e, { channel: 'player', ...opts }), had = W.get(PLAYER);
-          p.control = control;
           p.cameraFollow = !!opts.cameraFollow;   // read again on vehicle exit and a new session (Character.js, camera/common.js)
           if (DEV && opts.cameraFollow === undefined && e.cameraRig) warnOnce(coded('player-control', DEV_STRINGS.noFollow));
           if (!had) W.add({ id: PLAYER, kind: PLAYER, position: [0, 0, 0], vehicle: null });
@@ -177,36 +184,30 @@ export function characters(opts = {}) {
           p.addTo();
           p.onStep = type => e.audio.sfx(stepSound(e, type));
           p.onLand = impact => { if (impact > 3) e.audio.sfx(stepSound(e, p.groundType()), { volume: Math.min(2, impact / 6) }); };
-          // the game's keys only: no Space-to-jump or Shift-to-run unless it (or a preset it picked) asked
-          if (p.canJump && opts.jumpKeys) { e.input.define('jump', opts.jumpKeys, 'input.jump'); e.input.touchButton('jump', 'input.jump'); }
-          if (opts.runKeys) e.input.define('run', opts.runKeys, 'input.run');
-          // brake: a separate action, only when the game gives keys (characters({ brakeKeys, brakePad }) or presets.keys.brake: B / gamepad LT), does not
-          // compete with jump on space. Registered only when driving is possible (rigid installed)
-          if (e.rigid && (brakeKeys || brakePad)) e.input.define('brake', brakeKeys ?? [], 'input.brake', { pad: brakePad, context: 'vehicle' });
+          // a touch jump button only when the game bound jump (a game without jumping gets no button)
+          if (p.canJump && e.input.keysOf('jump').length) e.input.touchButton('jump', 'input.jump');
           e.player = p;
           if (p.cameraFollow) e.cameraRig?.follow(p.root);
-          // gameplay keys are read in the fixed step (input snapshot, frame-rate independent); frame only plays animation
-          drivePlayer = () => {
-            const c = p.control;
-            const dt = e.time.dt(p.channel, PLAYER);   // the player's channel (bullet time on 'player', time.local on 'player')
-            if (c === 'none') return;   // the game drives the player itself: no key reads, no move
-            // player.control set to a bad value at runtime
-            if (!validControl(c)) { warnOnce(coded('player-control', DEV_STRINGS.badControl.replace('{got}', JSON.stringify(c) ?? String(c)))); return; }
-            const has = a => e.input.actions.has(a);   // keys the game bound; an unbound action is simply not used
+          // gameplay keys are read in the fixed step (input snapshot, frame-rate independent); frame only plays animation.
+          // The input is the base holder of the player's control slot: engine.control runs this step (characters fixed, below) only while it is in
+          // charge, so a walkTo, a game script or a cutscene pauses keys, jump and driving alike, and nothing else moves the player in that step.
+          // dt is the player's channel (bullet time on 'player', time.local on 'player').
+          const inputStep = dt => {
+            const has = a => e.input.actions.has(a);   // 'interact' exists only with a module or binding that declares it
             // when the interactions module is installed, the vehicle's "exit" interaction handles it
             if (p.vehicle) { if (!e.interactions && has('interact') && e.input.pressed('interact')) p.exit(); }
-            else if (p.canJump && has('jump') && e.input.pressed('jump')) p.jump();
-            if (p.vehicle && p.seat === 0) { const a = e.input.autopilot || e.input.axis; p.vehicle.drive(a.y, a.x, e.input.actions.has('brake') && e.input.down('brake') ? 1 : 0); }
+            else if (p.canJump && e.input.pressed('jump')) p.jump();
+            if (p.vehicle && p.seat === 0) { const a = e.input.autopilot || e.input.axis; p.vehicle.drive(a.y, a.x, e.input.down('brake') ? 1 : 0); }
             // autopilot { speed } (benchmarks, recordings) is a move.speed entry like any other modifier, not a second way to set the speed
             const ap = e.input.autopilot?.speed;
             // taken again only when the speed changed (or the entry was cleared): a take every step changed the stack each step, so every
             // speed read recomputed instead of using the stack's memo (core/stacks.js)
-            if (ap != null) { if (ap !== autoSpeed || !e.stacks.get('move.speed').has('autopilot', PLAYER)) e.mod('move.speed', { owner: 'autopilot', id: PLAYER, set: ap, priority: 'debug' }); }
+            if (ap != null) { if (ap !== autoSpeed || !e.stacks.get('move.speed').has('autopilot', PLAYER)) e.mod('move.speed', { owner: 'autopilot', id: PLAYER, set: ap, layer: 'debug' }); }
             else if (autoSpeed != null) e.stacks.get('move.speed').release('autopilot', { id: PLAYER });
             autoSpeed = ap ?? null;
-            const m = c === 'camera' ? api.moveInput() : c(p, e.input, dt);
-            p.move(m?.x ?? 0, m?.z ?? 0, !!m?.run, dt);
+            return control === 'camera' ? api.moveInput() : control(p, e.input, dt);
           };
+          const held = e.control.take(p, { owner: 'player-input', layer: 'base', step: inputStep });
           let autoSpeed = null;   // the autopilot speed the move.speed entry holds now (null: no entry)
           animatePlayer = dt => p.animate(dt);
           // record the stable id of the vehicle the player is in (world.set: world:change fires; it follows an enter / exit that already happened)
@@ -221,7 +222,7 @@ export function characters(opts = {}) {
             else { W.add({ id: PLAYER, kind: PLAYER, position: p.position, vehicle: null }); p._store(); }
           });
           disposePlayer = () => {
-            drivePlayer = animatePlayer = null; onCar.remove(); offCar.remove(); onLoad.remove();
+            animatePlayer = null; held.remove(); onCar.remove(); offCar.remove(); onLoad.remove();
             p.recordId = null; p.dispose(); W.remove(PLAYER);
             if (e.player === p) e.player = null;
           };
@@ -235,7 +236,8 @@ export function characters(opts = {}) {
     init(e) { if (mgr && e.world) mgr.setup(); },
     // player control runs here (stage late: after every early onFixed and the gameplay stages); then carry riders by what moved since their own step
     // (support.js): every platform mover of this step has run by now
-    fixed(_dt, e) { paths.flush(); drivePlayer?.(); carryRiders(e, false); },
+    // control holders' steps (the player's input, game steps) run here too, in that order: one move per held character per step (core/control.js)
+    fixed(_dt, e) { paths.flush(); e.control.stepAll(); carryRiders(e, false); },
     // a timeline or frame code moved a platform: carry now, so the picture never shows a rider sinking into or floating above it
     frame(dt, e) { animatePlayer?.(dt); carryRiders(e, true); },
     describe(e, ctx) {
@@ -245,7 +247,7 @@ export function characters(opts = {}) {
         ctx.near(e.world.view(r.id) ?? r.position, { id: r.id, name: r.name, kind: 'npc', state: r.state });
       }
       if (ctx.out.player) Object.assign(ctx.out.player, { swimming: e.player.swimming, grounded: e.player.grounded, facing: Math.round(e.player.facing * 100) / 100,
-        control: typeof e.player.control === 'function' ? 'custom' : e.player.control, faceMode: e.player.faceMode, mover: e.player.mover.name, ...(e.player.anim && { anim: e.player.anim.describe() }), ...(e.player.vehicle && { vehicle: { speed: Math.round(e.player.vehicle.speed * 10) / 10 } }) });
+        control: e.control.of(e.player)?.owner ?? null, faceMode: e.player.faceMode, mover: e.player.mover.name, ...(e.player.anim && { anim: e.player.anim.describe() }), ...(e.player.vehicle && { vehicle: { speed: Math.round(e.player.vehicle.speed * 10) / 10 } }) });
     },
   };
 }

@@ -67,17 +67,17 @@ export function flow(opts = {}) {
         const lock = lockInput ? e.input.push('transition') : null;
         let shown = false;
         try {
-          await fadeScreen(e, 1, fade);
+          await fadeScreen(e, 1, { seconds: fade });
           const m = music === 'fade' ? e.music : null, prev = m?.current;
-          m?.stop(fade);
+          m?.stop({ fade });
           if (autosave === 'auto') e.saves.save('auto');
           await e.ops.allow(async () => { await fn?.(); });   // the scene swap is loading: the ops guard lets its writes through
           await waitReady();
           if (m && prev && !m.current && !m.ruled) m.play(prev);   // no track rule: resume the previous track after the switch
-          await fadeScreen(e, 0, fade);
+          await fadeScreen(e, 0, { seconds: fade });
           shown = true;
         } finally {
-          if (!shown) fadeScreen(e, 0, 0);   // fn threw: don't leave the screen black, fade back in at once (the error still propagates to the caller)
+          if (!shown) fadeScreen(e, 0, { seconds: 0 });   // fn threw: don't leave the screen black, fade back in at once (the error still propagates to the caller)
           lock?.remove();
           api.transitioning = false;
           e.events.emit('flow:transition', { phase: 'end' });
@@ -87,14 +87,17 @@ export function flow(opts = {}) {
     },
   };
   return {
-    name: 'flow', params: FLOW_PARAMS, options: opts, label: 'Game flow', optional: ['music'],
-    install(engine) {
+    name: 'flow', type: 'rules', params: FLOW_PARAMS, options: opts, label: 'Game flow', optional: ['music'],
+    install(engine, ctx) { engine.i18n.add({ 'zh-CN': { 'module.flow': '游戏流程' }, en: { 'module.flow': 'game flow' } });
       e = engine;
       // initial state (title screen etc.): entered once the world is ready, so the game can define it after use()
-      if (opts.start && opts.start !== 'playing') e.events.once('engine:ready', () => api.go(opts.start));
+      if (opts.start && opts.start !== 'playing') ctx.track(e.events.once('engine:ready', () => api.go(opts.start)));
       // a playthrough ends (engine.session): back to the start state, so its enter() runs again; a new one starts in 'playing'
-      e.events.on('session:end', () => api.go(opts.start ?? 'playing'));
-      e.events.on('session:start', () => api.go('playing'));
+      // a failed replacement keeps the old playthrough: back to the state it was in
+      let before = null;
+      ctx.track(e.events.on('session:end', () => { before = api.state; api.go(opts.start ?? 'playing'); }));
+      ctx.track(e.events.on('session:start', () => api.go('playing')));
+      ctx.track(e.events.on('session:failed', () => { if (before) api.go(before); }));
       return api;
     },
     describe() { return { state: api.state, transitioning: api.transitioning }; },

@@ -15,13 +15,13 @@ Real physics, Rapier (rigid() module, needs collision)
   - `playerCapsule?: { halfHeight: number; radius: number }` Player capsule size (meters), default computed from engine.movement radius / height
 
 ## Methods and properties
-- `rigid.addBox(mesh: Object3D, opts?: RigidBoxOptions) → RigidEntry | null` — Add a box (crate). Returns null if not ready
+- `rigid.addBox(mesh: Object3D, opts?: RigidBoxOptions) → RigidEntry | null` — Add a box (crate). Physics is ready after engine.start() (or on engine:ready): called before, it throws in development, a release build warns once and returns null
 - `rigid.addBall(mesh: Object3D, opts?: RigidBallOptions) → RigidEntry | null` — Add a ball
 - `rigid.addHull(mesh: Object3D, opts?: RigidBodyOptions) → RigidEntry | null` — Add a convex hull (irregular objects such as rocks and barrels)
 - `rigid.impulse(entry: RigidEntry, impulse: Vec3Like)` — Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5])
 - `rigid.setPosition(entry: RigidEntry, position: PositionLike)` — Teleport to position (velocity is zeroed)
 - `rigid.groundReady(position: PositionLike) → boolean` — Is the physics ground under position built (always true without chunked terrain; with mover: 'rapier' and not yet built, 'simple' is used temporarily)
-- `rigid.addWheeled(mesh: Object3D, opts: VehicleOptions) → Vehicle | null` — Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out first). Returns null if not ready. Boats, mounts and mechs are the game's own objects with the same seat interface
+- `rigid.addWheeled(mesh: Object3D, opts: VehicleOptions) → Vehicle | null` — Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out first). Before physics is ready it throws in development (release: warns, null), like addBox. Boats, mounts and mechs are the game's own objects with the same seat interface
 - Properties:
   - `ready: boolean` Is the physics engine ready (downloaded and initialized at start())
   - `bodies: RigidEntry[]` All physics bodies

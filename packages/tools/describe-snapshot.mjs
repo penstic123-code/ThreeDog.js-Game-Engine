@@ -2,7 +2,7 @@
 // A baseline is the gameplay part of engine.describe() (perf and elapsed time are dropped; numbers compare within a tolerance), stored per name as
 // <workspace>/tests/snapshots/<name>.describe.json and committed with the code.
 //
-// In a test (engine specs or a game's tests/specs.mjs); the page must already be in the state you want to freeze:
+// In a test (engine specs or a game's tests/specs/*.mjs); the page must already be in the state you want to freeze:
 //   import { expectDescribe } from '@threedog/tools/describe-snapshot';
 //   await ev(() => { engine.pause(); engine.step(1); });
 //   await expectDescribe({ check, ev }, 'market-noon', { only: ['player', 'quests', 'nearby'], tolerance: 0.5 });
@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Paths dropped before saving / comparing: timing and performance numbers are not gameplay */
-export const DEFAULT_IGNORE = ['perf', 'time.elapsed', 'loading'];   // loading: file versions and on-demand counts are not gameplay
+export const DEFAULT_IGNORE = ['perf', 'time.tick', 'time.real', 'time.ambient', 'loading'];   // loading: file versions and on-demand counts are not gameplay
 const MAX_LINES = 20;
 const isObj = v => v !== null && typeof v === 'object';
 

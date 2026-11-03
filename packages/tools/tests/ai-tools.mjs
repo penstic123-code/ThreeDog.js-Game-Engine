@@ -42,7 +42,7 @@ const SAMPLES = {
   'audio-unsupported': 'Audio is not supported by this browser; check typeof AudioContext before calling [audio-unsupported]',
   'indexeddb': 'indexedDB is unavailable [indexeddb]',
   'gameplay-frozen': '[engine] listener of event quest:done threw and gameplay is frozen (in dev / tests a gameplay error fails hard) [gameplay-frozen]',
-  'module-disabled': '[engine] presentation module particles threw and was disabled (the game continues) [module-disabled]',
+  'module-disabled': '[engine] look module particles threw and was disabled (the game continues) [module-disabled]',
   'not-installed': "Cannot read properties of undefined (reading 'give')",
   // a read on null is not "not installed" (a three.js mergeGeometries that returned null got that hint once)
   'null-value': "Cannot read properties of null (reading 'boundingSphere')",
@@ -61,11 +61,11 @@ export async function run({ check }) {
   check('withHint: appends the cause and the pages, and is idempotent; unknown messages stay unchanged',
     /\n {2}Possible cause: .*\n {2}Read: recipes\/18-world\.md/.test(withHint(SAMPLES['world-plain'])) && withHint(withHint(SAMPLES['world-plain'])) === withHint(SAMPLES['world-plain']) && withHint('something else') === 'something else');
 
-  const d = { perf: { fps: 60 }, time: { elapsed: 12.3, clock: '12:00' }, player: { x: 10, y: 1, z: 5, state: 'idle' }, nearby: [{ name: 'Hen', dist: 3 }, { name: 'Pig', dist: 8 }], quests: { active: [{ id: 'q1', step: 'talk' }] } };
+  const d = { perf: { fps: 60 }, time: { real: 12.3, clock: '12:00' }, player: { x: 10, y: 1, z: 5, state: 'idle' }, nearby: [{ name: 'Hen', dist: 3 }, { name: 'Pig', dist: 8 }], quests: { active: [{ id: 'q1', step: 'talk' }] } };
   const p = pickGameplay(d);
-  check('pickGameplay: drops perf and time.elapsed, keeps the rest; only keeps dotted paths', !('perf' in p) && !('elapsed' in p.time) && p.time.clock === '12:00' && JSON.stringify(Object.keys(pickGameplay(d, { only: ['player.x', 'quests'] }))) === '["player","quests"]');
+  check('pickGameplay: drops perf and time.real, keeps the rest; only keeps dotted paths', !('perf' in p) && !('real' in p.time) && p.time.clock === '12:00' && JSON.stringify(Object.keys(pickGameplay(d, { only: ['player.x', 'quests'] }))) === '["player","quests"]');
   const cur = JSON.parse(JSON.stringify(d));
-  cur.perf.fps = 5; cur.time.elapsed = 99; cur.player.x = 10.3;   // noise only
+  cur.perf.fps = 5; cur.time.real = 99; cur.player.x = 10.3;   // noise only
   check('diff: perf / elapsed / jitter within tolerance are not differences', diffDescribe(pickGameplay(d), pickGameplay(cur)).length === 0);
   cur.player.x = 14; cur.nearby.reverse(); cur.nearby.push({ name: 'Cow', dist: 9 }); cur.quests.active[0].step = 'deliver'; cur.time.clock = '13:00';
   const lines = diffDescribe(pickGameplay(d), pickGameplay(cur));

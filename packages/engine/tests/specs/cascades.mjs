@@ -7,6 +7,7 @@ const READY = { timeout: 60000 };
 
 export const specs = [
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: '[守] 级联阴影：唯一入口是具名补丁 csm，风吹等补丁链和影子深度材质不丢，ShaderChunk 不被全局替换，开关可逆，写错报错，低档默认单阴影',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -37,10 +38,17 @@ export const specs = [
           tint: s.fragmentShader.includes('uFoliageTint'), clouds: s.fragmentShader.includes('threedogCloudLight'), depthWind: d.vertexShader.includes('threedog_wind_vertex') };
         out.chunksKept = THREE.ShaderChunk.lights_fragment_begin === chunks[0] && THREE.ShaderChunk.lights_pars_begin === chunks[1];
         out.calls = { one: calls1, three: engine.budget.byTag().reduce((a, x) => a + x.drawCalls, 0) };
+        // photo mode's setShadowMapSize reaches every cascade light, not only the sun (cascade 0); each map is reallocated at the new size
+        const size0 = sun.shadow.mapSize.x;
+        sky.setShadowMapSize(size0 / 2); engine.step(1 / 30, { describe: false });
+        out.mapSize = { half: size0 / 2, sizes: sky.csm.lights.map(l => l.shadow.mapSize.x), drawn: sky.csm.lights.map(l => l.shadow.map?.width ?? null) };
+        sky.setShadowMapSize(size0); out.mapSize.back = sky.csm.lights.map(l => l.shadow.mapSize.x).every(s => s === size0);
         // a material that shows up later is picked up on the next frame
+        // plain lit materials also take the cloud shadow (render/terms.js: world + clouds); these checks are about csm alone
+        const csmOf = m => materialPatches(m).filter(n => n !== 'world' && n !== 'clouds').join();
         const late = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()); engine.scene.add(late);
         engine.step(1 / 30, { describe: false });
-        out.late = materialPatches(late.material).join();
+        out.late = csmOf(late.material);
         // no full walk after turning on: quiet frames visit nothing; a nested add and a material swap are picked up next frame
         const w0 = sky.csm.view.walks; engine.step(1 / 30, { describe: false }); engine.step(1 / 30, { describe: false });
         const quiet = sky.csm.view.walks - w0;
@@ -56,9 +64,9 @@ export const specs = [
         const txt = new OwnMat(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial()); engine.scene.add(txt); engine.step(1 / 30, { describe: false });
         const libSets = txt.sets, libSwap = new THREE.MeshPhongMaterial(); txt.material = libSwap; const g0 = txt.gets; void txt.material;
         engine.step(1 / 30, { describe: false });
-        out.lib = { setterRan: txt.sets === libSets + 1, getterRan: txt.gets > g0, stored: txt._mat === libSwap, csm: materialPatches(libSwap).join() };
+        out.lib = { setterRan: txt.sets === libSets + 1, getterRan: txt.gets > g0, stored: txt._mat === libSwap, csm: csmOf(libSwap) };
         engine.scene.remove(txt);
-        out.walk = { quiet, nested: materialPatches(nested.material).join(), swapped: materialPatches(swapped).join(), total: sky.csm.view.walks - w0 };
+        out.walk = { quiet, nested: csmOf(nested.material), swapped: csmOf(swapped), total: sky.csm.view.walks - w0 };
         engine.scene.remove(holder);
         // 决定 4 方案 A：游戏自己 new 的内置受光材质也打（不打就 N 倍亮），describe().owned 点名；游戏的 ShaderMaterial 不悄悄打，警告给 include 原文
         const lib = THREE.ShaderLib.lambert, sm = new THREE.ShaderMaterial({ name: 'myLit', lights: true, uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader });
@@ -76,7 +84,7 @@ export const specs = [
         const extra = sky.csm.lights.slice(1);
         engine.look.shadow.set({ cascades: 1 });
         engine.step(1 / 30, { describe: false });
-        out.off = { names: materialPatches(m).join(), late: materialPatches(late.material).join(), csm: sky.csm, gone: extra.every(l => !l.parent), right: sun.shadow.camera.right === right0,
+        out.off = { names: materialPatches(m).join(), late: csmOf(late.material), csm: sky.csm, gone: extra.every(l => !l.parent), right: sun.shadow.camera.right === right0,
           chunks: THREE.ShaderChunk.lights_fragment_begin === chunks[0] };
         engine.scene.remove(tree, basic, late); engine._resume();
         return out;
@@ -87,6 +95,8 @@ export const specs = [
       check('3 盏灯：engine.lights.sun 是第 0 级，其余加在场景里，全部投影', r.on.lights === 3 && r.on.sunFirst && r.on.inScene && r.on.cast, JSON.stringify(r.on));
       check('ShaderChunk.lights_fragment_begin / lights_pars_begin 全程未被替换（不影响别的材质和同页别的引擎）', r.chunksKept && r.off.chunks);
       check('budget 的阴影估算按级联数加倍', r.calls.three > r.calls.one, JSON.stringify(r.calls));
+      check('setShadowMapSize（拍照提分辨率）改到每一级，各级阴影图按新尺寸重建，改回也到每一级',
+        r.mapSize.sizes.every(s => s === r.mapSize.half) && r.mapSize.drawn.every(w => w === r.mapSize.half) && r.mapSize.back, JSON.stringify(r.mapSize));
       check('之后加进场景的受光材质下一帧自动接上 csm', r.late === 'csm', r.late);
       check('开启后不再整场景遍历（core/sceneDelta.js 只看新加的子树）：嵌套加进组里的网格、换掉的 mesh.material 下一帧接上 csm',
         r.walk.quiet === 0 && r.walk.nested === 'csm' && r.walk.swapped === 'csm' && r.walk.total === 0, JSON.stringify(r.walk));
@@ -101,6 +111,8 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: '级联阴影验收（styletest path 机位）：近处更锐、移动不抖、级联交界连续；投影绘制次数与帧耗时',
     url: '/styletest.html',
     async run({ page, check, ev }) {

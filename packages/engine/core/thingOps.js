@@ -3,8 +3,9 @@
 // engine.add. Why both go through ops: a change then has undo, lands in the op log and is checked by can(), whichever system owns the object.
 // For a record the ops turn into world.set / world.move / world.remove (the model follows the record); for a plain object they write the transform and,
 // when the object has a stable id and is rebuilt by code at setup, record it as an override in the 'scene' save part (things.js).
-import { Things, snap, write } from './things.js';
-import { closest } from './validate.js';
+import { Things, snap, write, moduleOwnerOf } from './things.js';
+import { closest, DEV } from './validate.js';
+import { onSceneRoot } from './sceneDelta.js';
 import { codedError } from './errorHints.js';
 import { explainThing } from './thingExplain.js';
 
@@ -81,6 +82,30 @@ const uni = s => typeof s === 'number' ? s : s[0];
 /** Register the registry, engine.thing's ops, the 'scene' save part and the session:start setup window (called once by the Engine constructor) */
 export function installThings(e) {
   const T = e._things = new Things(e);
+  // Adopt-on-add: plain three.js scene.add(obj) registers obj exactly as engine.add(obj) does (engine.thing, describe().scene, thing.set /
+  // remove, the save tier), because the owner's rule is that what the engine can see it plugs in without an extra call. Only roots right
+  // under the scene: a child added to a root belongs to that root's entry (entryOf walks up). engine.add registers before it attaches,
+  // so its options win; a module's own objects carry their module owner (engineOwned) and never count as the game's.
+  e._adoptAdds = onSceneRoot(e.scene, o => {
+    if (T.byObj.has(o)) return;
+    const owner = moduleOwnerOf(o);
+    let stack = null;
+    if (DEV && !owner && T.wantStack()) {   // frame 0 here, 1 the Object3D.add hook, 2 the game line that called scene.add
+      const lim = Error.stackTraceLimit; Error.stackTraceLimit = 4;
+      try { stack = new Error(); } finally { Error.stackTraceLimit = lim; }
+    }
+    T.add(o, owner ? { owner } : null, stack);
+  }, o => {
+    // Release-on-remove: a root with no stable id taken off the scene (scene.remove of a bullet) is forgotten, else a game adding and
+    // removing ten bullets a second grew byId by 36 000 entries an hour, all walked by describe(). Checked after the current code finishes
+    // (a microtask), so a remove and re-add on the same line (three's add detaches first, a move between parents) keeps its id;
+    // thing.remove's held objects and objects with an id stay (they may come back, the save names them).
+    const en = T.byObj.get(o);
+    if (!en || en.stable || T.gone.has(en.id) || !(en.owner === 'game' || en.owner.startsWith('engine:'))) return;
+    queueMicrotask(() => { let r = o; while (r.parent) r = r.parent; if (r !== e.scene && T.byObj.get(o) === en) T.forget(o); });
+  });
+  // what a module put in the scene before the registry existed (the default sun and hemisphere are made first) gets its module owner too
+  for (const o of e.scene.children) { const owner = moduleOwnerOf(o); if (owner && !T.byObj.has(o)) T.add(o, { owner }, null); }
   T.explainers = [];   // explain contributions from modules (see thingExplain.js)
   /**
    * Add a contribution to engine.thing(id).explain(): fn(engine, thing, out) may fill out.state / out.rules (or add keys) for the things its module owns.
@@ -162,5 +187,5 @@ export function thing(e, q) {
   const t = findThing(e, q);
   if (t) return t;
   const what = typeof q === 'string' ? `'${q}'` : q?.isObject3D ? `an unregistered ${q.type}` : JSON.stringify(q);
-  throw codedError('thing-id', `engine.thing(${what}): nothing has this id or name${typeof q === 'string' ? hintThing(e, q) : ''}. Pass a world record id, the id given to engine.add(obj, { id }), an object name or any Object3D added with engine.add (engine.scene.add does not register)`);
+  throw codedError('thing-id', `engine.thing(${what}): nothing has this id or name${typeof q === 'string' ? hintThing(e, q) : ''}. Pass a world record id, the id given to engine.add(obj, { id }), an object name or any Object3D in engine.scene (scene.add and engine.add both register; an object not in the scene is not)`);
 }

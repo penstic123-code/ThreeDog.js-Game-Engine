@@ -1,9 +1,44 @@
 // Guards for the engine core: saves and the save format, session, threads, core guards. Each test builds fresh headless engines on the
-// threads test page, so no game content gets in the way. Same format as specs.mjs. Run: npm test -- "Core review"
+// threads test page, so no game content gets in the way. Same format as the other files here. Run: npm test -- "Core review"
+
+import { existsSync } from 'node:fs';
+import { unregistered } from '../errorCodeScan.mjs';
 
 const PAGE = '/tests/threads/';
 
 export const specs = [
+  {
+    // read in node (no page work): a code raised without an ERROR_CODES entry ships with err.fix null and no docs, the part an AI needs most
+    name: '[guard] error codes: every [code] the engine source raises is registered in ERROR_CODES, and every docs link exists',
+    url: PAGE,
+    async run({ check }) {
+      const missing = await unregistered();
+      check('no code is raised without an entry (add it to core/errorCodes.js with fix + docs)', missing.length === 0, missing.join('; '));
+      const { ERROR_CODES } = await import(new URL('../../core/errorCodes.js', import.meta.url).href);
+      const dead = Object.entries(ERROR_CODES).flatMap(([k, v]) => (v.docs || []).filter(d => !existsSync(new URL('../../docs/' + d, import.meta.url))).map(d => `${k}: ${d}`));
+      check('every docs link of every code points at an existing page', dead.length === 0, dead.join('; '));
+    },
+  },
+  {
+    name: "Core review: a module whose describe hook throws fills only its own entry ({ error, code }); describe() and engine.step() go on",
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine } = threedogThreads;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cr-describe' });
+        E.use({ name: 'crBroken', type: 'rules', install: () => ({}), describe() { throw new Error('crBroken hook broke'); } },
+          { name: 'crFine', type: 'rules', install: () => ({}), describe: () => ({ ok: 1 }) });
+        await E.start();
+        let stepErr = null, d = null;
+        const { warns } = await __t.warns(() => { try { E.pause(); E.step(0.1); d = E.describe(); } catch (e) { stepErr = e.message; } });
+        E.dispose?.();
+        return { stepErr, broken: d?.crBroken, fine: d?.crFine, time: typeof d?.time, warns };
+      });
+      check('step() and describe() do not throw', r.stepErr === null && r.time === 'object', JSON.stringify(r));
+      check('the broken module entry is { error, code: describe-threw }; the other module is intact', /crBroken hook broke/.test(r.broken?.error) && r.broken?.code === 'describe-threw' && r.fine?.ok === 1, JSON.stringify(r));
+      check('one warning names the module [describe-threw]', r.warns.filter(w => /'crBroken'/.test(w) && /describe-threw/.test(w)).length === 1, JSON.stringify(r.warns));
+    },
+  },
   {
     name: 'Core review: saves -- a throwing save() keeps the old save; envelope format, unknown parts kept and adopted; a throwing load() rolls back; load is a Promise',
     url: PAGE,
@@ -171,7 +206,7 @@ export const specs = [
         out.afterNaN = code(() => E.clock.after(NaN, 'x:y'));
         out.clash = code(() => E.assets.manifest({ models: { grass: '/m/grass.glb' }, textures: { grass: '/t/grass.png' } }));
         let inited = 0;
-        E.use({ name: 'crLate', label: 'late', init: () => { inited++; } });
+        E.use({ name: 'crLate', type: 'rules', label: 'late', init: () => { inited++; } });
         await new Promise(res => setTimeout(res, 0));
         out.lateInit = inited;
         const THREE = E.THREE, g = new THREE.Group();
@@ -221,7 +256,7 @@ export const specs = [
       const r = await ev(async () => {
         const { createEngine, quests, world } = threedogThreads;
         const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cr-format' });
-        E.use(world({ farEvery: 0.05 }), quests({ keys: [], notify: false }));
+        E.use(world({ farEvery: 0.05 }), quests({ notify: false }));
         let doneA = false;
         const step = (id, done = () => false) => ({ id, text: id, done });
         E.quests.define('q', { title: 'Q', steps: [step('a', () => doneA), step('b'), step('c')] });

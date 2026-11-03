@@ -3,8 +3,7 @@
 Settings menu (settings() module)
 
 - Options `SettingsOptions`:
-  - `action?: string` Action name that opens the menu, default 'menu'
-  - `keys?: string[]` Key that opens the menu, default ['Escape']
+  - `action?: string` Action that opens the menu, default the basic 'cancel' (Esc / pad B on an empty UI focus stack); another name is declared and the game binds it
   - `storageKey?: string` Browser storage key
   - `presets?: Record<string, QualityPreset>` Override the graphics presets: { low: {...}, medium: {...}, high: {...} }
   - `sections?: boolean | string[]` Tabs: true (default) graphics, audio, controls, language, saves; false none; or a list by name, which may include the optional 'game' (resume, load a save, back to title) and 'camera' (mouse sensitivity, invert Y, field of view; saved as camera.sensitivity / camera.invertY / camera.fov). Example: `settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camera'] })`
@@ -14,7 +13,7 @@ Settings menu (settings() module)
 - `settings.get(key: string) → any` — Read a setting, e.g. get('vol.music')
 - `settings.set(key: string, value: any, opts?: { save?: boolean })` — Change a setting (takes effect immediately + saved)
 - `settings.preset(name: 'low' | 'medium' | 'high' | (string & {}))` — Graphics preset: 'low' / 'medium' / 'high'
-- `settings.define(key: string, def: T, apply?: (value: T, e: Engine) => void)` — Game-defined setting: default value + apply function (saved automatically)
+- `settings.define(key: string, def: T, apply?: ((value, e) => void) | { apply?, limits? })` — Game-defined setting: default value + apply function (saved automatically), or { apply, limits }. limits names the shared value(s) the row restricts on the settings layer, like the built-in shadows row: off holds it off (the scene, weather or a cutscene cannot turn it back on), on allows what the scene chose; a number row from 0 to 1 is a factor on a number value. Define it after the effect exists
 - `settings.addSection(id: string, section?: SettingsSection)` — Add a tab of your own, or a built-in / optional one by name: addSection('camera')
 - `settings.resetBindings()` — Restore all keys to defaults
 - `settings.rebind(action: string, code: string)` — Change the first key of an action to code

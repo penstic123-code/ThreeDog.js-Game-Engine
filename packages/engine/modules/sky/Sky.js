@@ -10,33 +10,35 @@
 // Clouds: style sky.clouds = { color, shade, coverage: 1, scale: 0.35, speed: [x, z], kind, glsl, ... } (coverage follows weather; see clouds.js)
 // three.js objects: the lights it drives are engine.lights.sun (DirectionalLight; moonlight at night, shadows live on it) and engine.lights.hemi
 //   (HemisphereLight ambient), dome (dome Mesh),
-//   sunDir (Vector3 toward the sun). Light color/intensity is recomputed every frame: adjust brightness with engine.mod('sky.sunLight' | 'sky.ambient', { owner, mul }) (layers.js), or
+//   sunDir (Vector3 toward the sun). Light color/intensity is recomputed every frame: adjust brightness with engine.mod('look.lights.sun.intensity' | 'look.lights.hemi.intensity', { owner, mul }) (tint.js), or
 //   take a light over with engine.look.lights.manual('sun' | 'hemi'), hide it with sky({ sun: false, hemisphere: false }) (look.js, core/owned.js); fog kinds and dome layers: fog.js, domeLayers.js;
-//   engine.sky.modifiers is the composite of the sky.* mod entries (read-only)
 // Skybox: style sky.skybox = '/textures/sky.jpg' (equirectangular panorama) replaces the gradient sky; brightness follows time
+import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
 import { readParams } from '../../core/params.js';
-import { renamed } from '../../core/validate.js';
 import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome, loadSkybox } from './shader.js';
 import { shadowMethods, shadowFor, SKY_BIAS } from './shadow.js';
 import { defineSkyLook } from './lookSky.js';
 import { defineFogLook } from './lookFog.js';
-import { defineShadowLook } from './lookShadow.js';
-import { layerMethods, blankLayer, defineSkyStacks } from './layers.js';
+import { extendShadowLook } from './lookShadow.js';
+import { shadowsOn } from '../../core/look/shadowPart.js';
+import { defineSkyPoints } from './tint.js';
 import { environmentMethods, environmentFor, defineEnvLook } from './environment.js';
 import { updateSky, watchOwned, skyLight } from './frame.js';
 import { prepareLook } from './look.js';
 import { codedError } from '../../core/errorHints.js';
-import { makeFog, setFogPatch, fogGameMaterials } from './fog.js';
+import { makeFog, setFogPatch, fogGameMaterials, startFar } from './fog.js';
 import { ownedRow } from '../../core/owned.js';
 import { parseClock } from '../../core/dayTime.js';
+import { onRendererSwap } from '../../render/backend.js';
+import { dropCascades, syncCascades } from './cascades.js';
 // style.sky.dim (types/style.d.ts StyleSky.dim): each look decision the sky makes for every game, on unless the style turns it off
 const DIM_PARAMS = {
   tint: { type: 'bool', default: true, desc: 'a sky.tint color (weather grey, a cave tint) dims with the sky\'s own light, so a grey rain tint stays dark at night' },
   stars: { type: 'bool', default: true, desc: 'stars fade with the weather\'s cloud cover (uCloud), not only behind drawn clouds' },
 };
 /** @import { Object3D, Vector3 } from '../../types/common' */
-/** @import { SkyOptions, SkyModifiers, SkyEnvironmentInfo } from '../../types/world' */
+/** @import { SkyOptions, SkyEnvironmentInfo } from '../../types/world' */
 /** @import { Handle } from '../../types/common' */
 /** @import { SkyShadowParams } from '../../types/style' */
 /** engine.sky */
@@ -66,13 +68,26 @@ export class Sky {
     const look = prepareLook(this, st, over);   // light modes, fog, dome layers (look.js)
     /** @internal */ this.uniforms = { ...makeSkyUniforms(st, engine.uniforms), ...look.uniforms };
     /** Dome mesh @type {Object3D} */
-    this.dome = makeDome(this.uniforms, st, look);
-    scene.add(this.dome);
+    this.dome = makeDome(this.uniforms, st, look, engine);
+    scene.add(engineOwned('sky', this.dome));
+    // fallback 'webgl': what the sky built for the WebGPURenderer start() then replaced is built again for the renderer in use: the dome
+    // (with the look.sky hooks set so far, not only the style's), the fog (scene fog node -> per-material patch) and the cascades (CSMShadowNode
+    // -> extra lights). Why all three: any node object left behind either throws in the backend check or is silently not drawn.
+    /** @internal */ this._swap = onRendererSwap(engine, () => {
+      const old = this.dome, at = old.parent, vis = old.visible;
+      this.dome = makeDome(this.uniforms, st, look, engine);
+      this.dome.visible = vis;
+      at?.remove(old); at?.add(this.dome);
+      old.geometry?.dispose(); [old.material].flat().forEach(m => m?.dispose());
+      this._lookHooks?.();
+      if (this._fogNode) { this._fogNode.set(null); this._fogNode = null; setFogPatch(this, this._fogSet ?? null); }
+      if (this.csm?.isSkyCascadeNode) { dropCascades(this); syncCascades(this); }
+    });
     // Skybox (panorama): replaces the gradient sky when present
     /** @internal */ this.skybox = null;
     if (st.skybox) loadSkybox(this, st.skybox);
 
-    scene.fog = this._drive.fog === false ? null : makeFog(this._fog, engine.fogFar);
+    scene.fog = this._drive.fog === false ? null : makeFog(this._fog, startFar(this._fog, engine));
     if (this._drive.fog !== false) setFogPatch(this, this._fog);   // exp / height: the 'fog' patch on this scene's materials (fog.js), not page-wide chunks
     ownedRow(engine, 'fog.patch', () => fogGameMaterials(this));
     defineFogLook(this, this._fogSpec);   // look.fog: style.sky.fog / sky({ fog }) is its style layer
@@ -80,7 +95,7 @@ export class Sky {
     this._hemi = engine.lights.hemi;
     /** @internal engine.lights.sun, driven by the sky (moonlight at night, shadows live on it; the one public name is engine.lights.sun) @type {any} */
     this._sun = engine.lights.sun;
-    this._sun.castShadow = engine.shadows && this._drive.sun !== false;
+    this._sun.castShadow = shadowsOn(engine) && this._drive.sun !== false;
     const sh = shadowFor(engine.tier, engine.style.sky?.shadow, over.shadow);
     this._sun.shadow.mapSize.set(sh.mapSize ?? 2048, sh.mapSize ?? 2048);
     const ext = sh.extent ?? 70;
@@ -93,18 +108,15 @@ export class Sky {
     this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: sh.distance ?? 160 };
     // Shadow update policy (default: every frame, center snapped to 0.5 m)
     /** Current shadow params (change via look.shadow.set) @readonly @type {SkyShadowParams} */
-    this.shadow = { bias: SKY_BIAS, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0, type: engine.shadowType, radius: 1, blurSamples: 8,
+    this.shadow = { bias: SKY_BIAS, normalBias: 0.04, updateEvery: 1, snap: 0.5, ahead: 0, radius: 1, blurSamples: 8,
       cascades: 1, maxFar: 120, fade: true, lightMargin: 100, split: 'practical', follow: 'focus', extent: ext };
     /** three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45) @type {any} */
     this.csm = null;
     /** @internal */ this._shadowFrame = 0;
     /** @internal */ this._snapKey = '';
-    defineShadowLook(this, sh);   // look.shadow: the style / options shadow is its style layer; look.shadow.set writes the game layer
-    // Modifiers: weather and games each hold their own engine.mod entry on 'sky.sunLight' / 'sky.ambient' / 'sky.fog' / 'sky.flash' / 'sky.tint' /
-    // 'sky.cover'; sky composites them into modifiers every frame and applies them on top of its own result (layers.js)
-    /** @internal */ this._mods = defineSkyStacks(engine);
-    /** Composite of the sky.* engine.mod entries (read-only; change it with engine.mod('sky.sunLight', { owner, mul })) @readonly @type {SkyModifiers} */
-    this.modifiers = blankLayer();
+    extendShadowLook(this, sh);   // look.shadow: the sky adds its shadow-box keys; the style / options shadow is their style layer
+    /** @internal look.sky.flash / look.sky.tint / look.ground.cover (tint.js) */ this._points = defineSkyPoints(engine);
+    /** @internal the tint holders blended this frame, and a scratch color */ this._tintNow = { color: new THREE.Color(0x888888), amount: 0, horizon: 0 }; this._tmpC = new THREE.Color();
     /** @internal */ this._lightDir = new THREE.Vector3();
     /** @internal */ this._env = null;
     const env = environmentFor(engine.tier, engine.style.sky?.environment, over.environment);
@@ -112,7 +124,7 @@ export class Sky {
     defineSkyLook(this, st);   // look.sky: live cloud uniforms, backdrop, the clouds / layer:<name> hooks, skybox
     // the keyframes write these light keys every frame: describe().look shows them as style (driver sky) with the live value
     const D = this._drive;
-    engine.look.lights.drive([...(D.sun === true ? ['sun.intensity', 'sun.color'] : []), ...(D.hemi === true ? ['hemi.intensity', 'hemi.color', 'hemi.ground'] : [])], 'sky');
+    engine.look.lights.author.drive([...(D.sun === true ? ['sun.intensity', 'sun.color'] : []), ...(D.hemi === true ? ['hemi.intensity', 'hemi.color', 'hemi.ground'] : [])], 'sky');
     // Per-frame recomputed properties: direct edits by games get overwritten, so warn once in dev (frame.js)
     /** @internal */ this._owned = watchOwned(this);
   }
@@ -150,28 +162,5 @@ export class Sky {
   /** Environment lighting now: { source, intensity, rotation, interval, builds }, null when off @type {SkyEnvironmentInfo | null} */
   get environment() { return environmentMethods._envInfo.call(this); }
 }
-// Mixed in from shadow.js and layers.js; methods the class already defines are kept
-for (const [k, f] of Object.entries({ ...shadowMethods, ...layerMethods, ...environmentMethods })) if (!Object.hasOwn(Sky.prototype, k)) Sky.prototype[k] = f;
-// Time moved to calendar() in 0.3: reading or writing these on the sky used to be silent (a stray own property that controls nothing), so in dev
-// they throw naming engine.calendar. An explicit list of the names that actually moved (0.2's Sky had them): derived from the calendar contract
-// it would also ban every future calendar name on the sky. The sky's own drawn isDay / daylight are not in it
-renamed('engine.sky', Object.fromEntries(Object.entries({
-  timeOfDay: 'engine.calendar.timeOfDay',
-  day: 'engine.calendar.day',
-  dayLength: 'engine.calendar.dayLength',
-  daysPerSeason: 'engine.calendar.daysPerSeason',
-  hoursPerDay: 'engine.calendar.hoursPerDay',
-  seasons: 'engine.calendar.seasons',
-  season: 'engine.calendar.season',
-  seasonIndex: 'engine.calendar.seasonIndex',
-  seasonProgress: 'engine.calendar.seasonProgress',
-  dayOfSeason: 'engine.calendar.dayOfSeason',
-  totalDays: 'engine.calendar.totalDays',
-  clock: 'engine.calendar.clock',
-  scheduled: 'engine.calendar.scheduled',
-  at: 'engine.calendar.at',
-  between: 'engine.calendar.between',
-  daily: 'engine.calendar.daily',
-  onSeason: 'engine.calendar.onSeason',
-  untilMark: 'engine.calendar.untilMark'
-}).map(([k, v]) => [k, `${v} (the sky only draws the calendar's time)`]))).on(Sky.prototype);
+// Mixed in from shadow.js and environment.js; methods the class already defines are kept
+for (const [k, f] of Object.entries({ ...shadowMethods, ...environmentMethods })) if (!Object.hasOwn(Sky.prototype, k)) Sky.prototype[k] = f;

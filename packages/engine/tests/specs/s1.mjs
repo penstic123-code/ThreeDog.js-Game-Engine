@@ -1,4 +1,4 @@
-// Low-level conventions; same style as packages/engine/tests/specs.mjs, appended at the end of specs.mjs.
+// Low-level conventions; same style as the other files here.
 // 1.3 module lifecycle: entering / leaving levels does not accumulate, no callbacks after engine.dispose(), UI elements and listeners are all released.
 export const specs = [
   {
@@ -46,7 +46,7 @@ export const specs = [
     async run({ check, ev, wait }) {
       await ev(() => {
         const calls = window.s1 = { order: [], fixed: 0, frame: 0, timer: 0, event: 0 };
-        engine.use({ name: 's1a', dispose: () => calls.order.push('s1a') }, { name: 's1b', dispose: () => calls.order.push('s1b') });
+        engine.use({ name: 's1a', type: 'rules', dispose: () => calls.order.push('s1a') }, { name: 's1b', type: 'rules', dispose: () => calls.order.push('s1b') });
         engine.onFixed(() => calls.fixed++);
         engine.onFrame(() => calls.frame++);
         engine.clock.every(0.05, () => calls.timer++);
@@ -100,14 +100,14 @@ export const specs = [
     },
   },
   {
-    name: 'S1 error tiers: a presentation module error disables only that module; a gameplay error (inventory give throws) freezes gameplay and is recorded in engine.error (small town)',
+    name: 'S1 error tiers: a look module error disables only that module; a gameplay error (inventory give throws) freezes gameplay and is recorded in engine.error (small town)',
     url: '/tests/city/index.html',
     expectErrors: /s1-boom|give failed/,   // this test deliberately causes two errors
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
         let fxCalls = 0;
-        engine.use({ name: 's1fx', presentation: true, frame() { fxCalls++; throw new Error('s1-boom'); } });
+        engine.use({ name: 's1fx', type: 'look', frame() { fxCalls++; throw new Error('s1-boom'); } });
         engine.step(0.2);
         const t0 = engine.clock.now; engine.step(0.5);
         const fx = { disabled: engine.disabledModules.has('s1fx'), calls: fxCalls, error: engine.error, clockMoved: engine.clock.now > t0 };
@@ -119,7 +119,7 @@ export const specs = [
         const t1 = engine.clock.now; engine.step(0.5);
         return { fx, rewarded, error: engine.error, frozen: engine.frozen, clockStopped: engine.clock.now === t1, text: engine.describeText().split('\n')[0] };
       });
-      check('Presentation module error: disabled, called once, no engine.error, game time keeps running', r.fx.disabled && r.fx.calls === 1 && !r.fx.error && r.fx.clockMoved, JSON.stringify(r.fx));
+      check('Look module error: disabled, called once, no engine.error, game time keeps running', r.fx.disabled && r.fx.calls === 1 && !r.fx.error && r.fx.clockMoved, JSON.stringify(r.fx));
       check('Gameplay error: engine.error records where and why', r.error?.message === 'give failed' && /s1:reward/.test(r.error.where) && !r.rewarded, JSON.stringify(r.error));
       check('Frozen after a gameplay error: game time stops', r.frozen && r.clockStopped);
       check('describeText reports the error on its first line', /Error, gameplay frozen/.test(r.text), r.text);
@@ -135,10 +135,10 @@ export const specs = [
           ['particles', 'hud'], ['settings', 'hud'], ['hud', 'characters'], ['characters', 'music']];
         const wrong = pairs.filter(([a, b]) => at(a) >= 0 && at(b) >= 0 && at(a) > at(b)).map(p => p.join(' should precede '));
         const err = fn => { try { fn(); return null; } catch (e) { return e.message; } };
-        engine.use({ name: 's1x', after: ['s1y'] });
-        const cycle = err(() => engine.use({ name: 's1y', after: ['s1x'] }));
-        const stage = err(() => engine.use({ name: 's1z', stage: 'gamplay' }));
-        engine.use({ name: 's1early', stage: 'control', frame() {} });
+        engine.use({ name: 's1x', type: 'rules', after: ['s1y'] });
+        const cycle = err(() => engine.use({ name: 's1y', type: 'rules', after: ['s1x'] }));
+        const stage = err(() => engine.use({ name: 's1z', type: 'rules', stage: 'gamplay' }));
+        engine.use({ name: 's1early', type: 'rules', stage: 'control', frame() {} });
         return { order, wrong, cycle, stage, yInstalled: engine.has('s1y'), earlyFirst: engine.moduleOrder.indexOf('s1early') < engine.moduleOrder.indexOf('terrain') };
       });
       check('moduleOrder sorts by stage and before / after (timeline -> camera, weather -> sky -> water, interaction -> dialogue, particles -> target marker...)', r.wrong.length === 0, r.wrong.join('; ') + ' | ' + r.order.join(' '));

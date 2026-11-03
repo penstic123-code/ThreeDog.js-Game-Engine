@@ -23,6 +23,7 @@ const grab = (regions) => {
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'wet-road technique: darker when wet, follows rain with a dry-out delay, soft puddle edges, night reflection streaks',
     url: '/wet-road.html?threedog-headless',
     async run({ page, check, ev }) {
@@ -32,7 +33,7 @@ export const specs = [
       const r = await ev(src => { try {
         const g = (0, eval)(`(${src})`), { wet } = window.wetRoadTest, near = [0.3, 0.75, 0.7, 0.95], road = [0.3, 0.52, 0.7, 0.95];
         // 1. noon, held dry vs held wet: same view, only the road material changes (no rain drops in the picture)
-        engine.weather.set('clear', 0); engine.step(0.5);
+        engine.weather.set('clear', { seconds: 0 }); engine.step(0.5);
         engine.calendar.timeOfDay = 0.5;
         wet.hold(0); const dry = g({ near });
         wet.hold(1); const wetDay = g({ near });
@@ -43,12 +44,12 @@ export const specs = [
         // 3. the mask view: rows across the near road
         wet.maskView = true; engine.calendar.timeOfDay = 0.5; const mask = g({ mask: [0.3, 0.6, 0.7, 0.95] }).mask; wet.maskView = false;
         // 4. weather drives wetness: dry, then rain, then clear (game time, 1 s steps)
-        wet.hold(0); wet.hold(null); engine.weather.set('rain', 0);
+        wet.hold(0); wet.hold(null); engine.weather.set('rain', { seconds: 0 });
         for (let i = 0; i < 8; i++) engine.step(1);
         const afterRain = wet.wetness;
         for (let i = 0; i < 40; i++) engine.step(1);
         const soaked = wet.wetness;
-        engine.weather.set('clear', 0);
+        engine.weather.set('clear', { seconds: 0 });
         const delay = 40;   // WET_ROAD_DEFAULTS.dryDelay
         for (let i = 0; i < delay - 10; i++) engine.step(1);
         const inDelay = wet.wetness;

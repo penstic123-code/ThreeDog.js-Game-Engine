@@ -69,7 +69,7 @@ export class Bubbles {
     return { x: s.x, y: s.y, onScreen: s.onScreen, screen: false };
   }
   /**
-   * Queue one line on a speaker. Returns a Promise (resolves when the line has been shown for its seconds) with stop() (drop it now; resolves too).
+   * Queue one line on a speaker. Returns a Promise (resolves when the line has been shown for its seconds) with remove() (drop it now; resolves too).
    * @param {any} at @param {string} text @param {{ speaker?: string, seconds?: number, queue?: boolean, height?: number }} o
    */
   say(at, text, { speaker = '', seconds, queue = true, height = 2.2 } = {}) {
@@ -81,7 +81,7 @@ export class Bubbles {
       // reading time: holdSeconds plus about 15 characters a second, so a long line stays longer than a shout
       line = { speaker, text: String(text ?? ''), left: seconds ?? this.d.holdSeconds + String(text ?? '').length / 15, height, done: res };
     });
-    p.stop = () => this._drop(key, line);
+    p.remove = () => this._drop(key, line);
     if (!queue && s.cur) { s.cur.done(); s.cur = null; s.queue.forEach(l => l.done()); s.queue = []; }
     if (s.cur) s.queue.push(line); else this._show(key, s, line);
     return p;

@@ -231,6 +231,14 @@ export class World {
     }): {
         remove(): void;
     };
+    /**
+     * Stop running simulate() handlers on this machine until remove(): a multiplayer client lets the host simulate and only receives the records.
+     * Public so net() needs no world internals.
+     * @returns {{ remove(): void }}
+     */
+    pauseSimulation(): {
+        remove(): void;
+    };
     /** Number of fixed steps simulated */ get steps(): number;
 }
 /**

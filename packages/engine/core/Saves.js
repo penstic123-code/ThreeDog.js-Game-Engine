@@ -12,6 +12,7 @@
 // tab: that save is refused (false, toast, save-stale). A BroadcastChannel tells the other tabs a slot changed, so their list / load see it at once.
 /** @import { SaveProvider } from '../types/core' */
 import { SaveStore } from './SaveStore.js';
+import { checkTypeRule } from './moduleTypes.js';
 import { toast } from '../ui/UI.js';
 import { warnOnce, fmt } from './validate.js';
 import { readParams, keysSchema } from './params.js';
@@ -76,6 +77,8 @@ export class Saves {
    * time and day were part 'sky'); an old save without this part but with oldPart hands that data, converted, to this part, and oldPart is dropped
    * (unless a registered part still owns that name).
    * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
+   * checkNewGame(data): dev only, called once start() finished with this part's data in the new-game state, to warn about what should not be there yet
+   * (world: records placed by code instead of content). The part knows its own format; core only hands the data over.
    * @param {string} key
    * @param {SaveProvider} provider
    * @example
@@ -84,10 +87,11 @@ export class Saves {
    * engine.saves.register('garden', { version: 2, migrate: { 1: d => ({ ...d, beds: [] }) }, save: () => garden.toJSON(), load: d => garden.fromJSON(d) });
    */
   register(key, provider) {
-    readParams(`saves.register('${key}')`, keysSchema(['save', 'load', 'first', 'version', 'migrate', 'atomic', 'movedFrom']), provider);
-    const { save, load, first = false, version = 1, migrate = {}, atomic = false, movedFrom = null } = provider;
+    checkTypeRule(this.engine, 'saves.register', `registered save part '${key}'`);
+    readParams(`saves.register('${key}')`, keysSchema(['save', 'load', 'first', 'version', 'migrate', 'atomic', 'movedFrom', 'checkNewGame']), provider);
+    const { save, load, first = false, version = 1, migrate = {}, atomic = false, movedFrom = null, checkNewGame = null } = provider;
     checkPartVersion(key, version, migrate, movedFrom);
-    this.providers.set(key, { save, load, first, version, migrate, atomic: atomic === true, movedFrom });
+    this.providers.set(key, { save, load, first, version, migrate, atomic: atomic === true, movedFrom, checkNewGame });
     this.engine.session._late(key);   // a part registered after start() (a module installed later) joins the new-game state as it is now
     // registered after a save was loaded: the old part's data is still kept as foreign, move it over now (the same step readSave does on load)
     const F = this._foreign, old = movedFrom && !(key in F.parts) && Object.keys(movedFrom).find(o => o in F.parts && !this.providers.has(o));

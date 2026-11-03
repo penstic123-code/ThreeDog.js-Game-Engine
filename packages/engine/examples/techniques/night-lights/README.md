@@ -39,7 +39,7 @@ that shapes hold.
 | Lamp heads and windows are flat white blocks | emissive far above the tone curve's shoulder: everything clips to the same white | lower emissiveIntensity, use a saturated color; usually only the small lamp core clips (more if your game wants blinding light) |
 | A wall next to a lamp is a bright blown-out sheet | `decay: 0` (or 1) and the light close to the wall: no falloff, the whole wall gets the full intensity | `decay: 2`, aim a spot down, move the light off the wall |
 | The whole night scene glows and looks foggy | bloom threshold below 1: every lit surface blooms | threshold between window and lamp-head brightness |
-| Everything is too bright or too gray at night | exposure or ambient set for the day | lower the night ambient (sky keyframes or `engine.mod('sky.ambient')`) rather than the lights |
+| Everything is too bright or too gray at night | exposure or ambient set for the day | lower the night ambient (sky keyframes or `engine.mod('look.lights.hemi.intensity')`) rather than the lights |
 | Halo plus bloom look like a smear | both at full strength | pick one as the main glow, keep the other faint |
 | Lights pop on at nightfall | a hard switch at 18:00 | fade by daylight (`dusk`) |
 

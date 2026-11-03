@@ -53,13 +53,3 @@ export function seasonProgressOf(c) {
   const i = c.seasonIndex, ends = c._ends;
   return i < 0 ? 0 : (c.dayOfSeason - 1 + c.timeOfDay) / (ends[i] - (ends[i - 1] ?? 0));
 }
-/** One fixed step of the calendar: advance the time of day, and on a new day emit day:start (and season:change when the season turned) */
-export function advance(c, dt) {
-  const t = c.timeOfDay + dt * c.engine.clock.speed / c.dayLength;
-  if (t >= 1) {
-    c.timeOfDay = t % 1; c.day += Math.floor(t);
-    c.engine.events.emit('day:start', c.day);
-    if (c.season !== c._season) { c._season = c.season; c.engine.events.emit('season:change', c.season); }
-  } else c.timeOfDay = t;
-  c._sched.tick();
-}

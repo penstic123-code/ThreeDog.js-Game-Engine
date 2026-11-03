@@ -12,14 +12,14 @@ export const specs = [
         const E = mk(all.createEngine, 'headless-late-veg');
         E.use(all.terrain({ height: () => 0, viewChunks: 3 }), all.vegetation());
         await E.start();
-        const t0 = E.elapsed, before = E.stateApplied;
+        const t0 = E.time.now('real'), before = E.stateApplied;
         // start 之后才加：所有区块重排（terrain 不再 ready），以前无头页面没人跑帧，就一直卡住
         E.vegetation.define('late-box', { geometry: new T.BoxGeometry(0.3, 0.6, 0.3), positions: [[1, 1], [-2, 3], [4, -1], [0, -5]] });
         const right = { applied: E.stateApplied, terrainReady: E.terrain.isReadyAround({ x: 0, z: 0 }) };
         const t1 = performance.now();
         while (!E.stateApplied && performance.now() - t1 < 30000) await new Promise(res => setTimeout(res, 50));
-        let inst = 0; for (const c of E.terrain.chunks.values()) if (c.veg['late-box']) inst += c.veg['late-box'].count;
-        const out = { before, right, after: E.stateApplied, elapsed: E.elapsed - t0, inst, stats: { ...E.terrain.stats } };
+        let inst = 0; for (const c of E.terrain.chunks.values()) inst += E.vegetationLook.mesh(c, 'late-box')?.count ?? 0;
+        const out = { before, right, after: E.stateApplied, elapsed: E.time.now('real') - t0, inst, stats: { ...E.terrain.stats } };
         E.dispose();
         return out;
       });
@@ -30,7 +30,7 @@ export const specs = [
   },
   {
     // [守] 补丁 GLSL 读了 vThreedogWorld 却没写 needs：引擎补上提供它的 'world'（render/patches.js withProviders），而不是编译报 undeclared identifier。
-    //      所有入口（applyEffects、look.materials.patch、风格包）都经过 patchMaterial，所以只在这一处补；去掉它这条就红。
+    //      所有入口（applyEffects、look.materials.add、游戏自己的 style）都经过 patchMaterial，所以只在这一处补；去掉它这条就红。
     name: '着色器补丁：读 vThreedogWorld 不写 needs 也自动带上 world 补丁并能编译；写了 needs 的同样（threads 测试页）',
     url: '/tests/threads/',
     async run({ check, ev }) {
@@ -55,6 +55,7 @@ export const specs = [
   {
     // [守] detail 的 projection: 'screen' 按屏幕像素铺纹理：远处也一样粗（插画、印刷感要的），world 投影的颗粒到远处会被 fade 收掉。
     //      真渲染一张远处的平面比像素起伏：screen 有颗粒、world 没有；把 screen 换回按世界坐标采样这条就红。
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: "detail projection: 'screen'：颗粒按屏幕像素，远处不缩不淡；world 投影远处被 fade 掉（threads 测试页，真渲染读像素）",
     url: '/tests/threads/',
     async run({ check, ev }) {

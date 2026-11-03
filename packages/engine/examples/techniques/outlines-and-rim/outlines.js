@@ -10,7 +10,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // one resolution uniform shared by every screen-space hull: updated once per frame by trackResolution, not per material
 const resolution = { value: new THREE.Vector2(1280, 720) };
-/** Keep the screen-space hulls' pixel width right after resizes @param {{ renderer: THREE.WebGLRenderer, onFrame: (fn: () => void) => any }} engine */
+/** Keep the screen-space hulls' pixel width right after resizes @param {{ renderer: import('threedog').EngineRenderer, onFrame: (fn: () => void) => any }} engine */
 export function trackResolution(engine) {
   return engine.onFrame(() => engine.renderer.getDrawingBufferSize(resolution.value));
 }

@@ -65,7 +65,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `edgePan?: boolean` Pan at the screen edge, default false
   - `edgeSize?: number` Edge width (fraction of the screen)
   - `bounds?: { minX?, maxX?, minZ?, maxZ? } | null` Focus range (meters)
-  - `rotateKeys?: { left?: string[]; right?: string[] } | false` Rotate keys, false turns rotation off
+  - `rotate?: boolean` false: no turning. Default true: declares the actions rotateLeft / rotateRight (no keys; presets.bindings.rtsRotate binds Q / R)
   - `rotateSpeed?: number` Rotation speed (radians/second)
   - `zoomStep?: number` Zoom ratio per wheel notch
   - `smoothing?: number` Smoothing
@@ -101,7 +101,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
 - fixedCamera only: 
   - `cam.add(name: string, shot: CameraShot)` — Add / replace a shot
   - `cam.cut(name: string)` — Cut to a shot immediately
-  - `cam.blend(name: string, seconds?: number, ease?: Ease) → Promise<void>` — Transition smoothly to a shot (over seconds seconds); the Promise resolves when done
+  - `cam.blend(name: string, opts?: { seconds?: number; ease?: Ease }) → Promise<void>` — Transition smoothly to a shot ({ seconds = 1, ease }); the Promise resolves when done
   - `cam.nearest(p: Vector3) → string | null` — Name of the shot nearest to a point
   - `shots: Record<string, any>` All shots
   - `current: string | null` Current shot name

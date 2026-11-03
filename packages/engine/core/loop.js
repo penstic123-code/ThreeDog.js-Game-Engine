@@ -2,10 +2,10 @@
 // adaptive resolution.
 //
 // Hook errors: onFixed / onFrame callbacks and module fixed / frame / afterRender hooks each run in try/catch and are handled by error tier (errors.js):
-// presentation modules are disabled, gameplay errors freeze gameplay in dev / tests and are recorded in engine.error, core steps such as render
+// look / ui modules are disabled, errors elsewhere freeze gameplay in dev / tests and are recorded in engine.error, core steps such as render
 // report only once; input.endFrame() sits in finally so "just pressed" always clears.
 //
-// What freezing (engine.freeze) stops: the whole fixed step is skipped (onFixed, module fixed, the game clock and engine.elapsed all stop);
+// What freezing (engine.freeze) stops: the whole fixed step is skipped (onFixed, module fixed, tick and every time view but ambient stop);
 // frame hooks, stream / jobs and render keep going (the picture and UI stay usable). So gameplay logic (movement, timers, quest checks, cutscene
 // waits) belongs in fixed,
 // or must check engine.frozen first inside frame.
@@ -20,6 +20,9 @@ import { followFocus, syncRoomEnvironment } from '../render/lights.js';
 import { STEP } from './time.js';   // fixed step length: 60 per second
 import { adapt } from './adaptive.js';
 import { advanceUiClock } from './uiClock.js';
+import { resetStats, programCount, freshFrame } from '../render/backend.js';
+import { engineDraws } from '../render/ownFrame.js';
+import { syncPlainTerms } from '../render/terms.js';
 // Most real time one frame may turn into fixed steps (6 steps). A longer hitch slows the game for that frame
 // instead of replaying it in a burst (no spiral of death, no jump after a stall).
 const MAX_CATCHUP = 0.1;
@@ -46,21 +49,24 @@ function ambientHeld(e) { for (const h of e.stacks.get('freeze').entries()) if (
 
 export const loopMethods = {
   _fixedStep() {
+    // No game time while start() loads (engine.phase): loading takes as long as the machine needs, so a step during it would make the opening
+    // tick, clock and elapsed depend on machine speed (review 0.4 core B1). step() during loading (headless scenario settling) still runs frame
+    // hooks. An engine never started ('constructed': no loop, nothing loading) steps by hand only, for tests and tools that need no world
+    if (this.phase === 'loading') return;
     // input snapshot for this step: keys read in fixed depend only on the step count, not on how many steps a frame ran
     this.input.beginFixed();
     try {
       // gameplay frozen: no clock moves, no channel, no mod({ for }) timer (frame hooks and render continue). uTime is the ambient clock (wind, water,
       // clouds): it keeps moving behind a pause menu, the common expectation, unless a freezer asked freeze(owner, { ambient: true })
-      if (this.frozen) { if (!ambientHeld(this)) this.uniforms.uTime.value = this._ambient += STEP; return; }
-      this.tick++;
+      if (this.frozen) { this.time._frozenStep(!ambientHeld(this)); return; }
+      this.time._beginStep();                  // the one counter (core/time.js): this step's commits, ops and input records carry the new tick
       this._inFixed = true;                    // ops log phase 'fixed' and the dev guard lets gameplay writes through
-      // due background results apply first so this step's gameplay sees them; not advanced while loading (start() rebases when it finishes)
+      // due background results first, so this step's gameplay sees them; an engine stepped by hand before start() applies none (start() rebases them)
       if (this.ready) safe(this, STRINGS.commits, this.commits.tick, null, this.commits, this.tick);
       for (const f of this._fixed) safe(this, STRINGS.onFixed, f, null, undefined, STEP);
       this._runHooks('fixed', STEP);
       for (const f of this._fixedLate) safe(this, STRINGS.onFixed, f, null, undefined, STEP);   // onFixed({ phase: 'late' }): reads this step's result
-      safe(this, STRINGS.clock, this.time._advance, null, this.time, STEP);   // real, channel and calendar seconds; timed mods end; timers fire
-      this._elapsed += STEP; this.uniforms.uTime.value = this._ambient += STEP;   // fixed steps either way: screenshots and step() stay deterministic
+      safe(this, STRINGS.clock, this.time._endStep, null, this.time);   // ambient, channel and calendar seconds; timed mods end; timers fire
     } finally { this._inFixed = false; this.input.endFixed(); }
   },
   /** Per frame: onFrame callbacks, module frame, stream, jobs. With deterministic true (step, headless loading) jobs ignore real time. */
@@ -79,32 +85,44 @@ export const loopMethods = {
   },
   _render(dt) {
     const r = this.renderer;
-    r.info.reset();
+    resetStats(r);
+    this._gameLights?.frame();   // plain PointLight / SpotLight at intensity 0 stop redrawing their shadow map (gameLights.js)
     followFocus(this);   // baseline sun (no sky module): its shadow box follows engine.focus (render/lights.js)
     syncRoomEnvironment(this);   // the baseline room map once a material reads scene.environment (one number compare on a quiet frame)
+    syncPlainTerms(this);   // plain lit materials added since the last frame take the cloud shadow like the engine's own (render/terms.js)
     const t0 = performance.now();   // measure
     const gpu = this.adaptive.on ? this._gpu : null;   // GPU time feeds adaptive resolution only; no queries while it is off
     gpu?.begin();
     // engine.onRender: camera and batching are final here. 'before' may render into its own targets (counted in renderer.info and the render phase)
     const ctx = this._onRender.before.length || this._onRender.after.length ? { renderer: r, scene: this.scene, camera: this.camera, dt } : null;
-    for (const f of this._onRender.before) { safe(this, STRINGS.onRender, f, null, undefined, ctx); r.setRenderTarget(null); }
-    this.post.render(dt);
-    for (const f of this._onRender.after) safe(this, STRINGS.onRender, f, null, undefined, ctx);
+    // the game drew the canvas itself since the last engine frame (own composer / render loop): it holds the frame, the engine yields (render/ownFrame.js)
+    const draws = engineDraws(this), own = this._ownFrame;
+    if (own) own.inside++;
+    try {
+      for (const f of this._onRender.before) { safe(this, STRINGS.onRender, f, null, undefined, ctx); r.setRenderTarget(null); }
+      this._checkBackendAdds();   // WebGPU route: a WebGL-only material added since the last frame is named, not drawn blank (startup.js)
+      freshFrame(r);   // WebGPU: step() several times in one task, or a renderOnce() earlier in this tick, must not reuse that scene pass
+      if (draws) this.post.render(dt);
+      for (const f of this._onRender.after) safe(this, STRINGS.onRender, f, null, undefined, ctx);
+    } finally { if (own) own.inside--; }
     gpu?.end();
     // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost); a frame that compiled shaders is not judged by adaptive resolution
-    this._compiled = this.budget.cost.rendered(performance.now() - t0, r.info.programs?.length ?? -1, t0 / 1000);   // measure
+    this._compiled = this.budget.cost.rendered(performance.now() - t0, programCount(r) ?? -1, t0 / 1000);   // measure
     if (DEV && this.ready) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
   },
   _runHooks(kind, dt) {
     const p = this._prof;
+    const was = this._curModule;
     for (const h of this._hooks[kind]) {
       const key = h.key ??= STRINGS.hook.replace('{name}', h.name).replace('{kind}', kind);   // build the key once
       const opts = h.opts ??= { module: h.mod };
+      this._curModule = h.mod;   // the module type checks (moduleTypes.js) know whose hook is writing
       if (!p) { safe(this, key, h.fn, opts, undefined, dt, this); continue; }
       const t0 = performance.now();   // measure
       safe(this, key, h.fn, opts, undefined, dt, this);
       p.t[h.name] = (p.t[h.name] || 0) + performance.now() - t0;   // measure
     }
+    this._curModule = was;
   },
   /** Time module hooks: profile(true) starts, profile(false) stops; profile() returns { moduleName: average ms per frame } and resets (null when off). */
   profile(on) {
@@ -208,7 +226,8 @@ export const loopMethods = {
    * Note: step is synchronous, so Promise continuations (the next timeline segment, await, async build) resume only after step returns; split a long
    * cutscene across several step calls.
    * seconds must be a finite number >= 0: step(0) advances nothing (no fixed step, no render), a negative or non-finite value throws; any positive
-   * value runs at least one fixed step.
+   * value runs at least one fixed step. While start() is still loading it runs frame hooks only (no game time passes until engine.phase is
+   * 'ready').
    * Returns the result of describe() (null with { describe: false }, which callers that ignore it pass to skip the work).
    */
   step(seconds, { render = true, frameEvery = 2, describe = true } = {}) {

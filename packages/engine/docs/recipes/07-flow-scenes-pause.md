@@ -19,7 +19,7 @@ engine.flow.define('title', {
 engine.flow.define('ending', { freeze: true, lockInput: true, enter: () => toast(engine, 'The end') });
 startBtn.onclick = () => engine.flow.go('playing');
 
-engine.input.define('pause', ['KeyO'], 'Pause');   // read by action name; Esc is the back key (see below); presets.keys / presets.interactions bind P, I, J, E (see the key table in GAMEMAP)
+engine.input.action('pause', { label: 'Pause', keys: ['KeyO'] });   // read by action name; Esc is the back key (see below); presets.bindings.* hold ready key maps (P, I, J, E; see the key table in GAMEMAP)
 engine.onFrame(() => {
   if (engine.input.pressedRaw('pause')) engine.flow.go(engine.flow.state === 'paused' ? 'playing' : 'paused');   // paused pushes an opaque input context, so use pressedRaw
 });
@@ -46,6 +46,29 @@ A game's own windows made with `makeWindow` are pushed automatically (`onCancel`
 import { uiFocus } from 'threedog';
 const h = uiFocus(engine).push('myMap', { cancel: () => closeMap() });   // call h.remove() when closing; h.fresh = opened this very frame
 ```
+
+## 1b. Title -> start -> continue, and opening straight into a moment (screenshots, tests)
+`flow({ start: 'title' })` enters the title during `engine.start()` (on `engine:ready`), so when `await engine.start()` returns the title is
+already showing. The title's buttons go through `engine.session` (section 4): a fresh run or the saved one, then flow moves to `'playing'` by itself.
+To open straight into play, pick the start state up front instead of leaving the title afterwards; time and weather come from the engine's
+own URL keys (`?time=22:20&weather=storm`, applied after `engine:ready`, weather at once, then `wait` seconds are advanced), so only the game's
+own state needs a key of its own.
+```js
+const q = new URLSearchParams(location.search), moment = q.get('moment');   // the game's own key: which lamps are lit, the score ...
+engine.use(openWorld({ camera: 'follow' }), flow({ start: moment ? 'playing' : 'title' }));
+engine.flow.define('title', { freeze: true, lockInput: true,
+  enter: () => showTitle({ canContinue: engine.saves.list().some(s => s.slot === 'auto') }), exit: () => hideTitle() });
+newBtn.onclick = () => engine.session.newGame();          // -> session:start -> 'playing'
+continueBtn.onclick = () => engine.session.load('auto');  // the same, from the save
+await engine.start();
+if (moment) setUpMoment(moment);   // the game's own data only; in code, time / weather are engine.calendar.timeOfDay = 0.93, weather.set('storm', { seconds: 0 })
+```
+The engine's ready-made title (`createEngine({ ui: { title } })`, recipe 26 §5) opens in `start()` the same way: leave `title` out for a moment
+(`ui: { ...(moment ? {} : { title: { title: 'My Game', items: ['continue', 'start'] } }) }`).
+Shoot it with `npm run shot -- "/?moment=night" --time 22:20 --weather storm`; a game test opens the same URL. Two things that make a moment
+look half-done in a picture: a headless page advances only on `engine.step` (the shot steps one frame after the game's code, so a
+`weather.set(name, { seconds: 0.1 })` made after `start()` shows a third of the change: use `seconds: 0`), and an `onFrame` copy of a sky
+color is one frame old (share `engine.uniforms.uSkyHorizon` instead, recipe 08).
 
 ## 2. Changing scene / teleporting
 ```js
@@ -75,20 +98,22 @@ are moved over on first launch). `save()` / `remove()` / `load()` return a Promi
 Backup: `engine.saves.exportFile('slot1')` downloads a .json (including all binary attachments such as photos; `{ files: false }` gives only the world
 save), and `await engine.saves.importFile(file)` restores it into a save slot (without a file, a file picker opens); the "Saves" page of the settings
 menu has matching buttons.
-For just a fade-to-black, without locking input or saving: `await fadeScreen(engine, 1, 0.5); ...; await fadeScreen(engine, 0, 0.5);` (import from `threedog`).
+For just a fade-to-black, without locking input or saving: `await fadeScreen(engine, 1, { seconds: 0.5 }); ...; await fadeScreen(engine, 0, { seconds: 0.5 });` (import from `threedog`).
 Fades inside a cutscene use the timeline steps `{ fade: 0.5 }`, `{ fade: 0.5, to: 0 }`.
 
 ## 2b. Input contexts (menus, vehicles, build mode)
+Who declares an action and who binds its keys: recipe 58.
 Actions are grouped into **contexts**, a stack like Unity's Action Maps. `input.push(name)` returns a handle; `h.remove()` pops it. The top context
 shadows lower actions bound to the same key; an opaque context (the default) blocks everything below it, `{ pass: true }` lets unrelated actions
-through. Dialogue, windows, full-screen UI parts, cutscenes, paused and transitions each push an opaque one: that is what "locks input" means
-(`input.enabled` is false while one is on the stack).
+through. Dialogue, windows, full-screen UI parts, cutscenes (while the player is one of their `actors`), paused and transitions each push an
+opaque one: that is what "locks input" means (`input.enabled` is false while one is on the stack). Who moves a character is separate: a
+cutscene takes its actors' control ([57-control](57-control.md)).
 ```js
-engine.input.define('exit', 'KeyF', 'Get out', { context: 'vehicle' });          // 'interact' has E; give the vehicle its own keys
-engine.input.define('inspect', 'KeyF', 'Inspect');                               // gameplay action on the same key
+engine.input.action('exit', { label: 'Get out', keys: ['KeyF'], context: 'vehicle' });          // 'interact' has E; give the vehicle its own keys
+engine.input.action('inspect', { label: 'Inspect', keys: ['KeyF'] });                               // gameplay action on the same key
 const h = engine.input.push('vehicle', { pass: true });                          // now F means exit, inspect is shadowed, WASD still works
 h.remove();                                                                       // back on foot
-engine.input.define('menuConfirm', 'Space', 'OK', { context: 'menu' });          // readable only while a window / menu is open
+engine.input.action('menuConfirm', { label: 'OK', keys: ['Space'], context: 'menu' });          // readable only while a window / menu is open
 ```
 - A switch applies at the start of the next fixed step (the input snapshot), so the press that boarded cannot also get out in the same step. Actions
   the switch blocks lose their held state, and a key cleared this way stays dead until released: closing a menu never leaves a key "still held" and
@@ -117,6 +142,8 @@ engine.session.track(engine.events.once('npc:talk', onTalk));   // anything the 
 Ending a playthrough skips a running cutscene, removes tracked handles, drops clock timers added after start(), drops background results not yet
 applied (commits), stops the music, applies the start state and snaps the camera to the player. flow goes back to its start state, then to
 `'playing'`. Events: `session:end`, `session:start { kind: 'new' | 'load', slot? }` (play an intro per new game there, not on `engine:ready`).
+- When a save part's `load()` throws, newGame / `session.load` resolve `false` and the old playthrough goes on: its data is rolled back, its
+  tracked handles and timers stay, flow returns to the state it left, and `session:failed { kind, slot? }` fires instead of `session:start`.
 - `saves.load(slot)` is a quick load onto the running playthrough (keeps what the game added); `session.load(slot)` ends the playthrough first and
   refuses an unreadable save without touching the game. Deleting a save is `saves.remove(slot)`.
 - Listeners and hooks registered at boot stay (they are the game); register play-time ones with `session.track`.

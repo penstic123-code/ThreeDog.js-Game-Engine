@@ -5,7 +5,7 @@
 //
 //   const tw = new Tweener();  call tw.update(dt) every frame
 //   await tw.tween(mesh, { 'position.y': 3, 'material.color': 0xffffff }, 1.5, 'outBack');
-//   const p = tw.tween(...); p.finish() jumps to the end; p.cancel() stops where it is
+//   const p = tw.tween(...); p.finish() jumps to the end; p.remove() stops where it is (the cancel convention)
 import * as THREE from 'three';
 import { ease as easing } from '../../core/easing.js';
 import { allowOwned } from '../../core/owned.js';
@@ -60,7 +60,7 @@ export class Tweener {
   constructor() { this.list = []; }
 
   /**
-   * General task: calls step(k) every frame, k is the eased progress. duration in seconds; returns a Promise with finish()/cancel().
+   * General task: calls step(k) every frame, k is the eased progress. duration in seconds; returns a Promise with finish() / remove().
    * The start value is read on the first update (so a later queued tween starts from where the previous one ended).
    */
   run({ duration = 0, ease = 'linear', start, step, end, group = null }) {
@@ -69,7 +69,7 @@ export class Tweener {
     const task = { t: 0, dur: Math.max(0, duration), ease: easing(ease), start, step, end, group, res, started: false, done: false };
     task.finish = () => this._complete(task, 1);
     task.cancel = () => this._complete(task, null);
-    p.finish = task.finish; p.cancel = task.cancel; p.task = task;
+    p.finish = task.finish; p.remove = task.cancel; p.task = task;
     this.list.push(task);
     if (task.dur === 0) this._complete(task, 1);
     return p;

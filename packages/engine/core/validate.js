@@ -19,7 +19,6 @@ const STRINGS = {
   none: 'none yet',
   more: ', ... {n} total',
   eventTypo: 'event "{name}" was never emitted or listened to; did you mean `{hint}`? (shown only because the names are similar; ignore it if this really is a new event)',
-  requires: 'module {module} requires module "{name}", which is not installed; did you mean `{hint}`? (installed: {list})',
   // Display names for each kind of name (the kind passed to warnMissing)
   kinds: {
     action: 'action', bus: 'audio bus', synth: 'synth', event: 'event', particle: 'particle effect', asset: 'asset', text: 'text key', module: 'module', weather: 'weather',
@@ -32,43 +31,34 @@ const STRINGS = {
  * Fill {name} placeholders from p (an unknown or null one stays as written). The one copy core shares (threadPure.js keeps its own: it must stay import-free).
  */
 export const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (m, k) => p[k] ?? m);
-// Page-wide by design: the validate switch, the warn-once set and owned.js allowOwned exemptions are shared by every engine on the page
-// (one validate setting per page; tests that run several engines all use the same setting).
-let enabled = true;
+// The warn-once set and owned.js allowOwned exemptions are page-wide (a warning said once is said once). The validate switch is per engine:
+// engine.validate holds each engine's own setting, and checks that know their engine (event-name spelling, owned values) read it. warnOnce has no
+// engine to ask, so it stays on while any live engine has checks on (it used to follow whichever engine was created last).
+let live = 0, quiet = 0;
+const enabled = () => live === 0 || quiet < live;
 /** Dev mode: npm run dev, or the test bundle built by npm test / npm run shot (vite.config defines import.meta.env.THREEDOG_TEST when THREEDOG_TEST is set). */
 // Written exactly `import.meta.env`: the Vite 8 dev server only rewrites that literal form; `(import.meta).env` stayed undefined there, so every dev check was
 // off under npm run dev
 // @ts-ignore Vite's import.meta.env (undefined outside Vite)
 const ENV = import.meta.env;
 export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
+/** The Vite dev server itself (npm run dev, not the test bundle): only it serves /__threedog endpoints and the dev bridge. The other spelling of "dev", named so nothing reads import.meta.env.DEV on its own. */
+export const DEV_SERVER = !!ENV?.DEV;
+/** Vite's base URL ('/' outside Vite) */
+export const BASE_URL = ENV?.BASE_URL ?? '/';
 const warned = new Set();
 
 /**
- * The one way a 0.2 name points to its 0.3 form: a rename table { oldName: 'the new form' } and this helper, made once per place (a module
- * constant). In dev, reading or writing an old name on an object (.on(obj): a result, runState, describe(), or a class prototype) or passing
- * it in an options bag (.check(opts)) throws [renamed-field] "<where>: 'old' is the 0.2 name, 0.3 uses <new form>". Release builds skip both
- * (no accessor is defined, no key is looked at): they pay nothing. Why one helper: old names used to fail four different ways (dev-only result
- * fields; hand-written accessors that threw in release too; a list derived from the calendar contract that would also ban any future calendar
- * name on the sky; ad hoc option checks). The accessors are non-enumerable, so JSON, spreads and Object.keys never see the old name.
- * @param {string} where what the names belong to ('result', 'engine.sky', 'dialogue.say / start options')
- * @param {Record<string, string>} table old name -> the new form, in words a game can act on
- * @returns {{ on<T extends object>(obj: T): T, check<T>(opts: T): T }}
- * @example const OLD = renamed('runState', { by: '.owners (and .blockedBy)' }); return OLD.on({ state, owners });
+ * Count one engine's createEngine({ validate }) for the page-wide warnings; returns the release for dispose().
+ * @param {boolean | undefined} on
+ * @returns {() => void}
+ * @internal
  */
-export function renamed(where, table) {
-  const fail = old => { throw codedError('renamed-field', `${where}: '${old}' is the 0.2 name, 0.3 uses ${table[old]}`); };
-  /** @type {PropertyDescriptorMap} */ const props = {};
-  for (const old in table) props[old] = { enumerable: false, configurable: true, get() { fail(old); }, set() { fail(old); } };
-  return {
-    on(obj) { if (DEV) Object.defineProperties(obj, props); return obj; },
-    check(opts) { if (DEV && opts && typeof opts === 'object') for (const old in table) if (old in opts) fail(old); return opts; },
-  };
+export function trackValidate(on) {
+  const off = on === false; live++; if (off) quiet++;
+  let done = false;
+  return () => { if (done) return; done = true; live--; if (off) quiet--; };
 }
-
-/** Global switch (the validate option of createEngine) */
-export function setValidate(on) { enabled = on !== false; }
-/** Are dev checks on (createEngine({ validate }) / setValidate) */
-export const validateOn = () => enabled;
 
 /**
  * Warn only once (no warning when checks are off). The one dedupe for engine warnings: modules do not keep private "already warned" sets.
@@ -76,9 +66,21 @@ export const validateOn = () => enabled;
  * @param {string} [key]  what counts as "the same warning" when the text has changing parts (a measured value each second, a stack line); default the text
  */
 export function warnOnce(msg, key = msg) {
-  if (!enabled || warned.has(key)) return;
+  if (!enabled() || warned.has(key)) return;
   warned.add(key);
   console.warn(DEV ? msg + hintText(msg) : msg);   // the fix + doc page only in dev: release builds drop the hint table
+}
+
+/**
+ * A dev note that is not a problem (a hot swap happened, why a shared value shows another number): console.info with the '[threedog] ' prefix,
+ * silenced like warnings by validate: false. Why here and not console.info at the call: one prefix, one switch, one dedupe (R45 flags a bare call).
+ * @param {string} msg
+ * @param {string} [key]  print once per page for this key; without a key every call prints
+ */
+export function note(msg, key) {
+  if (!enabled() || (key !== undefined && warned.has(key))) return;
+  if (key !== undefined) warned.add(key);
+  console.info('[threedog] ' + msg);
 }
 
 /** Edit distance (case-insensitive; swapping two adjacent letters counts as 1, e.g. jupm -> jump) */
@@ -143,7 +145,7 @@ const isOptionsObject = o => !!o && typeof o === 'object' && !Array.isArray(o) &
  * where is the origin (such as 'inventory.define()'), known are the keys the code reads. loose: report only near-misses.
  */
 export function checkOptions(where, opts, known, { loose = false } = {}) {
-  if (!enabled || !isOptionsObject(opts)) return;
+  if (!enabled() || !isOptionsObject(opts)) return;
   for (const k of Object.keys(opts)) {
     const msg = unknownOptionText(where, k, known, { soft: loose });
     if (!msg) continue;
@@ -160,11 +162,6 @@ export function checkEventName(name, known) {
   if (c && digits(c) !== digits(name)) warnOnce(coded('event-typo', fmt(STRINGS.eventTypo, { name, hint: c })));
 }
 
-/** An engine.use dependency is not installed: text with the fix when the name is close to an installed module, otherwise null. */
-export function requiresText(module, name, installed) {
-  const c = closest(name, installed);
-  return c ? fmt(STRINGS.requires, { module, name, hint: c, list: listText(installed) }) : null;
-}
 
 /**
  * Freeze a shared definition (content template, item, entity type) and every plain object / array inside it, in place; returns it.
@@ -184,21 +181,3 @@ export function freezeDef(v) {
   return v;
 }
 
-/**
- * A module's key for its action (inventory's open key, quests', photo's): the game passes keys (keys: [] for none), binds the action itself in
- * createEngine({ bindings }), or spreads a presets.keys bundle. No module picks a key on its own: I / J / P are one genre's habits, not every game's.
- * @param {string} fn  the module call for the message, e.g. 'inventory()'
- * @param {string} action
- * @param {string | string[] | undefined} keys
- * @param {string} preset  the presets.keys entry that bundles a key, e.g. 'inventory'
- * @param {any} input  engine.input
- * @returns {string[]}
- * @internal
- */
-export function moduleKeys(fn, action, keys, preset, input) {
-  if (keys !== undefined) return [].concat(keys);
-  if (input._bound[action]) return [].concat(input._bound[action]);
-  const call = fn.replace('()', '');
-  throw new TypeError(`[input-keys] ${fn}: no key for the '${action}' action (the engine binds no gameplay key). Pick one: ${call}({ ...presets.keys.${preset} }) `
-    + `(import { presets } from 'threedog'), ${call}({ keys: ['KeyX'] }), createEngine({ bindings: { ${action}: ['KeyX'] } }), or ${call}({ keys: [] }) for no key`);
-}

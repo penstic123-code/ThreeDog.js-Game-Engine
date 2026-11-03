@@ -22,6 +22,7 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE, TOOLS, addonDir } from './paths.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { npm as npmRun } from './lib/proc.mjs';
+import { parseOptions } from './lib/cli-args.mjs';
 import { newGamePage } from './browser.mjs';
 import { copyTemplate, usePost, engineAlone, vendored, packageContents } from './lib/pack-cases.mjs';
 import { applyDeps } from './lib/scaffold.mjs';
@@ -104,15 +105,16 @@ export async function packExternal({ check, browser, keep = false }) {
     mkdirSync(app);
     // The dependencies are the template's own (as new-game --example writes them), each threedog / @threedog/* range swapped for its tarball.
     // Why not a hand-written list: a package the template's code or docs use but its package.json forgot (post-effects once) would then
-    // install here by accident and only fail for a real standalone game. The style.post use below needs @threedog/post-effects from that list.
+    // install here by accident and only fail for a real standalone game. The template has no post-effects dependency (optional package): the
+    // style plugin bloom() below is the game choosing it, so it adds the package as a game would (npm install @threedog/post-effects).
     const tarballs = { threedog: eng, '@threedog/tools': tools, '@threedog/terrain-noise': terrainPkg, '@threedog/post-effects': postPkg };
     const tplDeps = applyDeps(JSON.parse(readFileSync(join(TOOLS, 'templates', 'game', 'package.json'), 'utf8')).dependencies, { openWorld: true });
     const deps = Object.fromEntries(Object.entries(tplDeps).map(([n, r]) => [n, tarballs[n] ? `file:../${tarballs[n].filename}` : r]));
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'threedog-external-check', private: true, type: 'module',
       scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' },
-      dependencies: { ...deps, three: '~0.187.0' } }, null, 2));
+      dependencies: { ...deps, '@threedog/post-effects': `file:../${postPkg.filename}`, three: '~0.187.0' } }, null, 2));
     copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
-    usePost(app);   // style.post: [bloom()] as the docs show it, so types, build and the preview page need the template's post-effects dependency
+    usePost(app);   // style/plugins/10-bloom.js: export default bloom(), as the docs show it, so types, build and the preview page need the post-effects package added above
     writeFileSync(join(app, 'bad.js'), BAD);
     writeFileSync(join(app, 'tsconfig.strict.json'), JSON.stringify(TSCONFIG, null, 2));
     writeFileSync(join(app, 'tsconfig.bad.json'), JSON.stringify({ extends: './tsconfig.strict.json', include: ['bad.js'] }));
@@ -148,7 +150,7 @@ export async function packExternal({ check, browser, keep = false }) {
       // the browser build that matches the playwright version npm just installed (a no-op when it is already there), as a user's first run does
       const pw = node([join(app, 'node_modules/playwright/cli.js'), 'install', 'chromium'], app);
       const t = await cli(app, 'test');
-      check('cli: threedog test runs the smoke test and passes', t.code === 0 && /smoke: /.test(t.out) && /0 failed/.test(t.out),
+      check('cli: threedog test runs the smoke test and passes', t.code === 0 && /Total: [1-9]\d* checks in [1-9]\d* items, .* 0 failed/.test(t.out),
         (pw.status ? `playwright install: ${(pw.stdout + pw.stderr).slice(-200)} | ` : '') + t.out.split('\n').filter(l => /✗|Error|Executable|install|Total/.test(l)).slice(0, 5).join(' | '));
       const z = await cli(app, 'test', 'zzz-no-such-test');
       check('cli: a test filter that matches nothing fails', z.code === 1 && /no test name contains/.test(z.out), z.out.slice(-200));
@@ -201,10 +203,11 @@ export async function packExternal({ check, browser, keep = false }) {
 
 // Standalone: node packages/tools/pack-external.mjs [--keep]
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  const { opt } = parseOptions(process.argv.slice(2), { flags: ['keep', 'gpu', 'software'] });
   const { launchBrowser } = await import('./browser.mjs');
   const browser = await launchBrowser();
   let fail = 0;
-  await packExternal({ browser, keep: process.argv.includes('--keep'),
+  await packExternal({ browser, keep: !!opt.keep,
     check: (label, ok, detail = '') => { if (!ok) fail++; console.log(`${ok ? '✓' : '✗'} ${label}${!ok && detail ? '  → ' + detail : ''}`); } });
   await browser.close();
   process.exit(fail ? 1 : 0);

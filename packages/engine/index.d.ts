@@ -7,7 +7,7 @@
 // File layout:
 //   packages/engine/types/common.d.ts    shared small types (position, color, easing names)
 //   packages/engine/types/core.d.ts      Engine class, event map EventMap, input, i18n, saves, assets, audio, module definition
-//   packages/engine/types/style.d.ts     style pack Style
+//   packages/engine/types/style.d.ts     the Style type
 //   packages/engine/types/world.d.ts     terrain, vegetation, calendar, sky, weather, water
 //   packages/engine/types/physics.d.ts   collision, Rapier physics, the four cameras
 //   packages/engine/types/gameplay.d.ts  timeline, level, trigger zones, particles, settings, music, character/NPC, interactions, dialogue, inventory, quests, photo mode,
@@ -63,15 +63,8 @@ export * from './types/nav';
 /** three.js itself (the same instance the engine uses; typed by @types/three) */
 export * as THREE from 'three';
 
-/** Create an engine (core only). canvas is required; style is the style pack */
+/** Create an engine (core only). canvas is required; style is the game's style (see recipes/09-style.md) */
 export function createEngine(opts: EngineOptions): Engine;
-/**
- * A style part that adds post effects to the ones before it (a plain { post: [...] } would replace the whole list); an effect with the same name
- * replaces that one in place. Style parts with it: createEngine({ style: [basePack, postAdd(myGrain, bloom({ strength: 0.6 }))] })
- */
-export function postAdd(...effects: PostEffect[]): Style;
-/** A style part that removes post effects by name from the ones before it: createEngine({ style: [basePack, postRemove('ao', 'outline')] }) */
-export function postRemove(...names: string[]): Style;
 
 /** One openWorld part: false leaves the module out, true / omitted uses defaults, an object is that module's own options */
 type Part<F extends (...a: any) => any> = boolean | NonNullable<Parameters<F>[0]>;
@@ -139,16 +132,10 @@ export { weather } from './types/generated/modules/weather/Weather';
 export const presets: {
   readonly weather: { readonly temperate: WeatherOptions & Required<Pick<WeatherOptions, 'types' | 'autoPool'>> };
   readonly calendar: { readonly fourSeasons: CalendarOptions; readonly cycle: CalendarOptions; readonly fixedTime: CalendarOptions };
-  readonly player: { readonly [K in 'none' | 'thirdPerson' | 'lockOn' | 'aim' | 'sideScroller']: Pick<import('./types/gameplay').PlayerOptions, 'control' | 'faceMode' | 'runKeys' | 'jumpKeys' | 'cameraFollow'> };
+  readonly player: { readonly [K in 'thirdPerson' | 'lockOn' | 'aim' | 'sideScroller']: Pick<import('./types/gameplay').PlayerOptions, 'control' | 'faceMode' | 'cameraFollow'> };
   readonly interactions: { readonly [K in 'nearest' | 'facing' | 'aim']: import('./types/gameplay').InteractionsOptions };
-  readonly keys: {
-    readonly inventory: Pick<import('./types/gameplay').InventoryOptions, 'keys' | 'pad'>;
-    readonly quests: Pick<import('./types/gameplay').QuestsOptions, 'keys' | 'pad'>;
-    readonly photo: Pick<import('./types/gameplay').PhotoOptions, 'keys' | 'pad'>;
-    /** grids.preview(): R turns the placement preview (spread into the preview options) */
-    readonly gridRotate: { rotateKeys: string[] };
-    readonly brake: Pick<import('./types/gameplay').CharactersOptions, 'brakeKeys' | 'brakePad'>;
-  };
+  /** Key maps for the actions modules declare (no module option takes keys): engine.input.bind(map) or createEngine({ bindings: { ...map } }) */
+  readonly bindings: { readonly [K in 'walk' | 'interact' | 'inventory' | 'quests' | 'photo' | 'gridRotate' | 'brake' | 'dialogNumbers' | 'rtsRotate' | 'cutsceneSkip' | 'debug']: Readonly<Record<string, readonly string[]>> };
   readonly camera: { readonly follow: import('./types/physics').FollowCameraOptions; readonly overShoulder: import('./types/physics').FollowCameraOptions; readonly thirdPersonAction: import('./types/physics').FollowCameraOptions };
 };
 // Migrated: water() is generated from the JSDoc in modules/water/Water.js
@@ -253,27 +240,24 @@ export type ParamSpec = string | { type: string, default?: any, min?: number, ma
  * @example const o = readParams('magnet', { radius: { type: 'number', default: 2, min: 0 } }, opts);
  */
 export function readParams<T extends object = any>(where: string, schema: Record<string, ParamSpec>, opts?: object): T;
-/** One look part: engine.look.<id>. set changes parameters for an owner, patch swaps a named GLSL hook, replace takes the whole part over (recipes/52-look.md) */
-export interface LookPart {
-  readonly id: string;
-  readonly object: any;
-  set(params: Record<string, any>, o?: { owner?: string }): { remove(): void };
-  patch(name: string, glsl: any, o?: { owner?: string }): { remove(): void };
-  replace(impl: any, o?: { owner?: string, effects?: boolean }): { remove(): void };
-  /** Take values the engine writes on its own (keys by dotted prefix; none = all of the part), or hand them back with on = false (recipes/52 "Who writes it") */
-  manual(keys?: string | string[] | boolean, on?: boolean): { remove(): void };
-  clear(owner: string): void;
-  value(key: string): any;
-  top(key: string): any;
-}
 /**
- * Register a module's own look part: engine.look.<id> with set / patch / replace, engine.catalog('look.<id>') and describe().look (recipes/52-look.md).
+ * Every change the engine makes to three.js classes, the game's three.js objects or its renderer (also in describe().threePatches).
+ * scope: what it reaches; lost: what stops when it is off (or why it cannot be). off(id) undoes an offable one for the whole page; others throw.
+ * @example threePatches.off('shadow-accessors');   // still shadows for wind materials, three's own customDepthMaterial
+ */
+export const threePatches: {
+  list(): { id: string, what: string, scope: string, on: boolean, offable: boolean, lost: string }[];
+  off(id: string): void;
+};
+/**
+ * Register a module's own look part: engine.look.<id> with set / patch / add / replace / manual / value (module code: part.author),
+ * engine.catalog('look.<id>') and describe().look (recipes/52-look.md).
  * Every param needs a default; a default that changes the picture also needs why and off (or neutral: true).
  */
 export function defineLookPart(engine: any, spec: { id: string, group?: string, module?: string, object?: () => any, params?: Record<string, any>,
   style?: () => object, read?: () => object, apply?: (values: any, changed: Set<string>) => void, applyAtStart?: boolean,
   hooks?: Record<string, { signature?: string, scope?: string[], example?: string }>, applyHook?: (name: string, glsl: any) => void, noPatch?: string,
-  replace?: { accepts: string, loses?: string[] }, applyReplace?: (impl: any) => void, noReplace?: string, docs?: string[] }): LookPart;
+  replace?: { accepts: string, loses?: string[] }, applyReplace?: (impl: any) => void, noReplace?: string, noAdd?: string, docs?: string[] }): import('./types/core').LookPart;
 // The Character, NPC and Engine classes are exported by the export * above (tweens use engine.timeline.tween, pathfinding uses engine.characters.findPath)
 
 /** Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed, ...terrainPreset() }).surface(x, z) */

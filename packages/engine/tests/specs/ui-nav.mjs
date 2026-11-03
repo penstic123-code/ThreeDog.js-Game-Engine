@@ -69,7 +69,7 @@ export const specs = [
         d.say('Second call', { speaker: 'Baker', channel: 'bubble', at: a, seconds: 1 });   // queued behind Baker's first line
         engine.step(0.2);
         const o = { main: d.active?.speaker, bubbles: d.bubbles(), dom: [...document.querySelectorAll('.threedog-bubble')].filter(x => !x.hidden).map(x => x.textContent),
-          locked: engine.input.contexts.includes('dialogue') };
+          locked: engine.input.contexts.includes('dialog') };
         let first = false; pa.then(() => { first = true; });
         engine.step(1); await null;
         o.afterFirst = { first, bubbles: d.bubbles().map(x => x.text) };

@@ -6,19 +6,32 @@
 //   4. time for the two examples to go from open to playable (engine.startup) and the first-screen chunk time
 //   5. automatic batching (engine.batching): 3000 repeated props over 4 models, batching off vs on
 //   6. streaming into a new area: ms per stage of applying background results (transit, build, collider, upload, stream)
-// Run one section only: npm run perf -- --only=props (sections: native, world, startup, props, stream)
+//   7. the two real pages (world example, city test page) on WebGL and WebGPU: frame time, draw calls, programs, memory
+// Run one section only: npm run perf -- --only=props (sections: native, world, startup, props, stream, pages)
 // Terrain shading for the stream section: npm run perf -- --only=stream --shading=texture
 // Renderer: the hardware GPU when headless can reach it, else SwiftShader (--gpu / --software force one); the first line says which. Under SwiftShader
-// GPU work counts as CPU time, so only look at relative differences. Frame count: npm run perf -- 120. Load ramps per axis: threedog stress
+// GPU work counts as CPU time, so only look at relative differences. Pages section route: --renderer=webgl|webgpu|both (default both).
+// Frame count: npm run perf -- 120. Load ramps per axis: threedog stress
 process.env.THREEDOG_TEST = '1';
 import { launchBrowser, buildAndPreview, newGamePage } from './browser.mjs';
 import { waitEngine } from './wait-engine.mjs';
-import { ENGINE } from './paths.mjs';
+import { ENGINE, cli } from './paths.mjs';
+import { intOption } from './lib/cli-args.mjs';
 
 // It measures the engine package (test pages in tests/perf/ and the two examples), regardless of the directory it is run from
-const ONLY = process.argv.find(a => a.startsWith('--only='))?.slice(7), want = k => !ONLY || ONLY === k;
-const SHADING = process.argv.find(a => a.startsWith('--shading='))?.slice(10);   // world / stream pages: terrain shading 'smooth' | 'flat' | 'texture' (default: the style's)
-const FRAMES = +(process.argv.slice(2).find(a => /^\d+$/.test(a)) || 60);
+// --only one section (`--only world` and `--only=world` both work; perf and stress used to read opposite spellings); a frame count as `--frames 120`
+// or a bare number. A wrong section or shading fails before the build instead of measuring nothing and exiting 0
+const SECTIONS = ['native', 'world', 'startup', 'props', 'stream', 'pages'], ROUTES = ['webgl', 'webgpu', 'both'], SHADINGS = ['smooth', 'flat', 'texture'];
+const { opt, rest } = cli(process.argv.slice(2), { workspace: false, positional: true, flags: ['gpu', 'software'], values: ['only', 'shading', 'frames', 'renderer'] });
+const fail = m => { console.error('✗ ' + m); process.exit(1); };
+if (opt.only && !SECTIONS.includes(opt.only)) fail(`perf --only: unknown section "${opt.only}". Sections: ${SECTIONS.join(', ')}`);
+if (opt.shading && !SHADINGS.includes(opt.shading)) fail(`perf --shading: "${opt.shading}" is not one of ${SHADINGS.join(', ')}`);
+if (opt.renderer && !ROUTES.includes(opt.renderer)) fail(`perf --renderer: "${opt.renderer}" is not one of ${ROUTES.join(', ')}`);
+if (rest.length > 1 || (rest[0] && opt.frames)) fail(`perf takes one frame count, got ${[...rest, opt.frames].filter(Boolean).join(' ')}`);
+const ONLY = opt.only, want = k => !ONLY || ONLY === k;
+const SHADING = opt.shading;   // world / stream pages: terrain shading 'smooth' | 'flat' | 'texture' (default: the style's)
+let FRAMES = 60;
+try { FRAMES = intOption({ frames: opt.frames ?? rest[0] }, 'frames') ?? FRAMES; } catch (e) { fail(e.message); }
 const server = await buildAndPreview(ENGINE), base = server.base;
 // A fresh browser for every page (leftover work in the software-rendering GPU process from the previous page would slow the next one)
 let said = false;
@@ -109,6 +122,47 @@ if (want('stream')) {
   console.log(`\n${r.frames} frames in ${r.seconds} s, ${r.chunks} chunks loaded; frame CPU avg ${r.cpuAvg} ms, worst ${r.cpuMax} ms ` +
     `(worst frame by phase: ${Object.entries(r.worstPhases).map(([k, v]) => k + ' ' + v).join(', ')})`);
   await page.close();
+}
+
+if (want('pages')) {
+  // Why measure the real pages and not only tests/perf: the WebGPU route's cost shows on full games (sky, post chain, terrain, many materials),
+  // and these two pages are the ones the WebGL vs WebGPU advice in recipe 56 is about. ?renderer=webgpu switches the page itself (its main.js).
+  console.log(`\n## 7. real pages, WebGL vs WebGPU (${FRAMES * 2} frames standing still after ready, median of 3 runs)\n`);
+  console.log('frame = requestAnimationFrame interval (capped by vsync on a GPU); JS = engine.cpuMs (CPU time of update + render submit)\n');
+  row('page', 'route', 'backend', 'frame ms', 'JS ms', 'draw calls', 'triangles', 'programs', 'geometries', 'textures', 'texture MB', 'JS heap MB');
+  row('---', '---', '---', '---', '---', '---', '---', '---', '---', '---', '---', '---');
+  const routes = !opt.renderer || opt.renderer === 'both' ? ['webgl', 'webgpu'] : [opt.renderer];
+  for (const [name, url] of [['world example', '/'], ['city test page', '/tests/city/index.html']]) {
+    for (const route of routes) {
+      let page;
+      try { page = await open(url + (route === 'webgpu' ? '?renderer=webgpu' : '')); } catch (e) { row(name, route, 'failed: ' + String(e.message ?? e).split('\n')[0].slice(0, 120)); continue; }
+      // Standing still means the camera too: the world example flies an intro camera for 5 s after ready (the built page reads no ?cutscene=skip),
+      // and draw calls follow the view, so a route whose samples fell inside the flight showed ~60 more than one whose samples came after it
+      const still = await page.evaluate(async () => {
+        const m = engine.camera.matrixWorld, last = m.clone(), t0 = performance.now();
+        for (let same = 0; same < 30 && performance.now() - t0 < 20000;) {
+          await new Promise(r => requestAnimationFrame(r));
+          same = m.equals(last) ? same + 1 : 0; last.copy(m);
+        }
+        return performance.now() - t0 < 20000;
+      });
+      if (!still) console.log(`  (${name} ${route}: the camera was still moving after 20 s; measured anyway)`);
+      const r = await median(page, async n => {
+        await new Promise(res => setTimeout(res, 500));   // let start-up streaming settle a little before sampling
+        const gaps = [], js = []; let last = performance.now();
+        await new Promise(res => { let k = 0; const tick = () => { const t = performance.now(); gaps.push(t - last); last = t; js.push(engine.cpuMs ?? 0); if (++k < n) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
+        const mid = a => [...a].sort((x, y) => x - y)[a.length >> 1], r1 = v => Math.round(v * 10) / 10;
+        const p = engine.inspect.perf(), rd = engine.renderer;
+        // WebGPU keeps no program list in renderer.info: count the distinct fragment programs three's pipeline cache holds instead
+        const programs = p.programs ?? rd._pipelines?.programs?.fragment?.size ?? null;
+        return { cpuMs: r1(mid(js)), frameMs: r1(mid(gaps.slice(1))), backend: engine.describe().renderer?.backend ?? '?', reason: engine.describe().renderer?.reason, drawCalls: p.drawCalls, triangles: p.triangles,
+          programs, geometries: p.memory.geometries, textures: p.memory.textures, textureMB: p.textureMB, heapMB: performance.memory ? r1(performance.memory.usedJSHeapSize / 1048576) : null };
+      }, FRAMES * 2);
+      if (route === 'webgpu' && r.backend !== 'webgpu') console.log(`  (${name}: no WebGPU adapter, ran on the WebGL2 backend: ${String(r.reason).split('\n')[0]})`);
+      row(name, route, r.backend, r.frameMs, r.cpuMs, r.drawCalls, r.triangles, r.programs, r.geometries, r.textures, r.textureMB, r.heapMB);
+      await page.close();
+    }
+  }
 }
 
 await server.close();

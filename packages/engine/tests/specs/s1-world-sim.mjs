@@ -1,4 +1,4 @@
-// world tightening (end of stage 1): a model build error does not block, refresh precision, no time lost, record-count quota, simulation center separate from the camera, frame-rate independence. Same format as s1-world.mjs; appended at the end of specs.mjs.
+// world tightening (end of stage 1): a model build error does not block, refresh precision, no time lost, record-count quota, simulation center separate from the camera, frame-rate independence. Same format as s1-world.mjs.
 // Every item is a "do not bypass" guard: these behaviors must hold when changing world.
 const box = 'new engine.THREE.Mesh(new engine.THREE.BoxGeometry(1, 1, 1), new engine.THREE.MeshBasicMaterial())';
 

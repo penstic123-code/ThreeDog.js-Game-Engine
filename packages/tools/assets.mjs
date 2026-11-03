@@ -21,16 +21,22 @@ import { resolve, basename, extname, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { ROOT, pickWorkspace } from './paths.mjs';
+import { ROOT, cli } from './paths.mjs';
 import { KB, MB, statsLines, modelStats, textureLine } from './assets-check/stats.mjs';
 import { readModel, hasReader } from './assets-check/read.mjs';
 
-const { dir, args } = pickWorkspace(process.argv.slice(2));
-if (args[0] === 'check') process.exit(await (await import('./assets-check/cli.mjs')).runCheck(dir, args.slice(1)));
+// one parse for both forms: build (--force --strict --ktx2) and `check [glb or folder]` (--json --strict --against)
+const { dir, opt, rest } = cli(process.argv.slice(2), { positional: true, flags: ['force', 'strict', 'ktx2', 'json'], values: ['against'] });
+if (rest[0] === 'check') {
+  if (rest.length > 2) { console.error(`✗ assets check takes one glb or folder, got ${rest.slice(1).join(' ')}`); process.exit(1); }
+  process.exit(await (await import('./assets-check/cli.mjs')).runCheck(dir, opt, rest[1]));
+}
+if (rest.length) { console.error(`✗ unexpected argument "${rest[0]}": npm run assets [--force] [--ktx2] [--strict] · npm run assets -- check [glb or folder]`); process.exit(1); }
+if (opt.json || opt.against) { console.error('✗ --json and --against belong to `assets check`'); process.exit(1); }
 
 const SRC = resolve(dir, 'art/models'), OUT = resolve(dir, 'public/models'), STATE = resolve(dir, '.threedog');
-const force = args.includes('--force'), strict = args.includes('--strict');
-const wanted = args.includes('--ktx2') ? 'ktx2' : 'webp';
+const force = !!opt.force, strict = !!opt.strict;
+const wanted = opt.ktx2 ? 'ktx2' : 'webp';
 let tex = wanted, note = '';
 
 if (!existsSync(SRC)) { console.log(`${SRC} does not exist. Put the .glb / .gltf exported from Blender into art/models/ and run again.`); process.exit(0); }

@@ -1,9 +1,11 @@
 // Dome shader (gradient + sun + moon + stars + clouds), its uniforms, and neutral fallback keyframes. Look params come from style.sky.
 import * as THREE from 'three';
-import { warnOnce } from '../../core/validate.js';
 import { NOISE_GLSL } from '../../render/effects.js';
 import { resolveClouds, cloudUniforms, CLOUD_UNIFORM_DECL } from './clouds.js';
 import { codedError } from '../../core/errorHints.js';
+import { SKY as K, glslFloat as f } from '../../render/fxNumbers.js';
+import { isWebGPU, webgpuPart } from '../../render/backend.js';
+import { resolveDomeLayers } from './domeLayers.js';
 
 // Keyframes: [time 0-1, zenith color, horizon color (= fog color), light color, light intensity, ambient intensity]
 // Neutral fallback when no style: pure gray (no hue), only brightness changes with time. Night holds from 19:12 to 04:48 (rows 0.2 / 0.8):
@@ -47,11 +49,15 @@ export function makeSkyUniforms(st, engineUniforms) {
 
 /**
  * The sky dome: a back-faced sphere that follows the camera and is scaled to 0.9 of its far plane (drawn first, no depth).
- * extra = { decl, body }: GLSL added by fog.js (fog-colored horizon band) and domeLayers.js (style layers); empty keeps the plain shader text
+ * extra = { decl, body, layers? }: GLSL added by fog.js (fog-colored horizon band) and domeLayers.js (style layers); empty keeps the plain shader text
+ * engine: on a WebGPURenderer the dome is render/fx/sky.tsl.js's node material over the same uniforms (needs threedog/tsl), drawing the layers'
+ * tsl forms (extra.layers from prepareLook, else st.layers resolved here)
  */
-export function makeDome(uniforms, st, extra = { decl: '', body: '' }) {
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16),
-    new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: domeFragment(resolveClouds(st.clouds), extra), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+export function makeDome(uniforms, st, extra = { decl: '', body: '' }, engine = null) {
+  const cl = resolveClouds(st.clouds);
+  const nodes = skyNodes(engine);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), nodes ? nodes.domeMaterial(uniforms, st, cl.kind, engine, { layers: extra.layers ?? resolveDomeLayers(st.layers, { gpu: true }).layers })
+    : new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: domeFragment(cl, extra), uniforms, side: THREE.BackSide, depthWrite: false, depthTest: false }));
   dome.frustumCulled = false; dome.renderOrder = -1000; dome.userData.budgetTag = 'sky';
   dome.onBeforeRender = (r, sc, cam) => {
     dome.position.copy(cam.position); dome.scale.setScalar(/** @type {THREE.PerspectiveCamera} */ (cam).far * 0.9); dome.updateMatrixWorld();
@@ -59,12 +65,21 @@ export function makeDome(uniforms, st, extra = { decl: '', body: '' }) {
   return dome;
 }
 
+/**
+ * The node side of the sky (render/fx/sky.tsl.js: dome material, fog node, the GLSL-only checks) when the engine draws with a WebGPURenderer, else null.
+ * Why throw instead of a fallback: a ShaderMaterial does not draw on WebGPURenderer. Only this lookup is on the WebGL side, the rest (and its
+ * messages) ships with threedog/tsl, so WebGL bundles do not grow.
+ */
+export function skyNodes(engine) {
+  return isWebGPU(engine?.renderer) ? webgpuPart('sky', '[sky] the sky dome') : null;
+}
+
 /** Panorama skybox (style sky.skybox): hides the gradient dome once the texture is wanted, becomes the scene background when loaded */
 export function loadSkybox(sky, name) {
   const e = sky.engine;
   sky.dome.visible = false;
-  e.assets.texture(name).then(t => { t.mapping = THREE.EquirectangularReflectionMapping; e.scene.background = t; sky.skybox = t; sky._oBg?.mark(); })
-    .catch(err => warnOnce(err.message));
+  e.assets.useTexture(name, t => { t.mapping = THREE.EquirectangularReflectionMapping; e.scene.background = t; sky.skybox = t; sky._oBg?.mark(); },
+    { where: 'sky skybox', instead: 'no panorama shows (the gradient dome stays hidden)' });
 }
 
 const vert = `varying vec3 vDir;
@@ -75,7 +90,7 @@ uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform fl
 ${CLOUD_UNIFORM_DECL}
 ${cl.decl}${x.decl ? '\n' + x.decl : ''}
 varying vec3 vDir;
-float h3(vec3 p){ p = fract(p*0.3183099+.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float h3(vec3 p){ p = fract(p * ${f(K.starMul)} + ${f(K.starAdd)}); p *= ${f(K.starScale)}; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 ${NOISE_GLSL}
 ${cl.glsl}
 void main(){
@@ -83,7 +98,7 @@ void main(){
   float y = max(d.y, 0.0);
   vec3 col = d.y < 0.0 ? uHorizon : mix(uHorizon, uTop, pow(y, uCurve));
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, uSunSize) * uSunPower + pow(sd, 12.0) * uSunGlow) * step(0.0, uSunDir.y + 0.05);
+  col += uSunColor * (pow(sd, uSunSize) * uSunPower + pow(sd, ${f(K.glowPower)}) * uSunGlow) * step(0.0, uSunDir.y + ${f(K.sunCut)});
   float md = max(dot(d, -uSunDir), 0.0);
   col += uMoonColor * pow(md, uMoonSize) * uMoonPower * uNight;
   vec3 g = floor(d * uStarScale);
@@ -96,7 +111,7 @@ void main(){
   // Stars sit behind the clouds (hidden where a cloud is drawn) and dim with the weather's cloud cover (uCloud): a rainy / overcast night has
   // no clear sky between the drawn clouds either, and a style with sparse cloud art must not show a starry sky in a storm. Relative to the
   // weather value, no extra constant: uCloud 0 = every star, 1 = none. style.sky.dim.stars false (uStarCloudDim 0) keeps them through the cover
-  col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, 0.25, d.y) * (1.0 - clA) * (1.0 - clamp(uCloud, 0.0, 1.0) * uStarCloudDim));${x.body}
+  col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, ${f(K.starFade)}, d.y) * (1.0 - clA) * (1.0 - clamp(uCloud, 0.0, 1.0) * uStarCloudDim));${x.body}
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>

@@ -21,6 +21,7 @@ const TOWN = [
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] lights R4: under a sky, Phong and Toon dim alike at night (the room env follows the sky light, not only the ambient column)',
     url: PAGE,
     async run({ check, ev }) {
@@ -64,12 +65,12 @@ export const specs = [
         await E.start();
         // 天空每帧真写出的天顶 / 地平线 / 雾色的亮度（线性）
         const L = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-        const read = () => ({ top: L(E.sky.uniforms.uTop.value), hor: L(E.sky.uniforms.uHorizon.value), fog: L(E.scene.fog.color), grey: E.sky.modifiers.tintAmount });
+        const read = () => ({ top: L(E.sky.uniforms.uTop.value), hor: L(E.sky.uniforms.uHorizon.value), fog: L(E.scene.fog.color), grey: E.sky._tintNow.amount });
         const o = {};
         for (const [name, t] of [['noon', 0.5], ['night', 21.5 / 24]]) {
           E.calendar.timeOfDay = t;
-          E.weather.set('clear', 0); for (let i = 0; i < 5; i++) E.step(1 / 30); o[name + 'Clear'] = read();
-          E.weather.set('rain', 0); for (let i = 0; i < 5; i++) E.step(1 / 30); o[name + 'Rain'] = read();
+          E.weather.set('clear', { seconds: 0 }); for (let i = 0; i < 5; i++) E.step(1 / 30); o[name + 'Clear'] = read();
+          E.weather.set('rain', { seconds: 0 }); for (let i = 0; i < 5; i++) E.step(1 / 30); o[name + 'Rain'] = read();
         }
         E.dispose();
         return o;
@@ -83,6 +84,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] adaptive resolution R2: the frame in which the render scale changes is drawn at the new size, never presented blank',
     url: '/tests/city/index.html',
     async run({ check, ev }) {

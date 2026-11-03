@@ -1,4 +1,4 @@
-// Multi-container inventory (chest / corpse / shelf); same style as specs.mjs, appended at the end of specs.mjs.
+// Multi-container inventory (chest / corpse / shelf); same style as the other files here.
 const READY = { timeout: 60000 };
 const reload = async page => { await page.reload(); await page.waitForFunction(() => window.engine?.stateApplied, null, READY); };
 
@@ -40,6 +40,24 @@ export const specs = [
       check('Bad arguments throw with a fix hint', r.errs.every(Boolean) && /create it first with inventory\.container/.test(r.errs[0]) && /capacity/.test(r.errs[2]) && /cannot be removed/.test(r.errs[3])
         && /not an entry key/.test(r.errs[5]) && /reserved for entry keys/.test(r.errs[6]) && /no entry with that key/.test(r.errs[7]) && /plain object/.test(r.errs[8]), JSON.stringify(r.errs));
       check('No slot limit unless set (player bag and new containers)', r.cap === Infinity && r.cap2 === Infinity && r.bagList.endsWith('rag1'), r.bagList);
+    },
+  },
+  {
+    name: '[guard] Containers: moving part of a stacked entry with data gives the moved part a new key (one key, one entry); a whole entry keeps its key',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(() => engine.ops.allow(() => {
+        const I = engine.inventory;
+        I.define('potion', { name: 'potion', stack: 10 });
+        const a = I.container('fix-a'), b = I.container('fix-b');
+        const key = a.add('potion', 5, { data: { q: 2 } });
+        I.transfer(a, b, key, 2);
+        const keysA = a.list().map(e => e.key), keysB = b.list().map(e => e.key);
+        const rest = I.transfer(a, b, key, 3);   // the whole remaining entry moves: it may keep its key (merges into b's equal entry)
+        return { key, keysA, keysB, rest, after: [...a.list(), ...b.list()].map(e => e.key + ':' + e.count) };
+      }));
+      check('after a partial move the two containers hold different keys', r.keysA[0] === r.key && r.keysB.length === 1 && r.keysB[0] !== r.key, JSON.stringify(r));
+      check('moving the rest merges into the equal entry (5 pieces, one entry)', r.rest === 3 && r.after.length === 1 && r.after[0].endsWith(':5'), JSON.stringify(r));
     },
   },
   {

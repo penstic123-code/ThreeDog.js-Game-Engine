@@ -3,6 +3,8 @@
 // A batch runs in an engine.threads lane (pathWorker.js) and lands PATH_LAG steps later through engine.commits; late or no workers -> the same
 // solveBatch runs here at the due step. The batch is tagged with the walkable state it was computed on (navmesh revision or collision version);
 // if that changed before it lands, it is recomputed here on the current state, so threads on / off / slow / crashed give identical paths.
+// A request belongs to the world it was asked in, like any background result: one still queued when a save load, new game or level change
+// invalidates engine.commits is dropped (its done never runs), the same as a batch already sent.
 import { xzOf } from '../../core/math.js';
 import { solveBatch, pathHandler, astarDefaults, RES, TILE, tileOf } from './pathJob.js';
 import { codedError } from '../../core/errorHints.js';
@@ -26,7 +28,7 @@ export class AsyncPaths {
   request(from, to, done, o = {}) {
     if (typeof done !== 'function') throw codedError('character-option', NO_DONE);
     const [sx, sz] = xzOf(from), [gx, gz] = xzOf(to);
-    const h = { sx, sz, gx, gz, o, done, canceled: false, remove() { h.canceled = true; } };
+    const h = { sx, sz, gx, gz, o, done, epoch: this.e.commits.epoch, canceled: false, remove() { h.canceled = true; } };
     this.queue.push(h);
     return h;
   }
@@ -35,7 +37,8 @@ export class AsyncPaths {
   /** End of each fixed step: send up to perStep queued requests as one batch */
   flush() {
     const list = [];
-    while (this.queue.length && list.length < this.perStep) { const h = this.queue.shift(); if (!h.canceled) list.push(h); }
+    const epoch = this.e.commits.epoch;
+    while (this.queue.length && list.length < this.perStep) { const h = this.queue.shift(); if (!h.canceled && h.epoch === epoch) list.push(h); }
     if (!list.length) return;
     const e = this.e, T = e.threads, batch = this.build(list);
     const t = e.commits.request({ lag: PATH_LAG, fallback: () => null, apply: r => this.land(batch, list, r) });

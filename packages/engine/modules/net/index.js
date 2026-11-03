@@ -58,6 +58,9 @@ export function net(opts = {}) {
       const at = left.get(peer.actor) ?? e.world.get('player')?.position ?? { x: 0, y: 0, z: 0 };
       e.world.add({ id: peer.actor, kind: 'player', position: { ...at } }, { save: false });
     }
+    // the peer drives its avatar: net holds its control slot for good (core/control.js), so a host-side walkTo or cutscene on it is a
+    // control-net error, not a fight with the peer's next position (the record leaving the world drops the hold)
+    if (o.avatar && e.world?.get(peer.actor)) o.control.take(peer.actor, { owner: 'net', layer: 'net' });
     if (o.avatar && e.inventory) e.inventory.container(peer.actor);
     o.onJoin?.(e, { id: peer.id, actor: peer.actor });
   };
@@ -68,8 +71,9 @@ export function net(opts = {}) {
   };
   let n = null;
   return {
-    name: 'net', params: NET_PARAMS, options: opts, label: 'Multiplayer', stage: 'late', optional: ['world', 'inventory'],
-    install(e) { return (n = new Net(e, o)); },
+    name: 'net', type: 'net', params: NET_PARAMS, options: opts, label: 'Multiplayer', stage: 'late', optional: ['world', 'inventory'],
+    // ctx.control: the holds on remote characters are the module's, so removing net hands them back
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.net': '联机' }, en: { 'module.net': 'multiplayer' } }); o.control = ctx.control; return (n = new Net(e, o)); },
     fixed(dt) { n._fixed(dt); },
     frame(dt) { n._frame(dt); },
     describe() { return { role: n.role, actor: n.actor, connected: n.connected, peers: n.peers.length, pending: n.pending.size }; },

@@ -75,6 +75,8 @@ world records, containers, `vars`, and every other save part (quests, clock, sky
 On a client the mirror is applied at the next fixed step; `world.simulate` does not run there (the host simulates). Other players glide between
 updates (kinds in `interpolate`, default `['player']`). The client moves its own avatar and reports its position; the host clamps it to `maxSpeed`
 (m/s, default 15).
+A character another machine drives is held by net for good ([57-control](57-control.md)): on a client every NPC and other player, on the host
+each peer's avatar. A local `walkTo`, cutscene or `engine.control.take` on one is `[control-net]`; change it with an op the host runs.
 
 ## 5. Write the UI from state, not from run's return value
 On a client `engine.ops.run` returns `{ ok: true, pending: true, seq }` after the local `can` passed (so a "no money" refusal is still instant). The

@@ -6,7 +6,7 @@ shaders and pays nothing for them (`tests/specs/appearance-water.mjs`). Three ex
 At run time the same keys go through `engine.look.water` / `engine.look.weather` (recipe 52).
 
 ## Water: depth color and crest foam (parameters)
-```js
+```js fragment
 water: {
   depthColor: { shallow: 0x55ddcc, deep: 0x082040 },              // by 'view' (default): shallow looking down, deep toward the horizon
   depthColor: { shallow: 0x7fe0d0, deep: 0x0a3050, by: 'wave', curve: 1.5 },   // shallow on the crests, deep in the troughs
@@ -77,10 +77,16 @@ water: { material: () => {
 - three's `Refractor` addon (next to `Reflector`) reads `matrixWorld` as an XY plane too, so the same adapter applies (not covered by a test).
 - Tested: `tests/specs/appearance-water.mjs` renders this exact example and finds the reflected box in the mirror texture.
 
+## Water: your own meshes (three's `Water` addon, your own geometry)
+The water module's material is replaceable, its meshes are not. For water drawn entirely your way, leave `water()` out and draw it in plain
+three.js: the water data stays in the engine without the module. `engine.waterAt(x, z)` gives the surface height (water bodies first, then
+`engine.waterLevel`), `engine.waterBodies` lists the lakes and ponds (`{ x, z, radius | hw, hd, level }`), and `water:add` / `water:remove` tell
+you when one comes or goes, so swimming, buoyancy and anything else reading the water keep working.
+
 ## Weather particles: rain and snow parameters
 `style.weather.rain` / `snow` (left-out keys keep the built-in look):
 
-```js
+```js fragment
 weather: {
   rain: { color: 0xa8b8d0, opacity: 0.6, length: 1.2, speed: 26, slant: 1.5, density: a => a * a },   // streaks; sparse in a drizzle
   // rain: { shape: 'soft', size: 10, maxSize: 6, sway: 0.3 },     // drops as soft sprites instead of streaks
@@ -92,10 +98,10 @@ weather: {
   (`size` pixels at 3 m, capped at `maxSize`; drifts `sway` meters). `speed` is the fall in m/s.
 - `density: amount => share`: how many particles show at a weather amount 0..1 (rain `a => min(1, a * 1.2)`, snow `() => 1`); opacity still
   follows the amount. `count` per system (default `weather({ particles })`, halved on low-tier devices). Coverage is `style.weather.area`.
-- The numbers are uniforms: `engine.weather.systems.get('rain').uniforms.uColor.value.set(0xff0000)` works at run time.
+- The numbers are uniforms: `engine.weatherLook.systems.get('rain').uniforms.uColor.value.set(0xff0000)` works at run time.
 
 ## Weather particles: replace the shaders (GLSL)
-```js
+```js fragment
 snow: { uniforms: { uTint: [1, 0.85, 0.9] }, glsl: { fragment: `uniform float uOpacity;
 void main(){
   vec2 d = gl_PointCoord - 0.5;

@@ -1,10 +1,11 @@
 // Test page: open world + content templates (saveable placeables, one with stages) + particles. Playwright inspects it through window.engine.
 import { createEngine, presets, openWorld, interactions, content, particles, THREE } from '../../index.js';
-import lowpoly, { models as M, assets } from '@threedog/style-lowpoly';
+import worldStyle from '../../examples/world/style/index.js';
+import { models as M, assets } from '../../examples/world/art/index.js';
 import { terrainPreset } from '@threedog/terrain-noise';
 
 localStorage.clear();
-const engine = createEngine({ canvas: document.getElementById('view'), style: lowpoly, ui: { loading: false }, saveKey: 'placetest' });
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), style: worldStyle, ui: { loading: false }, saveKey: 'placetest' });
 engine.use(openWorld({ camera: 'follow', terrain: { seed: 1337, ...terrainPreset() }, calendar: { time: 0.4, dayLength: 360, seasons: ['wet', 'dry'], daysPerSeason: 28 }, debug: false, ambience: false }), interactions({ ...presets.interactions.nearest }), content(), particles());   // the preset only builds the world; gameplay modules are installed separately
 engine.vegetation.define('松树', {
   geometry: M.pine(), lodGeometry: M.pineLow(),

@@ -1,7 +1,8 @@
 // Small perf items: collision grid index matches a linear scan, Events history off records nothing, counts() includes world / rigid / particles and stays flat across repeated save / load.
-// Same style as specs.mjs, appended at the end of specs.mjs.
+// Same style as the other files here.
 export const specs = [
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: 'S1 perf: collision grid index gives exactly the same callback sequence as a linear scan with many colliders (including add / remove), and is faster (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
@@ -46,7 +47,7 @@ export const specs = [
         const p = { x: 3, z: 0 }; C.resolve(p, 0.4);
         g.forEachCollider = saved;
         for (const h of handles) h.remove();
-        return { first, afterRemove, msLinear: Math.round(msLinear * 10) / 10, msGrid: Math.round(msGrid * 10) / 10, total: C.circles.length + C.boxes.length };
+        return { first, afterRemove, msLinear: Math.round(msLinear * 10) / 10, msGrid: Math.round(msGrid * 10) / 10, total: C.circles.size + C.boxes.size };
       });
       check('4500 colliders: callback sequence of 300 random queries matches the linear scan', r.first.bad === 0 && r.first.hits > 100, JSON.stringify(r.first));
       check('Still identical after removing a third', r.afterRemove.bad === 0, JSON.stringify(r.afterRemove));
@@ -56,6 +57,7 @@ export const specs = [
     },
   },
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: 'S1 perf: Events.historySize = 0 records no history, default 200 unchanged (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
@@ -77,6 +79,7 @@ export const specs = [
     },
   },
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
     name: 'S1 perf: engine.counts() includes world / rigid / particles, and nothing grows over 10 save -> load cycles (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {

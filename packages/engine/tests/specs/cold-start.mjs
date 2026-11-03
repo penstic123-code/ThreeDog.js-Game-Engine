@@ -22,7 +22,7 @@ export const specs = [
         E._render = function (dt) { if (!this.ready) before++; return orig.call(this, dt); };
         const t0 = performance.now();
         // 一个要等 400 ms 才就绪的模块：加载期间主循环肯定跑过好几帧
-        E.use({ name: 'csSlow', frame() { frames++; }, isReady: () => performance.now() - t0 > 400 });
+        E.use({ name: 'csSlow', type: 'rules', frame() { frames++; }, isReady: () => performance.now() - t0 > 400 });
         await E.start();
         const out = { before, frames };
         E.dispose();
@@ -40,7 +40,8 @@ export const specs = [
         const { createEngine } = threedogThreads;
         const one = async (post) => {
           const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cs-compile-' + post, ui: { loading: false } });
-          E.post.setAntialias(post);   // MSAA alone turns the composer on (headless starts with it off); nothing on = straight to the canvas (PostFX._direct)
+          // a pass-through effect turns the composer on; nothing on = straight to the canvas (PostFX direct; MSAA there is the canvas's own)
+          if (post) E.look.post.add({ name: 'through', slot: 'ldr', fuse: { glsl: '' } });
           let target;
           const ca = E.renderer.compileAsync.bind(E.renderer);
           E.renderer.compileAsync = (s, c, t) => { target = E.renderer.getRenderTarget(); return ca(s, c, t); };
@@ -111,22 +112,30 @@ export const specs = [
     },
   },
   {
-    name: 'Cold start: rigid starts loading Rapier at install, before start() reaches its init',
+    name: 'Cold start: rigid starts loading Rapier at install, before start() reaches its init; rigid.addBox before start() throws with the fix',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const { createEngine, all } = threedogThreads;
+        const { createEngine, all, THREE } = threedogThreads;
         const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cs-rigid', ui: { loading: false } });
         E.use(all.collision(), all.rigid());
         const early = E.rigid._rapier instanceof Promise;   // begun by install, nothing awaited yet
         const p = E.rigid._rapier;
+        // a body added before start() has no physics world: it threw a TypeError (or returned null) far from the cause; now the call throws
+        const tooEarly = (f) => { try { f(); return 'no error'; } catch (e) { return e.message; } };
+        const box = tooEarly(() => E.rigid.addBox(new THREE.Mesh(new THREE.BoxGeometry())));
+        const ball = tooEarly(() => E.rigid.addBall(new THREE.Mesh(new THREE.BoxGeometry()), { radius: 0.5 }));
         await E.start();
-        const out = { early, same: E.rigid._rapier === p, ready: E.rigid.ready };
+        const after = E.rigid.addBox(new THREE.Mesh(new THREE.BoxGeometry()));
+        const out = { early, same: E.rigid._rapier === p, ready: E.rigid.ready, box, ball, after: !!after?.body };
         E.dispose();
         return out;
       });
       check('the Rapier import is under way right after engine.use', r.early, JSON.stringify(r));
       check('init awaited that same load (no second import) and physics is ready', r.same && r.ready, JSON.stringify(r));
+      check('[guard] rigid.addBox / addBall before start() throw [module-needs] naming the call and the fix (after start / engine:ready)',
+        /module-needs/.test(r.box) && /rigid\.addBox\(\) ran before physics was ready/.test(r.box) && /engine:ready/.test(r.box) && /rigid\.addBall\(\)/.test(r.ball), `${r.box} | ${r.ball}`);
+      check('the same addBox after start() gives a body', r.after, JSON.stringify(r));
     },
   },
   {

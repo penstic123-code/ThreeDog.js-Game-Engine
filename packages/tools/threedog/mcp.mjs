@@ -9,22 +9,21 @@
 //   The js tool (arbitrary code in the page) exists only with --allow-js.
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { pickWorkspace, ENGINE } from '../paths.mjs';
+import { command, ENGINE } from '../paths.mjs';
 import { pagePath as pageArg } from '../lib/cli-args.mjs';
 import { join } from 'node:path';
 import { execute } from './dispatch.mjs';
-import { EXTRA_TOOLS, STATIC_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide } from './mcp-extra.mjs';
+import { EXTRA_TOOLS, STATIC_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide, shortData } from './mcp-extra.mjs';
 import { NONE } from './runtime.mjs';
 
 // stdout carries protocol messages only: anything else that prints goes to stderr
 console.log = console.info = console.warn = console.error;
 
-const argv = process.argv.slice(2);
-const flag = f => { const i = argv.indexOf(f); return i >= 0 && argv.splice(i, 1).length > 0; };
-const value = f => { const i = argv.indexOf(f); return i >= 0 ? argv.splice(i, 2)[1] : undefined; };
-const allowJs = flag('--allow-js');
-let dir, pagePath;
-try { pagePath = value('--page'); if (pagePath) pagePath = pageArg(pagePath); ({ dir } = pickWorkspace(argv, { live: true })); } catch (e) { console.error('threedog mcp: ' + e.message); process.exit(1); }
+let dir, pagePath, allowJs;
+try {
+  const { dir: d, opt } = command(process.argv.slice(2), { live: true, flags: ['allow-js'], values: ['page'] });
+  dir = d; allowJs = !!opt['allow-js']; pagePath = opt.page === undefined ? undefined : pageArg(opt.page);
+} catch (e) { console.error('threedog mcp: ' + e.message); process.exit(1); }
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // ── Tools ─────────────────────────────────────────────
@@ -198,6 +197,7 @@ async function callTool(name, input = {}) {
   let png;
   try {
     const { text, ...structured } = await execute(dir, t.cmd || name, t.args(input), { page: pagePath, onShot: b => { png = b; } });
+    structured.data = shortData(structured.data, t.cmd || name);
     const content = [{ type: 'text', text }];
     if (png) content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' });
     return { content, structuredContent: structured, isError: !structured.ok };
@@ -211,7 +211,7 @@ const PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const send = msg => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
 const INSTRUCTIONS = RESULT_SHAPE + ' Drives the threedog game running under `npm run dev` (the dev bridge). No game running: call play. Then status or describe; change state with op (ops lists what ' +
   'is possible); step / press / hold advance game time and pause a real page (resume restores it); errors reads new page errors. If a tool cannot reach the game it ' +
-  'names the cause and the next step (play starts the server). how and check need no game. ' + situationGuide(join(ENGINE, 'docs', 'AI.md'));   // the same table as AI.md "When something happens" (one source)
+  'names the cause and the next step (play starts the server). how and check need no game. ' + situationGuide(join(ENGINE, 'docs', 'recipes', '16-dev-bridge.md'));   // the same list as recipe 16 §11 (one source)
 
 let queue = Promise.resolve();   // tool calls run one at a time, in order: they drive one shared game
 async function handle(m) {

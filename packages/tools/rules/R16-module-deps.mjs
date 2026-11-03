@@ -5,16 +5,15 @@
 //   1. Accessing another module with neither requires nor optional written → add it to requires if it is always needed; if things run without it, add it to optional and guard with ?. or if (e.xxx).
 //   2. requires names a module that does not exist.
 //   3. requires forms a cycle (a needs b, b needs a, neither can be installed).
-//   4. A file in modules/<A>/ imports a file from modules/<B>/ (B ≠ A) although no module of B is in A's requires / optional: a hidden code dependency
+//   4. A file in modules/<A>/ imports a file from modules/<B>/ (B ≠ A; static or dynamic import(), the path resolved, so '../../modules/B/x.js' counts) although no module of B is in A's requires / optional: a hidden code dependency
 //      GAMEMAP cannot see. Move a helper several modules share to core/ (core/screenToGround.js), declare the dependency, or list the file in SHARED.
 // Two more checks at runtime: use() errors if requires are not installed first, and before / after cycles error; start() hints when an optional written as { module: 'what is lost if missing' } is absent (core/modules.js).
-import { ts, parse, visit, walk, read, codeOnly, strValue, P } from './_lib.mjs';
+import { ts, parse, visit, walk, read, codeOnly, strValue, importSpecs, moduleTarget, P } from './_lib.mjs';
 
 // Allowlist: [folder, accessed module, reason]
 const ALLOW = [];
 // Module files other module folders may import without a dependency: [file under modules/, reason]. Keep it short: shared code belongs in core/.
 const SHARED = [];
-const IMPORT = /\bfrom\s+['"]\.\.\/([\w-]+)\/([\w./-]+)['"]/;
 const ACCESS = /\b(?:e|engine|this\.engine|this\.e)\.(\w+)(\?)?\./g;
 
 /** Module definitions in one file: { name, requires, optional, line } */
@@ -66,12 +65,14 @@ export default {
     for (const [folder, g] of folders) {
       const declared = new Set(g.defs.flatMap(d => [...d.requires, ...d.optional]));
       for (const f of g.files) read(f).split('\n').forEach((raw, i) => {
-        const m = raw.match(IMPORT); if (!m || m[1] === folder || !folders.has(m[1])) return;
-        if (SHARED.some(([file]) => file === `${m[1]}/${m[2]}`)) return;
-        const theirs = folders.get(m[1]).defs.map(d => d.name);
-        if (theirs.some(n => declared.has(n))) return;
-        out.push({ level: 'error', file: f, line: i + 1, msg: `folder ${folder} imports ${m[1]}/${m[2]} but declares no dependency on module ${theirs.join(' / ') || m[1]}`,
-          fix: `move the shared code to core/ (like core/screenToGround.js), add '${theirs[0] ?? m[1]}' to requires / optional, or list '${m[1]}/${m[2]}' in SHARED with a reason` });
+        for (const spec of importSpecs(raw)) {
+          const t = moduleTarget(f, spec);
+          if (!t || t.folder === folder || !folders.has(t.folder) || SHARED.some(([file]) => file === t.path)) continue;
+          const theirs = folders.get(t.folder).defs.map(d => d.name);
+          if (theirs.some(n => declared.has(n))) continue;
+          out.push({ level: 'error', file: f, line: i + 1, msg: `folder ${folder} imports ${t.path} but declares no dependency on module ${theirs.join(' / ') || t.folder}`,
+            fix: `move the shared code to core/ (like core/screenToGround.js), add '${theirs[0] ?? t.folder}' to requires / optional, or list '${t.path}' in SHARED with a reason` });
+        }
       });
     }
     // 1: accessing another module must be written in requires / optional

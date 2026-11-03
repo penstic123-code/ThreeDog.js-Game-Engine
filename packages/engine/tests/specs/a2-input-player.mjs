@@ -1,4 +1,4 @@
-// Input and player (phase-1 wrap-up A2): input is snapshotted per fixed step, the player is a world record, near-field simulation runs in id order. Same format as s1-world-sim.mjs, appended at the end of specs.mjs.
+// Input and player (phase-1 wrap-up A2): input is snapshotted per fixed step, the player is a world record, near-field simulation runs in id order. Same format as s1-world-sim.mjs.
 // Each spec is a guard that must not be bypassed: these behaviors must hold whenever input, characters or world simulation change.
 
 export const specs = [
@@ -9,7 +9,7 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const inp = engine.input, fx = [], fr = [];
-        inp.define('a2k', 'KeyK', 'a2k');
+        inp.bind('a2k', ['KeyK']);
         const h1 = engine.onFixed(() => fx.push([inp.pressed('a2k'), inp.pressed('a2k'), inp.down('a2k'), inp.released('a2k')].map(Number).join('')));
         const h2 = engine.onFrame(() => fr.push(Number(inp.pressed('a2k'))));
         inp._keyDown('KeyK', 'keyboard');
@@ -34,7 +34,7 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const inp = engine.input, cv = engine.renderer.domElement, counts = [];
-        inp.define('a2atk', ['KeyJ', 'Mouse0'], 'a2atk');
+        inp.bind('a2atk', ['KeyJ', 'Mouse0']);
         const ptr = (type, button, pointerType = 'mouse') => cv.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType, button, clientX: 5, clientY: 5 }));
         for (const fe of [1, 2, 4]) {
           let n = 0;

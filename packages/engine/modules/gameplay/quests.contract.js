@@ -8,7 +8,7 @@ export default {
   events: ['quest:start', 'quest:step', 'quest:done'],
   saves: { quests: 2 },
   describe: true,
-  options: { keys: [] },
+  options: {},
   probe: {
     setup: [['define', 'deliver', { title: 'Deliver', steps: [{ id: 'pick', text: 'Pick up', done: () => false }, { id: 'drop', text: 'Drop off', done: () => false }] }]],
     emits: [['quest:start', ['start', 'deliver']], ['quest:step', ['advance', 'deliver']], ['quest:done', ['advance', 'deliver']]],

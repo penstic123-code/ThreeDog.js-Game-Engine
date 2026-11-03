@@ -3,7 +3,7 @@
 // and every three range must sit on the same minor.
 // Why: on 0.x a caret range stops at the next minor (^0.2.0 does not accept 0.3.0), so bumping the engine without moving these pins makes
 // npm refuse the published set (ERESOLVE) or makes new-game write a range that installs the old engine. Offline, reads files only.
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from '../paths.mjs';
 import { applyDeps } from '../lib/scaffold.mjs';
@@ -22,8 +22,7 @@ export function accepts(range, version) {
 }
 
 export async function run({ check }) {
-  const pkgDirs = ['packages/engine', 'packages/tools', 'packages/post-effects', 'packages/terrain-noise',
-    ...readdirSync(join(ROOT, 'packages/styles'), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => `packages/styles/${d.name}`)];
+  const pkgDirs = ['packages/engine', 'packages/tools', 'packages/post-effects', 'packages/terrain-noise'];
   const pkgs = pkgDirs.filter(d => existsSync(join(ROOT, d, 'package.json'))).map(d => ({ file: `${d}/package.json`, json: JSON.parse(readFileSync(join(ROOT, d, 'package.json'), 'utf8')) }));
   const current = Object.fromEntries(pkgs.map(p => [p.json.name, p.json.version]));
   check('the four published packages are found', ['threedog', '@threedog/tools', '@threedog/post-effects', '@threedog/terrain-noise'].every(n => current[n]), JSON.stringify(current));

@@ -1,4 +1,4 @@
-// Durability guards (docs/plans/2026-11-02-durability-fixes.md items 4, 5, 8, 9; item 3 is in threads.mjs). Same format as specs.mjs, appended at the end of it.
+// Durability guards (docs/plans/done/2026-11-02-durability-fixes.md items 4, 5, 8, 9; item 3 is in threads.mjs). Same format as the other files here.
 // Each item is a "do not bypass" check: dispose gives the WebGL context back, adaptive resolution judges frame cost (startup, compiles and a 30 Hz
 // display never lower it), a silent net link closes through the heartbeat, a missing sound names its path with asset-load, an uncaught rejection is seen.
 
@@ -10,7 +10,7 @@ export const specs = [
       const r = await ev(() => {
         const w0 = console.warn; console.warn = () => {};
         try {
-          engine.pause(); engine.ready = true;
+          engine.pause();
           const a = engine.adaptive, pr = () => engine.renderer.getPixelRatio();
           const fresh = () => { Object.assign(a, { on: true, paused: false, target: 60, t: 0, good: 0, cooldown: 0, lowered: false, from: null, age: 0, costs: [], gaps: [], refresh: Infinity }); engine.setPixelRatio(a.max); };
           // feed(seconds, frame interval s, cost ms or i => ms, compiled i => bool, gpu time known)

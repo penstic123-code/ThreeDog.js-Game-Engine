@@ -11,7 +11,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 
 ## Engine modules (engine.use)
 
-- createEngine: { style, saveKey: 'threedog-sheepisland', ui: { loading: { title: 'sheep island' } } }
+- createEngine: { bindings: { ...presets.bindings.debug }, style, saveKey: 'threedog-sheepisland', ui: { loading: { title: 's…
 - openWorld preset ({ camera: fixedCamera(), terrain: island, water: false, rigid: false, ambience: false, calendar: { …) → world, terrain, vegetation, calendar, sky, weather, collision, characters, settings, debug
 - content
 
@@ -30,10 +30,10 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 
 Not used yet (check these before writing the system yourself):
 
-- inventory: items, stacks, containers and pickups: `inventory({ ...presets.keys.inventory })` (keys required), content/items.js (node_modules/threedog/docs/recipes/03-items-pickups.md)
+- inventory: items, stacks, containers and pickups: `inventory()` + key map presets.bindings.inventory, content/items.js (node_modules/threedog/docs/recipes/03-items-pickups.md)
 - saves: save your own state: `engine.saves.register(key, { version, save, load })` (node_modules/threedog/docs/recipes/20-content-actions-save.md)
 - interactions: press a key near a thing: `interactions({ ...presets.interactions.nearest })` (E, nearest; the game picks the pick mode and keys), template `interact: { label, op }` (node_modules/threedog/docs/recipes/30-templates.md)
-- quests: goals with steps, conditions and rewards: `quests({ ...presets.keys.quests })` (keys required), content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
+- quests: goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
 - grids: cell placement for farming and building: `grids()` (node_modules/threedog/docs/recipes/29-grid.md)
 
 ## Files
@@ -47,9 +47,9 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 20 |  |
 | content/templates.js | 6 |  |
 | content/vegetation.js | 9 |  |
-| main.js | 73 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
+| main.js | 77 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
 | params.js | 26 | URL parameters of the sheep island page. Import this file first in main.js: it rewrites word values… |
-| style/index.js | 80 | sheepisland: this game's style, LOOKS ONLY (recipes/09-style-pack.md, 35-style-from-reference.md), … |
+| style/index.js | 80 | sheepisland: this game's style, LOOKS ONLY (recipes/09-style.md, 35-style-from-reference.md), fille… |
 | style/models.js | 60 | sheepisland procedural models: a round tree, a sheep, a wheat tuft. Built in code, no files; regist… |
 | views.js | 10 | Named camera positions of the sheep island. Same name = same framing every time, so two screenshots… |
 

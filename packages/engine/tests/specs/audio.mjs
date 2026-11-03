@@ -41,7 +41,7 @@ export const specs = [
         obj.position.set(-7, 1, 2);
         await __t.until(() => Math.abs(h.panner.positionX.value + 7) < 0.01, 3000).catch(() => {});
         o.followX = h.panner.positionX.value;
-        h.stop(0);
+        h.stop({ fade: 0 });
         await __t.until(() => a._spatial.size === 0, 3000).catch(() => {});
         o.spatialAfter = a._spatial.size;
         return o;

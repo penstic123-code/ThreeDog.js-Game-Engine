@@ -7,6 +7,7 @@ export function buildNpcView(m, rec) {
   const e = m.engine, rt = m._runtime.get(rec.id) || {};
   const ch = new Character(e, { ...rec.look, speed: rec.speed, model: rt.model ?? rec.look?.model, clips: rt.clips, animation: rt.animation });
   ch._modId = rec.id;   // engine.mod('move.speed', { id }) and time.local use the NPC's record id, the same id the game knows it by
+  ch.npcModel = true;   // the model of a world NPC: disposing it (the NPC went far) keeps the NPC's control slot (core/control.js)
   ch.placeAt(rec.position);
   ch.loadMotion(rec.motion); ch.state = ch._stateMark = rec.state;
   let use = null;

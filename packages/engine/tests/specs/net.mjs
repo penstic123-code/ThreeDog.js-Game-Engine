@@ -1,4 +1,4 @@
-// net(): optional co-op multiplayer (modules/net). Same format as specs.mjs, appended at the end of it.
+// net(): optional co-op multiplayer (modules/net). Same format as the other files here.
 // Each case builds a host and two clients (headless engines from tests/coop/coop.js) joined by a manual fakeNetwork, and advances
 // network time and fixed steps together. Guard items ("do not bypass"): non-peer ops are refused, the actor comes from the connection,
 // owner and rate limits hold for raw messages that skip the client code, and a client writing shared state itself is reported.
@@ -21,6 +21,22 @@ const RIG = `const rig = ${rig.toString()};`;
 const inPage = body => new Function(`return (async () => { ${RIG} ${body} })()`);
 
 export const specs = [
+  {
+    name: '[guard] net: disposing the host engine closes its transport (clients see net:close)',
+    url: '/tests/net/',
+    async run({ check, ev }) {
+      const r = await ev(inPage(`
+        const { wire, H, A, B } = await rig();
+        let closes = 0; A.events.on('net:close', () => closes++);
+        const before = A.net.connected;
+        H.dispose();
+        for (let t = 0; t < 400; t += 1000 / 60) { wire.advance(1000 / 60); for (const e of [A, B]) e.step(1 / 60, { render: false }); }
+        const out = { before, closes, after: A.net.connected };
+        for (const e of [A, B]) e.dispose();
+        return out;`));
+      check('the client was connected, then hears the host leave', r.before === true && r.closes >= 1 && r.after === false, JSON.stringify(r));
+    },
+  },
   {
     name: 'net: legal op syncs to everyone, op:result after the diff that contains it',
     url: '/tests/net/',

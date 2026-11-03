@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TOOLS } from '../paths.mjs';
+import { parseOptions } from './cli-args.mjs';
 
 const GAMEPLAY = {
   clean: 'This game starts blank (a scene and a camera) and has no gameplay yet; build what DESIGN.md describes. For patterns, read the engine recipes (`node_modules/threedog/docs/recipes/`, index in AI.md); `threedog new-game name --open-world` starts on generated ground with a player, `--example` adds a small sample on top.',
@@ -18,13 +19,12 @@ const GAMEPLAY = {
 /** Read flags: --open-world, --example (implies --open-world); the name is the first other argument. Unknown flags are an error (a typo
  *  silently making the wrong game is worse). env = process.env (npm eats flags: npm_config_* fallback) */
 export function parseArgs(argv, env = {}) {
-  const example = argv.includes('--example') || env.npm_config_example === 'true', rest = [];
-  const openWorld = example || argv.includes('--open-world') || env.npm_config_open_world === 'true';
-  for (const a of argv) {
-    if (!a.startsWith('-')) rest.push(a);
-    else if (a !== '--example' && a !== '--open-world') return { error: `unknown flag ${a} (known: --open-world, --example)` };
-  }
-  return { name: rest[0], example, openWorld };
+  let p;
+  try { p = parseOptions(argv, { flags: ['example', 'open-world'], positional: true }); } catch (e) { return { error: e.message }; }
+  if (p.rest.length > 1) return { error: `one name or folder only, got ${p.rest.join(' ')}` };
+  const example = !!p.opt.example || env.npm_config_example === 'true';
+  const openWorld = example || !!p.opt['open-world'] || env.npm_config_open_world === 'true';
+  return { name: p.rest[0], example, openWorld };
 }
 
 /** Fill the placeholders of one text file */

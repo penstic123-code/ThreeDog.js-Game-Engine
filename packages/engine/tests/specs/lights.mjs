@@ -58,7 +58,7 @@ export const specs = [
         } finally { console.warn = warn; }
       });
       check('no warning while the pool keeps the lights fixed', !/light-recompile/.test(r.quiet), r.quiet);
-      check('adding a light after ready: warning with code light-recompile pointing to lightPool and recipe 09', /\[light-recompile\]/.test(r.w) && /lightPool/.test(r.w) && /09-style-pack/.test(r.w), r.w);
+      check('adding a light after ready: warning with code light-recompile pointing to lightPool and recipe 09', /\[light-recompile\]/.test(r.w) && /lightPool/.test(r.w) && /09-style/.test(r.w), r.w);
     },
   },
   {

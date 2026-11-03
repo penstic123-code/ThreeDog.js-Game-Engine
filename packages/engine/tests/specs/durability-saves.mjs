@@ -1,6 +1,6 @@
-// Durability guards from the 2026-11-02 durability audit (docs/plans/2026-11-02-durability-fixes.md items 1, 2, 6, 7): each reproduces an audit case
+// Durability guards from the 2026-11-02 durability audit (docs/plans/done/2026-11-02-durability-fixes.md items 1, 2, 6, 7): each reproduces an audit case
 // through the public calls (saves / session) and the stored text, so a fix that only patches one path fails here.
-// Same format as specs.mjs, appended at the end of it.
+// Same format as the other files here.
 
 /** In the page: store a hand-edited copy of slot `from` as slot `to` (as a player editing the save text would), returns nothing */
 const EDIT = `async (from, to, src) => { const s = JSON.parse(engine.saves._json.get(from)); (0, eval)('(' + src + ')')(s); await engine.saves._put(to, JSON.stringify(s), Date.now()); }`;
@@ -69,7 +69,7 @@ export const specs = [
         await S.save('dur-ok');
         const state0 = engine.random.state, tod0 = engine.calendar.timeOfDay;
         await edit('dur-ok', 'dur-oor', (s => {
-          s.parts.clock.now = -1000; s.parts.clock.timers = [{ due: 'abc', event: 'x' }];
+          s.parts.time.channels.calendar = -1000; s.parts.time.timers = [{ due: 'abc', event: 'x', channel: 'calendar' }];   // the calendar is a channel of the time part
           s.parts.time.channels.world = -1000;
           s.parts.random.state = 'abc';
           s.parts.calendar = { time: 'abc', day: -5 };
@@ -87,11 +87,11 @@ export const specs = [
       check("random state 'abc' keeps the current state instead of restarting the sequence at 0", r.state === r.state0 && r.state !== 0, JSON.stringify(r));
       check('an item count of 1e308 is dropped, the valid row loads', r.film === 2 && r.rowWarn >= 1, JSON.stringify(r));
       check("calendar time 'abc' keeps the current time of day (a real clock, not NaN:NaN), day -5 becomes 1", Number.isFinite(r.tod) && r.tod >= 0 && r.tod < 1 && !/NaN/.test(r.clockText) && r.day === 1, JSON.stringify(r));
-      check('one save-value warning per part that had bad values', r.clockWarn === 1 && r.timeWarn === 1 && r.randomWarn === 1 && r.calWarn === 1, JSON.stringify(r));
+      check('one save-value warning per part that had bad values', r.timeWarn === 1 && r.randomWarn === 1 && r.calWarn === 1, JSON.stringify(r));
     },
   },
   {
-    name: 'durability: newGame is a fresh page: pushed crates land where they land on a fresh page, engine.elapsed starts from 0 (open world) [guard]',
+    name: 'durability: newGame is a fresh page: pushed crates land where they land on a fresh page, real time starts from 0 (open world) [guard]',
     url: '/?threedog-headless',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -107,13 +107,13 @@ export const specs = [
         };
         const fresh = play();
         await engine.session.newGame();
-        const elapsed0 = engine.elapsed;
+        const elapsed0 = engine.time.now('real');
         const again = play();
         return { fresh, again, elapsed0, crates: (fresh.match(/crate/g) || []).length };
       });
       check('the path moves crates (otherwise this guard tests nothing)', r.crates >= 1, r.fresh.slice(0, 200));
       check('after newGame the same inputs move the crates exactly as on the fresh page', r.fresh === r.again, `${r.fresh.slice(0, 300)} vs ${r.again.slice(0, 300)}`);
-      check('engine.elapsed starts from 0 on newGame', r.elapsed0 === 0, String(r.elapsed0));
+      check('real time starts from 0 on newGame', r.elapsed0 === 0, String(r.elapsed0));
     },
   },
   {
@@ -161,7 +161,7 @@ export const specs = [
     },
   },
   {
-    name: 'durability: a session.load that rolls back keeps engine.elapsed / shader time as they were (open world) [guard]',
+    name: 'durability: a session.load that rolls back keeps real time / shader time as they were (open world) [guard]',
     url: '/?threedog-headless',
     expectErrors: /dur session boom/,
     async run({ check, ev }) {
@@ -169,16 +169,16 @@ export const specs = [
         engine.step(1, { describe: false, render: false });
         await engine.saves.save('dur-sess');
         engine.step(1, { describe: false, render: false });
-        const before = { elapsed: engine.elapsed, uTime: engine.uniforms.uTime.value };
+        const before = { elapsed: engine.time.now('real'), uTime: engine.uniforms.uTime.value };
         const h = engine.events.on('world:load', () => { throw new Error('dur session boom'); });
         let ok; try { ok = await engine.session.load('dur-sess'); } finally { h.remove(); }
         engine.error = null; engine.stacks.get('freeze').release('error');
-        const out = { ok, before, elapsed: engine.elapsed, uTime: engine.uniforms.uTime.value };
+        const out = { ok, before, elapsed: engine.time.now('real'), uTime: engine.uniforms.uTime.value };
         await engine.saves.remove('dur-sess');
         return out;
       });
       check('the load is rolled back (false)', r.ok === false, JSON.stringify(r));
-      check('engine.elapsed and uTime are back to their pre-load values, not 0', r.before.elapsed > 0 && r.elapsed >= r.before.elapsed && r.uTime >= r.before.uTime, JSON.stringify(r));
+      check('real time and uTime are back to their pre-load values, not 0', r.before.elapsed > 0 && r.elapsed >= r.before.elapsed && r.uTime >= r.before.uTime, JSON.stringify(r));
     },
   },
   {

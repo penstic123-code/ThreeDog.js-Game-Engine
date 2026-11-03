@@ -4,11 +4,11 @@
 import { coded } from './errorHints.js';
 import * as THREE from 'three';
 import { restoreBaked, toGLB, fromGLTF } from './Baked.js';
-import { warnOnce } from './validate.js';
+import { warnOnce, DEV_SERVER, BASE_URL } from './validate.js';
 import { makeMaterial } from '../render/materials.js';
+import { maxAnisotropy } from '../render/backend.js';
 
-const BASE = import.meta.env?.BASE_URL ?? '/';
-const DEV_SERVER = !!import.meta.env?.DEV;   // only npm run dev serves the /__threedog/cache endpoint
+const BASE = BASE_URL;   // DEV_SERVER: only npm run dev serves the /__threedog/cache endpoint
 const CACHE = '/__threedog/cache/';
 const STALE = 'The generator code for "{name}" has changed, so it is built from code now; run npm run bake once it is final';
 const NO_CACHE = '[cache] the dev server has no threedog model cache (a plain Vite server without the threedog plugin): code-generated models are built every time. Use the vite config of the game template (threedog gameConfig) to cache them';
@@ -115,7 +115,7 @@ export async function loadTexture(assets, e, task) {
   }
   if (e.opts.color === false) t.colorSpace = THREE.NoColorSpace;
   else if (!t.isCompressedTexture && !hdr) t.colorSpace = THREE.SRGBColorSpace;   // KTX2 carries its own color space
-  t.anisotropy = assets.engine.renderer.capabilities.getMaxAnisotropy();
+  t.anisotropy = maxAnisotropy(assets.engine.renderer);
   if (e.opts.pixelated) { t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapNearestFilter; }
   if (e.opts.repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(e.opts.repeat[0], e.opts.repeat[1]); }
   upload(assets, [t], task);

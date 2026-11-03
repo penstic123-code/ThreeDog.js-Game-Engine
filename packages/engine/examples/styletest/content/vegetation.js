@@ -1,4 +1,4 @@
-// Vegetation: name -> model (an asset name from the world example's asset pack, ../../world/style/; use an array for parameters) and growth rule.
+// Vegetation: name -> model (an asset name from the world example's asset pack, ../../world/art/; use an array for parameters) and growth rule.
 // rule.biomes lists the biomes it grows in, values are spawn probabilities; rule cannot hold functions (it is sent to a worker thread).
 export default {
   松树: {

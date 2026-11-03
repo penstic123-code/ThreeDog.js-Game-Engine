@@ -15,7 +15,7 @@ import { join, dirname, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import * as P from './paths.mjs';
 
-const CHECK = process.argv.includes('--check');
+const CHECK = !!P.cli(process.argv.slice(2), { workspace: false, flags: ['check'] }).opt.check;
 const ENGINE = P.ENGINE, GEN = P.abs(P.TYPES_GEN_REL);
 const sources = P.MIGRATED_JS_REL.map(P.abs);
 const posix = p => p.split(sep).join('/');

@@ -23,9 +23,8 @@ export class NetClient {
     this.map = idMap(null);
     this.stats = { in: 0, out: 0, diffs: 0, snapshots: 0, gaps: 0 };
     this.connected = false;
-    e.ops._client = true;
-    e.ops._route = (d, args, opts) => this.route(d, args, opts);
-    if (e.world) e.world._s.fixed = () => {};   // the host simulates; see the top of the file
+    this.routed = e.ops.route((d, args, opts) => this.route(d, args, opts));   // ops go to the host
+    this.noSim = e.world?.pauseSimulation();   // the host simulates; see the top of the file
     this.connect(t);
   }
 
@@ -101,7 +100,17 @@ export class NetClient {
       if (key === 'world' && !this.e.world) continue;
       if (key === 'containers' && !this.e.inventory) continue;
       applyPart(this.e, key, parts[key], full, opts);
+      if (key === 'world') for (const hostId in full ? parts[key] : parts[key].set ?? {}) this.hold(this.map.toLocal(hostId));
     }
+  }
+  /**
+   * A character the host drives (an NPC, another player's avatar): net holds its control slot for good (core/control.js, layer 'net'), so a
+   * local walkTo / cutscene / script on it is a control-net error instead of a move the next diff silently undoes. Own avatar: ours, never held.
+   */
+  hold(id) {
+    const rec = this.e.world.get(id);
+    if (!rec || id === 'player' || !(rec.kind === 'npc' || this.o.interpolate.includes(rec.kind)) || this.o.control.has(id, 'net')) return;
+    this.o.control.take(id, { owner: 'net', layer: 'net' });
   }
   sendPosition() {
     const rec = this.e.world?.get('player');
@@ -130,8 +139,6 @@ export class NetClient {
   dispose() {
     for (const s of this.subs) s.remove();
     this.t.close?.();
-    const e = this.e;
-    e.ops._client = false; e.ops._route = null;
-    if (e.world) delete e.world._s.fixed;
+    this.routed.remove(); this.noSim?.remove();
   }
 }

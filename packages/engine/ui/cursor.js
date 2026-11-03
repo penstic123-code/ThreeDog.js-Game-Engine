@@ -61,19 +61,55 @@ function adjust(el, dx) {
  */
 export function stepCursor(engine, h, st, dt) {
   const input = engine.input, nav = h.nav;
-  const dom = typeof nav === 'function', root = dom ? nav() : null;
-  const items = dom ? navItems(root) : null, n = dom ? items.length : nav.count();
+  const dom = typeof nav === 'function';
+  const d = h.fresh ? null : readDir(input, st, dt), press = !h.fresh && input.pressedRaw('confirm');
+  // a move needs fresh rects (spatial reads layout anyway); an idle frame reuses the cached list, so an open menu forces no layout per frame
+  const items = dom ? domItems(h, nav(), !!d || press) : null, n = dom ? items.length : nav.count();
   if (!n) { h.index = 0; return false; }
   if (h.index == null || h.index >= n) h.index = dom ? Math.max(0, items.findIndex(el => !el.classList.contains('threedog-close'))) : 0;   // start on content, not on Close
-  const d = h.fresh ? null : readDir(input, st, dt);
   const was = h.index;
   if (d) {
     if (!dom) h.index = (h.index + d[0] + d[1] + n) % n;
     else if (!(d[0] && adjust(items[h.index], d[0]))) h.index = spatial(items, h.index, d);
   }
-  if (dom) for (let i = 0; i < n; i++) items[i].classList.toggle('is-cursor', i === h.index);
+  if (dom) markCursor(h, items[h.index]);
   else if (h.index !== was) nav.moved?.(h.index);
-  if (h.fresh || !input.pressedRaw('confirm')) return false;
+  if (!press) return false;
   if (dom) items[h.index].click(); else nav.confirm(h.index);
   return true;
+}
+
+/**
+ * The DOM controls of a nav root, cached on the handle. Re-read (getClientRects = a forced layout) only when asked (a move / confirm), when the root
+ * element changed, when a cached control left the page, or when the subtree changed (a MutationObserver flags it: rows added, a control disabled
+ * or hidden). An idle open menu is then free per frame.
+ */
+function domItems(h, root, force) {
+  let c = h.navCache;
+  if (!c || c.root !== root) {
+    forgetNav(h);
+    c = h.navCache = { root, items: null, dirty: true, obs: null, marked: null };
+    if (root && typeof MutationObserver === 'function') {
+      c.obs = new MutationObserver(() => { c.dirty = true; });
+      c.obs.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'type', 'style', 'data-nav'] });
+    }
+  }
+  if (force || c.dirty || !c.items || c.items.some(el => !el.isConnected)) { c.items = navItems(root); c.dirty = false; }
+  return c.items;
+}
+
+/** Move the is-cursor class only when the selected control changes (a class write every frame dirties style for nothing) */
+function markCursor(h, el) {
+  const c = h.navCache;
+  if (c.marked === el && el.classList.contains('is-cursor')) return;
+  c.marked?.classList.remove('is-cursor');
+  for (const x of c.items) if (x !== el) x.classList.remove('is-cursor');
+  el.classList.add('is-cursor');
+  c.marked = el;
+}
+
+/** Drop a handle's cached nav list (setNav / remove), so its observer stops @internal */
+export function forgetNav(h) {
+  h.navCache?.obs?.disconnect();
+  h.navCache = null;
 }

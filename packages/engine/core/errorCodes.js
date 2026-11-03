@@ -56,10 +56,6 @@ export const ERROR_CODES = {
     docs: ['recipes/05-props-bake.md', 'api/assets.md'],
     fix: 'One name was registered as two asset types (models / textures / sounds). Give each its own name, e.g. grass and ' +
       'grass_tex.' },
-  'item-mesh': {
-    docs: ['recipes/03-items-pickups.md', 'recipes/05-props-bake.md'],
-    fix: 'An item\'s ground shape is a model name: register the file or generator in an asset pack (assets.manifest({ models })) and write ' +
-      'model: \'name\' on the item, or name the model \'pickup:<item>\' / \'pickup\'.' },
   'audio-synth-gone': {
     docs: ['recipes/31-audio.md', 'api/audio.md'],
     fix: 'A synthesized sound is an asset: register the function in assets.manifest({ sounds: { ding: fn } }); audio.sounds entries only say ' +
@@ -91,14 +87,26 @@ export const ERROR_CODES = {
     fix: 'Ops are defined with ops.define(name, { can, run }) and run with ops.run(name, args); args are plain data and can() only ' +
       'reads. The message says which rule was broken.' },
   'renamed-field': {
-    docs: ['MIGRATING-0.3.md'],
-    fix: 'A 0.2 name (a result field, a property, an option key) changed in 0.3; the message names the new form (result .reason -> .code, runState.by -> .owners, sky.timeOfDay -> engine.calendar.timeOfDay, clock.timeScale -> engine.mod("clock.rate"), dialogue { lock } -> channel: "bubble"). Checked in dev only.' },
+    docs: ['MIGRATING-0.4.md'],
+    fix: 'A name removed in 0.4 was read (engine.elapsed); the message names the new form (engine.time.now(\'real\') or engine.time.now(\'ambient\')). Checked in dev only.' },
   'pause-owner': {
     docs: ['recipes/23-ops.md', 'api/engine.md'],
     fix: 'const p = engine.pause(owner); ... p.remove() ends that owner pause; the loop resumes only when every owner has removed theirs.' },
   'mod-owner': {
-    docs: ['recipes/06-clock-events.md', 'api/engine.md'],
-    fix: "engine.mod(name, { owner, set | add | mul | clamp, for?, clock?, id?, priority? }): owner is a non-empty string, exactly one of set / add / mul / clamp for a number; pause / freeze / takeCamera / debug.view name their owner the same way. Only that owner ends it, with the handle's remove()." },
+    docs: ['recipes/55-mods-time-wrap.md', 'api/engine.md'],
+    fix: "engine.mod(point, { owner, set | add | mul | clamp, layer?, for?, clock?, id? }): owner is a non-empty string, exactly one of set / add / mul / clamp for a number (set for a value point); in a module ctx.mod(point, { mul }) names the module itself. pause / freeze / takeCamera / debug.view name their owner the same way. Only that owner ends it, with the handle's remove()." },
+  'shared-conflict': {
+    docs: ['recipes/55-mods-time-wrap.md'],
+    fix: "Two owners set one shared value on the same layer, so nothing says which one decides (dev builds throw; release builds let the later write win and warn once). Copy one fix from the message: contribute instead (mul / add), decide on another layer ({ layer }), or take it over on purpose (manual, or a set on the system layer)." },
+  'shared-taken': {
+    docs: ['recipes/55-mods-time-wrap.md', 'recipes/14-custom-module.md'],
+    fix: "Two modules provide the same exclusive slot (provides: ['inventory']). Install only one, or swap: engine.use(mine(), { replaces: 'inventory' }) unloads the holder and its changes." },
+  'shared-settings': {
+    docs: ['recipes/55-mods-time-wrap.md'],
+    fix: "The settings layer only restricts what the scene chose: clamp or mul on a number, set: false on a value point. It cannot switch something on or raise it; leave the setting out to allow the scene's value." },
+  'shared-layer': {
+    docs: ['recipes/55-mods-time-wrap.md'],
+    fix: 'layer is one of engine < style < game < effect < system < settings < debug (default game); most code never passes it.' },
   'views-define': {
     docs: ['recipes/46-blender-art-route.md', 'api/engine.md'],
     fix: "engine.views.define(name, { position: [x, y, z], target?: [x, y, z], fov? }): position and target are 3-number arrays." },
@@ -138,10 +146,18 @@ export const ERROR_CODES = {
     docs: ['recipes/15-perf.md', 'api/engine.md'],
     fix: 'A worker failed or went silent past the lane timeout (the reason is printed with it); the lane now runs on the main thread with the same ' +
       'results, only slower. Fix the worker file or its imports; a lane whose tasks really take longer passes a bigger lane({ timeout }).' },
-  'input-binding': {
-    docs: ['api/input.md'],
-    fix: 'An action was defined again with different keys; the later keys win. Define each action once, or change keys with ' +
-      'input.rebind(action, keys).' },
+  'input-bound-twice': {
+    docs: ['recipes/58-input.md', 'api/input.md'],
+    fix: 'Two different owners bound the same action (a module given keys in its options and createEngine({ bindings }) of the game, or two ' +
+      'modules). One owner binds an action: keep one of the two, or bind another action name. The same owner binding again just replaces its keys.' },
+  'input-action-context': {
+    docs: ['recipes/58-input.md', 'api/input.md'],
+    fix: 'Two owners declared one action in different input contexts. An action belongs to one context: rename one of them, or declare both in ' +
+      'the same context (then they share the action).' },
+  'input-unbound': {
+    docs: ['recipes/58-input.md', 'api/input.md'],
+    fix: "An action a module needs is read but no key is bound, so it never fires. Modules bind no keys: bind it with " +
+      "engine.input.bind('action', ['KeyX']), createEngine({ bindings }) or a presets.bindings.* map." },
   'asset-cache': {
     docs: ['recipes/05-props-bake.md', 'api/assets.md'],
     fix: 'The dev model cache could not be used, so code-generated models are built from code. Run the game through its vite ' +
@@ -175,17 +191,37 @@ export const ERROR_CODES = {
   'player-control': {
     docs: ['recipes/01-new-game.md', 'api/characters.md'],
     fix: "createPlayer() has no default feel: give control. Usually createPlayer({ ...presets.player.thirdPerson, spawn }); else control: 'camera' | " +
-      "'none' | (player, input, dt) => ({ x, z }), plus runKeys / jumpKeys / cameraFollow as wanted." },
+      "(player, input, dt) => ({ x, z }) (null stands still), plus cameraFollow as wanted (run / jump keys: presets.bindings.walk). The game moving the player itself " +
+      "takes control: engine.control.take(player, { owner, layer: 'script', step })." },
+  'control-conflict': {
+    docs: ['recipes/57-control.md'],
+    fix: "Two owners want the same character on the same control layer, so nothing says which one steers (dev builds throw; release builds let " +
+      "the later one take it). End the old one first (its handle.remove()), or take another layer: base < script < cutscene (higher pauses lower)." },
+  'control-net': {
+    docs: ['recipes/57-control.md', 'recipes/27-net.md'],
+    fix: "That character is driven by another machine (net holds its control for good). Change it where it is driven: run an op the host runs " +
+      "(engine.ops.run), or steer the character that is yours (engine.player)." },
+  'control-bypass': {
+    docs: ['recipes/57-control.md'],
+    fix: "character.move() was called on a character someone controls, from outside that owner. Take control and move through it: " +
+      "const h = engine.control.take(ch, { owner, layer: 'script', step }) (or h.move(x, z, run, dt)), then h.remove() to hand it back." },
+  'control-layer': {
+    docs: ['recipes/57-control.md'],
+    fix: "engine.control.take(character, { owner, layer?, step? }): a character (or its id), a non-empty owner name, layer 'base' | 'script' | " +
+      "'cutscene' (net is the network's), step a function (dt, ch) => ({ x, z, run }) or left out." },
   'interaction-setup': {
     docs: ['recipes/02-npc.md', 'api/interactions.md'],
-    fix: 'interactions() has no default pick or key: use interactions({ ...presets.interactions.nearest }) or interactions({ pick, keys: ' +
-      "['KeyE'] }); keys may be left out only when createEngine({ bindings }) already binds the action." },
+    fix: 'interactions() has no default pick: use interactions({ ...presets.interactions.nearest }) or interactions({ pick }); the game binds ' +
+      "the 'interact' keys (createEngine({ bindings: presets.bindings.interact }))." },
   'open-world-camera': {
     docs: ['recipes/21-camera.md', 'api/openWorld.md'],
     fix: "openWorld() installs no camera on its own: pass camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | a camera module | false." },
   'look-param': {
     docs: ['recipes/52-look.md'],
     fix: 'A look part was given a key it does not have, a value of the wrong type, or a spec without a default. engine.catalog("look.<part>").params lists every key, its default, why and how to turn it off.' },
+  'look-fn': {
+    docs: ['recipes/52-look.md'],
+    fix: 'A look value given as a function ({ time, weather, season, day, state, sky }) => number threw or returned something that is not a finite number. Guard what may not exist yet (state.boss?.dist ?? 100); until it returns a number the key keeps its last good value.' },
   'look-verb': {
     docs: ['recipes/52-look.md'],
     fix: 'This look part does not support that verb (set / patch / replace), or the hook name is unknown. engine.catalog("look.<part>").verbs lists what it supports; the message names the verb to use instead.' },
@@ -197,6 +233,11 @@ export const ERROR_CODES = {
     docs: ['recipes/41-thing-registry.md'],
     fix: "engine.debug.override(owner, target, patch): owner names who sets it (engine.debug.clear(owner) removes all of them), target is a thing id or Object3D, " +
       "patch is { visible?, material?: 'flat' | 'wire', apply? }. Overrides change only what the screen shows and are never saved." },
+  'plugin-shape': {
+    docs: ['THREE.md', 'recipes/40-scene.md'],
+    fix: 'A file in the plugins folder is plugged by what it exports: an Object3D, a three.js Pass, a post effect { name, create | node | fuse }, ' +
+      'a Material, a ShaderPatch { slot, glsl }, a module { name, type, install }, or an array of these (default export, else every named export). ' +
+      'A function is never a plugin (on either renderer): export what a factory returns, a node pass as { name, node }. plugins.json names only files that exist.' },
   'thing-id': {
     docs: ['recipes/41-thing-registry.md'],
     fix: "Ids given to engine.add(obj, { id }) are non-empty strings without '#', unique across engine.add objects and world records. " +
@@ -217,11 +258,11 @@ export const ERROR_CODES = {
     docs: ['api/engine.md'],
     fix: 'An engine call got an argument it cannot use; the message names the call and the accepted forms.' },
   'many-lights': {
-    docs: ['recipes/09-style-pack.md', 'api/lightPool.md'],
+    docs: ['recipes/09-style.md', 'api/lightPool.md'],
     fix: 'More than 8 real-time lights are in the scene. Use engine.use(lightPool({ point: 8 })) and register torches / lamps with ' +
       'engine.lightPool.add(...) so a fixed small set of real lights follows the nearest sources.' },
   'light-recompile': {
-    docs: ['recipes/09-style-pack.md', 'api/lightPool.md'],
+    docs: ['recipes/09-style.md', 'api/lightPool.md'],
     fix: 'The number of lights changed during play, so three.js compiled new shader programs (a long frame). Keep the light ' +
       'count fixed: engine.use(lightPool({ point: 8 })) before engine.start() and register torches / lamps with ' +
       'engine.lightPool.add(...), or create your own lights before start and fade them with intensity instead of adding, ' +
@@ -264,7 +305,7 @@ export const ERROR_CODES = {
     docs: ['api/input.md'],
     fix: 'input.push(name, { owner }) needs a non-empty owner string (who pushed the context), so pop / describe can tell owners apart.' },
   'style-value': {
-    docs: ['recipes/09-style-pack.md', 'recipes/52-look.md'],
+    docs: ['recipes/09-style.md', 'recipes/52-look.md'],
     fix: 'A style value is the wrong shape (toneMapping, exposure, a style part), or is world state put in a style. Use the form in the ' +
       'message; world state (map size, rules) goes in the game, not in the look.' },
   'owned-misuse': {
@@ -330,7 +371,7 @@ export const ERROR_CODES = {
     fix: 'net() needs role \'host\' or \'client\' and a transport; reconnect() is for clients only.' },
   'rigid-misuse': {
     docs: ['recipes/11-vehicles.md', 'api/rigid.md'],
-    fix: 'A rigid-body call got a wrong argument, e.g. a vehicle id already in use. Give each body / vehicle its own id.' },
+    fix: 'Two cases, the message says which: an id already used by another body or vehicle (give each its own id), or joints lost when newGame / a load rebuilt the physics world (re-create them in a rigid:rebuilt listener, recipe 11 section 3 "Joints").' },
   'settings-tab': {
     docs: ['api/settings.md'],
     fix: 'settings({ tabs }) names a built-in tab that does not exist. Use a listed built-in name, or define your own section.' },
@@ -345,6 +386,10 @@ export const ERROR_CODES = {
     docs: ['recipes/08-weather-sky.md', 'recipes/36-sky-ground-plant-looks.md', 'api/sky.md'],
     fix: 'A sky / fog / clouds / shadow option has a wrong value or is not an option (day length, days and seasons are calendar() options). Own GLSL goes through ' +
       'engine.look.<part>.patch(slot, glsl), not a style key. The message lists the accepted values.' },
+  'terrain-chunk-failed': {
+    docs: ['recipes/28-terrain.md', 'api/terrain.md'],
+    fix: 'A terrain chunk failed on every try and stays empty (no ground, no collision there). Usually the height / groundType / placement rule ' +
+      'throws at that spot: fix what it reads, then engine.terrain.retry() sends the failed chunks again (terrain:chunkFailed names each one).' },
   'terrain-option': {
     docs: ['recipes/28-terrain.md', 'recipes/42-terrain-shape.md', 'api/terrain.md'],
     fix: 'A terrain option or terrain edit is wrong (shape mask missing, a brush number not a number, an unknown paint). Use the form ' +
@@ -368,12 +413,20 @@ export const ERROR_CODES = {
       'the function the slot expects. The message names the key and the accepted values.' },
   'post-effect': {
     docs: ['api/post.md', 'recipes/52-look.md'],
-    fix: 'A post effect is malformed or clashes: it needs { name, create } or a fuse snippet, a unique name, a known slot. Change an ' +
-      'existing effect with look.post.set, add a new one with look.post.add.' },
+    fix: 'A post effect is malformed or clashes: look.post.add takes a three.js Pass, a node function (WebGPU) or { name, create | node | fuse }, ' +
+      'with a unique name and a known slot. Change an existing effect with look.post.set; add one with look.post.add (the one way).' },
+  'own-frame': {
+    docs: ['THREE.md', 'recipes/52-look.md'],
+    fix: 'The game draws the canvas itself (its own composer.render() / renderer.render outside engine.onRender), so the engine yielded ' +
+      'the frame. Intended: nothing to do. To get the engine frame back delete your render call; to add a pass to it use engine.look.post.add(pass).' },
   'shader-patch': {
     docs: ['recipes/43-shader-patches-surface-looks.md'],
     fix: 'A shader patch is malformed: glsl goes with a slot name (a string per slot), raw anchors use vertex / fragment, and the ' +
       'material must provide what the patch needs. The message lists the slot names.' },
+  'renderer-backend': {
+    docs: ['recipes/50-own-renderer.md'],
+    fix: "The WebGPU route could not start as asked: WebGPU is unavailable with fallback: 'error', a NodeMaterial met fallback: 'webgl' " +
+      "(WebGLRenderer cannot draw TSL; use fallback: 'webgl2'), a WebGL-only material is in the scene, or threedog/tsl is not imported. The message names which." },
   'ui-misuse': {
     docs: ['recipes/26-ui-parts.md', 'api/hud.md'],
     fix: 'A UI part, theme or toast call is wrong (an unknown part or verb, a value of the wrong type, the engine not passed first). ' +
@@ -406,22 +459,66 @@ export const ERROR_CODES = {
   // ---- classes that were patterns in errorHints.js: the engine raises these messages itself, now tagged with the code ----
   'module-requires': {
     docs: ['recipes/14-custom-module.md', 'api/engine.md'],
-    fix: 'A module needs another module that is not installed yet, or is installed after it. Add the missing module, or put it earlier in engine.use(...) (a typo is suggested in the message).' },
+    fix: "A module requires a capability ('world', 'inventory') no installed module provides yet. Install the engine's part of that name first (engine.use(world(), mine())), or your own module with provides: ['<name>'] (a typo is suggested in the message)." },
+  'module-provides': {
+    docs: ['recipes/14-custom-module.md'],
+    fix: "provides is a list of exclusive slot names (provides: ['inventory']); a slot name must not be a shared value's name." },
+  'module-replaces': {
+    docs: ['recipes/14-custom-module.md'],
+    fix: "engine.use(mine(), { replaces: 'slot' }): an installed module must hold the slot, a module in the same call must provide it, and no other module may require the old one by its module name (require the slot)." },
   'module-cycle': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'before / after constraints of two or more modules point at each other. Remove one of them or give a module a different stage.' },
+  'module-type': {
+    docs: ['recipes/14-custom-module.md'],
+    fix: "Every module says what it may own: add type: 'rules' (game logic; the usual one for a game module), or 'world' | 'look' | 'actor' | 'ui' | 'net' | 'tool' (core/moduleTypes.js)." },
+  'module-type-rule': {
+    docs: ['recipes/14-custom-module.md'],
+    fix: 'A module did something its type does not own (a look module defining an op or writing world records, a ui module binding keys or registering a save part). Move that part into a module of the right type, or change the type, as the message says.' },
   'module-stage': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'Modules sort by stage (+ before / after), not by number. Use one of the listed stage names.' },
   'module-name': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'The module name becomes engine.<name>; it must not be an existing engine property or another module name.' },
+  'module-handle': {
+    docs: ['recipes/14-custom-module.md'],
+    fix: 'ctx.track(handle) (the ctx install / init receive) takes something with remove(), such as the result of events.on / onFixed / clock.after.' },
   'module-called': {
     docs: ['recipes/01-new-game.md', 'api/engine.md'],
     fix: 'engine.use() takes the module object: write engine.use(sky()), not engine.use(sky).' },
   'describe-name': {
     docs: ['recipes/16-dev-bridge.md', 'api/engine.md'],
     fix: 'describe.add names share one namespace with the standard fields and module names. Pick a unique name.' },
+  // (registered after the fact: these were raised before they had an entry, so err.fix was null; tests/errorCodeScan.mjs now fails on that)
+  'options-object': {
+    docs: ['CONVENTIONS.md', 'api/engine.md'],
+    fix: 'A position is one argument: a Vector3, [x, y, z] or { x, z } (a horizontal position needs finite x and z). The old (x, z) ' +
+      'number form and a 2-element [x, z] array do not work; pass { x, z }.' },
+  'input-keys': {
+    docs: ['recipes/01-new-game.md', 'api/input.md'],
+    fix: 'The engine binds no gameplay key on its own and modules take no keys option: bind the action the module declares, ' +
+      "createEngine({ bindings: { ...presets.bindings.<name> } }) or engine.input.bind('<action>', ['KeyX']); [] = deliberately no key." },
+  'bad-arg': {
+    docs: ['api/characters.md', 'recipes/32-action-game.md'],
+    fix: 'characters.support(object, opts): object is a three.js Object3D with meshes to stand on, carry is one of the listed modes and ' +
+      'each support id is unique. Fix the argument the message names.' },
+  'npc-option': {
+    docs: ['recipes/02-npc.md', 'api/characters.md'],
+    fix: "An NPC's interact option is { op: 'name', args?, ... } (an op the player runs on it) or null for none. Fix the value the " +
+      'message shows.' },
+  'interaction-option': {
+    docs: ['api/interactions.md', 'recipes/03-items-pickups.md'],
+    fix: 'interactions.add(): hold is seconds the key stays down (a number >= 0) and radius is meters > 0 (Infinity = from ' +
+      'anywhere). Fix the option the message names.' },
+  'hud-option': {
+    docs: ['api/hud.md', 'recipes/26-ui-parts.md'],
+    fix: 'A hud element option is wrong: anchor is one of the listed corners / edges, a counter value is a number or text. Fix ' +
+      'the option the message names.' },
+  'describe-threw': {
+    docs: ['recipes/14-custom-module.md', 'api/engine.md'],
+    fix: "A module's describe(e, ctx) hook threw; describe() put { error, code } under that module's name and kept the rest. Fix the " +
+      'hook named in the message (it must return plain data or nothing).' },
   'world-missing': {
     docs: ['recipes/18-world.md', 'api/world.md'],
     fix: 'The feature stores its data in engine.world, but the world() module is not installed or comes after it. engine.use(world(), ...) first; the openWorld() preset already includes it.' },
@@ -509,7 +606,15 @@ export const ERROR_CODES = {
   'dispose-options': {
     docs: ['api/engine.md'],
     fix: 'engine.dispose() takes nothing or { keepContext: true }.' },
+  'tsl-misuse': {
+    docs: ['recipes/43-shader-patches-surface-looks.md'],
+    fix: 'A threedog/tsl function cannot work here (the message says why): draw it with the engine renderer, on a Mesh or InstancedMesh.' },
+  'webgpu-needs-tsl': {
+    docs: ['recipes/56-webgpu-tsl.md'],
+    fix: "On WebGPURenderer the engine draws with node materials. Either threedog/tsl is not loaded (add import 'threedog/tsl' at the top of the entry), " +
+      'or a part is written only as GLSL text: give it a tsl form too (a patch: tsl next to glsl; sky / fog hooks: { glsl, tsl }; a weather glsl spec: ' +
+      'create(engine) returning your own node-material object). The message names the part.' },
   'module-disabled': {
     docs: ['recipes/14-custom-module.md'],
-    fix: 'A presentation-only module (particles, ambience, music...) threw and was switched off; the game keeps running without it. The error printed with it is the real cause.' },
+    fix: 'A look or ui module (particles, sky, music, a panel...) threw and was switched off; the game keeps running without it. The error printed with it is the real cause.' },
 };

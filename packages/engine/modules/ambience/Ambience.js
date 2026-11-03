@@ -41,10 +41,11 @@ export class Ambience {
     for (const r of [...(engine.audio.config.ambience || []), ...(opts.rules || [])]) this.add(r);
     /** @internal content pack key -> handles of its rules (a pack loaded again replaces its own rules, never the game's) */
     this._packs = new Map();
-    engine.audio.onPack((key, pack) => {
-      for (const h of this._packs.get(key) || []) h.remove();
-      this._packs.set(key, pack.ambience.map(r => this.add(r)));
-    });
+  }
+  /** @internal a content pack's rules (audio.onPack, wired in install): a pack loaded again replaces its own rules */
+  _onPack(key, pack) {
+    for (const h of this._packs.get(key) || []) h.remove();
+    this._packs.set(key, pack.ambience.map(r => this.add(r)));
   }
 
   /**
@@ -58,7 +59,7 @@ export class Ambience {
     if (typeof rule.sound !== 'string') throw codedError('ambience-rule', `ambience rule needs sound: a name from audio.sounds, got ${JSON.stringify(rule.sound)}. Example: { sound: 'wind', volume: 0.3 }`, TypeError);
     const slot = { rule, voice: null, level: 0, offT: 0, next: rule.every ? gap(rule) : 0 };
     this._rules.push(slot);
-    return { remove: () => { slot.voice?.stop(rule.fade ?? 1); this._rules = this._rules.filter(s => s !== slot); } };
+    return { remove: () => { slot.voice?.stop({ fade: rule.fade ?? 1 }); this._rules = this._rules.filter(s => s !== slot); } };
   }
   /**
    * Replace the whole rule table (null or [] = silence)
@@ -66,7 +67,7 @@ export class Ambience {
    * @returns {this}
    */
   rules(list) {
-    for (const s of this._rules) s.voice?.stop(s.rule.fade ?? 1);
+    for (const s of this._rules) s.voice?.stop({ fade: s.rule.fade ?? 1 });
     this._rules = [];
     for (const r of list || []) this.add(r);
     return this;
@@ -123,10 +124,10 @@ export class Ambience {
     if (s.level > 0.001) {
       s.offT = 0;
       if (!s.voice?.playing) s.voice = a.sfx(r.sound, { bus: r.bus ?? 'ambience', loop: true, volume: 0 });
-      s.voice?.fade(s.level, fade);
+      s.voice?._fade(s.level, fade);   // every frame: the internal form skips the option parse
     } else if (s.voice) {
-      if (s.offT === 0) s.voice.fade(0, fade);
-      if ((s.offT += dt) > fade) { s.voice.stop(0); s.voice = null; s.offT = 0; }   // faded out: stop the loop so an idle rule costs nothing
+      if (s.offT === 0) s.voice._fade(0, fade);
+      if ((s.offT += dt) > fade) { s.voice._stop(0); s.voice = null; s.offT = 0; }   // faded out: stop the loop so an idle rule costs nothing
     }
   }
 }
@@ -175,14 +176,15 @@ const AMBIENCE_PARAMS = keysSchema(['rules', 'interval']);
 export function ambience(opts = {}) {
   readParams('ambience', AMBIENCE_PARAMS, opts);
   let a = null;
-  return { name: 'ambience', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late', presentation: true,
-    install(e) {
+  return { name: 'ambience', type: 'look', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late',
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.ambience': '环境音' }, en: { 'module.ambience': 'ambience' } });
       builtInSounds(e.assets, SYNTHS, { bus: 'ambience' });   // sound assets wind / rain / water / birds / crickets, silent until audio.sounds names them
       a = new Ambience(e, opts);
+      ctx.track(e.audio.onPack((key, pack) => a._onPack(key, pack)));
       // measures for data rules (content packs hold no functions). Each reads the listener position itself: music rules call them too,
       // and ambience refreshes this.position only while it has rules of its own
-      e.audio.measure('nearWater', () => { a._listen(); return a.nearWater(12); });
-      e.audio.measure('altitude', () => { const p = a._listen(); return Math.max(0, e.surface(p.x, p.z)); });
+      ctx.track(e.audio.measure('nearWater', () => { a._listen(); return a.nearWater(12); }));
+      ctx.track(e.audio.measure('altitude', () => { const p = a._listen(); return Math.max(0, e.surface(p.x, p.z)); }));
       return a;
     },
     frame(dt) { a.update(dt); },

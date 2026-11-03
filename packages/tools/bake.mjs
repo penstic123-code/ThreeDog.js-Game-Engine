@@ -1,5 +1,5 @@
 // Bake: npm run bake [-- name …]
-// Exports code-generated models (the asset packs the style packages export as `assets`, the bake list in this workspace's bake.js) to this workspace's public/models/baked/<name>.glb and writes the manifest index.json.
+// Exports code-generated models (the bake list in this workspace's bake.js files) to this workspace's public/models/baked/<name>.glb and writes the manifest index.json.
 // A built game reads these files directly (fast); in development engine.assets notices changed generator code and computes on the fly with a hint, so no need to bake every time.
 // When you need to run it:
 //   · before building for release (npm run build reports an error if a baked file is out of date)
@@ -13,12 +13,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve, dirname, join, basename } from 'node:path';
 import { keyMaker, staleBaked } from './vite/vite-threedog-cache.js';
-import { pickWorkspace, rel, TOOLS } from './paths.mjs';
+import { cli, rel, TOOLS, viteOptions } from './paths.mjs';
 
 const t0 = Date.now();
-const { dir: ROOT, args } = pickWorkspace(process.argv.slice(2));   // ROOT = the workspace to bake
+const { dir: ROOT, opt, rest: only } = cli(process.argv.slice(2), { flags: ['force', 'gpu', 'software'], positional: true });   // ROOT = the workspace to bake
 const DIR = resolve(ROOT, 'public/models/baked'), INDEX = resolve(DIR, 'index.json');
-const force = args.includes('--force'), only = args.filter(a => !a.startsWith('--'));
+const force = !!opt.force;
 const kb = n => (n / 1024).toFixed(1) + ' KB';
 
 const index = existsSync(INDEX) ? JSON.parse(readFileSync(INDEX, 'utf8')) : {};
@@ -33,7 +33,7 @@ const withExists = Object.fromEntries(Object.entries(index).map(([k, v]) => [k, 
 
 const [{ createServer }, { launchBrowser }] = await Promise.all([import('vite'), import('./browser.mjs')]);   // loaded only when there is something to bake
 // Use its own dependency cache directory: do not fight with a running npm run dev over node_modules/.vite
-const server = await createServer({ root: ROOT, configFile: join(ROOT, 'vite.config.js'), logLevel: 'error', cacheDir: resolve(ROOT, '.threedog/vite-bake'), server: { port: 0, strictPort: false } });
+const server = await createServer(await viteOptions(ROOT, { logLevel: 'error', cacheDir: resolve(ROOT, '.threedog/vite-bake'), server: { port: 0, strictPort: false } }));
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, '');
 const browser = await launchBrowser();

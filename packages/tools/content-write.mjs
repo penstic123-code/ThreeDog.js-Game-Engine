@@ -14,7 +14,7 @@
 import * as nodeFs from 'node:fs';
 import { resolve, join, relative, sep } from 'node:path';
 import { parseAst } from 'vite';
-import { rel, pickWorkspace } from './paths.mjs';
+import { rel, command } from './paths.mjs';
 import { loadGame, dupKeys, importFresh } from './content-check/load.mjs';
 import { buildIndex, readIndex, indexPath, fileEntries, entryId, positional } from './content-check/index-ids.mjs';
 import { exportedLiteral } from './vite/vite-threedog-content-src.js';
@@ -309,16 +309,15 @@ const USAGE = `Usage:
 
 /** CLI body of `threedog content set|add|remove …` (argv after the subcommand) */
 export async function main(op, argv) {
-  const rest = [], opt = { expect: [] };
+  // --expect takes every field=value after it (up to the next option), so it is taken out before the one strict parse of the rest
+  const own = [], expect = [];
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--dry') opt.dry = true;
-    else if (a === '--in' || a === '--dir' || a === '--file') opt[a.slice(2)] = argv[++i];
-    else if (a === '--expect') { while (argv[i + 1] && !argv[i + 1].startsWith('--')) opt.expect.push(argv[++i]); }
-    else rest.push(a);
+    if (argv[i] !== '--expect') { own.push(argv[i]); continue; }
+    while (argv[i + 1] && !argv[i + 1].startsWith('-')) expect.push(argv[++i]);
   }
-  let dir, args;
-  try { ({ dir, args } = pickWorkspace(rest)); } catch (e) { console.log('✗ ' + e.message); return 1; }
+  let dir, args, opt;
+  try { ({ dir, rest: args, opt } = command(own, { positional: true, flags: ['dry'], values: ['in', 'dir', 'file'] })); } catch (e) { console.log('✗ ' + e.message); return 1; }
+  opt.expect = expect;
   if (opt.dir) dir = resolve(opt.dir);
   let req;
   if (op === 'set') {

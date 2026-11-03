@@ -62,7 +62,8 @@ export const specs = [
       // 参照：不经缓存的重算（同一套分层合并），每次读都拿来比
       const fresh = (id, base) => {
         const m = s._map(id), all = id != null ? s._map(undefined) : null;
-        return m?.size || all?.size ? s._combine(m, all, base) : Math.min(s.max, Math.max(s.min, base));
+        const fit = v => Math.min(s.max, Math.max(s.min, v));
+        return fit(m?.size || all?.size ? s._combine(s._list(m, all), base) : base);
       };
       let bad = 0, reads = 0, first = '';
       const look = (tag) => {
@@ -74,7 +75,7 @@ export const specs = [
       look('empty');
       const haste = S.mod('move.speed', { owner: 'haste', id: 'p', mul: 1.5 }); look('haste');
       const mud = S.mod('move.speed', { owner: 'mud', mul: 0.5, for: 2 }); look('mud everyone');
-      S.mod('move.speed', { owner: 'boost', id: 'p', add: 1, priority: 'effect' }); look('boost');
+      S.mod('move.speed', { owner: 'boost', id: 'p', add: 1, layer: 'effect' }); look('boost');
       S.mod('move.speed', { owner: 'haste', id: 'p', set: 3 }); look('haste re-taken as set');
       haste.remove(); look('stale handle ends nothing');
       now = 2.5; S._expire(); look('mud expired');
@@ -118,9 +119,11 @@ export const specs = [
     async run({ check }) {
       const { Clock } = await import('../../core/Clock.js');
       const { Stacks } = await import('../../core/stacks.js');
+      const { Time } = await import('../../core/time.js');
       const log = [], e = { saves: { register() {} }, events: { emit: n => log.push(n), on() {} } };
       e.stacks = new Stacks(e);
-      const c = new Clock(e);
+      const c = e.clock = new Clock(e); e.time = new Time(e);   // the clock is the calendar view of time's one queue
+      const advance = s => e.time._skip(s, s);
       // 1000 个不到期的垫底，看一次触发多少个的时候结果对不对
       for (let i = 0; i < 1000; i++) c.after(100 + i, () => log.push('far'));
       c.after(0.3, () => log.push('c'));
@@ -129,13 +132,13 @@ export const specs = [
       const later = c.after(0.25, () => log.push('removed-but-due'));
       c.every(0.15, () => log.push('tick'));
       c.after(0.05, () => { log.push('first'); c.after(0.01, () => log.push('added-in-callback')); later.remove(); });
-      c._advance(0.32);
+      advance(0.32);
       const one = log.join(' ');
       log.length = 0;
-      c._advance(0.01);
+      advance(0.01);
       const two = log.join(' ');
-      // 和改之前一样：按第一次到期的时间排序；循环定时器轮到时一口气补够次数；已收进到期名单的（回调里 remove 的）这一步照样触发
-      check('同一步到期的按时间顺序触发，循环定时器补够次数', one === 'first a tick tick b-event removed-but-due c', one);
+      // ordered by first due time; a repeating timer catches up all its runs at once; one removed inside a callback does not fire in that step either (it used to fire once it was already in the due list)
+      check('同一步到期的按时间顺序触发，循环定时器补够次数，回调里删掉的不触发', one === 'first a tick tick b-event c', one);
       check('回调里加的定时器下一步到期时触发，一次性的不重复', two === 'added-in-callback', two);
       check('触发过的一次性定时器离开列表，垫底的 1000 个和循环的留下', c.size === 1001, String(c.size));
     },

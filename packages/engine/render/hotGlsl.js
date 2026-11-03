@@ -1,4 +1,4 @@
-// Shader hot reload in dev: a GLSL file imported with `?raw` (import frag from './water.frag?raw') is edited -> the materials using its text recompile,
+// Shader hot reload in dev. A GLSL file imported with `?raw` (import frag from './water.frag?raw') is edited -> the materials using its text recompile,
 // the page does not reload. The vite preset's threedog-live plugin (packages/tools/vite/vite-threedog-live.js) serves such a file wrapped in
 // `// threedog:begin file=<path>` ... `// threedog:end` markers and, when it changes, calls engine.debug.reloadGlsl(oldText, newText, file).
 // Where the text is found: ShaderMaterial / RawShaderMaterial vertexShader and fragmentShader, and shader patch code (applyEffects patches).

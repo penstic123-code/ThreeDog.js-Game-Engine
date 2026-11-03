@@ -39,8 +39,7 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   // Key actions
   const handled = a => gameFiles.filter(f => actionUsed(read(f), a)).map(g).join(', ') || '(not used)';
   const al = Object.entries(c.actions || {}).map(([a, d]) => `| ${a} | ${d.keys.join(' ')} | ${d.label} | ${handled(a)} |`);
-  for (const m of code.matchAll(/input\.define\(\s*'(\w+)',\s*\[([^\]]*)\],\s*'([^']+)'/g)) al.push(`| ${m[1]} | ${m[2].replace(/'/g,
-    '')} | ${m[3]} | ${handled(m[1])} |`);
+  for (const m of code.matchAll(/input\.bind\(\s*'(\w+)',\s*\[([^\]]*)\]/g)) al.push(`| ${m[1]} | ${m[2].replace(/'/g, '')} | | ${handled(m[1])} |`);
   sec(`Key actions defined by the game (the engine's own are in ${CODEMAP})`,
     al.length ? ['| Action | Default keys | Label | Handled in |', '|---|---|---|---|', ...al] : []);
 

@@ -9,6 +9,8 @@ import { describeRender } from './describeRender.js';
 const KINDS = [['isMesh', 'Mesh'], ['isPoints', 'Points'], ['isLine', 'Line'], ['isSprite', 'Sprite']];
 const kindOf = o => KINDS.find(([k]) => o[k])?.[1] ?? null;
 const PLANES = ['right', 'left', 'bottom', 'top', 'far', 'near'];   // order of THREE.Frustum.planes
+// reasons that are just "not in the picture right now" (the camera looks elsewhere), not a bug: listed after the other undrawn objects
+const CULLED = new Set(['outside-frustum', 'behind-camera', 'beyond-far', 'fogged-out']);
 const NAN_SCAN_MAX = 100000;   // vertices checked for NaN per geometry: enough to find a broken generator, bounded for huge merged meshes
 const r1 = v => Math.round(v * 10) / 10;
 const fmt = o => o.name || '(unnamed)';
@@ -179,12 +181,21 @@ export function inspectScene(e, { hidden = false, limit = 40 } = {}) {
     counts.total++; counts.byType[type] = (counts.byType[type] ?? 0) + 1; counts[item.drawn ? 'drawn' : 'notDrawn']++;
     if (!(hidden && item.drawn)) items.push(item);
   });
-  items.sort((a, b) => a.drawn - b.drawn);
+  // Undrawn first, and among them the surprising ones (visible=false, empty geometry, NaN, material flags) before plain view culling: most of a big
+  // world is off-screen on purpose, and listing 60 culled terrain chunks first buried the one mesh that was really broken.
+  const culledOnly = x => !x.drawn && (x.reasons ?? []).filter(r => r.level === 'hidden').every(r => CULLED.has(r.code));
+  items.sort((a, b) => a.drawn - b.drawn || culledOnly(a) - culledOnly(b));
+  // one count per first reason over ALL undrawn objects (not just the listed ones), so a short listing still says what the rest are
+  const byReason = {};
+  for (const x of items) if (!x.drawn) { const c = x.reasons?.find(r => r.level === 'hidden')?.code ?? 'unknown'; byReason[c] = (byReason[c] ?? 0) + 1; }
+  counts.byReason = byReason;
   const shown = items.slice(0, limit), cp = ctx.view?.pos, types = Object.entries(counts.byType).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const head = `Scene: ${counts.total} drawable objects (${types}), ${counts.drawn} drawn, ${counts.notDrawn} not drawn`
     + (cp ? ` · camera at (${r1(cp.x)}, ${r1(cp.y)}, ${r1(cp.z)}), far ${cam.far}` : ' · no camera');
+  const reasonLine = counts.notDrawn ? 'Not drawn because: ' + Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')
+    + (Object.keys(byReason).every(k => CULLED.has(k)) ? ' (all ordinary view culling)' : '') : null;
   const render = describeRender(e)?.text.split('\n')[0];   // the renderer line (tone mapping + exposure), reused from describe().render
-  const text = [head, render, ...shown.map(lineOf), items.length > shown.length ? `… ${items.length - shown.length} more (limit ${limit}; pass a bigger limit)` : null,
+  const text = [head, reasonLine, render, ...shown.map(lineOf), items.length > shown.length ? `… ${items.length - shown.length} more (limit ${limit}; pass a bigger limit)` : null,
     'Checks what three.js would do (visible flags, layers, material flags, transform / geometry validity, frustum, fog). It cannot see shader output or something drawn over it.']
     .filter(Boolean).join('\n');
   return { camera: cam ? { position: { x: r1(cp.x), y: r1(cp.y), z: r1(cp.z) }, near: cam.near, far: cam.far } : null, counts, items: shown, truncated: items.length - shown.length, render: render ?? null, text };

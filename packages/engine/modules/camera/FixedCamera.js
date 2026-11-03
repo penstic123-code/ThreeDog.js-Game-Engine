@@ -13,15 +13,16 @@
 //     },
 //     start: 'hall', auto: 'nearest',
 //   }));
-//   engine.cameraRig.blend('garden', 1.5);
+//   engine.cameraRig.blend('garden', { seconds: 1.5 });
 import * as THREE from 'three';
-import { rigModule, defineRig, viewForward, rightOf } from './common.js';
+import { rigModule, defineRig, viewForward, rightOf, rigPlaced } from './common.js';
 import { setProjection } from './projection.js';
 import { setFov } from '../../core/look/coreParts.js';
 import { vec3 } from '../../core/math.js';
 import { ease as easing } from '../../core/easing.js';
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
+const BLEND_KEYS = ['seconds', 'ease'];
 import { codedError } from '../../core/errorHints.js';
 
 const SHOT_KEYS = ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight', 'projection', 'size'];
@@ -49,14 +50,21 @@ export class FixedCamera {
     this._look = new THREE.Vector3();
     this._baseFov = engine.camera.fov;
     this._dir = { f: { x: 0, z: -1 }, r: { x: 1, z: 0 } };
-    engine.events.on('trigger:enter', p => {
-      const tag = p.tag;
-      const m = typeof tag === 'string' && tag.match(/^camera:(.+)$/);
-      if (m && this.shots[m[1]]) this.triggerBlend > 0 ? this.blend(m[1], this.triggerBlend) : this.cut(m[1]);
-    });
+    this._onZone = null;   // trigger:enter listener, only while this rig is the active camera (onEnter / onExit)
     const first = start || Object.keys(this.shots)[0];
     if (first) this.cut(first);
   }
+
+  /** @internal the camera module switched to this rig: camera:<shot> trigger zones cut to their shot from now on */
+  onEnter() {
+    this._onZone ??= this.engine.events.on('trigger:enter', p => {
+      const tag = p.tag;
+      const m = typeof tag === 'string' && tag.match(/^camera:(.+)$/);
+      if (m && this.shots[m[1]]) this.triggerBlend > 0 ? this.blend(m[1], { seconds: this.triggerBlend }) : this.cut(m[1]);
+    });
+  }
+  /** @internal switched away (or replaced on a new playthrough): a rig that is not the camera never moves it (review 0.4 modules-a B1) */
+  onExit() { this._onZone?.remove(); this._onZone = null; }
 
   /** Add or replace a shot */
   add(name, s) {
@@ -79,8 +87,10 @@ export class FixedCamera {
     this._place(s.position, this._look, s.fov ?? this._baseFov, s.size);
     if (changed) { this._latchDirection(); this.engine.events.emit('camera:shot', { name }); }
   }
-  /** Blend smoothly to a shot; returns a Promise that resolves when the blend ends */
-  blend(name, seconds = 1, ease = this.ease) {
+  /** Blend smoothly to a shot ({ seconds = 1, ease }); returns a Promise that resolves when the blend ends. blend(name, 1.5) throws in dev
+   * @param {string} name @param {{ seconds?: number, ease?: import('../timeline/Tween.js').Ease }} [opts] */
+  blend(name, opts) {
+    const { seconds = 1, ease = this.ease } = readParams('cameraRig.blend()', keysSchema(BLEND_KEYS), opts);
     const s = this.shots[name]; if (!s) { warnMissing('shot', name, Object.keys(this.shots)); return Promise.resolve(); }
     if (seconds <= 0 || !this.current) { this.cut(name); return Promise.resolve(); }
     const cam = this.engine.camera;
@@ -106,7 +116,7 @@ export class FixedCamera {
       const n = this.nearest(this.target.position);
       if (n && n !== this.current) {
         const p = this.target.position, d = k => (this.shots[k].at || this.shots[k].position).distanceTo(p);
-        if (d(n) + this.hysteresis < d(this.current)) this.triggerBlend > 0 ? this.blend(n, this.triggerBlend) : this.cut(n);
+        if (d(n) + this.hysteresis < d(this.current)) this.triggerBlend > 0 ? this.blend(n, { seconds: this.triggerBlend }) : this.cut(n);
       }
     }
     const want = this._lookTarget(this.shots[this.current], this._want ??= new THREE.Vector3());   // scratch vectors: no per-frame allocation
@@ -149,6 +159,7 @@ export class FixedCamera {
     cam.position.copy(pos); cam.lookAt(look);
     setProjection(cam, size ? 'orthographic' : 'perspective', size);
     if (Math.abs(cam.fov - fov) > 1e-3) setFov(this.engine, fov);   // yields to a fov the game set itself (look.view 'fov')
+    rigPlaced(this.engine);   // a cut between frames is the engine's own write (common.js)
   }
   _latchDirection() {
     if (!this.holdDirection) return;

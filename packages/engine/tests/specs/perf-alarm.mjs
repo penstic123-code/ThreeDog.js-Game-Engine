@@ -12,6 +12,8 @@ const FILE = join(ENGINE, 'tests', 'perf-baseline.json'), LIMIT = 1.3;
 
 export const specs = [
   {
+    serial: true,   // timing assertion: runs alone, not beside other pages
+    software: true,   // the committed baseline is per renderer kind and is recorded on software
     name: 'PERF slowdown alarm: the stress reference scene costs at most 30% more per frame than the committed baseline (same renderer)',
     url: '/tests/stress/index.html?axis=reference',
     timeout: 240000,

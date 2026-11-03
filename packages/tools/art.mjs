@@ -18,6 +18,7 @@
 import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname, relative, extname, basename, isAbsolute, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseOptions } from './lib/cli-args.mjs';
 
 const CODE = ['.js', '.mjs'];
 const ASSET = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|glb|gltf|bin|hdr|exr|svg|wav|mp3|ogg|m4a|woff2?|ttf|otf|json)$/i;
@@ -27,7 +28,7 @@ const isPathArg = s => /^\.{1,2}([\\/]|$)/.test(s) || isAbsolute(s) || /^[A-Za-z
 const dotRel = (from, to) => { const r = posix(relative(from, to)); return r.startsWith('.') ? r : './' + r; };
 
 /** The folder of the nearest package.json at or above dir (a game root), or null */
-function gameRoot(dir) {
+export function gameRoot(dir) {
   for (let d = resolve(dir); ; d = dirname(d)) { if (existsSync(join(d, 'package.json'))) return d; if (dirname(d) === d) return null; }
 }
 
@@ -43,6 +44,8 @@ export function resolveSource(source, cwd = process.cwd()) {
   }
   if (!p || !existsSync(p)) throw new Error(`art: source "${source}" not found` + (isPathArg(source) ? '' : ' (not a path, and no node_modules/' + source + ' from here upward)'));
   if (statSync(p).isFile()) return { root: dirname(p), files: [p], game: gameRoot(dirname(p)) ?? dirname(p) };
+  // a library entry (lib.mjs) is its own root: its files are laid out as they land in a game, even a folder inside it that is named art
+  if (existsSync(join(p, 'entry.json'))) return { root: p, files: null, game: p };
   const art = join(p, 'art');
   const root = existsSync(art) && statSync(art).isDirectory() ? art : p;
   return { root, files: null, game: gameRoot(p) ?? p };
@@ -124,8 +127,9 @@ function pick(src, names) {
  * @param {string[]} names
  * @param {{ to?: string, force?: boolean, dry?: boolean, cwd?: string }} [o]
  */
-export function copyArt(source, names = [], { to = 'art', force = false, dry = false, cwd = process.cwd() } = {}) {
-  const src = resolveSource(source, cwd), game = gameRoot(cwd) ?? resolve(cwd);
+export function copyArt(source, names = [], { to = 'art', force = false, dry = false, cwd = process.cwd(), game: into } = {}) {
+  // into: the destination root when it is not the game around cwd (lib add writes into a library entry folder)
+  const src = resolveSource(source, cwd), game = into ? resolve(into) : gameRoot(cwd) ?? resolve(cwd);
   const dest = resolve(game, to), pub = join(game, 'public'), srcPub = join(src.game, 'public');
   const picked = pick(src, names);
   // where each source file goes: inside the art folder → same layout under dest; '/...' files → public/; other local files → dest/shared/
@@ -197,12 +201,13 @@ export function copyArt(source, names = [], { to = 'art', force = false, dry = f
 }
 
 function cli(argv) {
-  const [sub, ...rest] = argv, flags = new Set(rest.filter(a => a === '--force' || a === '--dry'));
-  const ti = rest.indexOf('--to'), to = ti >= 0 ? rest[ti + 1] : rest.find(a => a.startsWith('--to='))?.slice(5);
-  const pos = rest.filter((a, i) => !a.startsWith('--') && !(ti >= 0 && i === ti + 1));
+  const [sub, ...rest] = argv;
   const usage = 'Usage: threedog art list <source> · threedog art copy <source> [names...] [--to art/] [--force] [--dry]';
   const cwd = process.cwd(), show = p => posix(relative(cwd, p)) || '.';
   try {
+    // one strict parse (lib/cli-args.mjs): `art list` takes no options, `art copy` --to / --force / --dry
+    const { opt, rest: pos } = parseOptions(rest, sub === 'copy' ? { positional: true, flags: ['force', 'dry'], values: ['to'] } : { positional: true });
+    const flags = new Set(Object.keys(opt).map(k => '--' + k)), to = opt.to;
     if (sub === 'list') {
       const r = listArt(pos[0], cwd);
       console.log(`${show(r.root)}: ${r.modules.length} module(s), ${r.assets.length} asset file(s)`);

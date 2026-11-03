@@ -13,13 +13,21 @@ import { RULES_REL } from '../paths.mjs';
 const DIR = dirname(fileURLToPath(import.meta.url));
 const WARN_LIMIT = 15;
 
-export async function runRules({ only = null, all = false, verbose = false, game = false, scope = null } = {}) {
+/** 'R04', 'r4', ' R4 ' -> 'R4' (rule ids are unpadded, file names are padded); anything else is returned trimmed and upper-cased */
+export const normRuleId = s => { const t = String(s).trim().toUpperCase(), m = /^R0*(\d+)$/.exec(t); return m ? `R${m[1]}` : t; };
+
+/** Every rule file, loaded: [{ file, rule }], sorted by number. check.mjs validates --rule ids against this before running anything */
+export async function loadRules() {
   const files = readdirSync(DIR).filter(f => /^R\d+.*\.mjs$/.test(f)).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  return Promise.all(files.map(async f => ({ file: f, rule: (await import(`./${f}`)).default })));
+}
+
+/** only: rule ids already normalized and validated by the caller (normRuleId); an id not in the list would just never match */
+export async function runRules({ only = null, all = false, verbose = false, game = false, scope = null } = {}) {
   let errors = 0, warns = 0, hidden = 0;
   const summary = [];
   console.log(`\nRule checks (${RULES_REL}/, each rule's criteria and allowlist are at the top of its file)`);
-  for (const f of files) {
-    const rule = (await import(`./${f}`)).default;
+  for (const { file: f, rule } of await loadRules()) {
     if ((only && !only.includes(rule.id)) || (game && !rule.game)) continue;
     let res;
     try { res = await rule.run(); } catch (err) { res = [{ level: 'error', file: `${RULES_REL}/${f}`, line: 0, msg: `the rule itself crashed: ${err.message}`, fix: 'fix the rule script' }]; }

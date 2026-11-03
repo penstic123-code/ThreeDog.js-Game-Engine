@@ -52,7 +52,22 @@ export class UIParts {
     /** @internal name -> live singleton */ this.live = new Map();
     /** @internal name -> { focus } while a full-screen part is open */ this.opened = new Map();
     /** @internal hide() promises still fading out (see settled) */ this._fading = new Set();
+    /** @internal id -> title screen item a module added (titleItem) */ this.titleItems = new Map();
     for (const [k, v] of Object.entries(values)) this.set(k, v);
+  }
+
+  /**
+   * Add a title screen button from a module (the settings menu adds 'settings'). The title shows it by default after continue / start, and a game's
+   * own items list may name it by id. Why a registration and not the title knowing the module: ui/ names no module, and a game's module adds a
+   * button ('credits') the same way. remove() takes it away again (ctx.track it in install).
+   * @param {string} id
+   * @param {{ label: string | ((e: Engine) => string), run(e: Engine): any }} item
+   * @returns {{ remove(): void }}
+   * @example ctx.track(engine.ui.titleItem('credits', { label: e => e.t('title.credits'), run: e => e.ui.open('credits') }));
+   */
+  titleItem(id, item) {
+    this.titleItems.set(id, item);
+    return { remove: () => { if (this.titleItems.get(id) === item) this.titleItems.delete(id); } };
   }
 
   /**

@@ -88,7 +88,8 @@ export function syncTrees(r, focus, CH) {
   let built = 0, pending = false;
   for (const { cx, cz, key, d } of todo) {
     const have = r.trees.get(key), data = e.ground.chunkCollision(cx, cz);
-    if (!data || have?.token === data.token) continue;
+    // both tokens: the ground changing moves trunk heights, the tree circles changing (density, a felled tree) changes which trunks exist
+    if (!data || have?.token === data.token && have?.trees === data.treeToken) continue;
     const urgent = d <= URGENT || !e.ready;
     if (!urgent && built >= TREES_PER_STEP) { pending = true; continue; }   // keeps the old cylinders until its turn
     if (have) dropTrees(r, key);
@@ -98,7 +99,7 @@ export function syncTrees(r, focus, CH) {
       const h = e.surface(k[i], k[i + 1]);
       colliders.push(r.world.createCollider(R.ColliderDesc.cylinder(half, k[i + 2]).setTranslation(k[i], h + half, k[i + 1])));
     }
-    r.trees.set(key, { token: data.token, colliders });
+    r.trees.set(key, { token: data.token, trees: data.treeToken, colliders });
   }
   for (const key of [...r.trees.keys()]) if (!keep.has(key)) dropTrees(r, key);
   return pending;
@@ -128,23 +129,20 @@ function dropTerrain(r, key) {
   if (t) for (const c of t.colliders) r.world.removeCollider(c, false);
   r.terrain.delete(key);
 }
-// Sync houses and pillars from the collision module into the physics world (only when they are added or removed)
+// Houses and pillars from the collision module, as physics colliders: engine.collision.mirror does the add / remove diff (shared with nav), this
+// only says how one collider is built and dropped. Built lazily: the mirror lives on the collision module, which rigid requires.
+const UP = new THREE.Vector3(0, 1, 0), Q = new THREE.Quaternion();
 export function syncStatics(r) {
-  const ph = r.engine.collision;
-  if (ph.version === r._staticVersion) return;
-  r._staticVersion = ph.version;
-  const R = r.R, seen = new Set();
-  ph.forEachStatic((type, o) => {
-    seen.add(o);
-    if (r.statics.has(o)) return;
-    const g = o.y ?? r.engine.surface(o.x, o.z);
-    if (type === 'box') {
-      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), o.rot);
-      const d = R.ColliderDesc.cuboid(o.hw, o.h / 2, o.hd).setTranslation(o.x, g + o.h / 2, o.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
-      r.statics.set(o, r.world.createCollider(d));
-    } else r.statics.set(o, r.world.createCollider(R.ColliderDesc.cylinder(o.h / 2, o.r).setTranslation(o.x, g + o.h / 2, o.z)));
+  r._statics ??= r.engine.collision.mirror({
+    add(type, o) {
+      const R = r.R, g = o.y ?? r.engine.surface(o.x, o.z);
+      if (type !== 'box') return r.world.createCollider(R.ColliderDesc.cylinder(o.h / 2, o.r).setTranslation(o.x, g + o.h / 2, o.z));
+      Q.setFromAxisAngle(UP, o.rot);
+      return r.world.createCollider(R.ColliderDesc.cuboid(o.hw, o.h / 2, o.hd).setTranslation(o.x, g + o.h / 2, o.z).setRotation({ x: Q.x, y: Q.y, z: Q.z, w: Q.w }));
+    },
+    remove(col) { r.world.removeCollider(col, false); },
   });
-  for (const [o, col] of r.statics) if (!seen.has(o)) { r.world.removeCollider(col, false); r.statics.delete(o); }
+  r._statics.sync();
 }
 
 // Ground of a level (hand-built scene): one static triangle mesh, rebuilt when the level changes

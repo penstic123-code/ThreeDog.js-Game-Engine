@@ -1,7 +1,7 @@
 // gallery --mode silhouette|value: the parts that run in node. Why: the facts are what an AI reads instead of the pictures, so a wrong mask or
 // percentile would mislead silently; and the material swap touches the game's cached assets, so the restore must be exact.
 import * as THREE from 'three';
-import { parseModes, parseOptions, fileStems, escapeHtml, swapMaterials, silhouetteFacts, valueFacts, MODES } from '../gallery/index.js';
+import { parseModes, parseGalleryOptions, fileStems, escapeHtml, swapMaterials, silhouetteFacts, valueFacts, MODES } from '../gallery/index.js';
 
 export const name = 'gallery review modes: --mode parsing, silhouette / value facts, materials restored after the swap';
 
@@ -22,8 +22,8 @@ export async function run({ check }) {
   check('--mode without --shots fails instead of being ignored', /--mode works with --shots/.test(throws(() => parseModes('value', false))));
 
   // ── the other options: wrong ones stop; names stay apart on disk and safe in the page ──
-  check('--size / --only without --shots fail instead of being ignored', /--size works with --shots/.test(throws(() => parseOptions({ size: '128' }))) && /--only works with --shots/.test(throws(() => parseOptions({ only: 'a' }))) && parseOptions({ size: '128', shots: true }).length === 0);
-  check('--port must be a number', /--port is a port number/.test(throws(() => parseOptions({ port: 'abc' }))) && parseOptions({ port: '5181' }).length === 0);
+  check('--size / --only without --shots fail instead of being ignored', /--size works with --shots/.test(throws(() => parseGalleryOptions({ size: '128' }))) && /--only works with --shots/.test(throws(() => parseGalleryOptions({ only: 'a' }))) && parseGalleryOptions({ size: '128', shots: true }).length === 0);
+  check('--port must be a number', /--port is a port number/.test(throws(() => parseGalleryOptions({ port: 'abc' }))) && parseGalleryOptions({ port: '5181' }).length === 0);
   const stems = fileStems(['a/b', 'a_b', 'a/b', 'c']);
   check('names that sanitize alike get different file stems; the same name keeps one', stems.get('a/b') === 'a_b' && stems.get('a_b') === 'a_b-2' && stems.get('c') === 'c', JSON.stringify([...stems]));
   check('asset names are escaped in the page', escapeHtml('<b>&"x"</b>') === '&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;');

@@ -57,6 +57,9 @@ export function pathStep(t, p, run) {
   // a character (Character) can be passed directly
   const e = t.engine, chr = p.object?.root?.isObject3D ? p.object : null, obj = chr ? chr.root : p.object;
   if (!obj || !p.points?.length) return Promise.resolve();
+  // a character on a path is the cutscene's to drive until the run ends (core/control.js): its keys / walk / behavior pause meanwhile
+  if (chr) { t._take(run, chr); t._pathing.set(chr.id, (t._pathing.get(chr.id) ?? 0) + 1); }
+  const unpath = () => { if (!chr) return; const n = (t._pathing.get(chr.id) ?? 1) - 1; if (n > 0) t._pathing.set(chr.id, n); else t._pathing.delete(chr.id); };
   const pts = p.points.map(x => v3(x));
   if (pts.length === 1) pts.unshift(obj.position.clone());
   const curve = new THREE.CatmullRomCurve3(pts, !!p.closed, p.curve ?? 'centripetal', p.tension ?? 0.5);
@@ -84,7 +87,8 @@ export function pathStep(t, p, run) {
   }).then(r => {
     // the path moved the model, not the mover: the character's world record (the player's) catches up once, so a save right after the cutscene has the new
     // place
+    unpath();
     if (chr?.recordId && chr.syncRecord) e.ops.allow(() => chr.syncRecord());
     return r;
-  });
+  }, err => { unpath(); throw err; });
 }

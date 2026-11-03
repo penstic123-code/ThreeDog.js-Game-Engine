@@ -41,14 +41,15 @@ export class RigidBodies {
     this.terrainRing = terrainRing;
     this.buoyancy = buoyancy; this.buoyancyForce = buoyancyForce; this.waterDrag = waterDrag; this.playerCapsule = playerCapsule;
     this.floatLine = floatLine; this.floatDepth = floatDepth; this.treeColliderHeight = treeColliderHeight; this.treeRadius = treeRadius;
-    this._staticVersion = -1;
     this.R = null; this.world = null;
     this.bodies = [];                 // { body, mesh, offset, enabled }
+    /** @internal body handle -> entry for rays, rebuilt only after bodies changed (null): a ray cast every frame (aim, a camera probe) built a new Map each time */ this._byHandle = null;
+    /** @internal a session:end asked for a rebuild that world:load / afterLoad has not run yet (one rebuild per new game or load) */ this._freshDue = false;
     this.terrain = new Map();         // chunk key -> { colliders: [] }
     this.trees = new Map();           // chunk key -> { token, colliders }: trunk cylinders of the chunks near the player / bodies (see sync.js)
     this._anchors = []; this._treeMemo = [];
     this.groundTrees = new Map();     // 'x,z,r' -> cylinder collider: circles from ground.forEachCollider when the ground has no chunked collision
-    this.statics = new Map();         // houses/pillars from Physics.js -> collider
+    /** @internal houses / pillars of the collision module as colliders (engine.collision.mirror, built on the first step: sync.js syncStatics) */ this._statics = null;
     this.vehicles = [];
     /** @internal numbers vehicles added without an id */ this._vehicleSeq = 0;
     /** @internal id -> saved physics state of a body not built yet (the save part 'rigid'; claimed when a body with that id is added) */ this._saved = new Map();
@@ -85,7 +86,7 @@ export class RigidBodies {
   }
 
   /**
-   * @internal New playthrough or a load (session:end, world:load): physics starts over like a fresh page. Velocities, sleep and the solver's warm
+   * @internal New playthrough or a load (world:load, else afterLoad after a session:end): physics starts over like a fresh page. Velocities, sleep and the solver's warm
    * start live inside the Rapier world, and so does the order bodies were created in (freed handles are reused last-in first-out), so the same
    * crate pushed the same way after newGame landed a few millimetres off the fresh-page result (durability audit). The world is rebuilt: the
    * player capsule first, every body still here (bodies of world records were already removed by the load and come back with their views) at its
@@ -97,6 +98,7 @@ export class RigidBodies {
    * Vehicles hold a controller built for one world: with a vehicle present only the bodies are stopped and put to sleep (no rebuild).
    */
   _fresh() {
+    this._freshDue = false;
     if (!this.ready) return;
     if (this.vehicles.length) {
       for (const b of this.bodies) { const y = b.body; y.setLinvel({ x: 0, y: 0, z: 0 }, false); y.setAngvel({ x: 0, y: 0, z: 0 }, false); y.resetForces(false); y.resetTorques(false); if (y.isDynamic()) y.sleep(); }
@@ -104,8 +106,8 @@ export class RigidBodies {
     }
     const old = this.world, R = this.R, hadJoints = old.impulseJoints.len();
     this._newWorld();
-    this.terrain.clear(); this.trees.clear(); this.groundTrees.clear(); this.statics.clear();
-    this._staticVersion = -1; this._levelVersion = undefined; this._levelColliders = [];
+    this.terrain.clear(); this.trees.clear(); this.groundTrees.clear(); this._statics?.clear();
+    this._levelVersion = undefined; this._levelColliders = [];
     this._srcMemo = null; this._srcPending = false; this._syncT = 0; this._anchors = []; this._treeMemo = [];
     for (const b of this.bodies) {
       const t = b.body.translation(), q = b.body.rotation();
@@ -119,7 +121,7 @@ export class RigidBodies {
       // b.enabled stays: it is the engine's own freeze flag (no ground under it), which the step loop compares with; a game's setEnabled(false) was carried
       b.wet = false; b._void = false;
     }
-    old.free();
+    old.free(); this._byHandle = null;   // every body has a new handle
     // the old world's joints (every one is the game's: the engine makes none) went with it. The game re-creates them here, between the rebuilt bodies
     const bodies = {};
     for (const b of this.bodies) if (b.id != null) bodies[b.id] = b.body;
@@ -129,8 +131,16 @@ export class RigidBodies {
   }
 
   // ---------- Add bodies ----------
+  /** @internal Rapier loads during engine.start(): a body added before has no world. Dev throws at the call (a null handle used to fail far
+   *  away, at crate.body.applyImpulse); release warns once and the add returns null */
+  _ready(call) {
+    if (this.ready) return true;
+    const msg = `engine.rigid.${call}() ran before physics was ready (Rapier loads during engine.start()). Add bodies after it: ` +
+      `\`await engine.start(); engine.rigid.${call}(mesh, { ... })\`, or inside engine.events.on('engine:ready', () => { ... })`;
+    if (DEV) throw codedError('module-needs', msg);
+    warnOnce(coded('module-needs', msg)); return false;
+  }
   _add(mesh, desc, { id, mass = 1, friction = 0.7, restitution = 0.1, damping = 0.05, angularDamping = 0.1, fixed = false } = {}) {
-    if (!this.ready) { warnOnce(coded('module-needs', 'Physics is not ready: add bodies after engine.start() or in the engine:ready event')); return null; }
     // id names the body in the save part 'rigid': two live bodies with one id would load into each other
     if (id != null && this.bodies.some(b => b.id === id)) throw codedError('rigid-misuse', `rigid: id '${id}' is already used by another body or vehicle; ids name the body in saves, pick a unique one (e.g. the world record id)`);
     const R = this.R, p = mesh.position, q = mesh.quaternion;
@@ -144,7 +154,7 @@ export class RigidBodies {
     const entry = { id, body, collider, mesh, object: mesh, enabled: true, volume: 0, damping, angularDamping, fixed, _x: p.x, _z: p.z, _desc: desc };   // _x / _z: where sync.js looks for trunks to give it
     entry.remove = () => this._remove(entry);
     recordLocks(entry, body);
-    this.bodies.push(entry);
+    this.bodies.push(entry); this._byHandle = null;
     // a loaded save holds this body's state (it is built after the load, e.g. by a world presenter): it continues from there, not from the record's pose
     const s = id != null && this._saved.get(id);
     if (s) { this._saved.delete(id); putState(entry, s); }
@@ -153,6 +163,7 @@ export class RigidBodies {
   /** Box. When size is omitted it is computed from the model bounding box */
   addBox(mesh, o = {}) {
     readParams('rigid.addBox()', keysSchema([...BODY_KEYS, 'size']), o);
+    if (!this._ready('addBox')) return null;
     const s = o.size || new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3()).toArray();
     const e = this._add(mesh, this.R.ColliderDesc.cuboid(s[0] / 2, s[1] / 2, s[2] / 2), o);
     if (e) e.volume = s[0] * s[1] * s[2];
@@ -161,6 +172,7 @@ export class RigidBodies {
   /** Ball */
   addBall(mesh, o = {}) {
     readParams('rigid.addBall()', keysSchema([...BODY_KEYS, 'radius']), o);
+    if (!this._ready('addBall')) return null;
     const r = o.radius ?? new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3()).x / 2;
     const e = this._add(mesh, this.R.ColliderDesc.ball(r), o);
     if (e) e.volume = 4.19 * r * r * r;
@@ -169,6 +181,7 @@ export class RigidBodies {
   /** Convex hull: auto-wrapped around the model shape (irregular objects such as rocks, barrels) */
   addHull(mesh, o = {}) {
     readParams('rigid.addHull()', keysSchema(BODY_KEYS), o);
+    if (!this._ready('addHull')) return null;
     const g = mesh.geometry, pts = new Float32Array(g.attributes.position.array.length);
     const v = new THREE.Vector3();
     for (let i = 0; i < g.attributes.position.count; i++) {
@@ -186,7 +199,7 @@ export class RigidBodies {
    */
   addWheeled(mesh, o) {
     readParams('rigid.addWheeled()', keysSchema(VEHICLE_KEYS), o);
-    if (!this.ready) return this._add(mesh);   // warns "physics is not ready"
+    if (!this._ready('addWheeled')) return null;
     const { id = 'vehicle' + ++this._vehicleSeq, ...rest } = o;
     // id: the player's save names the vehicle it sits in by it, and the save part 'rigid' its body state (the unique check is _add's)
     const v = createVehicle(this, mesh, rest, id);
@@ -212,7 +225,7 @@ export class RigidBodies {
   /** Delete the body (called by entry.remove()); the model stays */
   _remove(entry) {
     const i = this.bodies.indexOf(entry); if (i < 0) return;
-    this.world.removeRigidBody(entry.body); this.bodies.splice(i, 1);
+    this.world.removeRigidBody(entry.body); this.bodies.splice(i, 1); this._byHandle = null;
   }
   /** Push: impulse vector v (Vector3 / [x, y, z] / { x, y, z }) */
   impulse(entry, v) { const { x, y, z } = vec3(v); entry.body.wakeUp(); entry.body.applyImpulse({ x, y, z }, true); }
@@ -226,7 +239,8 @@ export class RigidBodies {
   /** Ray (provider for engine.rays, called by engine.raycast when targets: 'all'): hits dynamic bodies only, returns RayHit (with entry, kind: 'rigid') */
   _raycast(origin, dir, far) {
     if (!this.ready || !this.bodies.length) return null;
-    const byHandle = new Map(this.bodies.map(b => [b.body.handle, b]));
+    let byHandle = this._byHandle;
+    if (!byHandle) { byHandle = this._byHandle = new Map(); for (const b of this.bodies) byHandle.set(b.body.handle, b); }
     const max = Number.isFinite(far) ? far : 1e6;
     const only = c => byHandle.has(c.parent()?.handle);
     const hit = this.world.castRayAndGetNormal(new this.R.Ray(origin, dir), max, true, undefined, undefined, undefined, this.playerBody, only);
@@ -351,20 +365,24 @@ export function rigid(opts = {}) {
   readParams('rigid', RIGID_PARAMS, opts);
   let r = null;
   return {
-    name: 'rigid', params: RIGID_PARAMS, options: opts, label: 'Physics', noSkip: 'bodies rest while time jumps (stepping seconds of physics would only scatter them)', optional: ['interactions'], requires: ['collision'],
-    install(e) {
-      e.i18n.add(STRINGS); r = new RigidBodies(e, opts);
+    name: 'rigid', type: 'world', provides: ['rigid'], params: RIGID_PARAMS, options: opts, label: 'Physics', noSkip: 'bodies rest while time jumps (stepping seconds of physics would only scatter them)', optional: ['interactions'], requires: ['collision'],
+    install(e, ctx) {
+      e.i18n.add(STRINGS); e.i18n.add({ 'zh-CN': { 'module.rigid': '物理引擎' }, en: { 'module.rigid': 'physics' } }); r = new RigidBodies(e, opts);
       r._wasm().catch(() => {});   // start loading now (see _wasm); a failure surfaces in init, which awaits the same promise
       e.budget.metric('rigidBodies', () => r.bodies.length);
       e.stream.readyCheck('rigid', s => !s.physics || r.ready && r.groundReady(s));   // a physics stream source waits for the collider under it
       e.rays.addProvider((o, d, far) => r._raycast(o, d, far));   // engine.raycast(..., { targets: 'all' }) includes rigid bodies
-      // a new playthrough / a load is a fresh page for physics too (_fresh); world:load comes after the load removed the records' bodies, so the rebuilt
-      // world gets them back in view order; session:end covers games without the world module
-      for (const ev of ['session:end', 'world:load']) e.events.on(ev, () => r._fresh());
+      // a new playthrough / a load is a fresh page for physics too (_fresh), rebuilt once per load: session:end only marks it due. With the world
+      // module the rebuild runs on world:load, after the load removed the records' bodies, so the rebuilt world gets them back in view order; without
+      // it, afterLoad (newGame / load / quit all apply a save) runs it. Rebuilding on both events built the world twice per new game.
+      // A refused load (session:failed) leaves the game as it was, physics included.
+      ctx.track(e.events.on('session:end', () => { r._freshDue = true; }));
+      ctx.track(e.events.on('session:failed', () => { r._freshDue = false; }));
+      ctx.track(e.events.on('world:load', () => r._fresh()));
       e.saves.register('rigid', { save: () => r._saveState(), load: d => r._loadState(d) });
       return r;
     },
-    afterLoad() { r._claimSaved(); },   // after every part loaded and _fresh rebuilt the world (world:load is emitted inside the world part's load)
+    afterLoad() { if (r._freshDue) r._fresh(); r._claimSaved(); },   // after every part loaded and _fresh rebuilt the world (world:load is emitted inside the world part's load)
     async init() { await r.init(); },
     counts() { return r.bodies.length; },   // engine.counts().rigid
     // bodies by type and what they are doing: sleeping = at rest (normal), frozen = disabled because no terrain collider is under them yet (they wait, not fall)

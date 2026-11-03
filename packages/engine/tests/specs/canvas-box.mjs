@@ -1,6 +1,6 @@
 // The canvas follows its own CSS box, not the window ("do not bypass" guard): a canvas inside a smaller page section renders at that size,
 // the pointer's ndc is relative to the canvas, so pick at a screen point hits the object under it, and a resize of the section follows.
-// Same format as specs.mjs. Run: npm test -- "canvas box"
+// Same format as the other files here. Run: npm test -- "canvas box"
 
 export const specs = [
   {

@@ -4,7 +4,7 @@ import { createEngine, presets, world, sky, collision, characters, debug, THREE 
 import { followCamera } from '../../modules/camera/FollowCamera.js';
 
 const q = new URLSearchParams(location.search), groundMode = q.get('ground');
-const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: 'camera look-up test' } } });
+const engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: document.getElementById('view'), ui: { loading: { title: 'camera look-up test' } } });
 const camOpts = { ...presets.camera.thirdPersonAction, ...(groundMode ? { ground: groundMode } : {}) };
 engine.use(world(), sky({ time: 0.45 }), collision({ cameraMin: 0.4 }), followCamera(camOpts), characters({ npcs: false }), debug());
 
@@ -38,7 +38,7 @@ const SCENES = {
 };
 window.scene = name => {
   const s = SCENES[name], rig = engine.cameraRig;
-  player.placeAt({ x: s.x, z: s.z });
+  engine.ops.allow(() => player.placeAt({ x: s.x, z: s.z }));   // test setup, not gameplay: no ops-guard reminder
   rig.setView({ yaw: 0, pitch: 0.25 });
   rig.focus.copy(player.position); rig._d = undefined;
   const top = player.position.y + rig.height + 10, f = rig.forward(), r = rig.right();

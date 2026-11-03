@@ -1,22 +1,20 @@
-// 美术自由：风格包能给任意材质、抗锯齿开后期不丢。页面用 perf 的 city 模式（style 是空对象，测试里临时换 materials 再还原）。
+// 美术自由：游戏自己的 style能给任意材质、抗锯齿开后期不丢。页面用 perf 的 city 模式（style 是空对象，测试里临时换 materials 再还原）。
 // [守] 这些检查防止以后有人把材质入口改回"只认几种类型"、或让后期链再次丢掉 MSAA。
 
 export const specs = [
   {
-    name: '[守] 材质开放：风格包给实例 / 函数 / 规格三种写法都行，写错类型报错不静默回退',
+    name: '[守] 材质开放：游戏自己的 style给实例 / 函数 / 规格三种写法都行，写错类型报错不静默回退',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, makeMaterial } = threedogTest, S = engine.style, old = S.materials;
+        const { THREE, makeMaterial } = threedogTest, L = engine.look.materials, o = { owner: 'art-test' };
         const inst = new THREE.MeshMatcapMaterial();
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        S.materials = {
-          glass: inst,
-          shader: (params, purpose) => new THREE.ShaderMaterial({ userData: { got: purpose + ':' + (params.color ?? '') } }),
-          broken: () => 42,
-          typo: { type: 'lamber' },
-          default: { type: 'toon', steps: 4 },
-        };
+        // the three forms a style's materials table takes, written through look.materials (the one entry makeMaterial reads)
+        L.replace('glass', inst, o);
+        L.replace('shader', (params, purpose) => new THREE.ShaderMaterial({ userData: { got: purpose + ':' + (params.color ?? '') } }), o);
+        L.replace('broken', () => 42, o);
+        L.set({ typo: { type: 'lamber' }, default: { type: 'toon', steps: 4 } }, o);
         const a = makeMaterial('glass', { color: 0xff0000, type: 'x' });
         const b = makeMaterial('shader', { color: 7 });
         const c = makeMaterial('anything', { color: 0x00ff00 });
@@ -26,7 +24,7 @@ export const specs = [
           spec: c.isMeshToonMaterial && c.gradientMap?.image.width === 4,
           badFn: err(() => makeMaterial('broken')), badType: err(() => makeMaterial('typo')),
         };
-        S.materials = old;
+        L._clear('art-test');
         return out;
       });
       check('实例写法：每次 clone，params 照常套用', r.clone, JSON.stringify(r));
@@ -37,7 +35,7 @@ export const specs = [
     },
   },
   {
-    name: '[守] 抗锯齿：画布本身不开 MSAA，开关在后期渲染目标上；开着效果时 MSAA 还在；画质预设能切',
+    name: '[守] 抗锯齿：开局的 MSAA 就是画布自带的（不开效果时直接画）；运行中切到另一值、或开效果时走后期渲染目标；画质预设能切',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
@@ -52,12 +50,26 @@ export const specs = [
         out.off = { active: p.active, s: samples() };
         engine.settings.preset('high'); out.high = p.antialias;
         engine.settings.preset('low'); out.low = p.antialias;
+        p.setAntialias(out.start);
+        // an engine whose canvas was made with MSAA: nothing on draws straight to it; switching MSAA off goes through the chain with 0 samples
+        const E = threedogTest.createEngine({ canvas: document.createElement('canvas'), antialias: true, headless: true, ui: { loading: false }, urlState: false, saveKey: 'art-aa' });
+        out.own = { canvas: E.renderer.getContextAttributes().antialias, active: E.post.active };
+        E.post.setAntialias(false); E.post.render(0); out.own.offActive = E.post.active; out.own.offSamples = E.post.composer?.renderTarget1.samples;
+        E.dispose();
+        // a game's own renderer keeps its own MSAA choice by default (used as is, like its pixel ratio)
+        out.game = [true, false].map(a => {
+          const G = threedogTest.createEngine({ renderer: new threedogTest.THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: a }), headless: true, ui: { loading: false }, urlState: false, saveKey: 'art-aa-own' });
+          const v = [G.post.antialias, G.post.active]; G.dispose(); G.renderer.dispose(); G.renderer.forceContextLoss(); return v;
+        });
         return out;
       });
-      check('画布不开原生抗锯齿（MSAA 只在渲染目标上，才能运行时切换、开后期不丢）', r.canvas === false, JSON.stringify(r));
-      check('开抗锯齿：走后期，渲染目标 4 倍采样', r.on.active && r.on.s.join() === '4,4');
+      check('画布自带的 MSAA 等于开局的抗锯齿值', r.canvas === r.start, JSON.stringify(r));
+      check('游戏自己的渲染器：MSAA 默认跟它的 antialias 走，没开效果时都不走后期', JSON.stringify(r.game) === '[[true,false],[false,false]]', JSON.stringify(r.game));
+      check('画布开了 MSAA、没开效果：不走后期；运行中关掉：走后期，渲染目标 0 采样', r.own.canvas === true && !r.own.active && r.own.offActive && r.own.offSamples === 0, JSON.stringify(r.own));
+      // the page's canvas follows the tier: without its own MSAA (software rendering, low tier) switching on goes through the chain
+      check('开抗锯齿：画布自带 MSAA 时直接画，否则走后期、渲染目标 4 倍采样', r.start ? !r.on.active : r.on.active && r.on.s.join() === '4,4', JSON.stringify(r));
       check('再加效果：仍是 4 倍采样', r.fx?.join() === '4,4');
-      check('关掉：采样 0，没有效果时直接画', !r.off.active && r.off.s.join() === '0,0');
+      check('关掉、去掉效果：采样 0；画布没有 MSAA 时直接画', r.off.s.join() === '0,0' && r.off.active === r.start, JSON.stringify(r));
       check('画质预设 high 开、low 关', r.high === true && r.low === false);
     },
   },
@@ -218,7 +230,10 @@ void main(){ vec4 d = threedogDetailNoise(vW.xz * 0.25, 1, 2.0); float nl = dot(
         const shaped = threedogTest.makeMaterial('stone', { lighting: { wrap: 0.4, shadowTint: { color: 0x4455aa }, rim: { color: 0xffffff } } }, engine);
         const sh = compile(shaped, L.lambert);
         out.callable2 = { compiles: !!prog2 && (!prog2.diagnostics || prog2.diagnostics.runnable),
-          detailSame: lit.fragmentShader.includes('#include <threedog_detail>') && lit.fragmentShader.includes('threedogDetailNoise(p, 1, uDetailOctaves)'),
+          // the patch's pars expand the threedog_* chunks once (patches.js sharedOnce), so look for the chunk's body, not the #include line;
+          // one threedogHash definition = the detail grain calls the shared noise, no private copy (cloud shadows include the same chunk)
+          detailSame: lit.fragmentShader.includes('#define THREEDOG_DETAIL') && lit.fragmentShader.includes('threedogDetailNoise(p, 1, uDetailOctaves)')
+            && (lit.fragmentShader.match(/float threedogHash\(/g) || []).length === 1 && !/threedogD(Hash|Noise)\b/.test(THREE.ShaderChunk.threedog_detail),
           lightSame: ['threedogWrapDiffuse(', 'threedogShadowTint(', 'threedogRim('].every(f => sh.fragmentShader.includes(f)) };
         const cust = applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'snap', glsl: { vertex: { project_vertex: '// snap' } } }] });
         out.custom = materialPatches(cust).join();

@@ -18,13 +18,14 @@ Lightweight collision (collision() module): no clipping while walking, the camer
 - `collision.blockedAt(x: number, z: number, radius?: number) → boolean` — Is a character of this radius touching addBlocked ground at (x, z)
 - `collision.addObject(obj: Object3D, opts?: { pad?: number }) → Handle` — Add a collider from an object's bounding box, pad expands outward (meters). Returns a handle { remove() }
 - `collision.forEachStatic(fn: (type, data) => void)` — Iterate all static colliders added by hand
+- `collision.mirror(fns: { add, remove }) → { sync, clear, size }` — Keep an outside copy of the static colliders in step (physics colliders, navmesh obstacles): add builds one piece, remove drops one; sync() diffs only when colliders changed and returns whether it compared; clear() forgets every piece without remove (the outside world was thrown away)
 - `collision.walkable(position: PositionLike, opts?: { radius?: number }) → boolean` — Whether someone can stand at this position (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (meters, default engine.movement.radius)
 - `collision.walkableAt(x: number, z: number, radius?: number) → boolean` — walkable with plain numbers, allocating nothing (A* inner loops); radius defaults to engine.movement.radius
 - `collision.lineClear(a: PositionLike, b: PositionLike, opts?: { radius?, who? }) → boolean` — Line of sight with height: is the 3D segment a -> b free of boxes, circles and terrain trees? radius fattens the line; addBlocked water is ignored. Give eye heights in a / b
 - Properties:
   - `cameraOcclusion: 'colliders' | 'meshes' | 'both'` What camera occlusion checks (see CollisionOptions.cameraOcclusion)
-  - `circles: CircleCollider[]` Circle colliders added by hand
-  - `boxes: BoxCollider[]` Box colliders added by hand
+  - `circles: Set<CircleCollider>` Circle colliders added by hand
+  - `boxes: Set<BoxCollider>` Box colliders added by hand
   - `version: number` +1 each time a static collider is added or removed
 
 ## Data structures

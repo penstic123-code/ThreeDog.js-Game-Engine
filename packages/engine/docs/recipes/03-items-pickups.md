@@ -4,7 +4,7 @@
 3. Verify
 
 Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with the key the game gives:
-`inventory({ ...presets.keys.inventory })` is I / gamepad Y, `keys: []` none; no module binds a key by itself) +
+`inventory()`; its open key is the game's: `presets.bindings.inventory` is I / gamepad Y, `inventory: []` none; no module binds a key by itself) +
 `pickups()` (things lying on the ground; needs `world()`, which `openWorld()` includes) + `interactions({ ...presets.interactions.nearest })` (walk up
 to a pickup and press E). "Already picked up / how long until it grows back" is data in world and is saved with the game.
 
@@ -83,7 +83,7 @@ I.setData('tomato#4', { quality: 1 }, 2);       // only 2 of that stack change: 
 Data and keys are saved with the container. Which piece a player means is chosen by key (a click on a row of `list()`), so ops take `item` as an id or a key.
 
 ## Limits (all optional, none by default)
-`inventory({ ...presets.keys.inventory, capacity, maxWeight })` for the player and `inventory.container(id, { capacity, maxWeight })` for others:
+`inventory({ capacity, maxWeight })` for the player and `inventory.container(id, { capacity, maxWeight })` for others:
 `capacity` = slots (an entry uses `ceil(count / stack)`), `maxWeight` = sum of item `weight` × count. `room(item)` says how many more fit; `weight`
 and `slotsUsed` read the totals. Locks, prices and "only one equipped" are game rules: check them in your op's `can`.
 
@@ -107,10 +107,10 @@ engine.inventory.trade('rusty_key', 'gold_key');                                
 `const r = engine.ops.run('interaction.use'); if (!r.ok) say(r.code);   // 'full'`.
 
 ## The inventory window (UI part `inventory`)
-`inventory({ ...presets.keys.inventory, pauseGame: true })` freezes gameplay (`engine.freeze`, the same mechanism as flow's `paused`) while the window
+`inventory({ pauseGame: true })` freezes gameplay (`engine.freeze`, the same mechanism as flow's `paused`) while the window
 is open; default `false` (the world keeps running behind the window). Switchable at runtime: `engine.inventory.pauseGame = true`.
 
-The window is a UI part (recipe 26): the engine opens and closes it (the key from `inventory({ keys })`, Esc, input lock), the part only draws
+The window is a UI part (recipe 26): the engine opens and closes it (the bound `inventory` key, Esc, input lock), the part only draws
 `{ title, hint, items: list(), capacity, used, weight, maxWeight }`.
 ```js
 engine.ui.set('inventory', false);                         // no window at all (the key does nothing, no DOM)

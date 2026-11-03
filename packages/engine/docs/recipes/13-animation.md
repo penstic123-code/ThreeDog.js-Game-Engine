@@ -14,7 +14,7 @@ const hero = await engine.assets.model('hero');
 ## 2. Mapping: game action names -> whatever the asset calls its clips
 States are the mapping. The left side is what your game says (`idle`, `attack`, `hurt`), the right side is the clip name in the file, so a new model
 only changes the right side:
-```js
+```js fragment
 states: { idle: { clip: 'Idle_Sword' }, attack: { clip: 'Sword_Slash', loop: false }, hurt: { clip: 'HitRecieve', loop: false }, death: { clip: 'Death', loop: false } }
 ```
 **Keep the mapping as data, on the model's manifest entry** (it describes the file, so it travels with it in an asset pack). `assets.animate(model)`
@@ -116,7 +116,7 @@ anim.dispose();                                                     // no longer
 (step's frameEvery) and a model being torn down when it is far away all make it drift from game time. When an attack lands, cooldowns, recovery and
 "finish the swing before moving" are timed in fixed steps:
 ```js
-engine.input.define('attack', ['KeyF', 'Mouse0'], 'Attack');      // no module binds it for you
+engine.input.action('attack', { label: 'Attack', keys: ['KeyF', 'Mouse0'] });      // no module binds it for you
 let t = -1;                                                         // seconds since the swing started (-1 = not swinging); put it in a world record if it must be saved
 engine.onFixed(dt => {
   if (t < 0) { if (!engine.input.pressed('attack')) return; t = 0; }

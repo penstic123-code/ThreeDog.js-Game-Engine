@@ -4,7 +4,7 @@
 //   1. paths with an extension and a `/` (error): resolved against the doc's folder, the docs root, the engine and tools packages, the game folders
 //      and the repo root; `node_modules/threedog/…` maps to the engine. A `packages/…` path in a shipped doc (engine docs, template) is an error.
 //      Placeholders (<…>, *, …, xxx, my-*, games/<missing game>/) are skipped.
-//   2. `npm test -- name` (error): each name must be a substring of a real test name (engine and game specs, tool tests, scenarios, pack items).
+//   2. `npm test -- name` (error): each name must be a substring of a real test name, any case (engine and game specs, tool tests, scenarios, pack items).
 //   3. `threedog cmd` / `npm run script` (error): a command of bin/threedog.mjs, or a script of the root / engine / template / game package.json.
 //   4. events `noun:action` (warn): in EventMap, a game's GameEvents, or emitted by game code.
 //   5. `engine.x.y` and `look.x` (error in the engine's docs/ and recipes, warn elsewhere): a property of the Engine type, then of its type
@@ -20,6 +20,7 @@ import { join, dirname, resolve, relative, basename, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { walk, read, abs, rel, P, engineApi, dtsFiles } from './_lib.mjs';
 import { closest, nearest } from '../lib/text.mjs';
+import { workspaceSpecs } from '../lib/specs.mjs';
 
 const ALLOW = [
   ['*', 'door:open', 'the naming convention example for a game event'],
@@ -75,12 +76,12 @@ export async function context() {
   const games = P.gameDirs();
   // test names
   const tests = [];
-  const specsOf = async f => { try { return (await import(pathToFileURL(f).href)).specs.map(s => s.name); } catch { return []; } };
-  if (P.MODE === 'monorepo' && existsSync(P.ENGINE_SPECS)) tests.push(...await specsOf(P.ENGINE_SPECS));
+  // the same files npm test runs (lib/specs.mjs); a broken spec file is npm test's error to report, here it only adds no names
+  const specsOf = async d => { try { return (await workspaceSpecs(d)).map(x => x.spec.name); } catch { return []; } };
   for (const d of P.workspaces()) {
-    if (d !== P.ENGINE) { const f = join(d, 'tests',
-      'specs.mjs'); if (existsSync(f)) tests.push(...await specsOf(f)); else tests.push(`smoke: ${basename(d)}`); tests.push(`pack: ${rel(d)}`,
-      `pack: dist of ${rel(d)}`); }
+    const names = await specsOf(d);
+    tests.push(...names);
+    if (d !== P.ENGINE) { if (!names.length) tests.push(`smoke: ${basename(d)}`); tests.push(`pack: ${rel(d)}`, `pack: dist of ${rel(d)}`); }
     const sc = join(d, 'tests', 'scenarios');
     if (existsSync(sc)) tests.push(...readdirSync(sc).filter(f => f.endsWith('.json')).map(f => `scenario: ${f.slice(0, -5)}`));
   }
@@ -109,7 +110,7 @@ export async function context() {
   const api = engineApi();
   const fns = new Set([...api.exports, ...GLOBALS]);
   for (const f of dtsFiles()) for (const m of read(f).matchAll(/\b([A-Za-z_$][\w$]*)\??\s*[(:<]/g)) fns.add(m[1]);
-  for (const f of [...[P.STYLES_REL, ...P.ADDONS_REL].flatMap(d => walk(d, ['.d.ts', '.js'])),
+  for (const f of [...P.ADDONS_REL.flatMap(d => walk(d, ['.d.ts', '.js'])),
     ...walk(P.TOOLS_REL, ['.mjs']).filter(f => !f.includes('/tests/'))]) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
   // technique examples document the functions of their own folder's .js (pulled into a game together with the README)
   for (const f of walk(`${P.ENGINE_REL}/examples/techniques`, ['.js'])) for (const m of read(f).matchAll(/export (?:default )?(?:async )?function\s+(\w+)|export const (\w+)/g)) fns.add(m[1] || m[2]);
@@ -151,9 +152,9 @@ function checkTests(tok, ctx) {
     const a = args[i];
     if (a === '-w' || a === '--workspace') { i++; continue; }
     if (a.startsWith('-') || PLACEHOLDER.test(a) || /^[|#;]/.test(a) || a === 'name' || /^(and|or|e\.g\.)$/.test(a)) { if (/^[|#;]/.test(a)) break; continue; }
-    if (!ctx.tests.some(t => t.includes(a))) out.push({ level: 'error',
+    if (!ctx.tests.some(t => t.toLowerCase().includes(a.toLowerCase()))) out.push({ level: 'error',
       msg: `\`npm test -- ${a}\` matches no test${nearest(a, ctx.tests, 2).length ? `; close: ${nearest(a, ctx.tests, 2).map(t => `"${t}"`).join(', ')}` : ''}`,
-      fix: 'use a fragment of a real test name (they are listed by npm test)' });
+      fix: 'use a fragment of a real test name, any case (npm test -- --verbose lists them)' });
   }
   return out;
 }

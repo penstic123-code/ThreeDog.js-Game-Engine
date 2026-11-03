@@ -53,7 +53,7 @@ export function visit(node, fn) { (function go(n) { fn(n); ts.forEachChild(n, go
 export const engineFiles = () => [P.INDEX_JS_REL, ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(d, ['.js']))];
 /** API declarations (packages/engine/index.d.ts + packages/engine/types/*.d.ts) */
 export const dtsFiles = () => [P.INDEX_DTS_REL, ...walk(P.TYPES_REL, ['.d.ts'])].filter(f => existsSync(abs(f)));
-/** All project source: engine, styles, examples, engine tests, tools, games/* (scope: SOURCE_DIRS_REL in paths.mjs) */
+/** All project source: engine, add-ons, examples, engine tests, tools, games/* (style/ folders included) (scope: SOURCE_DIRS_REL in paths.mjs) */
 export const projectFiles = (exts = ['.js', '.mjs']) => [...(exts.some(e => P.INDEX_JS_REL.endsWith(e)) ? [P.INDEX_JS_REL] : []), ...P.SOURCE_DIRS_REL.flatMap(d => walk(d, exts))];
 
 /**
@@ -139,11 +139,24 @@ export function resolveImport(fromFile, spec) {
   if (spec.startsWith('.')) p = resolve(dirname(abs(fromFile)), spec);
   else if (spec.startsWith('/')) p = join(P.workspaceOf(dirname(abs(fromFile))) ?? ROOT, spec);   // site path: relative to the workspace root
   else if (spec === P.ENGINE_PKG) p = abs(P.INDEX_JS_REL);
-  else if (P.optionalEntry(spec)) p = P.optionalEntry(spec);   // a style (@threedog/style-<name>) or an add-on package (@threedog/terrain-noise)
+  else if (P.optionalEntry(spec)) p = P.optionalEntry(spec);   // an add-on package (@threedog/terrain-noise)
   else if (spec.startsWith(P.ENGINE_PKG + '/') && typeof engineExports()['.' + spec.slice(P.ENGINE_PKG.length)] === 'string') p = join(P.ENGINE, engineExports()['.' + spec.slice(P.ENGINE_PKG.length)]);   // other fixed subpaths of package.json exports (threedog/error-hints)
   else return null;
   for (const cand of [p, p + '.js', join(p, 'index.js')]) if (existsSync(cand) && statSync(cand).isFile()) return rel(cand);
   return null;
+}
+
+/** The paths one line imports: static (`from '...'`, `import '...'`) and dynamic (`import('...')`); comment lines and the // comment are skipped */
+export const importSpecs = raw => /^\s*(\*|\/\*|\/\/)/.test(raw) ? []
+  : [...raw.replace(/\/\/.*$/, '').matchAll(/(?:\bfrom\s+|\bimport\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/g)].map(m => m[1]);
+/** Where a relative import from a file lands in modules/: { folder, path } (path inside modules/: '<folder>/x.js'), null when it lands outside
+ *  modules/ or is not relative. Resolved as a path, so '../../modules/nav/x.js' lands in nav like '../nav/x.js' (R16, R46) */
+export function moduleTarget(fromFile, spec) {
+  if (!spec.startsWith('.')) return null;
+  const to = rel(resolve(dirname(abs(fromFile)), spec));
+  if (!to.startsWith(P.MODULES_REL + '/')) return null;
+  const path = to.slice(P.MODULES_REL.length + 1);
+  return { folder: path.split('/')[0], path };
 }
 
 /** Read d.ts with the TypeScript type checker (shared by R6 and R7) */

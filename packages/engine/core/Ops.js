@@ -11,10 +11,11 @@
 // The guard (ops.guard) backs "don't go around it": in dev, saved gameplay state written outside loading, fixed steps and ops
 // is reported (see recipes/23-ops.md). Dev argument checks live in opsCheck.js.
 import { DEV, missingText, warnOnce } from './validate.js';
+import { checkTypeRule, asModule } from './moduleTypes.js';
 import { checkDef, checkArgs, devError, fmt, SOURCES } from './opsCheck.js';
-import { coded } from './errorHints.js';
+import { coded, codedError } from './errorHints.js';
 import { guardWrite } from './opsGuard.js';
-import { failure, isStructured } from './opsFail.js';
+import { failure, isStructured, opsBlocked } from './opsFail.js';
 import { runOp } from './opsRun.js';
 import { newRing, logEntry, recentEntries } from './opsHistory.js';
 import { defaultsOf, withDefaults } from './params.js';
@@ -24,6 +25,7 @@ const STRINGS = {
   unknown: 'ops.run({name}): {text}',
   canResult: "{name}'s can must return true or a reason string, e.g. return 'noMoney' (or { code, facts, nextActions }); got {got}",
   badSource: "ops.run('{name}'): source '{source}' is not one of " + SOURCES.join(', '),
+  routedTwice: 'engine.ops.route(fn): ops are already routed elsewhere (one router at a time). Fix: remove() the first one before routing again',
 };
 
 /**
@@ -43,8 +45,8 @@ export class Ops {
     /** @internal > 0 while state may be written without an op (save load, applyState, net sync) */ this._allowDepth = 0;
     /** @internal request counter (net replies carry it) */ this._seq = 0;
     /** @internal ctx of the innermost running op (nested ops inherit source and actor) */ this._last = null;
-    /** @internal set by net() on clients: (def, args, opts) => result to return instead of running locally, or null to run here */ this._route = null;
-    /** @internal set by net() on clients: every write outside allow() is reported, even in fixed steps and ops (own movement, world.move, excepted) */ this._client = false;
+    /** @internal set through route() (net clients): (def, args, opts) => result to return instead of running locally, or null to run here */ this._route = null;
+    /** @internal true while route() is held: every write outside allow() is reported, even in fixed steps and ops (own movement, world.move, excepted) */ this._client = false;
     /** Counter bumped on each committed op (an op that failed or rolled back does not bump it); every run result carries it, so "did anything change since I looked" is one compare */
     this.revision = 0;
     /** @internal depth of atomic runs in progress, and after hooks waiting for the outermost one to commit */ this._txDepth = 0; this._txAfter = [];
@@ -98,6 +100,7 @@ export class Ops {
    * });
    */
   define(name, def) {
+    checkTypeRule(this.engine, 'ops.define', `defined op ${name}`);
     if (this.defs.has(name)) throw devError(fmt(STRINGS.dup, { name }));
     const shape = checkDef(name, def);
     const d = { name, ...def, shape, defaults: defaultsOf(shape) };
@@ -119,7 +122,8 @@ export class Ops {
    * // from a fixed step, for an input-driven action: e.ops.run('combat.roll', { dir }, { source: 'player' })
    */
   run(name, args = {}, opts) {
-    return runOp(this, name, args, opts);
+    // the op's code is the defining module's, not the caller's: a ui module running shop.buy is fine even though shop.buy writes records
+    return asModule(this.engine, null, () => runOp(this, name, args, opts));
   }
 
   /**
@@ -155,7 +159,8 @@ export class Ops {
     if (!d) return this._res(failure('unknownOp'));
     args = withDefaults(d.defaults, args);
     const ctx = this._ctx(name, args, opts, this._stack.length ? this._last : null);
-    if (this.engine.stacks.get('freeze').has('error')) return this._res(failure('halted'));
+    const blocked = opsBlocked(this.engine);
+    if (blocked) return this._res(failure(blocked));
     let res;
     try { res = this._can(d, args, ctx); } catch (err) { if (err?.opsDevError) throw err; res = 'error'; }
     return this._res(res === true ? { ok: true } : failure(res));
@@ -164,6 +169,7 @@ export class Ops {
   /**
    * What exists, or with { available: true } what is possible now: every arg set from each op's offers checked with can
    * (an op with neither offers nor args is checked once with {}; one with args but no offers is skipped, since its args are free-form).
+   * An offers that throws gives one entry with code 'offersFailed'; an offered arg set that fails the op's args check gives code 'badOffer' (facts.error says why).
    * @param {{ available?: boolean, actor?: string }} [opts]
    * @returns {{ name: string, desc?: string, args?: any, atomic: boolean, ok?: boolean, code?: string }[]}
    * @example engine.ops.list({ available: true });   // [{ name: 'shop.buy', args: { shop: 'bakery', item: 'bread' }, ok: false, code: 'noMoney' }, ...]
@@ -174,8 +180,16 @@ export class Ops {
     for (const d of this.defs.values()) {
       const ctx = this._ctx(d.name, null, { actor }, null);
       let sets;
-      try { sets = d.offers ? d.offers(this.engine, ctx) : d.shape ? [] : [{}]; } catch { sets = []; }
-      for (const args of sets || []) { const r = this.can(d.name, args, { actor }); out.push({ name: d.name, args, ...r }); }
+      // A broken offers / an offered arg set that fails its own args check is the game's bug, but describe() reads this list every call: one bad
+      // op must not make describe throw (that hid every other fact). It shows up as an entry with the error instead, so the AI still sees it.
+      try { sets = d.offers ? d.offers(this.engine, ctx) : d.shape ? [] : [{}]; }
+      catch (err) { out.push({ name: d.name, args: null, ...failure({ code: 'offersFailed', facts: { op: d.name, error: String(err?.message || err) } }) }); continue; }
+      for (const args of sets || []) {
+        let r;
+        try { r = this.can(d.name, args, { actor }); }
+        catch (err) { r = failure({ code: 'badOffer', facts: { op: d.name, error: String(err?.message || err) } }); }
+        out.push({ name: d.name, args, ...r });
+      }
     }
     return out;
   }
@@ -203,6 +217,28 @@ export class Ops {
     if (!DEV) return;   // release builds do not check; games cannot read DEV, so the no-op lives here
     guardWrite(this, where);
   }
+  /**
+   * Send every op to someone else instead of running it here (a multiplayer client: the host decides). fn(def, args, opts) returns the result to
+   * hand back, or null to run the op locally after all. While routed, a write outside an op or allow() is reported even in fixed steps (only the
+   * host changes game state). One router at a time; remove() runs ops locally again. Public so a transport module needs no ops internals.
+   * @param {(def: any, args: any, opts: any) => any} fn
+   * @returns {{ remove(): void }}
+   * @example const r = engine.ops.route((d, args) => d.name.startsWith('chat.') ? null : sendToHost(d.name, args));   // r.remove() on disconnect
+   */
+  route(fn) {
+    if (this._route) throw codedError('engine-misuse', STRINGS.routedTwice);
+    this._route = fn; this._client = true;
+    return { remove: () => { if (this._route !== fn) return; this._route = null; this._client = false; } };
+  }
+  /**
+   * Put a refused request into the op history (describe().ops, ops.history) without running it: a host refusing a peer's op keeps the refusal visible
+   * next to the ops that ran. The op must be defined.
+   * @param {string} name
+   * @param {any} args
+   * @param {{ reason: string, actor?: string, source?: string }} why  source defaults to 'net'
+   * @returns {void}
+   */
+  refused(name, args, { reason, actor = '', source = 'net' }) { this._log(name, args, { source, actor, tick: this.engine.tick }, false, reason, 0); }
   /** @internal A separator in the history (save load): later entries belong to a different world state */
   _mark(label) { this._log(label, null, { tick: this.engine.tick, source: 'game', actor: '' }, true, null, 0); }
   /**

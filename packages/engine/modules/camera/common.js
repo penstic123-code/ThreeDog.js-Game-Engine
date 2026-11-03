@@ -78,7 +78,7 @@ export function clickToLock(rig, switched) {
   // Last outcome, shown by describe(): the drag fallback stays, but a refused lock is no longer silent
   const st = rig.lockState = { configured: !!rig.pointerLock, requested: false, locked: document.pointerLockElement === canvas, lastError: null,
     supported: typeof canvas.requestPointerLock === 'function' };
-  const fail = err => { st.locked = false; st.lastError = String(err?.message ?? err ?? 'refused'); st.failedAt = e.elapsed; };
+  const fail = err => { st.locked = false; st.lastError = String(err?.message ?? err ?? 'refused'); st.failedAt = e.time.now('real'); };
   const lock = () => {
     st.configured = !!rig.pointerLock;
     if (!wouldLock()) return;
@@ -105,7 +105,7 @@ function lockView(e, st) {
   const c = e.renderer.domElement, r = c.getBoundingClientRect();
   const top = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
   return { ...st, state, covered: top && top !== c ? (top.id ? '#' + top.id : top.className ? '.' + String(top.className).split(' ')[0] : top.tagName.toLowerCase()) : null,
-    cameraOverride: e.cameraOverride?.owner ?? null, lastFailure: st?.lastError ? { reason: st.lastError, agoSec: Math.round((e.elapsed - st.failedAt) / 100) / 10 } : null };
+    cameraOverride: e.cameraOverride?.owner ?? null, lastFailure: st?.lastError ? { reason: st.lastError, agoSec: Math.round((e.time.now('real') - st.failedAt) / 100) / 10 } : null };
 }
 /** Release the mouse lock; stop listening for clicks too when switched away (call from onExit; from onOverride with keepListening) */
 export function releaseLock(rig, keepListening = false) {
@@ -124,7 +124,19 @@ export function viewForward(camera, fallback) {
 
 export { screenToGround } from '../../core/screenToGround.js';   // shared with grid placement and click-to-move; lives in core
 
-/** Camera kind table: kind name -> build(engine, opts). Each camera file registers once with defineRig; setCamera switches by name */
+/**
+ * A rig placed the camera outside its update (fixedCamera cut, rtsCamera moveTo instant): that write is the engine's, not the game's, so the
+ * next frame's single ownership check (core/owned.js) must not take it for an outside write and stop the rig. Rigs call this from the one
+ * method that writes the pose (their _place), instead of the module wrapping every rig method with a pose compare (that ran on every
+ * forward() / right() read, several times per fixed step).
+ * @internal
+ */
+export function rigPlaced(engine) { RIG_OWNED.get(engine)?.mark(); }
+const RIG_OWNED = new WeakMap();   // engine -> the camera's owned entry (one camera module per engine)
+
+/** Camera kind table: kind name -> build(engine, opts, input). Each camera file registers once with defineRig; setCamera switches by name.
+ * input.action(name, o) declares an action owned by the camera module (once per name, removed with the module), so a rig built later by
+ * setCamera or a new session leaves no declaration behind */
 const RIGS = new Map();
 const RIG_PARAMS = new Map();   // kind -> params schema (the option keys of that camera)
 /** keys: the options that camera takes; they become its params schema (engine.catalog) and a misspelled one throws in dev */
@@ -138,31 +150,16 @@ export function defineRig(kind, build, keys = []) { RIGS.set(kind, build); RIG_P
 export function rigModule(kind, opts) {
   let c = null, was = false, owned = null, fresh = true, engine = null, fov0 = 50;
   const cache = new Map();   // kind -> camera instance: params like distance and pitch survive switching away and back
+  let modInput = null; const declared = new Set();
+  const input = { action: (n, o) => { if (!declared.has(n)) { declared.add(n); modInput.action(n, o); } } };
   const make = (k, o) => {
     const build = RIGS.get(k);
     if (!build) throw codedError('camera-kind', `setCamera() has no camera kind '${k}'; available: ${[...RIGS.keys()].join(', ')}`);
     readParams(`${k}Camera`, RIG_PARAMS.get(k), o);   // also covers setCamera(kind, options)
-    const r = build(engine, o ?? {});
+    const r = build(engine, o ?? {}, input);
     r.kind = k; cache.set(k, r);
     // every kind answers the contract's screenToGround (click-to-move and placement work under any camera, not only the strategy one)
     if (typeof r.screenToGround !== 'function') r.screenToGround = (x, y) => screenToGround(engine, x, y);
-    // a rig method called between frames (fixedCamera cut, a shot change from an op) moves the camera too: that is the engine's write, not
-    // the game's, so the next frame must not take it for an outside write and stop the rig (core/owned.js)
-    for (let o = r; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
-      for (const name of Object.getOwnPropertyNames(o)) {
-        if (name === 'constructor' || name === 'update' || Object.hasOwn(r, name) && o !== r) continue;
-        const d = Object.getOwnPropertyDescriptor(o, name);
-        if (typeof d?.value !== 'function' || Object.hasOwn(r, name) && o !== r) continue;
-        const fn = d.value;
-        // only a call that actually moved the camera counts (forward() / right() are read every fixed step and must not hide a game's write)
-        r[name] = function (...a) {
-          const cam = engine.camera, p = cam.position, q = cam.quaternion, x = p.x, y = p.y, z = p.z, w = q.w, qx = q.x, qy = q.y, qz = q.z;
-          const out = fn.apply(this, a);
-          if (p.x !== x || p.y !== y || p.z !== z || q.w !== w || q.x !== qx || q.y !== qy || q.z !== qz) owned?.mark();
-          return out;
-        };
-      }
-    }
     return r;
   };
   function setCamera(k, o) {
@@ -181,14 +178,14 @@ export function rigModule(kind, opts) {
     return c;
   }
   return {
-    name: 'cameraRig', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision'], stage: 'control',
-    install(e) {
-      engine = e; fov0 = e.camera.fov;
+    name: 'cameraRig', type: 'look', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision'], stage: 'control',
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.cameraRig': '相机' }, en: { 'module.cameraRig': 'camera' } });
+      engine = e; fov0 = e.camera.fov; modInput = ctx.input; declared.clear();
       e.setCamera = setCamera;
       c = make(kind, opts);
       c.onEnter?.(false);
       // a new playthrough (newGame / load) starts with the camera as installed (kind, yaw, pitch, distance), placed at the player instead of flying across the map
-      e.events.on('session:start', () => {
+      ctx.track(e.events.on('session:start', () => {
         const old = c;
         old.onExit?.(); cache.clear();
         setProjection(e.camera);
@@ -196,7 +193,7 @@ export function rigModule(kind, opts) {
         c = e.cameraRig = make(kind, opts);
         c.onEnter?.(false); c.follow(e.player?.cameraFollow ? e.player.root : null); fresh = true;   // follows the player only if the game asked (createPlayer({ cameraFollow }))
         e.events.emit('camera:change', { kind, previous: old.kind });   // settings re-apply the player's sensitivity / fov to the new rig
-      });
+      }));
       // The camera module places position / orientation every frame: a game that moves the camera directly takes it (the rig stops), warned once
       const cam = e.camera, p = cam.position, q = cam.quaternion;
       // One camera state: takeCamera's 'camera' stack. look.view.manual('camera') and a direct write become a takeCamera hold too (owner
@@ -209,6 +206,7 @@ export function rigModule(kind, opts) {
           // focus: the rig's live focus point (its target's position), so the world keeps loading around the player while the game moves the camera
           else if (!hold) hold = e.takeCamera(o.mode === 'manual' ? `manual:${o.by}` : 'three', { focus: c.focusPoint() });
         } });
+      RIG_OWNED.set(e, owned);
       return c;
     },
     frame(dt, e) {
@@ -222,6 +220,9 @@ export function rigModule(kind, opts) {
     },
     describe(e, ctx) { ctx.out.camera ??= {}; ctx.out.camera.type = c.kind; if (c.current !== undefined) ctx.out.camera.shot = c.current;
       ctx.out.camera.pointerLock = lockView(e, c.lockState); },
+    // the active rig lets go of what it holds (pointer lock, a fixed rig's zone listener); engine.setCamera falls back to the core stand-in,
+    // so a rolled-back install leaves no camera function behind that drives a rig nobody owns
+    dispose(e) { c?.onExit?.(); delete e.setCamera; RIG_OWNED.delete(e); },
   };
 }
 

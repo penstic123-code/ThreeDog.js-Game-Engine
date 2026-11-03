@@ -1,7 +1,7 @@
-// Modifier stacks (core/stacks.js), the one way several systems change a shared quantity: combine rules per op x priority, only the owner ends its
-// entry, a stale handle ends nothing, two sets in one layer warn, save / load round trip, holders(); pause / freeze / camera ride on it.
+// Modifier stacks (core/stacks.js), the one way several systems change a shared quantity: combine rules per op x layer, only the owner ends its
+// entry, a stale handle ends nothing, two owners setting one layer warn (release; dev throws), save / load round trip, holders(); pause / freeze / camera ride on it.
 // The "no way around it" check: claims.js and the engine's private holder fields are gone, so nothing can hold the engine still beside the stacks.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
@@ -34,9 +34,9 @@ export async function run({ check }) {
   check('clamp last in its layer', v() === 25);
   const s = e.mod('q', { owner: 's', set: 4 });
   check('set replaces the value before the layer\'s add / mul / clamp ((4 + 5) x 2 -> 18, under 25)', v() === 18, String(v()));
-  const hi = e.mod('q', { owner: 'hi', set: 0, priority: 'effect' });
+  const hi = e.mod('q', { owner: 'hi', set: 0, layer: 'effect' });
   check('a higher layer set hides everything below', v() === 0);
-  const top = e.mod('q', { owner: 'top', add: 1, priority: 'system' });
+  const top = e.mod('q', { owner: 'top', add: 1, layer: 'system' });
   check('a higher layer still adds on top of it', v() === 1);
   hi.remove(); top.remove();
   check('ending recomputes from what is left (no old value comes back)', v() === 18);
@@ -44,18 +44,19 @@ export async function run({ check }) {
   s.remove(); check('remove drops only its own entry', v() === 25 && q.has('a') && q.has('m'));
   const old = m; m.remove(); e.mod('q', { owner: 'm', mul: 3 });
   old.remove(); check('a stale handle (the owner modded again) ends nothing', q.has('m') && v() === 25);
-  check('a handle is { owner, remove } only: one way to end it', Object.keys(old).sort().join() === 'owner,remove', Object.keys(old).join());
+  check('a handle is { owner, remove, change }: remove is the one way to end it, change rewrites it in place', Object.keys(old).sort().join() === 'change,owner,remove', Object.keys(old).join());
+  check('... a stale handle changes nothing (false)', old.change(9) === false && v() === 25);
   check('release by another owner name drops nothing', q.release('nobody') === false && q.size() === 3);
   // the same owner again replaces its entry with a new latest one (still one per owner)
   e.mod('q', { owner: 'a', add: 1 }); check('the same owner modding again replaces its entry, now the latest (one per owner)', q.size() === 3 && q.names().at(-1) === 'a', q.names().join());
   // holders
   const h = q.holders();
-  check('holders lists owner / op / value / priority', h.length === 3 && h.at(-1).owner === 'a' && h.at(-1).op === 'add' && h.at(-1).value === 1 && h.at(-1).priority === 100);
-  // two sets in one layer warn once and the latest wins
+  check('holders lists owner / op / value / layer', h.length === 3 && h.at(-1).owner === 'a' && h.at(-1).op === 'add' && h.at(-1).value === 1 && h.at(-1).layer === 'game', JSON.stringify(h));
+  // two owners set in one layer: development builds throw (browser spec shared-points); this node run is a release build: later wins, warned once
   const warns = []; const w0 = console.warn; console.warn = (...x) => warns.push(x.join(' '));
   try { e.mod('q', { owner: 's1', set: 1 }); e.mod('q', { owner: 's2', set: 2 }); void v(); void v(); } finally { console.warn = w0; }
-  check('two different sets in one layer: latest wins ((2 + 1) x 3)', v() === 9, String(v()));
-  check('... and warn once naming both owners', warns.filter(x => x.includes("'s1'") && x.includes("'s2'")).length === 1, JSON.stringify(warns));
+  check('release: two owners set in one layer, the later wins ((2 + 1) x 3)', v() === 9, String(v()));
+  check('... and warn once naming both owners (shared-conflict)', warns.filter(x => x.includes("'s1'") && x.includes("'s2'")).length === 1, JSON.stringify(warns));
   // bad input says how to call it
   const code = f => { try { f(); return 'no throw'; } catch (x) { return x.code; } };
   check('no owner throws mod-owner', code(() => e.mod('q', { mul: 2 })) === 'mod-owner');
@@ -68,14 +69,43 @@ export async function run({ check }) {
   e.fire('world:remove', { id: 'e3' });
   check('world.remove drops every entry of that record', dmg.value('e3') === 1 && dmg.size('e3') === 0 && dmg.value('p') === 0.5);
   // save / load: below-system entries saved, system ones stay with the screen
-  e.mod('q', { owner: 'menu', mul: 0.5, priority: 'system' });
+  e.mod('q', { owner: 'menu', mul: 0.5, layer: 'system' });
   const saved = JSON.parse(JSON.stringify(e.parts.stacks.save()));
   check('system entries are not saved', !saved.q.some(x => x.owner === 'menu') && saved.q.length === 5);
   const before = v();
   e.mod('q', { owner: 'later', add: 100 }); q.release('a');
   e.parts.stacks.load(saved);
   check('load replaces the saved entries and keeps system ones', v() === before && q.has('menu') && !q.has('later') && q.has('a'), `${v()} vs ${before}`);
-  const e2 = fake(); e2.parts.stacks.load(saved); const q2 = e2.stacks.define('q', { base: 10 }); e2.mod('q', { owner: 'menu', mul: 0.5, priority: 'system' });
+  // handles survive a load: inside a slow zone (time.world-like mul 0.5) save, load, leave the zone: the zone's handle still ends its entry
+  const tw = S.define('tw', { base: 1 });
+  const zone = e.mod('tw', { owner: 'slow-zone', mul: 0.5 });
+  const inZone = JSON.parse(JSON.stringify(e.parts.stacks.save()));
+  e.parts.stacks.load(inZone);
+  check('load in the zone: the value is still 0.5', tw.value() === 0.5, String(tw.value()));
+  check('... the old handle still changes it (true)', zone.change(0.25) === true && tw.value() === 0.25, String(tw.value()));
+  zone.remove();
+  check('... and leaving the zone ends it (back to 1, no entry left)', tw.value() === 1 && tw.size() === 0, `${tw.value()} ${tw.names().join()}`);
+  const zone2 = e.mod('tw', { owner: 'slow-zone', mul: 0.5 });
+  e.parts.stacks.load({ ...inZone, tw: [] });   // a save made outside the zone
+  check('a load whose save has no entry for the owner drops it; the old handle then ends nothing', tw.size() === 0 && zone2.change(0.1) === false && tw.value() === 1);
+  // settings only restrict; the player's restriction holds over the system layer; only debug overrides it
+  const sc = f => { try { f(); return 'no throw'; } catch (x) { return x.code; } };
+  const vol = S.define('vol', { base: 0.6 });
+  check('settings mul above 1 throws shared-settings', sc(() => e.mod('vol', { owner: 'settings', mul: 3, layer: 'settings' })) === 'shared-settings' && vol.value() === 0.6);
+  check('settings clamp with a min throws shared-settings', sc(() => e.mod('vol', { owner: 'settings', clamp: { min: 5 }, layer: 'settings' })) === 'shared-settings' && vol.value() === 0.6);
+  const cap = e.mod('vol', { owner: 'settings', clamp: { max: 0.4 }, layer: 'settings' });
+  check('settings clamp max / mul 0..1 are accepted', vol.value() === 0.4 && sc(() => e.mod('vol', { owner: 'settings2', mul: 0.5, layer: 'settings' })) === 'no throw');
+  check('handle.change on a settings entry cannot raise it either', sc(() => cap.change({ min: 1 })) === 'shared-settings');
+  vol.release('settings2');
+  e.mod('vol', { owner: 'cutscene', set: 1, layer: 'system' });
+  check('a system set does not lift the player cap (settings is above system)', vol.value() === 0.4, String(vol.value()));
+  const dbg = e.mod('vol', { owner: 'debug', set: 1, layer: 'debug' });
+  check('only debug overrides it', vol.value() === 1); dbg.remove();
+  const shake = S.define('shake', { kind: 'value', base: true });
+  e.mod('shake', { owner: 'settings', set: false, layer: 'settings' });
+  e.mod('shake', { owner: 'cutscene', set: true, layer: 'system' });
+  check('the player turned shake off: a cutscene set true on the system layer keeps it off', shake.value() === false);
+  const e2 = fake(); e2.parts.stacks.load(saved); const q2 = e2.stacks.define('q', { base: 10 }); e2.mod('q', { owner: 'menu', mul: 0.5, layer: 'system' });
   check('a save loaded before the game defines the quantity applies when it does', q2.value() === before);
   // holds: pause / freeze / camera are stacks
   const f1 = e.freeze('menu'); e.freeze({ owner: 'title', kind: 'title' });
@@ -96,4 +126,9 @@ export async function run({ check }) {
   check('core/claims.js is deleted', !existsSync(join(ENGINE, 'core/claims.js')));
   const src = ['holds.js', 'services.js', 'loop.js', 'Describe.js', 'checks.js', 'Ops.js', 'opsRun.js', 'debugView.js'].map(f => readFileSync(join(ENGINE, 'core', f), 'utf8')).join('\n');
   check('no private holder fields left (_pausers / _freezers / _cameraClaims / claims())', !/_pausers|_freezers|_cameraClaims|\bclaims\(/.test(src));
+  // one layer table: engine.mod takes layer names from core/sharedPoint.js; the 0.4 numeric priority option is gone everywhere in the engine
+  const walk = d => readdirSync(d, { withFileTypes: true }).flatMap(x => x.isDirectory() ? walk(join(d, x.name)) : x.name.endsWith('.js') ? [join(d, x.name)] : []);
+  const oldPriority = ['core', 'modules', 'ui'].flatMap(d => walk(join(ENGINE, d))).filter(f => /\.mod\([^)]*\bpriority:/.test(readFileSync(f, 'utf8')));
+  check('no engine.mod call passes priority (layer replaced it)', !oldPriority.length, oldPriority.join(', '));
+  check('the layer table lives only in sharedPoint.js', !/\bPRIORITY\s*=\s*\{/.test(readFileSync(join(ENGINE, 'core/stacks.js'), 'utf8')) && /export const LAYERS/.test(readFileSync(join(ENGINE, 'core/sharedPoint.js'), 'utf8')));
 }

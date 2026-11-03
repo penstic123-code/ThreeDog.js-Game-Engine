@@ -42,6 +42,7 @@ export const specs = [
   },
   {
     // W6：夜里下雨 / 阴天时星星要被天气的云量压暗（天空与天气的协调：dome 着色器读 uCloud，并且星星在画出来的云后面）
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: 'r4 W6: night stars dim with the weather cloud cover (rain shows far fewer bright star pixels than clear)',
     url: '/',
     async run({ check, ev }) {
@@ -51,7 +52,7 @@ export const specs = [
         engine.weather.setAuto(false);
         // 直接用 renderer 画一帧仰望天顶（绕开相机控制器和后期），同一个任务里读像素：只比较天穹本身
         const stars = name => {
-          engine.weather.set(name, 0.01); engine.step(0.5, { render: false });
+          engine.weather.set(name, { seconds: 0.01 }); engine.step(0.5, { render: false });
           cam.position.set(0, 50, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 1000, 0); cam.updateMatrixWorld();
           engine.renderer.render(engine.scene, cam);
           const src = engine.renderer.domElement, c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
@@ -75,7 +76,7 @@ export const specs = [
     },
   },
   {
-    // D1：列进 style.post / look.post.add 的效果就是开着的（引擎规则 enabled ?? true，对所有效果一条），工厂不能再默认 enabled: false 让它静默失效；
+    // D1：用 look.post.add（或插件文件）加进来的效果就是开着的（引擎规则 enabled ?? true，对所有效果一条），工厂不能再默认 enabled: false 让它静默失效；
     // style check 数"开着几个"用同一条规则
     name: 'r4 D1: a listed post effect is on (every factory, engine and style check agree); enabled: false lists it off',
     url: '/tests/perf/index.html?mode=city',

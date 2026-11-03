@@ -8,9 +8,9 @@
 //   anim.set('speed', 3); anim.go('move'); anim.action('wave');
 //   anim.sync('attack', fighter.t); ... anim.sync(null);   // gameplay time drives the pose; null hands control back
 // States are the mapping: game names (idle / attack / hurt) on the left, whatever the asset calls the clip on the right.
-// The mapping belongs to the model file, so it can live as data in the asset manifest (models: { hero: { url, animation: { states } } }): Assets.animate
-// merges it under the code's config, and swapping the model then never touches game code. anim.check([...actions]) lists what the game would miss.
-// A clip name also matches the part after the last '|' ('Idle' finds 'CharacterArmature|Idle', as Blender exports name them).
+// The mapping can live in the asset manifest (models: { hero: { url, animation: { states } } }), merged under the code's config, so a new model
+// never touches game code. anim.check([...actions]) lists what the game would miss.
+// A clip name also matches the part after the last '|' ('Idle' finds 'CharacterArmature|Idle').
 // Weights are managed here: each state has a fading weight, blend trees split it by parameter; all action weights sum to 1.
 // A one-shot action emits anim:end { root, state } when done, then moves to its `then`. Native objects: mixer, actions (clip name -> AnimationAction).
 // Rule: animation is presentation; gameplay timing must not read it. The mixer advances per frame (dropped frames, step's frameEvery or a disposed model all skew it),
@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { warnOnce, warnMissing, missingText } from './validate.js';
 import { readParams, keysSchema, isOptions } from './params.js';
+const GO_KEYS = ['fade'];
 
 // Config keys: a typo (loops: false, state: {...}) would silently play the wrong thing, so both levels are checked like any other options
 const CONFIG_KEYS = ['fade', 'states', 'transitions', 'params'];
@@ -114,11 +115,12 @@ export class Animator {
   set(param, v) { this.params[param] = v; return this; }
 
   /**
-   * Switch to a state (fade = transition seconds). Returns the action, or null (with a dev warning) if the state or its clip does not exist.
+   * Switch to a state ({ fade }: transition seconds). Returns the action, or null (with a dev warning) if the state or its clip does not exist.
    * Does not switch while the current state is locked and unfinished, or while sync() drives a state.
-   * @example anim.go('idle'); anim.go('run', 0.1)
+   * @example anim.go('idle'); anim.go('run', { fade: 0.1 })
    */
-  go(state, fade) {
+  go(state, opts) {
+    const fade = opts === undefined ? undefined : readParams('animator.go()', keysSchema(GO_KEYS), opts).fade;
     if (this._driven) return this._layers.find(l => l.name === this._driven).actions[0].a;
     const cur = this._layers.find(l => l.name === this.state && l.target === 1);
     if (cur && state === this.state && !cur.done) return cur.actions[0].a;   // already in this state (a finished one-shot may replay)
@@ -150,14 +152,14 @@ export class Animator {
     this._weights();
     return actions[0].a;
   }
-  /** Play a one-shot action: when done, go to the state's `then`; without `then` (or given a bare clip name) return to the previous state. */
-  action(name, fade) {
+  /** Play a one-shot action: when done, go to the state's `then`; without `then` (or given a bare clip name) return to the previous state ({ fade } like go). */
+  action(name, opts) {
     const prev = this.state, def = this.states[name];
     if (!def) {
       if (!findClip(this.clips, name)) { if (this.hasClips) warnMissing('clip', name, this.clips.map(c => short(c.name))); return null; }
       this.states[name] = { clip: name, loop: false, lock: true };
     }
-    const a = this.go(name, fade);
+    const a = this.go(name, opts);
     if (a && this.state === name) {
       this._layers.find(l => l.name === name).once = true;   // not interrupted by the character's per-frame go() until it ends
       if (!this.states[name].then) this._return = prev;

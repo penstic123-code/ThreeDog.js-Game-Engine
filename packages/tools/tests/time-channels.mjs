@@ -2,8 +2,7 @@
 //   - bullet time + haste + stopwatch + pause menu: all 24 orders of ending them give the formula's scale at every step
 //   - frozen: no channel moves and no `for` runs down; a plain onFixed dt is always 1 / 60
 //   - bullet time with 1.2 s left survives save -> load with 1.2 s left; skip across the end points ends them in the same order as stepping
-// The "no way around it" check: clock.rate has no setter (engine.mod('clock.rate') is the one way); writing clock.now warns once. The 0.2 clock.timeScale
-// throws only in dev (core/validate.js renamed), so its guard is the browser test silent-breaks.
+// The "no way around it" check: clock.rate has no setter (engine.mod('clock.rate') is the one way); writing clock.now warns once.
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
@@ -17,6 +16,7 @@ const { loopMethods } = await imp('core/loop.js');
 const { defineSkipOp } = await imp('core/skip.js');
 const { NPCManager } = await imp('modules/characters/NPC.js');
 const { Sim } = await imp('modules/world/sim.js');
+const { Control } = await imp('core/control.js');
 
 export const name = 'time channels: engine.mod on time / clock.rate, 24 end orders, for + save + skip';
 
@@ -24,13 +24,14 @@ export const name = 'time channels: engine.mod on time / clock.rate, 24 end orde
  *  ops.defs.has before defining, e.g. NPCManager.setup's npc.talk), and only 'time.skip' is the skip op */
 function fake() {
   const parts = {}, events = [];
-  const e = Object.defineProperties({ elapsed: 0, _elapsed: 0, tick: 0, ready: false, _hookErrors: new Set(), _fixed: [], _fixedLate: [], _hooks: { fixed: [], skip: [] }, disposed: false, _loop() {},
+  const e = Object.defineProperties({ get tick() { return this.time._tick; }, ready: false, _hookErrors: new Set(), _fixed: [], _fixedLate: [], _hooks: { fixed: [], skip: [] }, disposed: false, _loop() {},
     uniforms: { uTime: { value: 0 } }, input: { beginFixed() {}, endFixed() {}, endFrame() {} },
     saves: { register: (k, p) => { parts[k] = p; } },
     events: { emit: (n, d) => events.push([n, d]), on: () => ({ remove() {} }) },
     ops: { defs: new Map(), define: (n, d) => { e.ops.defs.set(n, d); if (n === 'time.skip') e._skipOp = d; } } }, { ...Object.getOwnPropertyDescriptors(loopMethods), ...Object.getOwnPropertyDescriptors(holdMethods) });   // descriptors: spreading holdMethods itself would run its getters
   e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o);
   e.clock = new Clock(e); e.time = new Time(e);
+  e.control = new Control(e);   // NPC behaviors run through the character control slot (core/control.js)
   defineHoldStacks(e);   // the engine's own hold stacks (pause does the loop side effect itself)
   defineSkipOp(e);
   e.onFixed = (fn, { channel } = {}) => { e._fixed.push(channel ? () => fn(e.time.dt(channel)) : fn); };   // same as Engine.onFixed
@@ -53,7 +54,7 @@ export async function run({ check }) {
     const h = {
       bullet: e.mod('time.enemies', { owner: 'bullet-time', mul: 0.35 }),
       haste: e.mod('time.player', { owner: 'haste', mul: 1.2 }),
-      stopwatch: e.mod('time.local', { owner: 'stopwatch', id: 'e1', set: 0, priority: 'effect' }),
+      stopwatch: e.mod('time.local', { owner: 'stopwatch', id: 'e1', set: 0, layer: 'effect' }),
       menu: e.mod('freeze', { owner: 'pause-menu' }),
     };
     const on = { bullet: true, haste: true, stopwatch: true, menu: true };
@@ -132,20 +133,19 @@ export async function run({ check }) {
     check('... and every clock lands at the same time', near(A.clock.now, B.clock.now, 1e-4) && near(A.time.now('enemies'), B.time.now('enemies'), 0.02) && near(A.time.now('player'), B.time.now('player'), 0.02),
       `${A.time.now('enemies')} vs ${B.time.now('enemies')}, ${A.time.now('player')} vs ${B.time.now('player')}`);
   }
-  { // clock.now has one way to move it: engine.skip. A direct write is kept, warned exactly once with that line
-    const e = fake(), warns = [], w = console.warn;
-    console.warn = m => warns.push(String(m));
-    try { e.clock.now = 50; e.clock.now += 5; } finally { console.warn = w; }
-    const mine = warns.filter(m => m.includes('engine.clock.now was written directly'));
-    check('clock.now = x: kept, warned once, the warning names engine.skip({ seconds })',
-      e.clock.now === 55 && mine.length === 1 && mine[0].includes('engine.skip({ seconds })'), warns.join(' | '));
+  { // clock.now has one way to move it: engine.skip. It is a view of the time source, so a direct write throws and names that way
+    const e = fake();
+    let msg = '';
+    try { e.clock.now = 50; } catch (err) { msg = String(err?.message); }
+    check('clock.now = x: throws, unchanged, the error names engine.skip({ seconds })',
+      e.clock.now === 0 && msg.includes('engine.clock.now was written directly') && msg.includes('engine.skip({ seconds })'), msg);
   }
   { // npcs.add({ channel }): a far NPC (data only) walks by its channel's dt, so bullet time on 'enemies' slows it while far too
     const e = fake(); e.time.channel('enemies', { parent: 'world' });
     let sim = null;
     e.world = { present() {}, simulate: (k, o) => { sim = o; }, view: () => null, move: (id, p) => Object.assign(recs[id].position, p), zone: null };
     e.surface = () => 0; e.events.traceSize = 0;
-    const npcs = new NPCManager(e); npcs.setup();
+    const npcs = new NPCManager(e, h => h); npcs.setup();
     const rec = (id, look) => ({ id, behavior: 'schedule', look, schedule: [{ at: 0, x: 100, z: 0 }], position: { x: 0, y: 0, z: 0 }, speed: 2,
       nav: {}, arriveDistance: 1, mind: {} });
     const recs = { a: rec('a', { channel: 'enemies' }), b: rec('b', {}) };

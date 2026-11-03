@@ -1,7 +1,11 @@
 // Vegetation on any ground ("do not bypass" guards): without terrain, vegetation grows on its own chunks over whoever provides the ground --
 // here a level built in code with a 'lawn' and a 'stone' floor at y = 5. Plants follow the rule (only on lawn, at the floor's height, inside
 // the area), stay one InstancedMesh per species per chunk, block walking through collision, are felled / saved like terrain trees,
-// stream out and back with the source, and a code-built ground (setGround) rebuilds them. Same format as specs.mjs. Run: npm test -- "vegetation ground"
+// stream out and back with the source, and a code-built ground (setGround) rebuilds them. Same format as the other files here. Run: npm test -- "vegetation ground"
+
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const specs = [
   {
@@ -23,11 +27,11 @@ export const specs = [
         const H = E.vegetation.host, all = [];
         let meshes = 0, perChunkMeshes = true;
         for (const c of H.chunks.values()) {
-          const ims = Object.values(c.veg); meshes += ims.length; if (ims.length > 1) perChunkMeshes = false;
+          const ims = Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {}); meshes += ims.length; if (ims.length > 1) perChunkMeshes = false;
           for (const im of ims) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) all.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14]]); }
         }
         // ground types are read per level grid point (0.5 m): at the lawn / stone seam a plant may sit up to half a cell over the line
-        const out = { terrain: !!E.terrain, n: all.length, meshes, perChunkMeshes, instanced: [...H.chunks.values()].every(c => Object.values(c.veg).every(im => im.isInstancedMesh)),
+        const out = { terrain: !!E.terrain, n: all.length, meshes, perChunkMeshes, instanced: [...H.chunks.values()].every(c => Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {}).every(im => im.isInstancedMesh)),
           onLawn: all.every(p => p[0] <= 0.26 && p[0] >= -40 && Math.abs(p[2]) <= 20), atFloor: all.every(p => Math.abs(p[1] - 5) < 1e-4) };
         // collision: the walk check refuses the spot of a bush (circles reach collision through engine.ground.forEachCollider)
         const b = all[0];
@@ -44,13 +48,13 @@ export const specs = [
         out.released = H.chunks.size === 0;
         await settle(0, 0);
         const hit2 = E.vegetation.instanceAt({ x: b[0], z: b[2] }, { radius: 0.05 });
-        let n2 = 0; for (const c of H.chunks.values()) for (const im of Object.values(c.veg)) n2 += im.count;
+        let n2 = 0; for (const c of H.chunks.values()) for (const im of Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {})) n2 += im.count;
         out.back = { n2, stillFelled: !hit2 };
         // a code-built ground replaces the level ground: everything is placed again on the new surface
         E.setGround({ height: () => 2, slope: () => 0, type: () => 'lawn' });
         await settle(0, 0);
-        const ys = []; for (const c of H.chunks.values()) for (const im of Object.values(c.veg)) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) if (a[i * 16 + 15]) ys.push(a[i * 16 + 13]); }
-        out.reground = { n: ys.length, at2: ys.length > 0 && ys.every(y => Math.abs(y - 2) < 1e-4), stoneSideToo: [...H.chunks.values()].some(c => c.cx >= 0 && Object.keys(c.veg).length) };
+        const ys = []; for (const c of H.chunks.values()) for (const im of Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {})) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) if (a[i * 16 + 15]) ys.push(a[i * 16 + 13]); }
+        out.reground = { n: ys.length, at2: ys.length > 0 && ys.every(y => Math.abs(y - 2) < 1e-4), stoneSideToo: [...H.chunks.values()].some(c => c.cx >= 0 && Object.keys(c.plants).length) };
         out.stillJoined = typeof E.ground.forEachCollider === 'function';
         E.dispose();
         // with terrain installed, vegetation() options are terrain options: refused with where they live
@@ -138,8 +142,8 @@ export const specs = [
         let bad = null; try { E.vegetation.define('bad', { geometry: g(), nearOnly: true, fade: { start: 9, end: 5 }, rule }); } catch (e) { bad = String(e.message); }
         await E.start();
         E.focus.set(12, 0, -7); E.step(0.1);
-        const out = { tuft: tuft.fade, hard: hard.fade, set: set.fade, tree: tree.fade, bad, center: tuft.fadeUniforms.uNearFadeCenter.value.toArray(), hardU: hard.fadeUniforms };
-        const im = new THREE.InstancedMesh(g(), tuft.material, 2); E.scene.add(im);
+        const out = { tuft: tuft.fade, hard: hard.fade, set: set.fade, tree: tree.fade, bad, center: E.vegetationLook.kind('tuft').fadeUniforms.uNearFadeCenter.value.toArray(), hardU: E.vegetationLook.kind('hard').fadeUniforms };
+        const im = new THREE.InstancedMesh(g(), E.vegetationLook.kind('tuft').material, 2); E.scene.add(im);
         E.renderer.compile(E.scene, E.camera);
         out.programsOk = E.renderer.info.programs.length > 0 && E.renderer.info.programs.every(p => p.diagnostics?.runnable !== false);
         return out;
@@ -161,8 +165,8 @@ export const specs = [
       const r = await ev(async () => {
         const { createEngine, vegetation, terrain, THREE } = threedogTerrain;
         const wait = () => new Promise(res => setTimeout(res, 5));
-        const all = (E, name) => { const H = E.vegetation.host, out = []; for (const c of H.chunks.values()) { const im = c.veg[name]; if (!im) continue; const a = im.instanceMatrix.array;
-          for (let i = 0; i < im.count; i++) out.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14], im.userData.ids[i], a[i * 16]]); } return out; };
+        const all = (E, name) => { const H = E.vegetation.host, out = []; for (const c of H.chunks.values()) { const im = E.vegetationLook.mesh(c, name); if (!im) continue; const a = im.instanceMatrix.array;
+          for (let i = 0; i < im.count; i++) out.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14], im.userData.plants.ids[i], a[i * 16]]); } return out; };
         const settle = async (E, ok) => { for (let i = 0; i < 400 && !ok(); i++) { E.step(1 / 60); await wait(); } E.step(0.5); };
         const out = {};
         // own chunks over a code-built ground at y = 1
@@ -209,6 +213,53 @@ export const specs = [
       check('a malformed positions entry is refused with its index', /positions\[0\]/.test(r.refusedEntry || ''), r.refusedEntry);
       check('a density image without size is refused', /size/.test(r.refusedMap || ''), r.refusedMap);
       check('[guard] on terrain the positions reach the worker and land on the terrain height', JSON.stringify(r.terrain) === JSON.stringify([[5, 5, 2], [6, -3, 2]]), JSON.stringify(r.terrain));
+    },
+  },
+  {
+    // Why a guard: adding a species used to drop every own-ground chunk (the whole map lost its trees and tree collision until placed again),
+    // and the ground chunks rebuilt their source list every frame. Both tables now share one streaming helper (core/chunkStream.js).
+    name: '[guard] vegetation ground streaming: a species added later keeps the loaded chunks and their plants, a quiet frame keeps its source list',
+    url: '/tests/terrain-edit/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, vegetation, THREE } = threedogTerrain;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-ground-add' });
+        E.setGround({ height: () => 0, slope: () => 0, type: () => 'lawn' });
+        E.use(vegetation({ chunkSize: 16, viewChunks: 2 }));
+        E.vegetation.define('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 30, maxSlope: 1, sink: 0, collider: 0.4 } });
+        await E.start();
+        E.pause();
+        for (let i = 0; i < 20; i++) E.step(1 / 60);
+        const H = E.vegetation.host, before = new Map([...H.chunks].map(([k, c]) => [k, { c, bush: c.plants.bush }]));
+        const centers0 = H._stream.centers[0];
+        E.step(1 / 60);
+        const quiet = H._stream.centers[0] === centers0;
+        E.vegetation.define('rock', { geometry: new THREE.BoxGeometry(0.4, 0.4, 0.4), rule: { perChunk: 10, maxSlope: 1, sink: 0 } });
+        const kept = [...before].every(([k, b]) => H.chunks.get(k) === b.c && b.c.plants.bush === b.bush);
+        const rocks = [...H.chunks.values()].filter(c => c.state === 'ready' && c.plants.rock?.n > 0).length;
+        const out = { n: before.size, kept, rocks, ready: [...H.chunks.values()].filter(c => c.state === 'ready').length, quiet };
+        E.dispose();
+        return out;
+      });
+      check('adding a species keeps every loaded chunk and the other species\' plants (no drop and rebuild)', r.n > 4 && r.kept, JSON.stringify(r));
+      check('the added species is placed on the loaded chunks at once', r.rocks === r.ready && r.ready > 0, JSON.stringify(r));
+      check('a frame where no source changed chunk reuses the source list (no per-frame allocation)', r.quiet, JSON.stringify(r));
+    },
+  },
+  {
+    name: '[guard] vegetation ground streaming: one chunk-streaming implementation (core/chunkStream.js) used by terrain and own-ground vegetation',
+    url: '/tests/terrain-edit/',
+    async run({ check }) {
+      const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+      const read = f => readFileSync(join(ENGINE, f), 'utf8');
+      // the streaming tells: the keep-distance formula, the frustum test of a chunk sphere, the simple-source ring rule. Source -> cell
+      // conversion alone is not one: stream entries and rigid colliders convert sources to cells for their own, different jobs
+      const tells = [/\(s\.R \+ 1\) \* \(s\.R \+ 1\)/, /intersectsSphere\(c\.sphere\)/, /s\.simple \? /];
+      const walk = d => readdirSync(join(ENGINE, d), { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.js') ? [join(d, e.name)] : []);
+      const hits = ['core', 'modules'].flatMap(walk).filter(f => !/chunkStream\.js$/.test(f) && tells.some(t => t.test(read(f))));
+      const users = ['modules/terrain/ChunkManager.js', 'modules/vegetation/groundChunks.js'].filter(f => /new ChunkStream\(this/.test(read(f)));
+      check('no file but core/chunkStream.js carries chunk streaming code', hits.length === 0, JSON.stringify(hits));
+      check('terrain chunks and own-ground vegetation chunks both stream through ChunkStream', users.length === 2, JSON.stringify(users));
     },
   },
 ];

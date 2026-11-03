@@ -22,13 +22,13 @@ for this version"; ideas past it go to STATUS.md Next.
 ## How to work
 1. Before you write, list every place the change must reach (callers, content, saves, tests, DESIGN.md / STATUS.md) and what it could break for the player.
 2. Take the first option that fully works: does it need to exist (name what you skipped) -> already in this game or the engine (GAMEMAP.md,
-   `threedog how "<task in English>"`, `threedog catalog`, the AI.md index; note the system in DESIGN.md Systems) -> plain three.js or the browser
+   `threedog how "<2-4 English task words>"` (e.g. `how "save game"`, `how "rigid push"`; on "no match" try the words it suggests), `threedog catalog`, the AI.md index; note the system in DESIGN.md Systems) -> plain three.js or the browser
    (looks are plain three.js on `engine.scene / camera / renderer`, `node_modules/threedog/docs/THREE.md`) -> an installed package -> the least code that
    works. "Least" is about code, never about the result.
-3. Use your own approach first. Technique examples (`threedog examples list`) are a reference for when a shot check or your own review finds something you
+3. Check `threedog lib list` before writing an effect from scratch. Use your own approach first. Technique examples (`threedog examples list`) are a reference for when a shot check or your own review finds something you
    cannot fix, never a starting point or the look.
 4. No abstraction, option or "for later" code nobody asked for. When a new way replaces an old one, delete the old one in the same change.
-5. Debugging: find the root cause before changing anything (grep the callers, `engine.describe()`, AI.md "When something happens"), then fix it once where
+5. Debugging: find the root cause before changing anything (grep the callers, `engine.describe()`, recipe 16 §11 "When something happens"), then fix it once where
    it lives. No drive-by refactor while fixing. If you cannot reproduce it, say which specific information is missing instead of guessing.
 6. Learning from three.js examples, open-source code and articles is fine: learn the technique and write it for this game; check the license and tell the
    user before using someone else's code or assets.
@@ -51,6 +51,7 @@ may use `engine.add(mesh, { id })` (`engine.thing(id)` says what a save keeps). 
 stores whole (`world.add`, `engine.content.spawn`, pickups, NPCs). Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers),
 `onFrame` for looks (animation, camera, HUD). Things made during play come from `engine.content.spawn` inside an op. Content (items, NPCs, dialogues,
 quests...) goes in `content/`; models, textures and sounds are registered by name in `assets.js`; files go in `public/`.
+One-file three.js pieces go in `plugins/` (its README).
 
 ## Commands and docs
 `npm run dev`, `npm run check`, `npm test`, `npm run map`, `npm run build`. After a change: `npm run map` only if you changed code, JSDoc or content, then

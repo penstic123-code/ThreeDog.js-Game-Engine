@@ -86,8 +86,8 @@ export class NPC {
   setBehavior(name, mind = {}) {
     this._m._b.check(name);
     const rec = this.data; if (!rec) return this;
-    this._m.world.set(this.id, { behavior: name, mind });
-    rec.nav.path = null; rec.nav.repath = 0;
+    // the path belonged to the old behavior: cleared in the same world.set, so world:change carries it (no silent edit of the record)
+    this._m.world.set(this.id, { behavior: name, mind, nav: { ...rec.nav, path: null, repath: 0 } });
     return this;
   }
   get state() { return this.data?.state ?? 'idle'; }
@@ -123,14 +123,15 @@ export class NPC {
 export class NPCManager {
   /** @internal Every option add() reads: content npcs (modules/content/loader.js) are checked against the same table, without importing this module */
   get optionKeys() { return NPC_KEYS; }
-  constructor(engine) {
+  /** @param {(h: any) => any} track the characters module's ctx.track */
+  constructor(engine, track) {
     this.engine = engine;
     /** @internal */ this._handles = new Map();   // id -> NPC handle (just a cache, can be rebuilt any time)
     /** @internal */ this._runtime = new Map();   // id -> non-saveable params (model, animation, clips, function interact label)
     /** @internal */ this._views = new WeakMap(); // model root -> { ch, use }
     /** @internal */ this._ready = false;
     /** Near NPCs avoid each other (on by default): avoid.set(false) turns it off, see npcAvoid.js */
-    this.avoid = new NpcAvoid(engine);
+    this.avoid = new NpcAvoid(engine, track);
     /** @internal */ this._b = new Behaviors();   // behavior name -> { near, far } (code, not saved)
     /** @internal */ this._tiers = null;   // { fullRadius, nearEvery } from tiers(), null = every near NPC every step
     /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (to detect same names in dev)
@@ -160,15 +161,26 @@ export class NPCManager {
         // A bubble talk (npc.talk channel 'bubble') runs with no main dialogue, so bubbles still showing keep it busy too
         if (rec.busy && !e.dialogue?.active && !e.dialogue?.bubbles?.().length) rec.busy = false;
         this.avoid.stamp(rec);
-        this._b.of(rec)?.near?.(rec, dt, this._handle(rec.id));
+        this._drive(rec, () => this._b.of(rec)?.near?.(rec, dt, this._handle(rec.id)));
       },
       far: (rec, dt) => {
-        this._b.of(rec)?.far?.(rec, dt, this._handle(rec.id));
+        this._drive(rec, () => this._b.of(rec)?.far?.(rec, dt, this._handle(rec.id)));
         const ch = this.character(rec.id);   // already far but the model is not torn down yet: let the model catch up with the data
         if (ch) { ch.placeAt(rec.position); ch.loadMotion(rec.motion); }
       },
     };
     this._register();
+  }
+  /**
+   * @internal Run an NPC's behavior as the base holder of its control slot (core/control.js, owner 'npcs'): only while nothing above holds it.
+   * A walkTo, a quest script or a cutscene on the NPC pauses its schedule / wander (near and far) and the behavior carries on when they end;
+   * the behavior's own character.move() calls pass the bypass check because they run inside this. A character another machine drives (net)
+   * is never taken: its behavior does not run here.
+   */
+  _drive(rec, fn) {
+    const C = this.engine.control;
+    if (!C.has(rec.id, 'npcs')) { if (C.of(rec.id)?.layer === 'net') return; C.take(rec.id, { owner: 'npcs', layer: 'base' }); }
+    C.runAs(rec.id, 'npcs', fn);
   }
   /** @internal (re)register NPC simulation with world: world.simulate replaces the earlier registration of the same kind */
   _register() { this.world.simulate(KIND, this._tiers ? { ...this._sim, ...this._tiers } : this._sim); }

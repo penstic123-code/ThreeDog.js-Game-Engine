@@ -55,8 +55,7 @@ export const resizeMethods = {
     placeUI(this);
     const now = this.renderer.getSize(_size);
     if (now.x === w && now.y === h) return;   // ResizeObserver and the window event can both fire for one change
-    this.renderer.setSize(w, h, !!this._autoSize);
-    this.post.setSize(w, h);
+    this.renderer.setSize(w, h, !!this._autoSize);   // the post chain follows the renderer on its next draw (postWebGL.js follow)
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   },

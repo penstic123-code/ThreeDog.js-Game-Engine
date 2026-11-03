@@ -115,7 +115,7 @@ export function applyUIStyle(engine, ui = {}) {
     },
   };
 }
-// A style holds looks, never files (packages/engine/docs/recipes/09-style-pack.md): a font file is an asset, so the style names it. The old forms carried
+// A style holds looks, never files (packages/engine/docs/recipes/09-style.md): a font file is an asset, so the style names it. The old forms carried
 // paths (fontFaces[].url, a fontCSS stylesheet URL) and are refused with the new form, so a pack cannot slip a file back in.
 function checkFonts(ui) {
   if (ui.fontFaces || ui.fontCSS) throw codedError('ui-misuse', `style.ui.${ui.fontFaces ? 'fontFaces' : 'fontCSS'} is gone: a style names fonts, an asset pack holds the files. `

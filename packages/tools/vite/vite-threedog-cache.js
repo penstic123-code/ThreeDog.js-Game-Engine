@@ -13,17 +13,17 @@
 //   stale baked files in public/models/baked/index.json (generator code changed) → error, telling you to run npm run bake
 //   with no bake list, outputs an empty {}
 //
-//   Installed automatically by gameConfig (./gameConfig.js); paths (engine entry, style packs) are read from ../paths.mjs. File paths in hashes are relative to the repo root.
+//   Installed automatically by gameConfig (./gameConfig.js); paths (engine entry, add-ons) are read from ../paths.mjs. File paths in hashes are relative to the repo root.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve, relative, dirname, extname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isLocalRequest } from './local.js';
-import { ROOT as REPO, abs, rel, ENGINE, ENGINE_PKG, INDEX_JS_REL, STYLES_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry } from '../paths.mjs';
+import { ROOT as REPO, abs, rel, ENGINE_PKG, INDEX_JS_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry } from '../paths.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.threedog', 'public', 'shots', '.git']);
-// When looking for generator source the engine source is not searched (generators live in the game or the style pack)
+// When looking for generator source the engine source is not searched (generators live in the game, its style/ folder included)
 const ENGINE_CODE = new Set(ENGINE_CODE_DIRS_REL.map(abs));
-const BARREL = abs(INDEX_JS_REL), STYLES = abs(STYLES_REL);
+const BARREL = abs(INDEX_JS_REL);
 const NAMED_RE = /(?:import|export)\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
 const names = list => list.split(',').map(x => x.trim().split(/\s+as\s+/)[0]).filter(Boolean);
 const SRC_EXT = new Set(['.js', '.mjs', '.ts']);
@@ -43,26 +43,26 @@ function makeReader() {
 
 /** Hash helpers for generators (shared by the dev server, the build check and npm run bake). root is the workspace directory (engine package or a game) */
 export function keyMaker(root) {
-  // Directories to search: this workspace; a game also adds the style packs (models from the style pack a game uses must be hashable and bakeable too)
-  const roots = root === ENGINE ? [root] : [root, STYLES];
+  // Directory to search: this workspace only. A game's models live in its own folder (its style/ included), so no other folder holds
+  // generator source the game uses
   const read = makeReader();
   let list = null, listAt = 0;
   const walk = () => {
     if (list && Date.now() - listAt < 1000) return list;
     list = []; listAt = Date.now();
-    for (const r of roots) (function w(d) {
+    (function w(d) {
       for (const f of readdirSync(d, { withFileTypes: true })) {
         const p = resolve(d, f.name);
         if (f.isDirectory()) { if (!SKIP_DIRS.has(f.name) && !ENGINE_CODE.has(p) && !f.name.startsWith('.')) w(p); }
         else if (SRC_EXT.has(extname(f.name))) list.push(p);
       }
-    })(r);
+    })(root);
     return list;
   };
   const resolveSpec = (file, spec) => {
     let p;
     if (spec === ENGINE_PKG) p = BARREL;                                                        // a game's import 'threedog'
-    else if (optionalEntry(spec)) p = optionalEntry(spec);                                   // a style pack (@threedog/style-<name>) or an add-on (@threedog/terrain-noise)
+    else if (optionalEntry(spec)) p = optionalEntry(spec);                                   // an add-on (@threedog/terrain-noise)
     else if (!/^\.{1,2}\/|^\//.test(spec)) return null;
     else p = spec.startsWith('/') ? resolve(root, '.' + spec) : resolve(dirname(file), spec);
     if (!extname(p) && existsSync(p + '.js')) p += '.js';
@@ -110,9 +110,8 @@ export function keyMaker(root) {
     const all = new Set(); for (const f of list) deps(resolve(REPO, f), all);
     return sha([...all].map(f => rel(f) + ':' + read(f).hash).sort().join('\0'));
   };
-  /** Bake list files (relative to the repo root): engine style packs styles/<style pack>/index.js and bake.js in this workspace (except tests/) */
-  keyOf.bakeLists = () => walk().filter(f => (dirname(dirname(f)) === STYLES && basename(f) === 'index.js')
-    || (basename(f) === 'bake.js' &&!relative(root, f).split(/[\\/]/).includes('tests'))).map(rel).sort();
+  /** Bake list files (relative to the repo root): the files named bake.js in this workspace (except tests/) */
+  keyOf.bakeLists = () => walk().filter(f => basename(f) === 'bake.js' && !relative(root, f).split(/[\\/]/).includes('tests')).map(rel).sort();
   return keyOf;
 }
 

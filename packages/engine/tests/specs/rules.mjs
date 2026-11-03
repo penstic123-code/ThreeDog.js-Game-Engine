@@ -1,4 +1,4 @@
-// Browser test for rule R3 "save round trip" (same format as packages/engine/tests/specs.mjs, appended at the end of specs.mjs):
+// Browser test for rule R3 "save round trip" (same format as the other files here):
 // For every key registered with engine.saves.register:
 //   1. apply(JSON.parse(JSON.stringify(collect())))         → collect must not change (real saves go through JSON; catches Map/Set/class instances being saved, and fields lost on load)
 //   2. apply(collect())                                      → collect must not change (loading what was just saved must not change state; catches bugs like "save returns the original object, load clears then merges")

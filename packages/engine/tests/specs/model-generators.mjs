@@ -4,7 +4,7 @@
 // CanvasTexture are kept. { build, cache: false } is never stored in the dev cache.
 export const specs = [
   {
-    name: '[守] 代码模型：生成函数按名字取、只建一次、多材质与角色材质经 GLB 往返保留（换风格包会改色），cache: false 不写开发缓存',
+    name: '[守] 代码模型：生成函数按名字取、只建一次、多材质与角色材质经 GLB 往返保留（换游戏自己的 style会改色），cache: false 不写开发缓存',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {

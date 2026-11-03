@@ -13,7 +13,7 @@ export class Particles {
     effects: Map<string, ParticleEffect>;
     /**
      * Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of the style
-     * pack preset. Returns the effect object: .points is its THREE.Points, .material is the shader material
+     * pack preset. Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer), .material is the shader material
      * @param {string} name
      * @param {ParticleOptions} [opts]
      * @returns {ParticleEffect}

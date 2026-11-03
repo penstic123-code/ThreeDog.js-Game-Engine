@@ -45,7 +45,7 @@ import { readParams } from 'threedog';
 const PARAMS = { radius: { type: 'number', default: 2, min: 0, desc: 'pickup reach in m' }, sound: 'string?' };
 export const magnet = (opts) => {
   const o = readParams('magnet', PARAMS, opts);   // wrong type / out of range throws [module-params] with the fix; an unknown key throws in dev and warns once in a release build
-  return { name: 'magnet', params: PARAMS, options: o, stage: 'gameplay', install(e) { return { radius: o.radius }; } };
+  return { name: 'magnet', type: 'rules', params: PARAMS, options: o, stage: 'gameplay', install(e) { return { radius: o.radius }; } };
 };
 ```
 `params` and `options` on the definition are what `engine.catalog('magnet').params` reads; `engine.use` re-checks them in dev for a definition built by hand.

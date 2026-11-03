@@ -19,8 +19,7 @@
     "doctor": "threedog doctor"
   },
   "dependencies": {
-    "threedog": "^0.3.0",
-    "@threedog/tools": "^0.3.0",
-    "@threedog/post-effects": "^0.3.0"
+    "threedog": "^0.4.0",
+    "@threedog/tools": "^0.4.0"
   }
 }

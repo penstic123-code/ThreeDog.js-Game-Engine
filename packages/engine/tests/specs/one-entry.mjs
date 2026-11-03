@@ -1,7 +1,7 @@
 // 每个外观值只有一个接管入口、着色代码只走槽位（W5 / W6，2026-11-02）：每条删掉的旧路一条"不许绕开"的检查。
 // 为什么要守：旧写法（sky({ sun: 'manual' })、style.*.glsl、改全页 ShaderChunk.fog_*、userData 记阴影、替换相机方法）删了之后，
 // 有人顺手加回来不会有别的测试变红；这里每条都直接试那条旧路，必须报错或者看得见。
-// Same format as specs.mjs; appended at the end of specs.mjs.
+// Same format as the other files here.
 const HELPERS = `
   const { THREE, createEngine, sky } = threedogTest;
   const make = (style, opts = {}) => {
@@ -33,16 +33,17 @@ const URL = '/tests/perf/index.html?mode=world';
 
 export const specs = [
   {
-    name: "[guard] one takeover entry: sky({ sun | hemisphere | fog: 'manual' }) throws naming look.<part>.manual; look.fog.replace sets the owned mode (no second flag)",
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
+    name: "[guard] one takeover entry: sky({ sun | hemisphere | fog: 'manual' }) throws naming look.<part>.manual; scene.fog = yours yields the owned record (no second flag)",
     url: URL,
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {};
         out.sun = make({}, { sun: 'manual' }).error; out.hemi = make({}, { hemisphere: 'manual' }).error; out.fog = make({}, { fog: 'manual' }).error;
         const e = make({}).e; e.sky.update(e.focus);
-        const own = new THREE.Fog(0x112233, 3, 30); e.look.fog.replace(own); e.sky.update(e.focus);
+        const was = e.scene.fog, own = new THREE.Fog(0x112233, 3, 30); e.scene.fog = own; e.sky.update(e.focus);
         out.replaced = [e.scene.fog === own, own.far, e.describe().owned?.fog?.writer, '_fogHeld' in e.sky];
-        e.look.fog.replace(null); e.sky.update(e.focus);
+        e.scene.fog = was; e.look.fog.manual(false); e.sky.update(e.focus);
         out.back = [e.scene.fog !== own, e.describe().owned?.fog?.writer];
         e.dispose();
         return out;
@@ -50,11 +51,12 @@ export const specs = [
       check("sky({ sun: 'manual' }) throws and names look.lights.manual", /not an option.*look\.lights\.manual/.test(r.sun || ''), r.sun);
       check("sky({ hemisphere: 'manual' }) throws and names look.lights.manual('hemi')", /look\.lights\.manual\('hemi'\)/.test(r.hemi || ''), r.hemi);
       check("sky({ fog: 'manual' }) throws and names look.fog.manual()", /look\.fog\.manual\(\)/.test(r.fog || ''), r.fog);
-      check('look.fog.replace(fog): the owned fog record is manual:look.fog.replace, the sky does not write it, no sky._fogHeld', r.replaced[0] && r.replaced[1] === 30 && r.replaced[2] === 'manual:look.fog.replace' && !r.replaced[3], JSON.stringify(r.replaced));
-      check('replace(null) hands the record back to the engine', r.back[0] && r.back[1] === 'engine', JSON.stringify(r.back));
+      check('scene.fog = a fog of yours: the owned fog record yields (writer three), the sky does not write it, no sky._fogHeld', r.replaced[0] && r.replaced[1] === 30 && /three/.test(r.replaced[2] ?? '') && !r.replaced[3], JSON.stringify(r.replaced));
+      check('look.fog.manual(false) hands the record back to the engine', r.back[0] && r.back[1] === 'engine', JSON.stringify(r.back));
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[guard] fog only through the slot patch: THREE.ShaderChunk.fog_* never changes; exp / height fog reaches a plain MeshStandardMaterial and an engine-patched one; two engines with different fog on one page',
     url: URL,
     async run({ check, ev }) {
@@ -93,6 +95,7 @@ export const specs = [
     },
   },
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: '[guard] glsl only through look.<part>.patch: style.sky.clouds.glsl, style.water.glsl, water({ glsl }), style.wind.glsl throw naming the hook',
     url: URL,
     async run({ check, ev }) {
@@ -111,7 +114,8 @@ export const specs = [
     },
   },
   {
-    name: '[guard] setShadows keeps the remembered castShadow in an engine record (not light.userData) and restores it; tone mapping writer is an owned record; ortho camera is reported',
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
+    name: '[guard] look.shadow enabled keeps the remembered castShadow in an engine record (not light.userData) and restores it; tone mapping writer is an owned record; ortho camera is reported',
     url: URL,
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -119,9 +123,9 @@ export const specs = [
         const { THREE } = threedogTest, out = {};
         const a = new THREE.PointLight(0xffffff, 1, 10), b = new THREE.SpotLight(0xffffff, 1);
         a.castShadow = true; b.castShadow = false; engine.scene.add(a, b);
-        engine.setShadows(false);
+        const hs = engine.look.shadow.set({ enabled: false }, { owner: 'oneEntry' });
         out.off = [a.castShadow, b.castShadow, 'threedogCastShadow' in a.userData, JSON.stringify(engine.describe().owned?.['shadows.off']?.lights ?? null)];
-        engine.setShadows(true);
+        hs.remove();
         out.on = [a.castShadow, b.castShadow, 'threedogCastShadow' in a.userData, engine.describe().owned?.['shadows.off'] ?? null];
         engine.scene.remove(a, b);
         // tone mapping: one owned record; a direct write yields it quietly and describe says 'game'
@@ -137,8 +141,8 @@ export const specs = [
         out.camBack = engine.describe().camera.projection;
         return out;
       });
-      check('setShadows(false): lights off, nothing written to userData, describe().owned lists the light it turned off', r.off[0] === false && r.off[1] === false && !r.off[2] && r.off[3].includes('PointLight'), JSON.stringify(r.off));
-      check('setShadows(true): the light that cast casts again, the one that did not stays off, the record is gone', r.on[0] === true && r.on[1] === false && !r.on[2] && r.on[3] === null, JSON.stringify(r.on));
+      check('look.shadow enabled false: lights off, nothing written to userData, describe().owned lists the light it turned off', r.off[0] === false && r.off[1] === false && !r.off[2] && r.off[3].includes('PointLight'), JSON.stringify(r.off));
+      check('enabled back on (handle removed): the light that cast casts again, the one that did not stays off, the record is gone', r.on[0] === true && r.on[1] === false && !r.on[2] && r.on[3] === null, JSON.stringify(r.on));
       check("toneMapping: owned record 'engine' at start; a direct write -> render.toneMapping.writer 'game', owned writer 'three (engine yielded)'; no remembered creation value", r.tone[0] === 'engine' && r.tone[1] === 'game' && r.tone[2] === 'three (engine yielded)' && r.tone[3], JSON.stringify(r.tone));
       check('ortho camera: EngineCamera class method (not an instance patch), describe().camera.projection orthographic + orthoSize', !r.cam[0] && r.cam[1] === true && r.cam[2] === 'orthographic' && r.cam[3] === 30 && Math.abs(r.cam[4] - 15) < 1e-9 && r.camBack === 'perspective', JSON.stringify(r.cam));
     },

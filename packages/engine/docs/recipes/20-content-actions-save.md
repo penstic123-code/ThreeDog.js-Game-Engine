@@ -68,8 +68,8 @@ engine.content.load([base, forest], { places: { home } });
 
 ## 2. actions.js: a game's own key actions
 Format of `content/actions.js`: **action name -> { keys: default keys, label: display text }**. Actions that the engine brings along (move...) need
-not be written; inventory, quests and photo bind a key only when given `keys` (`inventory({ ...presets.keys.inventory })`), and run, jump and interact
-are not core keys either: they come from the game (`presets.player.*`, `interactions({ keys })`, this file or `createEngine({ bindings })`).
+not be written; inventory, quests and photo only declare their action, and run, jump and interact
+are not core keys either: they come from the game (`presets.bindings.*`, this file or `createEngine({ bindings })`).
 ```js
 // content/actions.js
 export default {
@@ -79,9 +79,9 @@ export default {
 };
 ```
 Don't forget to add it to the exports in `content/index.js` (`export default { ..., actions }`), otherwise `engine.content.load(data)` will not load
-it (it calls `engine.input.define(name, keys, label)`). What happens on press is written in main.js, read inside a fixed step so it lands on a tick:
+it (it calls `engine.input.action(name, { label, keys })`). What happens on press is written in main.js, read inside a fixed step so it lands on a tick:
 `engine.onFixed(() => { if (engine.input.pressed('kick')) engine.ops.run('ball.kick', {}, { source: 'player' }); })` (a gameplay action is an op,
-recipes/23-ops.md). A game that does not use content calls `engine.input.define('kick', 'KeyF', 'Push / kick')` directly.
+recipes/23-ops.md). A game that does not use content calls `engine.input.action('kick', { label: 'Push / kick', keys: ['KeyF'] })` directly.
 
 **The engine does not perform the `save` / `load` actions for you**: they only register the keys; after the press you call the engine yourself in
 main.js. Saving and loading are async (`Promise<boolean>`): await them, and say "saved" only on `true` (on `false` the engine already showed why).
@@ -96,19 +96,19 @@ engine.saves.autosave(3);     // autosave to 'auto' every 3 minutes of play (wai
 ```
 
 ## 3. Interact keys: which object, and who acts
-`interactions({ pick, keys })` decides what the interact key uses and which key that is; neither has a default (`[interaction-setup]` names the fix).
+`interactions({ pick })` decides what the interact key uses (no default, `[interaction-setup]` names the fix); the key is the game's binding.
 Pick the rule that fits the camera, not the genre default:
 ```js
 engine.use(interactions({ ...presets.interactions.nearest }));                   // E, nearest within 2.5 m (top-down, third person)
-engine.use(interactions({ pick: 'facing', keys: ['KeyE'] }));  // only what the actor faces (within 60°): the door behind you stays dark
-engine.use(interactions({ pick: 'aim', keys: ['KeyF'], radius: 2 })); // closest to the screen-center ray: first person, shooters
+engine.use(interactions({ pick: 'facing' }));  // only what the actor faces (within 60°): the door behind you stays dark
+engine.use(interactions({ pick: 'aim', radius: 2 })); // closest to the screen-center ray: first person, shooters
 engine.use(interactions({ pick: (list, ctx) => list.find(c => c.id.startsWith('npc')) ?? list[0], keys: ['KeyE'] }));   // own rule; list = enabled ones in range, nearest first
 engine.interactions.pickMode = 'aim';                // switch at runtime (entering a first-person mode)
 ```
 One object with two verbs = two interactions with different key actions; each key picks among its own action, and `engine.interactions.options` lists
 one `{ action, id, label }` per key for a prompt that shows both:
 ```js
-engine.input.define('take', 'KeyF', 'Take');
+engine.input.action('take', { label: 'Take', keys: ['KeyF'] });
 engine.interactions.add(thing, { label: 'Inspect', onUse: inspect });                                // E
 engine.interactions.add(thing, { label: 'Take', action: 'take', enabled: () => ready, onUse: take });   // F
 ```
@@ -174,7 +174,7 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
 
 ## Save format (frozen in v0.1)
 A save is one envelope; `engine.saves.collect()` returns it and `export` / `exportFile` carry it unchanged:
-```js
+```js fragment
 { format: 1,                       // the envelope's own version: a save with a higher format is refused as tooNew (none = 1)
   savedAt: 1730000000000,           // real time of the save
   versions: { world: 4, quests: 2, clock: 1 },   // each part's version (none = 1)

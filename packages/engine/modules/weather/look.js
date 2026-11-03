@@ -25,7 +25,7 @@ export function defineWeatherLook(w) {
   const rebuild = f => {
     if (applied[f]) return;   // replace() owns this field
     if (!w.systems.has(f)) { warnOnce(`look.weather: this game's weather table has no ${f}, so there are no ${f} particles to change; add a type with ${f}: 1 to weather({ types })`); return; }
-    const v = p.values(), s = styleSpec(f), g = { ...s.glsl };
+    const v = p.author.values(), s = styleSpec(f), g = { ...s.glsl };
     for (const h of STAGES) { const x = p.value(`hook:${f}.${h}`); if (x) g[h] = x; }
     w._build(f, { ...s, ...Object.fromEntries(KEYS[f].map(k => [k, v[`${f}.${k}`]])), ...(Object.keys(g).length ? { glsl: g } : {}) }, BASE[f]);
   };

@@ -1,7 +1,7 @@
 // 审计修复（2026-11-02）的"不许绕开"检查：每条守一个根因，改回旧写法就红。
 // 纯逻辑的（stacks / wrap / time 频道 / 着色器报错 / 补丁热重载 / describe 渲染归属 / 植被 mount / CLI 帮助）直接在 Node 里 import 模块跑，
 // 不进页面；要真引擎的（move.* 在 setup 可用、densityMap 图片的错误与 dispose）在 /tests/terrain-edit/ 页面里起无头引擎。
-// Run: npm test -- "AUDIT"      Same format as specs.mjs; appended at the end of specs.mjs.
+// Run: npm test -- "AUDIT"      Same format as the other files here.
 import * as THREE from 'three';
 import { Stacks } from '../../core/stacks.js';
 import { Wraps } from '../../core/wrap.js';
@@ -10,6 +10,7 @@ import { nameShaderErrors } from '../../render/shaderErrors.js';
 import { patchMaterial, replacePatchCode } from '../../render/patches.js';
 import { recordRender } from '../../core/describeRender.js';
 import { Vegetation } from '../../modules/vegetation/Vegetation.js';
+import { VegetationLook } from '../../modules/vegetation/look.js';
 
 /** 吞掉 console.warn / error 跑 fn，返回打印的行（stacks 同层两个 set 会 warnOnce，着色器报错走 console.error） */
 function quiet(fn) {
@@ -57,8 +58,8 @@ export const specs = [
       const T = new Time(eng);
       parts.time.load({ channels: { world: 5, player: 5, enemies: 42 }, timers: [{ channel: 'enemies', due: 50, event: 'boom', data: 1 }] });
       T.channel('enemies');
-      check('time: a channel defined after load gets its saved now and event timers', T.now('enemies') === 42 && T._get('enemies').timers.length === 1,
-        JSON.stringify({ now: T.now('enemies'), timers: T._get('enemies').timers }));
+      check('time: a channel defined after load gets its saved now and event timers', T.now('enemies') === 42 && T._timers.filter(t => t.ch === 'enemies').length === 1,
+        JSON.stringify({ now: T.now('enemies'), timers: T._timers }));
 
       // 7. 有 ERROR 行时，解释之后仍附完整原日志（警告不丢）
       const r = { debug: {} }; nameShaderErrors(r);
@@ -93,16 +94,20 @@ export const specs = [
         e1._oTone.on === false && e2._oTone.on === true && e1._renderBase.owned === false && e2._renderBase.toneBy === 'style' && e1._renderBase.toneBy === 'style',
         JSON.stringify([e1._renderBase, e1._oTone.on, e2._renderBase, e2._oTone.on]));
 
-      // 3. mount 一株不剩：旧网格拆掉并释放（碰撞同时清空）
+      // 3. mount 一株不剩：数据里的记录和碰撞清空并告诉外观；外观把旧网格拆掉并释放
       let disposed = 0;
-      const old = { dispose: () => { disposed++; } }, removed = [];
-      const c = { cx: 0, cz: 0, veg: { grass: old }, colliders: { grass: [1] }, group: { remove: o => removed.push(o) } };
-      Vegetation.prototype.mount.call({ species: new Map([['grass', {}]]), host: { CHUNK: 32 } }, c, 'grass', { n: 0, k: [] });
-      check('vegetation mount: an empty result drops the old mesh (removed + disposed) and its colliders', !c.veg.grass && disposed === 1 && removed[0] === old && !c.colliders.grass,
-        JSON.stringify({ veg: Object.keys(c.veg), disposed, colliders: Object.keys(c.colliders) }));
+      const old = { dispose: () => { disposed++; } }, removed = [], told = [];
+      const c = { cx: 0, cz: 0, plants: { grass: { n: 1 } }, colliders: { grass: [1] }, collidersAll: { grass: [1] } };
+      const V = { species: new Map([['grass', {}]]), host: { CHUNK: 32 }, _removed: new Map(), applyEdits: Vegetation.prototype.applyEdits, _emit: (k, cc, n) => told.push(k + ':' + n) };
+      Vegetation.prototype.mount.call(V, c, 'grass', { n: 0, k: [] });
+      VegetationLook.prototype.change.call({ meshes: new Map([[c, { group: { remove: o => removed.push(o) }, ims: { grass: old } }]]) }, c, 'grass');
+      check('vegetation mount: an empty result drops the record and its colliders, the look drops the old mesh (removed + disposed)',
+        !c.plants.grass && !c.colliders.grass && told.includes('change:grass') && disposed === 1 && removed[0] === old,
+        JSON.stringify({ plants: Object.keys(c.plants), disposed, colliders: Object.keys(c.colliders), told }));
     },
   },
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: 'AUDIT engine: move.* exists right after characters() is installed; a late densityMap image error is caught, one arriving after dispose rebuilds nothing',
     url: '/tests/terrain-edit/',
     expectErrors: /densityMap url \/audit-no-such-map\.png did not load/,
@@ -121,7 +126,7 @@ export const specs = [
         window.addEventListener('unhandledrejection', onU);
         const geo = new THREE.ConeGeometry(0.4, 1, 4);
         const E = make('audit-veg');
-        E.use(vegetation({ chunkSize: 16, viewChunks: 1 }), { name: 'audit-late', after: ['vegetation'], init(e) {
+        E.use(vegetation({ chunkSize: 16, viewChunks: 1 }), { name: 'audit-late', type: 'rules', after: ['vegetation'], init(e) {
           out.readyAtInit = e.ready;
           e.vegetation.define('late', { geometry: geo, rule: { perChunk: 5 }, densityMap: { url: '/audit-no-such-map.png', size: [64, 64] } });
           out.pendingLeft = e.vegetation._pending.length;

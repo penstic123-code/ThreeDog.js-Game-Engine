@@ -23,6 +23,7 @@
 
 import { legacyRuntimeIds, renameIdKeys, renameIdValues } from '../../core/saveIds.js';
 import { codedError } from '../../core/errorHints.js';
+import { isPlainObject } from '../../core/util.js';
 
 const PLAIN_STRINGS = {
   msg: 'world data must be plain values (number, string, boolean, array, plain object): {path} is {what}. Put models in world.present() and logic in world.simulate()',
@@ -106,23 +107,22 @@ const SHAPE_STRINGS = {
 };
 /** Positions beyond this are damage, not a big world: float32 models are already centimetres off at 1e5 and useless far before 1e7 */
 const POS_MAX = 1e7;
-const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 /** Throw save-bad-record for the first malformed core field of a world save (fields of the game's own are not checked) @internal */
-export function checkWorldSave(d) {
+function checkWorldSave(d) {
   const bad = (path, why, got) => { throw codedError('save-bad-record', SHAPE_STRINGS.bad.replace('{path}', path).replace('{why}', why.replace('{max}', String(POS_MAX))).replace('{got}', String(JSON.stringify(got)).slice(0, 120))); };
-  const pos = (path, p) => { if (!isObj(p) || !['x', 'y', 'z'].every(k => Number.isFinite(p[k]) && Math.abs(p[k]) <= POS_MAX)) bad(path, SHAPE_STRINGS.pos, p); };
+  const pos = (path, p) => { if (!isPlainObject(p) || !['x', 'y', 'z'].every(k => Number.isFinite(p[k]) && Math.abs(p[k]) <= POS_MAX)) bad(path, SHAPE_STRINGS.pos, p); };
   const num = (path, v) => { if (v !== undefined && !(Number.isFinite(v) && v >= 0)) bad(path, SHAPE_STRINGS.count, v); };
-  if (!isObj(d)) bad('the world part', SHAPE_STRINGS.obj, d);
+  if (!isPlainObject(d)) bad('the world part', SHAPE_STRINGS.obj, d);
   num('seq', d.seq); num('step', d.step); num('time', d.time);
-  for (const f of ['records', 'changed', 'owed']) if (d[f] !== undefined && !isObj(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
+  for (const f of ['records', 'changed', 'owed']) if (d[f] !== undefined && !isPlainObject(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
   if (d.removed !== undefined && !(Array.isArray(d.removed) && d.removed.every(id => typeof id === 'string'))) bad('removed', SHAPE_STRINGS.arr, d.removed);
   for (const [id, r] of Object.entries(d.records ?? {})) {
-    if (!isObj(r)) bad(`records.${id}`, SHAPE_STRINGS.obj, r);
+    if (!isPlainObject(r)) bad(`records.${id}`, SHAPE_STRINGS.obj, r);
     if (typeof r.kind !== 'string') bad(`records.${id}`, SHAPE_STRINGS.kind, r.kind);
     if ('position' in r) pos(`records.${id}.position`, r.position);
   }
   for (const [id, c] of Object.entries(d.changed ?? {})) {
-    if (!isObj(c) || (c.set !== undefined && !isObj(c.set)) || (c.del !== undefined && !Array.isArray(c.del))) bad(`changed.${id}`, SHAPE_STRINGS.obj, c);
+    if (!isPlainObject(c) || (c.set !== undefined && !isPlainObject(c.set)) || (c.del !== undefined && !Array.isArray(c.del))) bad(`changed.${id}`, SHAPE_STRINGS.obj, c);
     if (c.set && 'position' in c.set) pos(`changed.${id}.set.position`, c.set.position);
     if (c.set && 'kind' in c.set && typeof c.set.kind !== 'string') bad(`changed.${id}.set`, SHAPE_STRINGS.kind, c.set.kind);
   }

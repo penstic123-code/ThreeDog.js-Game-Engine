@@ -22,6 +22,7 @@ const at = (time) => {
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
     name: 'day-night-grade technique: noon > dusk > night but night readable; lamps carry the night; warm dusk without extra saturation; cool night',
     url: '/day-night-grade.html?threedog-headless',
     async run({ page, check, ev }) {

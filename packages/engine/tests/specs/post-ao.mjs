@@ -4,6 +4,7 @@
 
 export const specs = [
   {
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: '[守] 后期 ao：墙角变暗、空地不变；describe 显示参数；关掉恢复；改尺寸 / 像素比 / MSAA 不报错；移除后纹理数回到原数',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -20,7 +21,7 @@ export const specs = [
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), mat); floor.rotation.x = -Math.PI / 2;
         const wall = new THREE.Mesh(new THREE.BoxGeometry(20, 6, 1), mat); wall.position.set(0, 3, -2.5);
         g.add(floor, wall, new THREE.HemisphereLight(0xffffff, 0xffffff, 2)); sc.add(g);
-        const size = (w, h, pr = 1) => { engine.setPixelRatio(pr); R.setSize(w, h, false); p.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); };
+        const size = (w, h, pr = 1) => { engine.setPixelRatio(pr); R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); };
         size(W, H); p.setAntialias(false);
         cam.position.set(0, 2.2, 3); cam.lookAt(0, 0, -2); cam.updateMatrixWorld();
         const read = (w = W, h = H) => { const b = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
@@ -64,7 +65,7 @@ export const specs = [
         g.removeFromParent(); floor.geometry.dispose(); wall.geometry.dispose(); mat.dispose();
         hidden.forEach(o => { o.visible = true; }); sc.fog = fog0; sc.background = bg0;
         cam.position.copy(camState.pos); cam.quaternion.copy(camState.quat);
-        engine.setPixelRatio(pr0); R.setSize(css0.x, css0.y, false); p.setSize(css0.x, css0.y); cam.aspect = camState.aspect; cam.updateProjectionMatrix();
+        engine.setPixelRatio(pr0); R.setSize(css0.x, css0.y, false); cam.aspect = camState.aspect; cam.updateProjectionMatrix();
         p.setAntialias(aa0);
         return out;
       });

@@ -30,7 +30,7 @@ export function applyContactShadows(engine, opts = {}) {
   const p = { ...PARAMS, ...opts }, owner = 'contact-shadows', handles = [];
   handles.push(engine.look.shadow.set({ extent: p.extent, mapSize: p.mapSize, normalBias: p.normalBias, bias: p.bias }, { owner }));
   // a multiplier on the sky's ambient, not a fixed hemi intensity: the day-night cycle keeps working (look.lights.set would freeze it)
-  if (p.fill !== 1) handles.push(engine.mod('sky.ambient', { owner, mul: p.fill }));
+  if (p.fill !== 1) handles.push(engine.mod('look.lights.hemi.intensity', { owner, mul: p.fill }));
   if (p.ao) handles.push(engine.look.post.add(ao({ enabled: true, radius: p.aoRadius, intensity: p.aoIntensity }), { owner }));
   return {
     remove() { for (const h of handles.splice(0)) h.remove(); },

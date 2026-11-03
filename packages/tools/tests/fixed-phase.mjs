@@ -19,7 +19,7 @@ function fake() {
   const e = Object.assign(Object.create(null), loopMethods, {
     onFixed: Engine.prototype.onFixed, frozen: false, tick: 0, ready: false, _elapsed: 0, uniforms: { uTime: { value: 0 } },
     _fixed: [], _fixedLate: [], _hooks: { fixed: [] }, _hookErrors: new Set(),
-    input: { beginFixed() {}, endFixed() {} }, time: { _advance() { e.clockRan = (e.clockRan ?? 0) + 1; }, _get() {}, dt: () => 1 / 60 },
+    input: { beginFixed() {}, endFixed() {} }, time: { _beginStep() {}, _endStep() { e.clockRan = (e.clockRan ?? 0) + 1; }, _get() {}, dt: () => 1 / 60 },
     player: { x: 0 },
   });
   e._hooks.fixed.push({ name: 'characters', mod: {}, fn: () => { e.player.x += 1; } });

@@ -1,5 +1,5 @@
 // Module contracts (docs/plans/done/2026-11-02-gameplay-architecture.md §1.3, §7 step 10): the engine's inventory, interactions, flow, characters, calendar,
-// dialogue, quests and camera each pass the shared contract check (@threedog/tools/contract), and small fakes (tests/contract/fake*.js) pass the same
+// dialogue, quests, camera and particles each pass the shared contract check (@threedog/tools/contract), and small fakes (tests/contract/fake*.js) pass the same
 // check, so replacing a module is tested, not hoped for. The vehicle contract is an object contract: a rigid car's shape and a fake raft both pass it.
 // That the engine's callers (NPC talk, timeline say, content loader, hud, character.enter, control: 'camera') work with the fakes is the browser
 // spec specs/ui-nav.mjs. Also engine.wrap (core/wrap.js): wrappers compose (last wrapped runs first), remove in any order, show in describe,
@@ -21,6 +21,7 @@ const { calendar } = await imp('modules/calendar/index.js');
 const { dialogue } = await imp('modules/gameplay/Dialogue.js');
 const { quests } = await imp('modules/gameplay/Quests.js');
 const { followCamera } = await imp('modules/camera/FollowCamera.js');
+const { particles } = await imp('modules/particles/Particles.js');
 const { EngineCamera } = await imp('core/engineCamera.js');
 const THREE = await import('three');
 const { fakeDialogue } = await imp('tests/contract/fakeDialogue.js');
@@ -37,12 +38,14 @@ const cameraParts = e => {
     renderer: { domElement: canvas, getSize: v => v.set(800, 600) }, takeCamera: () => ({ remove() {} }), _setFov(v) { e.camera.fov = v; }, raycast: () => null,
     player: null, elapsed: 0 });
 };
+// what the engine's particles draw into: add / remove objects, the wind uniform (no renderer: the WebGL material is built, never drawn)
+const particleParts = e => { Object.assign(e, { add() {}, remove() {}, tier: 'high', uniforms: { uWind: { value: 0 } } }); };
 // a car shaped like rigid.addWheeled's (the parts character.enter uses: two seats, hidden riders, a passenger list), without Rapier
 const rigidShaped = () => { const object = new THREE.Object3D(); return { id: 'car', object, body: null, controller: null, wheels: [], speed: 0, driver: null,
   seats: 2, hideDriver: true, passengers: [], drive() {},
   seatPosition: (seat = 0) => object.position.clone().setY(1).setX(seat * 0.8), exitPosition: (seat = 0) => object.position.clone().setX(2 - seat * 4) }; };
 
-export const name = 'contracts: engine inventory / interactions / flow / characters / calendar / dialogue / quests / camera and fakes pass one check; vehicle object contract; engine.wrap';
+export const name = 'contracts: engine inventory / interactions / flow / characters / calendar / dialogue / quests / camera / particles and fakes pass one check; vehicle object contract; engine.wrap';
 
 const CONTRACTS = {
   'modules/gameplay/inventory.contract.js': [['engine', o => inventory(o)], ['fake', () => fakeInventory()]],
@@ -53,6 +56,7 @@ const CONTRACTS = {
   'modules/gameplay/dialogue.contract.js': [['engine', o => dialogue(o)], ['fake', () => fakeDialogue()]],
   'modules/gameplay/quests.contract.js': [['engine', o => quests(o)], ['fake', () => fakeQuests()]],
   'modules/camera/contract.js': [['engine', () => followCamera(), cameraParts], ['fake', () => fakeCamera()]],
+  'modules/particles/contract.js': [['engine', () => particles(), particleParts]],
   'modules/characters/vehicle.contract.js': [['rigid-shaped', rigidShaped], ['fake', () => fakeVehicle()]],
 };
 
@@ -69,7 +73,7 @@ export async function run({ check }) {
   check('every modules/**/contract.js is run by this test', !unrun.length, unrun.join(', '));
 
   // ---- engine.wrap
-  const e = contractEngine(), mod = inventory({ keys: [] }), inv = mod.install(e);
+  const e = contractEngine(), mod = inventory(), inv = mod.install(e, { name: mod.name, track: h => h });
   e.inventory = inv; e.modules.set('inventory', mod);
   inv.define('fish', { name: 'Fish' }).define('rock', { name: 'Rock' });
   const order = [];

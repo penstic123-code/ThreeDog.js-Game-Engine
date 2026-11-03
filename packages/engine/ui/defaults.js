@@ -7,8 +7,8 @@ import { codedError } from '../core/errorHints.js';
 /** @import { Engine, UIPart, UITitleItem } from '../types/core' */
 
 const STRINGS = {
-  'zh-CN': { 'title.start': '开始', 'title.continue': '继续', 'title.settings': '设置' },
-  en: { 'title.start': 'Start', 'title.continue': 'Continue', 'title.settings': 'Settings' },
+  'zh-CN': { 'title.start': '开始', 'title.continue': '继续' },
+  en: { 'title.start': 'Start', 'title.continue': 'Continue' },
 };
 const CSS = `
 .threedog-title{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;background:var(--threedog-loading-bg);color:var(--threedog-fg);z-index:80;font-family:var(--threedog-font)}
@@ -16,15 +16,17 @@ const CSS = `
 .threedog-title-items{display:flex;flex-direction:column;gap:10px;min-width:200px}
 .threedog-title-items .threedog-btn{padding:8px 16px;font-size:16px}
 `;
-const DEV = { badItem: "ui title items: each item is 'start' | 'continue' | 'settings' or { label, run(engine) }. Got {got}." };
+const DEV = { badItem: "ui title items: each item is 'start' | 'continue', the id of a button a module added (engine.ui.titleItem: {added}) or { label, run(engine) }. Got {got}." };
 
-// Built-in title items; when() hides an item that has nothing to do (no save yet, no settings module)
+// Built-in title items; when() hides an item that has nothing to do (no save yet). Buttons of modules (settings) come from engine.ui.titleItem
 // Both go through engine.session so nothing of an earlier playthrough (after "back to title") is left over; a save that cannot be read keeps the title up (the engine shows why).
 const BUILTIN = {
   continue: { when: e => e.saves.list().length > 0, run: async e => { if (await e.session.load(e.saves.list()[0].slot)) e.ui.close('title'); } },
   start: { run: async e => { await e.session.newGame(); e.ui.close('title'); } },
-  settings: { when: e => !!e.settings, run: e => e.settings.open() },
 };
+
+/** A game's or a module's item -> { id, label, run } */
+const own = (e, it) => ({ id: it.id ?? it.label, label: typeof it.label === 'function' ? it.label(e) : it.label, run: () => it.run(e) });
 
 /**
  * Title items -> [{ id, label, run }] (what the title part's show() receives)
@@ -36,8 +38,9 @@ function titleItems(e, items) {
   const out = [];
   for (const it of items) {
     if (typeof it === 'string' && BUILTIN[it]) { const b = BUILTIN[it]; if (!b.when || b.when(e)) out.push({ id: it, label: e.t('title.' + it), run: () => b.run(e) }); }
-    else if (it && typeof it.run === 'function') out.push({ id: it.id ?? it.label, label: typeof it.label === 'function' ? it.label(e) : it.label, run: () => it.run(e) });
-    else throw codedError('ui-misuse', DEV.badItem.replace('{got}', JSON.stringify(it)));
+    else if (typeof it === 'string' && e.ui.titleItems.has(it)) out.push(own(e, { id: it, ...e.ui.titleItems.get(it) }));
+    else if (it && typeof it.run === 'function') out.push(own(e, it));
+    else throw codedError('ui-misuse', DEV.badItem.replace('{added}', [...e.ui.titleItems.keys()].join(', ') || 'none').replace('{got}', JSON.stringify(it)));
   }
   return out;
 }
@@ -78,8 +81,8 @@ export function defineCoreParts(e) {
     on: false,
     modal: {
       freeze: 'title',   // freezes gameplay; the kind tells engine.runState this is a title screen waiting for start
-      // items default to continue / start / settings, each shown only when it applies (a save exists, settings is installed)
-      data: (eng, o) => ({ title: o.title ?? '', items: titleItems(eng, o.items ?? ['continue', 'start', 'settings']) }),
+      // items default to continue (when a save exists), start, then every button a module added (settings when installed)
+      data: (eng, o) => ({ title: o.title ?? '', items: titleItems(eng, o.items ?? ['continue', 'start', ...eng.ui.titleItems.keys()]) }),
     },
   });
   e.ui.define('touch', touchPart);   // drawn only when a stick (createEngine({ joystick })) or a touch button is wanted

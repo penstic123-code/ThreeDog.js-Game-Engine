@@ -14,6 +14,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve, relative } from 'node:path';
 import { parseAst } from 'vite';
 import { writeAtomic } from './lib/atomic.mjs';
+import { parseOptions } from './lib/cli-args.mjs';
 import { fileURLToPath } from 'node:url';
 
 const BEGIN = '// threedog:tune begin', END = '// threedog:tune end';
@@ -126,13 +127,16 @@ function tuneFile(from) {
   return existsSync(f) ? f : null;
 }
 
-export async function main([sub, file, ...rest]) {
+export async function main([sub, ...args]) {
+  // one strict parse: --apply anywhere, at most one file
+  let p;
+  try { p = parseOptions(args, { positional: true, flags: ['apply'] }); } catch (e) { console.error('✗ ' + e.message); return 1; }
+  if (p.rest.length > 1) { console.error(`✗ one file only, got ${p.rest.join(' ')}`); return 1; }
+  const file = p.rest[0], apply = !!p.opt.apply;
   const src = tuneFile(file ? dirname(resolve(file)) : process.cwd());
   if (!src) { console.error('No .threedog/tune.json yet: open the page with the dev panel (?panel=1), change values, press "write back", then run this again'); return 1; }
   const t = JSON.parse(readFileSync(src, 'utf8'));
   if (sub === 'show') { console.log(tuneBlock(t)); if (some(t.models)) console.log('// model params (written to their registration): ' + JSON.stringify(t.models)); return 0; }
-  const apply = [file, ...rest].includes('--apply');
-  if (file === '--apply') file = undefined;
   if (sub === 'write' && some(t.models)) {
     const root = dirname(dirname(src)), left = writeModels(root, t.models, apply);
     if (left.length) console.log(`Model params not written (no \`params: { ... }\` registration found under ${relative(process.cwd(), root) || '.'}): ${left.join(', ')}`);
@@ -147,7 +151,7 @@ export async function main([sub, file, ...rest]) {
   if (!existsSync(path)) { console.error(`${file} does not exist`); return 1; }
   const { after, diff } = planTune(readFileSync(path, 'utf8'), t);
   console.log(diff);
-  if (!rest.includes('--apply')) { console.log(`\nDry run: nothing written. Write it: threedog tune write ${file} --apply`); return 0; }
+  if (!apply) { console.log(`\nDry run: nothing written. Write it: threedog tune write ${file} --apply`); return 0; }
   writeAtomic(path, after);   // the shared temp file + rename (lib/atomic.mjs): a half-written main.js would break the dev page
   console.log(`\nWritten to ${file}.`);
   return 0;

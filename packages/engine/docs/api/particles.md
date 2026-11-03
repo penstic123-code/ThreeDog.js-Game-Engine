@@ -4,7 +4,7 @@ Particles (particles() module)
 
 
 ## Methods and properties
-- `particles.define(name: string, opts?: ParticleOptions) → ParticleEffect` — Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of the style pack preset. Returns the effect object: .points is its THREE.Points, .material is the shader material
+- `particles.define(name: string, opts?: ParticleOptions) → ParticleEffect` — Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of the style pack preset. Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer), .material is the shader material
 - `particles.has(name: string) → boolean` — Whether this effect has been defined
 - `particles.emit(name: string, position: PositionLike, opts?: { count?, overrides? })` — Burst: emit count particles at once (default 10) at position (Vector3 / Object3D / [x, y, z] / {x, y, z}). overrides affect this batch only (color, speed, direction...; max/texture/blending cannot be changed temporarily)
 - `particles.attach(name: string, object3d: THREE.Object3D, opts?: { rate?, offset?, overrides? }) → ParticleEmitter` — Keep emitting while following an object: rate per second, offset in the object's local coordinates [x, y, z] (meters). Returns a handle { remove(), rate, active } (active = false pauses)

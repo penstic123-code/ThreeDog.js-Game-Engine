@@ -9,6 +9,20 @@ import { worldExplain } from './explain.js';
 import { closest, warnOnce, DEV } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 
+const PLACED = '[session] {n} world record(s) were created or removed by code before the game started ({ids}): a new game should equal the content. '
+  + 'Move them to content (content/props.js with an id and a template from content/templates.js), or create them during play inside an op';
+
+/**
+ * Dev check on the new-game state (saves.register checkNewGame, run once start() finished): authored things come from content, so a new game has
+ * no runtime records but the player and removes nothing. Changed fields are not checked: simulation may already move authored records (an NPC
+ * walking its schedule) while loading runs in real time. Lives here, not in core/session.js: only the world knows its own save format.
+ * @param {any} d the world part of the new-game state
+ */
+function codePlaced(d) {
+  const ids = [...Object.entries(d?.records || {}).filter(([, r]) => r.kind !== 'player').map(([id]) => id), ...(d?.removed || [])];
+  if (ids.length) warnOnce(PLACED.replace('{n}', String(ids.length)).replace('{ids}', ids.slice(0, 8).join(', ') + (ids.length > 8 ? ', …' : '')));
+}
+
 const ORPHAN = '[world] the save has changes for {n} id(s) that the content no longer defines: {list}. They are kept in the save (restoring the entry brings them back); '
   + "if an entry was renamed, add the pair to content/renames.js (export default { 'oldId': 'newId' }) and the saved state follows it; 'oldId': null drops it";
 const RENAME_TARGET = '[world] content/renames.js moves saved state to {list}, which no content entry defines: fix the new id (did you mean {near}?)';
@@ -25,12 +39,12 @@ export function world(opts = {}) {
   readParams('world', WORLD_PARAMS, opts);
   let w = null;
   return {
-    name: 'world', label: 'World data', params: WORLD_PARAMS, options: opts, stage: 'world',
-    install(e) {
+    name: 'world', type: 'world', provides: ['world'], label: 'World data', params: WORLD_PARAMS, options: opts, stage: 'ground',
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.world': '世界数据' }, en: { 'module.world': 'world data' } });
       w = new World(e, opts);
       e.stream.player.at(() => w.center);   // the default stream source sits where gameplay is simulated (world.anchor, else the player)
       e.stream.readyCheck('world', s => s.detail !== 'full' || w.ready);
-      e.saves.register('world', { atomic: true, version: 5, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d) });
+      e.saves.register('world', { atomic: true, version: 5, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d), checkNewGame: codePlaced });
       e._things.addSource(recordSource(w));   // engine.thing / thing.set / the shared id space reach the records through this
       e.explainWith(worldExplain);
       e.budget.metric('worldRecords', () => w.records.size);
@@ -48,7 +62,7 @@ export function world(opts = {}) {
           const bad = [...w._renames].filter(([, b]) => b != null && !w._base.has(b) && due(b));
           if (bad.length) warnOnce(RENAME_TARGET.replace('{list}', bad.map(([a, b]) => `${b} (from ${a})`).join(', ')).replace('{near}', closest(bad[0][1], [...w._base.keys()]) ?? '-'));
         };
-        for (const ev of ['engine:ready', 'save:loaded', 'level:loaded']) e.events.on(ev, () => { if (e.ready) warn(); });
+        for (const ev of ['engine:ready', 'save:loaded', 'level:loaded']) ctx.track(e.events.on(ev, () => { if (e.ready) warn(); }));
       }
       return w;
     },

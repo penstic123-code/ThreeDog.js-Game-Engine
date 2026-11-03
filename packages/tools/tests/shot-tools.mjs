@@ -36,12 +36,12 @@ export async function run({ check }) {
   check('[guard] --size: WxH (x or X), default 960x540; anything else fails naming the form', sz(undefined) === '960x540' && sz('1280X720') === '1280x720'
     && ['1280', 'axb', '0x10', '10x-5'].every(s => /--size .* WxH/.test(sz(s))), ['1280', 'axb'].map(sz).join(' | '));
   // round-2 demo: the headless page was detected low tier, so ao / bloom silently dropped out of every shot. The tool pages name their tier;
-  // this guards the one path (engine reads ?threedog-tier only when headless; shot, gallery and capture pass it)
+  // this guards the one path (engine reads ?threedog-tier only when headless, before it builds the renderer; shot, gallery and capture pass it)
   const { forcedTier } = await import(pathToFileURL(join(ENGINE, 'core/tier.js')).href);
   const src = f => readFileSync(join(TOOLS, f), 'utf8');
   check('tier: ?threedog-tier=high|low is read, anything else ignored; Engine takes it only headless; shot / gallery / capture pass it',
     forcedTier('?threedog-headless&threedog-tier=high') === 'high' && forcedTier('?threedog-tier=low') === 'low' && forcedTier('?threedog-tier=ultra') === null && forcedTier('') === null
-    && /\(headless && forcedTier\(\)\) \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/Engine.js'), 'utf8'))
+    && /\(headless && forcedTier\(\)\) \|\| \(owned \? tierBeforeRenderer\(\) : null\);[^]*this\.tier = tierFirst \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/Engine.js'), 'utf8'))
     && /'threedog-tier': tier/.test(src('shot.mjs')) && /threedog-tier=high/.test(src('gallery.mjs')) && /'threedog-tier': 'high'/.test(src('capture.mjs')));
   // content check's browser stand-in answered window.__THREE__ with a truthy stand-in: "Multiple instances of Three.js" on every check
   const { withDomStub } = await import('../content-check/dom-stub.mjs');

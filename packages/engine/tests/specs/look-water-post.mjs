@@ -1,7 +1,7 @@
 // look.water / look.weather / look.post (modules/water/look.js, modules/weather/look.js, render/postLook.js).
 // Each part has one "no bypass" test: a change made with a verb shows up in describe().look as game:<owner>, and removing that layer gives the style value back.
 // Water and weather get their own small engine (the style decides the start values); post uses the page engine and its style's effects.
-// Same format as specs.mjs; appended at the end of specs.mjs.
+// Same format as the other files here.
 
 const MAKE = `
   const { createEngine, water, weather, sky } = threedogTest;
@@ -52,7 +52,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {}, types = { clear: {}, rain: { rain: 1 }, ashfall: { ash: 1 } };
-        const e = make({ weather: { rain: { speed: 30, color: 0x99aabb } } }, [sky(), weather({ types })]), W = e.look.weather, info = () => e.describe().look.weather, sys = () => e.weather.systems.get('rain');
+        const e = make({ weather: { rain: { speed: 30, color: 0x99aabb } } }, [sky(), weather({ types })]), W = e.look.weather, info = () => e.describe().look.weather, sys = () => e.weatherLook.systems.get('rain');
         out.by0 = [info()['rain.speed'].writer, info()['rain.speed'].value, sys().spec.speed, info()['rain.opacity'].writer];
         W.set({ 'rain.speed': 10, rain: { length: 2 } }, { owner: 'cave' });
         out.set = [info()['rain.speed'].writer, sys().spec.speed, info()['rain.length'].writer, sys().uniforms.uLen.value];
@@ -66,12 +66,12 @@ export const specs = [
         W._clear('cave');
         out.back = [info()['rain.speed'].writer, info()['rain.speed'].value, sys().spec.speed, info()['hook:rain.fragment'], sys().object.material.fragmentShader.includes('1.0, 0.0, 1.0')];
         // look.weather.replace({ field: spec }) is one object per owner: a second call must list the earlier fields again
-        const ashSpec = { shape: 'soft', color: 0x555555 }; e.look.weather.replace({ ash: ashSpec }); const a = e.weather.systems.get('ash');
-        out.define = [info()['@replace']?.writer, e.weather.systems.get('ash') === a, a.object.isPoints];
-        e.look.weather.replace({ ash: ashSpec, rain: { create: () => ({ object: new threedogTest.THREE.Group() }) } }); const own = e.weather.systems.get('rain');
-        out.rainOwn = [e.weather.systems.get('rain') === own, e.weather.systems.has('ash')];
+        const ashSpec = { shape: 'soft', color: 0x555555 }; e.look.weather.replace({ ash: ashSpec }); const a = e.weatherLook.systems.get('ash');
+        out.define = [info()['@replace']?.writer, e.weatherLook.systems.get('ash') === a, a.object.isPoints];
+        e.look.weather.replace({ ash: ashSpec, rain: { create: () => ({ object: new threedogTest.THREE.Group() }) } }); const own = e.weatherLook.systems.get('rain');
+        out.rainOwn = [e.weatherLook.systems.get('rain') === own, e.weatherLook.systems.has('ash')];
         W._clear('game');
-        out.cleared = [e.weather.systems.has('ash'), e.weather.systems.get('rain').spec?.speed, info()['@replace']];
+        out.cleared = [e.weatherLook.systems.has('ash'), e.weatherLook.systems.get('rain').spec?.speed, info()['@replace']];
         out.cat = e.catalog('look.weather').verbs.join();
         e.dispose();
         return out;
@@ -84,7 +84,7 @@ export const specs = [
     },
   },
   {
-    name: 'look no bypass: post set / patch / replace -> game:<owner>; removing the layer restores the effect default; the chain reads the records',
+    name: 'look no bypass: post set / add / replace -> game:<owner>; removing the layer restores the effect default; the chain reads the records',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
@@ -103,17 +103,18 @@ export const specs = [
         out.set = [info()['vignette.strength'].writer, info()['vignette.strength'].value, h2.params.strength, h2.enabled];
         L._clear('night');
         out.back = [info()['vignette.strength'].writer, info()['vignette.strength'].value, h2.params.strength];
-        // patch generates a fuse effect
-        L.patch('tint', { glsl: 'color.rgb *= vec3(1.0, 0.9, 0.8);', slot: 'ldr', order: 5 }, { owner: 'cave' });
+        // a pixel snippet is an effect with a fuse, added like every other one (look.post has no patch verb)
+        L.add({ name: 'tint', fuse: { glsl: 'color.rgb *= vec3(1.0, 0.9, 0.8);' }, slot: 'ldr', order: 5 }, { owner: 'cave' });
         out.patch = [info()['hook:tint']?.writer, !!p.get('tint'), p.get('tint')?.slot, !!info()['tint.enabled']];
-        out.taken = err(() => L.patch('vignette', 'color.rgb *= 0.5;', { owner: 'cave' }));
+        out.taken = err(() => L.add({ name: 'vignette', fuse: { glsl: 'color.rgb *= 0.5;' } }, { owner: 'cave' }));
         L.set({ tint: false }, { owner: 'cave' }); out.tintOff = [p.get('tint').enabled, info()['tint.enabled'].writer];
         L._clear('cave');
         out.patchGone = [!p.get('tint'), info()['tint.enabled']];
         // replace swaps the whole chain; null gives the style chain back
-        L.replace([grain({ enabled: true })], { owner: 'cave' });
+        // 'base' ends its chain first: two game owners replacing the one chain would be a shared-conflict
+        L._clear('base'); L.replace([grain({ enabled: true })], { owner: 'cave' });
         out.replaced = [p.list().map(x => x.name).join(), info()['@replace']?.writer, info()['vignette.enabled']];
-        L._clear('cave'); L._clear('base');
+        L._clear('cave');
         out.restored = p.list().map(x => x.name).join() === styleNames.join();
         out.badReplace = err(() => L.replace('bloom'));
         out.cat = engine.catalog('look.post').verbs.join();
@@ -127,9 +128,9 @@ export const specs = [
       });
       check('post: replace -> game:base record and the effect follows (describe().render reads the records)', r.add.join() === 'game:base,0.5,look.post.vignette.enabled', JSON.stringify([r.add, r.alias]));
       check('post: set({ effect: params, other: false }) -> game:night; clear(owner) gives the effect default back', r.set.join() === 'game:night,0.9,0.9,true' && r.back.join() === 'engine,0.5,0.5' && r.shorthandBad.includes('unknown key'), JSON.stringify([r.set, r.back, r.shorthandBad]));
-      check('post: patch(name, fuse) generates an effect (game:cave); a taken name throws; clear removes the effect and its keys', r.patch.join() === 'game:cave,true,ldr,true' && r.taken.includes('already exists') && r.tintOff.join() === 'false,game:cave' && r.patchGone[0] && r.patchGone[1] === undefined, JSON.stringify([r.patch, r.taken, r.tintOff, r.patchGone]));
-      check('post: add(effect, { owner }) adds one pass, catalog lists the call, describe shows the owner, remove() takes only it out', r.addOne[0] && r.addOne[1] === 'add(effect, { owner })' && r.addOne[2] && r.addGone, JSON.stringify([r.addOne, r.addGone]));
-      check('post: replace([...]) swaps the chain, null restores the style chain; bad impl throws; catalog verbs', r.replaced[0] === 'grain' && r.replaced[1] === 'game:cave' && r.replaced[2] === undefined && r.restored && r.badReplace.includes('array') && r.cat === 'set,patch,replace', JSON.stringify([r.replaced, r.restored, r.badReplace, r.cat]));
+      check('post: add({ name, fuse }) adds an effect (game:cave); a taken name throws; clear removes the effect and its keys', r.patch.join() === 'game:cave,true,ldr,true' && r.taken.includes('already added') && r.tintOff.join() === 'false,game:cave' && r.patchGone[0] && r.patchGone[1] === undefined, JSON.stringify([r.patch, r.taken, r.tintOff, r.patchGone]));
+      check('post: add(effect, { owner }) adds one pass, catalog lists the call, describe shows the owner, remove() takes only it out', r.addOne[0] && r.addOne[1].startsWith('add(pass | (input, ctx) => node | { name, create | node | fuse }') && r.addOne[2] && r.addGone, JSON.stringify([r.addOne, r.addGone]));
+      check('post: replace([...]) swaps the chain, null restores what add() put in; bad impl throws; catalog verbs (add, no patch)', r.replaced[0] === 'grain' && r.replaced[1] === 'game:cave' && r.replaced[2] === undefined && r.restored && r.badReplace.includes('array') && r.cat === 'set,replace,manual,add', JSON.stringify([r.replaced, r.restored, r.badReplace, r.cat]));
     },
   },
 ];

@@ -16,7 +16,7 @@ import { checkViews } from './content-check/views.mjs';
 import { checkFields } from './content-check/fields.mjs';
 import { glbLevels } from './content-check/glb.mjs';
 import { writeIndex } from './content-check/index-ids.mjs';
-import { onlyGames } from './paths.mjs';
+import { cli, within } from './paths.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameAssets, levelIsFile };
 
@@ -240,12 +240,15 @@ export async function checkGame(dir) {
 // Run directly: validate all games
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   let nErr = 0, nWarn = 0;
-  for (const dir of onlyGames(findGames())) {
+  // -w (or the current folder) narrows the run to the games inside that workspace (the engine's examples, or one game)
+  const { dirs, named } = cli(process.argv.slice(2), { workspace: 'targets' });
+  const games = findGames().filter(g => !named || dirs.some(d => within(g, d)));
+  for (const dir of games) {
     const { errors, warnings } = await checkGame(dir);
     for (const e of errors) console.log('✗ ' + e);
     for (const w of warnings) console.log('! ' + w);
     nErr += errors.length; nWarn += warnings.length;
   }
-  console.log(`Content validation: ${nErr} errors, ${nWarn} warnings (${onlyGames(findGames()).map(rel).join(', ')})`);
+  console.log(`Content validation: ${nErr} errors, ${nWarn} warnings (${games.map(rel).join(', ')})`);
   process.exit(nErr ? 1 : 0);
 }

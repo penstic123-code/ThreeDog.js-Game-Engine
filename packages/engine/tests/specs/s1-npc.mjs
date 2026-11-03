@@ -1,4 +1,4 @@
-// Stage 1.11 step 4: NPCs move to engine.world (facts are data; Character is only the presentation while near). Same style as packages/engine/tests/specs.mjs; appended at the end of specs.mjs.
+// Stage 1.11 step 4: NPCs move to engine.world (facts are data; Character is only the presentation while near). Same style as the other files here.
 export const specs = [
   {
     name: 'S1 NPC: walk far and the model unloads, advance 2 hours, walk back to the scheduled position (stop / straight-line interpolation) and the model is rebuilt (open world)',

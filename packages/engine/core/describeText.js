@@ -9,7 +9,7 @@ const STRINGS = {
   head: '[Game state] running {s} s{flags}',
   actions: 'Can do (engine.ops): {list}',
   error: '[Error, gameplay frozen] {where}: {message}', errorAt: ' ({at})',
-  errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled presentation modules (they threw): {list}',
+  errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled look / ui modules (they threw): {list}',
   paused: ', paused', headless: ', headless', notReady: ', still loading',
   waiting: 'Loading: {waiting} ({pending} pending, {done}/{total} done)', loadFailed: 'Load failed{blocked}: {list}', blocked: ' (start blocked)',
   loadWarn: 'Loaded with missing references: {list}',
@@ -37,7 +37,8 @@ const STRINGS = {
   perf: 'Perf: fps {fps}, CPU {cpu} ms/frame, draw calls {calls}, triangles {tris}{chunks}',
   chunks: ', chunks loaded {loaded} / visible {visible} / queued {queued}',
   extra: '{name}: {json}',
-  more: '... ({n} more lines omitted)',
+  tables: 'Engine tables (entries; describe <name> for one): {list}',
+  more: '... {n} more modules: {names} (describe <name> for one)',
   nearMore: '  ... {n} more',
   expand: 'More: describeText({ path: \'<module>\' }) for one part, describeText({ full: true }) for everything (CLI: threedog describe <path> / --full)',
   noPath: 'describe() has no "{path}"; top-level keys: {keys}',
@@ -59,7 +60,9 @@ const tr = (table, k) => (k != null && STRINGS[table][k]) || (k ?? STRINGS.none)
 const n1 = v => (typeof v === 'number' ? r1(v) : v);
 // Standard fields get sentences above; data from other modules is squeezed into one JSON line
 const SHOWN = new Set(['nearbyRadius', 'ready', 'error', 'disabledModules', 'loading', 'time', 'player', 'camera', 'nearby', 'actions', 'ui', 'cutscene',
-  'modules', 'perf', 'weather', 'render']);
+  'modules', 'perf', 'weather', 'render', 'threePatches']);   // threePatches: page-wide, the same every call; describe() JSON carries it, the text stays short
+// engine bookkeeping in describe(): one count each in the summary, the content one describeText({ path }) away
+const TABLES = new Set(['holds', 'input', 'control', 'shared', 'wraps', 'slots', 'scene', 'owned', 'look', 'renderer']);
 const argText = a => Object.entries(a || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(' ');
 
 /** One module's data in a line: scalars as k=v, arrays as k[n], objects as k{n keys} (nested data is one describeText({ path }) away) */
@@ -82,15 +85,15 @@ function atPath(d, path) {
 /**
  * Write the describe() result as English text: a summary (at most maxLines lines), one part (path), or everything (full).
  * @param {any} d  a describe() result
- * @param {{ full?: boolean, path?: string, maxLines?: number }} [opts]
+ * @param {{ full?: boolean, path?: string, maxLines?: number, game?: string[] }} [opts] game: names added with describe.add (listed first)
  */
-export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
+export function describeText(d, { full = false, path, maxLines = 30, game = [] } = {}) {
   if (path) return atPath(d, path);
   const L = [], t = d.time;
   const flags = (t.paused ? STRINGS.paused : '') + (t.headless ? STRINGS.headless : '') + (d.loading.done ? '' : STRINGS.notReady);
   if (d.error) L.push(fmt(STRINGS.error, d.error) + (d.error.at ? fmt(STRINGS.errorAt, d.error) : '')
     + (d.error.fix ? fmt(STRINGS.errorHint, { code: d.error.code, fix: d.error.fix, docs: d.error.docs.join(', ') }) : ''));
-  L.push(fmt(STRINGS.head, { s: t.elapsed, flags }));
+  L.push(fmt(STRINGS.head, { s: t.real, flags }));
   const ld = d.loading;
   if (!ld.done) L.push(fmt(STRINGS.waiting, { waiting: ld.waiting, pending: ld.counts.pending, done: ld.counts.done, total: ld.counts.total }));
   if (ld.failed.length) L.push(fmt(STRINGS.loadFailed,
@@ -100,11 +103,11 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   if (d.disabledModules?.length) L.push(fmt(STRINGS.disabled, { list: d.disabledModules.join(', ') }));
   if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day
     : STRINGS.night }));
-  const w = d.weather;
+  const w = d.weather, wl = d.weatherLook ?? {};   // weather state, and what of it is drawn (the look half)
   if (w) L.push(fmt(STRINGS.weather, { name: w.name, rain: n1(w.rain), snow: n1(w.snow), fog: n1(w.fog),
     changing: w.progress < 1 ? fmt(STRINGS.changing, { pct: Math.round(w.progress * 100) }) : '',
-    shown: w.rainVisible || w.snowVisible ? fmt(STRINGS.weatherShown,
-      { what: [w.rainVisible && STRINGS.rainShown, w.snowVisible && STRINGS.snowShown].filter(Boolean).join(', ') }) : '' }));
+    shown: wl.rainVisible || wl.snowVisible ? fmt(STRINGS.weatherShown,
+      { what: [wl.rainVisible && STRINGS.rainShown, wl.snowVisible && STRINGS.snowShown].filter(Boolean).join(', ') }) : '' }));
   const p = d.player;
   const water = p?.inWater ? STRINGS.inWater : STRINGS.dry;
   L.push(p ? fmt(STRINGS.player, { ...p, ground: p.ground, water, state: tr('state', p.state) }) : STRINGS.noPlayer);
@@ -134,10 +137,27 @@ export function describeText(d, { full = false, path, maxLines = 30 } = {}) {
   L.push(fmt(STRINGS.perf, { fps: pf.fps ?? '-', cpu: pf.cpuMs ?? '-', calls: pf.drawCalls, tris: pf.triangles, chunks: pf.chunks
     ? fmt(STRINGS.chunks, pf.chunks) : '' }));
   if (full && d.render?.text) L.push(d.render.text);   // render block only in the full text; the summary stays short (describe render shows it)
-  L.push(fmt(STRINGS.modules, { list: d.modules.join(', ') }));
-  for (const k in d) if (!SHOWN.has(k)) L.push(fmt(STRINGS.extra, { name: k, json: full ? JSON.stringify(d[k]) : summary(d[k]) }));
-  if (full) return L.join('\n');
-  if (L.length > maxLines - 1) { const cut = L.length - maxLines + 2; L.splice(maxLines - 2, cut, fmt(STRINGS.more, { n: cut })); }
+  L.push(fmt(STRINGS.modules, { list: d.modules.map(m => `${m.name} (${m.type})`).join(', ') }));
+  if (full) {
+    for (const k in d) if (!SHOWN.has(k)) L.push(fmt(STRINGS.extra, { name: k, json: JSON.stringify(d[k]) }));
+    return L.join('\n');
+  }
+  // Summary order: the game's own describe.add sections first (what its author asked to see), then module lines, then the engine's bookkeeping
+  // tables folded into one count line. Why: those tables (shared values, slots, owned properties, look parts...) took ~10 of the 30 lines and pushed
+  // the game's own sections past the cut. A table with something wrong in it (scene conflicts / orphans / unsaved) keeps its own line.
+  const rest = Object.keys(d).filter(k => !SHOWN.has(k)), tables = [], mods = [];
+  for (const k of rest.filter(k => game.includes(k))) L.push(fmt(STRINGS.extra, { name: k, json: summary(d[k]) }));
+  for (const k of rest.filter(k => !game.includes(k) && !TABLES.has(k))) mods.push([k, fmt(STRINGS.extra, { name: k, json: summary(d[k]) })]);
+  for (const k of rest.filter(k => TABLES.has(k))) {
+    const v = d[k];
+    if (k === 'scene' && v && ['conflicts', 'orphans', 'unsaved'].some(x => v[x]?.length)) L.push(fmt(STRINGS.extra, { name: k, json: summary(v) }));
+    else if (v != null) tables.push(k === 'renderer' ? `renderer ${v.backend ?? v.requested}` : `${k} ${typeof v === 'object' ? Object.keys(v).length : v}`);
+  }
+  // the cut falls on the module lines only: the standard lines, the game's sections and the tables line always stay; the cut ones are named
+  const tail = tables.length ? [fmt(STRINGS.tables, { list: tables.join(', ') })] : [], room = Math.max(0, maxLines - 1 - L.length - tail.length);
+  if (mods.length <= room) L.push(...mods.map(m => m[1]));
+  else { const keep = Math.max(0, room - 1); L.push(...mods.slice(0, keep).map(m => m[1]), fmt(STRINGS.more, { n: mods.length - keep, names: mods.slice(keep).map(m => m[0]).join(', ') })); }
+  L.push(...tail);
   L.push(STRINGS.expand);
   return L.join('\n');
 }

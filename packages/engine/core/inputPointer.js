@@ -43,6 +43,6 @@ export function bindPointer(input, canvas, signal) {
   };
   canvas.addEventListener('pointerup', end, { signal }); canvas.addEventListener('pointercancel', end, { signal });
   // if the right button is bound to an action, do not show the browser menu
-  canvas.addEventListener('contextmenu', e => { if ([...input.actions.values()].some(a => a.keys.includes('Mouse2'))) e.preventDefault(); }, { signal });
+  canvas.addEventListener('contextmenu', e => { if ([...input.actions.keys()].some(n => input.keysOf(n).includes('Mouse2'))) e.preventDefault(); }, { signal });
   canvas.addEventListener('wheel', e => { e.preventDefault(); input.look.zoom += Math.sign(e.deltaY); }, { passive: false, signal });
 }

@@ -6,7 +6,6 @@
 import { DEV, fmt } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { xzOf } from '../../core/math.js';
-import { updateColorMap } from './terrainTexture.js';
 import { codedError } from '../../core/errorHints.js';
 
 const EDIT_KEYS = ['radius', 'shape', 'raise', 'lower', 'flatten', 'paint'];
@@ -103,17 +102,17 @@ export class TerrainEdits {
 
   // same code as the worker on the full edit maps, so a rebuilt chunk equals a freshly generated one
   _rebuild(c) {
-    const m = this.mgr, T = m.T, t = T.buildChunk(c.cx, c.cz), g = c.terrain.geometry;
-    for (const [n, a] of [['position', t.pos], ['normal', t.nor], ['color', t.col], ['uv', t.uv]]) { g.attributes[n].array.set(a); g.attributes[n].needsUpdate = true; }
-    if (t.tex) updateColorMap(c, t.tex);
-    g.computeBoundingSphere(); g.boundingBox = null;
+    const m = this.mgr, T = m.T, t = T.buildChunk(c.cx, c.cz);
+    c.data = t;   // data only: each look copies the new arrays in its change(c) hook
     c.sphere.center.set(t.sphere[0], t.sphere[1], t.sphere[2]); c.sphere.radius = t.sphere[3];
-    const veg = this.e.vegetation;
-    if (veg) for (const sp of veg.list()) {
-      if (sp.nearOnly && !c.veg[sp.name]) continue;   // detail not loaded here; when it is, its job carries the edits
-      m._applyVeg(c, sp.name, T.place(c.cx, c.cz, sp.rule, m.density));   // an empty result drops the old mesh inside vegetation.mount
+    m._emit('change', c);
+    const P = m.plants;
+    for (const sp of P.list()) {
+      if (sp.nearOnly && !c.plants[sp.name]) continue;   // detail not loaded here; when it is, its job carries the edits
+      P.mount(c, sp.name, T.place(c.cx, c.cz, sp.rule, m.density));   // an empty result drops the old plants inside vegetation.mount
     }
-    c.colToken = {}; c.level = -1; c.detailDone.clear();   // edits can change what grows here: re-ask for the near-only species   // new token: the physics module rebuilds this chunk's collision
+    // new token: the physics module rebuilds this chunk's collision; edits can change what grows here, so near-only species are asked again
+    c.colToken = {}; c.level = -1; c.detailDone.clear();
   }
 
   save() {

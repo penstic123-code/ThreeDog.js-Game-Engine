@@ -1,4 +1,4 @@
-// Content templates (recipes/30-templates.md) and definition vs instance state. Same style as specs.mjs; appended at the end of specs.mjs.
+// Content templates (recipes/30-templates.md) and definition vs instance state. Same style as the other files here.
 // Guard: two chests from one template share the model resource, but opened state and goods are per instance and survive save / load;
 // changing an instance never changes the definition (definitions are frozen, the error names the fix).
 const READY = { timeout: 60000 };

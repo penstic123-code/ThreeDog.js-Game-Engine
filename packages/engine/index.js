@@ -64,6 +64,7 @@ export { sampleGrid } from './core/grid.js';   // a grid of numbers (height, moi
 export { checkOptions };   // only for extensible data (game-defined fields); an options bag goes through readParams
 export { contentParts } from './modules/content/parts.js';   // one content kind split over files: content/props/*.js joined in file-name order (recipes/30)
 export { defineLookPart } from './core/look/part.js';   // a module's own look part: engine.look.<id> with set / patch / replace, catalog and describe (recipes/52)
+export { threePatches } from './core/threePatches.js';   // the engine's page-wide changes to three.js classes: list(), off(id) (THREE.md "Global changes")
 export { readParams } from './core/params.js';   // params schema for game-made modules: validated, defaults filled, shown by engine.catalog()   // for game-made modules (recipes/14): the package exposes no core/* deep paths
 export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
@@ -77,16 +78,15 @@ export { pickTarget, switchTarget } from './core/targeting.js';
 
 /** Create an engine (core only). For the options see core/Engine.js */
 export function createEngine(opts) { return new Engine(opts); }
-export { postAdd, postRemove } from './core/styleParts.js';
 
 /**
  * Open-world preset: covers only "world and environment" plus the basics every game needs:
  *   world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, camera, characters, ambience, settings, debug (debug only in dev builds).
  * Gameplay modules (interactions, dialogue, inventory, quests, photo mode, timeline, trigger zones, particles, music, markers...) are not included:
- *   engine.use(openWorld({ seed: 7, camera: 'follow' }), interactions({ ...presets.interactions.nearest }), dialogue(), inventory({ ...presets.keys.inventory }), quests({ ...presets.keys.quests }));
+ *   engine.use(openWorld({ seed: 7, camera: 'follow' }), interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests());   // keys: createEngine({ bindings: { ...presets.bindings.interact, ...presets.bindings.inventory } })
  * Every part takes false (leave it out) or an object (that module's own options), so the preset never has to be abandoned for one setting:
  *   openWorld({ seed: 7, camera: 'follow', calendar: { seasons: ['wet', 'dry'], daysPerSeason: 28 }, characters: { npcs: false }, rigid: false, ambience: false })
- * The bundle hides the terrain's far edge in fog (terrain viewFog: true; openWorld({ terrain: { viewFog: false } }) keeps the game's fogFar).
+ * The bundle hides the terrain's far edge in fog (terrain viewFog: true; openWorld({ terrain: { viewFog: false } }) keeps the game's look.fog far).
  * Shorthands still work and go to their module: seed / viewChunks / density / flatten → terrain, time / dayLength → calendar,
  *   weather: 'rain' (starting weather) and autoWeather → weather. An object for the same module wins over the shorthand.
  * debug: installed only in dev builds by default (players of a release build get no F3 panel); true installs it in release builds too.
@@ -123,5 +123,5 @@ export function openWorld(opts = {}) {
   };
   const cam = camera === false ? null : typeof camera === 'string' ? CAMERAS[camera]() : camera;
   return [part('world'), part('terrain'), part('vegetation'), part('calendar'), part('sky'), part('weather'), part('water'), part('collision'), part('rigid'),
-    cam, part('characters'), part('ambience'), part('settings'), part('debug')].filter(Boolean);
+    cam, part('characters'), part('ambience'), part('settings'), part('debug')].filter(Boolean).flat();   // flat: terrain(), vegetation() and weather() are two modules each (data + look)
 }

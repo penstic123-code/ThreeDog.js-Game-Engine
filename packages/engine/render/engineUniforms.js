@@ -1,4 +1,4 @@
-// Engine uniforms (helper of patches.js): a patch uniform that is the engine's own (time, cloud cover...), resolved per renderer when a program compiles.
+// Engine uniforms (helper of patches.js). A patch uniform that is the engine's own (time, cloud cover...), resolved per renderer when a program compiles.
 // An engine uniform carries its name under this key; at compile time it is swapped for the same-named uniform of the engine
 // that owns the renderer (bindUniforms), and a renderer without an engine keeps the object it was given.
 const ENGINE_UNIFORM = Symbol.for('threedog.engineUniform');
@@ -19,5 +19,14 @@ export function engineUniform(name, value) { return /** @type {any} */ ({ value,
  * @returns {void}
  */
 export function bindUniforms(renderer, uniforms) { BOUND.set(renderer, uniforms); }
+/**
+ * The engine uniforms bound to this renderer, or undefined (threedog/tsl reads them at node-build time)
+ * @internal
+ * @param {any} renderer
+ * @returns {Record<string, { value: any }> | undefined}
+ */
+export const boundUniforms = renderer => BOUND.get(renderer);
+/** The engine uniform name a { value } object stands for ('uTime' ...), or null for a patch's own uniform @internal @param {any} u @returns {string | null} */
+export const engineUniformName = u => u?.[ENGINE_UNIFORM] ?? null;
 export const sameUniform = (a, b) => a === b || (!!a[ENGINE_UNIFORM] && a[ENGINE_UNIFORM] === b[ENGINE_UNIFORM]);
 export const resolveUniform = (u, renderer) => (u?.[ENGINE_UNIFORM] && renderer && BOUND.get(renderer)?.[u[ENGINE_UNIFORM]]) || u;

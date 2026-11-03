@@ -57,7 +57,7 @@ export const specs = [
           for (let i = 0; i < 600 && !E.terrain.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60, { render: false }); await wait(); }
           return E;
         };
-        const snap = (E, key) => { const c = E.terrain.chunks.get(key), g = c.terrain.geometry.attributes; return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(c.veg.tree?.instanceMatrix.array ?? [])]); };
+        const snap = (E, key) => { const c = E.terrain.chunks.get(key), g = E.terrainLook.meshes.get(c).mesh.geometry.attributes; return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationLook.mesh(c, 'tree')?.instanceMatrix.array ?? [])]); };
         const A = await make(0, [world(), characters(), rigid()]), B = await make(2, []);
         const keys = ['0,0', '-1,0', '0,-1', '-1,-1'];
         out.same = keys.every(k => snap(A, k) === snap(B, k)); out.workers = B.threads.size;
@@ -67,29 +67,30 @@ export const specs = [
         out.q = { s0: A.surface(0, 0), sv: A.surface(120, 0), has0: A.ground.has(0, 0), hasV: A.ground.has(120, 0), slopeV: A.slope(120, 0), typeV: A.groundType(120, 0) };
         let worst = 0, offTop = 0, trees = 0, treesOff = 0, groups = 0, alpha = new Set(), solidLess = true;
         for (const k of keys) {
-          const c = A.terrain.chunks.get(k), p = c.terrain.geometry.attributes.position.array, CH = A.terrain.CHUNK;
-          const top = c.terrain.geometry.groups[0]?.count ?? 0;
+          const c = A.terrain.chunks.get(k), p = c.data.pos, CH = A.terrain.CHUNK;
+          const top = A.terrainLook.meshes.get(c).mesh.geometry.groups[0]?.count ?? 0;
           for (let i = 0; i < top * 3; i += 9) {
             const x = c.cx * CH + (p[i] + p[i + 3] + p[i + 6]) / 3, z = c.cz * CH + (p[i + 2] + p[i + 5] + p[i + 8]) / 3, y = (p[i + 1] + p[i + 4] + p[i + 7]) / 3;
             const s = A.surface(x, z); if (!Number.isFinite(s)) offTop++; else worst = Math.max(worst, Math.abs(s - y));
           }
-          groups += c.terrain.geometry.groups.length === 2 ? 1 : 0;
-          const d = c.colorTex?.image.data; if (d) for (let i = 3; i < d.length; i += 4) alpha.add(d[i]);
+          groups += A.terrainLook.meshes.get(c).mesh.geometry.groups.length === 2 ? 1 : 0;
+          const d = A.terrainLook.meshes.get(c).colorTex?.image.data; if (d) for (let i = 3; i < d.length; i += 4) alpha.add(d[i]);
           const col = A.ground.chunkCollision(c.cx, c.cz);
           solidLess &&= !!col && col.positions.length < p.length;
-          const im = c.veg.tree; if (im) for (let i = 0; i < im.count; i++) { trees++; if (!A.ground.has(c.cx * CH + im.instanceMatrix.array[i * 16 + 12], c.cz * CH + im.instanceMatrix.array[i * 16 + 14])) treesOff++; }
+          const im = A.vegetationLook.mesh(c, 'tree'); if (im) for (let i = 0; i < im.count; i++) { trees++; if (!A.ground.has(c.cx * CH + im.instanceMatrix.array[i * 16 + 12], c.cz * CH + im.instanceMatrix.array[i * 16 + 14])) treesOff++; }
         }
         Object.assign(out, { worst, offTop, trees, treesOff, groups, alpha: [...alpha].sort((a, b) => a - b), solidLess });
 
         // 4. edits: none off the outline; inside they still dig
-        const len0 = A.terrain.chunks.get('0,0').terrain.geometry.attributes.position.array.length;
+        const len0 = A.terrain.chunks.get('0,0').data.pos.length;
         out.editVoid = A.ops.allow(() => A.terrain.edit({ x: 120, z: 0 }, { radius: 3, lower: 1 }));
         out.editIn = A.ops.allow(() => A.terrain.edit({ x: 8, z: 8 }, { radius: 1, lower: 1 }));
-        out.dug = A.surface(8, 8); out.lenSame = A.terrain.chunks.get('0,0').terrain.geometry.attributes.position.array.length === len0;
+        out.dug = A.surface(8, 8); out.lenSame = A.terrain.chunks.get('0,0').data.pos.length === len0;
 
         // 5. physics and falling: a player stands at the center; a ball is thrown at the side wall from the void
         const voids = [];
-        const P = A.characters.createPlayer({ control: 'none', spawn: { x: 0, z: 0 } });
+        let east = false;   // stands still until the walk east below
+        const P = A.characters.createPlayer({ control: () => (east ? { x: 1, z: 0 } : null), spawn: { x: 0, z: 0 } });
         const R = A.rigid;
         for (let i = 0; i < 300 && !(R.terrain.get('0,0')?.ready && R.terrain.get('0,-1')?.ready); i++) { A.step(1 / 60, { render: false }); await wait(); }
         let rimX = 0; while (A.ground.has(rimX + 0.25, 0)) rimX += 0.25;
@@ -102,7 +103,7 @@ export const specs = [
         for (let i = 0; i < 60; i++) { A.step(1 / 60, { render: false }); minX = Math.min(minX, ball.body.translation().x); }
         out.wall = { rimX, minX };
         out.standY = P.position.y;
-        P.control = () => ({ x: 1, z: 0 });   // walk east off the rim
+        east = true;   // walk east off the rim
         let fellAt = null;
         for (let i = 0; i < 1800 && !(voids.includes('player') && voids.includes('ball')); i++) {
           A.step(1 / 60, { render: false });
@@ -133,6 +134,7 @@ export const specs = [
   {
     // edge.round bends the top down at the rim; the wall's top edge must follow every bend (the cell diagonal splits a rim segment
     // into two planes), else a row of background-colored slits shows between top and wall from the side
+    software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: 'terrain shape: edge.round leaves no slit between the top and the side wall (side view pixels)',
     url: '/tests/terrain-edit/',
     async run({ check, ev }) {

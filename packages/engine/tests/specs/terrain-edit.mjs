@@ -31,14 +31,14 @@ const setup = () => {
     vtx(E, x, z) {
       const CH = E.terrain.CHUNK, cx = Math.floor(x / CH), cz = Math.floor(z / CH), c = E.terrain.chunks.get(cx + ',' + cz);
       if (c?.state !== 'ready') return null;
-      const p = c.terrain.geometry.attributes.position.array, lx = x - cx * CH, lz = z - cz * CH;
+      const p = c.data.pos, lx = x - cx * CH, lz = z - cz * CH;
       for (let i = 0; i < p.length; i += 3) if (Math.abs(p[i] - lx) < 1e-4 && Math.abs(p[i + 2] - lz) < 1e-4) return p[i + 1];
       return null;
     },
     trees(E, x, z, r) {
       let n = 0;
       for (const c of E.terrain.chunks.values()) {
-        const im = c.veg?.tree; if (!im) continue;
+        const im = E.vegetationLook.mesh(c, 'tree'); if (!im) continue;
         const a = im.instanceMatrix.array, CH = E.terrain.CHUNK;
         for (let i = 0; i < im.count; i++) {
           if (a[i * 16] === 0 && a[i * 16 + 2] === 0) continue;   // hidden (scaled to 0)
@@ -50,13 +50,40 @@ const setup = () => {
       return { n, k };
     },
     chunkSnap(E, key) {
-      const c = E.terrain.chunks.get(key), g = c.terrain.geometry.attributes;
-      return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(c.veg.tree?.instanceMatrix.array ?? [])]);
+      const c = E.terrain.chunks.get(key), g = E.terrainLook.meshes.get(c).mesh.geometry.attributes;
+      return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationLook.mesh(c, 'tree')?.instanceMatrix.array ?? [])]);
     },
   };
 };
 
 export const specs = [
+  {
+    name: '[guard] terrain: a chunk worker job that fails frees its slot, marks the chunk failed (not pending forever), reports the error, streaming goes on',
+    url: '/tests/terrain-edit/',
+    expectErrors: /chunk boom|terrain chunk/,
+    async run({ check, ev }) {
+      await ev(setup);
+      const r = await ev(async () => {
+        const T = window.TE, E = await T.make(2, {}, 'te-fail'), M = E.terrain;
+        const run = M.lane.run.bind(M.lane);
+        let fail = true;
+        M.lane.run = job => fail && job.terrain ? Promise.reject(new Error('chunk boom')) : run(job);
+        E.focus.set(2000, 0, 2000);
+        for (let i = 0; i < 20; i++) { E.step(1 / 60); await new Promise(res => setTimeout(res, 5)); }
+        const states = [...M.chunks.values()].map(c => c.state);
+        const out = { inFlight: M.inFlight, pending: states.filter(s => s === 'pending').length, failed: states.filter(s => s === 'failed').length, error: E.error?.message ?? null };
+        fail = false;
+        E.error = null; E.stacks?.get('freeze')?.release('error');
+        E.focus.set(-2000, 0, -2000);
+        for (let i = 0; i < 300 && !M.isReadyAround({ x: -2000, z: -2000 }); i++) { E.step(1 / 60); await new Promise(res => setTimeout(res, 5)); }
+        out.recovered = M.isReadyAround({ x: -2000, z: -2000 });
+        return out;
+      });
+      check('every failed job freed its slot; no chunk stuck in pending (failed ones are marked, or already built by the main-thread fallback)', r.inFlight === 0 && r.pending === 0, JSON.stringify(r));
+      check('the error is reported with the chunk', /chunk boom/.test(r.error ?? ''), JSON.stringify(r));
+      check('streaming still loads new chunks afterwards', r.recovered, JSON.stringify(r));
+    },
+  },
   {
     name: 'terrain edit: dig / raise / till keep mesh, surface, groundType, collision and vegetation in step; save / load and unload / reload keep it; threads on = off',
     url: '/tests/terrain-edit/',
@@ -72,7 +99,7 @@ export const specs = [
           E.ops.run('test.edit', { x: Q.x, z: Q.z, o: { shape: 'square', radius: 2, paint: 'tilled' } });
         }
         out.h1 = A.surface(P.x, P.z); out.mesh1 = T.vtx(A, P.x, P.z);
-        out.col1 = (() => { const c = A.ground.chunkCollision(0, 0); return { newToken: c.token !== tok0, same: c.positions === A.terrain.chunks.get('0,0').terrain.geometry.attributes.position.array }; })();
+        out.col1 = (() => { const c = A.ground.chunkCollision(0, 0); return { newToken: c.token !== tok0, same: c.positions === A.terrain.chunks.get('0,0').data.pos }; })();
         out.type1 = A.groundType(Q.x, Q.z); out.treesAfter = T.trees(A, P.x, P.z, 3);
         const save = A.saves.collect();
         A.ops.run('test.edit', { x: P.x, z: P.z, o: { radius: 6, raise: 5 } });

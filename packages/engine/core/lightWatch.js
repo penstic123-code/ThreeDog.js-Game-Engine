@@ -5,6 +5,7 @@
 // Cost: one array-length compare per frame; the scene walk that counts lights runs only in a frame whose program count went up (rare).
 import { warnOnce } from './validate.js';
 import { coded } from './errorHints.js';
+import { programCount } from '../render/backend.js';
 
 const MANY = 8;   // above this many real-time lights every material's fragment shader loops over all of them: mobile GPUs slow down first
 
@@ -14,7 +15,7 @@ const STRINGS = {
   changed: 'Shader programs were compiled during play ({from} -> {to}) and, compared with the last observation, the light layout also changed ({was} -> {now}). ' +
     'three.js compiles every material again for a new light setup, so adding, removing or hiding a light mid-game freezes a frame. ' +
     'Use engine.use(lightPool({ point: 8 })) and engine.lightPool.add(torch, {...}) for many lights, or fade a fixed set with intensity ' +
-    '(recipes/09-style-pack.md "Lights and stalls")',
+    '(recipes/09-style.md "Lights and stalls")',
 };
 
 /** Visible lights by the kinds three.js counts in its light setup (ambient and probes do not change programs), as one comparable string */
@@ -28,16 +29,17 @@ export function lightSetup(scene) {
   return `point ${point}, spot ${spot}, directional ${dir}, hemisphere ${hemi}, rect ${rect}`;
 }
 
-/** Lights that are not part of a lightPool (those are fixed and already the recommended fix) */
+/** Lights not kept at a fixed count. A module that holds a fixed set of lights and moves them around (a light pool: the recommended fix) marks
+ * each with userData.fixedCount = true; core reads the mark, not a module's naming scheme, so any pool, built-in or the game's, counts the same */
 function countLoose(scene) {
   let c = 0;
-  scene.traverseVisible(o => { if (o.isLight && !o.isAmbientLight && !o.isLightProbe && !o.name.startsWith('lightPool_')) c++; });
+  scene.traverseVisible(o => { if (o.isLight && !o.isAmbientLight && !o.isLightProbe && !o.userData.fixedCount) c++; });
   return c;
 }
 
 /** @param {any} e the engine (dev and ready only: the caller checks) */
 export function watchLights(e) {
-  const n = e.renderer.info?.programs?.length;
+  const n = programCount(e.renderer);
   if (n == null) return;
   const first = !e._lightWatch;
   const w = e._lightWatch ??= { n, lights: lightSetup(e.scene) };

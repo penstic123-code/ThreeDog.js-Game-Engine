@@ -1,9 +1,9 @@
-// 美术自由第 3 步：形状归风格包。city 页 style 是空对象（看兜底），world 页装 lowpoly（看风格包给的形状）。
+// Art freedom step 3: shapes belong to the game's own style. The city page's style is an empty object (shows the fallback); the world page loads the world example's style and art (shows the game's own shapes).
 // [守] 防止以后有人把低模小人、八面体拾取物、分面着色又写回引擎模块里，或让地形网格丢掉 uv、地形材质又变成换不了。
 
 export const specs = [
   {
-    name: '[守] 形状归风格包：不装风格包时角色是灰色胶囊，不强制分面',
+    name: '[守] 形状归游戏自己的 style：不装游戏自己的 style时角色是灰色胶囊，不强制分面',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
@@ -17,7 +17,7 @@ export const specs = [
     },
   },
   {
-    name: '[守] 形状归风格包：lowpoly 给人形和八面体；地形块有 uv、材质可换；植被可用多材质模型（砍树各组一起藏）',
+    name: '[守] 形状归游戏自己：world 示例的资源给人形和八面体；地形块有 uv、材质可换；植被可用多材质模型（砍树各组一起藏）',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -26,33 +26,34 @@ export const specs = [
         engine.inventory.define('artGem', { name: 'gem', color: 0x3366ff });
         const h = engine.pickups.spawn(p.position, { give: 'artGem' });
         engine.step(0.5, { render: false });   // headless page: world builds the model on a step
-        // 拾取物的形状是资源包里叫 'pickup' 的模型（lowpoly 的 assets 注册），经 content 的 protoOf 异步建好再挂进占位组，所以要等它到
+        // The pickup shape is the asset-pack model named 'pickup' (registered by the world example's art/ assets), built async by content's protoOf and then hung in the placeholder group, so wait for it
         const hasMesh = () => { let m = false; h.object?.traverse(o => { if (o.isMesh) m = true; }); return m; };
         await __t.until(hasMesh, 10000).catch(() => {});
         const obj = h.object;
         let geo = '';
         obj?.traverse(o => { if (o.isMesh) geo = o.geometry.type + ':' + o.material.flatShading; });
         h.remove();
-        const chunk = [...engine.terrain.chunks.values()].find(c => c.terrain);
-        const uv = chunk.terrain.geometry.attributes.uv, pos = chunk.terrain.geometry.attributes.position;
+        const chunk = [...engine.terrain.chunks.values()].find(c => c.data);
+        const uv = engine.terrainLook.meshes.get(chunk).mesh.geometry.attributes.uv, pos = engine.terrainLook.meshes.get(chunk).mesh.geometry.attributes.position;
         // multi-material model: trunk + leaves meshes -> one InstancedMesh with two groups and a material array
         const model = new THREE.Group();
         model.add(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 2), new THREE.MeshLambertMaterial()));
         const leaves = new THREE.Mesh(new THREE.SphereGeometry(1), new THREE.MeshToonMaterial()); leaves.position.y = 2; model.add(leaves);
-        const sp = engine.vegetation.define('artMulti', { model, wind: 0.02, rule: { perChunk: 30, maxSlope: 2, minHeight: -99, maxHeight: 999, avoidFlat: false } });
+        engine.vegetation.define('artMulti', { model, wind: 0.02, rule: { perChunk: 30, maxSlope: 2, minHeight: -99, maxHeight: 999, avoidFlat: false } });
+        const sp = engine.vegetationLook.kind('artMulti');   // how it is drawn: the look's geometry and materials
         return { human, geo, uv: !!uv && uv.count === pos.count, mats: Array.isArray(sp.material) && sp.material.length, groups: sp.geometry.groups.length,
           cloned: sp.material[1] !== leaves.material, wind: threedogTest.materialPatches(sp.material[1]).includes('wind') };
       });
-      check('lowpoly 角色是带四肢的人形，关节挂在角色上（armL / legR）', r.human.limbs === 4 && r.human.joints, JSON.stringify(r.human));
-      check('lowpoly 拾取物是分面八面体（资源模型 pickup + 材质角色 pickup 的 flatShading）', r.geo === 'OctahedronGeometry:true', r.geo);
+      check('world 示例的角色是带四肢的人形，关节挂在角色上（armL / legR）', r.human.limbs === 4 && r.human.joints, JSON.stringify(r.human));
+      check('world 示例的拾取物是分面八面体（资源模型 pickup + 材质角色 pickup 的 flatShading）', r.geo === 'OctahedronGeometry:true', r.geo);
       check('地形块带 uv，每个顶点一个', r.uv);
       check('多材质模型：两个材质、两个几何组，材质是克隆的、加上了风吹', r.mats === 2 && r.groups === 2 && r.cloned && r.wind, JSON.stringify(r));
       const f = await ev(async () => {
-        for (let i = 0; i < 30 && ![...engine.terrain.chunks.values()].some(c => c.veg.artMulti?.count); i++) { engine.step(0.1, { render: false }); await new Promise(res => setTimeout(res, 50)); }
+        for (let i = 0; i < 30 && ![...engine.terrain.chunks.values()].some(c => engine.vegetationLook.mesh(c, 'artMulti')?.count); i++) { engine.step(0.1, { render: false }); await new Promise(res => setTimeout(res, 50)); }
         for (const c of engine.terrain.chunks.values()) {
-          const im = c.veg.artMulti;
+          const im = engine.vegetationLook.mesh(c, 'artMulti');
           if (!im || !im.count) continue;
-          const id = im.userData.ids[0];
+          const id = im.userData.plants.ids[0];
           engine.vegetation.removeInstance('artMulti', c.cx, c.cz, id);
           const m = im.instanceMatrix.array.slice(0, 16);
           return { draws: Array.isArray(im.material) && im.material.length, hidden: m.every(v => v === 0), depth: !!im.customDepthMaterial?.isMeshDepthMaterial };
@@ -99,12 +100,13 @@ export const specs = [
         const hs = [[0, 0], [37, -81], [-120, 64]].map(([x, z]) => engine.surface(x, z));
         const obj = window.gemPickup.object;
         let box = ''; obj?.traverse?.(o => { if (o.isMesh) box = o.geometry.type; });
-        const chunk = [...engine.terrain.chunks.values()].find(c => c.terrain), col = chunk?.terrain.geometry.attributes.color;
-        const gray = !!col && [...col.array.slice(0, 30)].every((v, i, a) => Math.abs(v - a[i - i % 3]) < 1e-6);
+        // the ground colors are chunk data (c.data.col); the mesh is the look half's and holds a copy
+        const chunk = [...engine.terrain.chunks.values()].find(c => c.data?.col), col = chunk?.data.col;
+        const gray = !!col && [...col.slice(0, 30)].every((v, i, a) => Math.abs(v - a[i - i % 3]) < 1e-6);
         let caps = 0; engine.player.root.traverse(o => { if (o.isMesh && o.geometry.type === 'CapsuleGeometry') caps++; });
         const L = engine.describe().look, T = engine.THREE;
         const base = { shadow: engine.lights.sun.castShadow, tone: engine.renderer.toneMapping === T.AgXToneMapping, color: engine.renderer.outputColorSpace,
-          env: !!engine.scene.environment && engine.scene.environment === engine._roomEnv?.texture, shown: [engine.describe().render.toneMapping.value, L.lights['sun.shadow'].value, L.lights['env.intensity'].value] };
+          env: !!engine.scene.environment && engine.scene.environment === engine._roomEnv?.texture, shown: [engine.describe().render.toneMapping.value, L.shadow.enabled.value, L.lights['env.intensity'].value] };
         // onRender: before runs ahead of the frame render with the frame's camera, after runs behind it; a render target set in before is reset
         const order = [], rt = new T.WebGLRenderTarget(8, 8);
         const h1 = engine.onRender(({ renderer, scene, camera }) => { order.push('before', camera === engine.camera); renderer.setRenderTarget(rt); renderer.render(scene, camera); });

@@ -1,6 +1,24 @@
-// Guards for gameplay modules (inventory transfers, world anchor, interaction ids...). Same format as specs.mjs, appended at the end of it.
+// Guards for gameplay modules (inventory transfers, world anchor, interaction ids...). Same format as the other files here.
 
 export const specs = [
+  {
+    name: '[guard] content dialogue: line variants where no "if" holds and no plain fallback show an empty line with one warning (no TypeError, the dialogue goes on)',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.pause();
+        const D = engine.dialogue;
+        engine.content.load({ dialogues: { fixv: { nodes: { start: { text: [{ if: { flag: 'never-set-flag' }, text: 'only if' }], next: 'end' }, end: { text: 'bye' } } } } });
+        let err = null;
+        const { warns } = await __t.warns(() => { try { D.start('fixv'); engine.step(0.5, { render: false }); } catch (e) { err = e.message; } });
+        const out = { err, warns, active: !!D.active, full: D.full };
+        D.end(); engine._resume();
+        return out;
+      });
+      check('no error, the dialogue is open with an empty line', r.err === null && r.active && r.full === '', JSON.stringify(r));
+      check('one warning names the node and the missing fallback [content-misuse]', r.warns.some(w => /dialogues\.fixv\.nodes\.start\.text/.test(w) && /content-misuse/.test(w)), JSON.stringify(r.warns));
+    },
+  },
   {
     name: 'gameplay guards: transfer can() counts free slots once; drop keeps the actor floor; grid fields cannot override the placement (open world) [guard]',
     url: '/',
@@ -66,7 +84,7 @@ export const specs = [
     },
   },
   {
-    name: 'gameplay guards: interaction ids are the record id for NPCs, pickups and template instances; triggers bind F4 only in dev; flow.transition does not autosave by default (open world) [guard]',
+    name: 'gameplay guards: interaction ids are the record id for NPCs, pickups and template instances; the triggers debug toggle is declared without a key; flow.transition does not autosave by default (open world) [guard]',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -85,12 +103,12 @@ export const specs = [
           triggerKey: engine.input.actions.has('triggersDebug'), saved, flow: !!engine.flow };
       });
       check('template instance and pickup interactions are named by their record id', r.entIn && r.pickIn && /^gBox#\d+$/.test(r.ent), JSON.stringify(r));
-      check('dev builds bind the trigger debug toggle', r.triggerKey, JSON.stringify(r));
+      check('triggers declare the debug toggle action (keyless: presets.bindings.debug binds F4)', r.triggerKey, JSON.stringify(r));
       check('transition saves nothing unless asked', !r.flow || r.saved === 0, JSON.stringify(r));
     },
   },
   {
-    // 拾取物的形状和 content 的 props / 模板走同一个 protoOf：生成器只建一次、同几何共享、影子按同一套规则；文件模型也行；风格包不再给形状
+    // 拾取物的形状和 content 的 props / 模板走同一个 protoOf：生成器只建一次、同几何共享、影子按同一套规则；文件模型也行；游戏自己的 style不再给形状
     name: '[guard] pickups: the shape is a model name through the content model path (generator built once + shared + shadows, file model works); item mesh and style.pickup.model are gone',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev, page }) {
@@ -107,21 +125,21 @@ export const specs = [
         await __t.until(() => ids.every(id => engine.world.view(id)?.children.length), 15000).catch(() => {});
         const meshes = id => { const s = []; engine.world.view(id)?.traverse(o => { if (o.isMesh) s.push(o); }); return s; };
         const [a, b, c] = ids.map(meshes);
-        let meshErr = null; try { I.define('pk-old', { mesh: () => null }); } catch (e) { meshErr = e.code; }
         // vegetation's code API takes the same model name content does: same resolver, same cached geometry, no second build
         const sp = await engine.vegetation.define('pkVeg', { model: 'pkGem', rule: { perChunk: 0 } });
-        const veg = { same: !!sp && sp.geometry === a[0]?.geometry, builds: n };
+        // the species record keeps what it was made from in source; the look draws it (the data / look split: vegetationLook.kind)
+        const veg = { same: !!sp && sp.source.geometry === a[0]?.geometry, drawn: engine.vegetationLook.kind('pkVeg')?.geometry === a[0]?.geometry, builds: n };
         return { veg, n, inter, a: a.length, b: b.length, c: c.length, sameGeo: !!a[0] && a[0].geometry === b[0]?.geometry,
           colors: [a[0]?.material.color.getHex(), b[0]?.material.color.getHex()], role: a[0]?.material.userData?.purpose ?? null,
           shadow: [a[0]?.castShadow, a[0]?.receiveShadow, c[0]?.castShadow], viaCache: !!engine.assets._cachedSrc?.has('pkGem'),
-          meshErr, styleModel: 'model' in (engine.style.pickup || {}) };
+          styleModel: 'model' in (engine.style.pickup || {}) };
       });
       check('[guard] a generator model name: built once for two items, geometry shared, through the cached path content uses', r.n === 1 && r.sameGeo && r.viaCache, JSON.stringify(r));
       check('a bare-geometry generator gets the item color per item (pickup material), and casts + receives shadows like a template', r.colors[0] === 0xff0000 && r.colors[1] === 0x00ff00 && r.shadow[0] && r.shadow[1], JSON.stringify(r));
-      check('vegetation.define(name, { model: "pkGem" }) resolves the name like content: the same cached geometry, no second build', r.veg.same && r.veg.builds === 1, JSON.stringify(r.veg));
+      check('vegetation.define(name, { model: "pkGem" }) resolves the name like content: the same cached geometry, no second build', r.veg.same && r.veg.drawn && r.veg.builds === 1, JSON.stringify(r.veg));
       check('a file model name works for pickups (and casts by the same shadow rule)', r.c > 0 && r.shadow[2] === true, JSON.stringify(r));
       check('the pickup interaction exists at once (the model fills in later)', r.inter, JSON.stringify(r));
-      check('[guard] item mesh is refused with the fix (item-mesh); a style carries no pickup shape', r.meshErr === 'item-mesh' && !r.styleModel, JSON.stringify(r));
+      check('[guard] a style carries no pickup shape', !r.styleModel, JSON.stringify(r));
     },
   },
   {

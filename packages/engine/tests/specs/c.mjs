@@ -1,4 +1,4 @@
-// Batch 3, group C specs (same format as packages/engine/tests/specs.mjs); appended at the end of specs.mjs.
+// Batch 3, group C specs (same format as the other files here).
 // Covers budget, shadow options, HLOD, scenario option hooks, settings menu freezing gameplay, startup time (numbers only).
 // For detailed performance comparison see node packages/tools/perf.mjs and packages/engine/docs/PERF.md.
 export const specs = [
@@ -34,17 +34,19 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const sm = engine.renderer.shadowMap, orig = sm.render.bind(sm);
-        let n = 0;
-        sm.render = (...a) => { if (sm.autoUpdate || sm.needsUpdate) n++; orig(...a); };
+        // counted once per engine frame: a post pass that draws the scene again (ao on a higher tier, e.g. on the GPU) calls render twice
+        let n = 0, frame = 0, counted = -1;
+        const step = () => { frame++; engine.step(1 / 60); };
+        sm.render = (...a) => { if ((sm.autoUpdate || sm.needsUpdate) && counted !== frame) { n++; counted = frame; } orig(...a); };
         const def = { ...engine.sky.shadow, bias: engine.lights.sun.shadow.bias, auto: sm.autoUpdate };
         engine.look.shadow.set({ updateEvery: 4, bias: -0.001 });
-        engine.step(1 / 60);   // first frame (look.shadow.set requests one update)
+        step();   // first frame (look.shadow.set requests one update)
         n = 0;
-        for (let i = 0; i < 8; i++) engine.step(1 / 60);
+        for (let i = 0; i < 8; i++) step();
         const every4 = n, bias = engine.lights.sun.shadow.bias;
         engine.look.shadow.set({ updateEvery: 1, bias: def.bias, snap: 'texel' });
         n = 0;
-        for (let i = 0; i < 4; i++) engine.step(1 / 60);
+        for (let i = 0; i < 4; i++) step();
         const every1 = n;
         engine.look.shadow.set({ snap: 0.5 });
         sm.render = orig; engine._resume();
@@ -63,13 +65,13 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         const sm = engine.renderer.shadowMap, T = engine.THREE;
-        const out = { def: sm.type === T.PCFShadowMap && engine.shadowType === 'pcf' };
+        const out = { def: sm.type === T.PCFShadowMap && engine.look.shadow.value('type') === 'pcf' };
         engine.look.shadow.set({ type: 'vsm', radius: 3, blurSamples: 6 });
-        out.vsm = sm.type === T.VSMShadowMap && engine.lights.sun.shadow.radius === 3 && engine.lights.sun.shadow.blurSamples === 6 && engine.sky.shadow.type === 'vsm';
+        out.vsm = sm.type === T.VSMShadowMap && engine.lights.sun.shadow.radius === 3 && engine.lights.sun.shadow.blurSamples === 6 && engine.look.shadow.value('type') === 'vsm';
         engine.look.shadow.set({ updateEvery: 4 });
         sm.needsUpdate = false;
         engine.look.shadow.set({ type: 'basic' });
-        out.basic = sm.type === T.BasicShadowMap && engine.shadowType === 'basic';
+        out.basic = sm.type === T.BasicShadowMap && engine.look.shadow.value('type') === 'basic';
         out.needs = sm.needsUpdate === true && sm.autoUpdate === false;
         try { engine.look.shadow.set({ type: 'pcfsoft' }); out.err = ''; } catch (e) { out.err = e.message; }
         out.kept = sm.type === T.BasicShadowMap;
@@ -100,8 +102,12 @@ export const specs = [
         const farState = { orig: engine.level.root.getObjectByName('b_3_3').visible, allFar: h.cells.every(c => c.far), proxies: h.cells.reduce((n, c) => n + c.proxy.length, 0) };
         engine.focus.set(0, 0, 0); const back = calls();
         const lod = engine.level.root.getObjectByName('b_0_0_LOD1').visible;
+        // count source queries in one switch pass: one for all cells, not one per cell
+        const S = engine.stream, orig = S.sources; let queries = 0;
+        S.sources = function (...a) { queries++; return orig.apply(this, a); };
+        try { h.update(); } finally { S.sources = orig; }
         engine._resume();
-        return { near, far, back, nearVisible, ...farState, cells: h.cells.length, lod, d: engine.describe().hlod };
+        return { near, far, back, nearVisible, ...farState, cells: h.cells.length, lod, queries, d: engine.describe().hlod };
       });
       check('merged cells were built', r.cells > 0 && r.proxies > 0, JSON.stringify(r));
       check('focus moved 400 m away: everything switches to proxies, originals hidden', r.allFar && !r.orig, JSON.stringify(r));
@@ -109,6 +115,7 @@ export const specs = [
       check('originals visible again after moving back', r.back === r.near && r.nearVisible, `back ${r.back}`);
       check('_LOD1 nodes are hidden normally', r.lod === false);
       check('describe().hlod', r.d?.cells === r.cells, JSON.stringify(r.d));
+      check(`one switch pass queries the stream sources once for all ${r.cells} cells`, r.cells > 1 && r.queries === 1, `queries ${r.queries}, cells ${r.cells}`);
     },
   },
   {
@@ -118,20 +125,22 @@ export const specs = [
       const r = await ev(() => {
         const cal = engine.modules.get('calendar'), w = engine.modules.get('weather');
         cal.applyState(engine, { time: '18:30' }); const clock = engine.calendar.clock;
+        engine.calendar.timeOfDay = 0.3; const exact = { tod: engine.calendar.timeOfDay, clock: engine.calendar.clock };
         cal.applyState(engine, { time: '0.25' }); const t = engine.calendar.timeOfDay;
         w.applyState(engine, { weather: 'rain' });
-        return { clock, t, weather: engine.weather.name, rain: engine.weather.current.rain, auto: engine.weather.auto };
+        return { clock, exact, t, weather: engine.weather.name, rain: engine.weather.current.rain, auto: engine.weather.auto };
       });
       check('time 18:30 → calendar.clock', r.clock === '18:30', r.clock);
       check('time 0.25 (text from the URL) → calendar.timeOfDay', r.t === 0.25, r.t);
+      check('timeOfDay 0.3 reads back exactly and shows 07:12 (no float drift to 07:11)', r.exact.tod === 0.3 && r.exact.clock === '07:12', JSON.stringify(r.exact));
       check('weather rain applies immediately and turns off auto weather', r.weather === 'rain' && r.rain > 0.5 && !r.auto, JSON.stringify(r));
       await page.mouse.click(640, 360);
       await ev(() => engine.settings.open()); await frames(2);
-      // frozen: frame hooks still run, fixed steps (engine.elapsed) do not
-      const frozen = await ev(async () => { const t = engine.elapsed, f = engine.frozen; await __t.frames(15); return { f, same: engine.elapsed === t }; });
+      // frozen: frame hooks still run, fixed steps (engine.time.now('real')) do not
+      const frozen = await ev(async () => { const t = engine.time.now('real'), f = engine.frozen; await __t.frames(15); return { f, same: engine.time.now('real') === t }; });
       check('freezeWorld: gameplay frozen and time stopped while the menu is open', frozen.f && frozen.same, JSON.stringify(frozen));
       await ev(() => engine.settings.close()); await frames(2);
-      check('unfrozen after the menu closes', await ev(async () => { const t = engine.elapsed; await __t.until(() => engine.elapsed > t, 10000).catch(() => {}); return !engine.frozen && engine.elapsed > t; }));
+      check('unfrozen after the menu closes', await ev(async () => { const t = engine.time.now('real'); await __t.until(() => engine.time.now('real') > t, 10000).catch(() => {}); return !engine.frozen && engine.time.now('real') > t; }));
     },
   },
   {
@@ -140,13 +149,17 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.modules.get('weather').applyState(engine, { weather: 'rain' }); engine.step(0.1);
-        const M = engine.sky.modifiers, w = { sun: M.sun, fog: M.fog, tint: M.tintAmount };
-        const hs = engine.mod('sky.sunLight', { owner: 'dtest', mul: 0.5 }), hf = engine.mod('sky.fog', { owner: 'dtest', mul: 0.5 }); engine.step(0.1);
-        const both = { sun: M.sun, fog: M.fog, tint: M.tintAmount };
-        hs.remove(); hf.remove(); engine.step(0.1);
+        // weather writes its multipliers on the effect layer of the look points; a game's mul on top multiplies, it does not overwrite
+        const P = n => engine.stacks.get(n), wOf = n => P(n).holders().find(h => h.owner === 'weatherLook')?.value;
+        const v = () => ({ sun: P('look.lights.sun.intensity').value(), fog: P('look.fog.far').value() });
+        const M = { get sun() { return v().sun; }, get fog() { return v().fog; } };
+        const w = { ...v(), wSun: wOf('look.lights.sun.intensity'), tint: wOf('look.sky.tint')?.amount };
+        const hs = engine.mod('look.lights.sun.intensity', { owner: 'dtest', mul: 0.5 }), hf = engine.mod('look.fog.far', { owner: 'dtest', mul: 0.5 });
+        const both = v();
+        hs.remove(); hf.remove();
         return { w, both, back: M.sun, rain: engine.weather.current.sun, grey: engine.weather.current.grey, noModify: !('modify' in engine.sky) };
       });
-      check('weather layer only: matches the weather values (default behavior unchanged)', Math.abs(r.w.sun - r.rain) < 1e-6 && Math.abs(r.w.tint - r.grey) < 1e-6, JSON.stringify(r));
+      check('weather layer only: matches the weather values (default behavior unchanged)', Math.abs(r.w.wSun - r.rain) < 1e-6 && Math.abs(r.w.tint - r.grey) < 1e-6, JSON.stringify(r));
       check('with a game layer: multiplied, not overwritten by weather', Math.abs(r.both.sun - r.w.sun * 0.5) < 1e-6 && Math.abs(r.both.fog - r.w.fog * 0.5) < 1e-6, JSON.stringify(r));
       check('removing the game layer restores the values', Math.abs(r.back - r.w.sun) < 1e-6, JSON.stringify(r));
       // guard: the old sky-only mechanism is gone, its name throws and points at engine.mod (one entry for shared quantities)
@@ -158,12 +171,12 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const U = engine.uniforms.uTime, at = () => [engine.elapsed, U.value];
+        const U = engine.uniforms.uTime, at = () => [engine.time.now('real'), U.value];
         const h = engine.freeze('menu'); const [e0, u0] = at(); engine.step(0.5); const [e1, u1] = at(); h.remove();
         const s = engine.freeze('photo', { ambient: true }); const [, u2] = at(); engine.step(0.5); const [, u3] = at(); s.remove();
         return { gameplay: e1 - e0, ambient: u1 - u0, still: u3 - u2 };
       });
-      check('frozen: engine.elapsed stays, uTime advances by the stepped time', r.gameplay === 0 && Math.abs(r.ambient - 0.5) < 0.02, JSON.stringify(r));
+      check('frozen: real time stays, uTime advances by the stepped time', r.gameplay === 0 && Math.abs(r.ambient - 0.5) < 0.02, JSON.stringify(r));
       check('freeze({ ambient: true }): uTime stops too', r.still === 0, JSON.stringify(r));
     },
   },
@@ -213,6 +226,33 @@ export const specs = [
     },
   },
   {
+    name: "[guard] HLOD: the game's own visible wins (hidden near stays hidden after far -> near; hidden while far stays hidden; no ray hit)",
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const h = engine.hlod;
+        await new Promise(res => { const t = () => (h.cells.length && !engine.jobs.pending ? res() : setTimeout(t, 50)); t(); });
+        engine.pause();
+        const a = engine.level.root.getObjectByName('b_3_3'), b = engine.level.root.getObjectByName('b_2_2');
+        const down = o => engine.raycast([o.position.x, 200, o.position.z], [0, -1, 0])?.object?.name ?? null;
+        engine.focus.set(0, 0, 0); engine.step(0.5);
+        a.visible = false;                                   // the game hides a building while near (burnt down)
+        engine.focus.set(400, 0, 400); engine.step(0.5);
+        b.visible = false;                                   // another one hidden while far
+        const farRayB = down(b);
+        engine.focus.set(0, 0, 0); engine.step(0.5);
+        const out = { aNear: a.visible, bNear: b.visible, farRayB };
+        a.visible = true; b.visible = true; engine.step(0.5);
+        out.shownAgain = a.visible && b.visible;
+        engine._resume();
+        return out;
+      });
+      check('a building the game hid near stays hidden after a far -> near switch', r.aNear === false, JSON.stringify(r));
+      check('a building the game hid while far stays hidden when near, and rays miss it while far', r.bNear === false && r.farRayB !== 'b_2_2', JSON.stringify(r));
+      check('showing them again works', r.shownAgain, JSON.stringify(r));
+    },
+  },
+  {
     name: 'X：烘焙读回保留材质设置、射线登记随几何体释放',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -246,10 +286,10 @@ export const specs = [
         const same = JSON.stringify(seq()) === JSON.stringify(seq());
         engine.random.setSeed(9); engine.random.next(); const saved = engine.saves.collect();
         const a = engine.random.next(); engine.saves.apply(saved); const b = engine.random.next();
-        const auto = () => { engine.random.setSeed(7); engine.weather.set('clear', 0.01); engine.weather.setAuto(true); engine.step(0.1); return engine.weather.name; };
+        const auto = () => { engine.random.setSeed(7); engine.weather.set('clear', { seconds: 0.01 }); engine.weather.setAuto(true); engine.step(0.1); return engine.weather.name; };
         const w1 = auto(), w2 = auto(); engine.weather.setAuto(false);
-        engine.freeze('xtest'); const t0 = engine.elapsed, c0 = engine.clock.now; engine.step(1);
-        const frozen = engine.elapsed === t0 && engine.clock.now === c0; engine.stacks.get('freeze').release('xtest');
+        engine.freeze('xtest'); const t0 = engine.time.now('real'), c0 = engine.clock.now; engine.step(1);
+        const frozen = engine.time.now('real') === t0 && engine.clock.now === c0; engine.stacks.get('freeze').release('xtest');
         engine._resume();
         return { jobsDone, stream, same, resume: a === b, w1, w2, frozen };
       });
@@ -267,16 +307,16 @@ export const specs = [
       const r = await ev(() => {
         engine.pause();
         let fired = 0; engine.clock.after(10, () => fired++);
-        const d = engine.saves.collect(); d.parts.clock.now = engine.clock.now - 1000;
+        const d = engine.saves.collect(); d.parts.time.channels.calendar = engine.clock.now - 1000;
         engine.saves.apply(d); engine.step(5); const early = fired; engine.step(6); const late = fired;
         engine.vars.setFlag('xKeep'); engine.vars.bump('xCount', 3);
         engine.saves.apply(engine.saves.collect());
         const varsOk = engine.vars.flag('xKeep') === true && engine.vars.counter('xCount') === 3;
         const L = new threedogTest.THREE.PointLight(); L.castShadow = false; engine.add(L);
-        engine.setShadows(false); engine.setShadows(true);
+        engine.look.shadow.set({ enabled: false }, { owner: 'ctest' }).remove();   // off, then the handle gives the switch back
         const shadows = { game: L.castShadow, sun: engine.lights.sun.castShadow }; engine.remove(L);
-        engine.input.define('xPad', ['KeyZ'], 'x', { pad: 'PadY' });
-        const pad = { custom: engine.input.keysOf('xPad').includes('PadY'), noPhoto: engine.input.padDefaults.photo === undefined };
+        engine.input.bind('xPad', ['KeyZ', 'PadY']);
+        const pad = { custom: engine.input.keysOf('xPad').includes('PadY'), noPhoto: !engine.input.keysOf('photo').length || engine.input.keysOf('photo').every(k => !k.startsWith('Pad') || k === 'PadRB') };
         engine.modules.get('weather').applyState(engine, { weather: 'rain' });
         const d2 = engine.describe(), label = d2.weather.label, text = engine.describeText();
         engine._resume();
@@ -284,8 +324,8 @@ export const specs = [
       });
       check('function-type after expires by remaining time after load', r.early === 0 && r.late === 1, JSON.stringify(r));
       check('vars: apply(collect()) keeps flags and counters', r.varsOk, JSON.stringify(r));
-      check('setShadows off then on: lights the game turned off stay off, the sun is restored', r.shadows.game === false && r.shadows.sun === true, JSON.stringify(r.shadows));
-      check('gamepad button comes from define({ pad }); the engine no longer special-cases photo', r.pad.custom && r.pad.noPhoto, JSON.stringify(r.pad));
+      check('look.shadow enabled off then back on: lights the game turned off stay off, the sun is restored', r.shadows.game === false && r.shadows.sun === true, JSON.stringify(r.shadows));
+      check('gamepad buttons go in the bound key list; the engine adds no pad key to photo', r.pad.custom && r.pad.noPhoto, JSON.stringify(r.pad));
       check('weather display name comes from the string table (describe label); describeText is developer English and names the id', r.label === '雨' && r.textHas, JSON.stringify(r));
       check('sky.isDay agrees with daylight', r.isDay);
     },

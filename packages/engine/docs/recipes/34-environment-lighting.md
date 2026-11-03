@@ -33,7 +33,7 @@ Removing a game layer (`h.remove()`) falls back to the pack's env, and with none
   reflections from the scene environment (use a Standard / Physical material for that).
 - Intensity is `scene.environmentIntensity`, direction offset is `scene.environmentRotation` (Y only here).
 - The hemisphere light stays and adds on top. When you turn the environment on, lower the ambient column of `sky.keyframes` (or
-  `engine.mod('sky.ambient', { owner: 'env', mul: 0.5 })`, [recipe 52](52-look.md#sky-multipliers-enginemod-vs-looklights)) so shadows do not wash out.
+  `engine.mod('look.lights.hemi.intensity', { owner: 'env', mul: 0.5 })`, [recipe 52](52-look.md#how-look-values-stack)) so shadows do not wash out.
 - The first frame with an environment recompiles every Lambert program once (the program key gains the env map); do it at start-up, not mid-game.
 - Toon, Basic and ShaderMaterial surfaces ignore it.
 

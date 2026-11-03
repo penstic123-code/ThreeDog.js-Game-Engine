@@ -131,21 +131,29 @@ function paletteKeys(style, refs, closest) {
 
 // ── post effects ───────────────────────────────────────────
 const SLOTS = ['scene', 'hdr', 'ldr', 'final'];
+// A style's post effects are its plugin files that export an effect { name, create | node | fuse } (the one way in: look.post.add,
+// docs/plans/done/2026-11-03-one-post-entry.md); the path of each finding is the plugin file
+const isEffect = v => plain(v) && typeof v.name === 'string' && (typeof v.create === 'function' || typeof v.node === 'function' || plain(v.fuse));
+function postEffects(style) {
+  const list = [];
+  for (const [path, ns] of Object.entries(plain(style.plugins) ? style.plugins : {})) {
+    const vals = ns && typeof ns === 'object' && 'default' in ns ? [].concat(ns.default) : Object.values(ns ?? {}).flat();
+    const file = 'plugins/' + path.split('/').pop().replace(/\.[cm]?[jt]s$/, '');
+    vals.forEach((v, j) => { if (isEffect(v)) list.push({ e: v, p: vals.length > 1 ? `${file}[${j}]` : file }); });
+  }
+  return list;
+}
 function post(style) {
-  const list = style.post, out = [];
-  if (list === undefined) return out;
-  if (!Array.isArray(list)) return [f('error', 'post', 'style.post must be an array of post effects, e.g. post: [bloom()]')];
+  const out = [];
+  if (style.post !== undefined) return [f('error', 'post', 'style.post is gone: a style brings each post effect as a plugin file', "style/plugins/10-bloom.js: export default bloom(), and in the style: plugins: import.meta.glob('./plugins/*.js', { eager: true })")];
   const names = new Map(), eff = [];
-  list.forEach((e, i) => {
-    const p = `post[${i}]`;
-    if (!plain(e) || typeof e.name !== 'string') { out.push(f('error', p, "a post effect is { name, slot, order, create(ctx) } (or a fuse snippet); this one has no name")); return; }
-    if (names.has(e.name)) out.push(f('error', p, `two post effects are named '${e.name}' (also post[${names.get(e.name)}]): the engine refuses a second one`, `rename one, or use postAdd(effect) to replace by name`));
-    names.set(e.name, i);
+  postEffects(style).forEach(({ e, p }, i) => {
+    if (names.has(e.name)) out.push(f('error', p, `two post effects are named '${e.name}' (also ${names.get(e.name)}): the engine refuses a second one`, 'rename one (an effect factory takes no name: wrap it, { ...bloom(), name: \'bloom2\' })'));
+    names.set(e.name, p);
     const slot = e.slot ?? 'hdr';
     if (!SLOTS.includes(slot)) out.push(f('error', p, `effect '${e.name}': unknown slot '${slot}'`, `use ${SLOTS.join(' | ')}`));
-    if (typeof e.create !== 'function' && !e.fuse) out.push(f('error', p, `effect '${e.name}' has neither create(ctx) nor a fuse snippet`));
     if (e.fuse && slot === 'scene') out.push(f('error', p, `effect '${e.name}': a fuse snippet cannot replace the scene render`, "use slot 'hdr' | 'ldr' | 'final'"));
-    eff.push({ ...e, slot, order: e.order ?? 0, i });
+    eff.push({ ...e, slot, order: e.order ?? 0, i, p });
   });
   const scene = eff.filter(e => e.slot === 'scene');
   if (scene.length > 1) out.push(f('error', 'post', `post slot 'scene' can hold one effect, found ${scene.map(e => `'${e.name}'`).join(', ')}`, 'only one effect may replace the scene render'));
@@ -155,13 +163,13 @@ function post(style) {
   let swapped = null;
   for (const e of chain) {
     const on = e.enabled !== false;
-    if (e.needsDepth && swapped && on) out.push(f('error', `post[${e.i}]`, `'${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers`, `give '${e.name}' a lower order or an earlier slot than '${swapped}'`));
-    if (e.needsDepth && (e.slot === 'ldr' || e.slot === 'final')) out.push(f('error', `post[${e.i}]`, `'${e.name}' reads scene depth but sits in slot '${e.slot}', after tone mapping`, "use slot 'hdr'"));
+    if (e.needsDepth && swapped && on) out.push(f('error', e.p, `'${e.name}' reads scene depth (needsDepth) but runs after '${swapped}', which swaps buffers`, `give '${e.name}' a lower order or an earlier slot than '${swapped}'`));
+    if (e.needsDepth && (e.slot === 'ldr' || e.slot === 'final')) out.push(f('error', e.p, `'${e.name}' reads scene depth but sits in slot '${e.slot}', after tone mapping`, "use slot 'hdr'"));
     if (on && (e.slot === 'scene' || e.fuse)) swapped ??= e.name;
   }
   // dof copies the scene depth into its output, so an outline after it works (crisp lines over the blur); dof after an outline would find no scene depth
   const dof = chain.find(e => e.name === 'dof' && e.enabled !== false), line = chain.find(e => e.name === 'outline' && e.enabled !== false);
-  if (dof && line && chain.indexOf(dof) > chain.indexOf(line)) out.push(f('error', `post[${dof.i}]`, "'dof' runs after 'outline' (both on): outline swaps buffers, so dof would not find the scene depth",
+  if (dof && line && chain.indexOf(dof) > chain.indexOf(line)) out.push(f('error', dof.p, "'dof' runs after 'outline' (both on): outline swaps buffers, so dof would not find the scene depth",
     `give 'dof' a lower order than 'outline' (dof ${dof.order} -> below ${line.order}); both can be on, lines then stay sharp over the blur`));
   // Which effects are on is a fact worth seeing (each is a full-screen pass, and their looks add up); how many is right depends on the game's
   // art direction, so this is a note with the way to see each one's cost, never a cap or a verdict

@@ -3,7 +3,7 @@
 
 export const STRINGS = {
   'zh-CN': {
-    'settings.title': '设置', 'settings.action': '菜单',
+    'settings.title': '设置', 'settings.action': '菜单', 'title.settings': '设置', 'module.settings': '设置',
     'settings.graphics': '画质', 'settings.audio': '声音', 'settings.controls': '按键', 'settings.language': '语言',
     'settings.quality': '画质预设', 'settings.quality.low': '低', 'settings.quality.medium': '中', 'settings.quality.high': '高', 'settings.quality.custom': '自定义',
     'settings.pixelRatio': '渲染精度', 'settings.shadows': '阴影', 'settings.antialias': '抗锯齿', 'settings.bloom': '泛光', 'settings.ao': '环境光遮蔽',
@@ -18,6 +18,7 @@ export const STRINGS = {
     'settings.camera': '镜头', 'settings.sensitivity': '鼠标灵敏度', 'settings.invertY': '反转 Y 轴', 'settings.fov': '视野',
   },
   en: {
+    'title.settings': 'Settings', 'module.settings': 'settings',
     'settings.title': 'Settings', 'settings.action': 'Menu',
     'settings.graphics': 'Graphics', 'settings.audio': 'Audio', 'settings.controls': 'Controls', 'settings.language': 'Language',
     'settings.quality': 'Quality preset', 'settings.quality.low': 'Low', 'settings.quality.medium': 'Medium', 'settings.quality.high': 'High', 'settings.quality.custom': 'Custom',

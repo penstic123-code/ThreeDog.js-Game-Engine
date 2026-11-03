@@ -1,5 +1,5 @@
 // Quests module: made of steps, each with a completion condition (function), checked every half second (game time, in the fixed step; not checked while
-// frozen/paused). The game's key (quests({ keys }) or presets.keys.quests; none built in) opens the quest log. What a replacement must provide: quests.contract.js.
+// frozen/paused). The game's key (presets.bindings.quests or its own; none built in) opens the quest log. What a replacement must provide: quests.contract.js.
 //
 // quests.define('first-photo', {
 //   title: '第一张照片', desc: '…',
@@ -18,32 +18,33 @@
 // The log window is the UI part 'questLog' (questLog.js): replace it or turn it off with engine.ui.set('questLog', ...) (recipes/26-ui-parts.md).
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
-import { warnMissing, DEV, moduleKeys } from '../../core/validate.js';
+import { warnMissing, DEV } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
 const STRINGS = {
-  'zh-CN': { 'quests.title': '任务日志', 'quests.action': '任务', 'quests.empty': '还没有任务。', 'quests.new': '新任务：{title}', 'quests.done': '任务完成：{title}', 'quests.doneTag': '（已完成）', 'quests.failed': '任务失败：{title}' },
-  en: { 'quests.title': 'Journal', 'quests.action': 'Journal', 'quests.empty': 'No quests yet.', 'quests.new': 'New quest: {title}', 'quests.done': 'Quest complete: {title}', 'quests.doneTag': ' (done)', 'quests.failed': 'Quest failed: {title}' },
+  'zh-CN': { 'module.quests': '任务', 'quests.title': '任务日志', 'quests.action': '任务', 'quests.empty': '还没有任务。', 'quests.new': '新任务：{title}', 'quests.done': '任务完成：{title}', 'quests.doneTag': '（已完成）', 'quests.failed': '任务失败：{title}' },
+  en: { 'module.quests': 'quests', 'quests.title': 'Journal', 'quests.action': 'Journal', 'quests.empty': 'No quests yet.', 'quests.new': 'New quest: {title}', 'quests.done': 'Quest complete: {title}', 'quests.doneTag': ' (done)', 'quests.failed': 'Quest failed: {title}' },
 };
 
 /** A step's text; a parallel step without its own text lists its required parts */
 const stepText = st => st.text ?? st.all.filter(p => !p.optional).map(p => p.text).join(' / ');
 export class Quests {
-  constructor(engine, { action = 'quests', keys, pad, checkInterval = 0.5, notify = true } = {}) {
+  constructor(engine, { action, checkInterval, notify } = {}, track) {
     this.engine = engine;
     this.defs = new Map();
     /** @internal id -> { step, done, failed?, parts? (parts done in the current parallel step), got? (parts met in finished parallel steps) }; read it with state(id) */
     this._progress = {};
     /** @internal saved progress of quests not defined yet (content loaded after the save): applied by define(), written back unchanged meanwhile */ this._saved = {};
-    this._t = 0;
+    /** @internal fixed steps until the next condition check (whole steps: the same after a load, a skip or stepping) */ this._t = 0;
+    /** @internal a check fell inside an engine.skip: run it on the skip's last segment */ this._due = false;
     this.action = action; this.checkInterval = checkInterval;
     this.notify = notify;   // true toast (kind 'quest') · false silent · function ({ type, id, text }) => void
     engine.i18n.add(STRINGS);
-    keys = moduleKeys('quests()', action, keys, 'quests', engine.input);   // the game's key or a presets.keys bundle, never a built-in one
-    if (keys.length || pad) engine.input.define(action, keys, 'quests.action', { pad });
-    this.win = questLogWindow(engine, this);   // { open, toggle, refresh } over engine.ui
+    // declared only: the game binds the key (presets.bindings.quests or its own; [] = no key), so every key in a game comes from one bindings table
+    track(engine.input.action(action, { label: 'quests.action', owner: 'quests' }));
+    this.win = questLogWindow(engine, this, track);   // { open, toggle, refresh } over engine.ui
     // counters live in engine.vars
     // saved by stable step ids (questSave.js); version 1 saved positions
     engine.saves.register('quests', { atomic: true, version: 2, migrate: { 1: d => migrateV1(this.defs, d) }, save: () => this._save(), load: d => this._load(d) });
@@ -80,11 +81,13 @@ export class Quests {
   _save() {
     const state = { ...this._saved };
     for (const [id, s] of Object.entries(this._progress)) { const d = this.defs.get(id); if (d) state[id] = toSaved(d, s); }
-    return { state };
+    return { state, checkIn: this._t };   // the check timer is playthrough state too: a load checks on the same step as play went on
   }
+  /** @internal fixed steps between condition checks */
+  get _period() { return Math.max(1, Math.round(this.checkInterval * 60)); }   // 60 = the engine's fixed steps per second
   /** @internal */
   _load(d) {
-    this._progress = {}; this._saved = {};
+    this._progress = {}; this._saved = {}; this._t = Number.isInteger(d?.checkIn) ? d.checkIn : 0;
     for (const [id, q] of Object.entries(d?.state || {})) { const def = this.defs.get(id); if (def) this._progress[id] = fromSaved(id, def, q); else this._saved[id] = q; }
     this.win.refresh();
   }
@@ -192,24 +195,30 @@ export class Quests {
 
 const QUEST_PARAMS = {
   action: { type: 'string', default: 'quests', desc: 'input action that opens the quest log' },
-  keys: { type: 'array', optional: true, desc: 'keys that open the log (required unless createEngine({ bindings }) binds the action; [] = no key)' },
-  pad: { type: 'array', optional: true, desc: 'gamepad buttons that open the log' },
   checkInterval: { type: 'number', default: 0.5, min: 0, desc: 'seconds (game time) between quest condition checks' },
   notify: { type: 'any', default: true, desc: 'true = toast, false = silent, or a function ({ type, id, text }) => void' },
 };
 
 /**
- * Quests module. Installs engine.quests. keys / pad open the quest log: required (keys: [] for none; presets.keys.quests has J / gamepad Select) @example
- * engine.use(quests({ ...presets.keys.quests }))
+ * Quests module. Installs engine.quests. The 'quests' action opens the quest log; the game binds it (presets.bindings.quests has J / gamepad Select) @example
+ * engine.use(quests()); engine.input.bind(presets.bindings.quests)
  */
 export function quests(opts = {}) {
   const o = readParams('quests', QUEST_PARAMS, opts);
   let q = null;
   return {
-    name: 'quests', label: 'Quests', params: QUEST_PARAMS, options: o, noSkip: 'conditions are re-checked on the next fixed step after the jump',
-    install(e) { q = new Quests(e, opts); return q; },
+    name: 'quests', type: 'rules', provides: ['quests'], label: 'Quests', params: QUEST_PARAMS, options: o,
+    // o: the schema defaults are filled in, the class repeats none
+    install(e, ctx) { q = new Quests(e, o, ctx.track); return q; },
     // Check quests in the fixed step (game time; not while frozen or flow is paused, so no rewards are granted while paused)
-    fixed(dt) { q._t -= dt; if (q._t <= 0) { q._t = q.checkInterval; q.check(); } },
+    fixed() { if (--q._t <= 0) { q._t = q._period; q.check(); } },
+    // engine.skip: the countdown lands where stepping would have left it; conditions are checked once, on the last segment, if a check fell inside
+    skip(dt, e, done) {
+      const n = Math.round(dt * 60), P = q._period, t = Math.max(1, q._t);   // 0 (a fresh start) checks on the next step, like 1
+      if (n < t) q._t = t - n;
+      else { q._t = P - ((n - t) % P); q._due = true; }
+      if (done && q._due) { q._due = false; q.check(); }
+    },
     frame(dt, e) { toggleOnKey(e, q.win, q.action); },
     // engine.explain({ quest: id }): where a quest is stuck, so the AI need not read every done() function
     explain: { quest(e, id) {

@@ -7,12 +7,16 @@ import data from './content/index.js';
 
 import { buildBlock } from './block.js';
 
-const engine = createEngine({ canvas: document.getElementById('view'), ui: { loading: { title: '小城' } }, saveKey: 'city' });
+// Route switch for the WebGL vs WebGPU perf comparison (threedog perf --only=pages --renderer=webgpu): ?renderer=webgpu loads threedog/tsl
+// (it registers the WebGPU classes and node parts) and draws this same game on WebGPURenderer. Without the query nothing changes.
+const gpuRoute = new URLSearchParams(location.search).get('renderer') === 'webgpu';
+if (gpuRoute) await import('../../render/fx/index.js');
+const engine = createEngine({ ...(gpuRoute && { renderer: 'webgpu' }), bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), ui: { loading: { title: '小城' } }, saveKey: 'city' });
 engine.assets.manifest({ models: { 'city-block': buildBlock } });
 engine.use(
   world(),   // world data: facts about NPCs such as the shopkeeper live here (changing level only tears down models)
   level({ url: 'city-block' }),
-  calendar({ time: 0.45, dayLength: 360 }), sky(),   // NPC schedules follow the calendar: this page needs the day to pass
+  calendar({ time: 0.45, dayLength: 360 }), sky({ fog: { far: 220 } }),   // a short fog: the street block ends close by   // NPC schedules follow the calendar: this page needs the day to pass
   collision(),
   rigid(),
   followCamera({ pitch: 1.0, distance: 26, minDistance: 14, maxDistance: 40, lockPitch: true }),
@@ -27,7 +31,6 @@ engine.use(
   content(),
   flow(),
 );
-engine.setFogFar(220);
 
 // No style in this example, so the plaza trigger defines its own sparks (with a style, use its preset)
 engine.particles.define('sparks', { max: 80, lifetime: [0.3, 0.7], speed: [2, 5], direction: [0, 1, 0], spread: 0.9, gravity: -6, size: [0.1, 0.03], color: [0xffffff, 0xaaaaaa], opacity: [1, 0] });
@@ -63,7 +66,7 @@ engine.events.on('engine:ready', () => {
     m.castShadow = m.receiveShadow = true;   // rigid bodies do not change the model's shadow settings; enable shadows yourself if wanted
     engine.rigid.addBox(m, { mass: 3 });
   }
-  toast(engine, '俯视角 · 没有地形模块 · 没有风格包');
+  toast(engine, '俯视角 · 没有地形模块 · 没有游戏自己的 style');
 });
 engine.onFrame(() => {
   if (!player || !engine.input.pressed('kick')) return;

@@ -3,7 +3,7 @@
 // files or generators (asset packs, engine.assets.manifest), gameplay data (content packs, engine.content.load), and anything that changes the world or
 // the rules: water level / sea / size go to water({ level, sea, size }), terrain shape and size to terrain({...}) (a dev error says so). Swapping the style must
 // never move the map. A style may be a list of parts (StyleInput).
-// Example: any style, a folder with index.js (the game's own); see recipes/09-style-pack.md.
+// Example: any style, a folder with index.js (the game's own); see recipes/09-style.md.
 import type { ColorLike, BufferGeometry, Object3D, Material, Loose } from './common';
 import type { Engine } from './core';
 import type { SteepRule, WeatherPreset, TerrainConfig, Sky } from './world';
@@ -70,6 +70,7 @@ export interface MaterialSpec {
  * with different values share one shader program. Channels (color / normal / roughness) are fixed when the material is made.
  */
 export interface MaterialDetail {
+  /** Read as data, not color: 50% gray (128) is neutral. An asset name is loaded without sRGB decoding; a THREE.Texture you pass should use NoColorSpace */
   texture?: string | import('three').Texture;
   noise?: Loose<'grain' | 'paper' | 'stroke' | 'dabs'>;
   /** Replaces the noise: `vec4 threedogDetailSample(vec2 p)` returns vec4(color rgb, height 0-1); p is scaled, turned, stretched */
@@ -210,11 +211,11 @@ export interface StyleFog {
   kind?: Loose<'linear' | 'exp' | 'exp2' | 'height'>;
   /** 'horizon' (default: the dome's horizon color) | a color | ({ time, state, sky }) => either (e.g. to darken it at night) */
   color?: 'horizon' | ColorLike | ((ctx: LookContext) => 'horizon' | ColorLike);
-  /** Per meter, exp / exp2 / height (default: derived from engine.fogFar, so fog reaches the same distance as linear); weather fog divides it */
+  /** Per meter, exp / exp2 / height (default: derived from look.fog far, so fog reaches the same distance as linear); an explicit density is kept as given */
   density?: number;
   /** Linear fog start (meters); default 0.3 x far. Same keys as engine.look.fog.set */
   near?: number;
-  /** Linear fog end (meters); default engine.fogFar */
+  /** Linear fog end (meters); default 600 (look.fog far: the terrain view, a game set and the weather act on it) */
   far?: number;
   /** false: no fog; default true */
   enabled?: boolean;
@@ -234,8 +235,10 @@ export interface StyleFog {
 export interface StyleSkyLayer {
   /** The layer's name, the key for engine.look.sky.patch('layer:<name>'); default layer0, layer1 ... by position */
   name?: string;
-  /** Defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)` returning (rgb, amount 0..1); renamed per layer, so layers never clash */
-  glsl: string;
+  /** Defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)` returning (rgb, amount 0..1); renamed per layer, so layers never clash. WebGLRenderer draws it */
+  glsl?: string;
+  /** WebGPURenderer form: (ctx) => vec4 node (rgb, amount); ctx = { dir, time, sunDir, night, color (sky so far), uniforms, fx: { noise, hash }, tsl } (recipe 52 'tsl forms') */
+  tsl?: (ctx: any) => any;
   /** Custom uniforms (numbers, THREE.Color, [x, y(, z, w)], THREE.Texture), live in engine.sky.dome.material.uniforms */
   uniforms?: Record<string, any>;
   /** Draw order among the layers, smaller first (default 0) */
@@ -306,7 +309,7 @@ export interface StyleWind {
 
 /** engine.sky.shadow: the shadow params in use (engine.look.shadow.set changes them); field meanings as in StyleShadow */
 export interface SkyShadowParams {
-  bias: number; normalBias: number; updateEvery: number; snap: number | 'texel'; ahead: number; type: 'basic' | 'pcf' | 'vsm'; radius: number; blurSamples: number;
+  bias: number; normalBias: number; updateEvery: number; snap: number | 'texel'; ahead: number; radius: number; blurSamples: number;
   cascades: number; maxFar: number; fade: boolean; lightMargin: number; split: StyleShadow['split'];
   /** Same keys as engine.look.shadow.set */
   mapSize?: number; enabled?: boolean;
@@ -330,7 +333,7 @@ export interface StyleShadow {
   snap?: number | 'texel';
   /** How far ahead of the view direction the shadow center is shifted (meters), default 0 */
   ahead?: number;
-  /** Shadow filter: 'basic' (hard edge, cheapest) | 'pcf' (default, soft edge) | 'vsm' (softest, costliest). Default: the engine's shadowType option */
+  /** Shadow filter: 'basic' (hard edge, cheapest) | 'pcf' (default, soft edge) | 'vsm' (softest, costliest). Default 'pcf' (look.shadow type) */
   type?: Loose<'basic' | 'pcf' | 'vsm'>;
   /** Edge softness for 'pcf' and 'vsm' (no effect on 'basic'), default 1 */
   radius?: number;
@@ -389,7 +392,7 @@ export interface StyleWeatherSnow extends StyleWeatherParticles {
  * Snow cover (style.weather.snow.cover): the season tint of foliage / ground (vegetation, terrain, materials with season) moves toward
  * these colors as the weather's snow amount rises, `strength` of the way at full snow, and melts back as it falls. Rides the season
  * patch (mix over style.seasons; a 'multiply' season gives way while snow lies). Leave it out and snow only draws particles.
- * The same cover for anything else (ash, frost): engine.mod('sky.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } }). recipes/47
+ * The same cover for anything else (ash, frost): engine.mod('look.ground.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } }). recipes/47
  * @example cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }
  */
 export interface StyleSnowCover {
@@ -429,7 +432,7 @@ export interface StyleWeatherParticles {
    * sprites uPx uMaxPx uSway uSwayAmp uMap uUseMap, and your uniforms (declared for you)
    */
   glsl?: { vertex?: string; fragment?: string };
-  /** Uniforms for your glsl: numbers, colors, [x, y(, z, w)] arrays, textures; live in engine.weather.systems.get(field).uniforms */
+  /** Uniforms for your glsl: numbers, colors, [x, y(, z, w)] arrays, textures; live in engine.weatherLook.systems.get(field).uniforms */
   uniforms?: Record<string, any>;
   /** A system of your own instead (engine.look.weather.replace only): the engine adds object, shows it while the amount is above 0.02, calls update */
   create?: (engine: Engine, ctx: { area: number; count: number }) => {
@@ -594,16 +597,19 @@ export interface Style {
   /** Background color (when there is no sky module) */
   background?: ColorLike;
   /**
-   * Post effects registered at startup, in any order (slot and order decide where each runs), e.g. [outline({ enabled: true }), bloom()] from
-   * '@threedog/post-effects'
-   */
-  post?: (Omit<import('./generated/render/PostFX').PostEffect, 'slot'> & { slot?: Loose<import('./generated/render/PostFX').PostSlot> })[];
-  /**
    * Material per role (default, terrain, vegetation, character, water, building, pickup…): a spec, a three.js Material instance (cloned per use), or a
-   * function (params, purpose) => Material
+   * function (params, purpose) => Material. This table is the style layer of engine.look.materials (the one entry makeMaterial reads): the game's
+   * look.materials.set / replace go on top
    */
   materials?: Record<string, MaterialSpec | import('three').Material
     | ((params: Record<string, any>, purpose: string, engine: Engine) => import('three').Material)>;
+  /**
+   * The style's own look plugins: what engine.plugins.add takes (import.meta.glob('./plugins/*.js', { eager: true }) from the style folder, or
+   * { name: { default: value } }), each file exporting the same shapes as the game's plugins/ folder. Plugged through engine.plugins before the
+   * game's folder, named '<style name>/<file>'; materials and material patches sit on the style layer. engine.plugins.off('<style name>') takes them all out
+   * @example plugins: import.meta.glob('./plugins/*.js', { eager: true })
+   */
+  plugins?: Record<string, any>;
   /**
    * Anti-aliasing: true = MSAA (also inside post-processing), false = off (pixel art, sharp edges). Default: on for desktop, off for low tier;
    * createEngine({ antialias }) wins

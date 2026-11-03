@@ -8,7 +8,7 @@ its "Loved / Not for this game" list, and use the rest: the loop, `style check`,
 
 For an AI that is given one picture ("make it look like this") and has to turn it into a style. The tools keep the work measurable: `threedog style palette`
 and `style compare` measure pictures, your game's `style/index.js` holds the result, `threedog style check` finds mistakes before you look at pixels. They never say which
-colors are right; the taste is yours. What a style is and the composing rules are in `09-style-pack.md`; this page is the order of work.
+colors are right; the taste is yours. What a style is and the composing rules are in `09-style.md`; this page is the order of work.
 
 ## The loop (every round, in this order)
 Looping "edit, screenshot, read the image" costs the most tokens and fixes the least. Numbers come first, pictures last.
@@ -63,7 +63,7 @@ world (a canyon instead of hills), say so instead of faking it with colors.
    `toneMapping`, `palette` and `terrain.colors` / `biomeColors` (the measured colors, snapped to a few named ones; a reference usually has 5 to 8 that
    matter), `materials` (`lambert` matte, `toon` banded, `phong` shiny, `standard` PBR, `basic` unlit), `post`, then `ui`. The first frame should already be close:
    if it is far from the reference, fix sky, exposure, palette and material type before adding anything.
-5. **Check.** `threedog style check sand-dune` (or the folder / file of a game's own style). It checks the final merged style, not each part:
+5. **Check.** `threedog style check` (the game's `style/` folder; or give a folder, a file or a game name). It checks the final merged style, not each part:
    unknown fields (with "did you mean"), world-state fields, palette keys a model reads but the style does not define, color formats (`'ff8800'`
    without `#`, a float, a string `'0xff8800'`), post-effect conflicts (same name twice, two `scene` effects, a depth reader after a buffer-swapping
    effect, `dof` ordered after `outline`), misspelled material roles and types, and asset names the pack does not register. `--json` gives the same list for

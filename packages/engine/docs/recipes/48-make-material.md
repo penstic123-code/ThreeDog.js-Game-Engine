@@ -1,7 +1,9 @@
 # 48. `engine.makeMaterial(role, spec)`: which keys work, who wins
 
-`engine.makeMaterial('furniture', { color: 0x8a5a36 })` returns a normal three.js material. The **role** picks the look from the style
-(`style.materials[role]`, unlisted roles use `materials.default`); the **spec** is this call's own settings.
+`engine.makeMaterial('furniture', { color: 0x8a5a36 })` returns a normal three.js material. The **role** picks the look from `engine.look.materials`,
+the one entry for "what material a purpose gets": its style layer is the style's `materials` table (and a style plugin's Material), its game layer
+`look.materials.set / replace` (unlisted roles use `default`); the **spec** is this call's own settings. A plain `new THREE.MeshStandardMaterial()`
+needs none of this: it gets fog, cascaded shadows and cloud shadow by itself.
 
 ## Which spec keys are accepted
 
@@ -42,7 +44,7 @@ The result is an ordinary `THREE.Material`; edit it freely. The engine does not 
 ```js
 const glass = engine.makeMaterial('window', { color: 0x9fd4ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
 glass.depthWrite = false;          // plain property edit, fine
-glass.onBeforeCompile = ...;       // allowed, but it replaces the engine's shader patches (wind, clouds, detail, lighting) on this material
+glass.onBeforeCompile = shader => { /* ... */ };   // allowed, but it replaces the engine's shader patches (wind, clouds, detail, lighting) on this material
 ```
 
 Keep `makeMaterial` as the way to *create* materials (a style swap then restyles the game, `npm run check` flags a bare `new THREE.Mesh*Material`);
@@ -70,4 +72,4 @@ engine.makeMaterial('wall', { color: 0xc9b99a, detail: { noise: 'paper' }, light
 engine.makeMaterial('character', { type: 'toon', color: 0xe8a0a0, ramp: [0.25, 0.6, 1] });
 ```
 
-See also: `09-style-pack.md` (writing the pack side), `43-shader-patches-surface-looks.md` (detail / lighting / patches).
+See also: `09-style.md` (writing the pack side), `43-shader-patches-surface-looks.md` (detail / lighting / patches).

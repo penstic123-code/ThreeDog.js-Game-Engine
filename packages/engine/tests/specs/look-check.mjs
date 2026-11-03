@@ -8,6 +8,7 @@ const PAGE = '/tests/threads/';
 export const specs = [
   {
     name: '[守] look check: a shadowed scene gives no contradiction; the same scene with a bias that pushes the shadows away names bias; probe restores what it touched',
+    software: true,   // look check measures rendered pixels
     url: PAGE,
     async run({ check, ev }) {
       await ev(src => { window.__probeLook = (0, eval)('(' + src + ')'); }, probeLook.toString());
@@ -37,16 +38,18 @@ export const specs = [
         E.camera.position.set(-3, 1.5, 0); E.camera.lookAt(0, 1.5, 5); E.camera.updateMatrixWorld();
         out.inside = await window.__probeLook(E, { time: false });
         aim();
-        const was = E.lights.sun.shadow.bias, tod = E.calendar.timeOfDay;
+        const was = E.lights.sun.shadow.bias;
         E.look.shadow.set({ bias: -0.05 });   // 阴影深度 0-1 里的 -0.05，乘上几百米的深度范围就是十几米：影子全没了
         E.step(1 / 30); aim();
         // scene.background 是引擎建场景时写的底色灰 #8c8c8c（core/Engine.js），穹顶盖在它上面：不许当成"夜里还亮着的东西"报出来。
         // 不能自己赋一个新 Color 进去：那算游戏接管背景，天空会让出并藏起穹顶，底色就真露出来了
+        // time of day is a view of the time channel now: steps advance it, so the value to compare is the one right before the probe (it must not move)
+        const tod = E.calendar.timeOfDay;
         out.biased = await window.__probeLook(E, { time: true });
         E.sky.dome.visible = false;   // 穹顶拿掉，底色真露出来了，才该点名
         out.bare = await window.__probeLook(E, { time: true });
         E.sky.dome.visible = true;
-        out.restored = { bias: E.lights.sun.shadow.bias, intensity: E.lights.sun.shadow.intensity, tod: E.calendar.timeOfDay === tod, view: E.debug.viewState?.().mode ?? 'off' };
+        out.restored = { bias: E.lights.sun.shadow.bias, intensity: E.lights.sun.shadow.intensity, tod: Math.abs(E.calendar.timeOfDay - tod) < 1e-9, view: E.debug.viewState?.().mode ?? 'off' };
         out.biasSet = E.lights.sun.shadow.bias !== was;
         for (const k of ['normal', 'behind', 'inside', 'biased', 'bare']) delete out[k].pixels;
         E.dispose();
@@ -78,6 +81,7 @@ export const specs = [
     // 为什么：逐灯开关那一段以前把投影的灯整个跳过（!casters.includes），游戏自己的投影灯（带影子的路灯、手电）
     // 点不亮东西或者晃眼，都不会被量，提示也就不会有。投影只决定它进不进阴影那一段，不该决定量不量它。
     name: '[守] look check: a game light that casts shadows is still turned off and measured (light-no-effect)',
+    software: true,   // look check measures rendered pixels
     url: PAGE,
     async run({ check, ev }) {
       await ev(src => { window.__probeLook = (0, eval)('(' + src + ')'); }, probeLook.toString());

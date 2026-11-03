@@ -88,15 +88,16 @@ height (slopes, ramps, level meshes).
 
 ## 4. Preview
 ```js
-engine.input.define('place', ['Mouse0'], 'Place');                          // gameplay reads input actions, not pointer.clicked (recipe 26)
-const pv = engine.grids.preview({ grid: 'board', item: 'tower', ...presets.keys.gridRotate });   // under the pointer; from: 'front' = the cell in front of the player
+engine.input.action('place', { label: 'Place', keys: ['Mouse0'] });                          // gameplay reads input actions, not pointer.clicked (recipe 26)
+engine.input.bind(presets.bindings.gridRotate);   // R turns it (action 'rotate')
+const pv = engine.grids.preview({ grid: 'board', item: 'tower' });   // under the pointer; from: 'front' = the cell in front of the player
 engine.onFrame(() => {
   if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.code)); }   // 'noTarget' or a grid.place code
 });
 pv.remove();                                                                // leave build mode
 ```
-The engine binds no key: `...presets.keys.gridRotate` (or `rotateKeys: ['KeyR']`) defines the action `rotate` on R, or bind that action yourself with
-`input.define`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns
+The engine binds no key: the preview declares the action `rotate` (gone with the preview); `presets.bindings.gridRotate` binds it to R, or bind it yourself with
+`engine.input.bind('rotate', ['KeyR'])`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns
 it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.code` (the `can` answer, `'noTarget'` with no cell, null when ok)
 are readable every frame.
 Colors come from `style.grid.ok / bad / previewOpacity`. `look: false` hides the default box; `look: (engine) => ({ update(view), hide(), dispose()
