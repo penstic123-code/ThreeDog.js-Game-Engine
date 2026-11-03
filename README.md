@@ -28,11 +28,21 @@ ThreeDog takes over those systems so they are written once and work together. Th
 
 ## Design ideas
 
-**three.js stays directly writable.** Engine objects are ordinary three.js objects, so everything an agent already knows about three.js still applies. When a game sets a value itself, for example a light's intensity, the engine stops writing that value and records that the game now owns it. The game never has to fight the engine for control, and anyone asking "why is this light so bright?" gets an answer naming who set it.
+```mermaid
+flowchart LR
+  A["AI writes three.js"] --> B["Engine plugs it in"] --> C["Engine coordinates"] --> D["AI checks the result"]
+  D -.-> A
+```
+
+**A board with slots, not a framework to learn.** Engine objects are ordinary three.js objects, so everything an agent already knows about three.js still applies. The engine offers slots: a sky, a material for a role, a post effect, a module for inventory or weather. Whatever the agent writes in plain three.js is plugged into the matching slot automatically where the engine can see the intent (adding to the scene, creating a light, adding a pass, dropping a file into `plugins/`), or with one line where it cannot.
+
+**The engine never fights the game.** When a game writes a value itself, for example a light's intensity or the scene's fog, the engine stops writing it and records that the game owns it. Every change the engine makes to three.js itself is listed and can be inspected.
 
 **The engine does three things and no more.** It coordinates systems that would otherwise disagree (time, weather, lights, saves). It takes on engineering that is hard and gets repeated in every game (streaming a large world, physics, pathfinding, saving without losing data). And it lets the agent see and check what it made. Anything three.js already does well, the engine leaves to three.js.
 
-**The engine never decides how a game looks.** Without a game's own style, everything is drawn as neutral gray placeholders. Colors, materials, sky and post effects belong to the game, so a pixel-art farm and a moody city street can sit on the same engine without either one looking like a default.
+**One way to do each job.** Each task has one entry. When a better entry replaces an old one, the old one is removed and using it raises an error that shows the new call.
+
+**The engine never decides how a game looks.** Without a game's own style, everything is drawn as neutral gray placeholders. Colors, materials, sky and post effects belong to the game, so very different styles sit on the same engine without either one looking like a default.
 
 ## Made for AI agents
 
@@ -49,18 +59,67 @@ Each feature below starts from a problem agents actually run into.
 
 ## Architecture
 
-The engine has four layers. A game installs only the modules it uses, and at every layer it can still write three.js directly.
-
 ```mermaid
 flowchart TB
-  A["AI tools: docs index, threedog how, dev bridge, MCP, screenshots with look check"]
-  B["Optional modules: open world, calendar, weather, characters, dialogue, quests, grid placement, physics, multiplayer, ..."]
-  C["Core: saves, game time, player actions, a record of who changed which value"]
-  D["three.js and Rapier physics"]
-  A --> B --> C --> D
+  G["Your game"] --> M["Modules"] --> C["Core"] --> R["Rendering"] --> T["three.js + Rapier"]
+  X["Agent tools"] -.-> G
 ```
 
-Player actions go through one named-operation API (`engine.ops`) whether a player, an NPC or the agent triggers them, so each one can be checked before it runs, logged, undone and replayed.
+- **Your game** holds its rules, content, style and plugins, and any plain three.js it writes.
+- **Core** owns what every game shares and what must never disagree: the lifecycle (nothing runs before it is ready), one time source (slow motion and pause are views of it), values with owners, input grouped by context (menus and dialogue push a context instead of locking keys), one controller per character, saves that roll back cleanly when a load fails, and player actions that can be checked, logged and replayed.
+- **Modules** add features on top of the core. A game installs only the ones it uses.
+- **Rendering** runs the same engine content on WebGL and on WebGPU. Every visual effect the engine ships exists in both forms, and a check refuses an effect written for only one.
+- **Agent tools** (`threedog how`, `describe`, `test`, `shot` and an MCP server) let an AI drive the running game and read its state.
+
+### What is a module
+
+A module is one feature with one declared type. It talks to the rest of the engine only through the core and through public contracts, so it can be removed or replaced without touching anything else.
+
+```mermaid
+flowchart LR
+  M["Module<br/>one type"] --> X["ctx"] --> E["Engine"]
+  X --> L["Leaves with<br/>the module"]
+```
+
+| Type | What it owns |
+|---|---|
+| `world` | State of the world: terrain data, calendar, weather data. Draws nothing |
+| `look` | How things appear: sky, terrain look, water, effects. Its errors never stop the game |
+| `actor` | Characters and what moves them |
+| `rules` | Gameplay: inventory, quests, interactions, through checked player actions |
+| `ui` | Menus, HUD, settings. Its errors never stop the game |
+| `net` | Multiplayer |
+| `tool` | Development helpers |
+
+A module of your own is written the same way and is treated the same as a built-in one. `engine.use(mine(), { replaces: 'inventory' })` swaps a built-in module for yours, and a contract check confirms the replacement offers everything the rest of the engine calls.
+
+### How several owners share one value
+
+The sun's brightness, the fog distance or the speed of time can be wanted by several parts of a game at once. Instead of each one writing the value and undoing the others, every writer adds an entry on a layer, and the engine recomputes the result from the entries that remain.
+
+```mermaid
+flowchart LR
+  E["engine"] --> S["style"] --> G["game"] --> F["effect"] --> Y["system"] --> P["settings"] --> D["debug"]
+```
+
+From lowest to highest: the engine's default, the game's style, the game's own value, temporary effects such as weather, sunset or slow motion (they multiply or add), menus and cutscenes, the player's settings (which may only lower a value or switch it off), and debug.
+
+- An effect that ends simply removes its entry, so effects can end in any order and nothing remembers a stale value.
+- The player's settings sit above menus and cutscenes, so nothing the game does can switch back on what the player turned off.
+- Two owners setting the same value on the same layer is an error in development, and `describe()` shows who wrote every value.
+
+### How the look is put together
+
+```mermaid
+flowchart LR
+  SP["Style pack"] --> LP["Look parts"]
+  PF["plugins/ folder"] --> LP
+  GC["Game code"] --> LP
+  LP --> PC["Post chain"] --> OUT["WebGL / WebGPU"]
+  LP --> MAT["Materials"] --> OUT
+```
+
+A style pack is a folder of starting values plus look plugins. A plugin works alone or inside several style packs, through the same path as the game's own `plugins/` folder. Every look part answers the same small set of verbs (`set`, `patch`, `add`, `replace`, `manual`, `value`), and post effects keep a stable place in their stage of the chain.
 
 ## Gallery
 
@@ -79,22 +138,26 @@ These screenshots come from games an AI agent built with the engine in 15-minute
 
 You need [Node.js](https://nodejs.org) 20.19+ or 22.12+ (the current LTS is fine).
 
-**A new game:**
+**A new game, installed from npm:**
+
+```sh
+mkdir my-game && cd my-game
+npm init -y
+npm install threedog three@~0.187.0
+npm install -D @threedog/tools
+npx threedog init --open-world   # ground, sky, follow camera and a player; never overwrites a file
+npm install                      # installs what the new files need
+npm run dev                      # open the address it prints
+```
+
+**Or from this repository**, where every new game is linked to the engine source:
 
 ```sh
 git clone https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git
 cd ThreeDog.js-Game-Engine
 npm install
-npm run new-game -- my-game --open-world   # creates games/my-game: ground, sky, follow camera, a player
-npm run dev -- my-game                     # open the address it prints
-```
-
-These docs describe threedog 0.5.0 (older 0.2 releases on npm do not match them). A game in its own folder installs it from npm with:
-
-```sh
-npm install threedog@0.5 three@~0.187.0
-npm install -D @threedog/tools@0.5
-npx threedog init            # writes the new-game files into the current folder, never overwriting one
+npm run new-game -- my-game --open-world   # creates games/my-game
+npm run dev -- my-game
 ```
 
 Without `--open-world`, the new game starts as a blank scene with a camera and an empty `style/` folder. It also writes a `CLAUDE.md` and a `.mcp.json`, so Claude Code opened in that folder finds the engine's docs and its MCP server by itself. Existing files are never overwritten.
