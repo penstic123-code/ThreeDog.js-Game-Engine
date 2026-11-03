@@ -1,5 +1,5 @@
 // [guard] The look API a game sees is small and the same on every part (docs/plans/2026-11-03-look-api.md): set / patch / add / replace /
-// manual / value, plus a part's own named verb (post.add, materials.add / glow, shadow.include). patch only swaps a named hook; adding a thing
+// manual / value, plus a part's own named verb (post.add, materials.add / glow / rebuild, shadow.include). patch only swaps a named hook; adding a thing
 // is add; a fog of your own is plain scene.fog; module plumbing (write, extend, drive, tick ...) lives on part.author.
 // Why a guard: before, patch meant three things (swap a hook, add a material patch, make a post effect), fog had three "do it yourself" routes
 // and every part showed twenty-odd methods in autocomplete. If a verb comes back on the public object, or a removed verb stops pointing at
@@ -17,7 +17,7 @@ export const specs = [
         const L = engine.look, out = {}, err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const GAME = ['id', 'object', 'set', 'patch', 'add', 'replace', 'manual', 'value'];
         // a part's own named verbs (listed in its signatures, so the catalog shows them too)
-        const OWN = { post: ['add'], materials: ['glow'], shadow: ['include'] };
+        const OWN = { post: ['add'], materials: ['glow', 'rebuild'], shadow: ['include'] };
         out.extra = {};
         for (const [id, p] of Object.entries(L)) {
           if (typeof p !== 'object' || !p) continue;
@@ -45,7 +45,7 @@ export const specs = [
       check('look.materials.patch throws naming look.materials.add', r.matPatch.includes('look.materials.add('), r.matPatch);
       check('look.fog.replace throws naming scene.fog = new THREE.Fog and look.fog.manual()', r.fogReplace.includes('scene.fog = new THREE.Fog') && r.fogReplace.includes('look.fog.manual()'), r.fogReplace);
       check('look.post.patch throws naming look.post.add; a part with nothing to add says so and lists its verbs', r.postPatch.includes('look.post.add(') && r.toneAdd.includes('nothing to add') && r.toneAdd.includes('Verbs it has'), JSON.stringify([r.postPatch, r.toneAdd]));
-      check("look.materials.add(name, patch, { roles }) writes hook:<name>, remove() takes it out; catalog verbs are set / add / replace / glow", r.added && r.addedBack && r.cat.join() === 'set,add,replace,glow', JSON.stringify([r.added, r.addedBack, r.cat]));
+      check("look.materials.add(name, patch, { roles }) writes hook:<name>, remove() takes it out; catalog verbs are set / add / replace / glow / rebuild", r.added && r.addedBack && r.cat.join() === 'set,add,replace,glow,rebuild', JSON.stringify([r.added, r.addedBack, r.cat]));
     },
   },
 ];

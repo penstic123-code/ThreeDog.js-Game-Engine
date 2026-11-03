@@ -11,7 +11,11 @@ engine.use(world(), sky({ time: 0.45 }), collision({ cameraMin: 0.4 }), followCa
 // Roof: a 12 x 12 building 6 m tall at x 24..36, z -6..6; the ground height says so too, so the player stands on it
 const ROOF = { x0: 24, x1: 36, z0: -6, z1: 6, h: 6 };
 const onRoof = (x, z) => x >= ROOF.x0 && x <= ROOF.x1 && z >= ROOF.z0 && z <= ROOF.z1;
-engine.setGround({ height: (x, z) => onRoof(x, z) ? ROOF.h : 0 });
+// Bump: a 0.25 m wide, 4 m tall ridge in the ground height at z 4.05..4.30 (x -63..-57), so an 8 m arm at pitch 0.2 crosses it between
+// the old fixed 12 samples (4.0 and 4.67 m along the arm). Ground height only (no collider): only ground: 'shorten' can see it
+const BUMP = { x0: -63, x1: -57, z0: 4.05, z1: 4.3, h: 4 };
+const onBump = (x, z) => x >= BUMP.x0 && x <= BUMP.x1 && z >= BUMP.z0 && z <= BUMP.z1;
+engine.setGround({ height: (x, z) => onRoof(x, z) ? ROOF.h : onBump(x, z) ? BUMP.h : 0 });
 const mat = new THREE.MeshLambertMaterial({ color: 0xc8c4bc });
 const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a9a96 }));
 groundMesh.name = 'ground'; engine.add(groundMesh);
@@ -35,6 +39,8 @@ const SCENES = {
   roof: { x: 30, z: -3 },        // camera arm over the roof itself
   roofEdge: { x: 30, z: 5.2 },   // camera arm hangs out past the roof edge
   wall: { x: -20, z: 8.6 },      // camera arm goes into the wall behind the player
+  bump: { x: -60, z: 0 },        // camera arm crosses the narrow bump about 4.1 m out
+  forest: { x: 60, z: -60 },     // open ground: the occluder spec rings it with tree colliders
 };
 window.scene = name => {
   const s = SCENES[name], rig = engine.cameraRig;

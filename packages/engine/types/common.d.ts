@@ -1,6 +1,6 @@
 // Shared small types. three.js objects are the real @types/three classes (a dependency of this package),
 // re-exported here so engine declarations and game JSDoc can name them without importing 'three'.
-export type { Object3D, Vector3, Vector2, Color, Quaternion, Material, BufferGeometry, Texture, Light } from 'three';
+export type { Object3D, Vector3, Vector2, Color, Quaternion, Material, BufferGeometry, Texture } from 'three';
 import type { Object3D, Vector3, Color } from 'three';
 
 /** Color forms: 0xff8800, '#f80', 'orange' or THREE.Color */

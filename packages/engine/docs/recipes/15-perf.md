@@ -37,8 +37,11 @@ Which renderer measures: tests that compare pixels run on software rendering (Sw
   trip minus the worker's own compute: queueing and structured clone, an async wait, approximate), `build` (creating the three.js objects), `collider`
   (physics colliders), `upload` (extra render time of the frames that first draw new objects: GPU upload and shader compile, approximate), `stream`
   (the synchronous part of a `stream.add` build callback). Per stage: `n`, `totalMs`, `maxMs`, smoothed `frameMs`, and `bytes` (transit).
-- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, modules: { name: { init, ready } } }`; `npm test` also prints a
-  startup line (with the slowest module) for each item.
+- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, firstFrameMs, phases, modules: { name: { init, ready } } }`; `npm test` also prints a
+  startup line (with the slowest module) for each item. `firstFrameMs` is page open to the first frame drawn after the loading screen, and `phases`
+  splits it into parts that add up to it: `script` (page open until `createEngine`), `construct`, `setup` (game code until `start()`), `init` (saves,
+  renderer, module init), `preload`, `world` (nearby builds), `compile` (shaders + hidden warm-up frame), `draw`. `inspect.perf().text` prints the line;
+  `threedog perf --only=startup` measures the examples.
 
 ## 2. Set a budget (so going over reports itself)
 Off by default and costs nothing. The game gives the limits in `createEngine` (only the given categories are checked):

@@ -1,7 +1,8 @@
 # Water and rain/snow looks: depth color, foam, reflections, particles, lightning
 
-For an AI that wants water or weather particles to look a way the defaults do not. Water basics are the `water()` module and `style.water` (color, opacity, waves,
-fresnel, normal map); lights, fog and the sky are in `38-environment-look-hooks.md`. A style that writes none of the keys below keeps the built-in
+For an AI that wants water or weather particles to look a way the defaults do not. Water basics are the `water()` module (structure only: `sea`, `level`,
+`flat`, `size`, `segments`, `uniforms` for the hooks) and its look `style.water` / `engine.look.water.set` (color, opacity, waves, fresnel, normal map,
+shininess, specular; `water({ color })` throws naming `look.water.set`); lights, fog and the sky are in `38-environment-look-hooks.md`. A style that writes none of the keys below keeps the built-in
 shaders and pays nothing for them (`tests/specs/appearance-water.mjs`). Three exits: a parameter, a GLSL function you replace, or your own material.
 At run time the same keys go through `engine.look.water` / `engine.look.weather` (recipe 52).
 
@@ -47,7 +48,9 @@ engine.look.water.patch('surface', `vec4 threedogWaterSurface(vec4 base, float w
 - A wrong signature throws with the right one; misspelled keys warn with the near name; `threedog style check` knows these keys.
 
 ## Water: your own material (reflections, refraction)
-`style.water.material: (engine, { uniforms, waves, surface, normalMap }) => Material` replaces the whole water material; the engine still builds
+`style.water.material: (engine, { uniforms, waves, surface, normalMap }) => Material` replaces the whole water material; at run time the same
+slot is `engine.look.water.replace(fn)` (one entry: `water({ material })` throws naming it). `uniforms` already holds `style.water.uniforms`
+/ `water({ uniforms })`, so your material reads them like the hooks do. The engine still builds
 the meshes, snaps the sea to the focus and scrolls the normal map. Reflections and refraction are not built in (each one renders the scene a
 second time). three's `Reflector` addon works through this exit; the engine water is pre-rotated geometry, so the mirror gets the mesh's
 matrix turned into the XY plane it expects:

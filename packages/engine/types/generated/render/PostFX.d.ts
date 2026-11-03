@@ -131,7 +131,8 @@ export type PostNodeContext = {
  * update in place (no update() needed).
  * slot: a PostSlot; typed as any string too because a slot in a plain JS object (an effect returned from a function) is a string to
  * TypeScript, and the chain throws on an unknown slot naming the valid ones.
- * order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
+ * order: position inside the slot, low first; ties keep the order the names were first added in (a name keeps that place when it is
+ * switched off and on, or a plugin is unplugged and plugged again: look.post.set({ name: false }) pauses it in place). costly: off by default on low-tier devices.
  * needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  * scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
  * RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;

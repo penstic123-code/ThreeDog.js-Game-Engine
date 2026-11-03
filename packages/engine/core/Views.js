@@ -11,7 +11,10 @@ const vec3 = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite)
 
 export class Views {
   /** @param {any} engine */
-  constructor(engine) { this.engine = engine; this.map = new Map(); this.current = null; this._cam = null; }
+  constructor(engine) {
+    /** @internal */ this.engine = engine;
+    this.map = new Map(); this.current = null; this._cam = null;
+  }
   /**
    * Declare a view. position and target are [x, y, z]; fov (degrees) is optional (the camera's own when left out). Returns { remove() } (undeclares it).
    * @param {string} name @param {{ position: number[], target?: number[], fov?: number }} v

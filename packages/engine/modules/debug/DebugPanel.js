@@ -136,7 +136,7 @@ export class DebugPanel {
     o.startup.hidden = !st;
     if (st) {
       const slow = Object.entries(st.modules).map(([k, v]) => [k, (v.init ?? 0) + (v.ready ?? 0)]).sort((a, b) => b[1] - a[1])[0];
-      o.startup.textContent = `Startup ${st.totalMs} ms` + (slow ? ` · slowest ${slow[0]} ${slow[1]} ms` : '');
+      o.startup.textContent = `Startup ${st.totalMs} ms` + (st.firstFrameMs != null ? ` · first frame ${st.firstFrameMs} ms` : '') + (slow ? ` · slowest ${slow[0]} ${slow[1]} ms` : '');
     }
     o.chunks.textContent = s.visible + '/' + s.loaded;
     o.inst.textContent = fmt(s.instances);

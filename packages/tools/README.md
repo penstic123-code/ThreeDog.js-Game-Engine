@@ -2,11 +2,15 @@
 
 The command line and build tooling for [threedog](https://www.npmjs.com/package/threedog) games: the `threedog` CLI, a vite preset, the test runner, rule checks, doc generators, headless screenshots and an MCP server for AI assistants.
 
+This README describes 0.5.0 (older 0.2 releases on npm do not match it). Inside the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine): `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
+
 ```sh
-npm install threedog three@~0.187.0
-npm install -D @threedog/tools
-npx threedog new-game my-game          # or: npx threedog init  (sets up the current folder, never overwrites a file)
+npm install threedog@0.5 three@~0.187.0
+npm install -D @threedog/tools@0.5
+npx threedog init                      # sets up the current folder, never overwrites a file
 ```
+
+Node 20.19+ or 22.12+ (what vite 8 needs); the commands that start vite say so when the Node is older.
 
 Common commands (run in the game folder; the full list is `node_modules/threedog/docs/COMMANDS.md`):
 

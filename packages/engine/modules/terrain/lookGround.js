@@ -1,6 +1,6 @@
 // look.ground: how the terrain looks (colors, variation, shading, detail layer, material). Registered by the terrain look module (terrainLook): a look that replaces it brings its own controls.
-//   set({ colors, biomeColors, steep, variation, shading, detail })
-//        colors / biomeColors / steep / variation / shading are baked into the chunks by the workers: a change rebuilds every chunk (cost 'rebuild';
+//   set({ colors, biomeColors, steep, variation, shading, normals, detail })
+//        colors / biomeColors / steep / variation / shading / normals are baked into the chunks by the workers: a change rebuilds every chunk (cost 'rebuild';
 //        edits stay). colors / biomeColors / steep are given whole (they replace the style's table), variation / detail are objects (style.terrain.*).
 //   patch('detail', glsl)   the detail layer's `vec4 threedogDetailSample(vec2 p)` (render/detail.js); a detail object must be set too
 //   replace(Material | (engine) => Material)   the ground material (terrain({ material }) / style.terrain.material is the first one); null gives it back
@@ -9,7 +9,7 @@
 import { defineLookPart, REPLACE } from '../../core/look/part.js';
 import { terrainMaterial } from '../../render/materials.js';
 
-const GEN = ['colors', 'biomeColors', 'steep', 'variation', 'shading'];
+const GEN = ['colors', 'biomeColors', 'steep', 'variation', 'shading', 'normals'];
 const isObj = v => (v && typeof v === 'object' ? null : 'must be an object');
 
 /**
@@ -30,9 +30,12 @@ export function defineGroundLook(e, look, w, h) {
       variation: { type: 'any', default: null, neutral: true, cost: rebuild, check: isObj, desc: '{ blend, jitter, patches } color variation (style.terrain.variation); null = none' },
       shading: { type: 'string', values: ['smooth', 'flat', 'texture'], default: 'smooth', cost: rebuild,
         why: 'terrain colors are blended per grid point (smooth) so the ground has no visible facets', off: "look.ground.set({ shading: 'flat' }) for one color per triangle, or 'texture' for a per-chunk color map" },
+      // only how the ground is lit (the workers bake it like shading), never its shape: a look value, so not a terrain({...}) option
+      normals: { type: 'any', default: null, neutral: true, cost: rebuild, check: v => (v == null || v === 'smooth' || v === 'flat' ? null : `must be 'smooth', 'flat' or null; got ${JSON.stringify(v)}`),
+        desc: "texture shading only: lighting normals 'smooth' (null = smooth) | 'flat'; smooth / flat shading fix their own" },
       detail: { type: 'any', default: null, neutral: true, cost: 'recompile', check: isObj, desc: '{ texture | noise | glsl, scale, strength ... } detail layer over the ground (style.terrain.detail); null = none' },
     },
-    style: () => ({ colors: st.colors, biomeColors: st.biomeColors, steep: st.steep, variation: st.variation, shading: st.config?.shading, detail: st.detail, [REPLACE]: st.material }),
+    style: () => ({ colors: st.colors, biomeColors: st.biomeColors, steep: st.steep, variation: st.variation, shading: st.config?.shading, normals: st.config?.normals, detail: st.detail, [REPLACE]: st.material }),
     read: () => ({}),
     hooks: { detail: { signature: 'vec4 threedogDetailSample(vec2 p)  // rgb + height 0-1', scope: ['fragment'], example: "engine.look.ground.patch('detail', glsl)" } },
     replace: { accepts: 'a Material, or (engine) => Material; null gives the style\'s back. { effects: false }: used as is, no engine patch', loses: ['the style\'s terrain material (cloud shadows, season tint and detail are added to the new one unless effects: false)'],

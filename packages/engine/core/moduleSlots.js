@@ -54,7 +54,7 @@ export const slotMethods = {
     this._dropTracked(name);
     disposeLooksOf(this, name);
     try { m.dispose?.(this); } catch (err) { reportError(this, err, fmt(STRINGS.unuse, { name }), { soft: true }); }
-    this.modules.delete(name); this._modState.delete(name); delete this[name];
+    this.modules.delete(name); this._modState.delete(name); this._modInst.delete(name); delete this[name];
     this._sortHooks();
     return m;
   },

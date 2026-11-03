@@ -55,7 +55,7 @@ export const specs = [
       check('surface.set lighting / detail change the program of later materials; remove restores', r.surface[0] === 'game:cave' && r.surface[1] === 'game:cave' && r.surface[2] && r.surfaceBack[0], JSON.stringify([r.surface, r.surfaceBack]));
       check('surface: wrong values throw with the fix; replace is refused and points at materials.replace', /needs a color/.test(r.badRim) && /ramp/.test(r.badRamp) && /look-verb/.test(r.noReplace) && /materials\.replace/.test(r.noReplace), JSON.stringify([r.badRim, r.badRamp, r.noReplace]));
       check("surface.patch('lighting', glsl): describe game:<owner>, later materials change; remove restores", r.hook[0] === 'game:cave' && r.hook[1] && r.hookBack, JSON.stringify([r.hook, r.hookBack]));
-      check('catalog lists the verbs: materials set / add / replace / glow, surface set / patch', JSON.stringify(r.verbs) === '[["set","add","replace","glow"],["set","patch"]]', JSON.stringify(r.verbs));
+      check('catalog lists the verbs: materials set / add / replace / glow / rebuild, surface set / patch', JSON.stringify(r.verbs) === '[["set","add","replace","glow","rebuild"],["set","patch"]]', JSON.stringify(r.verbs));
     },
   },
   {

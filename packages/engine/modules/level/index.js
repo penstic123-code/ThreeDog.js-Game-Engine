@@ -92,6 +92,7 @@ export function level(opts = {}) {
   const { url = null, scene = null, walkable = null, colliders = 'named', cellSize = 0.5, outside = 0, waterLevel = -Infinity,
     colliderPad = 0, colliderHeight = 0, sharpEdge = 0.6, hideMarkers = true, addToScene = true } = opts;
   let e = null, hf = null, done = false, version = 0, trimeshCache = null, pendingColliders = null;
+  let loadGen = 0;   // +1 per load / unload: a file that arrives after a newer load or unload started is dropped, not processed on top of it
   let current = typeof url === 'string' && !scene ? url : null;   // current level path/asset name (for saving)
   const walkMeshes = [], removers = [];
   let nodeSet = null;   // level nodes that become world records (nodes.js), created at install
@@ -114,7 +115,7 @@ export function level(opts = {}) {
     unload() {
       for (const h of removers.splice(0)) h.remove();
       if (api.root && addToScene) e.remove(api.root);   // full removal (geometries and materials shared by assets are not disposed)
-      walkMeshes.length = 0; hf = null; trimeshCache = null; api.markers = {}; api.root = null; current = null; version++;
+      walkMeshes.length = 0; hf = null; trimeshCache = null; api.markers = {}; api.root = null; current = null; version++; loadGen++;
     },
     /** Switch level: unload the current one, load a new one (glTF path/asset name, or THREE object), emit level:loaded when done */
     async load(urlOrScene) { return loadLevel(urlOrScene, false); },
@@ -130,8 +131,15 @@ export function level(opts = {}) {
     if (e.world) e.world.zone = typeof urlOrScene === 'string' ? urlOrScene : null;
     if (typeof urlOrScene === 'string') {
       current = urlOrScene;   // set before process(): level nodes read it as their zone
-      try { process(await e.assets.model(urlOrScene)); }
-      catch (err) {
+      const gen = loadGen;
+      try {
+        const scene = await e.assets.model(urlOrScene);
+        // a newer load / unload started while this file loaded (two doors in a row, a save loaded mid-switch): that one owns the level now;
+        // processing this one too would put both levels in the scene under the newer level's name
+        if (gen !== loadGen || e.disposed) { e.remove(scene); return; }   // e.remove releases the copy (assets.trim can free the file)
+        process(scene);
+      } catch (err) {
+        if (gen !== loadGen || e.disposed) return;   // superseded: the newer load reports its own outcome
         current = null;   // the save must not name a level that never loaded
         if (hard) throw err;
         reportError(e, err, `level.load('${urlOrScene}')`, { soft: true }); toast(e, e.t('level.loadFailed', { url: urlOrScene }), { kind: 'error' });

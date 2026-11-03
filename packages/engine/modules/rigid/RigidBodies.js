@@ -27,6 +27,36 @@ import { warnOnce, DEV } from '../../core/validate.js';
 const PHYSICS = { physics: true };   // stream source filter (shared, not rebuilt every step)
 const BODY_KEYS = ['id', 'mass', 'friction', 'restitution', 'damping', 'angularDamping', 'fixed'];
 
+/**
+ * Run Rapier's step and character-controller code once in a throwaway world, while start() still loads. Why: the browser compiles a WASM
+ * function on its first call, and the game world's first step paid that for the whole step path: ~120 ms with 77 colliders on a real GPU
+ * machine (built page), the whole "draw" part of the first frame (docs/testing/field/2026-11-03-perf.md). Here it runs while start() waits
+ * for the GPU to compile shaders, when the page's thread is idle anyway (a setTimeout instead landed in WebGPU's nearby-build wait and made
+ * it 150 ms longer). The game's world is untouched (no game time passes, same results).
+ * Once per page: the compiled code belongs to the one WASM instance.
+ */
+const WARMED = new WeakSet();
+function warmRapier(R) {
+  if (WARMED.has(R)) return;
+  WARMED.add(R);
+  const w = new R.World({ x: 0, y: -9.81, z: 0 });
+  try {
+    w.createCollider(R.ColliderDesc.cuboid(5, 0.5, 5));
+    w.createCollider(R.ColliderDesc.trimesh(new Float32Array([-5, 1, -5, 5, 1, -5, 0, 1, 5]), new Uint32Array([0, 1, 2])));
+    for (const [i, c] of [R.ColliderDesc.ball(0.5), R.ColliderDesc.cuboid(0.4, 0.4, 0.4), R.ColliderDesc.cylinder(0.4, 0.3), R.ColliderDesc.capsule(0.3, 0.2)].entries())
+      w.createCollider(c, w.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(i - 1.5, 1.2, 0)));
+    const kin = w.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(2, 1.5, 2));
+    const me = w.createCollider(R.ColliderDesc.capsule(0.5, 0.3), kin);
+    const cc = w.createCharacterController(0.01);
+    for (let i = 0; i < 3; i++) {
+      cc.computeColliderMovement(me, { x: 0.1, y: -0.1, z: 0 });
+      kin.setNextKinematicTranslation({ x: 2 + i * 0.1, y: 1.5, z: 2 });
+      w.step();
+    }
+    w.removeCharacterController(cc);
+  } finally { w.free(); }
+}
+
 export class RigidBodies {
   /** gravity gravity = gravity; terrainRing = chunk rings around each physics stream source that get terrain collision; buoyancy = buoyancy toggle; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
    * floatLine / floatDepth： floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth
@@ -383,7 +413,7 @@ export function rigid(opts = {}) {
       return r;
     },
     afterLoad() { if (r._freshDue) r._fresh(); r._claimSaved(); },   // after every part loaded and _fresh rebuilt the world (world:load is emitted inside the world part's load)
-    async init() { await r.init(); },
+    async init(e, ctx) { await r.init(); ctx.whileCompiling(() => warmRapier(r.R)); },
     counts() { return r.bodies.length; },   // engine.counts().rigid
     // bodies by type and what they are doing: sleeping = at rest (normal), frozen = disabled because no terrain collider is under them yet (they wait, not fall)
     describe() {

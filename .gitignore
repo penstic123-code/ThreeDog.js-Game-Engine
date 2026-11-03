@@ -1,7 +1,7 @@
 node_modules
 dist
-shots
 .threedog
+# a game's own shots/ (screenshots it keeps) is committed; tool output (shot, gallery, test captures) goes to .threedog/
 .claude/worktrees
 .env*
 *.log

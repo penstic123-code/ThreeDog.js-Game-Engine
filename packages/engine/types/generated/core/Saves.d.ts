@@ -84,7 +84,10 @@ export class Saves {
      * After every part loaded it runs the modules' afterLoad hooks (gameplay frozen until they resolve), for saves.load, session.newGame / quit and direct calls
      * alike.
      * If a part's load throws, a listener of an event it emits while loading (world:load) throws, or a module's afterLoad throws, the game is rolled back to
-     * how it was before (every part reloads its pre-load state) and it resolves false; the error goes through the error tiers.
+     * how it was before (every part reloads its pre-load state) and it resolves false; the error goes through the error tiers. "While loading" lasts
+     * until the result settles, past every await of an async load(); a listener that throws in that window for any reason fails this load.
+     * The pre-load state is a copy (structuredClone) of every part's save(), so save() may return the live object load() writes into; a part whose
+     * data cannot be copied makes apply refuse (false) before anything changes.
      * The state changes synchronously unless a part's load is async; only the result is a Promise.
      * @param {any} data
      * @param {string} [slot]  for messages only

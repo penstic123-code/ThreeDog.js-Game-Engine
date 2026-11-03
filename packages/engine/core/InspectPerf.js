@@ -21,6 +21,12 @@ const NEXT = {
 };
 
 /** @param {any} e the engine @param {{ top?: number }} [opts] top: how many costliest programs to list */
+// "first frame 1840 ms = script 210 + construct 40 + ..." (engine.startup.phases; startup.js); empty before the first frame
+function firstFrameLine(s) {
+  if (s?.firstFrameMs == null) return '';
+  return `first frame: ${s.firstFrameMs} ms from page open = ${Object.entries(s.phases).map(([k, v]) => `${k} ${v}`).join(' + ')}`;
+}
+
 export function inspectPerf(e, { top = 5 } = {}) {
   const r = e.renderer, s = stats(r), lim = e.budget?.limits ?? {};
   const mats = inspectMaterials(e, { limit: 0 });
@@ -43,6 +49,7 @@ export function inspectPerf(e, { top = 5 } = {}) {
   const text = [
     `frame: ${values.drawCalls} draw calls (incl. shadow + post passes), ${fmtN(values.triangles)} triangles, ${values.programs == null ? 'programs not counted (WebGPU)' : values.programs + ' programs'}, ~${mb(mats.textureBytes)} textures `
       + `(${mats.textures}), JS ${values.cpuMs} ms (fixed ${r1(p.fixed ?? 0)} / frame ${r1(p.frame ?? 0)} / render ${r1(p.render ?? 0)}), fps ${Math.round(e.fps ?? 0)}`,
+    firstFrameLine(e.startup),
     `compile: startup ${e.startup?.compileMs ?? '?'} ms; ${compiles.length} stall frame${compiles.length === 1 ? '' : 's'} during play${compiles.length ? ` (worst ${worst} ms, last at ${compiles.at(-1).at} s, +${compiles.at(-1).programs} programs)` : ''}`,
     ...budgets.map(b => `${b.ok ? '✓' : '✗'} ${b.name} ${b.name === 'triangles' ? fmtN(b.value) : b.value}${unit[b.name] ?? ''} / ${b.name === 'triangles' ? fmtN(b.budget) : b.budget} (${b.from})${b.ok ? '' : ' -> ' + b.next}`),
     // dev: many identical game meshes drawn one by one (batching leaves game objects alone unless they opt in; core/Batching.js)

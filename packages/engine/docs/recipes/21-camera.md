@@ -77,6 +77,9 @@ engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the sam
   `'none'` leaves it; a function `facts => position | null` gets `{ position, lookPoint, dir, arm, distance, groundY, clearance, surface, rig }`.
   Default: `'shorten'` when `minPitch < 0`, otherwise `'raise'` (the older behaviour, fine for a camera that never looks up).
 - **Walls** (with `collision()` installed) pull the arm in at once and let it out slowly; the shortest arm is `collision({ cameraMin })` (default 1.5 m).
+  Every `addCircle` / `addBox` / `addSegment` collider counts as a wall. Give the ones the camera may pass through `occluder: false`
+  (`engine.collision.addCircle(tree, { radius: 0.4, occluder: false })`): walkers are still stopped, the arm ignores them. A dense forest of
+  blocking trunks collapses the camera onto the player; `collision({ canopyHeight })` covers only the terrain's own trees.
 - **Close-up**: when the camera ends up nearer than `hideTargetNear` (default 0.9 m) to the look point, the followed object is hidden from the
   camera (shadow stays, layer `hideLayer`); `hideTargetNear: 0` turns it off.
 - **Drive the view from game code**: `engine.cameraRig.setView({ yaw, pitch, distance })` (clamped to the pitch / zoom ranges) and

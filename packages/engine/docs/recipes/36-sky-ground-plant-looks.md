@@ -5,7 +5,7 @@ order of work in `35-style-from-reference.md`. This page lists the places where 
 setting. Each table lists the engine default; a style that sets nothing here gets those defaults. Styles hold looks only
 (rule R34): none of these settings move a hill, a river or a species list.
 
-## Sky clouds: `style.sky.clouds`
+## Sky clouds: `style.sky.clouds` (at run time `engine.look.sky.set({ clouds: { coverage, color } })`; not a `sky()` option)
 | Key | Meaning | Default |
 |---|---|---|
 | `color`, `shade`, `coverage`, `scale`, `speed` | lit color, shaded color, cover (multiplies the weather's cloud amount), size, drift speed | |

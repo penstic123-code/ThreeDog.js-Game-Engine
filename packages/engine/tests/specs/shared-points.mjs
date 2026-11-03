@@ -53,6 +53,11 @@ export const specs = [
         out.shakeDebug = S.get('shake.on').value();
         cut.remove();
         out.badLayer = err(() => E.mod('fog.far', { owner: 'x', mul: 2, layer: 'top' }));
+        // a bad number value fails on the way in, on engine.mod and on handle.change alike, and the value never becomes NaN
+        out.badClamp = [{ max: 'oops' }, { max: NaN }, { min: 20, max: 5 }].map(c => err(() => E.mod('fog.far', { owner: 'bad', clamp: c }))?.code);
+        const okClamp = E.mod('fog.far', { owner: 'bad', clamp: { max: 5000 } });
+        out.badChange = [err(() => okClamp.change({ max: NaN }))?.code, err(() => okClamp.change({ min: 20, max: 5 }))?.code];
+        out.afterBad = S.get('fog.far').value(); okClamp.remove();
         out.priorityGone = err(() => E.mod('fog.far', { owner: 'x', mul: 2, priority: 'effect' })) === null && S.get('fog.far').names().includes('x');
         cave.remove();
         // three.js yield hook
@@ -80,6 +85,7 @@ export const specs = [
       check("the player's off holds over a cutscene's system-layer on (writer settings, the cutscene listed hidden)", r.shakeCut === false && r.shakeRow?.writer === 'settings' && r.shakeRow.also.find(a => a.owner === 'cutscene')?.hidden === true, JSON.stringify(r.shakeRow));
       check('only the debug layer overrides the player', r.shakeDebug === true);
       check('an unknown layer throws shared-layer', r.badLayer?.code === 'shared-layer', JSON.stringify(r.badLayer));
+      check('clamp max a string / NaN / min > max throw shared-value on engine.mod and on handle.change, and the value stays a number', r.badClamp.every(c => c === 'shared-value') && r.badChange.every(c => c === 'shared-value') && Number.isFinite(r.afterBad), JSON.stringify([r.badClamp, r.badChange, r.afterBad]));
       check('the old priority option is gone (only an unknown-option warning)', r.priorityGone);
       check('a direct three.js write shows as writer three (engine yielded)', r.yielded === 'three (engine yielded)', r.yielded);
     },

@@ -38,11 +38,11 @@
   - `orbitSway?: number` East-west swing of the sun path
   - `starDensity?: number` Share of the sky grid cells (0-1) that hold a star at night, default 0.0025 (0 = no stars). A probability, not a brightness: near 1 every cell is lit and the upper sky turns into a white sheet. The cell size is starScale
   - `starScale?: number` Star grid resolution (cells per unit of view direction), default 260: larger means smaller and more numerous stars
-  - `dim?: { tint?: boolean; stars?: boolean }` What the sky dims for every game unless the style says no (each default true; false turns that one off, the rest stay). The one place these look decisions are switched: - tint: a sky.tint color (weather grey, a cave tint) dims with the sky's own light, so a grey rain tint stays dark at night. Example: `style.sky.dim = { stars: false }   // or sky({ dim: { tint: false } })`
+  - `dim?: { tint?: boolean; stars?: boolean }` What the sky dims for every game unless the style says no (each default true; false turns that one off, the rest stay). The one place these look decisions are switched: - tint: a sky.tint color (weather grey, a cave tint) dims with the sky's own light, so a grey rain tint stays dark at night. Example: `style.sky.dim = { stars: false }   // or engine.look.sky.set({ dim: { tint: false } })`
   - `gradientCurve?: number` Gradient curve from horizon to zenith, default 0.55 (color = mix(horizon, zenith, elevation^curve), mixed in linear light, then tone mapped and exposed like the scene).
   - `groundTint?: ColorLike` Ground bounce color of the ambient light
   - `clouds?: StyleSkyClouds` Clouds in the sky (cloud cover follows the weather); see StyleSkyClouds
-  - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path
+  - `skybox?: string` Panorama (equirectangular) replacing the gradient sky, asset name or path (at run time engine.look.sky.replace(name))
   - `shadow?: StyleShadow` Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow
   - `environment?: StyleEnvironment` Environment lighting (scene.environment), off unless a source is given; see engine.look.env. A pack can give defaults, sky({ environment }) overrides
   - `fog?: StyleFog` Fog model and color (default: linear fog in the horizon color); see StyleFog

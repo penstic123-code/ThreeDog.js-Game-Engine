@@ -223,4 +223,147 @@ export const specs = [
       check('a queued path request does not answer in the next playthrough', r.answered === 0, JSON.stringify(r));
     },
   },
+  {
+    name: 'Lifecycle: a module unloaded while its async init awaits cannot touch the same-named module installed after it (state, tracked handles, ctx.mod, cleanup on failure)',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine } = threedogThreads, out = {};
+        const quiet = [console.error, console.warn]; console.error = console.warn = () => {};
+        const tick = () => new Promise(res => setTimeout(res, 5));
+        // A starts an async init (awaiting an asset), is replaced by a same-named B before it resolves, then resolves (or fails)
+        const run = async (failA) => {
+          const E = mk(createEngine, 'lc-stale-' + failA);
+          await E.start();
+          const heard = { a: 0, b: 0 };
+          let relA, relB;
+          const gA = new Promise(res => { relA = res; }), gB = new Promise(res => { relB = res; });
+          E.use({ name: 'lcStale', type: 'rules', provides: ['lcSlot'], async init(e, ctx) {
+            await gA;
+            ctx.track(e.events.on('lc:a', () => heard.a++));
+            ctx.mod('clock.rate', { set: 7 });
+            if (failA) throw new Error('lc stale boom');
+          } });
+          await tick();
+          E.use({ name: 'lcStale', type: 'rules', provides: ['lcSlot'], async init(e, ctx) {
+            ctx.track(e.events.on('lc:b', () => heard.b++));
+            await gB;
+          } }, { replaces: 'lcSlot' });
+          relA(); for (let i = 0; i < 4; i++) await tick();
+          const mid = { state: E.moduleStates.lcStale, rate: E.clock.rate };
+          E.events.emit('lc:a'); E.events.emit('lc:b');
+          mid.heard = { ...heard };
+          relB(); await E.loading.settled().catch(() => {});
+          const end = { state: E.moduleStates.lcStale };
+          E.events.emit('lc:b'); end.b = heard.b;
+          E.dispose();
+          return { mid, end };
+        };
+        out.ok = await run(false);
+        out.fail = await run(true);
+        // a warm-up queued for start() by a module unloaded before start() ran the queue does not run (ctx.whileCompiling)
+        const W = mk(createEngine, 'lc-stale-warm');
+        let warmed = 0;
+        W.use({ name: 'lcWarm', type: 'rules', provides: ['lcWarmSlot'], install(e, ctx) { ctx.whileCompiling(() => warmed++); } });
+        W.use({ name: 'lcWarm', type: 'rules', provides: ['lcWarmSlot'], install() {} }, { replaces: 'lcWarmSlot' });
+        await W.start();
+        out.warmed = warmed;
+        W.dispose();
+        [console.error, console.warn] = quiet;
+        return out;
+      });
+      check('a warm-up queued by a module unloaded before start() does not run', r.warmed === 0, JSON.stringify(r.warmed));
+      for (const k of ['ok', 'fail']) {
+        const x = r[k], tag = k === 'fail' ? ' (the old init then throws)' : '';
+        check('the new module stays initializing until its own init finished' + tag, x.mid.state === 'initializing' && x.end.state === 'running', JSON.stringify(x));
+        check('what the old init registers after it was unloaded is released at once (listener, ctx.mod)' + tag, x.mid.heard.a === 0 && x.mid.rate === 1, JSON.stringify(x));
+        check("the old init's completion does not drop the new module's tracked handles" + tag, x.mid.heard.b === 1 && x.end.b === 2, JSON.stringify(x));
+      }
+    },
+  },
+  {
+    name: 'Lifecycle: a listener that throws after an await inside an async part load fails and rolls back the load; the capture ends with the load',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine } = threedogThreads, out = {};
+        const quiet = [console.error, console.warn]; console.error = console.warn = () => {};
+        const E = mk(createEngine, 'lc-async-load');
+        await E.start();
+        const st = { hp: 100 };
+        E.saves.register('lcHero', { save: () => ({ hp: st.hp }), async load(d) { st.hp = d.hp; await new Promise(res => setTimeout(res, 5)); E.events.emit('lc:heroLoaded'); } });
+        let boom = true;
+        E.events.on('lc:heroLoaded', () => { if (boom) throw new Error('lc listener boom'); });
+        const d = E.saves.collect(); d.parts.lcHero = { hp: 5 };
+        out.ok = await E.saves.apply(d);
+        out.hp = st.hp;
+        // after the load settled, a listener error is reported as usual, not collected by a finished load
+        let reported = 0; const prev = E.events.onError; E.events.onError = () => { reported++; };
+        E.events.emit('lc:heroLoaded');
+        E.events.onError = prev;
+        out.reported = reported;
+        boom = false;
+        out.ok2 = await E.saves.apply(d); out.hp2 = st.hp;
+        E.dispose();
+        [console.error, console.warn] = quiet;
+        return out;
+      });
+      check('apply resolves false and the part is rolled back', r.ok === false && r.hp === 100, JSON.stringify(r));
+      check('a listener error after the load is reported, not swallowed', r.reported === 1, JSON.stringify(r));
+      check('the same load without the throwing listener applies', r.ok2 === true && r.hp2 === 5, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Lifecycle: the rollback point does not share objects with live state (save() returning the live object, load() assigning into it)',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine } = threedogThreads, out = {};
+        const quiet = [console.error, console.warn]; console.error = console.warn = () => {};
+        const E = mk(createEngine, 'lc-alias');
+        await E.start();
+        const st = { hp: 100 };
+        let breakB = true;
+        E.saves.register('lcLive', { save: () => st, load: d => { Object.assign(st, d); } });
+        E.saves.register('lcBreak', { save: () => ({ n: 1 }), load: () => { if (breakB) throw new Error('lc part boom'); } });
+        const d = JSON.parse(JSON.stringify(E.saves.collect())); d.parts.lcLive = { hp: 5 };
+        out.ok = await E.saves.apply(d);
+        out.hp = st.hp;
+        // a part whose save() is not plain data cannot be a rollback point: the load is refused before anything changes
+        breakB = false;
+        E.saves.register('lcFn', { save: () => ({ f: () => 1 }), load: () => {} });
+        out.ok2 = await E.saves.apply(d); out.hp2 = st.hp;
+        E.dispose();
+        [console.error, console.warn] = quiet;
+        return out;
+      });
+      check('a failed later part restores the earlier part (hp 100, not 5)', r.ok === false && r.hp === 100, JSON.stringify(r));
+      check('a save() returning something structuredClone cannot copy refuses the load and changes nothing', r.ok2 === false && r.hp2 === 100, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Lifecycle: a level file that arrives after a newer level.load started is dropped, not added on top of the newer level',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine, THREE } = threedogThreads, T = threedogThreads.all;
+        const E = mk(createEngine, 'lc-level-race');
+        E.use(T.level());
+        await E.start();
+        const gates = {}, made = n => async () => { await new Promise(res => { gates[n] = res; }); const g = new THREE.Group(); g.add(Object.assign(new THREE.Object3D(), { name: n + 'Mark' })); return g; };
+        E.assets.manifest({ name: 'lcLv', models: { lcLvA: { build: made('lcLvA') }, lcLvB: { build: made('lcLvB') } } });
+        let loaded = 0; E.events.on('level:loaded', () => loaded++);
+        const pa = E.level.load('lcLvA');
+        for (let i = 0; i < 20 && !gates.lcLvA; i++) await new Promise(res => setTimeout(res, 5));
+        const pb = E.level.load('lcLvB');
+        for (let i = 0; i < 20 && !gates.lcLvB; i++) await new Promise(res => setTimeout(res, 5));
+        gates.lcLvB(); await pb;
+        gates.lcLvA(); await pa;
+        const out = { a: !!E.scene.getObjectByName('lcLvAMark'), b: !!E.scene.getObjectByName('lcLvBMark'), loaded, current: E.level.current ?? null };
+        E.dispose();
+        return out;
+      });
+      check('only the newer level is in the scene, and level:loaded fired once', !r.a && r.b && r.loaded === 1, JSON.stringify(r));
+    },
+  },
 ];

@@ -98,7 +98,10 @@ With openWorld the weather module is already installed; pass its options through
 run from time 0 to time 1 (both midnight: the first row at 0, the last at 1 with the same values), else the sky throws. What each column drives
 (and which light carries the moonlight) is in `api/style.md` under `keyframes`;
 also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (defaults and ranges in `api/style.md` too; `hoursPerDay` is timing, so it is a
-`calendar()` option, not a style key).
+`calendar()` option, not a style key). At run time every look key of `style.sky` is a `look.sky` param, one entry per value:
+`engine.look.sky.set({ keyframes, moonSize, starScale, orbitTilt, dim: { stars: false } })`, a panorama is `engine.look.sky.replace('pano')`.
+`sky()` takes only how the game lights its world (`time`, `fog`, `sun`, `hemisphere`, plus the `shadow` / `environment` blocks); `sky({ moonSize })`
+throws naming the `look.sky.set` call.
 **Day and night brightness** come from two columns: sunlight intensity and ambient intensity. With no `sky.keyframes` the sky uses a neutral gray
 curve (night from 19:12 to 04:48, moonlight 0.4, ambient 0.35 against 3 / 1.2 at noon). The ambient column is the whole diffuse fill: the engine's neutral room
 environment (the light Standard / Lambert / Phong materials get from `scene.environment`) takes the share `look.lights` `env.share` (0..1) of

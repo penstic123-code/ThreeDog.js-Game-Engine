@@ -5,5 +5,24 @@
   "frameMs": 254.4,
   "calibMs": 18.2,
   "date": "2026-11-02"
+ },
+ "firstFrame": {
+  "software": {
+   "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+   "ratio": 76.55,
+   "firstFrameMs": 1133,
+   "calibMs": 14.8,
+   "phases": {
+    "script": 136,
+    "construct": 60,
+    "setup": 77,
+    "init": 188,
+    "preload": 1,
+    "world": 1,
+    "compile": 647,
+    "draw": 23
+   },
+   "date": "2026-11-03"
+  }
  }
 }

@@ -77,7 +77,7 @@ These screenshots come from games an AI agent built with the engine in 15-minute
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) (LTS).
+You need [Node.js](https://nodejs.org) 20.19+ or 22.12+ (the current LTS is fine).
 
 **A new game:**
 
@@ -89,7 +89,13 @@ npm run new-game -- my-game --open-world   # creates games/my-game: ground, sky,
 npm run dev -- my-game                     # open the address it prints
 ```
 
-The engine is not on npm yet; for now you use it from this repository.
+These docs describe threedog 0.5.0 (older 0.2 releases on npm do not match them). A game in its own folder installs it from npm with:
+
+```sh
+npm install threedog@0.5 three@~0.187.0
+npm install -D @threedog/tools@0.5
+npx threedog init            # writes the new-game files into the current folder, never overwriting one
+```
 
 Without `--open-world`, the new game starts as a blank scene with a camera and an empty `style/` folder. It also writes a `CLAUDE.md` and a `.mcp.json`, so Claude Code opened in that folder finds the engine's docs and its MCP server by itself. Existing files are never overwritten.
 
@@ -128,7 +134,7 @@ A minimal game in code, and the two changes the engine makes to three.js globals
 
 ## Status
 
-Version 0.4 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`); APIs may still change. What changed since 0.3 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.4.md](packages/engine/docs/MIGRATING-0.4.md).
+Version 0.5 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`); APIs may still change. What changed since 0.4 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.5.md](packages/engine/docs/MIGRATING-0.5.md).
 
 ## Documentation
 

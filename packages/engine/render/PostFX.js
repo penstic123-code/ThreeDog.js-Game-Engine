@@ -50,7 +50,8 @@ import { watchOwnFrame } from './ownFrame.js';
  *   update in place (no update() needed).
  *   slot: a PostSlot; typed as any string too because a slot in a plain JS object (an effect returned from a function) is a string to
  *   TypeScript, and the chain throws on an unknown slot naming the valid ones.
- *   order: position inside the slot, low first (ties keep add order). costly: off by default on low-tier devices.
+ *   order: position inside the slot, low first; ties keep the order the names were first added in (a name keeps that place when it is
+ *   switched off and on, or a plugin is unplugged and plugged again: look.post.set({ name: false }) pauses it in place). costly: off by default on low-tier devices.
  *   needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  *   scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
  *   RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;
@@ -73,6 +74,12 @@ export class PostFX {
     /** @internal */ this.engine = engine;
     /** @internal */ this._aa = antialias;
     /** @internal */ this._list = /** @type {any[]} */ ([]);
+    // effect name -> its tie-break place in a slot, given the first time the name is added (or reserved by engine.plugins in plugin order).
+    // Why kept across remove: plugins.off then on re-added the effect at the end, so A, B with no order of their own came back B, A (review 2026-11-03)
+    /** @internal */ this._seq = new Map();
+    /** @internal names engine.plugins reserved: their place outlives a remove (plugins.off); a game handle's remove() frees any other name's place */
+    this._kept = new Set();
+    /** @internal */ this._seqN = 0;
     /** @internal EffectComposer, built the first time anything is on */ this.composer = /** @type {any} */ (null);
     /** @internal the chain's backend: postWebGL.js, or the WebGPU one threedog/tsl registers */ this._be = backendFor(engine.renderer);
     /** @internal the renderer's own MSAA on its canvas (fixed when it was made; the engine makes it with the default antialias) */ this._ownAA = ownMsaa(engine.renderer);
@@ -134,7 +141,7 @@ export class PostFX {
     if (other) throw codedError('post-effect', `post slot '${s}' already holds '${other.name}'; remove it first (only one effect can ${EXCLUSIVE[s]})`);
     const post = this;
     const h = {
-      name: effect.name, slot: s, order: order ?? effect.order ?? 0, enabled: enabled ?? effect.enabled ?? true,
+      name: effect.name, slot: s, order: order ?? effect.order ?? 0, seq: this._place(effect.name), enabled: enabled ?? effect.enabled ?? true,
       params: { ...effect.params }, _def: effect, _impl: /** @type {any} */ (null), _removed: false,
       _enable(on) { const was = h.enabled; post._change(() => { h.enabled = !!on; }, () => { h.enabled = was; }); },
       _set(p) {
@@ -186,7 +193,9 @@ export class PostFX {
   list() { return this._sorted().map(({ name, slot, order, enabled }) => ({ name, slot, order, enabled })); }
 
   /** @internal */
-  _sorted() { return SLOTS.flatMap(s => this._list.filter(e => e.slot === s).sort((a, b) => a.order - b.order)); }
+  _sorted() { return SLOTS.flatMap(s => this._list.filter(e => e.slot === s).sort((a, b) => a.order - b.order || a.seq - b.seq)); }
+  /** The tie-break place of an effect name, given on first use and kept (engine.plugins reserves its effects' names in plugin order) @internal */
+  _place(name, keep = false) { if (keep) this._kept.add(name); if (!this._seq.has(name)) this._seq.set(name, this._seqN++); return this._seq.get(name); }
   /** @internal */
   _size() { return this.engine.renderer.getSize(new THREE.Vector2()).multiplyScalar(this.engine.renderer.getPixelRatio()); }
   /** Apply a list change, rebuild the chain, and undo the change when the rebuild throws (then rethrow) @internal */

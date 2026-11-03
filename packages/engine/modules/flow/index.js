@@ -100,6 +100,8 @@ export function flow(opts = {}) {
       ctx.track(e.events.on('session:failed', () => { if (before) api.go(before); }));
       return api;
     },
+    // ?play / applyState({ play }): leave the start state (a title) the way its Start button does; session:start then goes to 'playing'
+    applyState(e, { play }) { if (play != null && opts.start && opts.start !== 'playing' && api.state === opts.start) return e.session.newGame(); },
     describe() { return { state: api.state, transitioning: api.transitioning }; },
   };
 }

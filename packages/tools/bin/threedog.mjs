@@ -8,18 +8,21 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { ROOT, TOOLS, MODE, command, findWorkspace, workspaces, rel, ENGINE, ownViteConfig, VITE_DEFAULT_CONFIG } from '../paths.mjs';
 import { parseOptions } from '../lib/cli-args.mjs';
+import { nodeProblem, NODE_FIX } from '../lib/node-version.mjs';
 
 /** Commands that run one script of this package (with the remaining arguments) */
 export const SCRIPTS = { test: 'run.mjs', check: 'check.mjs', types: 'types.mjs', shot: 'shot.mjs', perf: 'perf.mjs', stress: 'stress.mjs', capture: 'capture.mjs', bake: 'bake.mjs', assets: 'assets.mjs',
-  doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', init: 'init.mjs', style: 'style.mjs', content: 'content-ids.mjs', tune: 'tune.mjs', gallery: 'gallery.mjs', how: 'how.mjs', relay: 'net-relay.mjs', art: 'art.mjs', lib: 'lib.mjs', examples: 'examples.mjs', mcp: 'threedog/mcp.mjs' };
+  doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', init: 'init.mjs', style: 'style.mjs', content: 'content-ids.mjs', tune: 'tune.mjs', gallery: 'gallery.mjs', how: 'how.mjs', relay: 'net-relay.mjs', art: 'art.mjs', lib: 'lib.mjs', examples: 'examples.mjs', mcp: 'threedog/mcp.mjs', 'api-count': 'api-count.mjs' };
 /** Dev bridge commands: drive the page running under `npm run dev` (recipes/16-dev-bridge.md) */
 export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'skip', 'ops', 'catalog', 'scenario', 'session', 'inspect', 'scene', 'explain', 'loading', 'pick', 'thing', 'play', 'status', 'verify'];
 /** vite commands on one workspace */
 export const VITE = ['dev', 'build', 'preview'];
+/** Commands that start vite (or a page under it): they check the Node version first, since vite's own failure on an old Node names neither */
+export const NEEDS_NODE = [...VITE, 'test', 'shot', 'perf', 'stress', 'capture', 'gallery', 'bake'];
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */
 const MAP = MODE === 'monorepo' ? ['gentypes.mjs', 'codemap.mjs', 'apidoc.mjs', 'gamemap.mjs'] : ['gamemap.mjs'];
 export const USAGE = `Usage: threedog ${VITE.join('|')} [game | -w game] · threedog test [-w game] [test name…] · threedog check|types|map · ` +
-  `threedog shot|perf|bake|assets [-w game] … [--gpu|--software] · threedog stress [--only axis,…] · threedog new-game name · threedog init [folder] · threedog style check|palette … · threedog content ids [-w game] [--write] · threedog content set|add|remove … · threedog tune show|write [file] [--apply] · threedog gallery [-w game] [--shots] · threedog how "task" · threedog art list <source> · threedog art copy <source> [names…] [--to art/] [--force] [--dry] · threedog lib add|list|pull|page … (your own art library, ~/.threedog/library) · threedog examples list|pull <name> [--out dir] [--force] · threedog doctor · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
+  `threedog shot|perf|bake|assets [-w game] … [--gpu|--software] · threedog stress [--only axis,…] · threedog new-game name · threedog init [folder] · threedog style check|palette … · threedog content ids [-w game] [--write] · threedog content set|add|remove … · threedog tune show|write [file] [--apply] · threedog gallery [-w game] [--shots] · threedog how "task" · threedog art list <source> · threedog art copy <source> [names…] [--to art/] [--force] [--dry] · threedog lib add|list|pull|page … (your own art library, ~/.threedog/library) · threedog examples list|pull <name> [--out dir] [--force] · threedog doctor · threedog api-count [--unused] [--json] (engine repo) · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
 
 const node = (script, args, cwd = process.cwd()) => spawnSync(process.execPath, [join(TOOLS, script), ...args], { stdio: 'inherit', cwd }).status ?? 1;
 /** --help / -h: print the script's header comment instead of running it (`threedog test --help` used to start the whole suite) */
@@ -36,6 +39,8 @@ function help(scripts) {
 
 /** Run the CLI with argv (without node and the script path); returns the exit code */
 export function main([cmd, ...rest]) {
+  const nodeBad = NEEDS_NODE.includes(cmd) && !wantsHelp(rest) && nodeProblem();
+  if (nodeBad) { console.error(`✗ ${nodeBad}\n  → ${NODE_FIX}`); return 1; }
   if (VITE.includes(cmd)) {
     // The workspace: -w / --workspace like every other command (taken out here: to vite, -w is --watch, so `build -w game` sat in watch mode on
     // the wrong root and never exited), or a game name as the first argument (the 5000 in a later --port 5000 is not a game name); with neither,

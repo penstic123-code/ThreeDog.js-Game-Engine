@@ -9,13 +9,18 @@ import { dropOwned, dropOwnedRow } from '../../core/owned.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { parseClock } from '../../core/dayTime.js';
 import { codedError } from '../../core/errorHints.js';
+import { DEV } from '../../core/validate.js';
+import { SKY_LOOK_KEYS } from './lookSky.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { SkyOptions } from '../../types/world' */
 
-// Options sky() accepts: time (the fixed time of day drawn without a calendar) + look overrides of style.sky
-const SKY_OPTIONS = ['time', 'keyframes', 'groundTint', 'sunSize', 'sunGlow', 'sunBrightness', 'moonBrightness',
-  'moonSize', 'moonColor', 'clouds', 'starDensity', 'starScale', 'gradientCurve', 'skybox', 'shadow', 'orbitTilt', 'orbitSway', 'environment',
-  'sun', 'hemisphere', 'fog', 'layers', 'backdrop', 'dim'];
+// Options sky() accepts: how the game lights its world (time without a calendar, fog, sun, hemisphere) and the shadow / environment blocks
+// (their per-device-tier defaults live in shadow.js / environment.js). Every look value is a look.sky param or hook (lookSky.js), so the old
+// look options throw in dev with the call that replaced them (one entry per value)
+const SKY_OPTIONS = ['time', 'fog', 'sun', 'hemisphere', 'shadow', 'environment'];
+const MOVED = { clouds: 'engine.look.sky.set({ clouds })', backdrop: 'engine.look.sky.set({ backdrop })',
+  layers: "engine.look.sky.patch('layer:<name>', layer) per layer", skybox: 'engine.look.sky.replace(skybox)',
+  ...Object.fromEntries(SKY_LOOK_KEYS.map(k => [k, `engine.look.sky.set({ ${k} })`])) };
 const SKY_PARAMS = keysSchema(SKY_OPTIONS);   // keys only: the values take several shapes (time: 'HH:MM' | 0-1), Sky checks them
 const CAL_KEYS = ['dayLength', 'day', 'daysPerSeason', 'seasons', 'hoursPerDay'];
 const STRINGS = {
@@ -35,6 +40,7 @@ export function sky(opts = {}) {
   // the old calendar keys: say where they went instead of the generic unknown-key error (the calendar moved out of the sky)
   const moved = CAL_KEYS.find(k => k in opts);
   if (moved) throw codedError('sky-option', STRINGS.calendarKey.replaceAll('{key}', moved));
+  if (DEV) for (const k in MOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) moved: ${MOVED[k]} after engine.use(sky()), or style.sky.${k} in the style (one entry per look value)`);
   readParams('sky', SKY_PARAMS, opts);
   let s = null;
   return {

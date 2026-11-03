@@ -88,6 +88,8 @@ export class Engine {
    *   style can also be a list of parts deep-merged left to right (rules in core/styleParts.js). ENGINE_PARAMS and the destructuring below must match it.
    */
   constructor(opts = {}) {
+    /** @internal first-frame phases (startup.js): when the page's scripts had run and the engine began / finished building */
+    this._born = { at: performance.now(), built: 0, start: 0 };   // measure
     /** This engine's dev checks (createEngine({ validate })); another engine on the page does not change it @type {boolean} */
     this.validate = opts.validate !== false;
     /** @internal */ this._untrackValidate = trackValidate(opts.validate);
@@ -163,6 +165,7 @@ export class Engine {
      */
     this.phase = 'constructed';
     /** @internal module name -> handles its install / init passed to ctx.track (removed with the module: modules.js) */ this._modTracked = new Map();
+    /** @internal module name -> the token of its current install: ctx and async init check it (modules.js, a stale init must not act on a newcomer) */ this._modInst = new Map();
     this._abort = new AbortController();
     // attach DOM listeners to it: addEventListener(type, fn, { signal: engine.signal }); dispose cancels them together
     this.signal = this._abort.signal;
@@ -198,6 +201,8 @@ export class Engine {
 
     createServices(this, { canvas, validate, locale, strings, saveKey, joystick, bindings, audio, decoders, budget, seed, headless, urlState, threads, batching });
     this.startup = null;                       // startup timing report (set once start() finishes)
+    this._readyAt = null;                      // set at ready until the first frame is drawn (loop.js firstFrame)
+    this._whileCompiling = [];                 // @internal one-time warm-ups a module queues during loading; start() runs them while the GPU compiles
     this._prof = null;                         // module hook timing (profile(true) turns it on)
     this._afterTick = null;                    // at startup, checked once at the end of each frame for readiness
     // effects come through look.post.add only (a style's plugins, the plugins folder, game code); style.post was the second way in, gone
@@ -222,6 +227,7 @@ export class Engine {
     }
     placeUI(this);
     this.page = new Page(this, { pauseOnBlur });   // window focus, tab visibility, mouse lock, WebGL context: handled only there
+    this._born.built = performance.now();   // measure
   }
 
   get waterLevel() { return this.ground.waterLevel; }

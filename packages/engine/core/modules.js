@@ -21,6 +21,9 @@
 //   that fails halfway leaves no ghost listener behind (review 0.4 A; the rollback spec checks every built-in module).
 //   ctx.mod(point, o) = ctx.track(engine.mod(point, { ...o, owner: ctx.name })): a module's changes to shared values go with it too.
 //   ctx.input.action(name, { context }) / ctx.input.bind(name, keys): the module's input declarations and bindings, gone with it too.
+//   Every install is its own instance (engine._modInst: name -> token): a ctx belongs to one install, not to a name. An async init that resumes after
+//   its module was unloaded (replaces, a plugin removed) and a same-named one installed must not act on the newcomer: what the stale ctx tracks is
+//   removed at once (dev warning naming the module), and its completion or failure changes no state and drops no handle of the newcomer.
 // Exclusive slots: provides: ['inventory'] takes each named slot (a kind 'one' shared point, core/sharedPoint.js) for the module before its install;
 //   a second provider is shared-taken. requires may name a slot instead of a module. engine.use(mine(), { replaces: 'inventory' }) unloads the
 //   holder first (its handles, slot, look parts, dispose), and puts it back if the new install fails.
@@ -61,6 +64,9 @@ const STRINGS = {
 };
 const CTX_OWNER = "ctx.mod('{point}', { owner }) in module {name}: ctx.mod names the module as the owner itself; drop owner (use engine.mod for another owner name)";
 const BAD_HANDLE = 'ctx.track(handle) in module {name}: handle must have remove(), like the result of engine.events.on / onFixed / clock.after; got {got}';
+const STALE = 'module {name} registered something after it was unloaded (its async init or a callback resumed after replaces / unload); it was removed at once. '
+  + 'The module installed under that name now is not affected';
+const STALE_INIT = 'init of module {name}, which was unloaded before it finished';
 const hookCache = new WeakMap();   // module definition -> { fixed, frame, afterRender, skip } hook entries (reused when re-sorting)
 
 /** Sort modules by stage, before / after and install order (Kahn topological sort; among the ready ones take the earliest stage,
@@ -119,6 +125,7 @@ export const moduleMethods = {
       for (const m of plan) {
         const had = Object.hasOwn(this, m.name), prev = this[m.name], snap = catalogSnap(this);
         done.push({ m, had, prev });   // before install(): what it tracked before throwing is removed too
+        this._modInst.set(m.name, {});   // this install's identity: install and init ctx check it, so a stale async init cannot act on a later install
         const ctx = this._modCtx(m);
         for (const slot of m.provides ?? []) ctx.track(this._slot(slot, m.name).take({ owner: m.name }));   // shared-taken when another module holds it
         const api = asModule(this, m, () => m.install?.(this, ctx)) ?? m;   // asModule: the type checks know who is installing (moduleTypes.js)
@@ -133,7 +140,7 @@ export const moduleMethods = {
     } catch (err) {
       for (const { m, had, prev } of done.reverse()) {   // undo in reverse install order, like dispose
         const installed = this.modules.get(m.name) === m;
-        this.modules.delete(m.name); this._modState.delete(m.name);
+        this.modules.delete(m.name); this._modState.delete(m.name); this._modInst.delete(m.name);
         if (had) this[m.name] = prev; else delete this[m.name];   // put back what was there (an undefined slot stays undefined), never blank it
         this._dropTracked(m.name);
         if (installed) try { m.dispose?.(this); } catch { /* the install error below is the one to report */ }
@@ -185,16 +192,28 @@ export const moduleMethods = {
     const L = this.loading, task = L._begin(m.name, 'module');
     task.phase('build');
     const snap = catalogSnap(this);
-    L._track(Promise.resolve().then(() => asModule(this, m, () => m.init(this, this._modCtx(m)))).then(
-      () => { catalogClaim(this, m.name, snap); L._done(task); this._setModState(m, 'running'); },
-      e => { L._fail(task, e); this._setModState(m, 'failed'); this._dropTracked(m.name); reportError(this, e, fmt(STRINGS.lateInit, { name: m.name }), { module: m }); }));
+    // the instance and its ctx are taken now, not when the microtask runs: by then a same-named module may be installed in its place
+    const inst = this._modInst.get(m.name), ctx = this._modCtx(m, inst), live = () => this._isLive(m.name, inst);
+    L._track(Promise.resolve().then(() => asModule(this, m, () => m.init(this, ctx))).then(
+      () => { L._done(task); if (live()) { catalogClaim(this, m.name, snap); this._setModState(m, 'running'); } },
+      e => {
+        L._fail(task, e);
+        // unloaded meanwhile: its handles already went with it, and the state / handles under this name belong to the newcomer now
+        if (!live()) return reportError(this, e, fmt(STALE_INIT, { name: m.name }), { soft: true });
+        this._setModState(m, 'failed'); this._dropTracked(m.name); reportError(this, e, fmt(STRINGS.lateInit, { name: m.name }), { module: m });
+      }));
   },
+  /** @internal is this install (token from engine._modInst) still the module installed under its name? */
+  _isLive(name, inst) { return !this.disposed && inst !== undefined && this._modInst.get(name) === inst; },
   /** @internal the ctx install / init receive: track(handle) ties a handle to the module's life (see the top of this file) */
-  _modCtx(m) {
+  _modCtx(m, inst = this._modInst.get(m.name)) {
     const name = m.name;
     const track = h => {
       if (typeof h?.remove !== 'function') throw codedError('module-handle', fmt(BAD_HANDLE, { name, got: String(h) }));
       if (this.disposed) { h.remove(); return h; }   // a late registration after dispose: nothing will ever remove it otherwise
+      // a registration from an install that is gone (replaced / unloaded while its async init awaited): filing it under the name would hand it
+      // to the newcomer, which would then own a listener it never made; remove it now instead
+      if (!this._isLive(name, inst)) { if (DEV) warnOnce(coded('module-handle', fmt(STALE, { name }))); h.remove(); return h; }
       let set = this._modTracked.get(name);
       if (!set) this._modTracked.set(name, set = new Set());
       set.add(h);
@@ -227,7 +246,16 @@ export const moduleMethods = {
       },
       has: (who, owner = name) => this.control.has(who, owner),
     };
-    return { name, track, mod, input, control };
+    // whileCompiling: a one-time warm-up (a WASM library's first call) run while start() waits for the GPU to compile shaders, when the page's
+    // thread is idle anyway (startup.js); after start() it runs at once
+    // It checks the install like track does: a warm-up queued by an install that was unloaded before start() ran the queue must not run
+    // (it would touch state of an install that is gone), and one asked for by an install that is already stale is not queued at all
+    const whileCompiling = fn => {
+      if (!this._isLive(name, inst)) return;
+      const run = () => { if (this._isLive(name, inst)) fn(); };
+      if (this.ready) run(); else this._whileCompiling.push(run);
+    };
+    return { name, track, mod, input, control, whileCompiling };
   },
   /** @internal remove every handle a module tracked; one that throws is reported and the rest still go */
   _dropTracked(name) {

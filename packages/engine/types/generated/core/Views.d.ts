@@ -2,7 +2,6 @@
 export class Views {
     /** @param {any} engine */
     constructor(engine: any);
-    engine: any;
     map: Map<any, any>;
     current: string;
     /**

@@ -65,7 +65,10 @@ if (moment) setUpMoment(moment);   // the game's own data only; in code, time / 
 ```
 The engine's ready-made title (`createEngine({ ui: { title } })`, recipe 26 §5) opens in `start()` the same way: leave `title` out for a moment
 (`ui: { ...(moment ? {} : { title: { title: 'My Game', items: ['continue', 'start'] } }) }`).
-Shoot it with `npm run shot -- "/?moment=night" --time 22:20 --weather storm`; a game test opens the same URL. Two things that make a moment
+Shoot it with `npm run shot -- "/?moment=night" --time 22:20 --weather storm`; a game test opens the same URL.
+To get past the title without a key of your own, use the engine's `?play` URL key (`npm run shot -- --play`, `applyState({ play: true })`): after
+`engine:ready` it does what the title's Start does (`engine.session.newGame()`, then the title part closes), so `flow({ start: 'title' })` moves to
+`'playing'` and the game's `session:start` setup runs; with no title up it does nothing. Two things that make a moment
 look half-done in a picture: a headless page advances only on `engine.step` (the shot steps one frame after the game's code, so a
 `weather.set(name, { seconds: 0.1 })` made after `start()` shows a third of the change: use `seconds: 0`), and an `onFrame` copy of a sky
 color is one frame old (share `engine.uniforms.uSkyHorizon` instead, recipe 08).

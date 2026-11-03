@@ -50,7 +50,7 @@ logic need none of this.
 | Write the look yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md`, `recipes/54-three-idioms.md` |
 
 The starting look comes from the game's `style/` folder; what a style section builds as a factory can also be passed at the call site, and the
-call site wins (`water({ material })` and the like); a new style factory ships with its call-site option. No module option starts a value taken over.
+call site wins (`terrain({ material })` and the like; the water surface has only `look.water.replace`); a new style factory ships with its call-site option. No module option starts a value taken over.
 
 **Time channels**: most games use only the default (fixed `dt` in real seconds, `engine.clock` for calendar time). A channel exists so one group
 of things can run slower or faster than the rest (bullet time on enemies, haste on the player): `engine.onFixed(fn, { channel: 'enemies' })` gets
@@ -65,7 +65,8 @@ into, or a convenience for after.
 |---|---|---|
 | Windows, signs, screens glow at night | `look.materials.glow(match, { night })` | your own emissive logic: plain three.js. `lightPool.add(obj, { glow })` is something else: the stand-in a pooled lamp shows while it holds no real light |
 | Time of day | `engine.calendar` (`calendar({ time })`) | no calendar at all (one fixed scene): `sky({ time })`; timers: `engine.clock`; one group faster / slower: a time channel |
-| Sun / light strength | `look.lights.set(values, { owner })`: a layer over the day keyframes, `remove()` gives them back | take it for good (the day cycle stops writing it): write `engine.lights.sun` directly, or `look.lights.manual('sun')` |
+| Sun / light strength | `look.lights.set(values, { owner })`: a layer over the day keyframes, `remove()` gives them back | take it over (the day cycle stops writing it): write `engine.lights.sun` directly, or `look.lights.manual('sun')` |
+| A game test (write one for your game) | a spec file `tests/specs/<name>.mjs` exporting `specs` (COMMANDS.md "A game's tests": minimal example, `npm test -- <name>`) | the test is steps and checks only: a scenario JSON `tests/scenarios/<name>.json` (recipes/23 §7); compare whole state: describe snapshots (recipes/16 §7) |
 | Teleport the player | `player.placeAt(p)` in an op | not streamed in yet: `await engine.stream.teleport(p)` (waits, then places); a test or scenario: `applyState({ pos })` |
 | Camera | install one: `openWorld({ camera })`, `engine.use(fixedCamera({ position, lookAt }))` | switch kinds at run time: `setCamera(kind)`; a shot of your own: `takeCamera(owner)` |
 | Sky | the style's sky layers, tuned with `look.sky.set` | a custom sky of your own (shader dome, skybox, painted backdrop): `look.sky.replace(obj)` (recipe 08 "Your own sky object"); on WebGPU three's `SkyMesh` the same way |

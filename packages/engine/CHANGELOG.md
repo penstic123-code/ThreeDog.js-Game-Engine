@@ -2,6 +2,63 @@
 
 The engine has not been released yet, so this log is not maintained before release. At release time it is written in one pass from git history and `docs/API.md`: "what changed, how a game upgrades", placed under the version heading.
 
+## 0.5.0 (2026-11-04)
+
+- Install instructions agree everywhere (README, package READMEs, COMMANDS.md): until 0.4.0 is on npm, use the engine from the repository;
+  after that, `npm install threedog@0.4 three@~0.187.0` and `@threedog/tools@0.4`. Each says which version it describes.
+- Node: every package.json (and a new game's) declares `^20.19.0 || >=22.12.0`, the range vite 8 needs. `threedog dev / build / preview /
+  test / shot / perf / stress / capture / gallery / bake` stop first on an older Node, printing the version found, the range and how to fix it;
+  `threedog doctor` reports the same check.
+- New-game CLAUDE.md: a clear request is built directly (no confirmation round); the AI asks only about choices that change the result and
+  cannot be inferred, writes its other picks as "(picked, not asked)" and lists them in its report; a change updates only the records it makes wrong.
+
+- After-await fixes (outside review of 0.4.0). A module unloaded while its async init awaited (replaces, a plugin removed) can no longer act on a
+  same-named module installed after it: each install has its own identity; what the old init tracks or `ctx.mod`s afterwards is removed at once, its queued `ctx.whileCompiling` warm-ups do not run
+  (dev warning `[module-handle]`), and its completion or failure leaves the newcomer's state and handles alone.
+- `saves.apply`: a listener that throws after an `await` inside an async `load()` now fails and rolls back the load like one that throws before
+  it (the capture lasts until the load settles, one scope per load). The rollback point is a copy of every part's `save()`, so
+  `save: () => state, load: d => Object.assign(state, d)` rolls back correctly; `save()` data that cannot be copied refuses the load
+  (`[save-part-threw]`, MIGRATING-0.5).
+- Plugins composed: a post effect keeps its place across `plugins.off` / `on` (equal `order`s keep the order the names were first added in,
+  plugin effects are placed in plugin-list order), so A, B no longer come back B, A. `look.post.set({ A: false })` pauses in place,
+  `plugins.off` unloads. Each style-pack plugin is its own owner (`style:<pack>/<file>`): switching B off no longer drops A's material. Two
+  plugins writing the same key on one layer are a dev `[shared-conflict]` naming both, unless one file says `export const replaces = '<file>'`.
+  `plugins.off` / `on` return `{ off | on, reach, rebuilt, note }`; `plugins.list()` and `describe().slots` give each plugin's reach (`live` or
+  `new materials only`); `off('<pack>')` says the pack's starting values stay. New `engine.look.materials.rebuild()`: materials already made
+  are made again from the current layers (patches, replace, type) and swapped in place, keeping call params, hand-set colors and wind / cloud
+  shadow; `plugins.off` / `on` of a material or patch plugin calls it (`{ rebuild: false }` skips it) (MIGRATING-0.5).
+
+- Turning shadows off (look.shadow, the settings menu) is the renderer switch only: `renderer.shadowMap.enabled`. No light's `castShadow` is
+  written any more, so a game that changes `castShadow` while shadows are off keeps its value when they come back. `describe().owned['shadows.off']`
+  is gone; budget `shadowLights` is 0 while shadows are off (MIGRATING-0.5).
+- `threedog lib pull` of a code entry writes a working plugin: the code in `plugins/<name>/`, plus the wiring file `plugins/<name>.js` that calls
+  its factory, from the entry's new `plug` line (`lib add --plug "makeIt({ ... })"`, else the exported function; `pull --plug` overrides).
+- `[plugin-shape]` errors name the file, what it exports and the exact fix: a factory function, a module with no `type` or no hook, an effect
+  with no name.
+- One entry per look value: `water()`, `sky()` and `terrain()` options that were look values are gone; each is a `look.water` / `look.sky` /
+  `look.ground` param (style layer: `style.water`, `style.sky`, `style.terrain.config`). New params: `look.water` `normalMap normalScale
+  normalRepeat normalSpeed shininess specular`; `look.sky` `keyframes sunSize sunGlow sunBrightness moonSize moonColor moonBrightness
+  starDensity starScale gradientCurve groundTint orbitTilt orbitSway dim.tint dim.stars`; `look.ground` `normals`. `sky({ skybox })` →
+  `look.sky.replace`. The old options throw in dev naming the call (MIGRATING-0.5).
+- `water({ material })` is gone: the water surface material has one entry, `engine.look.water.replace(fn)` (style layer: `style.water.material`).
+  It throws in dev naming the call. `water({ uniforms })` stays: it declares the uniforms the `look.water.patch` hooks read (MIGRATING-0.5).
+- Type declarations: `look.clouds`, the leaked three.js `Light` export, the `.engine` back-references (terrain, characters, cameraRig, control,
+  views) and three test-only readouts (`audio.info`, `ambience.info`, `level.buildMs`) are gone from the types; runtime unchanged (MIGRATING-0.5).
+- Shared values check number values the same way on `engine.mod` and on `handle.change()`: set / add / mul are finite numbers; clamp is
+  `{ min?, max? }` with each given bound a finite number and min <= max; `stacks.define({ min, max })` the same. A wrong one throws `[shared-value]`
+  naming what was given and the fix, instead of making the value NaN (`clamp: { max: 'oops' }`, `{ max: NaN }`) or holding a reversed range.
+- Colliders take `occluder: false` (`collision.addCircle` / `addBox` / `addSegment` / `addObject`): walkers are still stopped, the follow
+  camera's occlusion check ignores it. A forest of trunk colliders no longer collapses the camera onto the player.
+- `shot --play` starts straight in play: the engine's new `?play` URL key (`applyState({ play })`) does what the title's Start does
+  (`engine.session.newGame()`, the title part closes; flow leaves its start state). Games no longer need a `?play` key of their own.
+- Page arguments rewritten by Git Bash are also undone from its `EXEPATH` root, and `shot` prints the page it really opens when the argument
+  was rewritten (`npm run shot -- /` echoes `> threedog shot C:/Git/`, which read like the wrong page).
+- `threedog how "game test"` finds how to write a game's own test (a CONVENTIONS.md entry row pointing at COMMANDS.md "A game's tests").
+- The api page of `collision.addBlocked` gives the `bounds` shape `{ minX, maxX, minZ, maxZ }`.
+- The repository `.gitignore` no longer ignores every `shots/` folder: tool output stays under `.threedog/`, a game's own screenshots can be committed.
+- Follow camera `ground: 'shorten'` samples the arm at most 0.2 m apart (capped at 160 samples, so 0.2 m up to a 32 m arm) instead of 12 fixed
+  samples: a narrow rise in the ground height (a 0.25 m bump in the middle of an 8 m arm) now shortens the arm instead of being stepped over.
+
 ## 0.4.0 (2026-11-04)
 
 - Sky colors for a game shader: `engine.uniforms.uSkyHorizon` / `uSkyTop` hold the colors the sky draws this frame (tint and lightning included);

@@ -13,10 +13,10 @@ Lightweight collision (collision() module): no clipping while walking, the camer
 ## Methods and properties
 - `collision.addCircle(position: PositionLike, opts?: CircleColliderOptions) → Handle` — Add a circle collider (pillar, campfire): position is the center, e.g. addCircle(mesh, { radius: 1 }). Returns a handle { remove() }
 - `collision.addBox(position: PositionLike, opts?: BoxColliderOptions) → Handle` — Add a box collider (house, fence): position is the center, e.g. addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 }). Returns a handle { remove() }
-- `collision.addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?, height?, y? }) → Handle` — Add a thin wall along a -> b (fence). Options: thickness (default 0.3), height, y. A gap between segments is a gate. Returns a handle { remove() }
-- `collision.addBlocked(fn: (x: number, z: number) => boolean, opts?: { bounds? }) → Handle` — Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure. bounds skips fn outside it. Returns a handle { remove() }
+- `collision.addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?, height?, y?, occluder? }) → Handle` — Add a thin wall along a -> b (fence). Options: thickness (default 0.3), height, y, occluder (as in addBox). A gap between segments is a gate. Returns a handle { remove() }
+- `collision.addBlocked(fn: (x: number, z: number) => boolean, opts?: { bounds? }) → Handle` — Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure. bounds { minX, maxX, minZ, maxZ } (world metres, the field's x / z extent) skips fn outside it; give it to keep findPathAsync's ground sampling cheap. Returns a handle { remove() }
 - `collision.blockedAt(x: number, z: number, radius?: number) → boolean` — Is a character of this radius touching addBlocked ground at (x, z)
-- `collision.addObject(obj: Object3D, opts?: { pad?: number }) → Handle` — Add a collider from an object's bounding box, pad expands outward (meters). Returns a handle { remove() }
+- `collision.addObject(obj: Object3D, opts?: { pad?: number; occluder?: boolean }) → Handle` — Add a collider from an object's bounding box, pad expands outward (meters), occluder as in addBox. Returns a handle { remove() }
 - `collision.forEachStatic(fn: (type, data) => void)` — Iterate all static colliders added by hand
 - `collision.mirror(fns: { add, remove }) → { sync, clear, size }` — Keep an outside copy of the static colliders in step (physics colliders, navmesh obstacles): add builds one piece, remove drops one; sync() diffs only when colliders changed and returns whether it compared; clear() forgets every piece without remove (the outside world was thrown away)
 - `collision.walkable(position: PositionLike, opts?: { radius?: number }) → boolean` — Whether someone can stand at this position (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (meters, default engine.movement.radius)
@@ -32,9 +32,11 @@ Lightweight collision (collision() module): no clipping while walking, the camer
 - **CircleColliderOptions** Parameters of addCircle() (meters)
   - `radius?: number` Radius, default 0.5
   - `height?: number` Height, default 6
+  - `occluder?: boolean` false: walkers are still stopped but the follow camera's occlusion check ignores it (forest trunks the camera may pass through). Default true
 - **BoxColliderOptions** Parameters of addBox() (meters, radians)
   - `halfWidth?: number` Half width (X direction), default 1
   - `halfDepth?: number` Half depth (Z direction), default 1
   - `rotation?: number` Rotation around the Y axis (radians), default 0
   - `height?: number` Height, default 6
   - `y?: number` Bottom height of the box; if omitted it sits on the ground (give it for walls placed on platforms in a level)
+  - `occluder?: boolean` false: walkers are still stopped but the follow camera's occlusion check ignores it (forest trunks the camera may pass through). Default true

@@ -280,6 +280,25 @@ export function renderOnce(r, scene, camera, target = null) {
 }
 
 /**
+ * Run draw() with every renderer.render(scene, camera) in it turned into renderer.compileAsync(scene, camera) at the render target set at that
+ * moment, and resolve (with draw's result) once all those programs are ready. Why: code that draws through three itself (PMREMGenerator, the
+ * post chain's fullscreen passes) compiles each program synchronously in its first real render, one after the other (start() measured ~410 ms
+ * for the room map and ~130 ms for nine post passes on a real GPU); compileAsync hands them all to the browser's parallel compile
+ * (KHR_parallel_shader_compile on WebGL) together with the scene's, so the real render afterwards finds them linked. Nothing is drawn: only
+ * target switches and clears happen, so call it where the output is drawn again before anyone sees it. The renderer's own render (or a
+ * game's wrapper of it) is put back even when draw throws. WebGLRenderer only: WebGPURenderer's compileAsync calls share one precompile
+ * state and break when they overlap (measured: "_precompilationState is null").
+ * @template T @param {any} r @param {() => T} draw @returns {Promise<T>}
+ */
+export function compileThrough(r, draw) {
+  const own = Object.hasOwn(r, 'render'), real = r.render, jobs = [];
+  r.render = (scene, camera) => { jobs.push(r.compileAsync(scene, camera)); };
+  let out;
+  try { out = draw(); } finally { if (own) r.render = real; else delete r.render; }
+  return Promise.all(jobs).then(() => out);
+}
+
+/**
  * A cube render target for a CubeCamera on r. Why here: WebGPURenderer draws into three/webgpu's CubeRenderTarget; given a
  * WebGLCubeRenderTarget it renders without a word and every face reads back black (a probe bake of all zeros). The caller passes three's
  * namespace (THREE) so this file keeps importing nothing from three.

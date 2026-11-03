@@ -120,8 +120,6 @@ export interface Level {
   spawn: Vector3;
   /** Heightfield (for debugging) */
   heightfield: any;
-  /** Milliseconds spent building the heightfield */
-  buildMs?: number;
   /** Whether loading is finished */
   readonly ready: boolean;
   /** Get a marker, null if none */
@@ -549,7 +547,6 @@ export type CharacterState = 'idle' | 'walk' | 'run' | 'swim' | 'jump' | 'fall' 
 /** Character (player and NPCs) */
 export declare class Character {
   constructor(engine: Engine, opts?: CharacterOptions);
-  engine: Engine;
   /** Root node (this is what gets added to the scene) */
   root: Object3D;
   /** Same as root: add children, change visible and scale on it */

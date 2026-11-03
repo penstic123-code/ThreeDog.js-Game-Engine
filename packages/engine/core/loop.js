@@ -45,6 +45,12 @@ function safe(engine, key, fn, opts, self, a, b) {
 }
 
 /** A freeze holder asked to stop ambient animation too (freeze(owner, { ambient: true })); only read while frozen */
+// The first frame drawn after ready ends the first-frame measure (engine.startup.firstFrameMs, startup.js); one compare per frame after that
+function firstFrame(e, at) {
+  const s = e.startup;
+  e._readyAt = null;
+  if (s) { s.phases.draw = Math.round(at - (s.phases.script + s.phases.construct + s.phases.setup + s.phases.init + s.phases.preload + s.phases.world + s.phases.compile)); s.firstFrameMs = Math.round(at); }
+}
 function ambientHeld(e) { for (const h of e.stacks.get('freeze').entries()) if (h.value?.ambient) return true; return false; }
 
 export const loopMethods = {
@@ -203,6 +209,7 @@ export const loopMethods = {
         // geometry in the middle of loading (cold start measured 2.9 s -> 1.6 s without it). start() draws one hidden warm-up frame itself
         if (this.ready) safe(this, STRINGS.render, this._render, SOFT, this, dt);
         c3 = performance.now();   // measure
+        if (this._readyAt != null && this.ready) firstFrame(this, c3);
       } finally { this.input.endFrame(); }
       this._runHooks('afterRender', dt);
       const c4 = performance.now(), P = this.cpuPhases;   // measure

@@ -1,4 +1,4 @@
-// Extra sky layers drawn on the dome after the clouds and stars (rainbow, aurora, a painted band): style.sky.layers / sky({ layers }).
+// Extra sky layers drawn on the dome after the clouds and stars (rainbow, aurora, a painted band): style.sky.layers / look.sky.patch('layer:<name>').
 // Default none, and then the dome shader text is exactly the plain one.
 //   layers: [{ glsl, uniforms?, order?, blend? }]
 //   glsl     defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)`: dir = unit view direction (whole sphere,

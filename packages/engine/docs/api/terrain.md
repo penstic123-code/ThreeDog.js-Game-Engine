@@ -2,7 +2,7 @@
 
 Procedural terrain, data part (terrain() module: chunks, heights, edits, collision)
 
-- Options `TerrainOptions` (also includes the fields of Partial<TerrainConfig>):
+- Options `TerrainOptions` (also includes the fields of Partial<Omit<TerrainConfig, 'normals'>>):
   - `viewChunks?: number` View distance (in chunks), default 4
   - `density?: number` Vegetation density multiplier, default 1
   - `viewFog?: boolean` true: the fog distance (look.fog far, engine layer, owner 'terrainLook') follows the view distance so the far chunk edge fades out; default false keeps the game's fog (openWorld() sets true)

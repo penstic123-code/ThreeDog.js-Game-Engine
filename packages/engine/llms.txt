@@ -66,3 +66,4 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [57-control](docs/recipes/57-control.md): Who steers a character: engine.control
 - [58-input](docs/recipes/58-input.md): Input: modules declare actions, the game binds keys
 - [59-depth-post-effects](docs/recipes/59-depth-post-effects.md): A post effect that reads depth (volumetric fog, god rays)
+- [60-judge-the-picture](docs/recipes/60-judge-the-picture.md): 60 Make the picture look good: what each knob does and how to judge it

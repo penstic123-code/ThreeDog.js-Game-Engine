@@ -80,7 +80,7 @@ A plain number is set once (no per-frame work). Keyframes and functions need the
 once when the engine creates its renderer (`style.toneMapping`, else AgX) and never again, so a direct write stays.
 
 ## Extra sky layers: rainbow, aurora, color bands
-`style.sky.layers` (or `sky({ layers })`; at run time `engine.look.sky.patch('layer:aurora', { glsl, blend })`, recipe 52), drawn on the dome
+`style.sky.layers` (at run time `engine.look.sky.patch('layer:aurora', { glsl, blend })`, recipe 52), drawn on the dome
 after clouds and stars; none by default:
 
 ```js

@@ -36,6 +36,22 @@ const LAYERED = new Set(['number', 'value']);
 const KINDS = ['number', 'value', 'any', 'top', 'one'];
 
 const fail = msg => codedError('mod-owner', msg);
+/** what a value was, readable in a message: JSON.stringify turns NaN / Infinity into null, which hides the mistake */
+const shown = v => (typeof v === 'number' ? String(v) : JSON.stringify(v) ?? String(v));
+
+/**
+ * The one check of a number point's value, the same on engine.mod and handle.change (a NaN slipped in through either one makes the point NaN
+ * from then on). set / add / mul: a finite number; clamp: { min?, max? } with each given bound a finite number and min <= max.
+ * @param {string} op @param {any} v @param {string} call the call as the message names it
+ */
+function numCheck(op, v, call) {
+  const bad = (expected, eg) => codedError('shared-value', `${call}: ${expected}, got ${op}: ${shown(v)}. Fix: ${eg}`);
+  if (op !== 'clamp') { if (!Number.isFinite(v)) throw bad(`${op} is a finite number`, `${op}: 0.5`); return; }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw bad('clamp is { min?, max? }', 'clamp: { min: 0, max: 10 }');
+  const { min, max } = v;
+  for (const [k, b] of [['min', min], ['max', max]]) if (b != null && !Number.isFinite(b)) throw bad(`clamp.${k} is a finite number when given (leave it out for no bound)`, `clamp: { ${k}: 10 }`);
+  if (min != null && max != null && min > max) throw bad(`clamp.min must be <= clamp.max (min ${min} > max ${max})`, `clamp: { min: ${max}, max: ${min} }`);
+}
 
 /**
  * pause('x') and pause({ owner: 'x' }) both work everywhere an owner is named
@@ -56,6 +72,8 @@ export class Stack {
     if (!KINDS.includes(kind)) throw fail(`engine.stacks.define('${name}', { kind }): kind is ${KINDS.join(' / ')}, got ${JSON.stringify(kind)}`);
     this.all = all; this.name = name; this.kind = kind;
     this.base = base ?? (kind === 'number' ? 1 : kind === 'any' ? false : null);
+    for (const [k, b] of [['min', min], ['max', max]]) if (typeof b !== 'number' || Number.isNaN(b)) throw codedError('shared-value', `engine.stacks.define('${name}', { ${k} }): ${k} is a number (leave it out for no bound), got ${shown(b)}`);
+    if (min > max) throw codedError('shared-value', `engine.stacks.define('${name}', { min, max }): min must be <= max, got min ${min} > max ${max}. Fix: { min: ${max}, max: ${min} }`);
     this.min = min; this.max = max; this.save = save; this.per = per; this.onChange = onChange;
     /** the copyable "take it over on purpose" call the conflict error offers (a look part's manual()); default: a set on the system layer */
     this.manual = manual;
@@ -84,8 +102,7 @@ export class Stack {
       const ops = NUM_OPS.filter(k => o[k] !== undefined);
       if (ops.length !== 1) throw fail(`engine.mod('${at}', { owner: '${owner}', ... }): give exactly one of set / add / mul / clamp, e.g. { owner: '${owner}', mul: 0.5 }; got ${ops.length ? ops.join(' + ') : 'none'}`);
       op = ops[0]; value = o[op];
-      const ok = op === 'clamp' ? value && typeof value === 'object' : Number.isFinite(value);
-      if (!ok) throw fail(`engine.mod('${at}', { ${op} }): ${op === 'clamp' ? 'clamp is { min?, max? }' : op + ' is a finite number'}, got ${JSON.stringify(value)}`);
+      numCheck(op, value, `engine.mod('${at}', { owner: '${owner}', ${op} })`);
     } else if (this.kind === 'value') {
       if (o.set === undefined || NUM_OPS.some(k => k !== 'set' && o[k] !== undefined)) throw fail(`engine.mod('${at}', { owner: '${owner}', set }): '${this.name}' holds a value (a color, a string, a flag), so only set works, e.g. { owner: '${owner}', set: ${JSON.stringify(this.base ?? '#88aacc')} }`);
       op = 'set'; value = o.set;
@@ -128,10 +145,8 @@ export class Stack {
   _rewrite(ent, v, at) {
     const m = this._map(ent.id);
     if (!m || m.get(ent.owner) !== ent) return false;
-    if (this.kind === 'number') {
-      const ok = ent.op === 'clamp' ? v && typeof v === 'object' : Number.isFinite(v);
-      if (!ok) throw fail(`handle.change() on '${at}' (${ent.op}): ${ent.op === 'clamp' ? 'clamp is { min?, max? }' : ent.op + ' is a finite number'}, got ${JSON.stringify(v)}`);
-    } else if (this.kind === 'value' && v === undefined) throw fail(`handle.change() on '${at}': a value point needs a value, got undefined`);
+    if (this.kind === 'number') numCheck(ent.op, v, `handle.change() on '${at}' (owner '${ent.owner}', ${ent.op})`);
+    else if (this.kind === 'value' && v === undefined) throw fail(`handle.change() on '${at}': a value point needs a value, got undefined`);
     if (ent.layer === 'settings') this._restricts(ent.op, v, `handle.change(${JSON.stringify(v)}) on '${at}' (settings layer, ${ent.op})`);
     if (ent.value === v && (v === null || typeof v !== 'object')) return true;
     ent.value = v;

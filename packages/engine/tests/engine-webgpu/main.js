@@ -188,6 +188,29 @@ window.patchMeanings = async () => {
   return { differ: differ(a, b), differFine: differ(a, b, 8), mean: { gl: mean(a), gpu: mean(b) } };
 };
 
+// Plugins composed on both routes (tests/specs/plugin-composition.mjs): two post plugins with no order of their own whose result depends on
+// their order (halve, then lift), each switched off and on. The chain order and the picture must come back exactly
+window.pluginOrderRoutes = async () => {
+  const gpu = await make({ renderer: 'webgpu', saveKey: 'test-engine-webgpu-plugins' }, { parts: false });
+  const fx = (name, glsl, tsl) => ({ name, slot: 'ldr', fuse: { glsl, tsl: (c, uv, { tsl: T }) => T.vec4(tsl(c.rgb), c.a) } });
+  const run = e => {
+    const still = e.look.wind.set({ amplitude: 0 }, { owner: 'still' }), hold = e.freeze('plugin-order', { ambient: true });
+    e.plugins.add({ './plugins/60-half.js': { default: fx('half', 'color.rgb *= 0.5;', c => c.mul(0.5)) },
+      './plugins/61-lift.js': { default: fx('lift', 'color.rgb += 0.2;', c => c.add(0.2)) } });
+    shot(e);
+    const base = shot(e), order = () => e.post.list().map(x => x.name).filter(n => n === 'half' || n === 'lift').join(), o0 = order(), out = { order: o0, still: differ(base, shot(e), 1) };   // still: what two frames with no change differ by (the WebGL engine here has live particles)
+    for (const n of ['60-half', '61-lift']) {
+      e.plugins.off(n); shot(e); const off = shot(e); e.plugins.on(n); shot(e); const on = shot(e);
+      out[n] = { changed: differ(base, off, 4), back: differ(base, on, 1), order: order() === o0 };
+    }
+    e.plugins.off('60-half'); e.plugins.off('61-lift'); still.remove(); hold.remove();
+    return out;
+  };
+  const out = { gl: run(gl), gpu: run(gpu) };
+  gpu.dispose();
+  return out;
+};
+
 /**
  * Program sharing on WebGPU: N materials of one role (style.materials spec with lighting and detail) each made by makeMaterial, so each is its
  * own material object. three builds a node program per distinct key, and the key holds the identity of each patch uniform object

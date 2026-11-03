@@ -35,4 +35,5 @@ export const SYNONYMS = [
   ['multiplayer', 'coop', 'online', 'net'],
   ['settings', 'options', 'preferences', 'quality'],
   ['off', 'disable', 'disabled', 'disabling'],
+  ['polish', 'prettier', 'pretty', 'nicer', 'beautiful', 'gorgeous'],
 ];

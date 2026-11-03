@@ -433,6 +433,21 @@ export function copyPatches(from, to) {
   try { return patchMaterial(to, list, { strict: false }); } finally { deriving = false; }
 }
 
+/**
+ * Give `to` the patches of `from` except the names in `skip` and those `to` already has (look.materials.rebuild: the new material keeps the wind /
+ * cloud shadow a module added after makeMaterial, while the look.materials patches come from the current layers). Returns `to`.
+ * @internal
+ * @param {Material} from @param {Material} to @param {Set<string>} skip
+ * @returns {Material}
+ */
+export function carryPatches(from, to, skip) {
+  const have = new Set(materialPatches(to)), list = (LISTS.get(from) || []).filter(p => !skip.has(p.name) && !have.has(p.name));
+  copyTerms(from, to);
+  if (!list.length) return to;
+  deriving = true;   // already checked on `from`
+  try { return patchMaterial(to, list, { strict: false }); } finally { deriving = false; }
+}
+
 // ---------- which materials the engine made ----------
 // Why record: automatic effects (season, cloud shadow, wind, cascaded-shadow list) should land only on materials the engine made (user decision 3, 2026-11-02); a game `new` material that wants effects must call
 // applyEffects to opt in. WeakSet, not userData: userData is carried by clone and written into the file on glTF export, so a game material cloned from an engine one would be mistaken for it.

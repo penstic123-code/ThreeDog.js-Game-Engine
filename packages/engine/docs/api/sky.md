@@ -2,7 +2,7 @@
 
 Sky dome, sun / moon light and fog drawn from the calendar's time (sky() module)
 
-- Options `SkyOptions` (also includes the fields of Omit<StyleSky, 'fog'>):
+- Options `SkyOptions` (also includes the fields of Pick<StyleSky, 'shadow' | 'environment'>):
   - `fog?: boolean | StyleFog` Whether the sky makes scene.fog: true (default; the sky creates it and writes color and distance every frame) / false (scene.fog = null, never touched). An object is style.sky.fog settings (kind, color, density...) and means true. To keep the fog and write it yourself: engine.look.fog.manual() (or scene.fog = your own THREE.Fog), not an option here. Example: `sky({ fog: false })   // no fog at all`
   - `time?: string | number` The fixed time of day drawn while no calendar() is installed: 'HH:MM' or 0–1 (0.5 noon), default 0.33 (a sunset arena: sky({ time: '18:30' })). With calendar() the sky draws engine.calendar.timeOfDay and this option throws (start the day with calendar({ time }))
   - `sun?: boolean` Whether the sky drives engine.lights.sun: true (default; color, intensity, direction and shadow box from the keyframes) / false (hidden, never touched: light the world with your own three.js lights). How the game lights its world, so a sky() option, not a style key. Example: `sky({ sun: false, hemisphere: false })   // a dungeon lit by the game's own lights`

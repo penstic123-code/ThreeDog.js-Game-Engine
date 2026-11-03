@@ -236,6 +236,7 @@ export class Audio {
   /**
    * What is playing (for describe and tests): bus levels, the duck multiplier per bus, live voices per sound name
    * @returns {{ running: boolean, state: string | null, levels: Record<string, number>, ducks: Record<string, number>, voices: Record<string, number> }}
+   * @internal a debug readout the engine tests read; games react to their own rules instead
    */
   get info() { return audioInfo(this); }
 

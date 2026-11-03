@@ -33,6 +33,9 @@ export async function run({ check }) {
     ['close a dialogue', /close a dialogue/],
     ['pick a dialogue choice', /Pick a dialogue choice/],
     ['teleport the player in a test', /applyState\(\{ pos \}\)/],
+    // 0.5 acceptance: "game test" led to the dev bridge, the spec-file example sat unindexed in COMMANDS.md
+    ['game test', /A game test.*tests\/specs\/.*COMMANDS\.md/],
+    ['write a test for my game', /A game test.*tests\/specs\//],
     ['teleport the player far away', /stream\.teleport/],
     ['settings turn off my effect', /limits: 'look\.post/],
     ['quality menu disable custom post effect', /limits: 'look\.post/],
@@ -92,6 +95,11 @@ export async function run({ check }) {
     ['sky color for my shader', /uSkyHorizon|Sky color for my shader/],
     ['horizon color', /Sky color for my shader/],
     ['title start continue', /Title -> start -> continue/],
+    // the judging map (recipe 60): asked as a wish, not as a knob name
+    ['make it look good', /60-judge-the-picture/],
+    ['tune the picture', /60-judge-the-picture/],
+    ['look prettier', /60-judge-the-picture/],
+    ['visual polish', /60-judge-the-picture/],
   ];
   const off = SPOKEN.map(([q, want]) => [q, search(docs, q)[0]?.line ?? '(none)', want]).filter(([, first, want]) => !want.test(first));
   check(`${SPOKEN.length} whole-sentence / spoken queries: the first answer is the right recipe or row`, off.length === 0, off.map(([q, l]) => `"${q}" -> ${l}`).join('\n'));

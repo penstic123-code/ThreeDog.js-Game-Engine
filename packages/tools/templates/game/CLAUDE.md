@@ -3,15 +3,11 @@
 __GAMEPLAY_NOTE__
 
 ## First session
-- Gameplay: before any code, when the request leaves room, offer 2-3 clearly different minimal versions, each with its scope, core loop, main risk
-  and how it will be checked; when it is already specific, restate your understanding and ask the user to confirm. Write the pick and the reason
-  into DESIGN.md.
-- Look: before building anything visible, ask only for reference images and the overall style, and what would be wrong for this game (it goes
-  into DESIGN.md "Loved / Not for this game"). Fill the other "Look and controls" rows with your recommendation, marked "(picked, not asked)"
-  with a one-line why, and show them to the user with the first screenshot to confirm or change.
-- When the user cannot be asked (the request says not to ask, or the run is unattended): take your recommendation, write it in marked "(picked, not
-  asked)" with a one-line why, carry on, and list those picks in your report so the user can change them. To change something DESIGN.md already
-  settled: ask first when you can; when you can't, mark it as above.
+- A clear request: build it, no confirmation round. Ask only about a choice that changes the result and cannot be reasonably inferred (a vague
+  request: offer 2-3 clearly different minimal versions with scope, core loop and main risk). If the look is not given, ask for reference images,
+  the overall style and what would be wrong for this game (DESIGN.md "Loved / Not for this game").
+- Everything else you decide: write it into DESIGN.md marked "(picked, not asked)" with a one-line why, and list those picks in your report so the
+  user can change them. The same when the user cannot be asked. To change something DESIGN.md already settled: ask first when you can.
 
 ## What done means
 The template is a starting point, not a look. Gray placeholders (empty style/index.js, capsule player, box props) mean the art is not made yet, and making
@@ -20,7 +16,7 @@ never reported as done. Plan time for both; when time is short, say which look w
 for this version"; ideas past it go to STATUS.md Next.
 
 ## How to work
-1. Before you write, list every place the change must reach (callers, content, saves, tests, DESIGN.md / STATUS.md) and what it could break for the player.
+1. Before you write, list every place the change must reach (callers, content, saves, tests, the records it changes) and what it could break for the player.
 2. Take the first option that fully works: does it need to exist (name what you skipped) -> already in this game or the engine (GAMEMAP.md,
    `threedog how "<2-4 English task words>"` (e.g. `how "save game"`, `how "rigid push"`; on "no match" try the words it suggests), `threedog catalog`, the AI.md index; note the system in DESIGN.md Systems) -> plain three.js or the browser
    (looks are plain three.js on `engine.scene / camera / renderer`, `node_modules/threedog/docs/THREE.md`) -> an installed package -> the least code that
@@ -41,7 +37,7 @@ for this version"; ideas past it go to STATUS.md Next.
 12. Before a long task ends, update STATUS.md (it is the handover page).
 
 Tuning the look: the round loop, the shot check and the look questions are in recipe 35 (`node_modules/threedog/docs/recipes/35-style-from-reference.md`;
-its top says what to skip without a reference picture).
+its top says what to skip without a reference picture); each knob and how to judge it: recipe 60 (`60-judge-the-picture.md`).
 Take pictures with `threedog shot` or `threedog snap`: both run the look check (glare, shadows, night); a screenshot script of your own skips it.
 Taste is judged against DESIGN.md and its "Loved / Not for this game" list, never against a technique example.
 
@@ -59,7 +55,7 @@ One-file three.js pieces go in `plugins/` (its README).
 §10); an `op` or `step` sent that way changes this session and its saves only, edit `content/` to change the level.
 Reading order (stop when you have enough): STATUS.md -> DESIGN.md -> `docs/design/<system>.md` or `docs/plans/<feature>.md` -> GAMEMAP.md
 (`npm run map`; "Read for this game") -> `node_modules/threedog/docs/AI.md` (index) -> the recipe it points to.
-Changing gameplay: update DESIGN.md (and the system's `docs/design/` file) and STATUS.md in the same commit; `npm run check` reports a file, command, test or engine name in backticks in DESIGN.md that no longer exists. A finished
+Records: a change updates only the records it makes wrong (a new or changed rule, system or Done: DESIGN.md and its `docs/design/` file; progress: STATUS.md); a small fix touches none. `npm run check` reports a file, command, test or engine name in backticks in DESIGN.md that no longer exists. A finished
 plan moves to `docs/plans/done/` with one line in STATUS.md. Reply in the language the user writes in.
 
 <!-- "How to work" items 1-2, 4 and 7-9 adapt principles from the ponytail skill (github.com/DietrichGebert/ponytail, MIT). -->

@@ -15,6 +15,9 @@ import { setProjection } from './projection.js';
 import { codedError } from '../../core/errorHints.js';
 
 const GROUND = ['raise', 'shorten', 'none'];
+// ground: 'shorten' sampling. 0.2 m: narrower than this the ground height rarely has a feature that blocks the view (posts and walls are colliders,
+// handled by the occlusion pull-in). 160 samples (one surface() each, every frame) keep full spacing up to a 32 m arm.
+const SHORTEN_STEP = 0.2, SHORTEN_MAX = 160;
 
 export class FollowCamera {
   /** yaw/pitch initial angles (yaw: see the top of this file); distance (min/max zoom range); height how high on the character to look; smoothing follow smoothness;
@@ -126,7 +129,9 @@ export class FollowCamera {
   _shorten(fx, fy, fz, ux, uy, uz, d, surf) {
     const c = Math.max(0.05, Math.min(this.groundClearance, (fy - surf(fx, fz)) * 0.5));
     const below = t => fy + uy * t < surf(fx + ux * t, fz + uz * t) + c;
-    const N = 12;
+    // Samples at most SHORTEN_STEP apart, so a narrow rise between two samples (a ridge, a step, a low wall in the ground height) is not stepped
+    // over; a fixed count missed a 0.25 m bump in the middle of an 8 m arm. Very long arms cap the count (cost) and space the samples wider.
+    const N = Math.min(SHORTEN_MAX, Math.max(1, Math.ceil(d / SHORTEN_STEP)));
     let lo = 0;
     for (let i = 1; i <= N; i++) {
       const t = d * i / N;

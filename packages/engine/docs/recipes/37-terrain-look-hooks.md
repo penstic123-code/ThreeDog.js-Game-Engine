@@ -55,7 +55,8 @@ Cost (software-rendered machine, relative values only):
 ```js
 terrain({ normalFn: (i, j, h, cell) => [(h(i - 1, j) - h(i + 1, j)) / cell, 4, (h(i, j - 1) - h(i, j + 1)) / cell] })   // gentler lighting on slopes
 ```
-`normals` and `normalFn` are looks (a style may set them); they change light only, never height or collision.
+`normals` and `normalFn` are looks (a style may set them); they change light only, never height or collision. `normals` is a `look.ground` param
+(`engine.look.ground.set({ normals: 'flat' })`, rebuilds the chunks), not a `terrain()` option.
 
 ## 3. `diagonal`: how a cell is cut into triangles
 ```js

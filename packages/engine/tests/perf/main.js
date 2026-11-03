@@ -8,7 +8,7 @@
 // Under software rendering (cloud swiftshader) GPU time counts as CPU time, so use the numbers only for relative comparison.
 import * as THREE from 'three';
 import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, pickups, quests, timeline, triggers, particles,
-  hud, level, calendar, sky, weather, water, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial, grids } from '../../index.js';
+  hud, level, calendar, sky, weather, water, terrain, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial, grids } from '../../index.js';
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { SLOTS } from '../../render/slots.js';
 import { injectUICSS } from '../../ui/theme.js';
@@ -225,4 +225,4 @@ const engineWith = (style, assets) => {
   return e;
 };
 window.threedogTest = { THREE, fakeAssets, engineWith, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, worldStyle, worldArt, worldModels, sky, calendar, styleFrom, postEffects, outline, ShaderPass, CopyShader, water, weather, Reflector, defineLookPart, world, grids, particles };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+  injectUICSS, NOISE_GLSL, createTerrain, worldStyle, worldArt, worldModels, sky, calendar, styleFrom, postEffects, outline, ShaderPass, CopyShader, water, weather, terrain, Reflector, defineLookPart, world, grids, particles };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

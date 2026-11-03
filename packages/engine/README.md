@@ -3,12 +3,13 @@
 A web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand); all art is the game's own (`style/` folder, `assets.js`).
 
 ## Install
+This README describes threedog 0.5.0 (older 0.2 releases on npm do not match it). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
 ```sh
-npm install threedog three@~0.187.0
-npm install @threedog/terrain-noise          # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
-npm install -D vite @threedog/tools   # optional: the vite preset and the threedog command line
+npm install threedog@0.5 three@~0.187.0
+npm install @threedog/terrain-noise@0.5      # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
+npm install -D vite @threedog/tools@0.5      # optional: the vite preset and the threedog command line
 ```
-Or let it set up the folder: `node node_modules/@threedog/tools/bin/threedog.mjs init` (flags: `--open-world` for generated ground, sky, follow camera and a player, `--example` for a small gameplay sample on top; the default is a blank scene with a camera and an empty style in `style/`) writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have.
+Then let it set up the folder: `node node_modules/@threedog/tools/bin/threedog.mjs init` (flags: `--open-world` for generated ground, sky, follow camera and a player, `--example` for a small gameplay sample on top; the default is a blank scene with a camera and an empty style in `style/`) writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have.
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.
 
 ## Minimal usage

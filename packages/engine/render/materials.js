@@ -141,7 +141,7 @@ export function makeMaterial(purpose = 'default', params = {}, engine = undefine
   m.userData.materialSource = { role: purpose, from: !entry ? (Object.keys(params).length ? 'call-params' : 'default') : impl?.isMaterial ? 'pack-instance' : impl ? 'pack-function' : 'pack-spec', keys: Object.keys(params) };
   const added = materialPatches(eng, purpose);   // look.materials.add(name, patch, { roles })
   if (added.length) patchMaterial(m, added);
-  materialMade(eng, purpose, m, Object.keys(params));
+  materialMade(eng, purpose, m, params, added.map(p => p.name));
   markEngineMade(m);
   m.needsUpdate = true;
   return m;

@@ -21,7 +21,7 @@ const mill = buildWindmill();                       // THREE.Group
 mill.position.set(20, 0, -10);
 engine.snapToGround(mill);
 engine.add(mill, { id: 'mill' });
-engine.collision?.addCircle(mill, { radius: 1.3 });
+engine.collision?.addCircle(mill, { radius: 1.3 });   // also pulls the follow camera in; { occluder: false } only stops walkers (forest trunks)
 engine.onFrame(dt => { mill.userData.blades.rotation.z += dt * 1.5; });
 ```
 ```js

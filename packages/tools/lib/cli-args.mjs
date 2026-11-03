@@ -1,17 +1,22 @@
 // Option parsing shared by the CLI tools that take a page path and --options (shot, capture, gallery; the bridge's --page uses pagePath):
 // one place decides what a page argument is and which options exist, so an unknown option fails instead of being stored and ignored.
 import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { closest } from './text.mjs';
 
 /**
  * A page path as typed. Git Bash (MSYS) rewrites an argument that starts with "/" into a path under the Git install ("/" -> "C:/Git/",
  * "/styletest.html" -> "C:/Program Files/Git/styletest.html"), and the tool then asked the browser for "http://127.0.0.1:5173C:/Git/".
  * A page path is never a drive path, so the rewrite is undone: the Git root is the folder holding usr/bin/msys-2.0.dll, the rest is the page.
- * @param {string} arg @param {{ exists?: (p: string) => boolean }} [io] @returns {string}
+ * The same happens through `npm run shot -- /` (npm echoes `> threedog shot C:/Git/`; the tool still opens /). Git Bash also names its root in
+ * EXEPATH (`C:\Git\bin`) for every program it starts, npm's children included: that prefix is undone first, so a root whose dll sits elsewhere works too.
+ * @param {string} arg @param {{ exists?: (p: string) => boolean, env?: Record<string, string | undefined> }} [io] @returns {string}
  */
-export function pagePath(arg, { exists = existsSync } = {}) {
+export function pagePath(arg, { exists = existsSync, env = process.env } = {}) {
   if (!/^[A-Za-z]:[\\/]/.test(arg)) return arg;
   const q = arg.indexOf('?'), path = (q < 0 ? arg : arg.slice(0, q)).replace(/\\/g, '/'), query = q < 0 ? '' : arg.slice(q);
+  const root = env.MSYSTEM && env.EXEPATH ? dirname(env.EXEPATH.replace(/\\/g, '/')).replace(/\/+$/, '').toLowerCase() : '';
+  if (root.includes('/') && (path.toLowerCase() === root || path.toLowerCase().startsWith(root + '/'))) return (path.slice(root.length) || '/') + query;
   for (let d = path.replace(/\/+$/, ''); d.includes('/'); d = d.slice(0, d.lastIndexOf('/'))) {
     if (exists(d + '/usr/bin/msys-2.0.dll')) return (path.slice(d.length) || '/') + query;
   }
@@ -37,7 +42,7 @@ export function pagePath(arg, { exists = existsSync } = {}) {
  * @param {string[]} args
  * @param {{ flags?: string[], values?: string[], lists?: string[], short?: Record<string, string>, page?: string | null, positional?: boolean, workspace?: boolean,
  *   conflicts?: [string, string, string][] }} spec
- * @returns {{ page: string | null, opt: Record<string, string | true>, rest: string[], workspace?: string }}
+ * @returns {{ page: string | null, pageArg: string | null, opt: Record<string, string | true>, rest: string[], workspace?: string }}
  */
 export function parseOptions(args, { flags = [], values = [], lists = [], short = {}, page: def = null, positional = false, workspace = false, passthrough = false, conflicts = [] } = {}) {
   const opt = {}, rest = [], known = [...flags, ...values, ...(workspace ? ['workspace'] : [])];
@@ -78,7 +83,7 @@ export function parseOptions(args, { flags = [], values = [], lists = [], short 
     given = a; page = pagePath(a);
   }
   for (const [a, b, why] of conflicts) if (a in opt && b in opt) throw new Error(`--${a} does nothing with --${b}: ${why}; drop one of them`);
-  return { page, opt, rest, ...(ws !== undefined ? { workspace: ws } : {}) };
+  return { page, pageArg: given, opt, rest, ...(ws !== undefined ? { workspace: ws } : {}) };
 }
 
 /** A whole number option (`--jobs 4`, `--frames 60`): undefined when not given; throws naming the option when it is not one >= min */

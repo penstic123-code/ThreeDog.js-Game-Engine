@@ -116,7 +116,7 @@ export interface TerrainConfig {
   shading: 'flat' | 'smooth' | 'texture';
   /** Texture shading: color map pixels per chunk edge (default 128, 64 on low-tier devices; independent of `resolution`). A style may set it */
   colorResolution: number;
-  /** Texture shading only: lighting normals 'smooth' (default) | 'flat'. A style may set it */
+  /** Texture shading only: lighting normals 'smooth' (default) | 'flat'. A look value: style.terrain.config.normals or engine.look.ground.set({ normals }), not a terrain({...}) option */
   normals: 'smooth' | 'flat' | null;
   /**
    * Replace the smooth normal at grid point (i, j): (i, j, h, cell) => [nx, ny, nz] (any length; the engine normalizes). h(i, j) is a grid-point
@@ -138,7 +138,7 @@ export interface TerrainConfig {
 }
 
 /** Parameters of terrain({...}) */
-export interface TerrainOptions extends Partial<TerrainConfig> {
+export interface TerrainOptions extends Partial<Omit<TerrainConfig, 'normals'>> {
   /** View distance (in chunks), default 4 */
   viewChunks?: number;
   /** Vegetation density multiplier, default 1 */
@@ -216,7 +216,6 @@ export interface VegetationLook {
 
 /** engine.terrain: the terrain data part (chunks, heights, edits, collision); engine.terrainLook draws it */
 export interface Terrain {
-  engine: Engine;
   /** Pure-computation terrain (height, landform) */
   T: TerrainGen;
   /** Chunk edge length (meters) */
@@ -427,7 +426,9 @@ export interface Vegetation {
 /** What engine.sky.environment reports */
 export interface SkyEnvironmentInfo { source: string, intensity: number, rotation: number, interval: number, builds: number }
 
-export interface SkyOptions extends Omit<StyleSky, 'fog'> {
+/** Parameters of sky({...}): how the game lights its world. Look values (keyframes, sun / moon / stars, clouds, backdrop, layers, dim ...) are
+ *  engine.look.sky.set({...}) / patch / replace or style.sky; sky({ moonSize }) throws naming the call */
+export interface SkyOptions extends Pick<StyleSky, 'shadow' | 'environment'> {
   /**
    * Whether the sky makes scene.fog: true (default; the sky creates it and writes color and distance every frame) | false (scene.fog = null, never
    * touched). An object is style.sky.fog settings (kind, color, density...) and means true. To keep the fog and write it yourself:
@@ -584,26 +585,17 @@ export interface WaterOptions {
   sea?: boolean;
   /** Global water level (meters); if omitted, the terrain's water level is used */
   level?: number;
-  color?: ColorLike;
-  opacity?: number;
+  /** Flat shading (low poly), default true */
   flat?: boolean;
-  waveHeight?: number;
-  waveScale?: number;
-  waveSpeed?: number;
-  fresnel?: number;
+  /** Edge length of the global water plane (meters), default 900 */
   size?: number;
+  /** Mesh subdivision of the global water, default 150 */
   segments?: number;
-  normalMap?: string;
-  normalScale?: number;
-  normalRepeat?: number;
-  normalSpeed?: number[];
-  shininess?: number;
-  specular?: ColorLike;
-  /** Replace the whole surface material, same as style.water.material */
-  material?: import('./style').StyleWater['material'];
-  depthColor?: import('./style').StyleWater['depthColor'];
-  foam?: import('./style').StyleWater['foam'];
+  /** Uniforms for your look.water hooks' GLSL (same as style.water.uniforms) */
   uniforms?: import('./style').StyleWater['uniforms'];
+  // Look values (color, opacity, waves, fresnel, depthColor, foam, normal map, shininess, specular) are not options: engine.look.water.set({...})
+  // or style.water; water({ color }) throws naming the call. Your own surface material: engine.look.water.replace(fn) or style.water.material
+  // (water({ material }) throws naming the call)
 }
 
 // Water (engine.water) is generated from the JSDoc in modules/water/Water.js (npm run map); only the types are re-exported here

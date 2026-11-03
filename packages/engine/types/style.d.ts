@@ -174,7 +174,7 @@ export interface StyleSky {
    * - tint: a sky.tint color (weather grey, a cave tint) dims with the sky's own light, so a grey rain tint stays dark at night. false: the tint
    *   keeps its full color at any hour (a fantasy sky that stays bright at night)
    * - stars: stars fade with the weather's cloud cover, not only behind drawn clouds. false: stars shine through an overcast / rainy sky
-   * @example style.sky.dim = { stars: false }   // or sky({ dim: { tint: false } })
+   * @example style.sky.dim = { stars: false }   // or engine.look.sky.set({ dim: { tint: false } })
    */
   dim?: { tint?: boolean; stars?: boolean };
   /**
@@ -189,7 +189,7 @@ export interface StyleSky {
   groundTint?: ColorLike;
   /** Clouds in the sky (cloud cover follows the weather); see StyleSkyClouds */
   clouds?: StyleSkyClouds;
-  /** Panorama (equirectangular) replacing the gradient sky, asset name or path */
+  /** Panorama (equirectangular) replacing the gradient sky, asset name or path (at run time engine.look.sky.replace(name)) */
   skybox?: string;
   /** Shadows: mapSize resolution (pixels), extent coverage (meters), etc., see StyleShadow */
   shadow?: StyleShadow;

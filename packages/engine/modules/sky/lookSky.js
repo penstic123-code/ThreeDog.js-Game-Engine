@@ -1,5 +1,7 @@
 // look.sky: the sky dome as a look part.
 //   set({ clouds: { coverage, scale, speed, opacity, softness, color, shade }, backdrop })   live uniforms of the dome; backdrop = one flat color instead of the dome
+//   set({ keyframes, sunSize, sunGlow, sunBrightness, moonSize, moonColor, moonBrightness, starDensity, starScale, gradientCurve, groundTint,
+//         orbitTilt, orbitSway, dim: { tint, stars } })   the rest of style.sky's look, live (uniforms and the sky's per-frame inputs)
 //   patch('clouds', glsl | { glsl, tsl, uniforms })  the cloud function threedogClouds (clouds.js), the one way to write your own; null gives the built-in kind back
 //   patch('layer:<name>', glsl | { glsl, tsl, uniforms, order, blend })   add or change a named dome layer (domeLayers.js); null removes it
 //   tsl: the WebGPURenderer form of either hook, (ctx) => vec4 node (render/fx/sky.tsl.js); each renderer draws its own form, a missing one throws by name
@@ -11,7 +13,7 @@ import * as THREE from 'three';
 import { defineLookPart, REPLACE } from '../../core/look/part.js';
 import { resolveClouds } from './clouds.js';
 import { resolveDomeLayers } from './domeLayers.js';
-import { domeFragment, loadSkybox, skyNodes } from './shader.js';
+import { domeFragment, loadSkybox, skyNodes, checkKeyframes, NEUTRAL_KEYFRAMES } from './shader.js';
 import { DOME_FOG } from './fog.js';
 import { isWebGPU } from '../../render/backend.js';
 import { resolveBackdrop } from './look.js';
@@ -19,10 +21,16 @@ import { resolveBackdrop } from './look.js';
 const LAYER = 'layer:';
 const CLOUD_KEYS = { 'clouds.coverage': 'uCloudCover', 'clouds.scale': 'uCloudScale', 'clouds.speed': 'uCloudSpeed', 'clouds.opacity': 'uCloudOpacity',
   'clouds.softness': 'uCloudSoft', 'clouds.color': 'uCloudColor', 'clouds.shade': 'uCloudShade' };
+// the dome's own uniforms behind the style.sky look keys (shader.js makeSkyUniforms reads the same keys at build)
+const DOME_KEYS = { sunSize: 'uSunSize', sunGlow: 'uSunGlow', sunBrightness: 'uSunPower', moonBrightness: 'uMoonPower', moonSize: 'uMoonSize',
+  moonColor: 'uMoonColor', starDensity: 'uStars', starScale: 'uStarScale', gradientCurve: 'uCurve' };
+/** The style.sky keys that are look.sky params (sky() no longer takes them; skyModule.js throws naming look.sky.set) */
+export const SKY_LOOK_KEYS = [...Object.keys(DOME_KEYS), 'keyframes', 'groundTint', 'orbitTilt', 'orbitSway', 'dim'];
+const DIM_WHY = 'the sky dims what it draws for every game unless the style says no (types/style.d.ts StyleSky.dim)';
 const isColorLike = v => typeof v === 'number' || typeof v === 'string' || !!v?.isColor;
 const colorOrFn = v => (isColorLike(v) || typeof v === 'function' ? null : `must be a color (0xefebe4, '#efebe4') or ({ time, state }) => color; got ${JSON.stringify(v)}`);
 
-/** @param {any} sky @param {object} st style.sky merged with the sky({ ... }) options */
+/** @param {any} sky @param {object} st style.sky merged with the sky({ ... }) options (which hold no look keys: those are style.sky's only) */
 export function defineSkyLook(sky, st) {
   const e = sky.engine, scene = e.scene, U = sky.uniforms;
   let part, added = null, addedHere = false;
@@ -68,6 +76,7 @@ export function defineSkyLook(sky, st) {
   const cloudDesc = { coverage: 'cloud amount 0..1+ (also follows the weather)', scale: 'cloud size (smaller = bigger clouds)', speed: 'drift [x, z] per second', opacity: 'cloud opacity',
     softness: 'edge softness', color: 'lit side color', shade: 'shaded side color' };
   const num = d => ({ type: 'number', min: 0, cost: 'uniform', neutral: true, desc: d });
+  const kfCheck = v => { try { checkKeyframes(v); return null; } catch (err) { return err.message; } };
   part = defineLookPart(e, {
     id: 'sky', group: 'atmosphere', module: 'sky', object: () => sky.dome, applyAtStart: false, docs: ['recipes/52-look.md', 'recipes/36-sky-ground-plant-looks.md'],
     params: {
@@ -83,17 +92,41 @@ export function defineSkyLook(sky, st) {
         check: colorOrFn },
       // over the keyframes (null = the keyframes' color): a fixed color, or a function of the frame context (core/look/state.js) evaluated by frame.js
       top: { type: 'any', default: null, neutral: true, fn: true, cost: 'uniform', desc: "zenith color over style.sky.keyframes: a color or ({ time, weather, season, state, sky }) => color; null = the keyframes", check: colorOrFn },
+      keyframes: { type: 'array', default: NEUTRAL_KEYFRAMES, neutral: true, cost: 'uniform', check: kfCheck,
+        desc: 'rows [time, zenith, horizon, lightColor, lightIntensity, ambient] sorted from 0 to 1: the dome colors and the sun / hemisphere light over the day' },
+      sunSize: { ...num('sharpness exponent of the sun disk (larger = smaller)'), neutral: true, default: 900 },
+      sunGlow: { ...num('sun glow'), neutral: true, default: 0.18 },
+      sunBrightness: { ...num('sun disk brightness'), neutral: true, default: 6 },
+      moonSize: { ...num('sharpness exponent of the moon disk (larger = smaller)'), neutral: true, default: 1400 },
+      moonColor: { type: 'any', default: 0xdcdcdc, neutral: true, cost: 'uniform', desc: 'moon disk color' },
+      moonBrightness: { ...num('moon disk brightness'), neutral: true, default: 3 },
+      starDensity: { ...num('share of sky grid cells holding a star at night, 0-1 (0 = none)'), max: 1, neutral: true, default: 0.0025 },
+      starScale: { ...num('star grid resolution: larger = smaller, more numerous stars'), neutral: true, default: 260 },
+      gradientCurve: { ...num('horizon-to-zenith gradient exponent'), neutral: true, default: 0.55 },
+      groundTint: { type: 'any', default: 0x4a4a4a, neutral: true, cost: 'uniform', desc: 'ground bounce color of the hemisphere light' },
+      orbitTilt: { type: 'number', default: 0.45, neutral: true, cost: 'uniform', desc: 'north-south tilt of the sun path' },
+      orbitSway: { type: 'number', default: 0.8, neutral: true, cost: 'uniform', desc: 'east-west swing of the sun path' },
+      'dim.tint': { type: 'bool', default: true, cost: 'uniform', why: DIM_WHY, off: 'look.sky.set({ dim: { tint: false } })', desc: "a sky.tint color dims with the sky's own light" },
+      'dim.stars': { type: 'bool', default: true, cost: 'uniform', why: DIM_WHY, off: 'look.sky.set({ dim: { stars: false } })', desc: "stars fade with the weather's cloud cover" },
       horizon: { type: 'any', default: null, neutral: true, fn: true, cost: 'uniform', desc: "horizon color over the keyframes (fog 'horizon' and the hemisphere follow it): a color or a function; null = the keyframes. The color drawn this frame (for your own shader): engine.uniforms.uSkyHorizon", check: colorOrFn },
     },
     style: () => ({
       'clouds.coverage': U.uCloudCover.value, 'clouds.scale': U.uCloudScale.value, 'clouds.speed': U.uCloudSpeed.value.toArray(), 'clouds.opacity': U.uCloudOpacity.value,
       'clouds.softness': U.uCloudSoft.value, 'clouds.color': '#' + U.uCloudColor.value.getHexString(), 'clouds.shade': '#' + U.uCloudShade.value.getHexString(),
       ...(st.backdrop != null ? { backdrop: st.backdrop } : {}),
+      ...Object.fromEntries(SKY_LOOK_KEYS.filter(k => k !== 'dim' && st[k] != null).map(k => [k, st[k]])),
+      ...Object.fromEntries(['tint', 'stars'].filter(k => st.dim?.[k] != null).map(k => [`dim.${k}`, st.dim[k]])),
       ...Object.fromEntries([...layers].map(([n, l]) => [`hook:${LAYER}${n}`, l])),
       ...(st.skybox ? { [REPLACE]: st.skybox } : {}),
     }),
     apply(v, changed) {
       for (const k of changed) {
+        if (DOME_KEYS[k]) { const d = U[DOME_KEYS[k]]; if (d.value?.isColor) d.value.set(v[k]); else d.value = v[k]; continue; }
+        if (k === 'keyframes') { sky._setKeyframes(v[k]); continue; }
+        if (k === 'groundTint') { sky.groundTint.set(v[k]); continue; }
+        if (k === 'orbitTilt' || k === 'orbitSway') { sky.orbit[k === 'orbitTilt' ? 'tilt' : 'sway'] = v[k]; continue; }
+        if (k === 'dim.tint') { sky.dim.tint = v[k]; continue; }
+        if (k === 'dim.stars') { sky.dim.stars = v[k]; U.uStarCloudDim.value = v[k] ? 1 : 0; continue; }
         const u = CLOUD_KEYS[k];
         if (!u) continue;
         if (k === 'clouds.speed') U[u].value.set(v[k][0], v[k][1]);

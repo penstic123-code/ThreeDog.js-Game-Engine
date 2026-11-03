@@ -77,7 +77,7 @@ flowchart TB
 
 ## 快速开始
 
-先安装 [Node.js](https://nodejs.org)（LTS 版本）。
+先安装 [Node.js](https://nodejs.org) 20.19 及以上或 22.12 及以上（当前的 LTS 版本就行）。
 
 **新建一个游戏：**
 
@@ -89,7 +89,13 @@ npm run new-game -- my-game --open-world   # 新建 games/my-game：地形、天
 npm run dev -- my-game                     # 打开它打印出来的地址
 ```
 
-引擎暂时还没有发布到 npm，目前从这个仓库直接使用。
+这些文档对应 threedog 0.5.0（npm 上更早的 0.2 版本和这些文档对不上）。在自己的文件夹里做游戏，从 npm 这样安装：
+
+```sh
+npm install threedog@0.5 three@~0.187.0
+npm install -D @threedog/tools@0.5
+npx threedog init            # 把新游戏的文件写进当前文件夹，不覆盖已有文件
+```
 
 不加 `--open-world` 时，新游戏只有一个带相机的空场景和一个空的 `style/` 文件夹。它还会写 `CLAUDE.md` 和 `.mcp.json`，在这个文件夹里打开 Claude Code，它自己就能找到引擎的文档和 MCP 服务。已经存在的文件不会被覆盖。
 
@@ -128,7 +134,7 @@ npm test
 
 ## 现状
 
-0.4 是早期版本，可以跑在 WebGL（默认）和 WebGPU（`createEngine({ renderer: 'webgpu' })`）上，接口还可能变。和 0.3 相比改了什么，见[更新日志](packages/engine/CHANGELOG.md)；老游戏怎么升级，按常见程度排好的步骤在 [MIGRATING-0.4.md](packages/engine/docs/MIGRATING-0.4.md)。
+0.5 是早期版本，可以跑在 WebGL（默认）和 WebGPU（`createEngine({ renderer: 'webgpu' })`）上，接口还可能变。和 0.4 相比改了什么，见[更新日志](packages/engine/CHANGELOG.md)；老游戏怎么升级，按常见程度排好的步骤在 [MIGRATING-0.5.md](packages/engine/docs/MIGRATING-0.5.md)。
 
 ## 文档
 

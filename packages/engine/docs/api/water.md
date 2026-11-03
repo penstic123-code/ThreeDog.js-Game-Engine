@@ -5,25 +5,10 @@ Water surface (water() module)
 - Options `WaterOptions`:
   - `sea?: boolean` false: do not draw the global water surface (sea)
   - `level?: number` Global water level (meters); if omitted, the terrain's water level is used
-  - `color?: ColorLike`
-  - `opacity?: number`
-  - `flat?: boolean`
-  - `waveHeight?: number`
-  - `waveScale?: number`
-  - `waveSpeed?: number`
-  - `fresnel?: number`
-  - `size?: number`
-  - `segments?: number`
-  - `normalMap?: string`
-  - `normalScale?: number`
-  - `normalRepeat?: number`
-  - `normalSpeed?: number[]`
-  - `shininess?: number`
-  - `specular?: ColorLike`
-  - `material?: import('./style').StyleWater['material']` Replace the whole surface material, same as style.water.material
-  - `depthColor?: import('./style').StyleWater['depthColor']`
-  - `foam?: import('./style').StyleWater['foam']`
-  - `uniforms?: import('./style').StyleWater['uniforms']`
+  - `flat?: boolean` Flat shading (low poly), default true
+  - `size?: number` Edge length of the global water plane (meters), default 900
+  - `segments?: number` Mesh subdivision of the global water, default 150
+  - `uniforms?: import('./style').StyleWater['uniforms']` Uniforms for your look.water hooks' GLSL (same as style.water.uniforms)
 
 ## Methods and properties
 - Properties:

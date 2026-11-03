@@ -104,6 +104,9 @@ export const ERROR_CODES = {
   'shared-settings': {
     docs: ['recipes/55-mods-time-wrap.md'],
     fix: "The settings layer only restricts what the scene chose: clamp or mul on a number, set: false on a value point. It cannot switch something on or raise it; leave the setting out to allow the scene's value." },
+  'shared-value': {
+    docs: ['recipes/55-mods-time-wrap.md'],
+    fix: 'A number shared value got a value it cannot combine: set / add / mul take a finite number; clamp takes { min?, max? } with each given bound a finite number and min <= max. The same check runs on engine.mod and on handle.change, so a NaN never reaches the value.' },
   'shared-layer': {
     docs: ['recipes/55-mods-time-wrap.md'],
     fix: 'layer is one of engine < style < game < effect < system < settings < debug (default game); most code never passes it.' },
@@ -237,7 +240,7 @@ export const ERROR_CODES = {
     docs: ['THREE.md', 'recipes/40-scene.md'],
     fix: 'A file in the plugins folder is plugged by what it exports: an Object3D, a three.js Pass, a post effect { name, create | node | fuse }, ' +
       'a Material, a ShaderPatch { slot, glsl }, a module { name, type, install }, or an array of these (default export, else every named export). ' +
-      'A function is never a plugin (on either renderer): export what a factory returns, a node pass as { name, node }. plugins.json names only files that exist.' },
+      'A function is never a plugin (on either renderer): export what a factory returns (export default makeIt({ ... })), a node pass as { name, node }; threedog lib pull writes that line for library code. plugins.json names only files that exist.' },
   'thing-id': {
     docs: ['recipes/41-thing-registry.md'],
     fix: "Ids given to engine.add(obj, { id }) are non-empty strings without '#', unique across engine.add objects and world records. " +
@@ -483,7 +486,8 @@ export const ERROR_CODES = {
     fix: 'The module name becomes engine.<name>; it must not be an existing engine property or another module name.' },
   'module-handle': {
     docs: ['recipes/14-custom-module.md'],
-    fix: 'ctx.track(handle) (the ctx install / init receive) takes something with remove(), such as the result of events.on / onFixed / clock.after.' },
+    fix: 'ctx.track(handle) (the ctx install / init receive) takes something with remove(), such as the result of events.on / onFixed / clock.after. ' +
+      'A handle tracked after its module was unloaded (an async init resuming after replaces / unload) is removed at once: check what the init does after its await.' },
   'module-called': {
     docs: ['recipes/01-new-game.md', 'api/engine.md'],
     fix: 'engine.use() takes the module object: write engine.use(sky()), not engine.use(sky).' },

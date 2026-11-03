@@ -28,7 +28,6 @@ Hand-built level (level() module)
   - `markers: Record<string, LevelMarker>` All markers: name -> marker
   - `spawn: Vector3` Spawn point position
   - `heightfield: any` Heightfield (for debugging)
-  - `buildMs?: number` Milliseconds spent building the heightfield
   - `ready: boolean` Whether loading is finished
 
 ## Data structures

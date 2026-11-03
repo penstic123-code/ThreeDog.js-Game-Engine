@@ -8,7 +8,6 @@ export namespace CONTROL_LAYERS {
 /** engine.control (made for every engine in services.js; the characters module tells it how to find a character by id) */
 export class Control {
     constructor(engine: any);
-    engine: any;
     /**
      * Take a character's control. step (optional): (dt, character) => ({ x, z, run? }) | null | false, called each fixed step while this owner is in
      * charge (dt on the character's time channel): a direction moves it, null stands still (gravity and the idle pose go on), false skips the

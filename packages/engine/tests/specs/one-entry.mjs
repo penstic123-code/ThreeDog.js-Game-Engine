@@ -115,7 +115,7 @@ export const specs = [
   },
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: '[guard] look.shadow enabled keeps the remembered castShadow in an engine record (not light.userData) and restores it; tone mapping writer is an owned record; ortho camera is reported',
+    name: '[guard] shadow settings off/on is the renderer switch only: plain three castShadow stays the game\'s (a game write in between wins); tone mapping writer is an owned record; ortho camera is reported',
     url: URL,
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -124,9 +124,15 @@ export const specs = [
         const a = new THREE.PointLight(0xffffff, 1, 10), b = new THREE.SpotLight(0xffffff, 1);
         a.castShadow = true; b.castShadow = false; engine.scene.add(a, b);
         const hs = engine.look.shadow.set({ enabled: false }, { owner: 'oneEntry' });
-        out.off = [a.castShadow, b.castShadow, 'threedogCastShadow' in a.userData, JSON.stringify(engine.describe().owned?.['shadows.off']?.lights ?? null)];
+        out.off = [a.castShadow, b.castShadow, engine.renderer.shadowMap.enabled, engine.describe().owned?.['shadows.off'] ?? null];
         hs.remove();
-        out.on = [a.castShadow, b.castShadow, 'threedogCastShadow' in a.userData, engine.describe().owned?.['shadows.off'] ?? null];
+        out.on = [a.castShadow, b.castShadow, engine.renderer.shadowMap.enabled];
+        // the player turns shadows off in the settings, the game changes its mind meanwhile, the player turns them on again: the game's value stands
+        const menu = engine.stacks.get('look.shadow.enabled'); menu.take({ owner: 'settings', layer: 'settings', set: false });   // what the settings row does
+        a.castShadow = false; b.castShadow = true;
+        out.menuOff = [engine.renderer.shadowMap.enabled, a.castShadow, b.castShadow];
+        menu.release('settings');
+        out.menuOn = [engine.renderer.shadowMap.enabled, a.castShadow, b.castShadow];
         engine.scene.remove(a, b);
         // tone mapping: one owned record; a direct write yields it quietly and describe says 'game'
         const r0 = engine.describe().owned?.toneMapping?.writer, before = engine.renderer.toneMapping;
@@ -141,8 +147,9 @@ export const specs = [
         out.camBack = engine.describe().camera.projection;
         return out;
       });
-      check('look.shadow enabled false: lights off, nothing written to userData, describe().owned lists the light it turned off', r.off[0] === false && r.off[1] === false && !r.off[2] && r.off[3].includes('PointLight'), JSON.stringify(r.off));
-      check('enabled back on (handle removed): the light that cast casts again, the one that did not stays off, the record is gone', r.on[0] === true && r.on[1] === false && !r.on[2] && r.on[3] === null, JSON.stringify(r.on));
+      check('look.shadow enabled false: the renderer switch is off and no light is written (castShadow as the game set it, no owned record)', r.off[0] === true && r.off[1] === false && r.off[2] === false && r.off[3] === null, JSON.stringify(r.off));
+      check('enabled back on: renderer switch on, lights unchanged', r.on[0] === true && r.on[1] === false && r.on[2] === true, JSON.stringify(r.on));
+      check('settings off, game sets castShadow in between, settings on: final castShadow is what the game set', r.menuOff[0] === false && r.menuOff[1] === false && r.menuOff[2] === true && r.menuOn[0] === true && r.menuOn[1] === false && r.menuOn[2] === true, JSON.stringify([r.menuOff, r.menuOn]));
       check("toneMapping: owned record 'engine' at start; a direct write -> render.toneMapping.writer 'game', owned writer 'three (engine yielded)'; no remembered creation value", r.tone[0] === 'engine' && r.tone[1] === 'game' && r.tone[2] === 'three (engine yielded)' && r.tone[3], JSON.stringify(r.tone));
       check('ortho camera: EngineCamera class method (not an instance patch), describe().camera.projection orthographic + orthoSize', !r.cam[0] && r.cam[1] === true && r.cam[2] === 'orthographic' && r.cam[3] === 30 && Math.abs(r.cam[4] - 15) < 1e-9 && r.camBack === 'perspective', JSON.stringify(r.cam));
     },

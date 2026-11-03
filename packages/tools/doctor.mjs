@@ -10,6 +10,7 @@ import { createConnection } from 'node:net';
 import { ROOT, ENGINE, workspaces, rel, cli, engineMismatch } from './paths.mjs';
 import { TOOLS } from './project.mjs';
 import { devServerInfo } from './devinfo.mjs';
+import { nodeProblem, NODE_RANGE, NODE_FIX } from './lib/node-version.mjs';
 
 const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['ci', 'json', 'gpu', 'software'] });
 const ci = !!opt.ci, json = !!opt.json;
@@ -20,10 +21,10 @@ const ok = msg => line('ok', msg);
 const info = msg => line('info', msg);
 const no = (msg, fix) => { bad++; line('problem', msg, fix); };
 
-// ── Node version: vite 8 needs ≥ 20.19 or ≥ 22.12 ──
-const [maj, min] = process.versions.node.split('.').map(Number);
-if (maj > 22 || (maj === 22 && min >= 12) || (maj === 20 && min >= 19)) ok(`Node ${process.versions.node}`);
-else no(`Node ${process.versions.node} is too old (need ≥ 20.19 or ≥ 22.12)`, 'in PowerShell run winget install OpenJS.NodeJS.LTS, then close and reopen the terminal');
+// ── Node version: the range vite 8 needs (lib/node-version.mjs) ──
+const nodeBad = nodeProblem();
+if (nodeBad) no(nodeBad, NODE_FIX);
+else ok(`Node ${process.versions.node} (needs ${NODE_RANGE})`);
 
 // ── Dependencies: node_modules, workspace links, lock ──
 const nm = join(ROOT, 'node_modules');

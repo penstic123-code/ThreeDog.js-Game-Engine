@@ -103,7 +103,7 @@ Rows are grouped; a new API adds one short row to its group (the detail goes in 
 | To do | Use | Recipe |
 |---|---|---|
 | Something broke, looks wrong or is slow: which tool | `.threedog/errors.log`, `engine.describe`, `threedog how` | 16-dev-bridge.md §11 |
-| Drive and test the running game, MCP | the dev bridge (`verify <scenario>`) | 16-dev-bridge.md |
+| Drive and check the live game, MCP | the dev bridge (`verify <scenario>`) | 16-dev-bridge.md |
 | Slow, low fps, workers, budgets, debug panel | `engine.jobs`, `engine.threads`, `engine.commits`, `engine.budget`, `engine.debug`, `threedog stress` | 15-perf.md |
 
 ## Conventions (`CONVENTIONS.md`)

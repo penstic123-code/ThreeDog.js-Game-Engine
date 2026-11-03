@@ -1,19 +1,20 @@
 // engine.applyState: one-call scenarios.
-// Reproduce a scenario in one call: engine.applyState({ time, season, weather, pos, save, wait, cutscene, state }), engine.defineState(name, params).
+// Reproduce a scenario in one call: engine.applyState({ time, season, weather, pos, save, wait, cutscene, view, play, state }), engine.defineState(name, params).
 // In dev (or with createEngine({ urlState: true })) URL parameters are read automatically: /?time=18:30&weather=rain&pos=40,-20&cutscene=skip&wait=3&state=name
+// ?play (any value) leaves the title screen the way its Start does (engine.session.newGame(), then the title part closes; flow's start state too): `shot --play`, tests
 //
 // Who handles which key: core handles save (saves.load), pos (player.placeAt, or sets the focus without a player) and wait (advances with engine.step);
 // the rest go to the module hook applyState(e, params) (written like the describe hook): calendar -> time and season (sky -> its fixed time without a calendar), weather -> weather, timeline -> cutscene.
 // Two phases, both called from start():
 //   early(): before modules are ready, applies save, pos, time, weather (terrain is generated directly at the new position)
-//   late(): after engine:ready, view (engine.views), cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
+//   late(): after engine:ready, play (start a run when the title is up), view (engine.views), cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
 // In a game, await engine.applyState({...}) at any time runs both phases back to back.
 import { warnMissing } from './validate.js';
 import { readParams, keysSchema } from './params.js';
 import { xzOf } from './math.js';
 import { unsettled } from './headlessLoad.js';
 
-const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'save', 'wait', 'cutscene', 'view'];
+const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'save', 'wait', 'cutscene', 'view', 'play'];
 
 export class UrlState {
   constructor(engine, { fromUrl = false } = {}) {
@@ -67,6 +68,12 @@ export class UrlState {
   }
   async _late(p) {
     const e = this.engine;
+    // play: what the title's Start does (ui/defaults.js), so the game's session:start setup runs; a module with a title of its own (flow's
+    // start state) leaves it in its applyState hook. Before wait, so the advanced seconds are played seconds
+    if (p.play != null) {
+      if (e.ui.isOpen('title')) { await e.session.newGame(); e.ui.close('title'); }
+      await Promise.all(this._hooks(p, ['play']));
+    }
     await Promise.all(this._hooks(p, ['cutscene', 'weather']));   // set weather once more: the opening auto-weather or settings in engine:ready may have changed it
     if (p.wait > 0) for (let s = p.wait; s > 1e-6; s -= 0.5) {   // advance in small slices so Promises (the next cutscene segment) and background threads continue between them
       e.step(Math.min(0.5, s), { render: false, describe: false });

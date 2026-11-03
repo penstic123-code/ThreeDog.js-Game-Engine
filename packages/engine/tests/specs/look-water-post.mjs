@@ -4,7 +4,7 @@
 // Same format as the other files here.
 
 const MAKE = `
-  const { createEngine, water, weather, sky } = threedogTest;
+  const { createEngine, water, weather, sky, terrain } = threedogTest;
   const make = (style, mods) => { const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'look-wp', style }); e.use(...mods); return e; };
   const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
 `;
@@ -33,17 +33,57 @@ export const specs = [
         out.back = [info().opacity.writer, info().opacity.value, e.water.material.opacity, info().waveHeight.writer, e.water._u.uWave.value, info()['hook:wave']];
         const cat = e.catalog('look.water');
         out.cat = [cat.verbs.join(), !!cat.hooks.wave, !!cat.replace];
-        // water({ ... }) options are the game's layer
-        const e2 = make({}, [water({ sea: false, opacity: 0.5, depthColor: { shallow: 0x88ccdd, deep: 0x003355 } })]);
-        out.opts = [e2.describe().look.water.opacity.writer, e2.describe().look.water.depthColor.writer, e2.water.material.opacity];
-        e.dispose(); e2.dispose();
+        e.dispose();
         return out;
       }));
       check('water: style layer at start, set -> game:cave and the live material / uniform follow', r.by0.join() === 'style,0.7,0.7' && r.set.join() === 'game:cave,0.4,game:cave,2', JSON.stringify([r.by0, r.set]));
       check('water: patch(wave) and set({foam}) rebuild the material, recorded as game:cave', r.patch.join() === 'game:cave,true' && r.foam[0] === 'game:cave' && r.foam[1], JSON.stringify([r.patch, r.foam]));
       check('water: bad hook / glsl / foam / replace throw with the fix', r.badGlsl.includes('threedogWaterWave') && r.badHook.includes('look-verb') && r.badFoam.length > 0 && r.replaceBad.includes('look.water.replace'), JSON.stringify([r.badGlsl, r.badHook, r.badFoam, r.replaceBad]));
       check('water: clear(owner) restores the style values and the plain material', r.back[0] === 'style' && r.back[1] === 0.7 && r.back[2] === 0.7 && r.back[3] === 'style' && r.back[4] === 1.5 && r.back[5] === undefined, JSON.stringify(r.back));
-      check('water: catalog lists set / patch / replace; water({...}) options are the game layer', r.cat.join() === 'set,patch,replace,true,true' && r.opts.join() === 'game,game,0.5', JSON.stringify([r.cat, r.opts]));
+      check('water: catalog lists set / patch / replace', r.cat.join() === 'set,patch,replace,true,true', JSON.stringify(r.cat));
+    },
+  },
+  {
+    name: '[guard] one entry per look value: water / sky / terrain look options throw naming the look call; the moved keys are live look params fed by the style',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev }) {
+      const r = await ev(page(() => {
+        const out = {};
+        out.moved = [err(() => water({ color: 0x3070a0 })), err(() => water({ normalMap: 'n' })), err(() => sky({ moonSize: 900 })), err(() => sky({ skybox: 'pano' })),
+          err(() => sky({ dim: { stars: false } })), err(() => terrain({ normals: 'flat' })), err(() => water({ material: () => null }))];
+        out.kept = [err(() => water({ sea: false, level: 1, flat: true, size: 50, segments: 8, uniforms: { uK: 1 } })), err(() => sky({ time: '12:00', fog: false, sun: true, hemisphere: true }))];
+        // water: the style layer feeds the new keys; set changes the live material; a normal map set later rebuilds it and tiles the body's UVs
+        const e = make({ water: { shininess: 40 } }, [water({ sea: false })]), W = e.look.water, info = () => e.describe().look.water;
+        e.addWaterBody({ position: [0, 0, 0], radius: 30, level: 1 });
+        const uv0 = e.water.bodies.values().next().value.geometry.attributes.uv.getX(0);
+        out.w0 = [info().shininess.writer, W.value('shininess'), e.water.normalMap];
+        W.set({ shininess: 10, specular: 0x112233, normalMap: 'water-n', normalScale: 0.8 }, { owner: 'cave' });
+        const m = e.water.material, uv1 = e.water.bodies.values().next().value.geometry.attributes.uv.getX(0);
+        // shininess / specular reach a Phong water material only (the neutral 'water' role may be another lit kind): read the value in effect too
+        const phong = !!m.isMeshPhongMaterial;
+        out.w1 = [info().shininess.writer, W.value('shininess'), phong ? m.shininess === 10 && m.specular.getHex() === 0x112233 : true, !!e.water.normalMap && m.normalMap === e.water.normalMap, m.normalScale.x, uv0 !== uv1];
+        W._clear('cave');
+        out.w2 = [W.value('shininess'), e.water.normalMap];
+        e.dispose();
+        // sky: style.sky values are the style layer; set writes the dome uniform / the sun path / the dim switch live
+        const s = make({ sky: { moonSize: 900, dim: { stars: false } } }, [sky()]), S = s.look.sky, si = () => s.describe().look.sky, U = s.sky.uniforms;
+        out.s0 = [si().moonSize.writer, U.uMoonSize.value, si()['dim.stars'].writer, U.uStarCloudDim.value];
+        S.set({ moonSize: 500, orbitTilt: 0.1, dim: { stars: true }, gradientCurve: 0.3 }, { owner: 'cave' });
+        out.s1 = [si().moonSize.writer, U.uMoonSize.value, s.sky.orbit.tilt, U.uStarCloudDim.value, U.uCurve.value];
+        out.sBad = err(() => S.set({ keyframes: [[0.5, 0, 0, 0, 1, 1]] }));
+        S._clear('cave');
+        out.s2 = [U.uMoonSize.value, U.uStarCloudDim.value];
+        s.dispose();
+        return out;
+      }));
+      check('removed look options throw naming the look call (water / sky / terrain; water({ material }) names look.water.replace)', r.moved[0].includes('engine.look.water.set({ color })') && r.moved[1].includes('look.water.set({ normalMap })')
+        && r.moved[2].includes('engine.look.sky.set({ moonSize })') && r.moved[3].includes('engine.look.sky.replace(skybox)') && r.moved[4].includes('look.sky.set({ dim })')
+        && r.moved[5].includes('engine.look.ground.set({ normals })') && r.moved[6].includes('engine.look.water.replace('), JSON.stringify(r.moved));
+      check('structural options stay (water sea / level / flat / size / segments / uniforms; sky time / fog / sun / hemisphere)', r.kept.join('') === '', JSON.stringify(r.kept));
+      check('water: style shininess is the style layer; set -> material shininess / specular / normalMap / normalScale and the UVs tile; clear restores', r.w0.join() === 'style,40,'
+        && r.w1.join() === 'game:cave,10,true,true,0.8,true' && r.w2[0] === 40 && r.w2[1] === null, JSON.stringify([r.w0, r.w1, r.w2]));
+      check('sky: style moonSize / dim.stars are the style layer; set -> uniforms and the sun path; bad keyframes throw; clear restores', r.s0.join() === 'style,900,style,0'
+        && r.s1.join() === 'game:cave,500,0.1,1,0.3' && /keyframes/.test(r.sBad) && r.s2.join() === '900,0', JSON.stringify([r.s0, r.s1, r.sBad, r.s2]));
     },
   },
   {

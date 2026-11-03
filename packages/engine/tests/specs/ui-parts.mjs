@@ -5,6 +5,16 @@ const DOM = ['.threedog-loading', '.threedog-toast', '.threedog-title', '.threed
 
 export const specs = [
   {
+    // the acceptance game had to add its own ?play because shot could not get past the engine's title
+    name: 'UI title: the ?play URL key (shot --play) starts a run the way Start does: title closed, unfrozen, session:start fired',
+    url: '/tests/ui/index.html?mode=default&play',
+    async run({ check, ev }) {
+      const r = await ev(() => __t.until(() => engine.stateApplied, 10000).then(() => ({ open: engine.ui.isOpen('title'), dom: !!document.querySelector('.threedog-title'),
+        frozen: engine.stacks.get('freeze').has('ui-title'), playing: engine.session.playing, run: engine.runState.state })));
+      check('title closed and gameplay unfrozen once the URL state is applied', !r.open && !r.dom && !r.frozen && r.playing && r.run !== 'title-frozen', JSON.stringify(r));
+    },
+  },
+  {
     name: '界面件：默认件照常工作，标题画面开着时冻结并吞掉 Esc，开始后关闭；设置可选分页 game / camera 生效',
     url: '/tests/ui/index.html?mode=default',
     async run({ page, check, ev, frames }) {

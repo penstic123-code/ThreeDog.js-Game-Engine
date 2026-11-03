@@ -2,25 +2,36 @@
 // Why a unit test: each of these failed silently in a real session (Git Bash turned "/" into "C:/Git/", `shot --out` was ignored, `threedog catalog`
 // at the repo root said "no dev server" while a game's ran, a 21 KB art generator was "too big", `threedog hold` was missing from COMMANDS.md).
 import { readFileSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { ROOT, ENGINE, TOOLS, workspaceFor, workspaces, isArtFile } from '../paths.mjs';
 import { devServerInfo } from '../devinfo.mjs';
 import { pagePath, parseOptions } from '../lib/cli-args.mjs';
 import { SCRIPTS, BRIDGE, VITE, main } from '../bin/threedog.mjs';
 import { BRIEF } from '../threedog/pageFns.mjs';
 import { oneLine, ONE_LINE_MAX } from '../lib/oneline.mjs';
+import { NODE_RANGE, nodeSupported } from '../lib/node-version.mjs';
 
-export const name = 'cli surface: MSYS page paths, unknown options, live dev server pick, R1 art files, every command in COMMANDS.md';
+export const name = 'cli surface: MSYS page paths, unknown options, live dev server pick, R1 art files, every command in COMMANDS.md, Node version preflight';
 
 const throws = fn => { try { fn(); return ''; } catch (e) { return e.message; } };
 
 export async function run({ check }) {
   // ── page paths rewritten by Git Bash ──
   const git = p => p === 'C:/Git/usr/bin/msys-2.0.dll' || p === 'C:/Program Files/Git/usr/bin/msys-2.0.dll';
-  check('"C:/Git/" (Git Bash\'s "/") becomes "/"', pagePath('C:/Git/', { exists: git }) === '/');
-  check('a page and its query survive', pagePath('C:/Program Files/Git/styletest.html?view=room', { exists: git }) === '/styletest.html?view=room');
+  check('"C:/Git/" (Git Bash\'s "/") becomes "/"', pagePath('C:/Git/', { exists: git, env: {} }) === '/');
+  check('a page and its query survive', pagePath('C:/Program Files/Git/styletest.html?view=room', { exists: git, env: {} }) === '/styletest.html?view=room');
   check('a normal page path is left alone', pagePath('/tests/city/index.html') === '/tests/city/index.html' && pagePath('styletest') === 'styletest');
-  check('no Git root found: the error names the three ways out', /without the slash.*MSYS_NO_PATHCONV=1.*PowerShell/.test(throws(() => pagePath('D:/x/y.html', { exists: () => false }))));
+  check('no Git root found: the error names the three ways out', /without the slash.*MSYS_NO_PATHCONV=1.*PowerShell/.test(throws(() => pagePath('D:/x/y.html', { exists: () => false, env: {} }))));
+  // npm run hands its children Git Bash's environment: EXEPATH names the root even where no msys dll is found under it
+  const bash = { MSYSTEM: 'MINGW64', EXEPATH: 'D:\\Tools\\Git\\bin' }, none = () => false;
+  check('EXEPATH root undone without the dll lookup ("/", a page with a query, any case)', pagePath('D:/Tools/Git/', { exists: none, env: bash }) === '/'
+    && pagePath('d:/tools/git/index.html?play', { exists: none, env: bash }) === '/index.html?play');
+  check('EXEPATH only counts under Git Bash (MSYSTEM set) and only as a whole folder', /Windows path/.test(throws(() => pagePath('D:/Tools/Git/x', { exists: none, env: { EXEPATH: bash.EXEPATH } })))
+    && /Windows path/.test(throws(() => pagePath('D:/Tools/Github/x', { exists: none, env: bash }))));
+  const po = parseOptions(['styletest', '--play'], { page: '/', flags: ['play'] }), pd = parseOptions([], { page: '/' });
+  check('parseOptions keeps the argument as typed next to the page (shot names an undone rewrite), null when none was given', po.pageArg === 'styletest' && po.opt.play === true && pd.pageArg === null, JSON.stringify([po, pd]));
 
   // ── the one-line brief of a bridge command: engine.error is an object (printed "engine error [object Object]" once) ──
   const brief = BRIEF({ describe: () => ({ error: { where: 'onFixed', message: 'x is not iterable', code: 'some-code', at: 'at tick (main.js:91:12)' } }) }).join(' ');
@@ -126,10 +137,33 @@ export async function run({ check }) {
   }
   check('every option shot / capture / gallery declare appears in COMMANDS.md as --<option>', !flagGaps.length, 'missing: ' + flagGaps.join(', '));
 
+  // ── .gitignore: tool output (.threedog/) stays out, a game's own shots/ folder can be committed (0.5 acceptance: a bare `shots` ignored it) ──
+  if (existsSync(join(ROOT, '.git'))) {
+    const ignored = p => spawnSync('git', ['check-ignore', '-q', '--no-index', p], { cwd: ROOT }).status === 0;
+    check('.gitignore: .threedog/shots ignored, games/<game>/shots not', ignored('packages/engine/.threedog/shots/a.png') && ignored('games/g/.threedog/shots/a.png') && !ignored('games/g/shots/a.png'));
+  }
+
   // ── --help prints the script's header and runs nothing (threedog test --help used to start the whole suite) ──
   const log = console.log, said = [];
   console.log = (...a) => said.push(a.join(' '));
   let codes;
   try { codes = ['test', 'shot', 'map'].map(c => main([c, '--help'])); } finally { console.log = log; }
   check('--help: test / shot / map print their header and exit 0 without running', codes.every(c => c === 0) && /One-shot test/.test(said[0] ?? '') && /screenshot/.test(said[1] ?? '') && said.length === 3, said.map(t => t.split('\n')[0]).join(' | '));
+
+  // ── Node version: one range everywhere, and the vite commands stop on an old Node with the version, the range and the fix ──
+  const pkgFiles = ['package.json', 'packages/engine/package.json', 'packages/tools/package.json', 'packages/post-effects/package.json', 'packages/terrain-noise/package.json', 'packages/tools/templates/game/package.json'];
+  const ranges = pkgFiles.map(f => `${f}: ${JSON.parse(readFileSync(join(ROOT, f), 'utf8')).engines?.node}`);
+  check('engines.node is NODE_RANGE in every package.json and the template', ranges.every(r => r.endsWith(`: ${NODE_RANGE}`)), ranges.join(' | '));
+  const viteEngines = JSON.parse(readFileSync(join(dirname(createRequire(join(TOOLS, 'package.json')).resolve('vite/package.json')), 'package.json'), 'utf8')).engines?.node;
+  check('NODE_RANGE is the installed vite\'s engines.node', viteEngines === NODE_RANGE, `vite: ${viteEngines}`);
+  check('nodeSupported: 20.19 / 22.12 / 24 yes, 20.11 / 21.7 / 22.11 / 18 no',
+    ['20.19.0', 'v22.12.0', '24.1.0'].every(nodeSupported) && !['20.11.1', '21.7.0', '22.11.0', 'v18.20.0'].some(nodeSupported));
+  const realNode = process.versions.node, err = console.error, errs = [];
+  Object.defineProperty(process.versions, 'node', { value: '20.11.0', configurable: true });
+  console.error = (...a) => errs.push(a.join(' '));
+  let oldCodes;
+  try { oldCodes = ['dev', 'build', 'test', 'shot', 'perf'].map(c => main([c])); } finally { console.error = err; Object.defineProperty(process.versions, 'node', { value: realNode, configurable: true }); }
+  check('faked Node 20.11: dev / build / test / shot / perf exit 1 before starting anything, naming the version, the range and the fix',
+    oldCodes.every(c => c === 1) && errs.length === 5 && errs.every(e => e.includes('Node 20.11.0') && e.includes(NODE_RANGE) && e.includes('nodejs.org')), errs[0]);
+  check('doctor reports the Node version through the same check', /nodeProblem\(\)/.test(readFileSync(join(TOOLS, 'doctor.mjs'), 'utf8')));
 }

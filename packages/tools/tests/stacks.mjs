@@ -62,6 +62,22 @@ export async function run({ check }) {
   check('no owner throws mod-owner', code(() => e.mod('q', { mul: 2 })) === 'mod-owner');
   check('two ops throw mod-owner', code(() => e.mod('q', { owner: 'x', mul: 2, add: 1 })) === 'mod-owner');
   check('unknown quantity throws unknown-name', code(() => e.mod('nope', { owner: 'x', mul: 2 })) === 'unknown-name');
+  // number values are checked the same on engine.mod and handle.change: a NaN never gets into the value
+  const nv = S.define('nv', { base: 10 });
+  const bads = [['clamp max a string', { clamp: { max: 'oops' } }], ['clamp max NaN', { clamp: { max: NaN } }], ['clamp min Infinity', { clamp: { min: Infinity } }],
+    ['clamp reversed (min 20 > max 5)', { clamp: { min: 20, max: 5 } }], ['clamp not an object', { clamp: 5 }], ['mul NaN', { mul: NaN }], ['add a string', { add: '1' }], ['set Infinity', { set: Infinity }]];
+  for (const [what, o] of bads) check(`engine.mod: ${what} throws shared-value`, code(() => e.mod('nv', { owner: 'bad', ...o })) === 'shared-value' && nv.size() === 0 && nv.value() === 10, `${code(() => e.mod('nv', { owner: 'bad', ...o }))} ${nv.value()}`);
+  const msg = (() => { try { e.mod('nv', { owner: 'bad', clamp: { min: 20, max: 5 } }); } catch (x) { return x.message; } return ''; })();
+  check('... the message says what was given and the fix (swapped bounds)', /min 20 > max 5/.test(msg) && /clamp: \{ min: 5, max: 20 \}/.test(msg), msg);
+  check('... NaN is shown as NaN, not null', /NaN/.test((() => { try { e.mod('nv', { owner: 'bad', mul: NaN }); } catch (x) { return x.message; } return ''; })()));
+  const hc = e.mod('nv', { owner: 'c', clamp: { min: 0, max: 50 } }), hm2 = e.mod('nv', { owner: 'm', mul: 2 });
+  check('handle.change: clamp max NaN throws shared-value and keeps the old value', code(() => hc.change({ max: NaN })) === 'shared-value' && nv.value() === 20, String(nv.value()));
+  check('handle.change: reversed clamp throws shared-value', code(() => hc.change({ min: 20, max: 5 })) === 'shared-value' && nv.value() === 20);
+  check('handle.change: mul NaN / a string throws shared-value', code(() => hm2.change(NaN)) === 'shared-value' && code(() => hm2.change('2')) === 'shared-value' && nv.value() === 20);
+  check('valid clamp (one bound, equal bounds) still works', hc.change({ max: 15 }) === true && nv.value() === 15 && hc.change({ min: 7, max: 7 }) === true && nv.value() === 7, String(nv.value()));
+  check('define: min > max throws shared-value', code(() => S.define('nv2', { min: 5, max: 1 })) === 'shared-value');
+  check('define: min NaN throws shared-value', code(() => S.define('nv3', { min: NaN })) === 'shared-value');
+  hc.remove(); hm2.remove();
   // per-record stacks and world.remove
   const dmg = S.define('damageTaken', { per: true, min: 0 });
   e.mod('damageTaken', { owner: 'shield', id: 'p', mul: 0.5 }); e.mod('damageTaken', { owner: 'weak', id: 'e3', mul: 2 });

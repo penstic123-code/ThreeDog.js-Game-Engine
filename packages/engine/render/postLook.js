@@ -106,6 +106,7 @@ export function definePostLook(post) {
     // removing only this effect's hook: dropping the owner's layer would take every other effect this owner added too
     return { name: def.name, remove: () => {
       part.author.write(owner, { [HOOK + def.name]: null }, { layer }); fromStyle.delete(def.name);
+      if (!post._kept.has(def.name)) post._seq.delete(def.name);   // removed for good: a later effect of that name starts at the end (plugins keep theirs)
       const i = entry ? plain.indexOf(entry) : -1; if (i >= 0) plain.splice(i, 1);
     } };
   };

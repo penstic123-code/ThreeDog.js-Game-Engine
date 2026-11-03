@@ -32,15 +32,6 @@ export class Ambience {
      * @example { sound: 'river', volume: (e, a) => a.nearWater(20) * 0.12 }   // in data: volume: { add: { nearWater: 0.12 } } (12 m)
      */
     nearWater(radius?: number): number;
-    /**
-     * What each rule is doing (debug, tests): sound name, whether its condition holds, its current target volume
-     * @returns {{ sound: string, on: boolean, volume: number }[]}
-     */
-    get info(): {
-        sound: string;
-        on: boolean;
-        volume: number;
-    }[];
 }
 import type { AmbienceOptions } from '../../../gameplay';
 import type { ModuleDef } from '../../../core';

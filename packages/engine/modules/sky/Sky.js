@@ -1,5 +1,5 @@
 // Sky module: dome shader (gradient + sun + moon + stars), sun/moon directional light, hemisphere ambient light and fog, all driven by time.
-// Look (per-time colors, sun size, star density...) comes from style.sky in the style; the engine only holds neutral fallbacks.
+// Look (per-time colors, sun size, star density...) is look.sky (style layer style.sky; lookSky.js); the engine only holds neutral fallbacks.
 //
 // The time it draws is the calendar's (engine.calendar, modules/calendar): day, season and clock time are gameplay and live there, so a game
 // without a sky (indoors) or with its own sky keeps its schedules. Without a calendar the sky draws one fixed time of day:
@@ -12,7 +12,7 @@
 //   (HemisphereLight ambient), dome (dome Mesh),
 //   sunDir (Vector3 toward the sun). Light color/intensity is recomputed every frame: adjust brightness with engine.mod('look.lights.sun.intensity' | 'look.lights.hemi.intensity', { owner, mul }) (tint.js), or
 //   take a light over with engine.look.lights.manual('sun' | 'hemi'), hide it with sky({ sun: false, hemisphere: false }) (look.js, core/owned.js); fog kinds and dome layers: fog.js, domeLayers.js;
-// Skybox: style sky.skybox = '/textures/sky.jpg' (equirectangular panorama) replaces the gradient sky; brightness follows time
+// Skybox: style sky.skybox = '/textures/sky.jpg' or engine.look.sky.replace('sky.jpg') (equirectangular panorama) replaces the gradient sky; brightness follows time
 import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
 import { readParams } from '../../core/params.js';
@@ -54,10 +54,7 @@ export class Sky {
     this.fixedTime = parseClock(time) % 1;
     /** @internal */ this.seasonStyle = engine.style.seasons || null;
     if (st.keyframes) checkKeyframes(st.keyframes);
-    /** @internal */ this.kf = (st.keyframes || NEUTRAL_KEYFRAMES).map(k => [k[0], new THREE.Color(k[1]), new THREE.Color(k[2]), new THREE.Color(k[3]), k[4], k[5]]);
-    // brightest row of the sky's ambient light (ambient column x the hemi color's brightness, frame.js skyLight): the sky's light now / this is
-    // the 0-1 scale the sky.tint color (weather grey) follows
-    /** @internal */ this._lightPeak = Math.max(...this.kf.map(k => skyLight(k[1], k[2], k[5])));
+    this._setKeyframes(st.keyframes || NEUTRAL_KEYFRAMES);
     /** @internal the sky.tint color dimmed by the sky's light this frame (frame.js) */ this._tintLit = new THREE.Color();
     // style.sky.dim: the look decisions the sky makes for every game unless the style turns them off (a fantasy sky can stay bright at night,
     // keep its stars through clouds). Booleans, default on; one option form for both, documented in types/style.d.ts StyleSky.dim
@@ -127,6 +124,14 @@ export class Sky {
     engine.look.lights.author.drive([...(D.sun === true ? ['sun.intensity', 'sun.color'] : []), ...(D.hemi === true ? ['hemi.intensity', 'hemi.color', 'hemi.ground'] : [])], 'sky');
     // Per-frame recomputed properties: direct edits by games get overwritten, so warn once in dev (frame.js)
     /** @internal */ this._owned = watchOwned(this);
+  }
+
+  /** The day's rows as colors (start, look.sky.set({ keyframes })) @internal */
+  _setKeyframes(rows) {
+    /** @internal */ this.kf = rows.map(k => [k[0], new THREE.Color(k[1]), new THREE.Color(k[2]), new THREE.Color(k[3]), k[4], k[5]]);
+    // brightest row of the sky's ambient light (ambient column x the hemi color's brightness, frame.js skyLight): the sky's light now / this is
+    // the 0-1 scale the sky.tint color (weather grey) follows
+    /** @internal */ this._lightPeak = Math.max(...this.kf.map(k => skyLight(k[1], k[2], k[5])));
   }
 
   /**

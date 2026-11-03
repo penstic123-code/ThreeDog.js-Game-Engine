@@ -89,6 +89,7 @@ export class Ambience {
   /**
    * What each rule is doing (debug, tests): sound name, whether its condition holds, its current target volume
    * @returns {{ sound: string, on: boolean, volume: number }[]}
+   * @internal a debug readout the engine tests read; games react to their own rules instead
    */
   get info() { return this._rules.map(s => ({ sound: s.rule.sound, on: s.level > 0, volume: +s.level.toFixed(3) })); }
 

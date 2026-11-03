@@ -107,7 +107,7 @@ export const specs = [
         // 键名写错是选项错误：开发时直接抛错（readParams 规矩，2026-11-01），不再只是警告；所以这里收的是错误信息，且确认没装上
         const badFoam = at({ foam: { colour: 0xffffff } }); badFoam.e?.dispose();
         out.badKey = badFoam.error ?? ''; out.badKeyBuilt = !!badFoam.e;
-        try { const m = make({}, [water({ sea: false, depthColour: {} })]); m.e?.dispose(); out.optKey = ''; } catch (err) { out.optKey = err.message; }
+        try { const m = make({}, [water({ sea: false, segmnets: 8 })]); m.e?.dispose(); out.optKey = ''; } catch (err) { out.optKey = err.message; }
         // reflections through style.water.material (recipe 44): a three.js Reflector feeds its material to the engine water
         const { Reflector } = threedogTest; let lastMirror;
         const mirrorWater = () => {   // the recipe 44 example, verbatim
@@ -141,7 +141,7 @@ export const specs = [
       check('glsl.wave 照抄默认写法逐像素相同；换波函数画面不同', r.copyWave && r.wave === true, String(r.wave));
       check('glsl.surface 带自定义 uniform 能编译且画面不同', r.surface === true, String(r.surface));
       check('写错：by 拼错报错给可选值；surface 签名不对报错给签名', /did you mean 'view'/.test(r.badBy || '') && /threedogWaterSurface\(vec4 base/.test(r.badSurface || ''), `${r.badBy} | ${r.badSurface}`);
-      check('写错键：style.water.foam / water() 选项拼错开发时报错，给近似名', /colour/.test(r.badKey) && /`color`/.test(r.badKey) && !r.badKeyBuilt && /depthColour/.test(r.optKey) && /`depthColor`/.test(r.optKey), `${r.badKey} | ${r.optKey}`);
+      check('写错键：style.water.foam / water() 选项拼错开发时报错，给近似名', /colour/.test(r.badKey) && /`color`/.test(r.badKey) && !r.badKeyBuilt && /segmnets/.test(r.optKey) && /`segments`/.test(r.optKey), `${r.badKey} | ${r.optKey}`);
       check('Reflector 经 style.water.material 接入：编译渲染一帧无错，反射贴图里有红箱子', r.reflector, r.reflErr);
     },
   },

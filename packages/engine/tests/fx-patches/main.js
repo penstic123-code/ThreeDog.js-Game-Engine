@@ -170,7 +170,8 @@ async function waterCases() {
   const flatWater = new THREE.PlaneGeometry(24, 24, 96, 96).rotateX(-Math.PI / 2);
   for (const [name, look] of Object.entries(looks)) {
     const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'fx-patches-water', urlState: false });
-    e.use(water({ sea: false, color: 0x3070a0, opacity: 1, flat: false, waveHeight: 1.6, waveScale: 4, waveSpeed: 1, fresnel: 0.9, ...look }));
+    e.use(water({ sea: false, flat: false }));
+    e.look.water.set({ color: 0x3070a0, opacity: 1, waveHeight: 1.6, waveScale: 4, waveSpeed: 1, fresnel: 0.9, ...look });
     const src = e.water.material;
     const scene = (kind, patched) => {
       const s = new THREE.Scene();

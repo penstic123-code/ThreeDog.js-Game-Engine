@@ -59,7 +59,10 @@ models baked earlier keep their colors.
 ## 0c. What a style may not hold
 Swapping the style must never change the map or the rules, only how they look. So these are **not** style fields, and a dev run throws an error
 naming where each goes:
-- water level, whether there is a sea, the water mesh size: `style.water.level / sea / size` -> `engine.use(water({ level, sea, size }))`
+- water level, whether there is a sea, the water mesh size: `style.water.level / sea / size` -> `engine.use(water({ level, sea, size }))`.
+  The other way round, a look value is never a module option: water color, waves, normal map (`style.water.*`), sky keyframes, sun, moon, stars
+  (`style.sky.*`) and terrain `normals` (`style.terrain.config.normals`) are set in the style, and at run time with `engine.look.water` /
+  `look.sky` / `look.ground` `.set(...)`; `water({ color })`, `sky({ moonSize })`, `terrain({ normals })` throw naming that call
 - terrain shape and size (seed, chunk size, resolution, water level, height functions): `style.terrain.config.*` -> `terrain({ ... })`. The looks
   in `terrain.config` are `shading` (`'smooth'` | `'texture'` | `'flat'`), `colorResolution`, `normals` and `normalFn` (recipe 37); at run time
   `engine.look.ground.set({ shading, colors, variation, detail })` (recipe 52)
@@ -80,9 +83,15 @@ export default {            // style/plugins/20-stone.js: export default Object.
 ```
 They sit **under** the game: a style plugin's material and patch are on the style layer of `engine.look.materials`, so the game's
 `look.materials.set / replace` and the game's own plugins win. Names are `<style>/<file>` (`ink/10-paper`); `engine.plugins.off('ink')` takes
-all of the style's plugins out, `off('ink/10-paper')` one; `describe().slots` lists them with `style ink: plugins/...`. In a list of parts each
+all of the style's plugins out, `off('ink/10-paper')` one; `describe().slots` lists them with `style ink: plugins/...`. `off('ink')` turns off
+the pack's **plugins only**: its starting values (`exposure`, `fog`, the `materials` table and the other fields of `style/index.js`) are the
+style itself and stay; the `off()` result and the off rows of `describe().slots` say so. To drop those too, start with another style.
+Each plugin is its own owner (`style:ink/10-paper`), the pack only groups them: switching one off takes out only what that file wrote, and
+the others keep theirs. Two plugins that write the same key on the same layer (two Materials named `stone`) are a `shared-conflict` naming
+both files in development; to let one win on purpose, say so in that file: `export const replaces = '10-stone';` (the other is unplugged
+while this one is on, and comes back when it goes off; `plugins.list()` shows `replacedBy`). In a list of parts each
 part's plugins stay under that part's name, and `{ plugins: null }` drops the earlier parts'. The personal library (`threedog lib`) stores a
-plugin once; `lib pull` puts it in `plugins/`, and copying the file into a style folder's `plugins/` is all it takes to bundle it.
+plugin once; `lib pull` puts its code in `plugins/<name>/` with the wiring file `plugins/<name>.js`, and copying both into a style folder's `plugins/` is all it takes to bundle it.
 
 ## 1. Creating a new style
 Edit your game's `style/index.js` (`threedog new-game` makes it empty, every key commented out; fill one section at a time). To try a second look,

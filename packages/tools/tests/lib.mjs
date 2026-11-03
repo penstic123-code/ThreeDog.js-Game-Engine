@@ -6,9 +6,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { TOOLS } from '../paths.mjs';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import { addEntry, listEntries, pullEntry, writePage, libraryDir } from '../lib.mjs';
 
-export const name = 'lib: add copies into an entry with entry.json, list filters by words and names broken entries, pull rewrites imports into another game, a different entry is refused without --force, THREEDOG_LIBRARY moves it';
+// the engine's plugins loader and module type check, found through the installed package (core/ ships with it): createEngine needs a DOM,
+// these two do not, and they are exactly what engine.start() runs on the plugins folder
+const core = f => import(pathToFileURL(join(dirname(fileURLToPath(import.meta.resolve('threedog'))), 'core', f)).href);
+const { Plugins } = await core('plugins.js'), { checkType } = await core('moduleTypes.js');
+
+export const name = 'lib: add copies into an entry with entry.json, list filters by words and names broken entries, pull rewrites imports into another game and writes the plugins/ wiring file for a factory (it plugs at start), a different entry is refused without --force, THREEDOG_LIBRARY moves it';
 
 export async function run({ check }) {
   const tmp = mkdtempSync(join(tmpdir(), 'threedog-lib-'));
@@ -37,7 +44,8 @@ export async function run({ check }) {
       ['sparks.js', 'parts/rand.js', 'tex/spark.png'].every(f => existsSync(join(lib, 'sparks', f))), JSON.stringify(r.writes));
     check('add: entry.json has name, kind, summary from the first JSDoc line, use line, backends, params and where it came from',
       e.name === 'sparks' && e.kind === 'effect' && e.summary === 'Orange sparks that fall and fade.' && /import \{ sparks \} from '\.\/art\/sparks\.js'/.test(e.use)
-      && e.backends.join() === 'webgl,webgpu' && e.params.join() === 'count,spread' && /^game-a \d{4}-\d\d-\d\d$/.test(e.from), JSON.stringify(e));
+      && e.backends.join() === 'webgl,webgpu' && e.params.join() === 'count,spread' && /^game-a \d{4}-\d\d-\d\d$/.test(e.from)
+      && e.plug === "import { sparks } from './sparks.js';\nexport default sparks();\n", JSON.stringify(e));
     check('add: the preview note says there is none for a code entry', /no preview/.test(r.note), r.note);
 
     // a shader file by path, with the backend the code shows
@@ -52,10 +60,38 @@ export async function run({ check }) {
 
     // pull into another game: imports rewritten for the new layout, texture beside it, no link back
     const p = await pullEntry('sparks', { game: b, cwd: tmp, lib });
-    const copied = readFileSync(join(b, 'plugins', 'sparks.js'), 'utf8');
-    check('pull: the files land in the game\'s plugins/ (a code entry) and the relative imports point at the copies',
-      existsSync(join(b, 'plugins', 'parts', 'rand.js')) && existsSync(join(b, 'plugins', 'tex', 'spark.png')) && copied.includes("from './parts/rand.js'") && copied.includes("'./tex/spark.png'") && copied.includes("from 'three'"), copied);
-    check('pull: the entry\'s use line comes back, and entry.json / preview are not copied into the game', /sparks/.test(p.entry.use) && !existsSync(join(b, 'plugins', 'entry.json')));
+    const copied = readFileSync(join(b, 'plugins', 'sparks', 'sparks.js'), 'utf8'), wiring = readFileSync(join(b, 'plugins', 'sparks.js'), 'utf8');
+    check('pull: a code entry\'s files land in plugins/<name>/ (not plugged themselves) and the relative imports point at the copies',
+      existsSync(join(b, 'plugins', 'sparks', 'parts', 'rand.js')) && existsSync(join(b, 'plugins', 'sparks', 'tex', 'spark.png')) && copied.includes("from './parts/rand.js'") && copied.includes("'./tex/spark.png'") && copied.includes("from 'three'"), copied);
+    check('pull: the wiring file plugins/<name>.js calls the factory from the entry\'s plug line', wiring === "import { sparks } from './sparks/sparks.js';\nexport default sparks();\n" && p.wiring?.text === wiring, wiring);
+    check('pull: the entry\'s use line comes back, and entry.json / preview are not copied into the game', /sparks/.test(p.entry.use) && !existsSync(join(b, 'plugins', 'sparks', 'entry.json')) && !existsSync(join(b, 'plugins', 'entry.json')));
+
+    // [guard] a factory entry (a module maker with a local helper) pulled into a fresh game plugs at start with no hand-written line:
+    // the game's plugins/ top-level files go through engine.plugins exactly as the vite preset hands them over
+    const c = join(tmp, 'game-c');
+    put(join(c, 'package.json'), '{"name":"game-c","type":"module"}');
+    put(join(a, 'systems', 'score.js'), "import { start } from './scoreStart.js';\n/** A score counter module */\nexport function scoreKeeper(o = {}) { return { name: 'score', type: 'rules', install(engine) { return { points: start + (o.bonus ?? 0) }; } }; }\n");
+    put(join(a, 'systems', 'scoreStart.js'), 'export const start = 0;\n');
+    await addEntry('systems/score.js', { game: a, cwd: tmp, lib, name: 'score-keeper', kind: 'module', noPreview: true, plug: 'scoreKeeper({ bonus: 5 })' });
+    const pc = await pullEntry('score-keeper', { game: c, cwd: tmp, lib });
+    const top = (await import('node:fs')).readdirSync(join(c, 'plugins')).filter(f => /\.m?js$/.test(f));
+    const files = {};
+    for (const f of top) files['./plugins/' + f] = await import(pathToFileURL(join(c, 'plugins', f)).href);
+    const used = [], fake = { _started: false, use(m) { checkType(m); used.push(m); return this; }, modules: new Map() };
+    let startErr = '';
+    try { const pl = new Plugins(fake); pl.add(files); fake._started = true; pl._plugAll(); } catch (x) { startErr = x.message; }
+    check('[guard] pull of a factory entry: only the wiring file is at the top of plugins/, it plugs at start with no error, and --plug arguments reach the factory',
+      top.join() === 'score-keeper.js' && !startErr && used.length === 1 && used[0].name === 'score' && used[0].install().points === 5 && pc.wiring?.text.includes('scoreKeeper({ bonus: 5 })'), startErr || JSON.stringify({ top, used: used.map(m => m.name), wiring: pc.wiring }));
+    // an entry with no plug line (written before plug lines existed) gets one inferred at pull; --plug on pull wins
+    const old = JSON.parse(readFileSync(join(lib, 'score-keeper', 'entry.json'), 'utf8')); delete old.plug;
+    writeFileSync(join(lib, 'score-keeper', 'entry.json'), JSON.stringify(old));
+    const inferred = await pullEntry('score-keeper', { game: c, cwd: tmp, lib, dry: true, force: true });
+    const given = await pullEntry('score-keeper', { game: c, cwd: tmp, lib, dry: true, force: true, plug: 'scoreKeeper({ bonus: 9 })' });
+    let badPlug = '';
+    try { await pullEntry('score-keeper', { game: c, cwd: tmp, lib, dry: true, plug: 'nothere()' }); } catch (x) { badPlug = x.message; }
+    check('pull: an entry without a plug line gets the one exported function called; --plug sets the call; a name no file exports is refused',
+      inferred.wiring?.text === "import { scoreKeeper } from './score-keeper/score.js';\nexport default scoreKeeper();\n" && given.wiring?.text.includes('scoreKeeper({ bonus: 9 })')
+      && /no file at the top of the entry exports "nothere"/.test(badPlug), JSON.stringify([inferred.wiring, given.wiring, badPlug]));
     const to = await pullEntry('glow-material', { game: b, cwd: tmp, lib, to: 'fx/mine' });
     check('pull --to: another folder of the game', existsSync(join(b, 'fx', 'mine', 'glow.js')) && to.writes.length === 1, JSON.stringify(to.writes));
     let miss = '';
@@ -70,9 +106,10 @@ export async function run({ check }) {
     const same = await addEntry('sparks', { game: a, cwd: tmp, lib, noPreview: true, force: true });
     check('add --force: replaces the entry', !same.refused && readFileSync(join(lib, 'sparks', 'sparks.js'), 'utf8').endsWith('// v2\n'));
     // a pull must not overwrite a file the game edited
-    writeFileSync(join(b, 'plugins', 'sparks.js'), copied + '\n// edited');
+    writeFileSync(join(b, 'plugins', 'sparks.js'), wiring + '// edited\n');
     const blocked = await pullEntry('sparks', { game: b, cwd: tmp, lib });
-    check('pull: a game file that differs stops the pull, nothing written', blocked.conflicts.length === 1 && readFileSync(join(b, 'plugins', 'sparks.js'), 'utf8').endsWith('// edited'));
+    check('pull: a game file that differs (the wiring file, the code changed by --force add) stops the pull, nothing written',
+      blocked.conflicts.length === 2 && readFileSync(join(b, 'plugins', 'sparks.js'), 'utf8').endsWith('// edited\n') && !readFileSync(join(b, 'plugins', 'sparks', 'sparks.js'), 'utf8').includes('// v2'), JSON.stringify(blocked.conflicts));
 
     // the page lists every entry
     const html = readFileSync(writePage(lib), 'utf8');
@@ -95,7 +132,7 @@ export async function run({ check }) {
     const added = cli(['add', 'glow', '-w', a, '--summary', 'Plain glow', '--no-preview'], { THREEDOG_LIBRARY: lib });
     check('cli: add -w <game> by name prints the entry, its use line and that there is no preview', added.status === 0 && /added "glow"/.test(added.stdout) && /use: /.test(added.stdout) && /no preview/.test(added.stdout), added.stdout + added.stderr);
     const pulled = cli(['pull', 'glow', '--dry'], { THREEDOG_LIBRARY: lib });
-    check('cli: pull --dry lists the files and says it is plugged at start, writes nothing', pulled.status === 0 && /would copy "glow"/.test(pulled.stdout) && /Plugged at engine.start/.test(pulled.stdout) && !existsSync(join(b, 'plugins', 'glow.js')), pulled.stdout + pulled.stderr);
+    check('cli: pull --dry lists the files and says it is plugged at start, writes nothing', pulled.status === 0 && /would copy "glow"/.test(pulled.stdout) && /would write plugins\/glow\.js \(plugged at engine\.start\(\)/.test(pulled.stdout) && /export default glow\(\)/.test(pulled.stdout) && !existsSync(join(b, 'plugins', 'glow.js')), pulled.stdout + pulled.stderr);
 
     // a bad name or kind fails before anything is written
     let bad = '';
@@ -109,6 +146,6 @@ export async function run({ check }) {
     check('[guard] cli: list still prints the good entries, then names each broken one with why, and exits 1',
       lsBroken.status === 1 && /^sparks /m.test(lsBroken.stdout) && /2 entries could not be read/.test(lsBroken.stdout)
       && /zz-bad-json \(entry\.json: /.test(lsBroken.stdout) && /zz-no-name \(entry\.json has no "name"\)/.test(lsBroken.stdout), lsBroken.stdout + lsBroken.stderr);
-    check('list (API): the broken folders are not entries', !listEntries(lib).some(e => /^zz-/.test(e.name)) && listEntries(lib).length === 3, listEntries(lib).map(e => e.name).join());
+    check('list (API): the broken folders are not entries', !listEntries(lib).some(e => /^zz-/.test(e.name)) && listEntries(lib).length === 4, listEntries(lib).map(e => e.name).join());
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }

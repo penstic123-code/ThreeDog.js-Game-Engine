@@ -190,7 +190,7 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - photo/ Photo mode: a sharper shot, then restore — Photo.js
 - rigid/ Real physics (Rapier): objects that topple, roll, get pushed an… — RigidBodies.js, Vehicles.js, sync.js
 - settings/ Settings menu module entry — Settings.js, apply.js, sections.js, strings.js, view.js
-- sky/ Sky environment lighting part (mixed into Sky.prototype): scene… — Sky.js, cascades.js, cascades.tsl.js, clouds.js, domeLayers.js, environment.js, fog.js, frame.js, look.js, lookFog.js, lookShadow.js, lookSky.js, season.js, shader.js, shadow.js, skyModule.js, tint.js
+- sky/ look.sky: the sky dome as a look part — Sky.js, cascades.js, cascades.tsl.js, clouds.js, domeLayers.js, environment.js, fog.js, frame.js, look.js, lookFog.js, lookShadow.js, lookSky.js, season.js, shader.js, shadow.js, skyModule.js, tint.js
 - terrain/ Terrain module: chunked, streamed ground built from a height fu… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, look.js, lookGround.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zones: who enters, stays, leaves — 

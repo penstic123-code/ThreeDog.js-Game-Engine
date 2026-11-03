@@ -190,10 +190,13 @@
   - `wait?: number` How many seconds to advance (real seconds: fixed-step seconds, no scale)
   - `cutscene?: 'skip' | 'keep'` Opening cutscene: 'skip' skips it / 'keep' plays it as usual
   - `view?: string` A view declared with engine.views to show after engine:ready (?view=name); ignored when the game declared no views
-- **StartupReport** Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, compileMs shader compilation before the first frame, modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded
+  - `play?: string | boolean` Present (?play, any value): leave the title screen the way its Start does (engine.session.newGame(), the title part closes; flow leaves its start state) before wait; nothing when no title is up
+- **StartupReport** Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, compileMs shader compilation before the first frame, modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded. firstFrameMs: page open to the end of the first frame drawn after the loading screen (null until that frame, and headless); phases add up to it: script (page open until createEngine), construct (createEngine), setup (game code until start()), init (saves, renderer, module init), preload, world (scenario parameters, nearby builds), compile (shaders + hidden warm-up frame), draw (ready until the first frame's draw calls were submitted)
   - `totalMs: number`
   - `startMs: number`
   - `preloadMs: number`
   - `streamMs: number | null`
   - `compileMs: number`
   - `modules: Record<string, { init?: number; ready?: number }>`
+  - `firstFrameMs: number | null`
+  - `phases: { script, construct, setup, init, preload, world, … }`

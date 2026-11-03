@@ -3,6 +3,13 @@
 // "Anything" is the whole load, not only load() itself: a listener of an event a part emits while loading (world:load) and the modules' afterLoad
 // hooks count too. Reported on their own they let the load carry on: a hand-edited player position threw in a world:load listener and left the game
 // frozen half-loaded (durability audit 2026-11-02).
+// The capture lasts the whole load, past every await: an async part that emits after `await` (async load(d) { apply(d); await res(); emit(...) })
+// is part of the load as much as its first line. The browser has no async context to tell whose code emitted after an await, so each load
+// carries its own capture scope (Events._scopes): a part's synchronous run puts its load's scope on top; between awaits the load started last
+// gets the errors. Loads are not queued: apply changes the state synchronously when every part is synchronous (callers rely on that), and two
+// overlapping loads were never sound anyway (the second one's rollback point is the first one's half-applied state). An unrelated listener that
+// throws while a load is still settling fails that load too; gameplay is frozen while parts load, so that is rare, and the error is reported.
+// The rollback point is a copy (structuredClone of every part's save()): save() may return the live object, which load() then writes into.
 import { toast } from '../ui/UI.js';
 import { fmt, warnOnce } from './validate.js';
 import { reportError } from './errors.js';
@@ -16,6 +23,8 @@ const DEV_STRINGS = {
   rollback: "rollback of save part '{k}' after a failed load (that part may be half-loaded; the other parts rolled back)",
   listener: 'a listener of event {name} threw while the part loaded: {msg}',
   hook: "afterLoad of module '{k}' threw ({msg}); the game was rolled back to how it was before loading '{slot}'",
+  notPlain: "save() of save part '{k}' returned data that cannot be copied ({msg}), so loading '{slot}' could not keep a rollback point and was refused "
+    + 'before anything changed. save() must return plain data (no functions, DOM nodes, three objects); return a copy of what the save needs',
 };
 
 /** A save part's load threw: the error named after the part (thrown on, so the caller can roll back) */
@@ -36,7 +45,17 @@ export function applySave(s, data, slot) {
       toast(s.engine, s.engine.t('saves.' + r.reason), { kind: 'error', ms: 5000 }); }
     return Promise.resolve(false);
   }
-  const e = s.engine, before = s._collect().data, foreign0 = s._foreign;   // the rollback point
+  const e = s.engine, foreign0 = s._foreign;
+  let before;   // the rollback point, a copy (rollbackPoint)
+  try { before = rollbackPoint(s, slot); } catch (err) { reportError(e, err, `saves.apply('${slot}')`); return Promise.resolve(false); }
+  const ev = e.events, scope = [];   // this load's capture scope: listener errors from now until the load settled (top of the file)
+  ev._scopes.push(scope);
+  const settled = () => { const i = ev._scopes.lastIndexOf(scope); if (i >= 0) ev._scopes.splice(i, 1); };
+  return Promise.resolve(applyParts(s, e, r, slot, before, foreign0, scope)).finally(settled);
+}
+
+/** The rest of applySave, under the load's capture scope */
+function applyParts(s, e, r, slot, before, foreign0, scope) {
   e.commits.invalidate(); e.ops._mark('(load)');   // old background results die with the old world; the op log shows where the load cut in
   s._foreign = r.foreign;
   const fail = err => {
@@ -48,28 +67,47 @@ export function applySave(s, data, slot) {
     const back = readSave(before, s.providers, '(rollback)');
     // every part reloads its pre-load state; a part that throws again is reported (once) and the rest still roll back
     const onPart = er => reportError(e, er, fmt(DEV_STRINGS.rollback, { k: er.part }), { soft: true });
-    return Promise.resolve('list' in back ? e.ops.allow(() => runParts(e, back.list, '(rollback)', onPart)) : null).then(() => false);
+    return Promise.resolve('list' in back ? e.ops.allow(() => runParts(e, back.list, '(rollback)', scope, onPart)) : null).then(() => false);
   };
   let out;
-  try { out = e.ops.allow(() => runParts(e, r.list, slot)); } catch (err) { return fail(err); }   // loading writes state outside ops on purpose (guard allows it)
+  try { out = e.ops.allow(() => runParts(e, r.list, slot, scope)); } catch (err) { return fail(err); }   // loading writes state outside ops on purpose (guard allows it)
   // a part still loading (its load() returned a Promise): gameplay waits until every part is applied -- no fixed step, no op (opsFail.js
   // PARTS_LOADING). Held through a rollback too, since that may wait on async parts as well. A fully sync load never takes it.
   const fz = out !== true ? e.freeze(PARTS_LOADING) : null;
   const partsDone = () => { fz?.remove(); };
   // a load is a state change: ops.revision moves. afterLoad belongs to the load (Saves.apply doc): a hook that throws fails it like a part's load()
-  return Promise.resolve(out).then(() => { partsDone(); e.ops.revision++; return afterLoad(e, slot).then(() => true, fail); },
+  return Promise.resolve(out).then(() => { partsDone(); e.ops.revision++; return afterLoad(e, slot, scope).then(() => true, fail); },
     err => Promise.resolve(fail(err)).finally(partsDone));
 }
 
-/** Run one part's load with event-listener errors collected (Events._catch): the first one counts as the load throwing, so it rolls back */
-function callLoad(e, fn) {
-  const ev = e.events, prev = ev._catch, mine = ev._catch = [];
-  let r;
-  try { r = fn(); } finally { ev._catch = prev; }
-  if (mine.length) {
-    const { name, err } = mine[0];
-    throw Object.assign(new Error(fmt(DEV_STRINGS.listener, { name, msg: err?.message ?? String(err) })), { cause: err });
+/** The rollback point: every part's save(), copied so a load() writing into the object its save() returned cannot change it.
+ *  A part whose data cannot be copied throws (save-part-threw): without a true copy a failed load could not be undone */
+function rollbackPoint(s, slot) {
+  const data = s._collect().data;
+  for (const k of Object.keys(data.parts)) {
+    try { data.parts[k] = structuredClone(data.parts[k]); }
+    catch (err) { throw Object.assign(codedError('save-part-threw', fmt(DEV_STRINGS.notPlain, { k, slot, msg: err?.message ?? String(err) })), { cause: err }); }
   }
+  return data;
+}
+
+/** A listener error collected in scope since index from: the first counts as the load throwing (and the scope forgets them) */
+function takeListenerError(scope, from) {
+  if (scope.length <= from) return;
+  const { name, err } = scope[from];
+  scope.length = from;
+  throw Object.assign(new Error(fmt(DEV_STRINGS.listener, { name, msg: err?.message ?? String(err) })), { cause: err });
+}
+
+/** Run one part's load with event-listener errors collected in the load's scope (on top while it runs synchronously, see the top of the file);
+ *  an async load is checked once it settled, so a listener that throws after its await fails the part too */
+function callLoad(e, fn, scope) {
+  const ev = e.events, from = scope.length;
+  ev._scopes.push(scope);
+  let r;
+  try { r = fn(); } catch (err) { scope.length = from; throw err; } finally { ev._scopes.splice(ev._scopes.lastIndexOf(scope), 1); }
+  if (r && typeof r.then === 'function') return r.then(v => { takeListenerError(scope, from); return v; }, err => { scope.length = from; throw err; });
+  takeListenerError(scope, from);
   return r;
 }
 
@@ -77,13 +115,13 @@ function callLoad(e, fn) {
  * Load parts in order; a part returning a Promise makes the rest wait for it. A failing part throws (or rejects) with the part named,
  * unless onFail is given (rollback): then onFail(err) is called and the next part loads anyway.
  */
-function runParts(e, list, slot, onFail = null) {
+function runParts(e, list, slot, scope, onFail = null) {
   const failed = (k, err) => { const er = loadError(k, err, slot); if (!onFail) throw er; onFail(er); };
   const step = i => {
     for (; i < list.length; i++) {
       const [k, p, d] = list[i];
       let r;
-      try { r = callLoad(e, () => p.load(d)); } catch (err) { failed(k, err); continue; }
+      try { r = callLoad(e, () => p.load(d), scope); } catch (err) { failed(k, err); continue; }
       if (r && typeof r.then === 'function') return r.then(() => step(i + 1), err => { failed(k, err); return step(i + 1); });
     }
     return true;
@@ -139,18 +177,23 @@ export function loadSlot(s, slot, base) {
  *  applySave runs it (not only saves.load): session.newGame() / quit() apply the base data the same way and need the same rebuild.
  *  Every hook settles before the result (allSettled): a rollback must not start while another hook is still building the state being replaced.
  *  The first failure rejects, named after its module (save-load-threw), and applySave rolls back. Rollback itself does not rerun afterLoad
- *  (the world rebuilds nearby models over the next frames). */
-async function afterLoad(e, slot) {
+ *  (the world rebuilds nearby models over the next frames).
+ *  The hooks run side by side, so a listener error in this phase is not pinned on one hook: once all settled, any error the load's scope
+ *  collected since its parts finished fails the load (the last check before apply resolves true). */
+async function afterLoad(e, slot, scope) {
   const hooks = [...e.modules.values()].filter(m => m.afterLoad);
-  if (!hooks.length) return;
-  const fz = e.freeze('threedog:load');   // a namespaced owner: a game's own freeze('load') must not be released by (or release) the engine's
-  let res;
-  try { res = await Promise.allSettled(hooks.map(m => Promise.resolve().then(() => callLoad(e, () => m.afterLoad(e))))); } finally { fz.remove(); }
+  let res = [];
+  if (hooks.length) {
+    const fz = e.freeze('threedog:load');   // a namespaced owner: a game's own freeze('load') must not be released by (or release) the engine's
+    try { res = await Promise.allSettled(hooks.map(m => Promise.resolve().then(() => m.afterLoad(e)))); } finally { fz.remove(); }
+  }
   const i = res.findIndex(r => r.status === 'rejected');
   if (i >= 0) {
+    scope.length = 0;
     const err = /** @type {PromiseRejectedResult} */ (res[i]).reason, k = hooks[i].name;
     throw Object.assign(codedError('save-load-threw', fmt(DEV_STRINGS.hook, { k, slot, msg: err?.message ?? String(err) })), { cause: err });
   }
+  takeListenerError(scope, 0);
 }
 
 /** Collect every part: { data, failed: [[key, error]] }. Parts of the loaded save that no module owns are carried along. */

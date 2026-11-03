@@ -31,7 +31,7 @@ const idOf = who => (typeof who === 'string' ? who : who?.id);
 /** engine.control (made for every engine in services.js; the characters module tells it how to find a character by id) */
 export class Control {
   constructor(engine) {
-    this.engine = engine;
+    /** @internal */ this.engine = engine;
     /** @type {Map<string, Map<string, any>>} id -> owner -> entry (take order) */ this._by = new Map();
     /** @internal the entry whose move is running now (handle.move / a behaviour run): the one caller character.move() lets through */ this._cur = null;
     /** @internal id -> Character; set by the characters module through resolveWith (core names no module) */ this._resolve = () => null;

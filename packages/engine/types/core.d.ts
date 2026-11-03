@@ -327,7 +327,11 @@ export type StringTables = Record<string, Record<string, string>>;
  *  later parts wait for it to finish before loading).
  *  first: true providers load first (parts such as the level, where the rest only makes sense after it is loaded) */
 export interface SaveProvider {
+  /** This part's data now: plain data (structuredClone can copy it; no functions, DOM nodes or three objects). It may be the live object the
+   *  part keeps: the engine copies it for its rollback point before a load, so a load() that writes into that same object can still be undone.
+   *  Data that cannot be copied makes a load refuse before anything changes (save-part-threw) */
   save: () => any;
+  /** Read data back; may return a Promise (later parts wait). Listener errors of events it emits count as the load throwing, also after an await */
   load: (data: any) => void | Promise<void>;
   /** Load before the other parts (such as the level) */
   first?: boolean;
@@ -834,6 +838,12 @@ export interface ModuleCtx {
     /** True while owner (default the module) holds the character */
     has(who: any, owner?: string): boolean;
   };
+  /**
+   * Run fn once while start() waits for the GPU to compile shaders (the page's thread is idle then), for a one-time warm-up that would
+   * otherwise land in the first frame: a WASM library's first call compiles its code. After start() it runs at once.
+   * @example ctx.whileCompiling(() => { const w = new R.World(g); w.step(); w.free(); })
+   */
+  whileCompiling(fn: () => void): void;
 }
 
 /** What a module may own (ModuleDef.type; core/moduleTypes.js) */
@@ -1237,10 +1247,15 @@ export interface StreamHandle { def: StreamEntryOptions; object: Object3D | null
  * Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required
  * by stream registrations finished, compileMs shader compilation before the first frame,
  * modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest
- * module is reported in the console when exceeded
+ * module is reported in the console when exceeded.
+ * firstFrameMs: page open to the end of the first frame drawn after the loading screen (null until that frame, and headless); phases add up to it:
+ * script (page open until createEngine), construct (createEngine), setup (game code until start()), init (saves, renderer, module init), preload,
+ * world (scenario parameters, nearby builds), compile (shaders + hidden warm-up frame), draw (ready until the first frame's draw calls were submitted)
  */
 export interface StartupReport {
   totalMs: number; startMs: number; preloadMs: number; streamMs: number | null; compileMs: number; modules: Record<string, { init?: number; ready?: number }>;
+  firstFrameMs: number | null;
+  phases: { script: number; construct: number; setup: number; init: number; preload: number; world: number; compile: number; draw: number | null };
 }
 
 // ======================================================================
@@ -1267,6 +1282,8 @@ export interface StateParams {
   cutscene?: 'skip' | 'keep';
   /** A view declared with engine.views to show after engine:ready (?view=name); ignored when the game declared no views */
   view?: string;
+  /** Present (?play, any value): leave the title screen the way its Start does (engine.session.newGame(), the title part closes; flow leaves its start state) before wait; nothing when no title is up */
+  play?: string | boolean;
 }
 
 /** A claim on something only its owner releases (pause, freeze, takeCamera, views) */
@@ -1327,6 +1344,14 @@ export interface LookMaterials extends LookPart<Record<string, Record<string, an
    * @example engine.look.materials.glow('window', { night: 2 });
    */
   glow(match: string | import('three').Material | ((material: import('three').Material) => boolean), opts: { night: number; day?: number; dusk?: number; owner?: string }): LookHandle;
+  /**
+   * Make every material makeMaterial made that is on a mesh in the scene again from the current layers (type, replace, patches, spec) and put
+   * the new one in its place: the one way a patch / replace / type change reaches materials made before it. Keeps the call's own params, live
+   * keys set by hand and patches added after makeMaterial (wind, cloud shadow); the old material is disposed. engine.plugins.off / on of a
+   * material or patch plugin calls it. kept: made materials the scene does not hold (left as they are).
+   * @example engine.look.materials.rebuild();   // after look.materials.add / replace, for the materials already out
+   */
+  rebuild(): { rebuilt: number; kept: number; ms: number };
 }
 /** owner: who writes the layer (non-empty name, default 'game'); roles: only materials.add, the material roles that get the patch */
 export interface LookOptions {
@@ -1428,7 +1453,13 @@ export interface LookEnv { intensity: number; rotation: number; interval: number
 export interface LookFog { kind: string; color: ColorLike | 'horizon'; density: number; near: number; far: number; height: number; falloff: number; enabled: boolean }
 /** Color keys also take ({ time, weather, season, day, state, sky }) => color, evaluated every frame (engine.look.state feeds state) */
 export type LookColorFn = ColorLike | ((ctx: import('./style').LookContext) => ColorLike) | null;
-export interface LookSky { clouds: Record<string, any>; backdrop: LookColorFn; top: LookColorFn; horizon: LookColorFn }
+/** The style.sky look keys (types/style.d.ts StyleSky has what each one does) plus the per-frame color overrides top / horizon */
+export interface LookSky {
+  clouds: Record<string, any>; backdrop: LookColorFn; top: LookColorFn; horizon: LookColorFn;
+  keyframes: import('./style').SkyKeyframe[]; sunSize: number; sunGlow: number; sunBrightness: number; moonSize: number; moonColor: ColorLike;
+  moonBrightness: number; starDensity: number; starScale: number; gradientCurve: number; groundTint: ColorLike; orbitTilt: number; orbitSway: number;
+  dim: { tint?: boolean; stars?: boolean };
+}
 export interface LookShadow {
   type: 'basic' | 'pcf' | 'vsm'; radius: number; blurSamples: number; bias: number; normalBias: number; mapSize: number; updateEvery: number;
   snap: number | 'texel'; ahead: number; cascades: number; maxFar: number; fade: boolean; lightMargin: number; enabled: boolean;
@@ -1439,11 +1470,17 @@ export interface LookWind { frequency: number; amplitude: number }
 export interface LookGround {
   colors: Record<string, ColorLike>; biomeColors: Record<string, string | string[]>; steep: Array<{ maxNormalY: number; colors: any }>;
   variation: any; detail: any; shading: string;
+  /** Texture shading only: lighting normals 'smooth' (null = smooth) | 'flat' */
+  normals: 'smooth' | 'flat' | null;
 }
 export interface LookSurface { lighting: Record<string, any>; detail: Record<string, any>; ramp: number[]; soften: number }
 export interface LookWater {
   color: ColorLike; opacity: number; depthColor: { shallow?: ColorLike; deep?: ColorLike }; foam: Record<string, any>;
   waveHeight: number; waveScale: number; waveSpeed: number; fresnel: number;
+  /** Normal map asset name or path (null = none; a change rebuilds the material once) */
+  normalMap: string | null; normalScale: number; normalRepeat: number;
+  /** Normal map scroll [x, z] per second */
+  normalSpeed: [number, number]; shininess: number; specular: ColorLike;
 }
 
 /** engine.look: the parts by name. A part exists only when the module that provides it is installed (fog / sky / shadow / env: sky(); ground: terrain(); wind: vegetation(); water; weather) */
@@ -1457,8 +1494,6 @@ export interface Look {
    */
   view: LookPart<{}>;
   cloudShadow: LookPart<LookCloudShadow>;
-  /** Old name of cloudShadow (recipes/52-look.md, Old names) */
-  clouds: LookPart<LookCloudShadow>;
   env: LookPart<LookEnv>;
   fog: LookPart<LookFog>;
   sky: LookPart<LookSky>;
@@ -1653,12 +1688,16 @@ export declare class Engine {
   plugins: {
     /** Plug a folder's modules yourself (the vite preset does it): import.meta.glob('./plugins/*.js', { eager: true }) */
     add(files: Record<string, any>, o?: { order?: string[]; off?: string[] }): any;
-    /** Take everything a plugin plugged out again (file name without .js) */
-    off(name: string): void;
-    /** Plug a switched-off plugin again */
-    on(name: string): void;
-    /** In plug order */
-    list(): { name: string; file: string; on: boolean; slots: string[] }[];
+    /**
+     * Unload: take everything a plugin plugged out again (file name without .js; a style pack's name: all its plugins, its starting values stay).
+     * A material / patch plugin also rebuilds the made materials (look.materials.rebuild) unless { rebuild: false }. To pause a post effect in
+     * its place, look.post.set({ name: false }) is lighter. The result names what was switched, the reach and what stays.
+     */
+    off(name: string, o?: { rebuild?: boolean }): { off: string[]; reach: ('live' | 'new materials only')[]; rebuilt: number | null; note: string };
+    /** Plug a switched-off plugin again (same place in the post chain; material / patch plugins rebuild the made materials) */
+    on(name: string, o?: { rebuild?: boolean }): { on: string[]; reach: ('live' | 'new materials only')[]; rebuilt: number | null; note: string };
+    /** In plug order. reach per slot: 'live', or 'new materials only' (a material / patch); replacedBy: the plugin that holds it out (export const replaces) */
+    list(): { name: string; file: string; on: boolean; slots: string[]; reach: ('live' | 'new materials only')[]; style: string | null; replacedBy: string | null }[];
   };
   /** Ray registry (what engine.raycast hits) */
   rays: Rays;
@@ -2213,7 +2252,7 @@ export interface GameState {
   /** Installed modules in install order: name, type, and the capabilities it provides / requires when it has any */
   modules: { name: string; type: ModuleType; provides?: string[]; requires?: string[] }[];
   /** What is plugged in where: plugins/ files, scene.add roots, addPass passes, modules, plain lights (core/plugins.js) */
-  slots: { slot: 'scene' | 'post' | 'material' | 'patch' | 'module' | 'light'; plugged: string; file: string; on: boolean; affects: string[] }[];
+  slots: { slot: 'scene' | 'post' | 'material' | 'patch' | 'module' | 'light'; plugged: string; file: string; on: boolean; reach?: 'live' | 'new materials only'; affects: string[] }[];
   /**
    * engine.add / world things by save tier (counts only) and what will not survive a load: unsaved ('obj#3 (main.js:88, made during play by op x)'),
    * conflicts (two systems managing one object), orphans (saved ids no object has); atCapped when dev stopped taking stacks

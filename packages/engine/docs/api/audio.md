@@ -21,7 +21,6 @@
   - `master: any` The master GainNode (every bus ends here)
   - `noise: any` 2 s of white noise, reused by synthesized sounds
   - `running: boolean` Is audio usable (the player has clicked/pressed a key)?
-  - `info: { running, state, levels, ducks, voices }` What is playing (for describe and tests): bus levels, the duck multiplier per bus, live voices per sound name
 
 ## Data structures
 - **AudioConfig** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio). Not part of a style

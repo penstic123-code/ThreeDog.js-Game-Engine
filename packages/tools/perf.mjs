@@ -3,7 +3,7 @@
 //   1. native three.js vs the engine (no modules) on the same scene: 2000 cubes + 1 directional light with shadows, CPU milliseconds per frame and draw calls
 //   2. per-module time per frame with openWorld fully on
 //   3. shadow updateEvery 1 vs 3, snap 0.5 vs 'texel': shadow update count, shadow draw calls, milliseconds per frame
-//   4. time for the two examples to go from open to playable (engine.startup) and the first-screen chunk time
+//   4. first frame (engine.startup.firstFrameMs and its phases) for the examples, a WebGPU page and the blank new-game template
 //   5. automatic batching (engine.batching): 3000 repeated props over 4 models, batching off vs on
 //   6. streaming into a new area: ms per stage of applying background results (transit, build, collider, upload, stream)
 //   7. the two real pages (world example, city test page) on WebGL and WebGPU: frame time, draw calls, programs, memory
@@ -35,13 +35,13 @@ try { FRAMES = intOption({ frames: opt.frames ?? rest[0] }, 'frames') ?? FRAMES;
 const server = await buildAndPreview(ENGINE), base = server.base;
 // A fresh browser for every page (leftover work in the software-rendering GPU process from the previous page would slow the next one)
 let said = false;
-async function open(url) {
+async function open(url, host = base) {
   const browser = await launchBrowser({ prefer: 'gpu' });
   if (!said) { said = true; console.log(`Renderer: ${browser.render.kind}${browser.render.renderer ? ` (${browser.render.renderer})` : ''}`); }
   const page = await newGamePage(browser);
   page.close = () => browser.close();
   page.on('pageerror', e => console.log('  page error', String(e)));
-  await page.goto(base + url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.goto(host + url, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await waitEngine(page, { field: 'ready', timeout: 120000 });   // the shared wait: a page that threw fails at once with the engine's fix
   return page;
 }
@@ -86,15 +86,50 @@ await world.close();
 
 }
 if (want('startup')) {
-console.log('\n## 4. open to playable (engine.startup)\n');
-row('example', 'open to playable ms', 'start() to playable ms', 'asset preload ms', 'first-screen chunks (terrain ready) ms', 'slowest module');
-row('---', '---', '---', '---', '---', '---');
-for (const [name, url] of [['open world', '/'], ['town', '/tests/city/index.html']]) {
-  const page = await open(url);
-  const s = await page.evaluate(() => engine.startup);
+console.log('\n## 4. first frame: page open to the first frame drawn after the loading screen (engine.startup.firstFrameMs), cold browser, median of 3\n');
+console.log('phases add up to it: script (page open until createEngine) / construct / setup (game code until start()) / init (saves, renderer, module init) /');
+console.log('preload / world (nearby builds) / compile (shaders + hidden warm-up frame) / draw (ready until the first frame was submitted)\n');
+const PHASES = ['script', 'construct', 'setup', 'init', 'preload', 'world', 'compile', 'draw'];
+row('page', 'first frame ms', ...PHASES, 'programs', 'slowest module');
+row('---', '---', ...PHASES.map(() => '---'), '---', '---');
+async function firstFrame(name, url, host = base) {
+  const runs = [];
+  for (let i = 0; i < 3; i++) {
+    let page;
+    try { page = await open(url, host); } catch (e) { row(name, 'failed: ' + String(e.message ?? e).split('\n')[0].slice(0, 120)); return; }
+    runs.push(await page.evaluate(async () => {
+      for (const t0 = performance.now(); engine.startup?.firstFrameMs == null;) {
+        if (performance.now() - t0 > 30000) throw new Error('no first frame 30 s after ready');
+        await new Promise(r => setTimeout(r, 20));
+      }
+      const s = engine.startup, p = engine.inspect.perf();
+      return { ...s, programs: p.programs ?? engine.renderer._pipelines?.programs?.fragment?.size ?? null, backend: engine.describe().renderer?.backend };
+    }).catch(e => ({ error: String(e.message ?? e).split('\n')[0] })));
+    await page.close();
+  }
+  const ok = runs.filter(r => !r.error).sort((a, b) => a.firstFrameMs - b.firstFrameMs);
+  if (!ok.length) { row(name, 'failed: ' + runs[0].error); return; }
+  const s = ok[ok.length >> 1];
   const slow = Object.entries(s.modules).map(([k, v]) => [k, (v.init ?? 0) + (v.ready ?? 0)]).sort((a, b) => b[1] - a[1])[0];
-  row(name, s.totalMs, s.startMs, s.preloadMs, s.modules.terrain?.ready ?? '—', slow ? `${slow[0]} ${slow[1]}` : '—');
-  await page.close();
+  row(`${name} (${s.backend})`, `${s.firstFrameMs} (${ok.map(r => r.firstFrameMs).join(' / ')})`, ...PHASES.map(k => s.phases[k]), s.programs, slow ? `${slow[0]} ${slow[1]}` : '—');
+}
+for (const [name, url] of [['open world', '/'], ['open world WebGPU', '/?renderer=webgpu'], ['town', '/tests/city/index.html'], ['sheep island', '/sheepisland.html'], ['WebGPU TSL', '/webgpu-tsl.html']])
+  await firstFrame(name, url);
+// The blank new-game template: scaffolded into a throwaway games/ folder (so it resolves this repo's packages like a real game), built, removed.
+// games/ itself is removed too when this run made it and it is empty again (the repo has no games/; an empty one used to be left behind)
+const { copyTemplates } = await import('./lib/scaffold.mjs');
+const { GAMES } = await import('./paths.mjs');
+const { rmSync, existsSync, readdirSync } = await import('node:fs');
+const { join } = await import('node:path');
+const blank = join(GAMES, 'perf-blank-template'), madeGames = !existsSync(GAMES);
+rmSync(blank, { recursive: true, force: true });
+try {
+  copyTemplates(blank, { name: 'perf-blank-template' });
+  const srv = await buildAndPreview(blank);
+  try { await firstFrame('blank template', '/', srv.base); } finally { await srv.close(); }
+} finally {
+  rmSync(blank, { recursive: true, force: true });
+  if (madeGames && existsSync(GAMES) && !readdirSync(GAMES).length) rmSync(GAMES, { recursive: true, force: true });
 }
 
 }

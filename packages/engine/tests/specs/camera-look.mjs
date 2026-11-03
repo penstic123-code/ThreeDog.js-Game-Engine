@@ -65,7 +65,46 @@ export const specs = [
     },
   },
   {
-    name: 'Follow camera external view control: setView clamps, getView reports, mouseLook: false ignores the mouse',
+    name: "Follow camera ground: 'shorten' sees a 0.25 m bump in the middle of an 8 m arm (between the old 12 samples), at a small per-frame cost",
+    url: URL,
+    async run({ check, ev, frames }) {
+      await ev(() => window.scene('bump'));
+      await ev(() => { engine.cameraRig.setView({ yaw: 0, pitch: 0.2, distance: 8 }); engine.cameraRig._d = undefined; });
+      await frames(8);
+      const v = await ev(() => window.view());
+      check('bump: the arm stops in front of the bump (about 4.1 m out), not the full 8 m', v.arm > 3 && v.arm < 4.15, JSON.stringify(v));
+      const t = await ev(() => {
+        const rig = engine.cameraRig, surf = (x, z) => engine.surface(x, z, 1.6), n = 2000;
+        const time = d => { const t0 = performance.now(); for (let i = 0; i < n; i++) rig._shorten(0.5, 1.6, 0, 0, 0.2, 0.98, d, surf); return (performance.now() - t0) / n; };
+        time(8);   // warm up
+        return { ms8: time(8), ms40: time(40) };
+      });
+      // a clear arm is the most samples (no early stop): 40 at 8 m, the cap at 40 m. Software-rendered CI is slow, so the bound is loose
+      check('cost: one clear-arm check stays well under a millisecond (8 m and a capped 40 m arm)', t.ms8 < 0.5 && t.ms40 < 1, JSON.stringify(t));
+    },
+  },
+  {
+    name: 'Follow camera in a forest: tree colliders with occluder: false keep the full arm, the same ring without it pulls the camera in',
+    url: URL,
+    async run({ check, ev, frames }) {
+      // 16 trunks (r 0.4) on a 4 m ring round the player: with the camera pad they close every gap, so a blocking ring always catches the arm
+      const armWith = async occluder => {
+        await ev(o => {
+          window.scene('forest');
+          const p = engine.player.position;
+          window._ring = Array.from({ length: 16 }, (_, i) => engine.collision.addCircle([p.x + 4 * Math.cos(i * Math.PI / 8), 0, p.z + 4 * Math.sin(i * Math.PI / 8)], { radius: 0.4, ...(o === null ? {} : { occluder: o }) }));
+          engine.cameraRig.setView({ yaw: 0.3, pitch: 0.2, distance: 8 }); engine.cameraRig._d = undefined;
+        }, occluder);
+        await frames(8);
+        return ev(() => { const v = window.view(); window._ring.forEach(h => h.remove()); return v; });
+      };
+      const off = await armWith(false), on = await armWith(null);
+      check('occluder: false: the arm keeps its full 8 m', off.arm > 7.9, JSON.stringify(off));
+      check('default (blocks the camera): the arm stops before the 4 m ring', on.arm < 4, JSON.stringify(on));
+    },
+  },
+  {
+    name: 'Follow camera external view control:setView clamps, getView reports, mouseLook: false ignores the mouse',
     url: URL,
     async run({ page, check, ev, frames }) {
       const m = await setupMouse(page, ev);

@@ -259,7 +259,7 @@ export function command(argv, { workspace = 'pick', fallback, live = false, ...s
     named ||= !!dir;
     dirs = dir ? [dir] : all;
   }
-  return { dir, dirs, named, page: p.page, opt: p.opt, rest: p.rest };
+  return { dir, dirs, named, page: p.page, pageArg: p.pageArg, opt: p.opt, rest: p.rest };
 }
 
 /** command() for a script's top level: prints `✗ <reason>` and exits 1 instead of a stack trace */

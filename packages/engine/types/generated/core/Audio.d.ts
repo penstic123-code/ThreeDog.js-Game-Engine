@@ -124,17 +124,6 @@ export class Audio {
         fadeIn?: number;
     }): SoundHandle | null;
     /**
-     * What is playing (for describe and tests): bus levels, the duck multiplier per bus, live voices per sound name
-     * @returns {{ running: boolean, state: string | null, levels: Record<string, number>, ducks: Record<string, number>, voices: Record<string, number> }}
-     */
-    get info(): {
-        running: boolean;
-        state: string | null;
-        levels: Record<string, number>;
-        ducks: Record<string, number>;
-        voices: Record<string, number>;
-    };
-    /**
      * Synth building block: a burst of filtered noise (footsteps, shutter, rain, thunder). dur seconds, freq Hz, vol 0-1; out: the node to
      * connect to (a synth's `out`), else the named bus
      * @param {{ dur?: number, type?: string, freq?: number, vol?: number, bus?: string, out?: any, rate?: number, delay?: number }} [opts]

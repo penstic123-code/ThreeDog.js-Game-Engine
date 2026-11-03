@@ -24,7 +24,7 @@ import { DEFAULT_TERRAIN } from './terrainGen.js';
 
 import { readParams, keysSchema } from '../../core/params.js';
 import { compilePure } from '../../core/threadPure.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce, DEV } from '../../core/validate.js';
 import { loadGray } from '../../core/grayMap.js';
 import { prepareShape, voidWatcher } from './terrainShapeMain.js';
 import { defineGroundLook } from './lookGround.js';
@@ -36,9 +36,11 @@ const NO_HEIGHT = 'terrain(): no height function or height map was given, so the
 
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
-const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
+// normals is in the worker config (DEFAULT_TERRAIN) but is only a look value: look.ground.set({ normals }) / style.terrain.config.normals
+const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'viewFog', ...Object.keys(DEFAULT_TERRAIN).filter(k => k !== 'normals')], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
 
 export function terrain(opts = {}) {
+  if (DEV && 'normals' in opts) throw codedError('terrain-option', 'terrain({ normals }) moved: engine.look.ground.set({ normals }) after engine.use(terrain()), or style.terrain.config.normals in the style (one entry per look value)');
   readParams('terrain', TERRAIN_PARAMS, opts);
   const { viewChunks = 4, density = 1, material, effects, viewFog = false, ...cfg } = opts;
   // effects only says how the game's own material is used: without one it would silently do nothing

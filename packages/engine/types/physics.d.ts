@@ -22,10 +22,10 @@ export interface CollisionOptions {
   /** What camera occlusion checks: 'colliders' (default) | 'meshes' registered static meshes (engine.rays) | 'both' */
   cameraOcclusion?: 'colliders' | 'meshes' | 'both';
 }
-/** Circle collider: center x/z, radius r, height h (meters) */
-export interface CircleCollider { x: number; z: number; r: number; h: number }
-/** Box collider: center x/z, half width hw, half depth hd, rotation around Y rot (radians), height h, bottom height y (meters) */
-export interface BoxCollider { x: number; z: number; hw: number; hd: number; rot: number; h: number; y?: number; [k: string]: any }
+/** Circle collider: center x/z, radius r, height h (meters), occ false when added with occluder: false */
+export interface CircleCollider { x: number; z: number; r: number; h: number; occ: boolean }
+/** Box collider: center x/z, half width hw, half depth hd, rotation around Y rot (radians), height h, bottom height y (meters), occ as in CircleCollider */
+export interface BoxCollider { x: number; z: number; hw: number; hd: number; rot: number; h: number; y?: number; occ: boolean; [k: string]: any }
 
 /** Parameters of addCircle() (meters) */
 export interface CircleColliderOptions {
@@ -33,6 +33,8 @@ export interface CircleColliderOptions {
   radius?: number;
   /** Height, default 6 */
   height?: number;
+  /** false: walkers are still stopped but the follow camera's occlusion check ignores it (forest trunks the camera may pass through). Default true */
+  occluder?: boolean;
 }
 /** Parameters of addBox() (meters, radians) */
 export interface BoxColliderOptions {
@@ -46,6 +48,8 @@ export interface BoxColliderOptions {
   height?: number;
   /** Bottom height of the box; if omitted it sits on the ground (give it for walls placed on platforms in a level) */
   y?: number;
+  /** false: walkers are still stopped but the follow camera's occlusion check ignores it (forest trunks the camera may pass through). Default true */
+  occluder?: boolean;
 }
 
 /** engine.collision (lightweight collision: no walking through things, the camera is not blocked). Real physics is a separate module, engine.rigid */
@@ -67,14 +71,14 @@ export interface Collision {
   addCircle(position: PositionLike, opts?: CircleColliderOptions): Handle;
   /** Add a box collider (house, fence): position is the center, e.g. addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 }). Returns a handle { remove() } */
   addBox(position: PositionLike, opts?: BoxColliderOptions): Handle;
-  /** Add a thin wall along a -> b (fence). Options: thickness (default 0.3), height, y. A gap between segments is a gate. Returns a handle { remove() } */
-  addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?: number; height?: number; y?: number }): Handle;
-  /** Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure. bounds skips fn outside it. Returns a handle { remove() } */
+  /** Add a thin wall along a -> b (fence). Options: thickness (default 0.3), height, y, occluder (as in addBox). A gap between segments is a gate. Returns a handle { remove() } */
+  addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?: number; height?: number; y?: number; occluder?: boolean }): Handle;
+  /** Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure. bounds { minX, maxX, minZ, maxZ } (world metres, the field's x / z extent) skips fn outside it; give it to keep findPathAsync's ground sampling cheap. Returns a handle { remove() } */
   addBlocked(fn: (x: number, z: number) => boolean, opts?: { bounds?: { minX: number; maxX: number; minZ: number; maxZ: number } }): Handle;
   /** Is a character of this radius touching addBlocked ground at (x, z) */
   blockedAt(x: number, z: number, radius?: number): boolean;
-  /** Add a collider from an object's bounding box, pad expands outward (meters). Returns a handle { remove() } */
-  addObject(obj: Object3D, opts?: { pad?: number }): Handle;
+  /** Add a collider from an object's bounding box, pad expands outward (meters), occluder as in addBox. Returns a handle { remove() } */
+  addObject(obj: Object3D, opts?: { pad?: number; occluder?: boolean }): Handle;
   /** Iterate all static colliders added by hand */
   forEachStatic(fn: (type: 'box' | 'circle', data: any) => void): void;
   /** Keep an outside copy of the static colliders in step (physics colliders, navmesh obstacles): add builds one piece, remove drops one; sync() diffs only when colliders changed and returns whether it compared; clear() forgets every piece without remove (the outside world was thrown away) */
@@ -384,7 +388,6 @@ export type CameraKind = 'follow' | 'firstPerson' | 'fixed' | 'rts';
 
 /** Interface shared by all cameras */
 export interface CameraRigBase {
-  engine: Engine;
   /** Current kind (the first argument of engine.setCamera) */
   kind: CameraKind;
   /** The object being followed */

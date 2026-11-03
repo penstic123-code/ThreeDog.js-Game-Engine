@@ -28,6 +28,7 @@
 //   --tier low|high  the device tier the page renders at (default high, the desktop tier: the headless browser would detect low and drop ao / bloom);
 //                   costly effects the tier leaves out are named under the screenshot line
 //   --keep-cutscene  do not skip a cutscene that is playing
+//   --play          start straight in play: past the title screen the way its Start does (?play, engine URL key; engine.session.newGame())
 //   --describe-only  print describeText() only, no screenshot
 //   --out file.png  a bare name: .threedog/shots/file.png instead of the generated name; a path with a directory (./x.png, out/x.png, absolute)
 //                   is written as given, relative to the current directory. The output line says where it wrote
@@ -57,12 +58,12 @@ import { PICTURE } from './threedog/pageFns.mjs';
 const t0 = Date.now();
 
 // switches never take a value (so `--keep /page` keeps /page as the page); an unknown option fails naming the closest one
-let { dir, page: url, opt } = cli(process.argv.slice(2), { page: '/', flags: ['keep', 'no-look', 'json', 'describe-only', 'no-build', 'keep-cutscene', 'gpu', 'software'],
+let { dir, page: url, pageArg, opt } = cli(process.argv.slice(2), { page: '/', flags: ['keep', 'no-look', 'json', 'describe-only', 'no-build', 'keep-cutscene', 'gpu', 'software', 'play'],
   values: ['time', 'weather', 'pos', 'view', 'wait', 'load-timeout', 'size', 'compare', 'out', 'ref', 'tier', 'image'],
   // an option the other switches off used to be dropped without a word (--ref under --no-look compared nothing)
   conflicts: [['ref', 'no-look', 'the reference is compared inside the look check'],
     ...['ref', 'compare', 'out', 'keep'].map(k => [k, 'describe-only', 'describe-only takes no screenshot']),
-    ...['time', 'weather', 'pos', 'view', 'wait', 'size', 'out', 'keep', 'compare', 'no-look', 'describe-only', 'tier'].map(k => [k, 'image', '--image reads a saved picture, there is no page to set up'])] });
+    ...['time', 'weather', 'pos', 'view', 'wait', 'size', 'out', 'keep', 'compare', 'no-look', 'describe-only', 'tier', 'play'].map(k => [k, 'image', '--image reads a saved picture, there is no page to set up'])] });
 const json = !!opt.json;
 if (opt.image !== undefined) process.exit(await imageOnly(opt));
 
@@ -90,6 +91,8 @@ const wait = opt.wait !== undefined ? +opt.wait : 1;
 // a full URL: the page already runs (dev server, another host). Why: the demos screenshotted their running dev server with their own script and
 // skipped the look check; pointing shot at that same URL keeps the check without a build
 const live = /^https?:\/\//i.test(url);
+// npm echoes the rewritten argument (`> threedog shot C:/Git/`): say which page really opens, so the echo is not taken for it
+if (pageArg && pageArg !== url && /^[A-Za-z]:[\\/]/.test(pageArg)) say(`Page: ${url} (Git Bash had rewritten the argument to ${pageArg}; undone)`);
 if (!opt['no-build'] && !live) say(`Building… (${rel(dir)})`);
 const server = live ? { base: '', close: async () => {} } : await buildAndPreview(dir, { build: !opt['no-build'] }), base = server.base;
 const browser = await launchBrowser({ prefer: 'gpu' });   // a hardware GPU is several times faster than SwiftShader; tests stay on software for stable pixels
@@ -102,6 +105,7 @@ try {
   for (const k of ['time', 'weather', 'pos', 'view']) if (opt[k]) q.set(k, opt[k]);
   q.set('wait', String(wait));
   q.set('cutscene', opt['keep-cutscene'] ? 'keep' : 'skip');
+  if (opt.play) q.set('play', '');
   await page.goto(base + url + (url.includes('?') ? '&' : '?') + q.toString().replace('threedog-headless=', 'threedog-headless'));
   await waitEngine(page, { timeout: 60000, errors });
   const ev = (fn, arg) => page.evaluate(fn, arg);

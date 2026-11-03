@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { defineOwned, markOwned } from '../core/owned.js';
 import { sceneVisitor } from '../core/sceneDelta.js';
-import { isWebGPU, webgpuPart } from './backend.js';
+import { isWebGPU, webgpuPart, compileThrough } from './backend.js';
 
 const BOX = 30, OFFSET = new THREE.Vector3(40, 80, 30), SNAP = 0.5;
 
@@ -148,22 +148,60 @@ export function dropRoomEnvironment(e) { e._roomWant = 0; }
 const readsEnv = m => !!m && !m.envMap && (m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial);
 
 /**
- * Called before each render and in start() before compiling: builds the pending room environment once a material that reads it is in the
- * scene. While it is pending, only objects that entered the scene since the last frame are looked at (core/sceneDelta.js: an add at any
- * depth, or mesh.material = x), so a quiet frame costs one size check. A game or sky map set meanwhile wins: the pending request is dropped
- * (the same "never overwrite someone else's scene.environment" rule refreshRoom follows).
+ * Whether the pending room environment is wanted now: a material that reads it is in the scene. While it is pending, only objects that
+ * entered the scene since the last frame are looked at (core/sceneDelta.js: an add at any depth, or mesh.material = x), so a quiet frame
+ * costs one size check. A game or sky map set meanwhile wins: the pending request is dropped (the same "never overwrite someone else's
+ * scene.environment" rule refreshRoom follows).
  * @param {any} e
  */
-export function syncRoomEnvironment(e) {
+function roomNeeded(e) {
   const s = e.scene;
   if (e._roomWant && s.environment) e._roomWant = 0;
-  if (!e._roomWant) { e._roomView?.remove(); e._roomView = null; return; }
+  if (!e._roomWant) { e._roomView?.remove(); e._roomView = null; return false; }
   e._roomView ??= sceneVisitor(s, { enter(o) { if (o.material && !e._roomHit) e._roomHit = Array.isArray(o.material) ? o.material.some(readsEnv) : readsEnv(o.material); } });
   e._roomView.sync();
-  if (!e._roomHit) return;
+  if (!e._roomHit) return false;
   e._roomView.remove(); e._roomView = null; e._roomHit = false;
-  s.environment = roomEnvironment(e); s.environmentIntensity = roomLevel(e); e._roomWant = 0;
+  return true;
+}
+
+/** Put the room map in as scene.environment at its level @param {any} e @param {THREE.Texture} tex */
+function useRoom(e, tex) {
+  e.scene.environment = tex; e.scene.environmentIntensity = roomLevel(e); e._roomWant = 0;
   markOwned(e, 'env');   // the engine's own write: a sky watching scene.environment must not read it as the game taking over
+}
+
+/** Called before each render: builds the pending room environment once a material that reads it is in the scene (roomNeeded) @param {any} e */
+export function syncRoomEnvironment(e) {
+  if (roomNeeded(e)) useRoom(e, roomEnvironment(e));
+}
+
+/**
+ * start()'s version of syncRoomEnvironment, before compiling: the prefilter's programs compile in parallel with the scene's instead of one by
+ * one inside it (~410 ms of synchronous compiles measured on a real GPU, a third of a small scene's first frame). A dry run of the prefilter
+ * (compileThrough) starts its programs and leaves an undrawn map of the right size, which goes in as scene.environment at once so the scene
+ * compiles for it (the map is part of the program key). The returned promise draws the real map once those programs are ready and puts it in
+ * place of the undrawn one, all before start()'s hidden warm-up frame, so no frame shows the map missing. null when nothing waits for it.
+ * @param {any} e @returns {Promise<void> | null}
+ */
+export function prepareRoomEnvironment(e) {
+  // built already: nothing to compile. WebGPU: built at once as before; its pipelines are not linked on the page's thread the way WebGL
+  // programs are (the main-thread cost there is node building, which compileAsync does not move), and compileThrough is WebGL only
+  if (e._roomEnv || isWebGPU(e.renderer)) { syncRoomEnvironment(e); return null; }
+  if (!roomNeeded(e)) return null;
+  const r = e.renderer, { pmrem, room } = roomPrefilter(e);
+  let dry;
+  const ready = compileThrough(r, () => { dry = pmrem.fromScene(room, ROOM_SIGMA); });
+  e._roomEnv = dry;
+  useRoom(e, dry.texture);
+  return ready.then(() => {
+    // WebGL's PMREMGenerator has no target option and returns a new map: it takes the undrawn one's place
+    const done = keepFrame(r, () => pmrem.fromScene(room, ROOM_SIGMA));
+    room.dispose?.(); pmrem.dispose();
+    e._roomEnv = done;
+    if (e.scene.environment === dry.texture) { e.scene.environment = done.texture; markOwned(e, 'env'); }
+    dry.dispose();
+  });
 }
 
 /**
@@ -173,15 +211,27 @@ export function syncRoomEnvironment(e) {
  */
 function roomEnvironment(e) {
   if (e._roomEnv) return e._roomEnv.texture;
-  // WebGPURenderer needs three/webgpu's PMREMGenerator (registered by threedog/tsl); start() inits the renderer before this can run
-  const PMREM = isWebGPU(e.renderer) ? webgpuPart('classes', 'the room environment').PMREMGenerator : THREE.PMREMGenerator;
-  const pmrem = new PMREM(e.renderer), room = new RoomEnvironment();
-  // the prefilter renders a few times, but no game frame was drawn: keep renderer.info.render.frame at what it was, because modules read
-  // "has the engine drawn yet" from it (look.fog: shader-chunk fog kinds can only change before the first frame). Since the baseline runs
-  // under every style this happens at createEngine, before any sky is installed
-  const info = e.renderer.info.render, frame = info.frame;
-  e._roomEnv = pmrem.fromScene(room, 0.04);
-  info.frame = frame;
+  const { pmrem, room } = roomPrefilter(e);
+  e._roomEnv = keepFrame(e.renderer, () => pmrem.fromScene(room, ROOM_SIGMA));
   room.dispose?.(); pmrem.dispose();
   return e._roomEnv.texture;
+}
+
+const ROOM_SIGMA = 0.04;   // the prefilter's blur (ROOM_RADIANCE was measured with it)
+
+/** three's RoomEnvironment and a PMREMGenerator for this renderer @param {any} e */
+function roomPrefilter(e) {
+  // WebGPURenderer needs three/webgpu's PMREMGenerator (registered by threedog/tsl); start() inits the renderer before this can run
+  const PMREM = isWebGPU(e.renderer) ? webgpuPart('classes', 'the room environment').PMREMGenerator : THREE.PMREMGenerator;
+  return { pmrem: new PMREM(e.renderer), room: new RoomEnvironment() };
+}
+
+/**
+ * The prefilter renders a few times, but no game frame was drawn: keep renderer.info.render.frame at what it was, because modules read
+ * "has the engine drawn yet" from it (look.fog: shader-chunk fog kinds can only change before the first frame)
+ * @template T @param {any} r @param {() => T} draw @returns {T}
+ */
+function keepFrame(r, draw) {
+  const info = r.info.render, frame = info.frame;
+  try { return draw(); } finally { info.frame = frame; }
 }

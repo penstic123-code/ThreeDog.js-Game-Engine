@@ -17,7 +17,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
 
-- sky: `node_modules/threedog/docs/recipes/38-environment-look-hooks.md` · `node_modules/threedog/docs/api/sky.md`
+- sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
 - cameraRig: `node_modules/threedog/docs/recipes/21-camera.md` · `node_modules/threedog/docs/api/cameraRig.md`
 
 Not used yet (check these before writing the system yourself):

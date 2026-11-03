@@ -1,8 +1,9 @@
 // look.materials and look.surface.
 // render/materials.js reads them when it makes a material.
 // Why a file of its own: materials.js is near the size cap, and the two parts share one rule: a verb changes what makeMaterial does NEXT time
-// (a Material already handed out is not touched, catalog / describe say appliesTo; rebuilding made materials from the spec costs a recompile each, so it is not done).
-// Exception: plain numeric / color properties (LIVE_KEYS below) are written to the already-made materials of that role at once; they need no recompile.
+// (a Material already handed out is not touched, catalog / describe say appliesTo; rebuilding made materials from the spec costs a recompile each, so it is
+// not done on every change). Exception: plain numeric / color properties (LIVE_KEYS below) are written to the already-made materials of that role at once.
+// The one explicit way to bring the made ones in line: look.materials.rebuild() (engine.plugins off / on of a material or patch plugin calls it).
 //   look.materials  the ONE entry for "what material a purpose gets": the style's materials table is its style layer (specs as <role>.<key>,
 //                   Material / function entries as replace:<role>), and makeMaterial reads only this part (no second read of engine.style)
 //                   set({ wool: { roughness: 0.4 } })       merge into the role's spec
@@ -17,6 +18,7 @@ import { isPlainObject as isPlain } from '../core/util.js';
 import { rampTexture } from './lighting.js';
 import { warnOnce } from '../core/validate.js';
 import { addGlowVerb } from './lookGlow.js';
+import { carryPatches } from './patches.js';
 
 
 /** A material spec key makeMaterial understands: its own keys (materials.js SPEC_KEYS + type) or a property of one of the three.js types it makes */
@@ -39,7 +41,8 @@ const madeOf = e => MADE.get(e) ?? MADE.set(e, new Map()).get(e);
 // Why record on each material: before, live keys were written to ALL materials of the role, so a color passed by makeMaterial('wood', { color }) or later set by the game with m.color.set(),
 // got overwritten on a style change or look.materials.set, and the game could not tell "why did my change not stick". Now: keys passed by the call itself are always skipped; the value the engine last wrote is remembered,
 // and if it differs before the next write = the game hand-set it, so skip it and warn once (this material belongs to the game, P1 "step aside", per material rather than per role).
-const REC = new WeakMap();   // material -> { call: Set(keys this makeMaterial call passed), seen: Map(prop -> value the engine last left there) }
+// rebuild() also reads: params (the call's own params, made again with them) and look (names of the look.materials patches it got, made fresh)
+const REC = new WeakMap();   // material -> { call: Set(keys this makeMaterial call passed), params, look: Set(patch names), seen: Map(prop -> value the engine last left there) }
 const snap = v => (v?.isColor ? v.getHex() : v);
 
 /** Materials: role names are open, so the part grows `<role>.<specKey>` params as the style or a game mentions them */
@@ -56,7 +59,7 @@ export function defineMaterialsLook(e, purposes) {
   let glow = null;
   const part = defineLookPart(e, {
     id: 'materials', group: 'surface', module: 'core', docs: ['recipes/52-look.md'], params, style: () => style, appliesTo: `materials made after the change, except the live keys (${LIVE_KEYS.join(', ')}), which also change the materials already made for that role; type, steps, ramp, soften, repeat, wrap, detail, lighting, patch and replace are for new materials only`,
-    applyAtStart: false, extraSignatures: { glow: 'glow(match, { night, day = 0, owner })' }, info: () => glow?.info() ?? {},
+    applyAtStart: false, extraSignatures: { glow: 'glow(match, { night, day = 0, owner })', rebuild: 'rebuild() -> { rebuilt, kept, ms }' }, info: () => glow?.info() ?? {},
     apply(v, changed) {   // live keys: write them to the already-made materials of the role (a cleared key goes back to the style value, or stays when the style gave none)
       for (const k of changed) {
         const i = k.indexOf('.'), role = k.slice(0, i), prop = k.slice(i + 1);
@@ -111,6 +114,34 @@ export function defineMaterialsLook(e, purposes) {
     },
   });
   glow = addGlowVerb(e, part);   // look.materials.glow: emissive that follows daylight (render/lookGlow.js)
+  /**
+   * Make every material makeMaterial made that is on a mesh in the scene again from the current layers (type, replace, patches, spec) and put the
+   * new one where the old one was. Why one explicit call: a patch / replace / type change reaches only materials made later, so turning a patch
+   * plugin off left the made ones patched and a streamed world mixed old and new looks (review 2026-11-03). Kept: the makeMaterial call's own
+   * params, live keys the game set by hand, and patches a module added after makeMaterial (wind, cloud shadow). The old material is disposed after the next frame;
+   * one the scene does not hold (a pool, a game field) is left as it is and counted in kept. Cost: one scene walk plus a compile per new program.
+   */
+  /** @type {any} */ (part).rebuild = () => {   // a verb of this part only (typed on MaterialsLook), like glow
+    const t0 = performance.now(), uses = new Map();
+    e.scene.traverse(o => { if (o.material) [].concat(o.material).forEach((m, i) => (uses.get(m) ?? uses.set(m, []).get(m)).push([o, Array.isArray(o.material) ? i : -1])); });
+    const todo = [...liveOf(e)].flatMap(([role, refs]) => [...refs].map(ref => [role, refs, ref]));   // a snapshot: makeMaterial below adds refs
+    let rebuilt = 0, kept = 0; const old = [];
+    for (const [role, refs, ref] of todo) {
+      const m = ref.deref();
+      if (!m) { refs.delete(ref); continue; }
+      const on = uses.get(m), r = REC.get(m);
+      if (!on || !r) { kept++; continue; }
+      const n = e.makeMaterial(role, r.params);
+      carryPatches(m, n, r.look);
+      for (const [k, v] of r.seen) if (snap(m[k]) !== v && k in n) { if (COLOR_KEYS.has(k)) n[k].copy(m[k]); else n[k] = m[k]; REC.get(n)?.seen.set(k, snap(n[k])); }   // set by hand: the game's
+      for (const [o, i] of on) { if (i < 0) o.material = n; else o.material[i] = n; }
+      refs.delete(ref); old.push(m); rebuilt++;
+    }
+    // disposed after the next frame is drawn, not now: three.js frees a program when its last material goes, so disposing first made every
+    // unchanged material compile its program again (open world: next frame 13 -> 99 ms); after the frame the new ones already hold it
+    if (old.length) { const h = e.onRender(() => { h.remove(); for (const m of old) m.dispose(); }, { when: 'after' }); }
+    return { rebuilt, kept, ms: +(performance.now() - t0).toFixed(2) };
+  };
   return part;
 }
 
@@ -134,10 +165,11 @@ export function materialPatches(eng, role) {
   if (p) for (const [, v] of p.author.resolved('hook:')) if (v && (!v.roles || v.roles.includes(role))) out.push(v.patch);
   return out;
 }
-/** Remember the last Material made for a role (look.materials.object(role)); callKeys: the keys this makeMaterial call passed (live keys skip them) */
-export function materialMade(eng, role, m, callKeys = []) {
+/** Remember the last Material made for a role (look.materials.object(role)); params: this makeMaterial call's (live keys skip them, rebuild reuses
+ *  them); look: the names of the look.materials patches it got */
+export function materialMade(eng, role, m, params = {}, look = []) {
   if (!eng) return;
-  REC.set(m, { call: new Set(callKeys), seen: new Map(LIVE_KEYS.filter(k => k in m).map(k => [k, snap(m[k])])) });
+  REC.set(m, { call: new Set(Object.keys(params)), params, look: new Set(look), seen: new Map(LIVE_KEYS.filter(k => k in m).map(k => [k, snap(m[k])])) });
   madeOf(eng).set(role, m);
   (liveOf(eng).get(role) ?? liveOf(eng).set(role, new Set()).get(role)).add(new WeakRef(m));
 }

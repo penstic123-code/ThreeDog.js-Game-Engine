@@ -9,10 +9,10 @@ import { codedError, coded } from './errorHints.js';
 import { warnOnce, DEV_SERVER } from './validate.js';
 import { touchStart } from './inputTouch.js';
 import { Loading, failureText } from './Loading.js';
-import { syncRoomEnvironment } from '../render/lights.js';
+import { prepareRoomEnvironment } from '../render/lights.js';
 import { startHeadlessLoad } from './headlessLoad.js';
 import * as THREE from 'three';
-import { isWebGPU, backendName, whyNoWebGPU, firstNodeMaterial, webglOnlyOn, tier as detectTier, timerContext, rendererSwapped } from '../render/backend.js';
+import { isWebGPU, backendName, whyNoWebGPU, firstNodeMaterial, webglOnlyOn, tier as detectTier, timerContext, rendererSwapped, compileThrough } from '../render/backend.js';
 import { bindUniforms } from '../render/engineUniforms.js';
 import { nameShaderErrors } from '../render/shaderErrors.js';
 import { forcedTier, defaultPixelRatio } from './tier.js';
@@ -36,7 +36,7 @@ export const startupMethods = {
   get loading() { return this._loading ||= new Loading(this); },
 
   /** Start the game: init modules, preload, apply scenario parameters, wait until the world is ready. A second call returns the first call's Promise. */
-  start() { return (this._starting ??= this._start()); },
+  start() { this._born.start ||= performance.now(); return (this._starting ??= this._start()); },   // measure
 
   /** @internal stop when dispose() ran during an await of start() */
   _alive(at) { if (this.disposed) throw codedError('engine-disposed', DEV_STRINGS.disposed.replace('{at}', at)); },
@@ -66,9 +66,11 @@ export const startupMethods = {
       const t = performance.now();   // measure
       this._setModState(m, 'initializing');      // no hooks until init succeeded (modules.js)
       const snap = catalogSnap(this);   // what init registers belongs to this module in engine.catalog()
-      try { await asModule(this, m, () => m.init(this, this._modCtx(m))); catalogClaim(this, m.name, snap); L._done(task); this._setModState(m, 'running'); }
+      const inst = this._modInst.get(m.name);   // a plugin removed while init awaits: its completion must not touch a same-named newcomer (modules.js)
+      try { await asModule(this, m, () => m.init(this, this._modCtx(m, inst))); if (this._isLive(m.name, inst)) { catalogClaim(this, m.name, snap); this._setModState(m, 'running'); } L._done(task); }
       catch (e) {
-        L._fail(task, e); this._setModState(m, 'failed'); this._dropTracked(m.name);   // a failed module keeps no listener on half-built state
+        L._fail(task, e);
+        if (this._isLive(m.name, inst)) { this._setModState(m, 'failed'); this._dropTracked(m.name); }   // a failed module keeps no listener on half-built state
         // a critical module stops start() with the reason (below); any other failure is reported by severity and start() goes on
         if (!m.critical) reportError(this, e, DEV_STRINGS.initFailed.replace('{name}', m.name), { module: m });
       }
@@ -94,23 +96,38 @@ export const startupMethods = {
     // (async where the browser has KHR_parallel_shader_compile). A later change in the number of lights compiles again: see recipes/09 "Lights and stalls"
     this._checkBackendScene();                 // the scene is built now: materials the chosen backend cannot draw fail by name, not as a blank picture
     const tc = performance.now();   // measure
-    syncRoomEnvironment(this);                // the baseline room map, if a material reads scene.environment: before compiling, since it is part of the program key
+    // Everything below is handed to the parallel compile together, then awaited once: the baseline room map's prefilter (if a material reads
+    // scene.environment; first, since the map is part of the scene's program key), the scene, and on WebGL the post chain's fullscreen passes
+    const room = prepareRoomEnvironment(this);
     // compile for the target the scene really draws into (the composer's when post is on): see PostFX._sceneTarget.
     // compile() runs synchronously inside compileAsync, so the target only needs to be set around the call, not across the await
     const r = this.renderer, target = this.post._sceneTarget();
     r.setRenderTarget(target);
     let compiling;
     try { compiling = r.compileAsync(this.scene, this.camera); } finally { r.setRenderTarget(null); }
-    await compiling;
+    // the chain's passes draw through three themselves, so compileAsync of the scene never sees their materials: a dry run of the chain
+    // (render/backend.js compileThrough) starts them now instead of one by one in the warm-up frame (~130 ms measured, nine passes).
+    // Not on WebGPU: its passes are nodes of one pipeline whose inner renders run only inside a real frame
+    const post = !this.headless && this.post.active && !isWebGPU(r) ? compileThrough(r, () => this.post.render(0)) : null;
+    // the page's thread is idle until the GPU is done: the one-time warm-ups modules queued run now instead of in the first frame (rigid)
+    for (const f of this._whileCompiling.splice(0)) { try { f(); } catch (err) { reportError(this, err, 'warm-up while compiling', { soft: true }); } }
+    await Promise.all([compiling, room, post]);
     this._alive('compiling shaders');
     // One hidden frame behind the loading screen: shadow depth materials, the post passes and the background quad are programs compileAsync
     // never sees, and without this frame they compiled in the first frame the player saw (a 300 ms hitch measured)
     if (!this.headless) { try { this._render(0); } catch (err) { reportError(this, err, 'render (warm-up frame)', { soft: true }); } }
-    const compileMs = ms(tc);
+    const compileMs = ms(tc), tReady = performance.now();   // measure
     this.phase = 'ready';                     // fixed steps run from the next one on: game time starts here on every machine (loop.js)
     this.commits.rebase();                     // background results registered during loading restart timing from now (see Commits.js)
     // Startup timing: totalMs from page open to playable, startMs from start() to playable
-    this.startup = { totalMs: Math.round(performance.now()), startMs: ms(t0), preloadMs, streamMs, compileMs, modules: timing };   // measure
+    // firstFrameMs (page open to the end of the first frame drawn after the loading screen) and its phases, which add up to it: script (page
+    // open until createEngine), construct (createEngine), setup (game code until start(), installs included), init (saves, renderer, module
+    // init), preload, world (scenario parameters, nearby builds), compile (shaders + hidden warm-up frame), draw (ready until that frame's
+    // draw calls were submitted; loop.js). draw and firstFrameMs stay null until the frame, and with no real-time loop (headless)
+    const b = this._born, d = (a, z) => Math.round(z - a);   // measure
+    const phases = { script: Math.round(b.at), construct: d(b.at, b.built), setup: d(b.built, b.start), init: d(b.start, tp), preload: d(tp, tr), world: d(tr, tc), compile: d(tc, tReady), draw: null };
+    this.startup = { totalMs: Math.round(performance.now()), startMs: ms(t0), preloadMs, streamMs, compileMs, firstFrameMs: null, phases, modules: timing };   // measure
+    this._readyAt = tReady;
     this.budget.checkStartup(this.startup);
     ls?.update({ progress: 1, text: '' }); ls?.hide();
     this.ops.allow(() => this.events.emit('engine:ready'));   // engine:ready listeners finish setting up the game; still loading for the ops guard

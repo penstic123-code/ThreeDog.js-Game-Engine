@@ -18,7 +18,7 @@ function slab(S, o, d, h) {
   return S.t0 <= S.t1;
 }
 
-const BOX_KEYS = ['halfWidth', 'halfDepth', 'rotation', 'height', 'y'], CIRCLE_KEYS = ['radius', 'height'], SEG_KEYS = ['thickness', 'height', 'y'], BLOCK_KEYS = ['bounds'];
+const BOX_KEYS = ['halfWidth', 'halfDepth', 'rotation', 'height', 'y', 'occluder'], CIRCLE_KEYS = ['radius', 'height', 'occluder'], SEG_KEYS = ['thickness', 'height', 'y', 'occluder'], BLOCK_KEYS = ['bounds'];
 
 export class Collision {
   /**
@@ -71,37 +71,40 @@ export class Collision {
     };
   }
 
-  /** Add a circle collider (pillar, statue, campfire): position is the centre, radius (default 0.5), height (default 6). Returns a handle { remove() } */
+  /**
+   * Add a circle collider (pillar, statue, campfire): position is the centre, radius (default 0.5), height (default 6).
+   * occluder: false keeps it from pulling the follow camera in (walkers are still stopped), e.g. forest trunks the camera may pass through. Returns a handle { remove() }
+   */
   addCircle(position, opts = {}) {
     readParams('collision.addCircle()', keysSchema(CIRCLE_KEYS), opts); if (typeof opts !== 'object') opts = {};
-    const [x, z] = xzOf(position), c = { x, z, r: opts.radius ?? 0.5, h: opts.height ?? 6 };
+    const [x, z] = xzOf(position), c = { x, z, r: opts.radius ?? 0.5, h: opts.height ?? 6, occ: opts.occluder !== false };
     this.circles.add(c); this._grid.add(c, false); this.version++;
     return { remove: () => { if (!this.circles.delete(c)) return; this._grid.remove(c); this.version++; } };
   }
   /**
    * Add a rectangle collider (house, fence): position is the centre; halfWidth / halfDepth (default 1), rotation about the Y axis (radians),
-   * height (default 6), y is the box bottom height (omit to sit on the ground; set it for walls on platforms in levels). Returns a handle { remove() }
+   * height (default 6), y is the box bottom height (omit to sit on the ground; set it for walls on platforms in levels); occluder: false as in addCircle. Returns a handle { remove() }
    */
   addBox(position, opts = {}) {
     readParams('collision.addBox()', keysSchema(BOX_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [x, z] = xzOf(position), hw = opts.halfWidth ?? 1, hd = opts.halfDepth ?? 1, rot = opts.rotation ?? 0;
-    const b = { x, z, hw, hd, rot, h: opts.height ?? 6, y: opts.y, c: Math.cos(rot), s: Math.sin(rot), r: Math.hypot(hw, hd) };
+    const b = { x, z, hw, hd, rot, h: opts.height ?? 6, y: opts.y, c: Math.cos(rot), s: Math.sin(rot), r: Math.hypot(hw, hd), occ: opts.occluder !== false };
     this.boxes.add(b); this._grid.add(b, true); this.version++;
     return { remove: () => { if (!this.boxes.delete(b)) return; this._grid.remove(b); this.version++; } };
   }
   /**
-   * Add a thin wall along the line a -> b (fence, wall; positions like addBox). thickness (default 0.3), height (default 6), y as in addBox.
+   * Add a thin wall along the line a -> b (fence, wall; positions like addBox). thickness (default 0.3), height (default 6), y and occluder as in addBox.
    * It is a rotated box in the same grid, so a gap between two segments is a gate. Returns a handle { remove() }
    */
   addSegment(a, b, opts = {}) {
     readParams('collision.addSegment()', keysSchema(SEG_KEYS), opts); if (typeof opts !== 'object') opts = {};
     const [ax, az] = xzOf(a), [bx, bz] = xzOf(b);
     // box-local +x is (cos r, -sin r) in world, so r = -atan2(dz, dx)
-    return this.addBox([(ax + bx) / 2, 0, (az + bz) / 2], { halfWidth: Math.hypot(bx - ax, bz - az) / 2, halfDepth: (opts.thickness ?? 0.3) / 2, rotation: -Math.atan2(bz - az, bx - ax), height: opts.height, y: opts.y });
+    return this.addBox([(ax + bx) / 2, 0, (az + bz) / 2], { halfWidth: Math.hypot(bx - ax, bz - az) / 2, halfDepth: (opts.thickness ?? 0.3) / 2, rotation: -Math.atan2(bz - az, bx - ax), height: opts.height, y: opts.y, occluder: opts.occluder });
   }
   /**
    * Mark ground as impassable where fn(x, z) is true (river, lava, cliff edge). Walkers are stopped at its edge (sliding along it) and walkable() says no.
-   * fn must be pure and deterministic (no clock, no random). bounds { minX, maxX, minZ, maxZ } skips fn outside it. A bridge: have fn return false over it,
+   * fn must be pure and deterministic (no clock, no random). bounds { minX, maxX, minZ, maxZ } (world metres, the field's x / z extent) skips fn outside it. A bridge: have fn return false over it,
    * or keep the water field exact and let fn test `!onBridge(x, z)`. findPathAsync samples fn into its ground raster (1 m cells), so give bounds to keep that cheap. Returns a handle { remove() }
    */
   addBlocked(fn, opts = {}) {
@@ -120,11 +123,11 @@ export class Collision {
     }
     return false;
   }
-  /** Add collision from a three.js object's bounding box (common for house models), pad grows it outward (m). Returns a handle { remove() } */
-  addObject(obj, { pad = 0 } = {}) {
+  /** Add collision from a three.js object's bounding box (common for house models), pad grows it outward (m), occluder as in addBox. Returns a handle { remove() } */
+  addObject(obj, { pad = 0, occluder = true } = {}) {
     obj.updateMatrixWorld(true);
     const THREE = this.engine.THREE, box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
-    return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y });
+    return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y, occluder });
   }
 
   // The per-frame walkers below pass state through fields instead of building callbacks: resolve() and cameraDistance() run every step / frame.
@@ -286,6 +289,7 @@ export class Collision {
     const list = this._grid.query(from.x + sx / 2, from.z + sz / 2, len / 2 + 1);
     for (let i = 0; i < list.length; i++) {
       const it = list[i];
+      if (!it.occ) continue;   // occluder: false (addCircle / addBox)
       if (it._b) this._camBox(it); else this._camCircle(it.x, it.z, it.r);
     }
     best = S.best;

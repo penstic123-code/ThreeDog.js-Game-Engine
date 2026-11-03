@@ -7,7 +7,6 @@
 // An installed sky adds its shadow-box keys (bias, cascades, extent ...) to this same part and applies them through part._skyApply (sky/lookShadow.js).
 import { defineLookPart } from './part.js';
 import { SHADOW_TYPES, shadowTypeOf } from '../shadowTypes.js';
-import { ownedRow } from '../owned.js';
 import { codedError } from '../errorHints.js';
 
 const COST = 'recompile';
@@ -17,28 +16,17 @@ const typeName = t => Object.keys(SHADOW_TYPES).find(k => SHADOW_TYPES[k].three 
 export const shadowsOn = e => !!e.renderer?.shadowMap?.enabled;
 
 /**
- * Turn shadow rendering on or off. Off: remember each light's castShadow (the game's choice) then turn it off; on: restore only the lights that
- * cast before (lights the game turned off stay off). Lights added while off are left alone (the renderer draws no shadows, so it makes no difference).
- * Where the remembered values live: one engine-owned Map (e._shadowsHeld, shown as describe().owned 'shadows.off'), not light.userData: userData
- * is the game's (it is JSON-cloned, saved and exported to glTF), and a hidden key there was a second, invisible record of who switched a light off.
+ * Turn shadow rendering on or off: the renderer's switch only. Both renderers stop drawing and sampling shadow maps when
+ * renderer.shadowMap.enabled is false (WebGL: WebGLShadowMap.render returns and programs drop USE_SHADOWMAP; WebGPU: the shadow
+ * and light nodes check it), so no light's castShadow is touched: castShadow stays the game's, readable and writable while shadows are off,
+ * and what the game set is what casts when they come back. Materials recompile once (the shadow define changes).
  * @param {any} e @param {boolean} on
  */
 function switchShadows(e, on) {
   if (e._shadowsApplied === on) return;   // a forced re-apply (a failed write restores every key) must not walk the scene and recompile again
   e._shadowsApplied = on;
   e.renderer.shadowMap.enabled = on;
-  const held = e._shadowsHeld ??= new Map();
-  if (!held.size && !on) ownedRow(e, 'shadows.off', () => (held.size ? { part: 'shadow', key: 'enabled', writer: `look.shadow.enabled false (${e.stacks.get('look.shadow.enabled').row().writer})`,
-    lights: [...held.keys()].map(l => l.name || l.type), back: 'when look.shadow.enabled is true again each light gets its own castShadow back' } : undefined));
-  e.scene.traverse(o => {
-    if (o.isLight && o.shadow) {
-      if (!on) { if (!held.has(o)) held.set(o, o.castShadow); o.castShadow = false; }
-      else if (held.has(o)) { o.castShadow = held.get(o); held.delete(o); }
-    }
-    if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; });
-  });
-  // a light removed from the scene while off is not reached by the walk: forget it, so the Map does not keep it alive
-  if (on) held.clear();
+  e.scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
   e.events?.emit('settings:shadows', on);   // undefined during createEngine (the first apply runs before the services exist)
 }
 
@@ -48,7 +36,7 @@ export function defineShadowLook(e, { owned, baseline }) {
   defineLookPart(e, {
     id: 'shadow', group: 'atmosphere', module: 'core', object: () => e.renderer.shadowMap, applyAtStart: owned, docs: ['recipes/52-look.md', 'recipes/45-cascaded-shadows.md'],
     params: {
-      enabled: { type: 'bool', default: baseline, cost: COST, desc: 'master shadow switch (renderer.shadowMap.enabled and every light\'s castShadow)',
+      enabled: { type: 'bool', default: baseline, cost: COST, desc: 'master shadow switch (renderer.shadowMap.enabled only: no light\'s castShadow is written)',
         why: 'technical render baseline under every style: the engine sun casts soft shadows, so things read as standing on the ground',
         off: "look.shadow.set({ enabled: false }) (a scene or cutscene); the settings menu restricts it with { layer: 'settings', set: false }" },
       type: { type: 'string', default: 'pcf', values: Object.keys(SHADOW_TYPES), neutral: true, cost: COST, desc: "'basic' hard edge | 'pcf' | 'vsm' softest; switching recompiles materials, do it rarely" },
