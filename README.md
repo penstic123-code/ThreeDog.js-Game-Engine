@@ -28,11 +28,7 @@ ThreeDog takes over those systems so they are written once and work together. Th
 
 ## Design ideas
 
-```mermaid
-flowchart LR
-  A["AI writes three.js"] --> B["Engine plugs it in"] --> C["Engine coordinates"] --> D["AI checks the result"]
-  D -.-> A
-```
+<p align="center"><img src="docs/brand/diagrams/design.png" alt="The loop: the AI writes three.js, the engine plugs it in and coordinates, the AI checks the result" width="820"></p>
 
 **A board with slots, not a framework to learn.** Engine objects are ordinary three.js objects, so everything an agent already knows about three.js still applies. The engine offers slots: a sky, a material for a role, a post effect, a module for inventory or weather. Whatever the agent writes in plain three.js is plugged into the matching slot automatically where the engine can see the intent (adding to the scene, creating a light, adding a pass, dropping a file into `plugins/`), or with one line where it cannot.
 
@@ -59,11 +55,7 @@ Each feature below starts from a problem agents actually run into.
 
 ## Architecture
 
-```mermaid
-flowchart TB
-  G["Your game"] --> M["Modules"] --> C["Core"] --> R["Rendering"] --> T["three.js + Rapier"]
-  X["Agent tools"] -.-> G
-```
+<p align="center"><img src="docs/brand/diagrams/arch.png" alt="Layers: your game, modules, core, rendering, three.js and Rapier; agent tools drive and read the game" width="820"></p>
 
 - **Your game** holds its rules, content, style and plugins, and any plain three.js it writes.
 - **Core** owns what every game shares and what must never disagree: the lifecycle (nothing runs before it is ready), one time source (slow motion and pause are views of it), values with owners, input grouped by context (menus and dialogue push a context instead of locking keys), one controller per character, saves that roll back cleanly when a load fails, and player actions that can be checked, logged and replayed.
@@ -75,11 +67,7 @@ flowchart TB
 
 A module is one feature with one declared type. It talks to the rest of the engine only through the core and through public contracts, so it can be removed or replaced without touching anything else.
 
-```mermaid
-flowchart LR
-  M["Module<br/>one type"] --> X["ctx"] --> E["Engine"]
-  X --> L["Leaves with<br/>the module"]
-```
+<p align="center"><img src="docs/brand/diagrams/module.png" alt="A module has one type, its slots and install(engine, ctx); everything it adds goes through ctx and leaves with it" width="820"></p>
 
 | Type | What it owns |
 |---|---|
@@ -97,10 +85,7 @@ A module of your own is written the same way and is treated the same as a built-
 
 The sun's brightness, the fog distance or the speed of time can be wanted by several parts of a game at once. Instead of each one writing the value and undoing the others, every writer adds an entry on a layer, and the engine recomputes the result from the entries that remain.
 
-```mermaid
-flowchart LR
-  E["engine"] --> S["style"] --> G["game"] --> F["effect"] --> Y["system"] --> P["settings"] --> D["debug"]
-```
+<p align="center"><img src="docs/brand/diagrams/layers.png" alt="Value layers from lowest to highest: engine, style, game, effect, system, settings, debug" width="820"></p>
 
 From lowest to highest: the engine's default, the game's style, the game's own value, temporary effects such as weather, sunset or slow motion (they multiply or add), menus and cutscenes, the player's settings (which may only lower a value or switch it off), and debug.
 
@@ -110,14 +95,7 @@ From lowest to highest: the engine's default, the game's style, the game's own v
 
 ### How the look is put together
 
-```mermaid
-flowchart LR
-  SP["Style pack"] --> LP["Look parts"]
-  PF["plugins/ folder"] --> LP
-  GC["Game code"] --> LP
-  LP --> PC["Post chain"] --> OUT["WebGL / WebGPU"]
-  LP --> MAT["Materials"] --> OUT
-```
+<p align="center"><img src="docs/brand/diagrams/look.png" alt="Style packs, the plugins folder and game code feed the look parts, which drive the post chain and materials on WebGL or WebGPU" width="820"></p>
 
 A style pack is a folder of starting values plus look plugins. A plugin works alone or inside several style packs, through the same path as the game's own `plugins/` folder. Every look part answers the same small set of verbs (`set`, `patch`, `add`, `replace`, `manual`, `value`), and post effects keep a stable place in their stage of the chain.
 

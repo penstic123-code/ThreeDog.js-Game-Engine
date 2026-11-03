@@ -28,11 +28,7 @@ ThreeDog 把这些系统接过来，写一次，并且让它们彼此配合。AI
 
 ## 设计思路
 
-```mermaid
-flowchart LR
-  A["AI 写 three.js"] --> B["引擎接上"] --> C["引擎协调"] --> D["AI 检查结果"]
-  D -.-> A
-```
+<p align="center"><img src="docs/brand/diagrams/design.zh.png" alt="循环：AI 写 three.js，引擎接上并协调，AI 检查结果" width="820"></p>
 
 **一块留好插槽的底板，而不是一套要重新学的框架。** 引擎里的对象就是普通的 three.js 对象，AI 已经会的 three.js 知识全都照用。引擎留好了插槽：天空、某种用途的材质、一个后期效果、背包或天气这样的模块。AI 用原生 three.js 写的东西，只要引擎看得出意图（加进场景、新建一盏灯、加一个后期通道、把文件放进 `plugins/`），就会自动接到对应的插槽上；看不出意图的地方，只需要写一行。
 
@@ -59,11 +55,7 @@ flowchart LR
 
 ## 架构
 
-```mermaid
-flowchart TB
-  G["你的游戏"] --> M["模块"] --> C["核心"] --> R["渲染"] --> T["three.js + Rapier"]
-  X["给 AI 的工具"] -.-> G
-```
+<p align="center"><img src="docs/brand/diagrams/arch.zh.png" alt="分层：你的游戏、模块、核心、渲染、three.js 和 Rapier；给 AI 的工具操作和读取游戏" width="820"></p>
 
 - **你的游戏**放规则、内容、画风和插件，以及它直接写的 three.js。
 - **核心**管每个游戏都有、而且绝不能互相打架的东西：生命周期（没准备好的东西不会运行）、统一的时间来源（慢动作和暂停都只是它的不同读法）、带主人的数值、按场合分组的按键（菜单和对话是压上一层场合，而不是锁住按键）、每个角色只有一个控制者、读档失败能干净回滚的存档，以及能先检查、再记录、可以重放的玩家操作。
@@ -75,11 +67,7 @@ flowchart TB
 
 模块就是一项功能，并且声明了自己的类型。它只通过核心和公开的约定跟引擎其他部分打交道，所以可以单独卸下或换掉，不影响别的。
 
-```mermaid
-flowchart LR
-  M["模块<br/>一种类型"] --> X["ctx"] --> E["引擎"]
-  X --> L["随模块<br/>一起离开"]
-```
+<p align="center"><img src="docs/brand/diagrams/module.zh.png" alt="一个模块有一种类型、它的插槽和 install(engine, ctx)；它加进来的东西都经过 ctx，并随它一起离开" width="820"></p>
 
 | 类型 | 管什么 |
 |---|---|
@@ -97,10 +85,7 @@ flowchart LR
 
 太阳亮度、雾的远近、时间快慢，常常有好几处同时想改。引擎不让它们各写各的、互相覆盖，而是让每个写入者在某一层上登记一条，引擎再用还在的条目重新算出结果。
 
-```mermaid
-flowchart LR
-  E["engine"] --> S["style"] --> G["game"] --> F["effect"] --> Y["system"] --> P["settings"] --> D["debug"]
-```
+<p align="center"><img src="docs/brand/diagrams/layers.zh.png" alt="数值的层，从低到高：engine、style、game、effect、system、settings、debug" width="820"></p>
 
 从低到高依次是：引擎默认值、游戏的画风、游戏自己的值、天气日落慢动作这类临时效果（乘或加）、菜单和过场、玩家设置（只能调低或关掉），最后是调试。
 
@@ -110,14 +95,7 @@ flowchart LR
 
 ### 画面是怎么拼起来的
 
-```mermaid
-flowchart LR
-  SP["画风包"] --> LP["画面部件"]
-  PF["plugins/ 文件夹"] --> LP
-  GC["游戏代码"] --> LP
-  LP --> PC["后期流程"] --> OUT["WebGL / WebGPU"]
-  LP --> MAT["材质"] --> OUT
-```
+<p align="center"><img src="docs/brand/diagrams/look.zh.png" alt="画风包、plugins 文件夹和游戏代码汇到画面部件，再驱动后期流程和材质，最后由 WebGL 或 WebGPU 画出来" width="820"></p>
 
 画风包就是一个文件夹，里面放起始数值和画面插件。同一个插件可以单独用，也可以放进好几个画风包，走的都是和游戏自己的 `plugins/` 文件夹相同的路。每个画面部件都只认同一小组动作（`set`、`patch`、`add`、`replace`、`manual`、`value`），后期效果在各自的阶段里位置固定。
 
