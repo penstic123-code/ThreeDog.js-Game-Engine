@@ -177,10 +177,14 @@ A minimal game in code, and the two changes the engine makes to three.js globals
 
 Version 0.5 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`); APIs may still change. What changed since 0.4 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.5.md](packages/engine/docs/MIGRATING-0.5.md).
 
+Version 0.6 is being finished. It moves the picture out of the engine and into plain three.js in the game. The [design notes](docs/philosophy.md) explain why, and the [questions and answers](docs/faq.md) cover the common doubts.
+
 ## Documentation
 
 | File | Content |
 |---|---|
+| [docs/philosophy.md](docs/philosophy.md) | The design: why the engine works this way, who does what, how separate code cooperates |
+| [docs/faq.md](docs/faq.md) | Common questions, including what the engine cannot do |
 | [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | Where an agent starts: one line per task, pointing to the detail |
 | [packages/engine/llms.txt](packages/engine/llms.txt) | The standard entry file AI tools look for |
 | [packages/engine/docs/recipes/](packages/engine/docs/recipes) | Guides by task: a new game, NPCs, items, quests, weather, Blender models, vehicles, performance |

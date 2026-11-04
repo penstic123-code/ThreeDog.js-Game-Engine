@@ -177,12 +177,16 @@ npm test
 
 0.5 是早期版本，可以跑在 WebGL（默认）和 WebGPU（`createEngine({ renderer: 'webgpu' })`）上，接口还可能变。和 0.4 相比改了什么，见[更新日志](packages/engine/CHANGELOG.md)；老游戏怎么升级，按常见程度排好的步骤在 [MIGRATING-0.5.md](packages/engine/docs/MIGRATING-0.5.md)。
 
+0.6 正在收尾。它把画面从引擎里移出来，由游戏用普通 three.js 写。[设计思路](docs/philosophy.zh-CN.md)讲了原因，[常见问题](docs/faq.zh-CN.md)回答了常见的疑问。
+
 ## 文档
 
 文档以英文为主。
 
 | 文件 | 内容 |
 |---|---|
+| [docs/philosophy.zh-CN.md](docs/philosophy.zh-CN.md) | 设计思路：引擎为什么这样做、谁做什么、不同代码怎么配合 |
+| [docs/faq.zh-CN.md](docs/faq.zh-CN.md) | 常见问题，也写了引擎做不到什么 |
 | [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | AI 从这里开始读：每个任务一行，指向详细说明 |
 | [packages/engine/llms.txt](packages/engine/llms.txt) | AI 工具会自动找的标准入口文件 |
 | [packages/engine/docs/recipes/](packages/engine/docs/recipes) | 按任务写的教程：新游戏、NPC、物品、任务、天气、Blender 模型、载具、性能…… |
