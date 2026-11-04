@@ -3,7 +3,7 @@
 // the bottom is left out of collision; walking off the rim falls and emits terrain:void (no built-in respawn); workers build the same chunks.
 
 // Hash of default-config chunk data (meshes, color maps, vegetation placements) for four configs: computed before the shape outlet existed.
-// If it changes, the default ground's output moved -- only update it for a deliberate change of the default look.
+// If it changes, the default ground's output moved -- only update it for a deliberate change of the default picture.
 const DEFAULT_HASH = 'd43622f534386aefc9cbf09b98e95513540e8f8ec27aacff791f6b393b2a80fe';
 
 const ISLAND = {
@@ -57,7 +57,7 @@ export const specs = [
           for (let i = 0; i < 600 && !E.terrain.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60, { render: false }); await wait(); }
           return E;
         };
-        const snap = (E, key) => { const c = E.terrain.chunks.get(key), g = E.terrainLook.meshes.get(c).mesh.geometry.attributes; return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationLook.mesh(c, 'tree')?.instanceMatrix.array ?? [])]); };
+        const snap = (E, key) => { const c = E.terrain.chunks.get(key), g = E.terrainDraw.meshes.get(c).mesh.geometry.attributes; return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationDraw.mesh(c, 'tree')?.instanceMatrix.array ?? [])]); };
         const A = await make(0, [world(), characters(), rigid()]), B = await make(2, []);
         const keys = ['0,0', '-1,0', '0,-1', '-1,-1'];
         out.same = keys.every(k => snap(A, k) === snap(B, k)); out.workers = B.threads.size;
@@ -68,16 +68,16 @@ export const specs = [
         let worst = 0, offTop = 0, trees = 0, treesOff = 0, groups = 0, alpha = new Set(), solidLess = true;
         for (const k of keys) {
           const c = A.terrain.chunks.get(k), p = c.data.pos, CH = A.terrain.CHUNK;
-          const top = A.terrainLook.meshes.get(c).mesh.geometry.groups[0]?.count ?? 0;
+          const top = A.terrainDraw.meshes.get(c).mesh.geometry.groups[0]?.count ?? 0;
           for (let i = 0; i < top * 3; i += 9) {
             const x = c.cx * CH + (p[i] + p[i + 3] + p[i + 6]) / 3, z = c.cz * CH + (p[i + 2] + p[i + 5] + p[i + 8]) / 3, y = (p[i + 1] + p[i + 4] + p[i + 7]) / 3;
             const s = A.surface(x, z); if (!Number.isFinite(s)) offTop++; else worst = Math.max(worst, Math.abs(s - y));
           }
-          groups += A.terrainLook.meshes.get(c).mesh.geometry.groups.length === 2 ? 1 : 0;
-          const d = A.terrainLook.meshes.get(c).colorTex?.image.data; if (d) for (let i = 3; i < d.length; i += 4) alpha.add(d[i]);
+          groups += A.terrainDraw.meshes.get(c).mesh.geometry.groups.length === 2 ? 1 : 0;
+          const d = A.terrainDraw.meshes.get(c).colorTex?.image.data; if (d) for (let i = 3; i < d.length; i += 4) alpha.add(d[i]);
           const col = A.ground.chunkCollision(c.cx, c.cz);
           solidLess &&= !!col && col.positions.length < p.length;
-          const im = A.vegetationLook.mesh(c, 'tree'); if (im) for (let i = 0; i < im.count; i++) { trees++; if (!A.ground.has(c.cx * CH + im.instanceMatrix.array[i * 16 + 12], c.cz * CH + im.instanceMatrix.array[i * 16 + 14])) treesOff++; }
+          const im = A.vegetationDraw.mesh(c, 'tree'); if (im) for (let i = 0; i < im.count; i++) { trees++; if (!A.ground.has(c.cx * CH + im.instanceMatrix.array[i * 16 + 12], c.cz * CH + im.instanceMatrix.array[i * 16 + 14])) treesOff++; }
         }
         Object.assign(out, { worst, offTop, trees, treesOff, groups, alpha: [...alpha].sort((a, b) => a - b), solidLess });
 

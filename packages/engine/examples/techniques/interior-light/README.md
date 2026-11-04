@@ -13,8 +13,8 @@ Run `npm run dev` and open `/interior-light.html`. The engine never imports this
 | `&area=0` | no window area light |
 | `&leak=1` | keep the outdoor ambient indoors (shows the problem the zones solve) |
 
-All values sit in the parameter block at the top of `main.js` (`ROOM`, `WINDOW`, `SUN`, `AMBIENT`, `WINDOW_LIGHT`, `BOUNCE_LIGHT`, `EXPOSURE`,
-`LAMPS`, `VIEWS`). Related: `sun-and-key-light` (the sun itself), `contact-shadows`, `night-lights` (lights in an outdoor night).
+The whole picture is plain three.js in `picture/`; every value of it sits in `picture/palette.js` (`SUN`, `MOON`, `AMBIENT`, `WINDOW_LIGHT`, `BOUNCE_LIGHT`,
+`EXPOSURE`, `LAMPS`, `SHADOW`, `SKY`). `main.js` keeps the shapes (`ROOM`, `WINDOW`, `DOOR`, `VIEWS`). Related: `sun-and-key-light` (the sun itself), `contact-shadows`, `night-lights` (lights in an outdoor night).
 
 ## The principle
 **A room is lit from its openings.** Daylight enters in two parts: the sun (a hard patch on the floor, the brightest thing in the room) and
@@ -60,9 +60,10 @@ window dark but still readable if the game needs it readable. Check from the cam
 
 ## The engine helper (optional convenience)
 `threedog examples pull interior-light` copies `interiorLight.js` and this README into the game; the probes are `engine.bakeProbes` itself.
-- `exposureZones(engine, { isInside, exposure, ambient, ease })`: changes exposure and the leaking outdoor ambient together, eased, and only
-  when the zone changes, with `engine.look.tone.set({ exposure }, { owner: 'zone' })` in `onFrame` (presentation). The page uses a box around
-  the room and `EXPOSURE.day.outside` / `.inside`, eased over `EXPOSURE.ease` seconds.
+- `exposureZones(engine, { hemi, isInside, exposure, ambient, ease })`: changes exposure and the leaking outdoor ambient together, eased, and only
+  when the zone changes. It writes `hemi.intensity`, `scene.environmentIntensity` and `renderer.toneMappingExposure`; call its `update(dt)` from
+  `engine.onFrame`, and `update()` to jump to the zone's values at once. The page uses a box around the room and `EXPOSURE.day.outside` / `.inside`,
+  eased over `EXPOSURE.ease` seconds.
 - `windowLight(engine, { position, lookAt, width, height })`: a `RectAreaLight` with its one-time uniforms init done.
 
 | fill | what it gives | cost |
@@ -80,7 +81,7 @@ the view, and still needs limits. A zone also carries the ambient change, which 
 camera, so looking into the room from outside it still gets outdoor ambient (`?cam=doorway`). When that view matters, give indoor surfaces
 their own fill (probes sampled per object with `probes.sample(pos)`, or lightmaps).
 
-Night (`?night=1`): the sky at night (its moonlight stays very low), the indoor zone's exposure at 1, two warm PointLights (physical falloff,
+Night (`?night=1`): a very low moon (`MOON`), the indoor zone's exposure at 1, two warm PointLights (physical falloff,
 decay 2, intensity in candela) inside shades with an emissive of 0.35; one casts a 512 px shadow (a point light shadow is six renders: give it
 only to the light that needs it). With bloom (`@threedog/post-effects`), keep the emitter's `emissiveIntensity` low or it blooms across the room.
 
@@ -88,9 +89,9 @@ Rules (correctness):
 - `RectAreaLight` needs `RectAreaLightUniformsLib.init()` once, lights only `MeshStandardMaterial` / `MeshPhysicalMaterial`, and **casts no
   shadow**: it lights through furniture and walls on its front side. Use it for the window's soft sky light or a screen, and keep the
   shadowed part to the sun (a DirectionalLight) or a SpotLight.
-- The sun through a window needs every wall, the ceiling and the window frame to `castShadow`, and a shadow box that covers the room. With
-  the sky module: `look.lights.manual('sun.direction')` to aim it, `look.shadow.set({ follow: false, extent })` to fit the box. Thin walls
-  want a small `normalBias` (here 1 cm) or light leaks along their inner edge.
+- The sun through a window needs every wall, the ceiling and the window frame to `castShadow`, and a shadow box that covers the room. `picture/lights.js`
+  aims its own `DirectionalLight` and writes `shadow.camera` to fit the room. Thin walls want a small `normalBias` (here 1 cm) or light leaks along
+  their inner edge.
 - `engine.bakeProbes({ bounds, spacing, follow })` bakes the scene as it is at that moment: set the indoor ambient and the lights first, and
   bake again (or ship one bake per state) if the lighting changes a lot (day / night). Probes add to the hemisphere and environment, which
   the bake also saw (recipe 34). It is one spherical harmonic for the whole scene at a time, interpolated at the `follow` point: right for

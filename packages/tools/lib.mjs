@@ -6,9 +6,10 @@
 //                                               an entry whose entry.json cannot be read is named with the reason at the end (exit 1)
 //   threedog lib pull <name> [-w game] [--to dir/] [--plug "makeIt({ ... })"] [--force] [--dry] [--lib dir]
 //                                               copy an entry into this game (same copy as `threedog art copy`) and print its use line.
-//                                               Code (shader / material / effect / module) is plugged at engine.start() with no line in main.js
+//                                               Code (shader / effect / module) is plugged at engine.start() with no line in main.js
 //                                               (engine.plugins): its files land in plugins/<name>/ (a subfolder: not plugged itself) and pull
-//                                               writes the wiring file plugins/<name>.js from the entry's plug line. Models and textures land in art/
+//                                               writes the wiring file plugins/<name>.js from the entry's plug line. Models and textures land in art/, a material in picture/ (it goes on a mesh in plain code, the plugins folder takes none)
+//   (kind picture: one plain file from picture/ that stands alone, or a .glsl; pull puts it back under picture/ (picture/shaders/ for .glsl); a file that imports siblings is refused at add)
 //   threedog lib page [--lib dir]               write <library>/index.html: every preview with its summary and use line (open it in a browser)
 // Where: ~/.threedog/library by default; THREEDOG_LIBRARY or --lib <dir> moves it. One folder per entry: the copied files, entry.json
 //   ({ name, kind, summary, use, backends, params?, plug?, from }) and preview.png when one could be made.
@@ -32,10 +33,10 @@ import { parseOptions } from './lib/cli-args.mjs';
 import { closest } from './lib/text.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
-export const KINDS = ['model', 'texture', 'material', 'shader', 'effect', 'module', 'other'];
+export const KINDS = ['model', 'texture', 'material', 'shader', 'effect', 'module', 'picture', 'other'];
 const NAME = /^[A-Za-z0-9][\w.-]*$/, CODE = /\.m?js$/, MODEL = /\.(glb|gltf)$/i, TEXTURE = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|svg)$/i;
 const posix = p => p.split(sep).join('/');
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 /** The library folder: --lib, else THREEDOG_LIBRARY, else ~/.threedog/library */
 export function libraryDir({ lib, env = process.env } = {}) {
@@ -64,7 +65,7 @@ export const brokenLine = broken => broken.length
   ? `${broken.length} entr${broken.length === 1 ? 'y' : 'ies'} could not be read (fix or delete the folder, or lib add it again with --force): ${broken.map(b => `${b.folder} (${b.why})`).join('; ')}` : '';
 
 /** The game folder named by -w (a path, or a workspace name of this monorepo), else the game around cwd */
-async function gameOf(w, cwd) {
+export async function gameOf(w, cwd) {
   if (w === undefined) return gameRoot(cwd) ?? resolve(cwd);
   const p = resolve(cwd, w);
   if (existsSync(p) && statSync(p).isDirectory()) return gameRoot(p) ?? p;
@@ -82,7 +83,7 @@ function paramsOf(text) {
 }
 
 /** Entry kinds that are code a plugins/ file can export (lib pull puts them there) */
-const PLUGGABLE = ['shader', 'material', 'effect', 'module'];
+const PLUGGABLE = ['shader', 'effect', 'module'];
 
 /** Does this module text export the name (function, const, class, or export { name })? */
 const exportsName = (text, id) => { const n = id.replace(/\$/g, '\\$'); return new RegExp(`export\\s+(?:async\\s+)?(?:function\\s*\\*?|const|let|var|class)\\s+${n}(?![\\w$])|export\\s*\\{[^}]*\\b${n}(?![\\w$])`).test(text); };
@@ -134,7 +135,7 @@ function makePreview(entryDir, { game, preview, key, kind }) {
   try {
     if (preview && /\.png$/i.test(preview) && existsSync(resolve(preview))) { copyFileSync(resolve(preview), out); return 'preview: copied ' + preview; }
     if (preview) {   // a running scene: the shot tool opens a full URL as given (no build)
-      const r = spawnSync(process.execPath, [join(HERE, 'shot.mjs'), preview, '--out', 'lib-preview.png', '--no-look'], { cwd: game, encoding: 'utf8', timeout: 120000 });
+      const r = spawnSync(process.execPath, [join(HERE, 'shot.mjs'), preview, '--out', 'lib-preview.png', '--no-picture'], { cwd: game, encoding: 'utf8', timeout: 120000 });
       const f = join(game, '.threedog', 'shots', 'lib-preview.png');
       if (r.status === 0 && existsSync(f)) { copyFileSync(f, out); return 'preview: shot of ' + preview; }
       return `no preview: the shot of ${preview} failed (${(r.stderr || r.stdout || '').trim().split('\n').pop()})`;
@@ -165,6 +166,11 @@ export async function addEntry(target, { game: w, cwd = process.cwd(), lib, name
   const dir = join(L, key), exists = existsSync(join(dir, 'entry.json'));
   // plan first against the existing entry: a changed file stops everything (same all-or-nothing rule as art copy)
   const plan = copyArt(source, names, { to: '.', game: dir, dry: true, cwd });
+  // a picture entry is one plain file (or one .glsl) that stands alone: a file that imports siblings (./palette.js) would pull in files the entry
+  // does not name, and the next game gets a half. Say so now instead of storing it
+  const parts = plan.writes.length + plan.same.length + plan.conflicts.length;
+  if (kind === 'picture' && parts > 1 && !force)
+    throw new Error(`lib add --kind picture: ${basename(asPath ?? key)} imports siblings, so it cannot stand alone (${[...plan.writes, ...plan.same.map(to => ({ to })), ...plan.conflicts.map(to => ({ to }))].map(x => posix(relative(dir, x.to ?? x))).join(', ')}). A picture entry is one file: pass the palette in as a parameter of its function, or put the pieces in one file; --force stores them together anyway`);
   if (exists && !force && (plan.conflicts.length || (summary && JSON.parse(readFileSync(join(dir, 'entry.json'), 'utf8')).summary !== summary)))
     return { name: key, dir, refused: plan.conflicts.length ? plan.conflicts.map(c => posix(relative(dir, c))) : ['entry.json (another summary)'] };
   if (exists && force) rmSync(dir, { recursive: true, force: true });   // --force replaces the whole entry: no stale file of the old one stays
@@ -172,7 +178,8 @@ export async function addEntry(target, { game: w, cwd = process.cwd(), lib, name
   const got = infer(dir, r.picked, key);
   const k = kind ?? got.kind, line = plug || PLUGGABLE.includes(k) ? plugOf(dir, { call: plug, fn: names[0], who: 'lib add' }) : null;
   // the use line is what pull prints: the import line a pull into art/ would give (named function only when one was asked for), else the manifest line
-  const probe = copyArt(dir, [], { to: 'art', game: join(tmpdir(), 'threedog-lib-probe'), dry: true });
+  const home = k === 'picture' || k === 'material' ? 'picture' : 'art';   // picture and material entries land in picture/, everything else in art/
+  const probe = copyArt(dir, [], { to: home, game: join(tmpdir(), 'threedog-lib-probe'), dry: true });
   const imports = probe.register.filter(l => l.startsWith('import')).map(l => names[0] && CODE.test(l) ? l.replace(/\{[^}]*\}/, `{ ${names[0]} }`) : l);
   const entry = { name: key, kind: k, summary: summary ?? got.summary, use: use ?? (imports.length ? imports.join(' ') + (names[0] ? ` // ${names[0]}(...)` : '') : probe.register.join(' ')),
     backends: backends ?? got.backends, ...(got.params.length ? { params: got.params } : {}), ...(line ? { plug: line } : {}), from: `${basename(gameRoot(game) ?? game)} ${new Date().toISOString().slice(0, 10)}` };
@@ -199,7 +206,8 @@ export async function pullEntry(name, { game: w, cwd = process.cwd(), lib, to, p
     throw new Error(`lib pull: no entry "${name}" in ${L}` + (near ? ` (did you mean "${near}"?)` : all.length ? ` (threedog lib list shows ${all.length})` : ' (the library is empty: threedog lib add …)'));
   }
   const game = await gameOf(w, cwd);
-  to ??= PLUGGABLE.includes(e.kind) ? 'plugins' : 'art';   // the plugins folder plugs code by what it exports (engine.plugins)
+  // a picture entry goes to picture/ (a .glsl file to picture/shaders/); code that plugs goes to plugins/; the rest to art/
+  to ??= e.kind === 'picture' ? (readdirSync(e.dir).some(f => /\.glsl$/.test(f)) ? 'picture/shaders' : 'picture') : e.kind === 'material' ? 'picture' : PLUGGABLE.includes(e.kind) ? 'plugins' : 'art';   // the plugins folder plugs code by what it exports (engine.plugins)
   if (to.replace(/[\\/]+$/, '') !== 'plugins') return { entry: e, game, to, wiring: null, ...copyArt(e.dir, [], { to, force, dry, cwd: game, game }) };
   // plugins/: the files in a subfolder (the folder plugs only its top-level files), and one wiring file that calls the entry's factory
   const text = (plug ? plugOf(e.dir, { call: plug, who: 'lib pull' }) : e.plug ?? plugOf(e.dir, { who: 'lib pull' }))?.replace(/(from\s*['"])\.\//g, `$1./${e.name}/`) ?? null;
@@ -211,6 +219,12 @@ export async function pullEntry(name, { game: w, cwd = process.cwd(), lib, to, p
   return { entry: e, game, to: 'plugins', ...r, wiring: text ? { file, text } : null };
 }
 
+/** The shell of a static preview page: dark card grid, used by `lib page` and `art board`. style and body are added as they are */
+export const htmlPage = ({ title, style = '', body }) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+<style>body{font:14px sans-serif;background:#1d1d20;color:#ddd;margin:16px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}article{background:#2a2a2f;padding:10px;border-radius:6px}
+.pv{height:256px;display:flex;align-items:center;justify-content:center;background:#111}h2{margin:8px 0 2px;font-size:16px}small{color:#9ab}p{margin:4px 0}.b{color:#999;font-size:12px}code{display:block;word-break:break-all;font-size:12px;color:#cfe}${style}</style>
+${body}`;
+
 /** Write <library>/index.html: previews, summaries and use lines of all entries. Returns the file */
 export function writePage(lib) {
   const list = entries(lib);
@@ -218,11 +232,8 @@ export function writePage(lib) {
 <h2>${esc(e.name)} <small>${esc(e.kind)}</small></h2><p>${esc(e.summary)}</p><p class="b">${esc((e.backends ?? []).join(' · '))}${e.params?.length ? ' · params: ' + esc(e.params.join(', ')) : ''}</p><code>${esc(e.use)}</code><p class="b">from ${esc(e.from)}</p></article>`;
   const f = join(lib, 'index.html');
   mkdirSync(lib, { recursive: true });
-  writeFileSync(f, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>threedog library</title>
-<style>body{font:14px sans-serif;background:#1d1d20;color:#ddd;margin:16px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}article{background:#2a2a2f;padding:10px;border-radius:6px}
-.pv{height:256px;display:flex;align-items:center;justify-content:center;background:#111}h2{margin:8px 0 2px;font-size:16px}small{color:#9ab}p{margin:4px 0}.b{color:#999;font-size:12px}code{display:block;word-break:break-all;font-size:12px;color:#cfe}</style>
-<h1>threedog library <small>${list.length} entr${list.length === 1 ? 'y' : 'ies'}</small></h1><main>
-${list.map(card).join('\n')}</main>\n`);
+  writeFileSync(f, htmlPage({ title: 'threedog library', body: `<h1>threedog library <small>${list.length} entr${list.length === 1 ? 'y' : 'ies'}</small></h1><main>
+${list.map(card).join('\n')}</main>\n` }));
   return f;
 }
 
@@ -267,8 +278,8 @@ async function cli(argv) {
       if (r.to !== 'plugins') console.log(`use: ${r.entry.use}`);
       else if (r.wiring) console.log(`${opt.dry ? 'would write' : 'wrote'} ${posix(relative(cwd, r.wiring.file))} (plugged at engine.start(); describe().slots lists it):\n` + r.wiring.text.trim().split('\n').map(l => '  ' + l).join('\n') + '\nChange the arguments there; the code itself is in ' + posix(relative(cwd, join(r.game, 'plugins', r.entry.name))) + '/');
       else console.log(`No plug line: the entry does not say what to call. Pull again with --plug "makeIt({ ... })" (an exported function of plugins/${r.entry.name}/), or write plugins/${r.entry.name}.js yourself: import { makeIt } from './${r.entry.name}/file.js'; export default makeIt();`);
-      if (r.register.length) console.log('Register (in the game code that sets up assets):\n' + r.register.map(l => '  ' + l).join('\n'));
-      console.log('The copies are this game\'s own now: adapt them to its look; nothing links back and nothing updates them.');
+      if (r.register.length && r.entry.kind !== 'picture') console.log('Register (in the game code that sets up assets):\n' + r.register.map(l => '  ' + l).join('\n'));
+      console.log('The copies are this game\'s own now: adapt them to its picture; nothing links back and nothing updates them.');
       return 0;
     }
     const f = writePage(lib);

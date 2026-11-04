@@ -16,8 +16,8 @@ engine.use(openWorld({ camera: 'follow', seed: 7, terrain: terrainPreset({ shape
 const preview = createTerrain({ seed: 7, ...terrainPreset() });                    // same heights before the engine starts
 const dry = (x, z) => riverAt(x, z, preview.noise) === 0;
 ```
-Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; a style colors them (`terrain.colors`)
-(`style.terrain.biomeColors`), and `terrainStrings` names them for `describe()`. Other options:
+Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; the game colors them (`terrain({ colors, biomeColors })`),
+and `terrainStrings` names them for `describe()`. Other options:
 `heightScale mountains rivers riverWidth biomes noise island canyon` (types in the package's `index.d.ts`).
 
 ## 1. Your own generator
@@ -72,21 +72,21 @@ engine.ops.define('path.sand', { args: { at: 'position' },   // a sandy path; a 
 Read the ground with `engine.surface(x, z)` (also `slope`, `groundType`, `waterAt`) and put an object on it with `engine.snapToGround(obj)`. Don't
 raycast the terrain for this: the height function is exact and works before the chunk has a mesh.
 
-Crisp ground color borders, triangle cut, normals, bounds margin, height from a grid: `37-terrain-look-hooks.md`.
+Crisp ground color borders, triangle cut, normals, bounds margin, height from a grid: `37-terrain-draw-hooks.md`.
 
 ## 5. Where the ground ends: `shape`
 
 `terrain({ shape: { mask, edge, side, bottom } })` keeps ground only where `mask > 0` (an island, a floating rock): off it `engine.surface` is
 `-Infinity` and `engine.ground.has(x, z)` is false, and falls emit `terrain:void`. Without `shape` nothing changes. See `42-terrain-shape.md`.
 
-## 6. Drawing the ground and plants your own way: replace the look, keep play
+## 6. Drawing the ground and plants your own way: replace the picture, keep play
 
 `terrain()` and `vegetation()` each install two modules: the data part (`engine.terrain`: heights, chunks, edits, collision;
-`engine.vegetation`: species, placement, tree collision, felling) and the look (`engine.terrainLook`, slot `'terrain-look'`;
-`engine.vegetationLook`, slot `'vegetation-look'`). Collision, paths, `engine.surface`, `instanceAt` and saves read only the data, so a game that
-replaces a look keeps all of play. A look listens to the data part's `view` hooks and never changes the data:
+`engine.vegetation`: species, placement, tree collision, felling) and the picture (`engine.terrainDraw`, slot `'terrain-draw'`;
+`engine.vegetationDraw`, slot `'vegetation-draw'`). Collision, paths, `engine.surface`, `instanceAt` and saves read only the data, so a game that
+replaces a picture keeps all of play. A picture listens to the data part's `view` hooks and never changes the data:
 ```js
-engine.use({ name: 'myGround', type: 'look', provides: ['terrain-look'], install(e, ctx) {
+engine.use({ name: 'myGround', type: 'picture', provides: ['terrain-draw'], install(e, ctx) {
   const meshes = new Map();
   ctx.track(e.terrain.view({
     add(c) { const m = buildMesh(c.data.pos, c.data.nor, c.data.col); m.position.set(c.cx * e.terrain.CHUNK, 0, c.cz * e.terrain.CHUNK); e.scene.add(m); meshes.set(c, m); },
@@ -94,17 +94,17 @@ engine.use({ name: 'myGround', type: 'look', provides: ['terrain-look'], install
     remove(c) { e.scene.remove(meshes.get(c)); meshes.delete(c); },
     show(c, visible) { meshes.get(c).visible = visible; },
   }));
-} }, { replaces: 'terrain-look' });
-engine.use({ name: 'myPlants', type: 'look', provides: ['vegetation-look'], install(e, ctx) {
+} }, { replaces: 'terrain-draw' });
+engine.use({ name: 'myPlants', type: 'picture', provides: ['vegetation-draw'], install(e, ctx) {
   ctx.track(e.vegetation.view({
     species(sp) { /* sp.source = what vegetation.define was given (geometry, model, material, wind) */ },
     change(c, name) { /* c.plants[name]: { n, m (16 floats per plant, chunk-local), c (colors), ids }; c.hidden[name]: felled slots; gone = drop that mesh */ },
     ring(c, ring) { /* LOD: ring 1 = the chunk a source stands in plus one ring around */ },
     show(c, visible) {}, drop(c) { /* chunk released */ },
   }));
-} }, { replaces: 'vegetation-look' });
+} }, { replaces: 'vegetation-draw' });
 ```
-Only the material, not the meshes? `engine.look.ground.replace(material)` swaps it on every loaded chunk in place (recipe 52).
+Only the material, not the meshes? `engine.terrain.material = material` swaps it on every loaded chunk in place (recipe 36).
 
 ## 7. A chunk that fails
 

@@ -3,6 +3,7 @@
 //   engine.inspect('npc_3')        the same for another actor (world record id): "why did this enemy not attack?"
 //   engine.inspect([x, z])         things around a spot, ops as the player
 //   engine.explain({ op: 'shop.buy', args })   why an op can / cannot run now (text: reason + fix first; detail: its last attempt and the events around it)
+//   engine.explain({ picture: 'fog.far' })    which line last changed a picture value (core/pictureWriters.js); a value not tracked says so
 //   engine.explain({ quest: 'first-light' })  any other key is answered by the module whose definition has explain: { quest(e, id) {...} }
 //   engine.pick(x, y).thing        point -> thing: the world record a ray hit belongs to, else the engine.add object (thingOf; engine.thing is the same lookup)
 // Built on ops because a failed op already carries its reason; explain turns that into a sentence instead of making the AI read can().
@@ -10,6 +11,7 @@ import { closest } from './validate.js';
 import { codedError } from './errorHints.js';
 import { findThing, hintThing } from './thingOps.js';
 import { atomicNote } from './opsAtomic.js';
+import { NO_WRITERS } from './describeRender.js';
 
 const OPS_MAX = 8;
 
@@ -45,8 +47,8 @@ export function inspect(e, at, { radius = 10 } = {}) {
 export function thingOf(e, obj, hit) {
   if (obj?.isInstancedMesh && hit?.instanceId != null) obj = e.batching.item(obj, hit.instanceId) ?? obj;
   const t = findThing(e, obj), mat = Array.isArray(obj?.material) ? obj.material[0] : obj?.material;
-  const look = { mesh: obj?.name || null, material: mat?.name || null };
-  return t ? Object.assign(t, look) : { id: null, kind: null, template: null, definedAt: null, model: null, fields: {}, edit: null, ...look };
+  const seen = { mesh: obj?.name || null, material: mat?.name || null };
+  return t ? Object.assign(t, seen) : { id: null, kind: null, template: null, definedAt: null, model: null, fields: {}, edit: null, ...seen };
 }
 
 /**
@@ -55,9 +57,10 @@ export function thingOf(e, obj, hit) {
  */
 export function explain(e, q) {
   if (q?.op) return explainOp(e, q);
+  if (q?.picture) return e._picture?.why(String(q.picture)) ?? { ok: false, text: `${q.picture}: ${NO_WRITERS}`, detail: null };
   const key = Object.keys(q || {})[0];
   for (const m of e.modules.values()) if (m.explain?.[key]) return m.explain[key](e, q[key], q);
-  const keys = ['op', ...[...e.modules.values()].flatMap(m => Object.keys(m.explain || {}))];
+  const keys = ['op', 'picture', ...[...e.modules.values()].flatMap(m => Object.keys(m.explain || {}))];
   throw codedError('unknown-name', `engine.explain({ ${key}: ... }): nothing explains '${key}'${closest(key, keys) ? ` (did you mean '${closest(key, keys)}'?)` : ''}. Keys: ${keys.join(', ')} (a module adds one with explain: { ${key}(e, value) { return { ok, text } } })`);
 }
 

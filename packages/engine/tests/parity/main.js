@@ -1,7 +1,7 @@
-// Parity page (tests/specs/owned.mjs): the same small scene drawn by plain three.js and by the engine with its look shortcuts off
+// Parity page (tests/specs/owned.mjs): the same small scene drawn by plain three.js and by the engine with its picture shortcuts off
 // (no sky, no engine lights, no post, no style), on the same render baseline. Same pixels = the engine adds nothing hidden
-// (no patch on game materials, no extra light, no hidden pass). The baseline itself (AgX, sRGB output, shadows, neutral room environment)
-// is what the engine documents for every engine-owned renderer; the plain renderer is set up the same way by hand, as a game without the engine would.
+// (no patch on game materials, no extra light, no hidden pass). The baseline itself (three.js's own tone mapping default, sRGB output, shadows; the neutral room environment
+// only with the engine's lights on, so not here: lights: false) is what the engine documents for every engine-owned renderer; the plain renderer is set up the same way by hand, as a game without the engine would.
 // ?backend=webgpu: the same check on the WebGPU route, createEngine({ renderer: 'webgpu' }) against a plain WebGPURenderer on the backend the
 // engine actually got (webgpu, or webgl2 where the browser has no WebGPU), so the comparison is never WebGPU against WebGL2 drivers.
 import * as THREE from 'three';
@@ -21,7 +21,7 @@ function build(scene) {
   box.position.set(-1.5, 1, 0); box.castShadow = true;
   const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshLambertMaterial({ color: 0x3060c0 }));
   ball.position.set(1.8, 1, 0.5); ball.castShadow = true;
-  ball.userData.batch = false; box.userData.batch = false;   // parity is about look, not the batching optimization
+  ball.userData.batch = false; box.userData.batch = false;   // parity is about the picture, not the batching optimization
   const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(5, 10, 4); sun.castShadow = true;
   sun.shadow.mapSize.set(512, 512); Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 });
   scene.add(ground, box, ball, sun, new THREE.AmbientLight(0xffffff, 0.3));
@@ -47,7 +47,7 @@ async function plainRenderer(canvas) {
   const r = GPU ? new TG.WebGPURenderer({ canvas, antialias: false, forceWebGL: engine.describe().renderer.backend === 'webgl2' }) : new THREE.WebGLRenderer({ canvas, antialias: false });
   if (GPU) await r.init();
   r.setPixelRatio(1); r.setSize(W, H, false);
-  r.toneMapping = THREE.AgXToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+  r.outputColorSpace = THREE.SRGBColorSpace;
   r.shadowMap.enabled = true; r.shadowMap.type = R.shadowMap.type;
   return r;
 }
@@ -68,13 +68,16 @@ window.parity = async () => {
   const bgc = engine.scene.background, bgt = new THREE.DataTexture(new Float32Array([bgc.r, bgc.g, bgc.b, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
   bgt.colorSpace = THREE.LinearSRGBColorSpace; bgt.needsUpdate = true;
   const scene = new THREE.Scene(); scene.background = bgt;
-  const pm = GPU ? new TG.PMREMGenerator(r) : new THREE.PMREMGenerator(r);
-  scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = engine.scene.environmentIntensity;
+  let pm = null;
+  if (engine.scene.environment) {   // none with lights: false; kept so the page shows the baseline again if that ever changes
+    pm = GPU ? new TG.PMREMGenerator(r) : new THREE.PMREMGenerator(r);
+    scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = engine.scene.environmentIntensity;
+  }
   build(scene);
   // the one thing the engine adds on WebGPU: a Lambert / Phong material gets scene.environment's diffuse fill, as three's WebGLRenderer gives
   // it and plain WebGPURenderer does not (render/fx/patchNodes.tsl.js environmentDiffuse). Written out here by hand with WebGL's formula
   // (PI * roughest PMREM level along the world normal * environmentIntensity, times Lambert's albedo / PI), so the rest stays compared 1:1
-  if (GPU) {
+  if (GPU && scene.environment) {
     const T = await import('three/tsl'), ball = scene.children.find(o => o.material?.isMeshLambertMaterial), env = scene.environment;
     const m = new TG.MeshLambertNodeMaterial({ color: ball.material.color });
     m.emissiveNode = T.pmremTexture(env, T.normalWorld, T.float(1)).rgb.mul(scene.environmentIntensity).mul(T.materialColor.rgb);
@@ -93,7 +96,7 @@ window.parity = async () => {
   for (let i = 0; i < a.length; i += 4) if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) > 8) {
     bad++; const x = (i / 4) % W, y = Math.floor(i / 4 / W); box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
   }
-  r.dispose(); pm.dispose(); bgt.dispose();
+  r.dispose(); pm?.dispose(); bgt.dispose();
   return { mean: +(sum / a.length).toFixed(3), max, lit: +(lit / (W * H)).toFixed(2), bad, box: bad ? box : null, backend: engine.describe().renderer.backend,
     engine: { tone: R.toneMapping, tier: engine.tier, msaa: engine.post.antialias, env: !!engine.scene.environment, envI: engine.scene.environmentIntensity, size: [R.domElement.width, R.domElement.height] } };
 };

@@ -51,14 +51,14 @@ Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }
 |---|---|---|
 | `'rules'` | game logic: save parts, ops, events; may take input, control or the camera for a while. The usual one for a game module | - |
 | `'world'` | game state: records, ops, ground / collision / navigation data | drawing (rule R47: no `scene.add`, `renderer.` in its file) |
-| `'look'` | what is seen and heard: look values, three.js objects, particles, sounds | `ops.define`, writing world records |
+| `'picture'` | what is seen and heard: picture values, three.js objects, particles, sounds | `ops.define`, writing world records |
 | `'ui'` | panels and menus: declares input actions, runs ops | `input.bind` (keys are the game's), `saves.register` (preferences are not game saves) |
 | `'actor'` | characters and their control | - |
 | `'net'` | multiplayer: remote characters, the transport | - |
 | `'tool'` | a one-shot job that undoes itself (a photo, a bake) | - |
 
 No subtypes: inside a type the differences are declarations (`provides`, `requires`, `ctx.mod` values, material slots, post stage, sounds).
-A module that does two kinds of thing is two definitions returned together (`weather()` returns the `weather` state and the `weatherLook` look;
+A module that does two kinds of thing is two definitions returned together (`weather()` returns the `weather` state and the `weatherDraw` drawing part;
 `engine.use(weather())` installs both). The refusal names the module, its type, what it did, why not, and the fix; copy the fix.
 
 ## 2. Hooks and order cheat sheet
@@ -81,7 +81,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
   false: a failed init is reported and start goes on). A module installed after start gets no `fixed` / `frame` before its `init` finished:
   `engine.moduleStates` shows `initializing` / `running` / `failed`, and `await engine.loading.settled()` waits for it. A module whose `isReady` never
   turns true makes `start()` reject after `engine.loading.timeoutMs` (default 120 s), naming it.
-- The `type` decides what an error does: in a `look` or `ui` module (gameplay works without it) an error in a hook only switches that module off
+- The `type` decides what an error does: in a `picture` or `ui` module (gameplay works without it) an error in a hook only switches that module off
   (`module:disabled`, listed in `engine.disabledModules`); in any other type it freezes the game in development/tests and is recorded in `engine.error`.
 - Listeners and timers the module adds go through `ctx.track(...)`: `ctx.track(e.events.on('item:add', fn))`, also `onFixed` / `onFrame` /
   `clock.after` / `audio.measure` / a `makeWindow` window, anything with `remove()`. They leave with the module: when its `engine.use(...)` batch
@@ -92,7 +92,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
   physics world, WASM objects and real-time timers, and is called in reverse install order.
 - A module's changes to shared values go through `ctx.mod(point, { mul: 0.8, layer: 'effect' })` (= `ctx.track(e.mod(point, { owner: ctx.name, ... }))`),
   so they leave with it too. A module that must be the only one of its kind declares `provides: ['inventory']`; others `requires: ['inventory']`
-  (a capability, never a module name), and a game swaps it with `engine.use(mine(), { replaces: 'inventory' })` (`55-mods-time-wrap.md`):
+  (a capability, never a module name), and a game swaps it with `engine.use(mine(), { replaces: 'inventory' })` (`55-mods-time-wrap.md`). `engine.unuse('name')` removes a module with nothing in its place, and refuses while another still requires it. Picture slots: `62-picture-code.md` 3e:
   `engine.inventory` is then the new module's API, so the dependents keep working. A missing capability throws naming both fixes: install the
   engine's part of that name first, or your own module with `provides`.
 - `engine.phase` says where the engine is: `'constructed'` -> `'loading'` (start() running: frame hooks run, fixed steps do not, so no game
@@ -114,7 +114,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
 
 ## 3. Extra steps when it goes into the engine
 - Write the declarations and JSDoc in `index.d.ts` (or `types/*.d.ts`) of the engine package; `npm run types` checks that the exports of index.js are declared.
-- Add look parameters to the style (see `09-style.md`), put text in i18n, then `npm run map` to generate API.md + `api/` / CODEMAP.md.
+- Hand out a picture as `.material`, `.uniforms`, `.patches` (see `09-materials-lights-models.md` §3), put text in i18n, then `npm run map` to generate API.md + `api/` / CODEMAP.md.
 
 ## 4. Verify
 - `npm run check` (hard rules + types + generated docs up to date).

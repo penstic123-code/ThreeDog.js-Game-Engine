@@ -1,7 +1,7 @@
 // TSL waterWave() / waterSurface() / waterFresnel(): the water patches of modules/water (waves, waterSurface, fresnel) as TSL.
 // - waterWave(p, t): line for line the built-in GLSL threedogWaterWave (surface.js WAVE). Like the GLSL `waves` patch, feed it the world position
 //   of the undisplaced vertex times waveScale and time times waveSpeed, and add wave * waveHeight to the vertex y (a positionNode: positionLocal + vec3(0, h, 0)).
-// - waterSurface(spec): the GLSL surface function is generated per look (builtSurface: depthColor / foam decide which lines exist), so the TSL side
+// - waterSurface(spec): the GLSL surface function is generated per water shader (builtSurface: depthColor / foam decide which lines exist), so the TSL side
 //   is a builder too: it returns an Fn with the exact GLSL signature threedogWaterSurface(base, wave, facing, worldPos, time) -> vec4 (rgb, opacity).
 // - waterFresnel(color, normal, viewDir, strength, towards): the expression of the `fresnel` patch (Water.js, output slot), grazing angles toward
 //   `towards` (the engine passes the fog color). GLSL has it inline, not as a function; the inputs are the ones that expression reads.

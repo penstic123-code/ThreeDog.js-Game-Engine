@@ -44,12 +44,15 @@ const engApi = split(eng, 'Engine');
   L.push('', '## engine properties (module properties are on each module page)', ...fieldLines(engApi.props.filter(p => !p.optional), ''));
   L.push('', '## Module definition (engine.use(myModule()))');
   renderStruct(L, 'ModuleDef');
+  L.push('', '## createEngine({ ui })');
+  renderStruct(L, 'UIOptions');
+  renderStruct(L, 'UITheme');
   structs(L, 'engine');
 }
 const COMMON = ['use', 'start', 'step', 'describe', 'describeText', 'applyState', 'onFixed',
   'onFrame', 'add', 'remove', 'surface', 'snapToGround', 'raycast', 'pick', 'freeze', 'pause'];
 idx.push('## Core everyday API (all methods, properties, createEngine options and how to write a module are in [api/engine.md](api/engine.md))');
-idx.push(`- \`${sig('createEngine', indexFns.find(x => x.name === 'createEngine').nodes[0])}\` — creates the engine (core only); options: canvas style loading saveKey headless budget …`);
+idx.push(`- \`${sig('createEngine', indexFns.find(x => x.name === 'createEngine').nodes[0])}\` — creates the engine (core only); options: canvas ui loading saveKey headless budget …`);
 idx.push(`- \`${sig('openWorld', indexFns.find(x => x.name === 'openWorld').nodes[0])}\` — open-world preset (world and environment + basic modules; add gameplay modules yourself; \`xxx: false\` turns one off), options in [api/openWorld.md](api/openWorld.md)`);
 for (const n of COMMON) { const e = engApi.methods.find(m => m.name === n); if (e) idx.push(`- \`${sig('engine.' + n, e.sigs[0])}\`${e.doc ? ' — ' + first(e.doc, 70) : ''}`); }
 for (const n of ['stateApplied', 'ready', 'player', 'scene',
@@ -162,15 +165,6 @@ for (const p of engProps) {
       + 'kinds: { name: { desc, load(e, data), check?, map? } } (enemies, recipes, loot tables…)');
 }
 
-// ---------- Style ----------
-{
-  const L = page('style', 'Style — createEngine({ style }), all the look (any style: a folder with index.js; recipes/09-style.md)');
-  const { props } = split(get('Style'), 'Style');
-  L.push('- **Style** fields (all optional):', ...fieldLines(props));
-  L.push('', '## Sub-structures');
-  for (const s of ['StyleSky', 'StyleShadow', 'StyleWeather', 'StyleWater', 'StyleTerrain', 'StyleUI', 'MaterialSpec']) renderStruct(L, s);
-}
-
 // ---------- Utility functions ----------
 {
   const L = page('tools', 'Utility functions (imported from threedog)');
@@ -193,7 +187,6 @@ for (const p of engProps) {
   }
 }
 idx.push('', '## Other');
-idx.push(`- [Style](${link('style')}): all look options (sky, weather, water, terrain, UI, materials, particles, sound, models)`);
 idx.push(`- [Utility functions](${link('tools')}): ${indexFns.filter(f => !['createEngine', 'openWorld'].includes(f.name) && !factories.includes(f)).map(f => f.name).slice(0, 24).join(' ')} …`);
 idx.push('');
 
@@ -203,7 +196,7 @@ idx.push('');
 // llms.txt at the package root (llmstxt.org convention): where an AI starts, the reading order, one line per recipe from its title
 const LLMS = join(ENGINE, 'llms.txt');
 const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain three.js, no React): core and modules installed with engine.use. ' +
-  'It ships no art: each game draws its own look (plain three.js, its style/ folder and assets).', '',
+  'It ships no art: each game draws its own picture (plain three.js in its picture/ folder, and assets).', '',
   "Reading order: docs/AI.md (the index: one line per task) -> the recipe for the task -> docs/api/<module>.md for details -> the game's GAMEMAP.md.", '',
   '## Start', '', '- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions',
     '- [API.md](docs/API.md): API index; one page per module in docs/api/', '',

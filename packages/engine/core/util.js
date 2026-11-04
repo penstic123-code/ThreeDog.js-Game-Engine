@@ -9,7 +9,7 @@ export const isPlainObject = v => v !== null && typeof v === 'object' && !Array.
  */
 export const orNull = f => { try { return f(); } catch { return null; } };
 
-/** Read a dotted path ('look.fog.color'); undefined as soon as a step is missing @param {any} obj @param {string} path */
+/** Read a dotted path ('a.b.c'); undefined as soon as a step is missing @param {any} obj @param {string} path */
 export function getPath(obj, path) {
   let v = obj;
   for (const k of path.split('.')) v = v?.[k];

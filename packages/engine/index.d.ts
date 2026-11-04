@@ -7,7 +7,6 @@
 // File layout:
 //   packages/engine/types/common.d.ts    shared small types (position, color, easing names)
 //   packages/engine/types/core.d.ts      Engine class, event map EventMap, input, i18n, saves, assets, audio, module definition
-//   packages/engine/types/style.d.ts     the Style type
 //   packages/engine/types/world.d.ts     terrain, vegetation, calendar, sky, weather, water
 //   packages/engine/types/physics.d.ts   collision, Rapier physics, the four cameras
 //   packages/engine/types/gameplay.d.ts  timeline, level, trigger zones, particles, settings, music, character/NPC, interactions, dialogue, inventory, quests, photo mode,
@@ -18,7 +17,7 @@
 //
 // When the engine's public API changes (new export, changed parameter), update this file too; `npm run types` checks that every export of index.js is declared.
 
-import type { Engine, EngineOptions, ModuleDef, ModuleInput } from './types/core';
+import type { Engine, EngineOptions, ModuleDef, ModuleInput, PictureSlot } from './types/core';
 import type { Ease, EaseName, BufferGeometry, ColorLike, Material, Vector3, PositionLike } from './types/common';
 import type {
   TerrainOptions, TerrainConfig, TerrainGen, Terrain, Vegetation, VegetationModuleOptions, Sky, SkyOptions, Calendar, CalendarOptions, Weather, WeatherOptions, WeatherPreset,
@@ -36,7 +35,6 @@ import type {
   Timeline, TimelineOptions, Character, NPC, UIWindow, WindowOptions,
   Content, Flow, FlowOptions, Hud, HudOptions, ScreenPoint, UIFocus, FocusHandle,
 } from './types/gameplay';
-import type { Style, StyleUI } from './types/style';
 import type { PostEffect } from './types/generated/render/PostFX';
 // Local bindings for the generated module factories (export { x } from re-exports below do not create them), used by OpenWorldOptions
 import type { sky } from './types/generated/modules/sky/skyModule';
@@ -50,7 +48,6 @@ import type { debug } from './types/generated/modules/debug/DebugPanel';
 // Types are exported too, so game code can write JSDoc: /** @type {import('threedog').DialogueScript} */
 export * from './types/common';
 export * from './types/core';
-export * from './types/style';
 export * from './types/world';
 export * from './types/physics';
 export * from './types/gameplay';
@@ -63,8 +60,10 @@ export * from './types/nav';
 /** three.js itself (the same instance the engine uses; typed by @types/three) */
 export * as THREE from 'three';
 
-/** Create an engine (core only). canvas is required; style is the game's style (see recipes/09-style.md) */
+/** Create an engine (core only). canvas is required; style is the game's style (see recipes/09-materials-lights-models.md) */
 export function createEngine(opts: EngineOptions): Engine;
+/** The picture slots: what each one is and which describe('picture').picture.writers names it covers (a name ending in '.' covers everything under it) */
+export const PICTURE_SLOTS: Readonly<Record<PictureSlot, { readonly what: string; readonly values: readonly string[] }>>;
 
 /** One openWorld part: false leaves the module out, true / omitted uses defaults, an object is that module's own options */
 type Part<F extends (...a: any) => any> = boolean | NonNullable<Parameters<F>[0]>;
@@ -249,15 +248,6 @@ export const threePatches: {
   list(): { id: string, what: string, scope: string, on: boolean, offable: boolean, lost: string }[];
   off(id: string): void;
 };
-/**
- * Register a module's own look part: engine.look.<id> with set / patch / add / replace / manual / value (module code: part.author),
- * engine.catalog('look.<id>') and describe().look (recipes/52-look.md).
- * Every param needs a default; a default that changes the picture also needs why and off (or neutral: true).
- */
-export function defineLookPart(engine: any, spec: { id: string, group?: string, module?: string, object?: () => any, params?: Record<string, any>,
-  style?: () => object, read?: () => object, apply?: (values: any, changed: Set<string>) => void, applyAtStart?: boolean,
-  hooks?: Record<string, { signature?: string, scope?: string[], example?: string }>, applyHook?: (name: string, glsl: any) => void, noPatch?: string,
-  replace?: { accepts: string, loses?: string[] }, applyReplace?: (impl: any) => void, noReplace?: string, noAdd?: string, docs?: string[] }): import('./types/core').LookPart;
 // The Character, NPC and Engine classes are exported by the export * above (tweens use engine.timeline.tween, pathfinding uses engine.characters.findPath)
 
 /** Pure terrain computation (no engine needed), for previewing heights before start: createTerrain({ seed, ...terrainPreset() }).surface(x, z) */
@@ -265,7 +255,8 @@ export function createTerrain(cfg?: Partial<TerrainConfig>): TerrainGen;
 
 // ---------- Materials ----------
 // Migrated: declarations are generated from the JSDoc in packages/engine/render/materials.js (npm run map), not written by hand here
-export { terrainMaterial, mergeColored, applyEffects, MATERIAL_PURPOSES, makeMaterial } from './types/generated/render/materials';
+export { terrainMaterial, mergeColored, applyEffects } from './types/generated/render/materials';
+export { rampTexture } from './types/generated/render/lighting';
 export { bakeVertexAO } from './types/generated/render/modeling';
 export { materialPatches } from './types/generated/render/patches';
 
@@ -274,7 +265,7 @@ export { materialPatches } from './types/generated/render/patches';
 export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './types/generated/ui/UI';
 // Type PostFX (class in render/PostFX.js): used by engine.post in Engine, and exported publicly
 export type { PostFX, PostEffect } from './types/generated/render/PostFX';
-export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleItem } from './types/core';
+export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleItem, UIOptions, UITheme, UITemplate } from './types/core';
 
 // ---------- Clock ----------
 /** Clock time -> fraction of the day: parseClock('18:30') = 0.77; a number or numeric string ('0.25') is converted as is. hoursPerDay is hours per day, default 24 */

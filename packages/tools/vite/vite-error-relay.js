@@ -112,8 +112,10 @@ export default function errorRelay({ warn = true, logFile = '.threedog/errors.lo
           it.count = Math.max(1, Math.min(1e6, Math.floor(it.count))); it.msg = it.msg.slice(0, 2000); it.stack = it.stack.slice(0, 4000);
           const src = sourceOf(it), key = it.type + it.msg.replace(/\d+(\.\d+)?/g, '#') + src;
           const s = seen.get(key);
-          if (s) { s.total += it.count; s.pending += it.count; continue; }
-          seen.set(key, { it, src, total: it.count, pending: it.count - 1 });
+          // a warning says the same thing every time (most are warned once per page, so once per reload): only its first line is kept, repeats
+          // are counted silently; an error's repeats are still summarized, since how often it happens is news
+          if (s) { s.total += it.count; if (it.type !== 'warn') s.pending += it.count; continue; }
+          seen.set(key, { it, src, total: it.count, pending: it.type === 'warn' ? 0 : it.count - 1 });
           const page = it.page.slice(0, 200).replace(/\s+/g, ' ');
           const head = `[browser ${LABEL[it.type]}] ${clock(Number(it.t) || Date.now())}${it.tick === undefined ? '' : ' tick ' + Math.floor(it.tick)}`;
           // "Possible cause / Read" for known error classes comes from the engine's table, so it is the only text written unquoted

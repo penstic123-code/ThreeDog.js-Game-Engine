@@ -35,8 +35,9 @@ export const specs = [
       page.on('pageerror', e => errors.push(String(e)));
       page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
       const r = await ev(src => { try {
-        const { read, meanBox, changed } = (0, eval)(`(${src})`)(), { parts, THREE } = window.webgpuTslTest, U = engine.uniforms;
+        const { read, meanBox, changed } = (0, eval)(`(${src})`)(), { parts, picture, THREE } = window.webgpuTslTest, U = engine.uniforms;
         engine.pause();
+        engine.step(0.01);   // one real frame first: renderOnce skips onRender, so picture/'s lights and sky are unset until a frame has run
         const mats = [];
         engine.scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) mats.push({ o: o.name || o.type, type: m.type, node: !!m.isNodeMaterial }); });
         // hold the values the sky would write so one change at a time moves the picture
@@ -49,8 +50,8 @@ export const specs = [
         U.uDaylight.value = 1;
         const lp = at(parts.lantern.position.toArray());
         const day = meanBox(read(), lp, 6); U.uDaylight.value = 0; const night = meanBox(read(), lp, 6); U.uDaylight.value = 1;
-        engine.look.post.set({ 'scanlines.amount': 0 }); const flat = read();
-        engine.look.post.set({ 'scanlines.amount': 0.5 }); const lines = read();
+        picture.scanlines.value = 0; const flat = read();
+        picture.scanlines.value = 0.5; const lines = read();
         const order = engine.post.object() ? engine.post._pipe?.order ?? null : null;
         return { renderer: engine.describe().renderer, mats, sway: { swayed, still }, day, night, post: { flatMean: meanBox(flat, [flat.w >> 1, flat.h >> 1], 1e4),
           linesMean: meanBox(lines, [lines.w >> 1, lines.h >> 1], 1e4) }, order, error: engine.error?.message ?? '' };
@@ -59,10 +60,10 @@ export const specs = [
       console.log('  webgpu-tsl numbers:', JSON.stringify({ sway: r.sway, day: r.day, night: r.night, post: r.post, order: r.order }));
       check('runs on WebGPURenderer, WebGL2 backend (the game asked for it, so no fallback warning reason)', r.renderer.requested === 'webgpu' && r.renderer.backend === 'webgl2', JSON.stringify(r.renderer));
       const notNode = r.mats.filter(m => !m.node);
-      check('every material in the scene is a node material (sky dome included): nothing GLSL on the WebGPU route', r.mats.length >= 4 && !notNode.length, JSON.stringify(notNode.length ? notNode : r.mats));
+      check('every material in the scene is a node material (both sky domes included): nothing GLSL on the WebGPU route', r.mats.length >= 4 && !notNode.length, JSON.stringify(notNode.length ? notNode : r.mats));
       check('the grass moves with engine time (wind() inside the game\'s positionNode reads uTime)', r.sway.swayed > r.sway.still + 0.2, JSON.stringify(r.sway));
       check('the lantern glows at night and not at noon (uniforms(engine).uDaylight inside its emissiveNode)', r.night > r.day + 20, `day ${r.day}, night ${r.night}`);
-      check('the post node runs after tone mapping and its number param is live (amount 0.5 darkens the frame)', r.post.linesMean < r.post.flatMean * 0.9
+      check('the post node runs after tone mapping and its uniform is live (amount 0.5 darkens the frame)', r.post.linesMean < r.post.flatMean * 0.9
         && Array.isArray(r.order) && r.order.indexOf('scanlines') > r.order.indexOf('output (tone mapping)'), JSON.stringify({ post: r.post, order: r.order }));
       check('no engine, page or shader errors', !r.error && errors.length === 0, [r.error, ...errors].filter(Boolean).slice(0, 3).join(' | '));
     },

@@ -67,7 +67,6 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
 
   // Style keys
   const st = [];
-  const style = ce?.match(/style: (\w+)/); st.push(`- Style: ${style ? style[1] : 'none (all neutral fallback look)'}`);
   const vegModels = Object.values(c.vegetation || {}).flatMap(v => [[v.model].flat()[0], v.lod].filter(Boolean));
   const tplModels = Object.values(c.templates || {}).map(t => [t?.model].flat()[0]).filter(m => typeof m === 'string');
   const models = uniq([...code.matchAll(/\.models\.(\w+)/g)].map(m => m[1]).concat(vegModels, tplModels,

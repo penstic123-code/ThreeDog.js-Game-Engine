@@ -10,7 +10,7 @@ import { nameShaderErrors } from '../../render/shaderErrors.js';
 import { patchMaterial, replacePatchCode } from '../../render/patches.js';
 import { recordRender } from '../../core/describeRender.js';
 import { Vegetation } from '../../modules/vegetation/Vegetation.js';
-import { VegetationLook } from '../../modules/vegetation/look.js';
+import { VegetationDraw } from '../../modules/vegetation/draw.js';
 
 /** 吞掉 console.warn / error 跑 fn，返回打印的行（stacks 同层两个 set 会 warnOnce，着色器报错走 console.error） */
 function quiet(fn) {
@@ -87,11 +87,11 @@ export const specs = [
         !err && changed?.length === 1 && !vs.includes('auditOld') && (vs.match(/auditNew/g) ?? []).length >= 3, err || vs.split('\n').filter(l => /audit/.test(l)).join(' | '));
 
       // 5. 游戏自带渲染器（owned false）：色调曲线是游戏的，不是 engine。518b27ee 起"谁在写"由 owned 记录说（_oTone 交给 manual，
-      //    describeRender 的 tone.writer 读它出 'game'），_renderBase.toneBy 只说创建时用的是谁的默认值（风格写了曲线 = 'style'）
-      const e1 = { renderer: { toneMapping: 4 }, style: { toneMapping: 'aces' } }; recordRender(e1, { owned: false });
-      const e2 = { renderer: { toneMapping: 4 }, style: { toneMapping: 'aces' } }; recordRender(e2, { owned: true });
-      check("describeRender: a game-supplied renderer's tone mapping is the game's (owned record manual -> writer 'game'); the engine's own renderer is owned, toneBy 'style'",
-        e1._oTone.on === false && e2._oTone.on === true && e1._renderBase.owned === false && e2._renderBase.toneBy === 'style' && e1._renderBase.toneBy === 'style',
+      //    describeRender 的 tone.writer 读它出 'game'），_renderBase 只记渲染器是不是引擎建的
+      const e1 = { renderer: { toneMapping: 4 } }; recordRender(e1, { owned: false });
+      const e2 = { renderer: { toneMapping: 4 } }; recordRender(e2, { owned: true });
+      check("describeRender: a game-supplied renderer's tone mapping is the game's (owned record manual -> writer 'game'); the engine's own renderer is owned",
+        e1._oTone.on === false && e2._oTone.on === true && e1._renderBase.owned === false && e2._renderBase.owned === true,
         JSON.stringify([e1._renderBase, e1._oTone.on, e2._renderBase, e2._oTone.on]));
 
       // 3. mount 一株不剩：数据里的记录和碰撞清空并告诉外观；外观把旧网格拆掉并释放
@@ -100,8 +100,8 @@ export const specs = [
       const c = { cx: 0, cz: 0, plants: { grass: { n: 1 } }, colliders: { grass: [1] }, collidersAll: { grass: [1] } };
       const V = { species: new Map([['grass', {}]]), host: { CHUNK: 32 }, _removed: new Map(), applyEdits: Vegetation.prototype.applyEdits, _emit: (k, cc, n) => told.push(k + ':' + n) };
       Vegetation.prototype.mount.call(V, c, 'grass', { n: 0, k: [] });
-      VegetationLook.prototype.change.call({ meshes: new Map([[c, { group: { remove: o => removed.push(o) }, ims: { grass: old } }]]) }, c, 'grass');
-      check('vegetation mount: an empty result drops the record and its colliders, the look drops the old mesh (removed + disposed)',
+      VegetationDraw.prototype.change.call({ meshes: new Map([[c, { group: { remove: o => removed.push(o) }, ims: { grass: old } }]]) }, c, 'grass');
+      check('vegetation mount: an empty result drops the record and its colliders, the picture drops the old mesh (removed + disposed)',
         !c.plants.grass && !c.colliders.grass && told.includes('change:grass') && disposed === 1 && removed[0] === old,
         JSON.stringify({ plants: Object.keys(c.plants), disposed, colliders: Object.keys(c.colliders), told }));
     },

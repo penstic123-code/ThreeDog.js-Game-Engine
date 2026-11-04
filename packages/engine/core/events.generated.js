@@ -61,6 +61,7 @@ export const ENGINE_EVENTS = [
   'music:change',
   'music:stinger',
   'state:applied',
+  'state:placed',
   'anim:end',
   'world:add',
   'world:change',

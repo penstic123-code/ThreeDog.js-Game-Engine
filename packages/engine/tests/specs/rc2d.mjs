@@ -51,8 +51,8 @@ export const specs = [
       check('resize: still lit by the lamp and blocked by the wall', b.at.lit > 0.5 && b.at.open > 3 * b.at.shadow, JSON.stringify(b.at));
 
       const c = await ev(() => { try {
-        const { rc } = window.rc2dTest, info = engine.renderer.info.memory, targets = rc.describe().targets, before = info.textures;
-        rc.dispose(); rc.dispose();
+        const { rc, picture } = window.rc2dTest, info = engine.renderer.info.memory, targets = rc.describe().targets, before = info.textures;
+        picture.remove(); rc.dispose();
         const freed = before - info.textures;   // read before the next frame: post chain changes may allocate their own targets
         engine.step(0.1);   // a frame after dispose: the hook and the post pass are gone, nothing reads a freed target
         return { targets, freed, texture: rc.texture, post: engine.post.list?.().map(e => e.name) ?? null, d: rc.describe().disposed };

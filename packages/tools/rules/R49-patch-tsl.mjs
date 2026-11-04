@@ -9,13 +9,12 @@
 //   its argument (water's wavesTsl / surfaceTsl). A tsl that is left out only when the game brought its own glsl (`...(!o.glsl && { tsl })`)
 //   passes: that GLSL is the game's, named on WebGPU by the engine.
 // ALLOW: patches that are WebGL only by design, because WebGPURenderer does the same job another way. Add one only with that reason.
-// Known limits: a patch built at run time without a literal `name` / `glsl` (p.glsl = ...) is not seen; hook examples in look parts are not read.
+// Known limits: a patch built at run time without a literal `name` / `glsl` (p.glsl = ...) is not seen; hook examples in drawing parts are not read.
 import { ts, parse, visit, lineOf, engineFiles, walk, P } from './_lib.mjs';
 
 /** [file suffix, patch name, reason] */
 const ALLOW = [
-  ['modules/sky/cascades.js', 'csm', "WebGPU uses three's CSMShadowNode on the sun (modules/sky/cascades.tsl.js): one light, no material patch"],
-  ['modules/sky/fog.js', 'fog', 'WebGPU fog is one node per scene (scene.fogNode, set by render/fx/sky.tsl.js fogNode), not code in each material'],
+  ['render/cascades.js', 'csm', "WebGPU uses three's CSMShadowNode on the light (render/cascades.tsl.js): one light, no material patch"],
 ];
 
 const keyOf = p => p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : null;

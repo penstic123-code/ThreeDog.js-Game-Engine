@@ -16,7 +16,7 @@ only its own state. There is no inheritance and no variant layer; a different lo
 export default {
   chest: {
     model: 'chest',                        // an asset name (file or generator of an asset pack, the same name pickups and vegetation take); every chest clones one shared prototype
-    collide: 'box',                        // 'box' / 'circle' from the model's bounds; omitted = does not block
+    collide: 'box',                        // 'box' = the model's bounds; 'circle' = a cylinder on its base; omitted = does not block
     state: { opened: false },              // instance fields and their defaults, copied onto each record and saved
     interact: { label: rec => rec.opened ? '关上' : '打开', op: 'chest.toggle', radius: 2 },   // using it runs the op with { id }
     container: { capacity: 6, items: { berry: 2 } },   // each chest gets a container whose id is the record id; items = starting goods (placed once)
@@ -31,6 +31,11 @@ engine.ops.define('chest.toggle', { run: (e, { id }) => e.world.set(id, { opened
 ```
 `interact` fields: `op` (required), `label` (text, i18n key, or `(rec, engine) => text`), `radius` (default 2.5), `height`, `action`,
 `enabled: (rec, engine) => boolean`.
+
+`collide` forms (the same on a plain prop): `'box'` is the model's bounding box, for buildings and crates. `'circle'` is a cylinder on the model's **base**: the
+geometry in the lowest fifth of its height above the ground, so a tree gets its trunk and a street lamp its pole, and a crown or an arm blocks nobody. Write the radius
+yourself with `collide: { circle: 0.25 }` (model meters: it follows `scale`), still centred on the base; add `occluder: false` when the follow camera may pass it
+(recipes/21-camera.md). A bush or a tree whose crown hangs below head height but above that fifth lets a character walk into the leaves: give it a larger `circle`.
 
 ## 2. Place instances
 In `content/props.js`, an entry with `template` instead of `model` places an instance. It takes a position and a few explicit overrides:
@@ -162,7 +167,7 @@ engine.world.origin('chest-home');     // the same source info for an id
 ```
 `hit.thing` is on every `engine.pick` / `engine.raycast` hit (computed when read); a hit on a batched copy resolves to its original object.
 `engine.inspect(id).thing` and `engine.explain({ op, args: { id } })` say the same. A hit on a plain object added with `engine.add` gets its
-`hit.thing` from the registry (id, `at` = the file:line of the add, `saved`, `edit`; recipe 41). A record made during play shows the op and tick that spawned it
+`hit.thing` from the registry (id, `at` = the file:line of the add, `saved`, `edit`; recipe 40). A record made during play shows the op and tick that spawned it
 (`spawned`), a level node its level and node name. Source lines exist in dev and test builds only (a Vite transform tags `content/*.js` with their
 line numbers); a release build has none and pays nothing. From a terminal or an MCP client: `threedog pick 480,270` (screen pixels from the canvas
 top-left) or the MCP tool `pick { x, y }`.
@@ -171,7 +176,7 @@ top-left) or the MCP tool `pick { x, y }`.
 Two doors lead into one scene. Plain three.js, `engine.add(mesh, { id })`, is fine for anything your code rebuilds on every start: a code-built
 windmill, colliders, interactions. A template plus a placement with an `id` in `content/props.js` (or `pickups`, `npcs`, `containers`, a game kind
 from `rules.js`, the level model) is what you want when the thing must be saved with its own state, edited without touching code, or copied many
-times. Both land in the same registry: `engine.thing(id)` answers for either and says what a save keeps (recipe 41). Game code keeps the rules: ops,
+times. Both land in the same registry: `engine.thing(id)` answers for either and says what a save keeps (recipe 40). Game code keeps the rules: ops,
 `world.simulate` / `world.present`, conditions and UI. Something that appears during play is created inside an op with `engine.content.spawn`.
 
 `npm run check` (rule R33) flags only what breaks, in examples, templates and `games/*` alike. Error: `world.add` (without `{ save: false }`),

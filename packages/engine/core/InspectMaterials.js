@@ -43,7 +43,7 @@ export function inspectMaterials(e, { limit = 30 } = {}) {
   e.scene.traverse(o => {
     if (!o.material) return;
     for (const m of [].concat(o.material)) {
-      if (!m || m.userData?._dbgOf) continue;   // a debug-view stand-in: not part of the real look
+      if (!m || m.userData?._dbgOf) continue;   // a debug-view stand-in: not part of the real picture
       const r = mats.get(m) ?? mats.set(m, { m, users: 0, first: o }).get(m);
       r.users++;
     }
@@ -60,8 +60,7 @@ export function inspectMaterials(e, { limit = 30 } = {}) {
       pairs.push([row, t]);
       return row;
     });
-    const src = m.userData?.materialSource;
-    materials.push({ name: m.name || null, type: m.type, uuid: m.uuid, madeBy: isEngineMade(m) || src ? 'engine' : 'game', role: src?.role ?? m.userData?.purpose ?? null,
+    materials.push({ name: m.name || null, type: m.type, uuid: m.uuid, madeBy: isEngineMade(m) ? 'engine' : 'game', role: m.userData?.purpose ?? null,
       sharedBy: users, firstMesh: first.name || null, patches: materialPatchSlots(m), textures });
   }
   for (const [row, t] of pairs) row.sharedBy = texUsers.get(t).size;   // materials using that texture

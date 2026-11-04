@@ -27,11 +27,11 @@ export const specs = [
         const H = E.vegetation.host, all = [];
         let meshes = 0, perChunkMeshes = true;
         for (const c of H.chunks.values()) {
-          const ims = Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {}); meshes += ims.length; if (ims.length > 1) perChunkMeshes = false;
+          const ims = Object.values(E.vegetationDraw.meshes.get(c)?.ims ?? {}); meshes += ims.length; if (ims.length > 1) perChunkMeshes = false;
           for (const im of ims) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) all.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14]]); }
         }
         // ground types are read per level grid point (0.5 m): at the lawn / stone seam a plant may sit up to half a cell over the line
-        const out = { terrain: !!E.terrain, n: all.length, meshes, perChunkMeshes, instanced: [...H.chunks.values()].every(c => Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {}).every(im => im.isInstancedMesh)),
+        const out = { terrain: !!E.terrain, n: all.length, meshes, perChunkMeshes, instanced: [...H.chunks.values()].every(c => Object.values(E.vegetationDraw.meshes.get(c)?.ims ?? {}).every(im => im.isInstancedMesh)),
           onLawn: all.every(p => p[0] <= 0.26 && p[0] >= -40 && Math.abs(p[2]) <= 20), atFloor: all.every(p => Math.abs(p[1] - 5) < 1e-4) };
         // collision: the walk check refuses the spot of a bush (circles reach collision through engine.ground.forEachCollider)
         const b = all[0];
@@ -48,12 +48,12 @@ export const specs = [
         out.released = H.chunks.size === 0;
         await settle(0, 0);
         const hit2 = E.vegetation.instanceAt({ x: b[0], z: b[2] }, { radius: 0.05 });
-        let n2 = 0; for (const c of H.chunks.values()) for (const im of Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {})) n2 += im.count;
+        let n2 = 0; for (const c of H.chunks.values()) for (const im of Object.values(E.vegetationDraw.meshes.get(c)?.ims ?? {})) n2 += im.count;
         out.back = { n2, stillFelled: !hit2 };
         // a code-built ground replaces the level ground: everything is placed again on the new surface
         E.setGround({ height: () => 2, slope: () => 0, type: () => 'lawn' });
         await settle(0, 0);
-        const ys = []; for (const c of H.chunks.values()) for (const im of Object.values(E.vegetationLook.meshes.get(c)?.ims ?? {})) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) if (a[i * 16 + 15]) ys.push(a[i * 16 + 13]); }
+        const ys = []; for (const c of H.chunks.values()) for (const im of Object.values(E.vegetationDraw.meshes.get(c)?.ims ?? {})) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) if (a[i * 16 + 15]) ys.push(a[i * 16 + 13]); }
         out.reground = { n: ys.length, at2: ys.length > 0 && ys.every(y => Math.abs(y - 2) < 1e-4), stoneSideToo: [...H.chunks.values()].some(c => c.cx >= 0 && Object.keys(c.plants).length) };
         out.stillJoined = typeof E.ground.forEachCollider === 'function';
         E.dispose();
@@ -142,18 +142,18 @@ export const specs = [
         let bad = null; try { E.vegetation.define('bad', { geometry: g(), nearOnly: true, fade: { start: 9, end: 5 }, rule }); } catch (e) { bad = String(e.message); }
         await E.start();
         E.focus.set(12, 0, -7); E.step(0.1);
-        const out = { tuft: tuft.fade, hard: hard.fade, set: set.fade, tree: tree.fade, bad, center: E.vegetationLook.kind('tuft').fadeUniforms.uNearFadeCenter.value.toArray(), hardU: E.vegetationLook.kind('hard').fadeUniforms };
-        const im = new THREE.InstancedMesh(g(), E.vegetationLook.kind('tuft').material, 2); E.scene.add(im);
+        const out = { tuft: tuft.fade, hard: hard.fade, set: set.fade, tree: tree.fade, bad, center: E.vegetationDraw.kind('tuft').fadeUniforms.uNearFadeCenter.value.toArray(), hardU: E.vegetationDraw.kind('hard').fadeUniforms };
+        const im = new THREE.InstancedMesh(g(), E.vegetationDraw.kind('tuft').material, 2); E.scene.add(im);
         E.renderer.compile(E.scene, E.camera);
         out.programsOk = E.renderer.info.programs.length > 0 && E.renderer.info.programs.every(p => p.diagnostics?.runnable !== false);
         return out;
       });
-      check(r.tuft?.end === 32 && Math.abs(r.tuft.start - 20.8) < 1e-6, 'near-only default: end = maxRing x chunk (2 x 16), start 65%', JSON.stringify(r.tuft));
-      check(r.hard === null && r.hardU === null && r.tree === null, 'fade:false and a non-near species keep the hard edge (no band)', JSON.stringify([r.hard, r.tree]));
-      check(r.set?.start === 5 && r.set?.end === 9, 'fade: { start, end } sets the band', JSON.stringify(r.set));
-      check(/start < end/.test(r.bad || ''), 'a reversed band is refused with the numbers', String(r.bad));
-      check(r.center[0] === 12 && r.center[2] === -7, 'the fade centre follows the view focus each frame', JSON.stringify(r.center));
-      check(r.programsOk, 'the faded wind material compiles (no shader error)');
+      check('near-only default: end = maxRing x chunk (2 x 16), start 65%', r.tuft?.end === 32 && Math.abs(r.tuft.start - 20.8) < 1e-6, JSON.stringify(r.tuft));
+      check('fade:false and a non-near species keep the hard edge (no band)', r.hard === null && r.hardU === null && r.tree === null, JSON.stringify([r.hard, r.tree]));
+      check('fade: { start, end } sets the band', r.set?.start === 5 && r.set?.end === 9, JSON.stringify(r.set));
+      check('a reversed band is refused with the numbers', /start < end/.test(r.bad || ''), String(r.bad));
+      check('the fade centre follows the view focus each frame', r.center[0] === 12 && r.center[2] === -7, JSON.stringify(r.center));
+      check('the faded wind material compiles (no shader error)', r.programsOk);
     },
   },
   {
@@ -165,7 +165,7 @@ export const specs = [
       const r = await ev(async () => {
         const { createEngine, vegetation, terrain, THREE } = threedogTerrain;
         const wait = () => new Promise(res => setTimeout(res, 5));
-        const all = (E, name) => { const H = E.vegetation.host, out = []; for (const c of H.chunks.values()) { const im = E.vegetationLook.mesh(c, name); if (!im) continue; const a = im.instanceMatrix.array;
+        const all = (E, name) => { const H = E.vegetation.host, out = []; for (const c of H.chunks.values()) { const im = E.vegetationDraw.mesh(c, name); if (!im) continue; const a = im.instanceMatrix.array;
           for (let i = 0; i < im.count; i++) out.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14], im.userData.plants.ids[i], a[i * 16]]); } return out; };
         const settle = async (E, ok) => { for (let i = 0; i < 400 && !ok(); i++) { E.step(1 / 60); await wait(); } E.step(0.5); };
         const out = {};

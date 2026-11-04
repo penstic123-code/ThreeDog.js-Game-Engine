@@ -23,6 +23,8 @@ import { moveStacks } from './movers/common.js';
 import { DEV_STRINGS, STRINGS, validControl } from './playerStrings.js';
 import { footstepSynth, stepSound } from './footsteps.js';
 import { xzOf } from '../../core/math.js';
+import { isEngineMade } from '../../render/patches.js';
+import { capsuleDefault, capsuleMaterial } from './proceduralRig.js';
 export { Character, NPC };
 
 /**
@@ -52,14 +54,14 @@ function solvePath(e, from, to, o) {
   return detailed ? res : res.path;
 }
 
-const CHARACTERS_PARAMS = keysSchema(['npcs', 'npcTiers']);
+const CHARACTERS_PARAMS = keysSchema(['npcs', 'npcTiers', 'animation']);
 
 export function characters(opts = {}) {
   readParams('characters', CHARACTERS_PARAMS, opts);
-  const { npcs = true, npcTiers } = opts;
+  const { npcs = true, npcTiers, animation } = opts;
   // the player's per-step drive / per-frame animation: set by createPlayer, run by this module's own fixed / frame hooks (not engine.onFixed), so a game
   // onFixed sees the same player position whether it was registered before or after createPlayer (phase 'early' = before the move, 'late' = after)
-  let mgr = null, paths = null, disposePlayer = null, animatePlayer = null;
+  let mgr = null, paths = null, disposePlayer = null, animatePlayer = null, material = null;
   return {
     // before rigid: the player's move this step is in the physics step that follows (as when control was an onFixed)
     name: 'characters', type: 'actor', params: CHARACTERS_PARAMS, options: opts, label: 'Characters', before: ['rigid'], noSkip: 'fixed only flushes path requests; schedules read the calendar clock', optional: ['cameraRig', 'calendar', 'interactions', 'dialogue', 'nav', 'collision', 'rigid', 'world'],
@@ -76,11 +78,34 @@ export function characters(opts = {}) {
       if (npcs) { mgr = new NPCManager(e, ctx.track); e.npcs = mgr; if (npcTiers) mgr.tiers(npcTiers); }
       else if (npcTiers) throw codedError('module-params', 'characters({ npcTiers }) needs NPCs: drop npcs: false, or drop npcTiers');
       paths = new AsyncPaths(e);
+      const share = m => { e.assets.shared.add(m); return m; };   // every capsule draws with it: removing one character must not dispose it
       // control (core/control.js) finds a held character by id: the player, else an NPC's model (null while it is far)
       e.control.resolveWith(id => (id === PLAYER ? e.player : mgr?.character(id)) ?? null);
       ctx.track(e.events.on('ground:change', b => paths.dropTiles(b)));   // dug or raised ground: resample the path rasters there
       ctx.track(e.events.on('level:loaded', () => paths.tiles.clear()));   // another level: none of the cached rasters describe it
       const api = {
+        /** @internal characters({ animation }): what every model's Animator starts from (useModel.js) */
+        _animation: animation,
+        /** @internal live capsule mesh -> its colors.body (undefined: none), what a swap of .material walks */
+        _capsules: new Map(),
+        /**
+         * The three.js material of every placeholder capsule. Set it to swap the look of all of them at once; it is used as given, with no patches added.
+         * A character with colors.body draws with a copy of it in that color. A model's own materials are the model's: this never touches them.
+         * @example engine.characters.material = new THREE.MeshToonMaterial({ color: 0xd9a066 });
+         * @type {THREE.Material}
+         */
+        get material() { return (material ??= share(capsuleDefault())); },
+        set material(m) {
+          if (!m?.isMaterial) throw codedError('character-option', `engine.characters.material takes a three.js material, got ${m}. Example: engine.characters.material = new THREE.MeshStandardMaterial({ color: 0xd9a066 })`);
+          const old = api.material;
+          if (m === old) return;
+          material = share(m);
+          for (const [mesh, color] of api._capsules) {
+            if (mesh.material !== old) mesh.material.dispose();   // the copy in a character's own color
+            mesh.material = capsuleMaterial(m, color);
+          }
+          if (isEngineMade(old)) old.dispose();   // a material the game gave stays the game's
+        },
         /**
          * Find a spawn point: spiral outward from position (default origin) for walkable ground (no obstacles, gentle slope) that is not in water. Returns a
          * Vector3 (y is ground height).

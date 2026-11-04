@@ -14,7 +14,7 @@
 //
 // A game's own settings page (e.g. "Gameplay"):
 //   engine.settings.define('subtitles', true, on => game.subtitles = on);   // custom setting: default value + apply function, autosaved
-//   engine.settings.define('volfog', true, { limits: 'look.post.volfog.enabled' });   // off holds the game's own effect off, like the shadows row
+//   engine.settings.define('volfog', true, { limits: 'post.volfog.enabled' });   // off holds the game's own effect off, like the shadows row
 //   engine.settings.addSection('gameplay', {
 //     title: e => e.t('my.gameplay'),
 //     render: (tools, e, s) => tools.row(tools.t('my.subtitles'), tools.toggle('subtitles', s.get('subtitles'))),
@@ -22,10 +22,10 @@
 //     order: 50,
 //   });
 //
-// Look:
+// Picture:
 //   CSS classes  .threedog-win-settings .threedog-tabs .threedog-tab .threedog-set-row .threedog-set-label .threedog-set-ctl .threedog-seg .threedog-range
-//           .threedog-set-val .threedog-key(.is-waiting/.is-conflict) .threedog-set-note .threedog-set-foot .is-active — override with style.ui.css
-//   Replace it whole: style.ui.templates.settings({ sections, current, body, values }, { esc, t, icon }) returns HTML;
+//           .threedog-set-val .threedog-key(.is-waiting/.is-conflict) .threedog-set-note .threedog-set-foot .is-active — override with ui.css
+//   Replace it whole: ui.templates.settings({ sections, current, body, values }, { esc, t, icon }) returns HTML;
 // controls just carry the attributes data-tab / data-set+data-value / data-range / data-rebind / data-reset / data-locale / data-save-export / data-save-import
 // (see sections.js)
 import { makeWindow, injectUICSS, uiFocus } from '../../ui/UI.js';
@@ -124,7 +124,7 @@ export class Settings extends SettingsView {
    * scene cannot turn it back on), on allows what the scene chose; a number row from 0 to 1 is a factor on a number value.
    * @param {string} key @param {any} def
    * @param {((value: any, engine: any) => void) | { apply?: (value: any, engine: any) => void, limits?: string | string[] }} [apply]
-   * @example engine.settings.define('volfog', true, { limits: 'look.post.volfog.enabled' });   // after look.post.add(volFog)
+   * @example engine.settings.define('volfog', true, { limits: 'post.volfog.enabled' });   // after engine.post.add(volFog)
    */
   define(key, def, apply) {
     const o = typeof apply === 'function' || apply == null ? { apply } : apply;
@@ -201,9 +201,9 @@ export class Settings extends SettingsView {
    */
   chunkHost() { return this.engine.terrain ?? this.engine.vegetation?.host ?? null; }
   _currentValues() {
-    const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: allowed(e, 'look.shadow.enabled') };
+    const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: allowed(e, 'shadows.enabled') };
     v.antialias = e.post.antialias;
-    for (const k of POST_KEYS) if (e.post.get(k)) v[k] = allowed(e, `look.post.${k}.enabled`);
+    for (const k of POST_KEYS) if (e.post.get(k)) v[k] = allowed(e, `post.${k}.enabled`);
     if (e.adaptive) v.adaptive = !!e.adaptive.on;
     const H = this.chunkHost();
     if (H) { v.viewChunks = H.viewChunks ?? 4; v.density = H.density ?? 1; }

@@ -1,6 +1,6 @@
 // @ts-check
 // Outlines and rim light: three ways to make a silhouette read against a background of the same value.
-//   post outline  -> @threedog/post-effects outline() (one full-screen pass on the depth buffer; nothing here, see main.js)
+//   post outline  -> @threedog/post-effects outline() (one full-screen pass on the depth buffer; nothing here, see picture/post.js)
 //   inverted hull -> addHull(): a slightly larger back-face copy of the mesh drawn in the line color, per object
 //   rim light     -> rimPatch(): an edge light added in the material's own lighting, no extra draw at all
 // Copy this file into a game; it imports only three and threedog.
@@ -45,8 +45,8 @@ export function addHull(mesh, { thickness = 0.03, units = 'world', color = 0x1e1
 }
 
 /**
- * Rim light as a patch on any lit material: a fresnel edge light added to the ambient part (engine GLSL threedogRim, recipe 43; the same
- * math as the style `lighting.rim` key). `shadowSide` 1 = only on the side turned away from the sun, a back light that separates the
+ * Rim light as a patch on any lit material: a fresnel edge light added to the ambient part (engine GLSL threedogRim, recipe 43).
+ * `shadowSide` 1 = only on the side turned away from the sun, a back light that separates the
  * shaded side from a dark background; 0 = all round.
  * @param {{ color?: THREE.ColorRepresentation, strength?: number, power?: number, shadowSide?: number }} [o]
  */

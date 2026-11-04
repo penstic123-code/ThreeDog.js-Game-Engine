@@ -19,15 +19,15 @@ const T = {
     design: { w: 1240, h: 430, boxes: [
       { x: 30, y: 60, w: 260, h: 150, title: 'AI writes three.js', sub: 'meshes · lights\nmaterials · shaders', fill: C.blue },
       { x: 340, y: 60, w: 260, h: 150, title: 'Engine plugs it in', sub: 'scene.add · a light\na pass · plugins/', fill: C.green },
-      { x: 650, y: 60, w: 260, h: 150, title: 'Engine coordinates', sub: 'time · saves · input\nweather · look values', fill: C.yellow },
+      { x: 650, y: 60, w: 260, h: 150, title: 'Engine coordinates', sub: 'time · saves · input\nweather · signals', fill: C.yellow },
       { x: 960, y: 60, w: 250, h: 150, title: 'AI checks it', sub: 'describe · errors\ntests · screenshots', fill: C.pink },
     ], arrows: [
       { from: [290, 135], to: [340, 135] }, { from: [600, 135], to: [650, 135] }, { from: [910, 135], to: [960, 135] },
       { from: [1085, 210], to: [160, 210], curve: 150, dashed: true, label: 'next change' },
     ] },
     arch: { w: 1240, h: 720, boxes: [
-      { x: 60, y: 30, w: 800, h: 100, title: 'Your game', sub: 'rules · content · style · plugins · plain three.js', fill: C.blue },
-      { x: 60, y: 165, w: 800, h: 100, title: 'Modules', sub: 'world · look · actor · rules · ui · net · tool', fill: C.green },
+      { x: 60, y: 30, w: 800, h: 100, title: 'Your game', sub: 'rules · content · picture · plugins · plain three.js', fill: C.blue },
+      { x: 60, y: 165, w: 800, h: 100, title: 'Modules', sub: 'world · picture · actor · rules · ui · net · tool', fill: C.green },
       { x: 60, y: 300, w: 800, h: 130, title: 'Core', sub: 'lifecycle · one time source · shared values\ninput by context · character control · saves · actions', fill: C.yellow },
       { x: 60, y: 465, w: 800, h: 100, title: 'Rendering', sub: 'WebGL or WebGPU, chosen at start', fill: C.orange },
       { x: 60, y: 600, w: 800, h: 90, title: 'three.js + Rapier', sub: '', fill: C.gray },
@@ -38,7 +38,7 @@ const T = {
     ] },
     module: { w: 1240, h: 470, boxes: [
       { x: 30, y: 40, w: 330, h: 390, title: 'A module', sub: '', fill: C.green, dashed: true },
-      { x: 60, y: 110, w: 270, h: 80, title: 'one type', sub: 'world · look · actor · …', fill: C.paper },
+      { x: 60, y: 110, w: 270, h: 80, title: 'one type', sub: 'world · picture · actor · …', fill: C.paper },
       { x: 60, y: 215, w: 270, h: 80, title: 'slots', sub: 'provides · requires', fill: C.paper },
       { x: 60, y: 320, w: 270, h: 80, title: 'install(engine, ctx)', sub: '', fill: C.paper },
       { x: 450, y: 250, w: 330, h: 130, title: 'ctx', sub: 'listeners · shared values\ninput actions · control', fill: C.yellow },
@@ -47,42 +47,42 @@ const T = {
     ], arrows: [
       { from: [330, 360], to: [450, 320] }, { from: [780, 290], to: [880, 160] }, { from: [780, 330], to: [880, 350] },
     ] },
-    layers: { w: 1240, h: 520, steps: [
-      ['engine', 'default', C.gray], ['style', "the game's look", C.blue], ['game', "the game's value", C.green],
-      ['effect', 'weather · sunset\nslow motion: × or +', C.yellow], ['system', 'menus · cutscenes', C.orange],
-      ['settings', 'the player\nonly lowers or turns off', C.pink], ['debug', '', C.purple] ],
+    layers: { w: 1240, h: 440, steps: [
+      ['engine', 'default', C.gray], ['game', "the game's value", C.green],
+      ['effect', 'weather\nslow motion: × or +', C.yellow], ['system', 'menus · cutscenes', C.orange],
+      ['settings', 'the player only\nlowers or turns off', C.pink], ['debug', '', C.purple] ],
       foot: 'lowest  →  highest' },
-    look: { w: 1240, h: 520, boxes: [
-      { x: 30, y: 40, w: 260, h: 110, title: 'Style pack', sub: 'starting values\n+ look plugins', fill: C.purple },
-      { x: 30, y: 200, w: 260, h: 110, title: 'plugins/ folder', sub: "the game's own", fill: C.blue },
-      { x: 30, y: 360, w: 260, h: 110, title: 'Game code', sub: 'look.*.set · add\nreplace · patch', fill: C.green },
-      { x: 400, y: 190, w: 290, h: 130, title: 'Look parts', sub: 'sky · fog · light · materials\nwater · ground · post', fill: C.yellow },
-      { x: 790, y: 60, w: 270, h: 130, title: 'Post chain', sub: 'scene → HDR → tone\n→ LDR → final', fill: C.orange },
-      { x: 790, y: 330, w: 270, h: 130, title: 'Materials', sub: 'engine-made and\nplain three.js', fill: C.pink },
-      { x: 1100, y: 200, w: 120, h: 110, title: 'WebGL\nWebGPU', sub: '', fill: C.gray },
+    picture: { w: 1240, h: 500, boxes: [
+      { x: 30, y: 50, w: 270, h: 150, title: 'Game systems', sub: 'time · weather · cutscenes\nsettings · quality tier', fill: C.yellow },
+      { x: 360, y: 50, w: 270, h: 150, title: 'Signals', sub: 'engine.uniforms\nsun · rain · wind · …', fill: C.orange },
+      { x: 690, y: 50, w: 280, h: 150, title: 'picture/ folder', sub: 'your plain three.js\nlights · fog · materials', fill: C.blue },
+      { x: 1030, y: 50, w: 180, h: 150, title: 'three.js', sub: 'WebGL or\nWebGPU', fill: C.gray },
+      { x: 360, y: 320, w: 270, h: 140, title: 'Big pieces', sub: 'terrain · plants · water\nsky dome · rain', fill: C.green },
+      { x: 760, y: 320, w: 450, h: 140, title: 'Checks', sub: 'screenshot facts\nwhich line wrote a value', fill: C.pink },
     ], arrows: [
-      { from: [290, 95], to: [400, 230] }, { from: [290, 255], to: [400, 255] }, { from: [290, 415], to: [400, 285] },
-      { from: [690, 230], to: [790, 125] }, { from: [690, 285], to: [790, 395] },
-      { from: [1060, 125], to: [1100, 225] }, { from: [1060, 395], to: [1100, 290] },
+      { from: [300, 125], to: [360, 125] }, { from: [630, 125], to: [690, 125] }, { from: [970, 125], to: [1030, 125] },
+      { from: [560, 320], to: [740, 200], label: 'hand out materials', lx: 545, ly: 255 },
+      { from: [1120, 200], to: [1050, 320], dashed: true, label: 'read the result', lx: 985, ly: 262 },
     ] },
   },
 };
 const ZH = {
-  design: ['AI 写 three.js', '网格 · 灯\n材质 · 着色器', '引擎把它接上', 'scene.add · 一盏灯\n后期通道 · plugins/', '引擎负责协调', '时间 · 存档 · 按键\n天气 · 画面数值', 'AI 检查结果', 'describe · 报错\n测试 · 截图', '下一次修改'],
+  design: ['AI 写 three.js', '网格 · 灯\n材质 · 着色器', '引擎把它接上', 'scene.add · 一盏灯\n后期通道 · plugins/', '引擎负责协调', '时间 · 存档 · 按键\n天气 · 信号', 'AI 检查结果', 'describe · 报错\n测试 · 截图', '下一次修改'],
 };
 // Chinese: same geometry, translated text
 const zh = JSON.parse(JSON.stringify(T.en));
 const tr = (b, title, sub) => { b.title = title; b.sub = sub; };
 { const b = zh.design.boxes; tr(b[0], ZH.design[0], ZH.design[1]); tr(b[1], ZH.design[2], ZH.design[3]); tr(b[2], ZH.design[4], ZH.design[5]); tr(b[3], ZH.design[6], ZH.design[7]); zh.design.arrows[3].label = ZH.design[8]; }
-{ const b = zh.arch.boxes; tr(b[0], '你的游戏', '规则 · 内容 · 画风 · 插件 · 原生 three.js'); tr(b[1], '模块', 'world · look · actor · rules · ui · net · tool');
+{ const b = zh.arch.boxes; tr(b[0], '你的游戏', '规则 · 内容 · 画面 · 插件 · 原生 three.js'); tr(b[1], '模块', 'world · picture · actor · rules · ui · net · tool');
   tr(b[2], '核心', '生命周期 · 统一的时间 · 共享数值\n按场合分组的按键 · 角色控制权 · 存档 · 玩家操作'); tr(b[3], '渲染', 'WebGL 或 WebGPU，开局选定'); tr(b[4], 'three.js + Rapier', '');
   tr(b[5], '给 AI 的工具', 'how · describe\ntest · shot · MCP\n操作和读取游戏'); }
-{ const b = zh.module.boxes; tr(b[0], '一个模块', ''); tr(b[1], '一种类型', 'world · look · actor · …'); tr(b[2], '插槽', '提供 · 需要'); tr(b[3], 'install(engine, ctx)', '');
+{ const b = zh.module.boxes; tr(b[0], '一个模块', ''); tr(b[1], '一种类型', 'world · picture · actor · …'); tr(b[2], '插槽', '提供 · 需要'); tr(b[3], 'install(engine, ctx)', '');
   tr(b[4], 'ctx', '监听 · 共享数值\n按键动作 · 控制权'); tr(b[5], '引擎', '核心 · 其他模块\n经过公开约定'); tr(b[6], '随模块一起离开', '卸载、出错\n或销毁时'); }
-zh.layers.steps = [['engine', '默认值', C.gray], ['style', '游戏的画风', C.blue], ['game', '游戏自己的值', C.green], ['effect', '天气 · 日落\n慢动作：乘或加', C.yellow],
+zh.layers.steps = [['engine', '默认值', C.gray], ['game', '游戏自己的值', C.green], ['effect', '天气\n慢动作：乘或加', C.yellow],
   ['system', '菜单 · 过场', C.orange], ['settings', '玩家设置\n只能调低或关掉', C.pink], ['debug', '', C.purple]]; zh.layers.foot = '低  →  高';
-{ const b = zh.look.boxes; tr(b[0], '画风包', '起始数值\n+ 画面插件'); tr(b[1], 'plugins/ 文件夹', '游戏自己的'); tr(b[2], '游戏代码', 'look.*.set · add\nreplace · patch');
-  tr(b[3], '画面部件', '天空 · 雾 · 光 · 材质\n水面 · 地面 · 后期'); tr(b[4], '后期流程', '场景 → HDR → 色调\n→ LDR → 最终'); tr(b[5], '材质', '引擎做的和\n原生 three.js 的'); tr(b[6], 'WebGL\nWebGPU', ''); }
+{ const b = zh.picture.boxes; tr(b[0], '游戏里的系统', '时间 · 天气 · 过场\n设置 · 画质档位'); tr(b[1], '信号', 'engine.uniforms\n太阳 · 雨 · 风 · …'); tr(b[2], 'picture/ 文件夹', '你的原生 three.js\n灯 · 雾 · 材质');
+  tr(b[3], 'three.js', 'WebGL 或\nWebGPU'); tr(b[4], '引擎的大件', '地形 · 植被 · 水面\n穹顶 · 雨雪'); tr(b[5], '检查', '截图的事实\n值是哪一行写的');
+  zh.picture.arrows[3].label = '交出材质'; zh.picture.arrows[4].label = '读结果'; }
 T.zh = zh;
 
 function page(d) {
@@ -124,7 +124,7 @@ async function drawIn(p, d) {
       const ang = Math.atan2(ey - sy, ex - sx), L = 16;
       rc.line(ex, ey, ex - L * Math.cos(ang - 0.45), ey - L * Math.sin(ang - 0.45), o);
       rc.line(ex, ey, ex - L * Math.cos(ang + 0.45), ey - L * Math.sin(ang + 0.45), o);
-      if (a.label && !a.curve) text(a.label, (x1 + x2) / 2 + 8, (y1 + y2) / 2 - 22, 17, false);
+      if (a.label && !a.curve) text(a.label, a.lx ?? (x1 + x2) / 2 + 8, a.ly ?? (y1 + y2) / 2 - 22, 17, false);
     };
     if (d.steps) {
       const n = d.steps.length, sw = (d.w - 80) / n, base = d.h - 70;

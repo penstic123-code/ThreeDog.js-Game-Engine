@@ -2,9 +2,8 @@
 import { createEngine, presets, world, sky, weather, followCamera, characters, collision, dialogue, interactions, debug, THREE } from '../../index.js';
 import { settings } from '../../modules/settings/index.js';
 import { music } from '../../modules/music/index.js';
-import style from '../../examples/world/style/index.js';
 
-const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), style, saveKey: 'threedog-test' });
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), saveKey: 'threedog-test' });
 engine.use(
   world(), sky({ time: 0.45 }), weather({ ...presets.weather.temperate, start: 'clear' }), collision(), followCamera(), characters(),
   interactions({ ...presets.interactions.nearest }), dialogue(), debug(),

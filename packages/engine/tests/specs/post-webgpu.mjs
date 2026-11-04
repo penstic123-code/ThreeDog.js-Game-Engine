@@ -2,7 +2,7 @@
 // (render/fx/postWebGPU.tsl.js) on a WebGPURenderer (WebGL2 backend). A guard: the four slots keep their order with tone mapping placed by hand
 // (ldr / final effects color the tone-mapped image), lut and a game tone stage give the same pixels, bloom and vignette look the same on both backends (screenshot mean within 3%: bloom is not
 // compared pixel by pixel, UnrealBloomPass and bloom() blur differently; outline and dof are the engine's GLSL ported step by step), an effect with only a three.js Pass fails by name with the node: form,
-// and look.post.manual() stops the engine rebuilding the chain. software: like every pixel test here, so the numbers repeat on any machine.
+// and post.own() stops the engine rebuilding the chain. software: like every pixel test here, so the numbers repeat on any machine.
 export const specs = [
   {
     name: '[guard] post on WebGPU: slot order around renderOutput, bloom / vignette / outline / dof match WebGL (mean < 3%), lut and a game tone stage match per pixel, create-only Pass fails by name, manual() stops rebuilds',
@@ -50,7 +50,7 @@ export const specs = [
         r.onlyCreate.includes("post effect 'myCopy' has only create()") && r.onlyCreate.includes('node: (input, ctx)') && r.onlyCreate.includes('[post-effect]') && r.onlyCreateGone, r.onlyCreate);
       check('a GLSL-only fuse effect throws on WebGPU naming it, with the fuse.tsl form', r.glslFuse.includes("post effect 'tintGL'") && r.glslFuse.includes('fuse.tsl'), r.glslFuse);
       for (const b of ['gpu', 'gl'])
-        check(`${b}: look.post.manual() keeps the built chain through a chain change (writer manual:game); manual(false) rebuilds it`,
+        check(`${b}: post.own() keeps the built chain through a chain change (writer manual:game); own(false) rebuilds it`,
           r.manual[b].kept && r.manual[b].rebuilt && r.manual[b].writer === 'manual:game', JSON.stringify(r.manual[b]));
     },
   },

@@ -50,7 +50,7 @@ export const specs = [
         C.load({ props: [{ id: 'g-shelf', model: 'rock', x: x + 2, z, floor: 0, y: 1 }] });
         const rec = engine.world.get('g-shelf');
         out.prop = rec && `${rec.position.y}/${rec.floor}`;
-        const item = [...engine.inventory.defs.keys()][0], lift = engine.style.pickup?.lift ?? 0.4;
+        const item = [...engine.inventory.defs.keys()][0], lift = engine.pickups.lift;
         C.load({ pickups: [{ id: 'g-pk-low', item, x: x + 3, z, floor: 0 }, { id: 'g-pk-top', item, x: x + 4, z }] });
         out.pickups = [engine.world.get('g-pk-low')?.position.y - lift, engine.world.get('g-pk-top')?.position.y - lift].map(v => Math.round(v * 100) / 100).join('/');
         engine.ground = old;
@@ -251,34 +251,33 @@ export const specs = [
       const { presets } = await import('../../presets.js');   // node side: the page gets the plain table as an argument
       const r = await ev(temperate => {
         engine.timeline.skip(); engine.pause();
-        const Weather = engine.weather.constructor, style = engine.style.weather, out = {};
-        engine.style.weather = { ...(style || {}), types: { storm: { cloud: 0.123 }, clear: { cloud: 0.2 } } };   // the style retunes, never adds
-        try {
+        const Weather = engine.weather.constructor, out = {};
+        {
           const w = new Weather(engine, { types: { clear: { cloud: 0.1 }, dust: { fog: 0.3, wind: 2, heat: 1 } } });
           out.names = Object.keys(w.types).join(',');
           out.start = w.name; out.pool = w.autoPool.join(',');
           out.calm = w.types.dust.cloud === 0 && w.types.dust.rain === 0 && w.types.dust.sun === 1;
           out.gameWins = w.types.clear.cloud === 0.1;
           out.heatOnClear = w.types.clear.heat;
-          out.stateOnly = !('systems' in w);   // particles are the look half's (weatherLook.js); appearance-water checks none are built without rain / snow
+          out.stateOnly = !('systems' in w);   // particles are the drawing half's (weatherDraw.js); appearance-water checks none are built without rain / snow
           w.set('snow', { seconds: 1 }); out.afterSnow = w.name;
           w.set('dust', { seconds: 1 }); for (let i = 0; i < 120; i++) w.tick(1 / 60);
           out.heat = w.current.heat; out.dust = w.name;
-          // no table: the engine assumes no climate, only a calm clear (no rain particles); the preset is opt-in and the style fills its fields
+          // no table: the engine assumes no climate, only a calm clear (no rain particles); the preset is opt-in
           const def = new Weather(engine, {});
           out.bare = Object.keys(def.types).join(',') + (def.types.rain ? '+rain' : '');
           const t = new Weather(engine, { types: { ...temperate, storm: { lightning: 1 } } });
-          out.preset = Object.keys(t.types).length; out.styleFills = t.types.storm.cloud === 0.123 && t.types.clear.cloud === 0.15;
+          out.preset = Object.keys(t.types).length;
           try { new Weather(engine, { types: { dust: {} }, start: 'clear' }); } catch (err) { out.badStart = err.message; }
           try { new Weather(engine, { types: { dust: { wind: 'strong' } } }); } catch (err) { out.badField = err.message; }
-        } finally { engine.style.weather = style; }
+        }
         return out;
       }, presets.weather.temperate.types);
-      check('[guard] the table is the whole list: no built-in or style-only type mixed in; switching to a missing type is refused', r.names === 'clear,dust' && r.afterSnow === 'clear', JSON.stringify(r));
-      check('start defaults to clear, autoPool to each type once; left-out fields are calm; the game\'s numbers beat the style\'s', r.start === 'clear' && r.pool === 'clear,dust' && r.calm && r.gameWins, JSON.stringify(r));
+      check('[guard] the table is the whole list: no built-in type mixed in; switching to a missing type is refused', r.names === 'clear,dust' && r.afterSnow === 'clear', JSON.stringify(r));
+      check('start defaults to clear, autoPool to each type once; left-out fields are calm; the game\'s numbers stand', r.start === 'clear' && r.pool === 'clear,dust' && r.calm && r.gameWins, JSON.stringify(r));
       check('a field of the game\'s own (heat) is 0 on other types and blends to 1', r.heatOnClear === 0 && r.dust === 'dust' && Math.abs(r.heat - 1) < 1e-6, JSON.stringify(r));
-      check('weather state holds no particles (they are the look half, engine.weatherLook)', r.stateOnly, JSON.stringify(r));
-      check('[guard] no table: only a calm clear and no rain particles (the engine assumes no climate); the temperate preset is opt-in and the style fills its fields', r.bare === 'clear' && r.preset === 7 && r.styleFills, JSON.stringify(r));
+      check('weather state holds no particles (they are the drawing half, engine.weatherDraw)', r.stateOnly, JSON.stringify(r));
+      check('[guard] no table: only a calm clear and no rain particles (the engine assumes no climate); the temperate preset is opt-in', r.bare === 'clear' && r.preset === 7, JSON.stringify(r));
       check('bad start / non-number field throw with the fix', /not one of this game's weather types/.test(r.badStart) && /must be a number/.test(r.badField), JSON.stringify([r.badStart, r.badField]));
     },
   },

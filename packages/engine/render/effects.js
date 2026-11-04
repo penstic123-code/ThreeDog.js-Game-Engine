@@ -1,4 +1,4 @@
-// Built-in shader effects. Used by render/materials.js: the engine uniforms they read, the GLSL chunks (also registered as
+// Built-in shader effects. Used by render/materials.js (applyEffects): the engine uniforms they read, the GLSL chunks (also registered as
 // THREE.ShaderChunk.threedog_*), the named patches world / clouds / wind / season, and placeholder textures.
 import * as THREE from 'three';
 import { engineUniform } from './engineUniforms.js';
@@ -6,47 +6,58 @@ import { notePatch } from '../core/threePatches.js';
 import { WIND, HASH, CLOUD, glslFloat as f } from './fxNumbers.js';
 
 // ---------- engine uniforms ----------
-// Each engine has its own uniforms (engine.uniforms) and style. Built-in effects name engine uniforms, which patches.js swaps
+// Each engine has its own uniforms (engine.uniforms). Built-in effects name engine uniforms, which patches.js swaps
 // for the compiling renderer's engine (bindUniforms), so two engines on one page never share time, wind or cloud cover.
 const UNIFORM_DEFAULTS = {
   uTime: 0,                                  // ambient seconds (engine.time.now('ambient')), written only by core/time.js
   uWind: 1,                                  // wind multiplier (driven by weather)
   uCloud: 0.25,                              // cloud cover 0-1 (driven by weather)
-  uCloudShadow: 0,                           // darkest cloud shadow (style.clouds.shadow; 0 = no cloud shadows)
+  uWeatherLight: 1, uWeatherFog: 1,         // weather's multipliers: the game's picture/ code applies them to its own light and fog distance
+  uViewDistance: 600,                        // how far the world is meant to be seen, meters: stream radius, a game's fog far (terrain viewFog writes it)
+  uRain: 0, uSnow: 0,                        // rain / snow amount 0-1 (weather state): signals for a game's wet road or snowy roof shader
+  uCloudShadow: 0,                           // darkest cloud shadow (0 = no cloud shadows; the game writes it)
   uCloudScale: 0.006,                        // cloud size (smaller = bigger clouds)
   uCloudSpeed: () => new THREE.Vector2(0.012, 0.006),   // cloud drift direction and speed
   uWindFreq: 1,                              // sway frequency multiplier
-  uWindAmp: 1,                               // sway amplitude multiplier (look.wind.amplitude); every wind patch's amplitude is scaled by it
+  uWindAmp: 1,                               // sway amplitude multiplier; every wind patch's amplitude is scaled by it
   uFoliageTint: () => new THREE.Color(1, 1, 1),         // season: foliage tint (driven by the sky module's calendar)
   uGroundTint: () => new THREE.Color(1, 1, 1),          // season: ground tint
   uFoliageMix: 0, uGroundMix: 0,             // season mode 'mix': how far the surface moves to the tint (0 = multiply, the default)
   // snow / ash cover amount alone (x foliage, y ground, 0-1; modules/sky/tint.js): the tints above already hold it blended in, but a game's
-  // own tint (look.season.replace) needs the amount by itself to draw its own snow
+  // own tint (engine.terms.season) needs the amount by itself to draw its own snow
   uCover: () => new THREE.Vector2(0, 0),
   // the sky contract's shared outputs (modules/sky/frame.js writes them every frame): a game's own sky dome, water or shader reads these, so a
   // replaced sky still follows the time of day. Share the object itself: mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir
   uSunDir: () => new THREE.Vector3(0, 1, 0),   // unit vector toward the sun
-  uDaylight: 1,                              // 0 at night .. 1 at noon (sky.daylight)
+  uSunColor: () => new THREE.Color(1, 1, 1),   // the keyframes' sun color now: what a game's own sun takes, so no second table of the day's light
+  uDaylight: 1,                              // 0 at night .. 1 at noon (the 'daylight' measure, then sky.daylight; render/daylight.js)
+  uNight: 0,                                 // 0 by day .. 1 at night: the curve lightPool `dusk` sources fade on (render/daylight.js)
   uTimeOfDay: 0.5,                           // 0-1 time of day (0 midnight, 0.5 noon)
-  // the sky colors as drawn this frame (keyframes, look.sky top / horizon, weather tint, lightning; a backdrop's color for the horizon): the one
+  // the sky colors as drawn this frame (keyframes, engine.sky.top / horizon, weather tint, lightning; a backdrop's color for the horizon): the one
   // read for a game shader that should meet the sky (sea, distant cards). Fog in its default 'horizon' color is this same color (fog.js)
   uSkyTop: () => new THREE.Color(0, 0, 0),
   uSkyHorizon: () => new THREE.Color(0.8, 0.8, 0.8),
+  // the sky dome's picture numbers (modules/sky/shader.js shares these objects with the dome; sky({ ... }) sets their start values): write .value, on both renderers
+  uSunSize: 900,                             // sharpness exponent of the sun disk (larger = smaller)
+  uSunGlow: 0.18, uSunPower: 6,              // sun glow, sun disk brightness
+  uMoonSize: 1400, uMoonPower: 3,            // sharpness exponent of the moon disk, moon disk brightness
+  uMoonColor: () => new THREE.Color(0xdcdcdc),
+  uStars: 0.0025, uStarScale: 260,           // share of sky grid cells holding a star at night (0 = none), star grid resolution (larger = smaller stars)
+  uCurve: 0.55,                              // horizon-to-zenith gradient exponent
+  uCloudCover: 0,                            // dome cloud amount 0..1+, multiplied by the weather's uCloud
+  uSkyCloudScale: 0.35,                      // dome cloud size (smaller = bigger clouds); uCloudScale is the cloud shadows'
+  uSkyCloudSpeed: () => new THREE.Vector2(0.004, 0.002),   // dome cloud drift [x, z] per second; uCloudSpeed is the cloud shadows'
+  uCloudOpacity: 0.9, uCloudSoft: 0.3,       // dome cloud opacity and edge softness
+  uCloudColor: () => new THREE.Color(0xf4f4f4), uCloudShade: () => new THREE.Color(0xaaaaaa),   // dome cloud lit and shaded side
 };
 /**
- * A fresh set of engine uniforms with the style's cloud and wind values (each engine owns one: engine.uniforms)
+ * A fresh set of engine uniforms at their neutral defaults (each engine owns one: engine.uniforms; the game writes them directly)
  * @internal
- * @param {any} [style]
  * @returns {import('../types/core').EngineUniforms}
  */
-export function createUniforms(style = {}) {
+export function createUniforms() {
   const u = /** @type {any} */ ({});
   for (const [k, v] of Object.entries(UNIFORM_DEFAULTS)) u[k] = engineUniform(k, typeof v === 'function' ? v() : v);
-  const c = style.clouds || {}, w = style.wind || {};
-  if (c.shadow != null) u.uCloudShadow.value = c.shadow;
-  if (c.scale != null) u.uCloudScale.value = c.scale;
-  if (c.speed) u.uCloudSpeed.value.set(c.speed[0], c.speed[1]);
-  if (w.frequency != null) u.uWindFreq.value = w.frequency;
   return u;
 }
 const TEMPLATE = createUniforms();   // what built-in patches name; resolved to the compiling engine's uniforms
@@ -72,9 +83,9 @@ export const NOISE_GLSL = `float threedogHash(vec2 p){ return fract(sin(dot(p, v
 // patching the game's material (plan §4b). The older pars / vertex chunks below stay for the patches (they declare only what each patch needs).
 const CALLABLE = {
   threedog_uniforms: `uniform float uTime; uniform float uWind; uniform float uWindFreq; uniform float uWindAmp;
-  uniform float uCloud; uniform float uCloudShadow; uniform float uCloudScale; uniform vec2 uCloudSpeed;
+  uniform float uCloud; uniform float uRain; uniform float uSnow; uniform float uCloudShadow; uniform float uCloudScale; uniform vec2 uCloudSpeed;
   uniform vec3 uFoliageTint; uniform vec3 uGroundTint; uniform float uFoliageMix; uniform float uGroundMix; uniform vec2 uCover;
-  uniform vec3 uSunDir; uniform float uDaylight; uniform float uTimeOfDay; uniform vec3 uSkyTop; uniform vec3 uSkyHorizon;`,
+  uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uDaylight; uniform float uTimeOfDay; uniform vec3 uSkyTop; uniform vec3 uSkyHorizon;`,
   // Higher vertices sway more; each tree / grass clump / batched object has its own phase from its own origin
   threedog_wind: `
   vec3 threedogWind(vec3 position, vec3 origin, float amplitude){
@@ -172,6 +183,10 @@ const pick = (...keys) => Object.fromEntries(keys.map(k => [k, TEMPLATE[k]]));
  * @internal
  */
 export const PROVIDED_BY = { vThreedogWorld: 'world' };
+// One tsl function per built-in spec: the WebGPU program key holds each function's identity (render/patches.js nodeKey), so a fresh closure per
+// call would give every material with the same effects its own program
+const TSL_ONCE = new Map();
+const tslOnce = (key, make) => { let t = TSL_ONCE.get(key); if (!t) TSL_ONCE.set(key, t = make()); return t; };
 // The engine's built-in effects as named patches (also readable as GLSL examples for your own patches)
 /** @internal @type {Record<string, (...args: any[]) => import('./patches.js').ShaderPatch>} */
 export const EFFECTS = {
@@ -186,7 +201,7 @@ export const EFFECTS = {
     // sun light only, skipped while uCloudShadow is 0 (threedog_clouds_light above); WebGPU: the lighting slot's light() hook changes the
     // sun's color before three lights the surface with it, behind the same uniform branch
     pars: '#include <threedog_clouds_pars_fragment>', glsl: { lightsPars: '#include <threedog_clouds_light>' },
-    tsl: { lighting: { light: (L, c) => {
+    tsl: tslOnce('clouds', () => ({ lighting: { light: (L, c) => {
       if (!L.light?.isDirectionalLight && !L.light?.isSunLight) return undefined;
       const T = c.tsl;
       if (!c.state.cloud) {
@@ -194,8 +209,8 @@ export const EFFECTS = {
         T.If(c.fx.uniform('uCloudShadow').greaterThan(0), () => { k.assign(c.fx.cloudShadow(T.positionWorld)); });
       }
       return L.color.mul(c.state.cloud);
-    } } } }),
-  // wind(amplitude) or wind(amplitude, { glsl, uniforms, decl }): a style's own sway function replaces the default one (see StyleWind in types/style.d.ts)
+    } } })) }),
+  // wind(amplitude) or wind(amplitude, { glsl, uniforms, decl }): a game's own sway function replaces the default one
   wind: (amplitude, custom) => ({ name: 'wind', cacheKey: custom ? `${amplitude}|${hashText(custom.glsl ?? '')}` : amplitude, shadow: true,
     uniforms: { ...pick('uTime', 'uWind', 'uWindFreq', 'uWindAmp'), ...custom?.uniforms }, slot: 'position', glsl: '#include <threedog_wind_vertex>',
     pars: `uniform float uWindAmp;
@@ -205,18 +220,18 @@ export const EFFECTS = {
 #define THREEDOG_WIND_CUSTOM
 ${custom.decl}
 ${custom.glsl}` : ''),
-    // a game's own sway brings its own tsl (look.wind.patch('sway', { glsl, tsl })); one with GLSL only has no tsl (a NodeMaterial names it).
+    // a game's own sway brings its own tsl (engine.vegetation.sway({ glsl, tsl })); one with GLSL only has no tsl (a NodeMaterial names it).
     // ctx.position is object space before instancing on both renderers (render/slots.js), so this is the GLSL line as it is
     ...(custom?.tsl && { tsl: custom.tsl }),
-    ...(!custom && { tsl: c => c.position.add(c.fx.wind(c.tsl.positionGeometry, c.fx.objectOrigin(),
-      c.tsl.float(+(+amplitude).toFixed(4)).mul(c.fx.uniform('uWindAmp')))) }) }),
+    ...(!custom && { tsl: tslOnce(`wind ${(+amplitude).toFixed(4)}`, () => c => c.position.add(c.fx.wind(c.tsl.positionGeometry, c.fx.objectOrigin(),
+      c.tsl.float(+(+amplitude).toFixed(4)).mul(c.fx.uniform('uWindAmp'))))) }) }),
   season: kind => {
-    // the shared threedogSeason / TSL season() on both sides (mix is 0 in the default 'multiply' mode; style.seasons.mode 'mix' sets it)
+    // the shared threedogSeason / TSL season() on both sides (mix is 0 in the default 'multiply' mode; a season's mode 'mix' sets it)
     const id = kind === 'ground' ? 1 : 0;
     return { name: 'season', cacheKey: kind, uniforms: pick('uFoliageTint', 'uGroundTint', 'uFoliageMix', 'uGroundMix'), slot: 'color',
       pars: 'uniform vec3 uFoliageTint; uniform vec3 uGroundTint; uniform float uFoliageMix; uniform float uGroundMix;\n#include <threedog_season>',
       glsl: `diffuseColor.rgb = threedogSeason(diffuseColor.rgb, ${id});`,
-      tsl: c => c.tsl.vec4(c.fx.season(c.color.rgb, id), c.color.a) };
+      tsl: tslOnce(`season ${id}`, () => c => c.tsl.vec4(c.fx.season(c.color.rgb, id), c.color.a)) };
   },
 };
 

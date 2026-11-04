@@ -48,7 +48,7 @@ export function createServices(engine, { canvas, validate, locale, strings, save
   engine.session = new Session(engine);          // new game / continue / back to title from a clean slate (session.js)
   // before Input: key bindings are the shared point 'input.keys'.
   // shared quantities (stacks.js): engine.mod(name, { owner, mul | add | set | clamp, for }) is the one way several systems change one
-  (engine.stacks ??= new Stacks(engine))._hook();   // one registry, made early by Engine.js (look parts register points); saves and events hook in now
+  (engine.stacks ??= new Stacks(engine))._hook();   // one registry, made early by Engine.js (drawing parts register points); saves and events hook in now
   engine.mod = (name, o) => engine.stacks.mod(name, o);
   engine.stacks.define('input.gate', { kind: 'any', per: true });   // input.gate(action, owner): one entry per owner and action (Input.js)
   engine.input = new Input(engine, canvas, { joystick, bindings });

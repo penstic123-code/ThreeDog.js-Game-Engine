@@ -8,7 +8,7 @@
 // An object contract (kind: 'object', e.g. characters/vehicle.contract.js) checks one object instead: runContract(contract, () => myBoat, { check }).
 // Order: install -> name -> api methods -> fields (properties other modules read) -> ops defined and listed -> saves registered with their versions -> probe setup -> each probe event fires ->
 //   describe answers -> engine.wrap goes around an api method -> a probed value survives save -> a fresh install -> load -> (probe.copy) and a read -> write into a fresh install
-// What it deliberately does not check: behaviour beyond the contract (stack sizes, UI looks): those are the module's own tests.
+// What it deliberately does not check: behaviour beyond the contract (stack sizes, UI colors): those are the module's own tests.
 // The engine core parts come from the installed threedog package (found like every other tool: paths.mjs ENGINE), not a copy.
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -22,7 +22,7 @@ const [{ Events }, { Ops }, { Stacks }, { defineHoldStacks, holdMethods }, { Wra
 export function contractEngine() {
   const saved = new Map();
   const e = Object.defineProperties({
-    headless: true, ready: true, disposed: false, paused: false, tick: 0, actor: 'player', style: {}, modules: new Map(), _loop() {},
+    headless: true, ready: true, disposed: false, paused: false, tick: 0, actor: 'player', modules: new Map(), _loop() {},
     events: new Events(),
     i18n: { add() {}, t: k => k, has: () => false },
     audio: { register() {}, sfx() {}, condition() {}, measure() {} },
@@ -32,7 +32,7 @@ export function contractEngine() {
     // asset name table: modules register built-in assets in install (characters' 'footstep' synthesized sound, builtInSounds writes entries), and a real engine always has engine.assets
     assets: { entries: new Map() },
     saves: { register: (key, def) => { saved.set(key, def); }, save() {}, _defs: saved },
-    input: { actions: new Map(), action(a, o) { this.actions.set(a, o ?? {}); return { name: a, remove() {} }; }, bind: () => ({ owner: 'game', remove() {} }), keysOf: () => [], touchButton() {}, pressed: () => false, pressedRaw: () => false, down: () => false,
+    input: { actions: new Map(), action(a, o) { this.actions.set(a, o ?? {}); return { name: a, remove() {} }; }, bind: () => ({ owner: 'game', remove() {} }), keysOf: () => [], isUnbound: () => false, touchButton() {}, pressed: () => false, pressedRaw: () => false, down: () => false,
       push: name => ({ name, remove() {} }), axis: { x: 0, y: 0 }, padStick: { x: 0, y: 0 }, label: () => '' },
     ui: { define() {}, get: () => null, create: () => null, set() {}, templates: {}, isOpen: () => false, open() {}, close() {}, refresh() {} },
     movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 },

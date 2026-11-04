@@ -6,14 +6,14 @@
 export const specs = [
   {
     software: false,   // reads no pixels
-    name: '[guard] sky colors: uSkyHorizon / uSkyTop follow the drawn sky (night, storm tint); default fog color equals the horizon; weather.set seconds 0 is instant',
+    name: '[guard] sky colors: uSkyHorizon / uSkyTop follow the drawn sky (night, storm tint); weather.set seconds 0 is instant',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
         engine.pause();
         const U = engine.uniforms, sky = engine.sky, out = {}, hex = c => c.getHexString();
-        const read = () => ({ hor: hex(U.uSkyHorizon.value), top: hex(U.uSkyTop.value), dome: hex(sky.uniforms.uHorizon.value), domeTop: hex(sky.uniforms.uTop.value), fog: hex(engine.scene.fog.color) });
+        const read = () => ({ hor: hex(U.uSkyHorizon.value), top: hex(U.uSkyTop.value), dome: hex(sky.uniforms.uHorizon.value), domeTop: hex(sky.uniforms.uTop.value) });
         engine.weather.setAuto(false);
         engine.weather.set('clear', { seconds: 0 });
         out.instant = [engine.weather.t, engine.weather.current.rain];
@@ -26,8 +26,8 @@ export const specs = [
         engine.weather.set('clear', { seconds: 0 });
         return out;
       });
-      const same = o => o.hor === o.dome && o.top === o.domeTop && o.fog === o.hor;
-      check('uSkyHorizon / uSkyTop are the dome colors drawn this frame, and the default fog color is that same horizon (noon, night, a grey weather)',
+      const same = o => o.hor === o.dome && o.top === o.domeTop;
+      check('uSkyHorizon / uSkyTop are the dome colors drawn this frame (noon, night, a grey weather)',
         same(r.noon) && same(r.night) && same(r.storm), JSON.stringify([r.noon, r.night, r.storm]));
       check('the colors move with the time of day and the weather tint', r.noon.hor !== r.night.hor && r.storm.hor !== r.night.hor, JSON.stringify([r.noon.hor, r.night.hor, r.storm.hor]));
       check('weather.set(name, { seconds: 0 }) lands at once: progress 1 before any step', r.instant[0] === 1 && r.wet[1] === 1, JSON.stringify([r.instant, r.wet]));

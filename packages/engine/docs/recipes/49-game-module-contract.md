@@ -24,7 +24,7 @@ shows in `describe()` and the dev bridge, and can be driven by ops, without spec
 `stage` only picks where the hooks run (first to last): `control, ground, environment, gameplay, effects, late (default), audio`; `before / after`
 (module names) only order modules inside one stage; a contradiction with the stage order throws. `requires: ['world']` names a capability that must already be provided (throws
 otherwise, naming both fixes: the engine's `world()` first, or your own module with `provides: ['world']`). `type` says what the module may own
-(recipe 14: `'rules'` for game logic like this one; a `'look'` module may not define ops). `optional: { sky: 'what is lost without it' }` is a soft dependency (use `engine.sky?.`). Core never imports
+(recipe 14: `'rules'` for game logic like this one; a `'picture'` module may not define ops). `optional: { sky: 'what is lost without it' }` is a soft dependency (use `engine.sky?.`). Core never imports
 modules. The module `name` must not clash with an existing engine property.
 
 ## One copyable module: something that finishes after a delay (a smelter, a turret recharge, a crop)

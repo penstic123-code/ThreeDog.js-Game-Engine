@@ -9,7 +9,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, postEffects: E } = threedogTest, p = engine.post, L = engine.look.post, R = engine.renderer, gl = R.getContext(), sc = engine.scene, cam = engine.camera;
+        const { THREE, postEffects: E } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext(), sc = engine.scene, cam = engine.camera;
         const out = {}, css0 = R.getSize(new THREE.Vector2()), pr0 = R.getPixelRatio(), aa0 = p.antialias;
         const W = 200, H = 150;
         // 藏起页面原有的东西，只留一个直角：地面 y=0，墙面在 z=-2（为什么用半球光：均匀照明，明暗差只来自 AO）
@@ -31,9 +31,9 @@ export const specs = [
         const band = (px, row) => { let s = 0, n = 0; for (let y = row - 2; y <= row + 2; y++) for (let x = W * 0.2 | 0; x < W * 0.8; x++) { const i = (y * W + x) * 4; s += px[i] + px[i + 1] + px[i + 2]; n += 3; } return s / n; };
         const corner = rowOf(new THREE.Vector3(0, 0.02, -2)), open = rowOf(new THREE.Vector3(0, 0, -0.3));
         out.rows = [corner, open];
-        const tex0 = R.info.memory.textures;
         const off = shot();
-        const h = L.add(E.ao({ enabled: true }));
+        const tex0 = R.info.memory.textures;
+        const h = p.add(E.ao({ enabled: true }));
         const on = shot();
         out.cornerDarken = band(off, corner) - band(on, corner);
         out.openDarken = band(off, open) - band(on, open);
@@ -41,15 +41,15 @@ export const specs = [
         out.describe = engine.describe().render.post.find(x => x.name === 'ao');
         out.text = engine.describe().render.text;
         // 参数：radius 变大，墙角变暗的范围更宽；intensity 0 等于没开
-        L.set({ 'ao.radius': 1 });
+        p.get('ao').set({ radius: 1 });
         const wide = shot(); out.wideDarkenAbove = band(off, corner + 8) - band(wide, corner + 8); out.narrowDarkenAbove = band(off, corner + 8) - band(on, corner + 8);
-        L.set({ 'ao.radius': 0.25, 'ao.intensity': 0 });
+        p.get('ao').set({ radius: 0.25, intensity: 0 });
         const zero = shot(); out.zeroDiff = Math.abs(band(off, corner) - band(zero, corner));
-        L.set({ 'ao.intensity': 1 });
+        p.get('ao').set({ intensity: 1 });
         // 关掉恢复原图
-        L.set({ 'ao.enabled': false });
+        p.get('ao').enabled = false;
         const back = shot(); let maxD = 0; for (let i = 0; i < off.length; i++) maxD = Math.max(maxD, Math.abs(off[i] - back[i])); out.restoreMax = maxD;
-        L.set({ 'ao.enabled': true });
+        p.get('ao').enabled = true;
         // 改尺寸、像素比、MSAA：pass 跟着画布的设备像素走，墙角仍变暗
         const pass = p.composer.passes.find(x => x.gtaoMaterial);
         size(120, 90, 1.5); p.render(0.016);
@@ -75,7 +75,7 @@ export const specs = [
       check('describe().render.post 显示 ao 开着和它的参数', r.describe?.on === true && r.describe.params.radius === 0.25 && r.describe.params.intensity === 1 && /ao\{/.test(r.text), j);
       check('ao.radius 变大：墙角上方更远处也变暗', r.wideDarkenAbove > r.narrowDarkenAbove + 2, j);
       check('ao.intensity 0：和没开一样', r.zeroDiff < 0.5, j);
-      check('关掉后与原图逐像素一致（差 ≤ 1 级；低档设备上 look.post.add 进来的 costly 效果也关得掉）', r.restoreMax <= 1, j);
+      check('关掉后与原图逐像素一致（差 ≤ 1 级）', r.restoreMax <= 1, j);
       check('改尺寸 + 像素比 1.5：pass 尺寸是设备像素 180x135', r.resized.join() === '180,135,180', j);
       check('开 MSAA 墙角仍变暗', r.msaaDarken > 3, j);
       check('全程没有 GL 错误', r.err1 === 0 && r.err2 === 0, j);

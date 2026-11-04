@@ -5,7 +5,7 @@
 - `assets.paramsOf(name: string) → { schema, values, tuned } | null` — The params of a generator registered with a params schema: { schema, values (built with now), tuned (from setParams) }, or null
 - `assets.setParams(name: string, values: Record<string, any>) → Promise<{ why: string; names: str…` — Dev tuning: build a generator with these params (replacing its defaults) and swap every live copy in place; the dev panel's models folder calls it
 - `assets.preload(onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean }) → Promise<{ loaded: number; failed:…` — Preload (onProgress(0–1, current name)). Code-generated models and fonts are only loaded up front if marked preload. failed includes entries now showing their fallback
-- `assets.font(name: string) → Promise<FontFace | null>` — A font from an asset pack by name: downloaded once, added to document.fonts; null when the file failed and it is not critical. style.ui.fonts calls it at start()
+- `assets.font(name: string) → Promise<FontFace | null>` — A font from an asset pack by name: downloaded once, added to document.fonts; null when the file failed and it is not critical. ui.fonts calls it at start()
 - `assets.model(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Promise<Object3D>` — Get a model copy (name or path; geometry and materials are shared with other copies). static: true registers it in engine.rays (builds ray acceleration)
 - `assets.modelNow(nameOrUrl: string, opts?: { castShadow?, receiveShadow?, static? }) → Object3D | null` — A model copy right now if it has already loaded, else null (never starts a load, never waits): lets code that rebuilds often skip the frame an await costs. Code-built models (a build function in the manifest) count too: they are null until one await model(name) or an entry with preload: true ran (dev warns [asset-not-loaded]). Example: `const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');`
 - `assets.geometry(nameOrUrl: string) → Promise<BufferGeometry>` — Get the geometry of the first mesh in a model
@@ -22,6 +22,7 @@
 - `assets.reportText(nameOrRoot: string | Object3D) → string` — assets.report as text for the console / describe
 - Properties:
   - `cacheMinMs: number` Generations faster than this many milliseconds are not written to the automatic cache (reading the file would be slower), default 20
+  - `palette: Record<string, any>` Named colors for what is made in code: a generator written with `function` reads this.palette. Plain data, read, write or replace it freely: it is part of the cache key, so a model or texture asked for after a write is built from the new colors. Copies already placed keep theirs. Example: `engine.assets.palette = { leaf: 0xd98a3a, bark: 0x6b4a30 };`
   - `shared: WeakSet<object>` Geometry and materials shared by model copies (engine.remove does not release them, use release)
   - `memory: { geometries: number; textures: number }` Current GPU memory usage (number of geometries and textures)
   - `gltf: any` three.js GLTFLoader (Meshopt installed; Draco and KTX2 are installed the first time they are needed)
@@ -35,9 +36,9 @@
   - `models?: Record<string, AssetEntry>` Models (.glb / .gltf, Draco/Meshopt compression also works): name -> path or generator function
   - `textures?: Record<string, AssetEntry | Texture | (() => Texture | Prom…` Textures: name -> path, or a texture made in code: a function returning a THREE.Texture (run once, on first use) or the Texture itself. Code textures come back as made (their colorSpace / wrap / repeat are yours) and are never disposed by the engine if passed as a Texture. Example: textures: { brick: () => makeBrickTexture(), sign: mySignTexture }
   - `sounds?: Record<string, AssetEntry | SynthFn | { build: SynthFn; par…` Sounds: name -> file path, or a sound made in code: a synth function (SynthFn) or { build: synthFn, params } (params: its defaults). Used by name like a file: audio.sfx(name), audio.sounds rules (src / variants), music and ambience. Example: sounds: { step: '/sfx/step.ogg', ding: dingSynth }
-  - `fonts?: Record<string, string | FontAssetEntry>` Fonts: name -> file, or { url, family, weight, style, ... } (family defaults to the name). style.ui.fonts lists the names the UI uses
+  - `fonts?: Record<string, string | FontAssetEntry>` Fonts: name -> file, or { url, family, weight, style, ... } (family defaults to the name). ui.fonts lists the names the UI uses
 - **AnimatorOptions** Animation state machine parameters
-  - `fade?: number` Default transition seconds, default 0.25 (style.character.animation.fade)
+  - `fade?: number` Default transition seconds, default 0.25 (characters({ animation: { fade } }) for every character)
   - `states?: Record<string, AnimatorState>` States: name → state
   - `transitions?: Record<string, number>` Transition seconds for specific pairs: { 'jump>fall': 0.1, '*>idle': 0.3 }
   - `params?: Record<string, number>` Initial parameter values
@@ -51,6 +52,7 @@
   - `lock?: boolean` go() cannot interrupt it while playing
   - `timing?: number | [number, number][]` For sync(): gameplay seconds -> clip seconds. A number = the gameplay length the whole clip is stretched over; [[gameT, clipT], ...] = piecewise linear (land the swing on the hit phase). Without it clip seconds = t
 - **Animator** Skeletal animation state machine (returned by engine.assets.animate(model, config))
+  - `root: Object3D` The animated object
   - `mixer: any` three.js AnimationMixer
   - `actions: Map<string, any>` clip name → three.js AnimationAction
   - `state: string | null` Current state name

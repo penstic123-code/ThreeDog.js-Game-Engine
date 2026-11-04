@@ -1,4 +1,4 @@
-// Dome shader (gradient + sun + moon + stars + clouds), its uniforms, and neutral fallback keyframes. Look params come from style.sky.
+// Dome shader (gradient + sun + moon + stars + clouds), its uniforms, and neutral fallback keyframes. Start values come from sky({ ... }).
 import * as THREE from 'three';
 import { NOISE_GLSL } from '../../render/effects.js';
 import { resolveClouds, cloudUniforms, CLOUD_UNIFORM_DECL } from './clouds.js';
@@ -7,17 +7,17 @@ import { SKY as K, glslFloat as f } from '../../render/fxNumbers.js';
 import { isWebGPU, webgpuPart } from '../../render/backend.js';
 import { resolveDomeLayers } from './domeLayers.js';
 
-// Keyframes: [time 0-1, zenith color, horizon color (= fog color), light color, light intensity, ambient intensity]
-// Neutral fallback when no style: pure gray (no hue), only brightness changes with time. Night holds from 19:12 to 04:48 (rows 0.2 / 0.8):
+// Keyframes: [time 0-1, zenith color, horizon color (= fog color), sun color, ambient intensity]
+// Neutral fallback with no keyframes: pure gray (no hue), only brightness changes with time. Night holds from 19:12 to 04:48 (rows 0.2 / 0.8):
 // with only the midnight row, 21:30 was halfway between dusk and midnight and read as late afternoon (demo finding 2026-11-02)
 export const NEUTRAL_KEYFRAMES = [
-  [0.00, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.4, 0.35],
-  [0.20, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.4, 0.35],
-  [0.25, 0x7c7c7c, 0xb4b4b4, 0xe4e4e4, 1.8, 0.8],
-  [0.50, 0x989898, 0xd4d4d4, 0xffffff, 3.0, 1.2],
-  [0.75, 0x7c7c7c, 0xb4b4b4, 0xe4e4e4, 1.8, 0.8],
-  [0.80, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.4, 0.35],
-  [1.00, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.4, 0.35],
+  [0.00, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.35],
+  [0.20, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.35],
+  [0.25, 0x7c7c7c, 0xb4b4b4, 0xe4e4e4, 0.8],
+  [0.50, 0x989898, 0xd4d4d4, 0xffffff, 1.2],
+  [0.75, 0x7c7c7c, 0xb4b4b4, 0xe4e4e4, 0.8],
+  [0.80, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.35],
+  [1.00, 0x161616, 0x2a2a2a, 0xa8a8a8, 0.35],
 ];
 
 /**
@@ -27,31 +27,37 @@ export const NEUTRAL_KEYFRAMES = [
 export function checkKeyframes(kf) {
   const times = Array.isArray(kf) ? kf.map(k => k?.[0]) : [];
   const bad = times.length < 2 || times[0] !== 0 || times[times.length - 1] !== 1
-    || kf.some(k => !Array.isArray(k) || k.length < 6) || times.some((t, i) => i > 0 && !(t > times[i - 1]));
-  if (bad) throw codedError('sky-option', `style.sky.keyframes must be [time, zenith, horizon, lightColor, lightIntensity, ambientIntensity] rows sorted by time, starting at 0 and ending at 1, with no time repeated; got times [${times.join(', ')}]`);
+    || kf.some(k => !Array.isArray(k) || k.length !== 5) || times.some((t, i) => i > 0 && !(t > times[i - 1]));
+  if (bad) throw codedError('sky-option', `sky keyframes must be [time, zenith, horizon, sunColor, ambientIntensity] rows sorted by time, starting at 0 and ending at 1, with no time repeated; got times [${times.join(', ')}]`);
 }
 
-/** Dome uniforms from the style (st = style.sky + sky() options); time and cloud cover are the engine's (engine.uniforms) */
-export function makeSkyUniforms(st, engineUniforms) {
+/**
+ * Dome uniforms from the sky({ ... }) start values. The picture numbers are engine.uniforms' own objects, so a write to .value moves the dome on both renderers
+ * and a game's shader reads the same object; the dome's clouds keep their shader names uCloudScale / uCloudSpeed, which in engine.uniforms are the
+ * cloud shadows', so those two are engine.uniforms.uSkyCloudScale / uSkyCloudSpeed.
+ */
+export function makeSkyUniforms(st, E) {
   const cl = resolveClouds(st.clouds);   // throws on a bad kind / glsl / custom uniform before anything is built
+  const num = (k, v) => { E[k].value = v; return E[k]; }, put = (k, ...v) => { E[k].value.set(...v); return E[k]; }, built = cloudUniforms(st.clouds, cl.kind);
   return {
-    ...cloudUniforms(st.clouds, cl.kind), ...cl.uniforms,
+    ...built, ...cl.uniforms,
+    uCloudOpacity: num('uCloudOpacity', built.uCloudOpacity.value), uCloudSoft: num('uCloudSoft', built.uCloudSoft.value),
     uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() },
-    uSunDir: engineUniforms.uSunDir, uSunColor: { value: new THREE.Color() }, uNight: { value: 0 },
-    uSunSize: { value: st.sunSize ?? 900 }, uSunGlow: { value: st.sunGlow ?? 0.18 }, uSunPower: { value: st.sunBrightness ?? 6 }, uMoonPower: { value: st.moonBrightness ?? 3 },
-    uMoonSize: { value: st.moonSize ?? 1400 }, uMoonColor: { value: new THREE.Color(st.moonColor ?? 0xdcdcdc) },
-    uTime: engineUniforms.uTime, uCloud: engineUniforms.uCloud, uCloudCover: { value: st.clouds?.coverage ?? (st.clouds ? 1 : 0) },
-    uCloudScale: { value: st.clouds?.scale ?? 0.35 }, uCloudSpeed: { value: new THREE.Vector2(...(st.clouds?.speed ?? [0.004, 0.002])) },
-    uCloudColor: { value: new THREE.Color(st.clouds?.color ?? 0xf4f4f4) }, uCloudShade: { value: new THREE.Color(st.clouds?.shade ?? 0xaaaaaa) },
-    uStars: { value: st.starDensity ?? 0.0025 }, uStarCloudDim: { value: st.dim?.stars === false ? 0 : 1 }, uStarScale: { value: st.starScale ?? 260 }, uCurve: { value: st.gradientCurve ?? 0.55 },
+    uSunDir: E.uSunDir, uSunColor: E.uSunColor, uNight: { value: 0 },
+    uSunSize: num('uSunSize', st.sunSize ?? 900), uSunGlow: num('uSunGlow', st.sunGlow ?? 0.18), uSunPower: num('uSunPower', st.sunBrightness ?? 6), uMoonPower: num('uMoonPower', st.moonBrightness ?? 3),
+    uMoonSize: num('uMoonSize', st.moonSize ?? 1400), uMoonColor: put('uMoonColor', st.moonColor ?? 0xdcdcdc),
+    uTime: E.uTime, uCloud: E.uCloud, uCloudCover: num('uCloudCover', st.clouds?.coverage ?? (st.clouds ? 1 : 0)),
+    uCloudScale: num('uSkyCloudScale', st.clouds?.scale ?? 0.35), uCloudSpeed: put('uSkyCloudSpeed', ...(st.clouds?.speed ?? [0.004, 0.002])),
+    uCloudColor: put('uCloudColor', st.clouds?.color ?? 0xf4f4f4), uCloudShade: put('uCloudShade', st.clouds?.shade ?? 0xaaaaaa),
+    uStars: num('uStars', st.starDensity ?? 0.0025), uStarCloudDim: { value: st.dim?.stars === false ? 0 : 1 }, uStarScale: num('uStarScale', st.starScale ?? 260), uCurve: num('uCurve', st.gradientCurve ?? 0.55),
   };
 }
 
 /**
  * The sky dome: a back-faced sphere that follows the camera and is scaled to 0.9 of its far plane (drawn first, no depth).
- * extra = { decl, body, layers? }: GLSL added by fog.js (fog-colored horizon band) and domeLayers.js (style layers); empty keeps the plain shader text
+ * extra = { decl, body, layers? }: GLSL added by fog.js (fog-colored horizon band) and domeLayers.js (dome layers); empty keeps the plain shader text
  * engine: on a WebGPURenderer the dome is render/fx/sky.tsl.js's node material over the same uniforms (needs threedog/tsl), drawing the layers'
- * tsl forms (extra.layers from prepareLook, else st.layers resolved here)
+ * tsl forms (extra.layers from prepareDome, else st.layers resolved here)
  */
 export function makeDome(uniforms, st, extra = { decl: '', body: '' }, engine = null) {
   const cl = resolveClouds(st.clouds);
@@ -66,7 +72,7 @@ export function makeDome(uniforms, st, extra = { decl: '', body: '' }, engine = 
 }
 
 /**
- * The node side of the sky (render/fx/sky.tsl.js: dome material, fog node, the GLSL-only checks) when the engine draws with a WebGPURenderer, else null.
+ * The node side of the sky (render/fx/sky.tsl.js: dome material, the GLSL-only checks) when the engine draws with a WebGPURenderer, else null.
  * Why throw instead of a fallback: a ShaderMaterial does not draw on WebGPURenderer. Only this lookup is on the WebGL side, the rest (and its
  * messages) ships with threedog/tsl, so WebGL bundles do not grow.
  */
@@ -74,7 +80,7 @@ export function skyNodes(engine) {
   return isWebGPU(engine?.renderer) ? webgpuPart('sky', '[sky] the sky dome') : null;
 }
 
-/** Panorama skybox (style sky.skybox): hides the gradient dome once the texture is wanted, becomes the scene background when loaded */
+/** Panorama skybox (engine.sky.replace(name)): hides the gradient dome once the texture is wanted, becomes the scene background when loaded */
 export function loadSkybox(sky, name) {
   const e = sky.engine;
   sky.dome.visible = false;
@@ -102,15 +108,15 @@ void main(){
   float md = max(dot(d, -uSunDir), 0.0);
   col += uMoonColor * pow(md, uMoonSize) * uMoonPower * uNight;
   vec3 g = floor(d * uStarScale);
-  // Clouds: threedogClouds() is the style's (or a built-in kind's) cloud function, see clouds.js; coverage follows weather
+  // Clouds: threedogClouds() is the game's (or a built-in kind's) cloud function, see clouds.js; coverage follows weather
   float cov = uCloud * uCloudCover, clA = 0.0;
   if (d.y > 0.0 && cov > 0.01) {
     vec4 cl = threedogClouds(d, uTime, uSunDir, uNight, uCloudColor, uCloudShade, cov);
     col = mix(col, cl.rgb, cl.a); clA = cl.a;
   }
   // Stars sit behind the clouds (hidden where a cloud is drawn) and dim with the weather's cloud cover (uCloud): a rainy / overcast night has
-  // no clear sky between the drawn clouds either, and a style with sparse cloud art must not show a starry sky in a storm. Relative to the
-  // weather value, no extra constant: uCloud 0 = every star, 1 = none. style.sky.dim.stars false (uStarCloudDim 0) keeps them through the cover
+  // no clear sky between the drawn clouds either, and a picture with sparse cloud art must not show a starry sky in a storm. Relative to the
+  // weather value, no extra constant: uCloud 0 = every star, 1 = none. engine.sky.dim.stars false (uStarCloudDim 0) keeps them through the cover
   col += vec3(step(1.0 - uStars, h3(g)) * uNight * smoothstep(0.0, ${f(K.starFade)}, d.y) * (1.0 - clA) * (1.0 - clamp(uCloud, 0.0, 1.0) * uStarCloudDim));${x.body}
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>

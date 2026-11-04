@@ -122,7 +122,7 @@ export function dupKeys(src) {
  * error = why assets.js could not be imported (the names are then empty).
  */
 export async function gameAssets(dir) {
-  const file = join(dir, 'assets.js'), out = { file: existsSync(file) ? file : null, models: new Set(), textures: new Set(), sounds: new Set(), error: null };
+  const file = join(dir, 'assets.js'), out = { file: existsSync(file) ? file : null, models: new Set(), textures: new Set(), sounds: new Set(), packs: [], error: null };
   if (!out.file) return out;
   let packs;
   // under no-op browser stand-ins: module-top canvas textures / materials (recipe 05) load in Node; only the names are read (dom-stub.mjs)
@@ -131,7 +131,8 @@ export async function gameAssets(dir) {
     + 'assets.js (and the files it imports) in Node to read the asset names; drawing and DOM calls run as no-ops there, other browser-only work '
     + 'at module top (loading a file, a font) does not: move it into the generator, or a texture function textures: { name: () => make() } '
     + '(runs on first use in the browser)' : ''); return out; }
-  for (const pack of [packs].flat()) for (const kind of ['models', 'textures', 'sounds']) for (const k of Object.keys(pack?.[kind] || {})) out[kind].add(k);
+  out.packs = [packs].flat();
+  for (const pack of out.packs) for (const kind of ['models', 'textures', 'sounds']) for (const k of Object.keys(pack?.[kind] || {})) out[kind].add(k);
   return out;
 }
 

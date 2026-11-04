@@ -20,6 +20,15 @@ async function lookUp(page, m, frames, px = 420) {
 
 export const specs = [
   {
+    // [guard] overShoulder said "third-person shooter" but kept the follow camera's minPitch 0.05: the locked mouse could not look up at all
+    name: '[guard] every camera preset that locks the mouse can look up (minPitch < 0)',
+    url: URL,
+    async run({ check, ev }) {
+      const bad = await ev(() => Object.entries(window.presets.camera).filter(([, o]) => o.pointerLock && !(o.minPitch < 0)).map(([k]) => k));
+      check('pointer-lock camera presets look up', !bad.length, bad.join(', '));
+    },
+  },
+  {
     name: 'Follow camera looks up ~60° by the view (thirdPersonAction): a high marker sits at the screen centre on ground, roof, roof edge, by a wall',
     url: URL,
     async run({ page, check, ev, frames }) {

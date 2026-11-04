@@ -1,16 +1,16 @@
-// One ownership model for every property the engine writes on its own (sky lights, fog, exposure, background, camera, pixel ratio ...).
+// One ownership model for every property the engine writes on its own (a sky's background, the shadow box's center, camera, pixel ratio ...).
 //
-//   const o = defineOwned(engine, { id: 'sun.intensity', part: 'lights', key: 'sun.intensity', read: () => sun.intensity,
-//     levels: { manual: "engine.look.lights.manual('sun')", set: "engine.look.lights.set({ sun: { intensity: 2 } })" } });
-//   per frame:  o.check();  if (o.on) sun.intensity = v;  o.mark();      (or o.drive(v) when the write is one value: needs write)
+//   const o = defineOwned(engine, { id: 'view.far', part: 'view', key: 'far', read: () => camera.far, write: v => { camera.far = v; },
+//     levels: { manual: "engine.view.manual('far')" } });
+//   per frame:  o.check();  if (o.on) target.position.copy(focus);  o.mark();      (or o.drive(v) when the write is one value: needs write)
 //
-// Why "the engine yields" (user decision 1, 2026-11-02): a game that writes engine.lights.sun.intensity directly means it. Silently writing the old value
+// Why "the engine yields" (user decision 1, 2026-11-02): a game that writes sun.target.position directly means it. Silently writing the old value
 // back every frame is the "my change does nothing" bug; warning and still overwriting only moves it. So the first outside write hands the property
 // to the game (mode 'yielded'), the value stays, and one warning names the explicit takeover and the hand-back. Detection runs in release builds too
 // (a few number compares per frame), so the game behaves the same with and without dev checks; only the warning text is dev-only.
 //
-// Modes per property: 'engine' (the engine writes it) | 'manual' (look.<part>.manual(key), look.<part>.replace(...) where it hands the value to the game) | 'yielded'
-// (the game wrote it directly). look.<part>.manual(key, false) hands any of them back. describe().owned lists them all.
+// Modes per property: 'engine' (the engine writes it) | 'manual' (engine.view.manual(key), or the entry that hands the value to the game) | 'yielded'
+// (the game wrote it directly). engine.view.manual(key, false) hands any of them back. describe().owned lists them all.
 import { warnOnce, DEV } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 
@@ -58,9 +58,8 @@ class Owned {
     /** who took it: 'game' (manual()), or 'three' for a direct write */ this.by = 'engine';
     this._snap = null;
     this._onChange = spec.onChange;
-    // once: the engine writes it once, at creation (renderer.toneMapping), and no look.<part>.set ever writes it. So a direct write is the documented
-    // way to change it (yielding warns nothing), markOwned after a set of the same part must not re-read it (that swallowed a game's direct
-    // write: describe said 'style' for a curve the game had set), and handing it back writes the creation value again (spec.write)
+    // once: the engine writes it once, at creation (renderer.toneMapping). So a direct write is the documented way to change it (yielding warns
+    // nothing), and handing it back writes the creation value again (spec.write)
     this._once = spec.once ? { value: this._read() } : null;
   }
   /** Does the engine write this property now */
@@ -77,8 +76,12 @@ class Owned {
         .replace('{set}', L.set ? STRINGS.set.replace('{set}', L.set) : '').replace('{back}', back)));
     }
   }
-  /** After the engine wrote (or chose not to): remember what is there now */
-  mark() { this._snap = flat(this._read()); }
+  /**
+   * After the engine wrote (or chose not to): remember what is there now.
+   * @param {any} [reference] what the engine left there, when that is not what is there now: a property registered after the game could already write it
+   *   (a sky installed once picture code ran), so the first check() still sees that write
+   */
+  mark(reference = this._read()) { this._snap = flat(reference); }
   /** check, write when the engine owns it, mark. Needs spec.write */
   drive(v) { this.check(); if (this.on) this._write(v); this.mark(); }
   /** Take over (on) or hand back (false). Hand-back forgets the snapshot so the engine's next write is not mistaken for an outside one */
@@ -90,25 +93,28 @@ class Owned {
   _set(mode, by) {
     const was = this.mode;
     this.mode = mode; this.by = by; this.at = this._e.time?.frame ?? null;
-    if (was !== mode) { this._onChange?.(this); this._point(mode); }
-  }
-  /** @internal tell the look value's shared point (look.<part>.<key>, prefix match: 'sun' covers sun.intensity): a direct write or a manual()
-   *  takes it from the layers, so describe().shared says writer 'three (engine yielded)'; handing it back reclaims it */
-  _point(mode) {
-    const S = this._e.stacks, pre = `look.${this.part}.${this.key}`;
-    if (!S) return;
-    for (const n of S.list()) if (n === pre || n.startsWith(pre + '.')) mode === 'engine' ? S.get(n).reclaim() : S.get(n).yieldToThree(mode === 'manual' ? `manual:${this.by}` : null);
+    if (was !== mode) this._onChange?.(this);
   }
   /** describe().owned row: writer = who writes it now ('engine' | 'manual:<who>' | 'three (engine yielded)'); the old field name `by` throws */
-  info() { return ({ part: this.part, key: this.key, writer: this.mode === 'engine' ? 'engine' : this.mode === 'yielded' ? 'three (engine yielded)' : `manual:${this.by}`, ...(this.levels.manual ? { manual: this.levels.manual } : {}) }); }
+  info() {
+    return ({ part: this.part, key: this.key, writer: this.mode === 'engine' ? 'engine' : this.mode === 'yielded' ? 'three (engine yielded)' : `manual:${this.by}`, ...(this.levels.manual ? { manual: this.levels.manual } : {}) });
+  }
 }
+
+/**
+ * Written-once values (toneMapping) never meet an engine write that would notice a takeover, so describe() looks before any section reads
+ * them. Why one place: the render section checked on its own, after the picture section had read the stale writer, and describe('owned') alone
+ * said 'engine' for a curve the game had set
+ * @param {any} engine @internal
+ */
+export function checkWrittenOnce(engine) { for (const o of engine._owned?.values() ?? []) if (o._once) o.check(); }
 
 /**
  * Register one engine-written property. The id is unique per engine (a second defineOwned with the same id replaces the first: a module reinstalled).
  * @param {any} engine
  * @param {{ id: string, part: string, key?: string, read: () => any, write?: (v: any) => void, objects?: any[],
- *   levels: { manual: string, set?: string, replace?: string, back?: string }, onChange?: (o: Owned) => void, once?: boolean }} spec
- *   part: the look part whose manual() takes it (engine.look.<part>.manual(key)); key: the name manual() matches (prefix match on dots: 'sun' takes
+ *   levels: { manual: string, set?: string, back?: string }, onChange?: (o: Owned) => void, once?: boolean }} spec
+ *   part: the group whose manual() takes it (engine.view.manual(key)); key: the name manual() matches (prefix match on dots: 'sun' takes
  *   'sun.intensity' and 'sun.color'); once: written only at creation (read now is the creation value; needs write for the hand-back); levels: the copyable calls the warning quotes (manual is required); onChange: mode changed (the sky hides its dome when the game
  *   takes scene.background)
  * @returns {Owned}
@@ -116,7 +122,7 @@ class Owned {
 export function defineOwned(engine, spec) {
   if (!spec?.id || !spec.part || typeof spec.read !== 'function') throw codedError('owned-misuse', 'defineOwned(engine, { id, part, read, write?, levels }): id, part and read are required');
   // the yield warning leads with this call, so a property nobody can take on purpose cannot be registered
-  if (typeof spec.levels?.manual !== 'string' || !spec.levels.manual) throw codedError('owned-misuse', `defineOwned(engine, { id: '${spec.id}', levels: { manual } }): levels.manual is required, the copyable takeover call the warning quotes, e.g. levels: { manual: "engine.look.${spec.part}.manual('${spec.key ?? spec.id}')" }`);
+  if (typeof spec.levels?.manual !== 'string' || !spec.levels.manual) throw codedError('owned-misuse', `defineOwned(engine, { id: '${spec.id}', levels: { manual } }): levels.manual is required, the copyable takeover call the warning quotes, e.g. levels: { manual: "engine.view.manual('far')" }`);
   const reg = engine._owned ??= new Map();
   const o = new Owned(engine, spec);
   const old = reg.get(spec.id); if (old) live.delete(old);
@@ -126,18 +132,15 @@ export function defineOwned(engine, spec) {
 /** Remove registrations (a module disposed) @param {any} engine @param {Iterable<{ id: string }>} list */
 export function dropOwned(engine, list) { for (const o of list) { live.delete(o); if (engine._owned?.get(o.id) === o) engine._owned.delete(o.id); } }
 
-/** Re-read every registered property of a part (after a look.<part>.set wrote them on the game's request) */
-export function markOwned(engine, part) { for (const o of engine._owned?.values() ?? []) if (o.part === part && o._snap && !o._once) o.mark(); }
-
 /** Registered properties of one part whose key is `key` or starts with `key.` (no keys: all of the part) */
-export function ownedOf(engine, part, keys) {
+function ownedOf(engine, part, keys) {
   const all = [...(engine._owned?.values() ?? [])].filter(o => o.part === part);
   if (keys == null) return all;
   return all.filter(o => [].concat(keys).some(k => o.key === k || o.key.startsWith(k + '.')));
 }
 
 /**
- * look.<part>.manual(keys?, on?): the game takes these properties (the engine stops writing them) or hands them back (on false).
+ * manual(keys?, on?) of a group (engine.view.manual): the game takes these properties (the engine stops writing them) or hands them back (on false).
  * Throws with the part's takeable keys when nothing matches, so a typo does not silently do nothing.
  * @returns {{ remove(): void }} remove() hands them back
  */
@@ -146,7 +149,7 @@ export function manualVerb(engine, part, keys, on = true, by = 'game') {
   const hit = ownedOf(engine, part, keys);
   if (!hit.length) {
     const known = [...new Set(ownedOf(engine, part).map(o => o.key))];
-    throw codedError('owned-misuse', `engine.look.${part}.manual(${keys === undefined ? '' : JSON.stringify(keys)}): ${known.length ? `no engine-written key matches; keys: ${known.join(', ')}` : 'the engine writes nothing of this part on its own right now (nothing to take over)'}`);
+    throw codedError('owned-misuse', `engine.${part}.manual(${keys === undefined ? '' : JSON.stringify(keys)}): ${known.length ? `no engine-written key matches; keys: ${known.join(', ')}` : 'the engine writes nothing of this part on its own right now (nothing to take over)'}`);
   }
   for (const o of hit) o.manual(on, by);
   return { remove: () => { for (const o of hit) o.manual(false); } };

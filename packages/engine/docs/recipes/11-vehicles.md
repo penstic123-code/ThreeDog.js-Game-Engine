@@ -10,14 +10,14 @@ downloaded and initialized, so build the car after `engine:ready`.
 
 ## 1. Build a car (main.js)
 ```js
-import { presets, THREE, makeMaterial } from 'threedog';
+import { presets, THREE } from 'threedog';
 
 function makeCar() {
   const car = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 3.6), makeMaterial('vehicle', { color: 0xc04a3a }));
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 3.6), new THREE.MeshLambertMaterial({ color: 0xc04a3a }));
   body.position.y = 0.3; body.castShadow = true; car.add(body);
   const wheels = [[-0.85, 1.2, true, false], [0.85, 1.2, true, false], [-0.85, -1.2, false, true], [0.85, -1.2, false, true]].map(([x, z, steer, drive]) => {
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.25, 10).rotateZ(Math.PI / 2), makeMaterial('vehicle', { color: 0x333333 }));
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.25, 10).rotateZ(Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x333333 }));
     w.position.set(x, 0, z); car.add(w);                               // wheels are children of the body: they follow suspension, steering and rolling
     return { position: [x, 0, z], radius: 0.35, steer, drive, object: w };
   });

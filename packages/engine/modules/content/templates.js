@@ -28,7 +28,7 @@ import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
 import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { srcOf, stateful, templateId } from './ids.js';
-import { PLACEMENT_FIELDS } from './rules.js';
+import { PLACEMENT_FIELDS, collideProblem } from './rules.js';
 import { fieldsShape } from './fields.js';
 import { whyBad, readParams, keysSchema } from '../../core/params.js';
 import { stagesProblems, stagedFields, growStages } from './stages.js';
@@ -38,7 +38,7 @@ const DEF_KEYS = ['model', 'collide', 'static', 'interact', 'container', 'sound'
 const BODY_KEYS = ['shape', 'mass', 'friction', 'restitution', 'damping', 'angularDamping'];
 // what a placement may set besides the state fields: the placement field table (rules.js), so the loader, content-check and content.fields() agree
 const PLACE_KEYS = Object.keys(PLACEMENT_FIELDS['props.template']);
-// content.spawn gets its position as an argument, so only the id and the look / goods keys of the same table
+// content.spawn gets its position as an argument, so only the id and the picture / goods keys of the same table
 const SPAWN_KEYS = PLACE_KEYS.filter(k => !['template', 'place', 'x', 'z', 'floor'].includes(k));
 
 const STRINGS = {
@@ -63,6 +63,8 @@ export function defineTemplates(e, api, st, defs) {
   for (const [name, d] of Object.entries(defs)) {
     readParams(`template '${name}'`, keysSchema(DEF_KEYS), d);
     if (!d?.model) throw codedError('content-template', fmt(STRINGS.noModel, { name }));
+    const collide = collideProblem(d.collide);
+    if (collide) throw codedError('content-template', `template '${name}': collide ${collide}`);
     if (d.interact) {
       readParams(`template '${name}' interact`, keysSchema(['label', 'op', 'radius', 'height', 'action', 'enabled']), d.interact);
       // why a throw and not the usual unknown-key warning: a callback here would be a second, unlogged way to change saved state

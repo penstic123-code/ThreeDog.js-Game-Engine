@@ -35,19 +35,19 @@ export async function run({ check }) {
   check('a plain height read without a blend is not flagged', kinds('const y = heights[j * W + i];\n') === '');
   check('a blend over something else is not flagged', kinds('const t = Math.floor(x);\nconst c = colors[t] * (1 - f) + colors[t + 1] * f;\n') === '');
 
-  // material
-  // only a hand-colored material NEXT TO style materials is a bypass (it misses a style swap); hand-made materials alone are the plain three.js route
-  const styled = "const wall = makeMaterial('wall');\n";
-  check('a colored MeshStandardMaterial in a file that uses makeMaterial -> material', kinds(styled + 'const m = new THREE.MeshStandardMaterial({ color: 0x8844aa });\n') === 'material');
-  check('constructor plus a later color edit next to look.materials -> material', kinds('const s = engine.look.materials;\nconst m = new MeshBasicMaterial();\nm.color.set(0xff0000);\n') === 'material');
-  check('a hand-colored material in a file without style materials is not flagged (plain three.js route)', kinds('const m = new THREE.MeshStandardMaterial({ color: 0x8844aa });\n') === '');
-  check('art code (style/, art/, assets.js, art.js) is never material-hinted', scanText(styled + 'const m = new THREE.MeshStandardMaterial({ color: 1 });\n', undefined, { art: true }).length === 0);
-  check('makeMaterial is not flagged', kinds("const m = makeMaterial('prop');\nm.color.set(0xff0000);\n") === '');
-  check('a material without any color is not flagged', kinds('const m = new THREE.MeshStandardMaterial({ roughness: 1 });\n') === '');
-
   // warnings only, with the three parts of the message
   const r = scanText('setInterval(tick, 1000);\n')[0];
   check('level is warn, message names what was seen, the system and how to switch off', r.level === 'warn' && /setInterval/.test(r.msg) && /engine\.clock/.test(r.fix) && /DESIGN\.md/.test(r.fix) && /hint-off\(timers\)/.test(r.fix));
+
+  // save
+  check('a save written to localStorage -> save', kinds("localStorage.setItem('keeper-save-v1', JSON.stringify(state));\n") === 'save');
+  check('a remembered preference is not a save', kinds("localStorage.setItem('volume', String(v));\n") === '');
+  check('a file on engine.saves is not flagged', kinds("await engine.saves.save();\nlocalStorage.setItem('lastSave', String(t));\n") === '');
+
+  // pause
+  check('an Esc handler of its own -> pause', kinds("addEventListener('keydown', e => { if (e.code === 'Escape') togglePause(); });\n") === 'pause');
+  check('a paused flag of its own -> pause', kinds('let paused = false;\n') === 'pause');
+  check('a file with the settings menu or engine.freeze is not flagged', kinds("engine.use(settings({ freezeWorld: true }));\nlet paused = false;\n") === '' && kinds("const h = engine.freeze('map');\nlet paused = false;\n") === '');
 
   // switches
   check('// hint-off on the line silences every hint there', kinds('setInterval(tick, 1000);   // hint-off: poller for the backend\n') === '');

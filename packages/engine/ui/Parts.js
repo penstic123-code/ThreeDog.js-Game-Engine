@@ -11,6 +11,7 @@
 //   engine.ui.open('title') / engine.ui.close('title')     // full-screen parts (title): pushes the UI focus stack, locks input, emits ui:open / ui:close
 //
 // Value per name: false = off; true = the default; a plain object = the default with these options; a function (engine, options) => part = your own.
+// The same option holds the picture of every default part: createEngine({ ui: { theme: { bg, accent }, css, fonts, templates, toast: false } }) (ui/theme.js).
 // Names and the data each part receives are listed in `engine.ui.describe()` and in recipes/26-ui-parts.md.
 import { uiFocus } from './Focus.js';
 import { codedError } from '../core/errorHints.js';
@@ -20,7 +21,7 @@ import { codedError } from '../core/errorHints.js';
 const VERBS = ['show', 'update', 'hide', 'dispose'];
 const noop = () => {};
 const DEV = {
-  badValue: "engine.ui.set('{name}', …): pass false (off), true (default), an options object, or a function (engine, options) => ({ show, update, hide, dispose }). Got {got}.",
+  badValue: "engine.ui.set('{name}', …): pass false (off), true (default), an options object, or a function (engine, options) => ({ show, update, hide, dispose }). Got {got}. A color or font goes in createEngine({ ui: { theme: { {name}: … } } }).",
   badPart: "ui part '{name}': the function must return an object { show, update, hide, dispose } (any may be omitted). Got {got}.",
   badVerb: "ui part '{name}': {verb} must be a function.",
   unknown: "engine.ui.set('{name}'): no UI part has that name. Known parts: {known}. (A module's parts exist only after engine.use(module).)",
@@ -42,18 +43,21 @@ function normalize(name, p) {
 export class UIParts {
   /**
    * @param {Engine} engine
-   * @param {Record<string, UIPartValue>} [values]  createEngine({ ui })
+   * @param {import('../types/core').UIOptions} [ui]  createEngine({ ui }): theme and css are applied by ui/theme.js, every other key names a part
    * @internal
    */
-  constructor(engine, values = {}) {
+  constructor(engine, { theme, css, fonts = [], templates = {}, ...parts } = {}) {
     this.engine = engine;
+    /** Window content by name, read each time a window draws: (data, { esc, t, icon }) => HTML replaces the default layout. Plain and writable @type {Record<string, import('../types/core').UITemplate>} */
+    this.templates = templates;
+    /** @internal font asset names start() loads */ this.fonts = fonts;
     /** @internal name -> { factory, on, multi, modal } */ this.defs = new Map();
     /** @internal name -> value given by the game (wins over the default whatever the install order) */ this.values = new Map();
     /** @internal name -> live singleton */ this.live = new Map();
     /** @internal name -> { focus } while a full-screen part is open */ this.opened = new Map();
     /** @internal hide() promises still fading out (see settled) */ this._fading = new Set();
     /** @internal id -> title screen item a module added (titleItem) */ this.titleItems = new Map();
-    for (const [k, v] of Object.entries(values)) this.set(k, v);
+    for (const [k, v] of Object.entries(parts)) this.set(k, v);
   }
 
   /**

@@ -11,7 +11,7 @@ import { injectUICSS, worldToScreen, placeAt, esc } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 
 const CSS = `
-.threedog-bubble{position:absolute;left:0;top:0;transform:translate(-50%,-100%);max-width:240px;padding:6px 10px;border-radius:10px;background:var(--threedog-bg);color:var(--threedog-fg);font:14px/1.35 var(--threedog-font);pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.threedog-bubble{position:absolute;left:0;top:0;transform:translate(-50%,-100%);max-width:240px;padding:6px 10px;border-radius:var(--threedog-radius-small);background:var(--threedog-bg);color:var(--threedog-fg);font:14px/1.35 var(--threedog-font);pointer-events:none;box-shadow:var(--threedog-shadow-small)}
 .threedog-bubble b{display:block;font-size:12px;opacity:.75}
 .threedog-bubbles-screen{position:absolute;left:50%;bottom:22%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
 .threedog-bubbles-screen .threedog-bubble{position:static;transform:none}

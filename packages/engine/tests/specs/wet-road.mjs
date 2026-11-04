@@ -39,6 +39,7 @@ export const specs = [
         wet.hold(1); const wetDay = g({ near });
         // 2. night: lamps on; streaks only on the wet road
         engine.calendar.timeOfDay = 0.92;
+        engine.step(1 / 60);   // picture/ writes the lamps in onRender and the pool takes them up next frame: dry and wet must both see them on
         wet.hold(0); const dryNight = g({ road });
         wet.hold(1); const wetNight = g({ road });
         // 3. the mask view: rows across the near road

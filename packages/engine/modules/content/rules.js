@@ -86,21 +86,21 @@ const RULE_STRINGS = {
       floor: { type: 'number', optional: true, desc: 'reference height of the storey it stands on (multi-layer ground)' },
       y: { type: 'number', optional: true, desc: 'meters above the ground it stands on' },
     };
-    const look = {
+    const pose = {
       rot: { type: 'number', optional: true, desc: 'facing around the vertical axis, radians' },
       scale: { type: 'number', optional: true, min: 0, desc: 'uniform scale (1 = model size)' },
     };
     return {
       props: {
         id: { type: 'string', optional: true, desc: 'stable id (needed when entries are later inserted in the middle)' },
-        model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...look,
-        collide: { type: 'any', optional: true, values: [false, 'box', 'circle'], desc: 'collision shape, false = none' },
+        model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...pose,
+        collide: { type: 'any', optional: true, desc: "collision: 'box', 'circle', { circle: radius, occluder?: false }, or false = none" },
         static: { type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
         batch: { type: 'bool', optional: true, desc: 'false = never batch this copy' },
       },
       'props.template': {
         template: { type: 'string', desc: 'template name (content/templates.js)' },
-        id: { type: 'string', optional: true, desc: 'stable id; instances with state should have one' }, ...at, ...look,
+        id: { type: 'string', optional: true, desc: 'stable id; instances with state should have one' }, ...at, ...pose,
         items: { type: 'object', optional: true, desc: "starting goods of the instance's container { itemId: count }" },
       },
       'props.grid': {
@@ -147,6 +147,13 @@ export const REFS = RULE_STRINGS.refs;
 export const CONTENT_FILES = RULE_STRINGS.files;
 /** content entry shape -> { key: field spec } (core/params.js format): 'props', 'props.template', 'props.grid', 'pickups', 'views'. Read via fields.js */
 export const PLACEMENT_FIELDS = RULE_STRINGS.fields;
+/** Why a prop's or template's `collide` is wrong, or null. One rule for the load and content-check: a mistyped object must not quietly become a box */
+export function collideProblem(v) {
+  if (v === undefined || v === false || v === 'box' || v === 'circle') return null;
+  const form = !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).every(k => k === 'circle' || k === 'occluder');
+  if (form && Number.isFinite(v.circle) && v.circle > 0 && (v.occluder === undefined || typeof v.occluder === 'boolean')) return null;
+  return `must be one of false, "box", "circle" or { circle: radius in meters above 0, occluder?: false }, got ${JSON.stringify(v)}`;
+}
 /** Clock time notation 'HH:MM' (24-hour) */
 export const CLOCK_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 

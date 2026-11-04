@@ -7,7 +7,7 @@ textures, baked shadows, sculpted edges. That finish comes from Blender. This pa
 ## 1. In Blender
 1. **Model** at real scale (1 unit = 1 meter), origin at the object's base. Apply scale and rotation (Ctrl+A).
 2. **UV unwrap** every textured mesh. A mesh with a texture but no UV set shows one flat pixel (`assets check` warns `texture-without-uv`).
-3. **Bake** the look into textures: base color (the paint), optional AO, optional baked light. One image per material keeps draw calls low;
+3. **Bake** the picture into textures: base color (the paint), optional AO, optional baked light. One image per material keeps draw calls low;
    one shared atlas for many small props is cheaper still. Keep textures at 2048 or less (`assets check` warns above that).
 4. **Name things**: objects, materials and (for animated models) actions. Names survive export and compression, and the engine reads them
    (`spawn`, `col_xxx`, `trigger_xxx`, `template`, `id`; ground type from the material name, see recipe 10).
@@ -34,7 +34,7 @@ threedog assets                             # compress art/models/*.glb into pub
 ```
 `assets check` also lists materials, textures with the color space three gives them (by slot), normal maps, clips, `col_` colliders and template / id nodes.
 After loading, `engine.assets.report('hero')` (or `.reportText`; pass a copy from `model()` to check what the game shows) lists the same from the scene and
-flags what the file has but the scene lost: `normal-map-lost`, `material-replaced` (a style role took over), `clip-lost`, `clip-unmapped` (an animation
+flags what the file has but the scene lost: `normal-map-lost`, `material-replaced` (your code took over), `clip-lost`, `clip-unmapped` (an animation
 state names a clip the file lacks), `node-lost`, and wrong color spaces. The engine never recomputes normals or drops a normal map on a GLB; only code
 that swaps materials as in section 5 does.
 Swapping an export for a new one: `threedog assets check new.glb --against old.glb` lists what the old file had and the new one lacks (errors: `col_`
@@ -52,7 +52,7 @@ It needs `@gltf-transform/cli` (`npm i -D @gltf-transform/cli`). Unchanged files
 ### The same shot again, before and after
 Declare fixed views once: `engine.views.define('gate', { position: [10, 4, 12], target: [0, 1, 0], fov: 50 })` (`views.show(name)` also works in code). Then
 `npm run shot -- -w my-game --view gate --keep` takes the picture from there in any game (the page's own `?view=` still wins where a page handles it, as
-in the style test). After a change, `npm run shot -- -w my-game --view gate --compare .threedog/shots/<before>.png` prints both file names, one pixel-diff
+in the picture test). After a change, `npm run shot -- -w my-game --view gate --compare .threedog/shots/<before>.png` prints both file names, one pixel-diff
 number (0 = identical) and the brightness / saturation / contrast / detail differences. A view holds the camera (`engine.takeCamera`) until `views.release()` or the handle `show()` returns is removed; a cutscene that held it before gets it back.
 Views can also be content: `content/views.js` = `{ gate: { position: [10, 4, 12], target: [0, 1, 0], fov: 50 } }` is defined by `engine.content.load` (checked by `npm run check`; example: `examples/action/content/views.js`, `npm run shot -- action --view corner`).
 `describe render` also shows the renderer output color space and warns when it is not srgb; `assets.report` flags color maps that are not srgb and data maps that are.
@@ -61,7 +61,7 @@ Views can also be content: `content/views.js` = `{ gate: { position: [10, 4, 12]
 `engine.debug.view('albedo')` shows only the base color and texture (unlit), `'lighting'` plain white clay under the scene lights, `'shadow'` the same with
 ambient and hemisphere light hidden so shadows read black, `'normals'` the normals as color (a normal map shows here); `'off'` restores everything.
 A view is temporary and owner-scoped (`{ owner }`; another owner needs `force: true` to clear it), never saved, and `describe().render` / `describe render`
-start with a DEBUG VIEW line while one is on, so a screenshot of clay is not taken for the real look. Meshes added after the call are not covered: call it again.
+start with a DEBUG VIEW line while one is on, so a screenshot of clay is not taken for the real picture. Meshes added after the call are not covered: call it again.
 It needs the debug module (`engine.use(debug())`).
 
 ## 4. Use it
@@ -77,19 +77,17 @@ engine.assets.manifest({ name: 'town-art', models: {
 ```
 A whole level is `level({ url: '/models/town.glb' })` (recipe 10). Animation clips and their mapping to game actions: `13-animation.md`.
 
-## 5. The GLB's own materials and the style
-**The GLB keeps its own materials.** The engine loads them as they are (textures, colors, roughness) and does not swap them for style roles;
-that is what lets a painted or baked texture show. `style.materials` (recipe 43) applies only to what code builds through `engine.makeMaterial(role, ...)`
-(terrain, vegetation, procedural models, pickups). One scene can mix GLB props and styled code-built things.
+## 5. The GLB's own materials
+**The GLB keeps its own materials.** The engine loads them as they are (textures, colors, roughness) and does not swap them;
+that is what lets a painted or baked texture show. One scene can mix GLB props and code-built things.
 
-There is no automatic mapping from a GLB material name to a style role and no flag for it. To make a GLB follow the style anyway, do it in your
-game code, per model: name the material in Blender after the role (`cloth`, `metal`, `glass`) and look it up:
+There is no automatic mapping from a GLB material name to anything. To give a GLB your game's materials, do it in your game code, per model: name the
+material in Blender (`cloth`, `metal`, `glass`) and look it up in your `picture/materials.js`:
 ```js
 const m = await engine.assets.model('hat');
-m.traverse(o => { if (o.isMesh) o.material = engine.makeMaterial(o.material.name, { color: o.material.color.getHex() }); });
+m.traverse(o => { if (o.isMesh && materials[o.material.name]) o.material = materials[o.material.name]; });
 ```
-This replaces the painted material, so the texture is gone unless the role's spec sets `map` (recipe 43, "texture names"). A role the style does
-not list falls back to `materials.default`.
+This replaces the painted material, so the texture is gone unless yours sets `map`.
 
 ## 6. Smallest copyable flow
 1. Blender: a cube named `well`, UV unwrapped, base color baked to a texture, export `art/models/well.glb` with the settings above.
@@ -106,9 +104,9 @@ not list falls back to `materials.default`.
 | Node names lost (`spawn`, `col_` not found) | meshes joined before export | keep objects separate; `threedog assets` never flattens or joins; run `assets check` to see what the level finds |
 | Custom properties missing (`template`, `id`) | "Custom Properties" off at export | tick it and export again |
 | Collision does nothing | `col_` object not exported, or no `collision()` module | export hidden objects; `engine.use(level(...), collision())`; test `engine.collision.walkable({ x, z })` |
-| Painted material replaced by the flat style look | game code swapped it (section 5) | remove the swap, or give the role a `map` |
+| Painted material replaced by a flat look | game code swapped it (section 5) | remove the swap, or give your material a `map` |
 | File too big | large textures or many materials | textures at 2048 or less, share atlases, `threedog assets --ktx2`; sizes are in the `assets` report (`.threedog/assets-report.json`) |
 | Clip not found | action name differs from the manifest `animation` mapping | rename the action in Blender or change `clip:` |
 
-See also: `10-blender-level.md` (level names and markers), `43-shader-patches-surface-looks.md` (material roles and texture slots),
-`35-style-from-reference.md` (a whole style from a reference image).
+See also: `10-blender-level.md` (level names and markers), `43-shader-patches-surfaces.md` (your own material, shader patches),
+`35-picture-from-reference.md` (a whole picture from a reference image).

@@ -7,7 +7,7 @@
 // A compile error then names the file and line (render/shaderErrors.js reads the markers). Production builds get vite's plain ?raw text (no markers).
 // Plain Vite equivalent: import.meta.hot.accept('./water.frag?raw', m => { mat.fragmentShader = m.default; mat.needsUpdate = true; }).
 //
-// Tune write-back: POST /__threedog/tune { look, materials, uniforms, style } (local requests only) saves <root>/.threedog/tune.json; then
+// Tune write-back: POST /__threedog/tune { values, css, materials, models } (local requests only) saves <root>/.threedog/tune.json; then
 // `threedog tune write <file>` prints the change as a diff and `--apply` writes it (packages/tools/tune.mjs). Nothing is written to code from here.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { relative, join } from 'node:path';

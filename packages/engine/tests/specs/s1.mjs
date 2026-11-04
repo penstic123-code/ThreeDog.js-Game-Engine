@@ -100,14 +100,14 @@ export const specs = [
     },
   },
   {
-    name: 'S1 error tiers: a look module error disables only that module; a gameplay error (inventory give throws) freezes gameplay and is recorded in engine.error (small town)',
+    name: 'S1 error tiers: a picture module error disables only that module; a gameplay error (inventory give throws) freezes gameplay and is recorded in engine.error (small town)',
     url: '/tests/city/index.html',
     expectErrors: /s1-boom|give failed/,   // this test deliberately causes two errors
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
         let fxCalls = 0;
-        engine.use({ name: 's1fx', type: 'look', frame() { fxCalls++; throw new Error('s1-boom'); } });
+        engine.use({ name: 's1fx', type: 'picture', frame() { fxCalls++; throw new Error('s1-boom'); } });
         engine.step(0.2);
         const t0 = engine.clock.now; engine.step(0.5);
         const fx = { disabled: engine.disabledModules.has('s1fx'), calls: fxCalls, error: engine.error, clockMoved: engine.clock.now > t0 };
@@ -119,7 +119,7 @@ export const specs = [
         const t1 = engine.clock.now; engine.step(0.5);
         return { fx, rewarded, error: engine.error, frozen: engine.frozen, clockStopped: engine.clock.now === t1, text: engine.describeText().split('\n')[0] };
       });
-      check('Look module error: disabled, called once, no engine.error, game time keeps running', r.fx.disabled && r.fx.calls === 1 && !r.fx.error && r.fx.clockMoved, JSON.stringify(r.fx));
+      check('Picture module error: disabled, called once, no engine.error, game time keeps running', r.fx.disabled && r.fx.calls === 1 && !r.fx.error && r.fx.clockMoved, JSON.stringify(r.fx));
       check('Gameplay error: engine.error records where and why', r.error?.message === 'give failed' && /s1:reward/.test(r.error.where) && !r.rewarded, JSON.stringify(r.error));
       check('Frozen after a gameplay error: game time stops', r.frozen && r.clockStopped);
       check('describeText reports the error on its first line', /Error, gameplay frozen/.test(r.text), r.text);

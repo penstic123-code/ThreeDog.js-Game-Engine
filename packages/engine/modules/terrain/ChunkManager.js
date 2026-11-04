@@ -5,7 +5,7 @@
 // effect at the tick set by engine.commits (c.solid), and is generated on the main thread on the spot if not done by then -- machine speed never
 // changes whether the player bumps into a tree (see core/Commits.js).
 // Data only: this file makes no mesh and touches no material. Each generated chunk keeps its arrays in c.data (pos, nor, col, uv, tex, top...),
-// collision and queries read them, and looks subscribe with view({ add, change, remove, show }) (terrain/look.js is the engine's own).
+// collision and queries read them, and draw parts subscribe with view({ add, change, remove, show }) (terrain/draw.js is the engine's own).
 // Vegetation plugs in as the chunk planter (its data part sets terrain.plants): this file never reads engine.vegetation.
 import * as THREE from 'three';
 import { createTerrain } from './terrainGen.js';
@@ -38,8 +38,9 @@ export class ChunkManager {
     this.gen = 0;
     this.vgen = 0;                                // +1 on a density change: plants placed with the old density are asked again
     this.stats = { builtThisFrame: 0, applyMs: 0, queued: 0, failed: 0 };
-    /** @internal the looks drawing these chunks (view()) */ this.views = new Set();
+    /** @internal the draw parts drawing these chunks (view()) */ this.views = new Set();
     /** @internal the vegetation data part, or NO_VEG */ this.plants = NO_VEG;
+    /** @internal the engine's terrain drawing (draw.js), null when a game's picture holds the slot */ this.drawPart = null;
     this.lowest = 0;                              // lowest island point loaded (default voidY)
     // which chunks the sources need, ring, culling: shared with vegetation's own-ground chunks (core/chunkStream.js)
     this._stream = new ChunkStream(this, { show: (c, v) => this._emit('show', c, v), level: (c, ring) => this._setLevel(c, ring),
@@ -53,6 +54,23 @@ export class ChunkManager {
   }
 
   get CHUNK() { return this.T.CHUNK; }
+  // the draw part's entries, here because engine.terrain is where a game looks for them; this file stays data only
+  /** @internal */
+  _drawPart() { return this.drawPart ?? (() => { throw codedError('terrain-option', "the engine's terrain drawing is not installed: a draw part that replaces 'terrain-draw' draws the ground its own way"); })(); }
+  /** Ground material (see TerrainDraw): get the one in use (null under a replaced draw part), set one to swap it on every chunk, drawn as given */
+  get material() { return this.drawPart?.material ?? null; }
+  set material(m) { this._drawPart().material = m; }
+  /** The engine's ground patches (world, clouds, season, detail): applyEffects(myMaterial, { patches: engine.terrain.patches }) */
+  get patches() { return this.drawPart?.patches ?? []; }
+  /** The detail layer's { value } uniforms, live ({} without a detail layer) */
+  get uniforms() { return this.drawPart?.uniforms ?? {}; }
+  /**
+   * Change at run time what terrain({...}) baked in; colors, biomeColors, steep, variation, shading, normals rebuild every chunk, detail only the material
+   * @example engine.terrain.recolor({ colors: { grass: 0x6a8a3a }, biomeColors: { meadow: ['grass'] } });
+   * @param {any} o
+   * @returns {void}
+   */
+  recolor(o) { this._drawPart().recolor(o); }
   /**
    * Below it the player or a moving body fell out of the world (terrain:void): shape.voidY, else 50 m under the lowest island
    * chunk loaded (at most -50); -Infinity without a shape
@@ -65,7 +83,7 @@ export class ChunkManager {
    * Change the ground: dig, raise, flatten, or paint the ground type. Call it from an op or a fixed step (it is saved gameplay state).
    * Heights snap to grid points and paint to cells (cellSize); the nearest one is taken when the shape is smaller than a cell.
    * engine.surface / slope / groundType, collision, paths and vegetation (what grew there is removed) follow at once; it is saved,
-   * and a chunk unloaded and generated again comes back edited. Paint colors come from biomeColors[type] (gray when the game's style has none).
+   * and a chunk unloaded and generated again comes back edited. Paint colors come from biomeColors[type] (gray when the game gave none).
    * @param {import('three').Vector3 | {x:number,z:number} | number[]} position
    * @param {{ radius?: number, shape?: 'circle' | 'square', raise?: number, lower?: number, flatten?: number, paint?: string | null }} opts
    *   radius meters (default half a cell); one of raise / lower (meters) / flatten (target height); paint a type name, null gives back the generated type
@@ -81,7 +99,7 @@ export class ChunkManager {
   /**
    * Draw these chunks. Hooks: add(c) (generated: c.data holds the arrays pos / nor / col / uv / tex, c.cx / c.cz the chunk), change(c) (an edit
    * rewrote c.data, same vertex count), remove(c) (released), show(c, visible) (in the camera view or not). Chunks already loaded are added at
-   * once. This is how a look that replaces 'terrain-look' draws the ground. Returns { remove() } (ctx.track it).
+   * once. This is how a draw part that replaces 'terrain-draw' draws the ground. Returns { remove() } (ctx.track it).
    * @example ctx.track(engine.terrain.view({ add(c) { draw(c) }, remove(c) { undraw(c) } }))
    * @param {{ add?: (c: any) => void, change?: (c: any) => void, remove?: (c: any) => void, show?: (c: any, visible: boolean) => void }} v
    * @returns {{ remove(): void }}
@@ -114,7 +132,7 @@ export class ChunkManager {
     if (!this.plants.get(name)?.nearOnly) this._regrow([name]);
     else for (const c of this.chunks.values()) { c.detailDone.delete(name); c.level = -1; }
   }
-  /** Replace the terrain config in every worker (height map loaded, look.ground colors); species is the full rule table */
+  /** Replace the terrain config in every worker (height map loaded, recolor); species is the full rule table */
   reinit(terrainCfg, species) {
     this.T = createTerrain(terrainCfg);
     this.edits.attach();
@@ -159,7 +177,7 @@ export class ChunkManager {
   }
 
   /**
-   * View distance (in chunks). Also moves the camera far plane out to it; the fog distance follows only with terrain({ viewFog: true }) (the look half
+   * View distance (in chunks). Also moves the camera far plane out to it; with terrain({ viewFog: true }) the signal uViewDistance follows too (the drawing half
    * writes it, see viewFogFar; the game's fog is its own)
    */
   setViewChunks(n) {
@@ -167,8 +185,7 @@ export class ChunkManager {
     const e = this.engine, d = (n - 0.3) * this.T.CHUNK;
     e.viewFar(d + 150);   // chunks in view must not be clipped (unless the game owns camera.far)
   }
-  /** The fog distance the view asks for with terrain({ viewFog: true }) (meters), else null. The terrain look puts it on the engine layer of
-   *  look.fog.far (a style or a game set covers it, weather multiplies whatever decides); never scene.fog itself */
+  /** The view distance the signal uViewDistance gets with terrain({ viewFog: true }) (meters), else null; never scene.fog itself */
   get viewFogFar() { return this.viewFog ? (this.viewChunks - 0.3) * this.T.CHUNK : null; }
   /** Vegetation density multiplier: plants are placed again on the loaded chunks; the ground and its collision stay, old trees block until the new ones are in */
   setDensity(d) { this.density = d; this.vgen++; this._regrow(this.plants.baseNames()); }
@@ -186,7 +203,7 @@ export class ChunkManager {
     this.gen++;
   }
 
-  /** Ring of a chunk from the nearest stream source; a 'simple' source counts as the outer ring (far look, no near detail) */
+  /** Ring of a chunk from the nearest stream source; a 'simple' source counts as the outer ring (far picture, no near detail) */
   _ring(c) { return this._stream.ring(c); }
 
   /**
@@ -253,7 +270,7 @@ export class ChunkManager {
     this.stats.builtThisFrame = built;
     this.stats.applyMs += ((performance.now() - t0) - this.stats.applyMs) * 0.1;   // measure
 
-    // 3. LOD + frustum (the looks get show(c, visible) when it changes)
+    // 3. LOD + frustum (the draw parts get show(c, visible) when it changes)
     const { visible, instances } = this._stream.cull(camera);
     this.stats.visible = visible; this.stats.loaded = this.chunks.size; this.stats.instances = instances;
     return built;
@@ -271,7 +288,7 @@ export class ChunkManager {
     return true;
   }
 
-  // a generated chunk: keep its arrays and bounds, tell the looks
+  // a generated chunk: keep its arrays and bounds, tell the draw parts
   _applyTerrain(c, t) {
     c.data = t;
     if (t.top != null) { c.solidCount = t.solid; this.lowest = Math.min(this.lowest, t.minH); }   // island: collision takes top and sides, not the bottom
@@ -296,7 +313,7 @@ export class ChunkManager {
     return true;
   }
 
-  // near-only species are placed when a chunk comes within their ring and dropped past it; the vegetation look picks its own LOD (plants.ring)
+  // near-only species are placed when a chunk comes within their ring and dropped past it; the vegetation drawing picks its own LOD (plants.ring)
   _setLevel(c, ring) {
     if (c.level === ring) return;
     c.level = ring;

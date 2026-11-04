@@ -2,10 +2,11 @@
 // This file only holds rules: installing engine modules, computing place coordinates, handing content/ to the engine, ops and presentation.
 // The level is content: the cabin, props, physics props, items, NPCs, dialogues, quests and vegetation all live in content/ (rule R33).
 import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, pickups, quests, photo, timeline, triggers, particles, music, hud, createTerrain, toast } from '../../index.js';
-import style from './style/index.js';   // this game's look (style/); its art (procedural trees, rocks, the humanoid body, art/) is registered from assets.js
+import { createPicture } from './picture/index.js';   // the whole picture, plain three.js; the art (procedural trees, rocks, the humanoid body, art/) is registered from assets.js
 import packs from './assets.js';
-import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';   // optional package: the terrain generator (world shape, not a look)
+import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';   // optional package: the terrain generator (world shape, not a picture)
 import data from './content/index.js';
+import { TERRAIN } from './picture/palette.js';
 import { BODIES } from './models.js';
 
 // ---------- 0. Pick a flat spot as home ----------
@@ -18,16 +19,17 @@ for (let r = 0; r < 3000; r += 10) {
   if (h > 4 && h < 10 && preview.slope(x, z) < 0.2 && riverAt(x, z, preview.noise) === 0) { home = { x, z }; break; }
 }
 
-// core + style + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
+// core + open-world preset (world and environment: terrain, vegetation, sky, weather, water, collision, physics, camera, characters, ambience, settings, debug) + the gameplay modules this game needs
 // Route switch for the WebGL vs WebGPU perf comparison (threedog perf --only=pages --renderer=webgpu): ?renderer=webgpu loads threedog/tsl
 // (it registers the WebGPU classes and node parts) and draws this same game on WebGPURenderer. Without the query nothing changes.
 const gpuRoute = new URLSearchParams(location.search).get('renderer') === 'webgpu';
 if (gpuRoute) await import('../../render/fx/index.js');
-const engine = createEngine({ ...(gpuRoute && { renderer: 'webgpu' }), bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests, ...presets.bindings.photo, ...presets.bindings.debug, ...presets.bindings.dialogNumbers, ...presets.bindings.cutsceneSkip }, canvas: document.getElementById('view'), style, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
+const engine = createEngine({ ...(gpuRoute && { renderer: 'webgpu' }), bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests, ...presets.bindings.photo, ...presets.bindings.debug, ...presets.bindings.dialogNumbers, ...presets.bindings.cutsceneSkip }, canvas: document.getElementById('view'), lights: false, strings: terrainStrings, ui: { loading: { title: '慢慢走' } } });
 // opt-in presets: four seasons and temperate weather (the engine assumes neither)
-engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, calendar: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
+engine.use(openWorld({ camera: 'follow', seed: SEED, terrain: { ...terrainPreset(), ...TERRAIN }, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, autoWeather: true, calendar: presets.calendar.fourSeasons, weather: presets.weather.temperate }),
   interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), pickups(), quests(), photo(), timeline(), triggers(), particles(), music({ duckDialogue: 0.35 }), hud(),   // gameplay modules: not in the preset, this game uses them all
   content());
+const picture = createPicture(engine);
 
 // ---------- 1. Places: nearest riverside to the cabin (fisherman goes there in the morning, barrel floats there) ----------
 let river = { x: home.x + 30, z: home.z }, waterSpot = { x: home.x + 34, z: home.z };
@@ -42,13 +44,11 @@ search: for (let r = 10; r < 400; r += 4) {
 engine.assets.manifest(packs);   // assets.js: this game's procedural trees / rocks / flowers (art/) and its cabin
 // Presentation that follows the clock: chimney smoke while the cabin's model is built, doorway lamp on 18:00-06:00
 // (sky.between re-aligns after start, load, applying a scenario, or rewinding time)
-let lampOn = false, smoke = null, smokeOn = null;
-engine.calendar.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
+let smoke = null, smokeOn = null;
+engine.calendar.between('18:00', '06:00', { on: () => picture.doorLamp(true), off: () => picture.doorLamp(false) });
 engine.onFrame(() => {
   const view = engine.world.view('cabin');
   if (smokeOn !== view) { smoke?.remove(); smoke = view && engine.particles.attach('smoke', view.getObjectByName('chimney')); smokeOn = view; }
-  const lamp = /** @type {import('three').Mesh<any, import('three').MeshLambertMaterial> | undefined} */ (view?.getObjectByName('lamp'));
-  if (lamp) lamp.material.emissiveIntensity = lampOn ? 1.6 : 0;
 });
 
 // ---------- 3. Player + content (vegetation, items, pickups, NPCs, dialogues, quests, key actions, templates, props, physics props, custom conditions) ----------
@@ -169,4 +169,4 @@ engine.events.on('engine:ready', () => {
 });
 
 engine.start();
-window.engine = engine;   // handy for debugging in the browser console
+Object.assign(window, { engine, worldTest: { picture } });   // the console and the tests: engine, and the picture's own lights

@@ -2,7 +2,7 @@
 // vegetation.define all resolve a model name here, so caching (baked file -> dev cache -> build), the per-name prototype and the shadow rule exist once.
 // It lives in core because several modules need it and none of them owns it (content, inventory, vegetation): no module depends on another for it.
 import * as THREE from 'three';
-import { makeMaterial } from '../render/materials.js';
+import { neutralMaterial } from '../render/neutral.js';
 import { shadowDefaults } from './assetEntry.js';
 import { paramValues } from './assetManifest.js';
 
@@ -40,21 +40,24 @@ export async function vegetationModel(e, m) {
 // One prototype per model name: a generator entry -> assets.cached (baked file / dev cache); a file entry -> assets.model. Content names models only (no paths).
 // The only entry for "reuse a code-made model by name": content props / templates / vegetation and ground pickups all take it from here, so cache, bake and shadow rules exist once.
 const protos = new WeakMap();   // owner (engine.content, or the inventory for pickups) → Map(model key → Promise<{ obj, size, center, fromGeometry }>)
+const protoPalette = new WeakMap();   // prototype promise → the palette it was built from (null for a file model)
 const owners = new WeakMap();   // engine → Set(owner): a hot swap walks every owner's prototypes of a changed name
 /** Every prototype cache of this engine: [{ api, cache }] (cache: model key → Promise of the prototype). For core/assetHot.js @internal */
 export const protoCaches = e => [...(owners.get(e) ?? [])].map(api => ({ api, cache: protos.get(api) }));
 /**
  * The shared prototype of a model name (or [name, ...params]): { obj, size, center, fromGeometry }. fromGeometry: the generator returned a bare
- * geometry, wrapped here in a mesh of the 'prop' role; a caller with its own role (pickups: 'pickup' in the item's color) swaps that material. @internal
+ * geometry, wrapped here in a mesh of neutral gray; a caller with a material of its own (pickups) swaps that one. @internal
  */
 export function protoOf(e, api, model) {
   if (!protos.has(api)) protos.set(api, new Map());
   (owners.get(e) ?? owners.set(e, new Set()).get(e)).add(api);
-  const cache = protos.get(api), key = JSON.stringify(model);
+  const cache = protos.get(api), key = JSON.stringify(model), palette = e.assets.builder(list(model)[0]) ? e.assets._paletteKey : null;
+  // a palette written since this prototype was built: the next placement builds again, the same rule assets.cached has by its key
+  if (cache.has(key) && protoPalette.get(cache.get(key)) !== palette) cache.delete(key);
   if (!cache.has(key)) {
     const gen = cachedModel(e, model);
     cache.set(key, (gen ? gen.then(r => {
-      const p = r.isObject3D ? r : new THREE.Mesh(r, makeMaterial('prop', { vertexColors: !!r.attributes.color }, e));
+      const p = r.isObject3D ? r : new THREE.Mesh(r, neutralMaterial('prop', { vertexColors: !!r.attributes.color }));
       if (!r.isObject3D) p.userData.fromGeometry = true;
       // the generator's own castShadow / receiveShadow are kept (a decal or flat rug that must not cast); the manifest entry can set them;
       // a generator that set none gets cast + receive. Same rule as assets.model (core/assetEntry.js shadowDefaults)
@@ -64,6 +67,7 @@ export function protoOf(e, api, model) {
       obj.userData.modelKey = key;   // copies carry it (clone copies userData): a hot swap whose new model has other parts finds them by it
       return { obj, size: box.getSize(new THREE.Vector3()), center: box.getCenter(new THREE.Vector3()), fromGeometry: !!obj.userData.fromGeometry };
     }));
+    protoPalette.set(cache.get(key), palette);
   }
   return cache.get(key);
 }

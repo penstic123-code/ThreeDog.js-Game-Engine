@@ -8,10 +8,23 @@ export function water(opts?: WaterOptions): ModuleDef<Water>;
 /** engine.water */
 export class Water {
     /**
-     * Water material (shared by all water)
-     * @type {Material}
+     * The loaded normal map (null = none): a game material takes it as its own normalMap. Its offset scrolls and the water UVs tile for it whatever material draws
+     * @type {Texture | null}
      */
-    material: THREE.Material;
+    normalTexture: THREE.Texture | null;
+    /**
+     * The engine's water shader patches (waves, waterSurface when asked for, fresnel), so a game material keeps the behavior: applyEffects(mat, { patches: engine.water.patches })
+     * @type {import('../../render/patches.js').ShaderPatch[]}
+     */
+    patches: import("../../render/patches.js").ShaderPatch[];
+    /**
+     * Shader values, written directly and live: uWave, uWaveScale, uWaveSpeed, uFresnel, uTime; with depthColor / foam uWaterShallow, uWaterDeep, uWaterCurve,
+     * uFoamColor, uFoamStart, uFoamEnd, uFoamOpacity; and what shader({ uniforms }) declared
+     * @type {Record<string, { value: any }>}
+     */
+    uniforms: Record<string, {
+        value: any;
+    }>;
     /**
      * Water body → mesh
      * @type {Map<WaterBody, THREE.Mesh>}
@@ -22,8 +35,42 @@ export class Water {
      * @type {THREE.Mesh | null}
      */
     sea: THREE.Mesh | null;
+    set material(m: THREE.Material);
+    /**
+     * Water material, shared by all water. Reading gives the plain three.js material in use (a neutral MeshLambertMaterial until you set one); setting swaps it on every
+     * water mesh and draws it as given: no engine patch is added, so a material that should keep the waves goes through applyEffects(m, { patches: engine.water.patches })
+     * @type {Material}
+     */
+    get material(): THREE.Material;
+    /**
+     * Which GLSL the water has. Keys left out keep what an earlier call gave; null takes one back to the built-in. Refreshes engine.water.patches and engine.water.uniforms
+     * and patches the engine's own material again (one recompile). A game's material is the game's to patch again. uWave, uWaveScale, uWaveSpeed and uFresnel stay the same objects
+     * @example
+     * engine.water.shader({ depthColor: { shallow: 0x55ddcc, deep: 0x082040 }, foam: true });
+     * engine.water.shader({ uniforms: { uBands: 4 }, surface: `vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) {
+     *   return vec4(base.rgb * floor(facing * uBands) / uBands, base.a); }` });
+     * @param {WaterShaderOptions} [opts]
+     * @returns {void}
+     */
+    shader(opts?: WaterShaderOptions): void;
+    /**
+     * Normal map by asset name (null = none): a flat-normal placeholder until the asset loads, then it takes the asset's image source (shared, not copied; goes through asset
+     * management, so it can be preloaded and released). Goes on the engine's own material; a game's material takes the returned texture (also engine.water.normalTexture).
+     * The tiling and the scroll apply whatever material draws. Keys left out keep their value (defaults scale 0.4, repeat 0.05, speed [0.01, 0.006])
+     * @example
+     * engine.water.normalMap('water-n', { scale: 0.6, repeat: 0.1, speed: [0.02, 0.01] });
+     * @param {string | null} name
+     * @param {{ scale?: number, repeat?: number, speed?: [number, number] }} [opts] scale: strength; repeat: tiles per meter; speed: scroll [x, z] per second
+     * @returns {Texture | null}
+     */
+    normalMap(name: string | null, opts?: {
+        scale?: number;
+        repeat?: number;
+        speed?: [number, number];
+    }): THREE.Texture | null;
 }
 import type { WaterOptions } from '../../../world';
 import type { ModuleDef } from '../../../core';
 import * as THREE from 'three';
 import type { WaterBody } from '../../../world';
+import type { WaterShaderOptions } from '../../../world';

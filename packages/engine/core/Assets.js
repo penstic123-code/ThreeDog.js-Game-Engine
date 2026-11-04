@@ -19,7 +19,7 @@
 //   models:   { house: '/models/house.glb', hero: { url: '/models/hero.glb', critical: true }, block: buildBlock },
 //   textures: { paper: { url: '/textures/paper.jpg', color: true }, ground: '/textures/ground.ktx2' },
 //   sounds:   { bgm: '/sounds/morning.mp3', ding: (audio, p, out) => { audio.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; } },
-//   fonts:    { pixel: '/fonts/pixel.woff2', pixelBold: { url: '/fonts/pixel-bold.woff2', family: 'pixel', weight: 700 } },   // style.ui.fonts names them
+//   fonts:    { pixel: '/fonts/pixel.woff2', pixelBold: { url: '/fonts/pixel-bold.woff2', family: 'pixel', weight: 700 } },   // ui.fonts names them
 // });
 // engine.assets.manifest({ name: 'forest', base: '/packs/forest/', models: { oak: 'oak.glb' } });   // -> /packs/forest/oak.glb
 // await engine.assets.preload(p => console.log(p));     // p: 0-1 (code-generated models are built ahead only if marked preload)
@@ -61,6 +61,13 @@ export class Assets {
     this._instances = new WeakMap();   // model copy root -> asset entry (counts usage)
     this._animators = new WeakMap();   // model root -> Animator from animate(): engine.remove disposes it with the model
     this.cacheMinMs = 20;       // builds faster than this are not cached (reading the file would be slower)
+    /**
+     * Named colors for what is made in code: a generator written with `function` reads this.palette. Plain data, read or replace it freely:
+     * it is part of the cache key, so a model or texture asked for after a write is built from the new colors. Copies already placed keep theirs.
+     * @example engine.assets.palette = { leaf: 0xd98a3a, bark: 0x6b4a30 };
+     * @type {Record<string, any>}
+     */
+    this.palette = {};
     this._loaders = {};
   }
 
@@ -72,8 +79,8 @@ export class Assets {
    * Per entry: critical: true = start() stops if it fails (otherwise it falls back and the game continues); fallback: 'otherName' replaces the gray
    * placeholder.
    * name labels the manifest in engine.loading (default 'manifest#1', '#2'...), so a failure says which list it came from.
-   * base (a pack's folder: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url)) resolves the relative paths of this manifest; '/x' and full
-   * URLs stay as written.
+   * base (a pack's folder: '/packs/forest/', a CDN URL, or new URL('./files/', import.meta.url)) resolves the relative paths of this manifest; full URLs stay
+   * as written, and '/x' is the game's public/ folder under the build's base (BASE_URL in core/validate.js: '/' unless built with --base).
    * @example engine.assets.manifest({ name: 'level-1', models: { hero: { url: '/models/hero.glb', critical: true }, bush: { url: '/models/bush.glb', fallback:
    * 'rock' } } });
    * @example import forest from 'my-forest-assets'; engine.assets.manifest(forest);   // { name: 'forest', base, models: { oak: 'oak.glb' } }
@@ -122,12 +129,16 @@ export class Assets {
     if (!e) { e = { type, name: nameOrUrl, url: nameOrUrl, opts: {}, promise: null }; this.entries.set(nameOrUrl, e); }
     return e;
   }
+  /** @internal the palette as a cache key */
+  get _paletteKey() { return JSON.stringify(this.palette); }
+  /** @internal A generated model or texture built from a palette that has since been written */
+  _stale(e) { return !!e.promise && !!e.opts.build && e.type !== 'sound' && e.palette !== this._paletteKey; }
   /** @internal Load an entry as a task in engine.loading (assetEntry.js) */
   _fetch(e) { return fetchEntry(this, e); }
 
   /**
    * Preload manifest assets (all by default; onlyMarked=true loads only those marked preload). Code-generated models and fonts are loaded ahead only if marked
-   * preload (style.ui.fonts loads its own at start()). onProgress(0-1, current name).
+   * preload (ui.fonts loads its own at start()). onProgress(0-1, current name).
    * Finishing is not succeeding: failed lists every entry that failed, including those now showing their fallback (details in engine.loading).
   */
   async preload(onProgress, { onlyMarked = false } = {}) {
@@ -136,8 +147,8 @@ export class Assets {
 
   /**
    * A font from an asset pack, by name: downloads it once, adds it to document.fonts and resolves to the FontFace (null when the file
-   * failed and the entry is not critical: text then shows the next family of style.ui.font). Only registered names work, because a font
-   * needs its CSS family and descriptors; style.ui.fonts calls this for you at start().
+   * failed and the entry is not critical: text then shows the next family of ui.theme.font). Only registered names work, because a font
+   * needs its CSS family and descriptors; ui.fonts calls this for you at start().
    * @example engine.assets.manifest({ name: 'ui', fonts: { pixel: '/fonts/pixel.woff2' } }); await engine.assets.font('pixel');
    * @param {string} name
    * @returns {Promise<FontFace | null>}
@@ -163,7 +174,7 @@ export class Assets {
    */
   modelNow(nameOrUrl, opts = {}) {
     const e = this.entries.get(nameOrUrl);
-    if (e?.type === 'model' && e.value) return this._copy(e, e.value, opts);
+    if (e?.type === 'model' && e.value && !this._stale(e)) return this._copy(e, e.value, opts);
     // Why warn: generated models also need one load() first (dev reads the baked-cache GLB, release reads the baked file), so before any await model() this is null;
     // in one playtest world.present only called modelNow, the model never showed up and nothing said why. Already loading (promise present) = no warning: that is a normal "not ready yet"
     if (DEV && e?.type === 'model' && !e.promise) warnOnce(coded('asset-not-loaded', fmt(STRINGS.notLoaded, { name: nameOrUrl })));
@@ -181,7 +192,7 @@ export class Assets {
   }
   /**
    * Import report of a loaded model: materials, textures with their colorSpace, normal maps, clips, nodes, template / id nodes and col_ colliders,
-   * with issues for what the file has but the scene lost (normal map, material replaced by a style role, clip not loaded, clip mapping that names
+   * with issues for what the file has but the scene lost (normal map, material replaced by an engine one, clip not loaded, clip mapping that names
    * no clip) and for wrong color spaces. Pass a name (the loaded template) or a copy from model() (what the game shows). Text: assets.reportText(name)
    * @example console.table(engine.assets.report('hero').issues);
    * @param {string | any} nameOrRoot
@@ -205,7 +216,7 @@ export class Assets {
    * Get a texture (name or path; .ktx2 works too). Color textures default to sRGB; pass { color: false } for normal/roughness maps.
    * opts is part of the cache key: the same image fetched with different opts gives two separately configured textures (never silently reuses the first one's
    * settings). A texture made in code is registered by name too and comes back as made (its colorSpace / wrap / repeat are yours):
-   * @example engine.assets.manifest({ textures: { brick: () => makeBrickTexture(), sign: mySignCanvasTexture } }); makeMaterial('wall', { map: 'brick' });
+   * @example engine.assets.manifest({ textures: { brick: () => makeBrickTexture(), sign: mySignCanvasTexture } }); new THREE.MeshLambertMaterial({ map: await engine.assets.texture('brick') });
   */
   async texture(nameOrUrl, opts = {}) {
     const base = this._resolve(nameOrUrl, 'texture');
@@ -281,7 +292,7 @@ export class Assets {
   /**
    * @internal Only core/namedModel.js calls this (the one path for "a model made in code, used by name"): games name the model instead.
    * Code-generated model (build returns an Object3D or BufferGeometry): built once per name + params, returns a copy (geometry returns the same instance).
-   * A generator written with `function` (not an arrow) can read this.palette = style.palette (the key includes it, so a new palette rebuilds).
+   * A generator written with `function` (not an arrow) can read this.palette = engine.assets.palette (the key includes it, so a new palette rebuilds).
    * Cache key = name + generator source + params: outer variables build uses (colors, sizes, seeds in the closure...) must go in params,
    * otherwise changing a variable still reads the stale cache. In dev, one name paired with different source warns once.
    * Lookup order: files baked by npm run bake (public/models/baked/) -> the dev auto-cache (.threedog/cache, invalidated when code changes) -> build now.
@@ -291,7 +302,7 @@ export class Assets {
     const src = String(build), seen = (this._cachedSrc ||= new Map()).get(name);
     if (seen != null && seen !== src) warnOnce(coded('asset-name-clash', fmt(STRINGS.sameName, { name })));
     else this._cachedSrc.set(name, src);
-    const key = 'cached:' + name + ':' + JSON.stringify(params ?? null) + ':' + JSON.stringify(this.engine.style.palette ?? null) + ':' + srcHash(src);
+    const key = 'cached:' + name + ':' + JSON.stringify(params ?? null) + ':' + this._paletteKey + ':' + srcHash(src);
     const e = this.entries.get(key) || this.entries.set(key, { type: 'model', url: name, opts: { build, params }, promise: null }).get(key);
     const g = await this._fetch(e);
     e.pinned = true;   // neither copies nor geometry are counted: trim does not free it

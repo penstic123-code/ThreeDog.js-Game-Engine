@@ -9,7 +9,7 @@ const STRINGS = {
   head: '[Game state] running {s} s{flags}',
   actions: 'Can do (engine.ops): {list}',
   error: '[Error, gameplay frozen] {where}: {message}', errorAt: ' ({at})',
-  errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled look / ui modules (they threw): {list}',
+  errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled picture / ui modules (they threw): {list}',
   paused: ', paused', headless: ', headless', notReady: ', still loading',
   waiting: 'Loading: {waiting} ({pending} pending, {done}/{total} done)', loadFailed: 'Load failed{blocked}: {list}', blocked: ' (start blocked)',
   loadWarn: 'Loaded with missing references: {list}',
@@ -44,7 +44,7 @@ const STRINGS = {
   noPath: 'describe() has no "{path}"; top-level keys: {keys}',
   none: 'none',
   state: { idle: 'standing', walk: 'walking', run: 'running', jump: 'jumping', fall: 'falling', swim: 'swimming' },
-  kind: { npc: 'NPC', pickup: 'pickup', interactable: 'interactable', trigger: 'trigger' },
+  kind: { npc: 'NPC', pickup: 'pickup', interactable: 'interactable', noKey: 'no key bound, the player cannot use it', trigger: 'trigger' },
   dir: { N: 'north', NE: 'northeast', E: 'east', SE: 'southeast', S: 'south', SW: 'southwest', W: 'west', NW: 'northwest' },
   rel: { front: 'ahead', 'front-right': 'ahead right', right: 'right', 'back-right': 'behind right', back: 'behind', 'back-left': 'behind left', left: 'left',
     'front-left': 'ahead left' },
@@ -62,7 +62,7 @@ const n1 = v => (typeof v === 'number' ? r1(v) : v);
 const SHOWN = new Set(['nearbyRadius', 'ready', 'error', 'disabledModules', 'loading', 'time', 'player', 'camera', 'nearby', 'actions', 'ui', 'cutscene',
   'modules', 'perf', 'weather', 'render', 'threePatches']);   // threePatches: page-wide, the same every call; describe() JSON carries it, the text stays short
 // engine bookkeeping in describe(): one count each in the summary, the content one describeText({ path }) away
-const TABLES = new Set(['holds', 'input', 'control', 'shared', 'wraps', 'slots', 'scene', 'owned', 'look', 'renderer']);
+const TABLES = new Set(['holds', 'input', 'control', 'shared', 'wraps', 'slots', 'scene', 'owned', 'picture', 'renderer']);
 const argText = a => Object.entries(a || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(' ');
 
 /** One module's data in a line: scalars as k=v, arrays as k[n], objects as k{n keys} (nested data is one describeText({ path }) away) */
@@ -103,7 +103,7 @@ export function describeText(d, { full = false, path, maxLines = 30, game = [] }
   if (d.disabledModules?.length) L.push(fmt(STRINGS.disabled, { list: d.disabledModules.join(', ') }));
   if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day
     : STRINGS.night }));
-  const w = d.weather, wl = d.weatherLook ?? {};   // weather state, and what of it is drawn (the look half)
+  const w = d.weather, wl = d.weatherDraw ?? {};   // weather state, and what of it is drawn (the drawing half)
   if (w) L.push(fmt(STRINGS.weather, { name: w.name, rain: n1(w.rain), snow: n1(w.snow), fog: n1(w.fog),
     changing: w.progress < 1 ? fmt(STRINGS.changing, { pct: Math.round(w.progress * 100) }) : '',
     shown: wl.rainVisible || wl.snowVisible ? fmt(STRINGS.weatherShown,
@@ -143,7 +143,7 @@ export function describeText(d, { full = false, path, maxLines = 30, game = [] }
     return L.join('\n');
   }
   // Summary order: the game's own describe.add sections first (what its author asked to see), then module lines, then the engine's bookkeeping
-  // tables folded into one count line. Why: those tables (shared values, slots, owned properties, look parts...) took ~10 of the 30 lines and pushed
+  // tables folded into one count line. Why: those tables (shared values, slots, owned properties...) took ~10 of the 30 lines and pushed
   // the game's own sections past the cut. A table with something wrong in it (scene conflicts / orphans / unsaved) keeps its own line.
   const rest = Object.keys(d).filter(k => !SHOWN.has(k)), tables = [], mods = [];
   for (const k of rest.filter(k => game.includes(k))) L.push(fmt(STRINGS.extra, { name: k, json: summary(d[k]) }));

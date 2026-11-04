@@ -1,8 +1,16 @@
-# Scene: what is in the world, where, and what a save keeps
+# Scene: what is in the world, where, who manages it, and what a save keeps (engine.thing)
+
+**In this recipe**: 1. Two doors into one scene · 2. What goes in content, what stays three.js · 3. Which state a save keeps · 4. Give it an id ·
+4b. Change it: thing.set / thing.remove · 4c. Saves: the scene part · 5. Moving from three.js to a template · 6. Verify and dev checks ·
+7. Why is this mesh this colour? · 8. When to write plain three.js directly · 9. One id, everything: explain() and the three kinds of change
 
 The engine's three outward concepts are **Scene** (what stands in the world, where it is, how you interact with it), **Assets** (models, textures,
-sounds, fonts: `05-props-bake.md` §3b) and **Style** (how it looks: `09-style.md`). Content packs belong to Scene: they are the data form of it.
+sounds, fonts: `05-props-bake.md` §3b) and **Picture** (how it looks: `09-materials-lights-models.md`). Content packs belong to Scene: they are the data form of it.
 Patches, ops and world records are the scene's inner machinery; read them when you need them (`23-ops.md`, `18-world.md`).
+
+Every root you pass to `engine.add` is registered: an id, where it was added (`main.js:50`, dev builds only), who manages it and how much a save
+keeps. World records (template instances, props, pickups, NPCs, level nodes) share the same id space and the same query, so one question works for a
+plain three.js mesh and for a template instance alike. `engine.scene.add` adds without registering: the plain three.js way in, still legal.
 
 ## 1. Two doors into one scene
 A scene object comes in either of two ways, and both end up in the same scene:
@@ -53,45 +61,85 @@ The rule check (R33) is deliberately narrow. It flags only the calls that would 
 like are fine at startup.
 
 ## 3. Which state a save keeps
-The registry (`41-thing-registry.md`) sorts every scene object into one of four kinds:
+Every scene object is one of four tiers, judged in this order (`thing.saved`):
 
-| Kind | What it is | A save keeps | A save loses |
+| Tier | When | A save keeps | A save loses |
 |---|---|---|---|
-| `record` | A world record: template instance, props entry, pickup, NPC, level node | The record's fields and position; the model is rebuilt from the template | Direct edits to the model; change the record instead (`world.set`) |
-| `code` | Added by your code with a stable id (`engine.add(obj, { id })`) during setup | Moves, visibility and deletion done through `thing.set` / `thing.remove` | Geometry, material changes, children added later, `userData`, state in closures (inside an `onFrame` callback) |
-| `session` | Added by your code without an id, or during play | Nothing: it exists for this session only | Everything. After a load it does not come back. To keep it, make it a template and call `engine.content.spawn` in an op |
-| `engine` | Owned by an engine module (water, sky, terrain) | Managed by that module | Do not edit it directly |
+| `record` | A world record's model (template instance, props entry, pickup, NPC, level node) | The record's fields and position (world part); the model is rebuilt from its template / present | The model object itself and direct edits to it; change the record instead (`world.set`) |
+| `code` | Added by game code with a stable id (`engine.add(obj, { id })`) at setup (before `engine.ready`, or in a `session:start` listener) | Position, rotation, scale, visibility and removal made with `thing.set` / `thing.remove` (`scene` part) | Geometry and material changes, children added later, `userData`, closure state (inside an `onFrame` callback), writes like `mesh.position.x = 3` |
+| `session` | No stable id, or added during play | Nothing: it exists only in this session | Everything; it does not come back after a load |
+| `engine` | Owned by an engine module (water, sky, terrain) | Its module's business | Direct changes (the module rewrites them) |
 
-Writing `mesh.position.x = 3` in code always works; it just is not saved and cannot be undone.
+Writing `mesh.position.x = 3` in code always works; it just is not saved and cannot be undone. Only transform, visibility and removal are saved for
+`code` objects; colours and materials belong to the picture and are not saved. To keep something made during play, make it a template and create it
+inside an op with `engine.content.spawn(name, at)`: a record is saved whole.
 
-## 4. The calls
-- `engine.add(obj, { id })`: registers `obj` under a stable id (`engine.add(obj)` works too: it gets a session id `obj#n`, never saved; `obj.name` is not an id).
-- `engine.thing(idOrObject)`: what is this? Returns `{ id, kind, owner, at, phase, saved, keeps, loses, edit, object }` for any id or object; `engine.pick(x, y).thing` gives the same.
-- `thing.set` and `thing.remove`: ops that move, show, hide or delete a registered object, undoable; for `code` objects they are saved as overrides.
-- `engine.remove(obj)` forgets the object in the registry too.
-Details and what a save keeps: `41-thing-registry.md`.
+## 4. Give it an id
+```js
+const windmill = buildWindmill();                  // any Object3D
+engine.add(windmill, { id: 'windmill' });          // at setup: thing.set / thing.remove changes to it are saved
+engine.add(spark);                                 // effects need no id: obj#7, this session only
+engine.thing('windmill');
+// { id: 'windmill', kind: 'Group', owner: 'game', at: 'main.js:50', phase: 'setup', saved: 'code',
+//   keeps: ['position, rotation, scale, visibility and removal made with thing.set / thing.remove (scene save part)'],
+//   loses: ['geometry and material changes', 'children added later', 'userData', ...], edit: 'added by code at main.js:50 (id ...)' }
+engine.thing('windmill').object;                   // the live Object3D (not enumerable, so the result stays JSON-able)
+engine.thing(engine.pick(0, 0).object).id;         // any child resolves to its registered root; hit.thing says the same
+```
+- The id is `{ id }`, else a session id `obj#n` (session tier: never saved). `obj.name` is not an id (GLB roots are all called `Scene`): it only helps `engine.thing(name)` find the object. An id is a non-empty string without `#`,
+  unique across `engine.add` objects and world records: a clash throws (`thing-id`) from either side (`engine.add` or `world.add`) and says which one holds it.
+- With several objects in one call (`engine.add(a, b)`) pass no id; add the one that needs an id on its own.
+- `engine.thing(id | name | obj)` throws with the closest id when nothing matches. `engine.inspect(id)` takes the same ids.
+- `describe().scene` gives counts only: `{ game, code, session, world, engine, unsaved, conflicts, orphans }`. Objects of engine modules (particles,
+  physics bodies, nav helpers, hlod, grid tiles, the level root, streamed objects) are counted under `engine` and never listed as the game's.
+- `engine.pick(x, y).thing` gives the same answer as `engine.thing(id)`. `engine.remove(obj)` forgets the object in the registry too.
+
+## 4b. Change it: thing.set / thing.remove (ops, undoable)
+```js
+const args = { id: 'windmill', position: [5, 0, 2], rotation: 1.2 };   // rotation: a number is yaw, or [x, y, z]; scale: a number or [x, y, z]
+const r = engine.ops.run('thing.set', args);
+engine.ops.undo('thing.set', args, r.value);                            // back where it was
+engine.ops.run('thing.remove', { id: 'windmill' });                     // detached and kept: undo puts it back
+```
+- A world record id turns into `world.set` / `world.move` (`rot` / `scale` are template instance fields) and `world.remove`; the model follows the
+  record. `visible` is refused for a record (`recordVisible`): hide its model with `present({ show })` and a field.
+- A `code` object gets its new values written and recorded as an override; a `session` object only changes in this session.
+- Objects of engine modules are refused (`engineOwned`).
+
+## 4c. Saves: the `scene` part (version 1)
+`{ set: { windmill: { position: [5, 0, 2] } }, removed: ['old-fence'] }`, only for `code` objects. A load first undoes the current overrides (a new
+game applies an empty part, so everything goes back to what the code built), then applies the save. An id the save names but no object has yet waits:
+the override applies the moment `engine.add(obj, { id })` runs. One that never comes is an orphan: kept in the save, listed in
+`describe().scene.orphans` and warned once (`thing-orphan`).
 
 ## 5. Moving from three.js to a template
 When an object turns out to need saving, editing or many copies: register its builder as a model (`assets.manifest({ models: { windmill: buildWindmill } })`),
 write a template, add a placement with an id. Delete the `engine.add` line. Nothing else in the game changes.
 
-## 6. Verify
+## 6. Verify and dev checks
 `threedog check` flags the startup calls above; `engine.world.origin(id)` and `engine.pick(x, y).thing` say where a record came from (`30-templates.md`
 §5); `engine.world.query({ kind: 'windmill' })` lists the records a save would hold.
+- `engine.add(obj, { save: true })` for an object that cannot be saved (no id, or during play) warns at once (`thing-unsaved`); objects added inside an
+  op are listed by `saves.save()` and in `describe().scene.unsaved`.
+- `engine.add` of a world model throws (`thing-owned`): world adds, places and tears down its models.
+- Code that moves a `positionFrom: 'record'` world model outside its present `update` is warned once and listed in `describe().scene.conflicts`.
+- Rule R33 (`npm run check`) flags the static half: startup calls that create things saved whole, and code writing `world.view()` models.
+- Cost: a release build pays two table writes per `engine.add` (about 2 µs per add in `tests/specs/things.mjs`); dev builds also take a short stack
+  for `at`, at most 2000 per session (`describe().scene.atCapped` after that).
 
 ## 7. Why is this mesh this colour? (material provenance)
 
-`engine.inspect.scene()` / `threedog scene` list, for each mesh, one `material:` line and the renderer line (tone mapping, exposure; the same text as `describe().render`). Diagnostics only: nothing about the look changes.
+`engine.inspect.scene()` / `threedog scene` list, for each mesh, one `material:` line and the renderer line (tone mapping, exposure; the same text as `describe().render`). Diagnostics only: nothing about the picture changes.
 
 ```
-renderer: ACES (style) exposure 1.1 (style) shadows soft (engine)
+renderer: ACES (game) exposure 1.1 (game) shadows soft (engine)
 ✓ roof [Mesh] (4, 3, 0) r=2 · MeshLambertMaterial/roof
-    material: roof from pack-spec [color] · MeshLambertMaterial #3b5168 · map x color #3b5168 (vertexColors off) · map (base colour)
+    material: roof from game · MeshLambertMaterial #3b5168 · map x color #3b5168 (vertexColors off) · map (base colour)
       note: map already carries colour and color #3b5168 is not white: the result is map x color (fine when it is a tint)
 ```
 
-- `from` is `pack-spec | pack-instance | pack-function | call-params | default`, `keys` the params the call passed; both come from `userData.materialSource`, which `makeMaterial` records (a material made by hand shows `unknown`).
-- `--json` carries `material.info[]` per mesh: role, from, keys, type, color, maps (base colour vs detail), vertexColors, side, transparent, opacity, colorPath, notes.
+- `from` is `engine` (a neutral material the engine made) or `game`.
+- `--json` carries `material.info[]` per mesh: role, from, type, color, maps (base colour vs detail), vertexColors, side, transparent, opacity, colorPath, notes.
 - The tint note is not an error: a map times a non-white colour is how tinting works.
 
 ## 8. When to write plain three.js directly, and which integrations you lose
@@ -100,12 +148,43 @@ Plain three.js is always allowed (`engine.scene`, `engine.renderer`, `engine.cam
 
 | You wrote | Not applied to it |
 |---|---|
-| `new THREE.MeshStandardMaterial(...)` (not `makeMaterial` / a look material) | wind sway, snow and season cover, the engine fog hook, cascaded shadows, `look.surface` lighting and detail, `look.materials` roles, `debug.view` modes (cloud shadows are adopted, see below) |
-| your own `EffectComposer` / render call to the canvas | the engine yields the frame (`[own-frame]`), so `engine.post` effects, `look.post`, adaptive resolution, photo mode, `describe().render.post`; keep them with `engine.look.post.add(pass)` instead |
-| `renderer.toneMappingExposure = x`, `scene.fog = ...` | the owner record and the debug layer (`describe().look` tags it `three`); a direct write yields it (the sky stops writing fog); `look.fog.manual()` says so on purpose |
+| `new THREE.MeshStandardMaterial(...)` with no `applyEffects` | wind sway, snow and season cover, the cloud shadow, lighting and detail, `debug.view` modes |
+| your own `EffectComposer` / render call to the canvas | the engine yields the frame (`[own-frame]`), so `engine.post` effects, adaptive resolution, photo mode, `describe().render.post`; keep them with `engine.post.add(pass)` instead |
+| `renderer.toneMappingExposure = x`, `scene.fog = ...` | the debug layer's restore (`engine.debug.override` gives the old value back) |
 
-Cloud shadows reach plain materials on their own: a lit three.js material (Lambert, Phong, Standard, Physical, Toon) that enters the scene darkens under the drifting clouds like the engine's ground, on WebGL and WebGPU, and follows `look.cloudShadow.replace`. Clouds dim the sun only (directional lights, every cascade included): a `PointLight` street lamp or a torch is never shaded by them. With the shadow at 0 (the default) a uniform branch skips the cloud noise, so it costs nothing and one program per material type stays. `material.userData.cloudShadow = false` keeps one out, also when set after `scene.add` (it is read every frame; clearing it puts the shadow back); a material you already gave engine patches (`applyEffects`, `patchMaterial`) is left as it is; a NodeMaterial is not adopted (its nodes are your TSL; `applyEffects(mat)` adopts one); `describe().owned['cloudShadow.plain']` lists all three (`materials`, `optedOut`, `notAdopted`). Snow and season cover are not adopted (nothing tells a floor from a wall on a plain material): give a ground-like material one line, `applyEffects(mat, { season: 'ground' })` (`'foliage'` for leaves).
+The engine adds nothing to your materials. The cloud shadow is a signal (`engine.uniforms.uCloudShadow`, `uCloudScale`, `uCloudSpeed`) and a function: `applyEffects(mat)` gives a lit three.js material the engine's term, so it darkens under the drifting clouds like the engine's ground, on WebGL and WebGPU; your own shader calls `threedogCloudShadow(worldPos)` (recipe 43). Clouds dim the sun only (directional lights, every cascade included): a `PointLight` street lamp or a torch is never shaded by them. At 0 a uniform branch skips the cloud noise, and one program per material type stays. Snow and season cover work the same way: `applyEffects(mat, { season: 'ground' })` (`'foliage'` for leaves).
+Keep the integrations by going through the engine: `applyEffects(mat, { wind, season, detail, lighting, patches })` on your material, `engine.post.add(pass | { name, fuse: { glsl }, slot })` for a screen effect.
 
-Keep the integrations by going through the engine: `engine.makeMaterial('role', {...})` for the material, `look.materials.add(name, { glsl }, { roles })` to add GLSL to a role, `look.post.add(pass | { name, fuse: { glsl }, slot })` or `look.post.replace([...])` for a screen effect.
+## 9. One id, everything: explain() and the three kinds of change
+```js
+engine.thing('chest-home').explain();    // CLI: threedog thing chest-home (MCP: thing); the same JSON
+// { id, kind, owner, definition: { at: 'content/props.js:14', template, templateAt, level?, node?, spawned? }, model, materials: [{ role, name, from, keys }],
+//   state, rules: { blocksMovement, pickable, interact, height }, ops: [{ op, desc, args }], saved: { tier, keeps, loses }, change: {…}, overrides? }
+```
+`ops` lists the ops whose definition names this id, kind or template in the optional `targets` field (`engine.ops.define('chest.toggle', { targets: 'chest', … })`;
+`'*'` = any thing, which `thing.set` / `thing.remove` use). `definition.at` is null in release builds and for code run without a file (page `eval`).
+`thing.explain()` (type `ThingExplanation`) is not `engine.explain({ op | quest | … })`: that one takes a question and answers `{ ok, text }` about why an op or quest cannot run now (recipe 23); this one takes no question and returns the facts about one id. `rules.blocksMovement` is the template's / prop's `collide` shape; the engine does not model blocking sight. Pick the kind of change first:
 
-`patch` vs `replace`: `patch(hook, glsl)` swaps one registered hook (`threedogWind`, `threedogFog`, `threedogLighting`, the water `wave`) and the rest of the engine's shader stays, so the integrations above still work. `replace(impl)` hands over the whole part (the ground material, the water surface, the whole post chain): everything that part did is now yours, including the fog, shadow and season hooks inside it. Prefer `patch`; use `replace` when the hook is too small. `engine.catalog('look.<part>')` lists the hooks and what each `replace` loses.
+| Kind | How | Lasts |
+|---|---|---|
+| Game state (a chest opens, a door moves) | an op: `ops.run('chest.toggle', { id })`, `thing.set`, `thing.remove` (section 4b) | by the thing's save tier |
+| Permanent edit (another model, place, material) | content entry: `threedog content set <id> <field> <json>` (below); template or `engine.add` line: edit the file:line `explain().change.permanent` prints; then reload | forever |
+| Diagnostic override ("show me without it") | `engine.debug.override(owner, id, { visible: false, material: 'flat' \| 'wire', apply })` | until `handle.remove()` / `engine.debug.clear(owner)`; never saved |
+
+```js
+const h = engine.debug.override('ai-session', 'windmill', { material: 'flat' });   // unlit base colour: is the colour wrong, or the light?
+engine.debug.override('ai-session', 'fence', { visible: false });
+engine.debug.override('ai-session', engine.renderer, 'toneMappingExposure', 3);   // any three.js value: (object, key, value); held above picture code until remove()
+engine.describe().scene.overrides;       // [{ owner, target, material: 'flat' }, …]: the screen differs from the real state while this is non-empty
+h.remove(); engine.debug.clear('ai-session');   // clear removes every override of that owner (and its debug.view) and nothing else
+```
+`apply(obj)` may return its undo function: any other picture (a view mode) uses the same owner mechanism. Overrides do not touch game state, ops or saves.
+
+`threedog content set cabin x=12 z=3 place=home --in props` writes a permanent change into the content entry: several fields in one call (one write, one check, all or nothing;
+values are JSON, a bare word is a string; `-w game` or `--dir folder` picks the game; `--dry` only shows it). It edits just that value in place (comments and spacing stay), adds the
+field when missing, checks the one file it wrote (reverting if that fails; the full check stays `npm run check`) and tells you to reload. `--expect x=5` refuses the write when the
+file no longer has the value you saw (someone else changed it). `content add props id=crate-7 template=crate x=1 z=2` appends one entry at the end (always with an id;
+`--file content/props/town.js` picks the part of a folder kind) and `content remove <id>` deletes one. Fields are the content file's names
+(`x`, `z`, `y`, `rot`, `scale`, `template`, `place`, `model`), not the record's `position`. It refuses, and says why with the line, for an entry built
+by code (loop, spread, computed value), an id matching several entries (`--in props`), or an add / remove that would shift entries whose id is their position. A placed entry wins over a template or npc of the same name.
+It finds the file through `.threedog/content-index.json` (written by the content check; rebuilt when an id is not where it says), so a write reads only that one file however many there are.

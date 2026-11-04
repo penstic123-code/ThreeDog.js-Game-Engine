@@ -335,7 +335,7 @@ export interface AnimatorInfo {
 }
 /** Animation state machine parameters */
 export interface AnimatorOptions {
-  /** Default transition seconds, default 0.25 (style.character.animation.fade) */
+  /** Default transition seconds, default 0.25 (characters({ animation: { fade } }) for every character) */
   fade?: number;
   /** States: name → state */
   states?: Record<string, AnimatorState>;
@@ -347,6 +347,8 @@ export interface AnimatorOptions {
 /** Skeletal animation state machine (returned by engine.assets.animate(model, config)) */
 export declare class Animator {
   constructor(engine: Engine, root: Object3D, opts?: AnimatorOptions);
+  /** The animated object */
+  root: Object3D;
   /** three.js AnimationMixer */
   mixer: any;
   /** clip name → three.js AnimationAction */

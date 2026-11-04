@@ -1,27 +1,27 @@
 // Friction found by a real art test (an experimental game), one check per fix so none can come back unnoticed:
 //   shot waits for loading and fails naming what is pending; a page error stops the wait at once; shot file names never start with '-';
-//   style palette --json is JSON only; style compare never enlarges a picture before measuring detail and says regions are positional;
+//   picture palette --json is JSON only; picture compare never enlarges a picture before measuring detail and says regions are positional;
 //   describe text is English under a zh-CN game; new-game neither builds nor rewrites the lock; R40's documented switches all work (or say why not).
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { launchBrowser, newGamePage } from '../browser.mjs';
 import { waitEngine, waitLoaded } from '../wait-engine.mjs';
-import { shotName, shotFile, viewSize } from '../lib/shot-name.mjs';
-import { styleArgs, paletteText } from '../style.mjs';
+import { shotName, shotFile, viewSize, wrongServer } from '../lib/shot-name.mjs';
+import { pictureArgs, paletteText } from '../picture.mjs';
 
-import { compareImages } from '../style/compare.mjs';
-import { render, parseArgs } from '../lib/scaffold.mjs';
+import { compareImages } from '../picture/compare.mjs';
+import { render, parseArgs, copyTemplates } from '../lib/scaffold.mjs';
 import { scanText, hintsConfigProblems } from '../rules/R40-bypass-hints.mjs';
 import { pathToFileURL } from 'node:url';
 import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
-import { png } from './style-tools.mjs';
+import { png } from './picture-tools.mjs';
 
 // engine internals by file path (tools reach the engine as a package, R24): the loading view and the describe text are pure enough to run in node
 const { Loading } = await import(pathToFileURL(join(ENGINE, 'core/Loading.js')).href);
 const { describeText } = await import(pathToFileURL(join(ENGINE, 'core/describeText.js')).href);
 
-export const name = 'shot / style / new-game / R40 friction fixes';
+export const name = 'shot / picture / new-game / R40 friction fixes';
 
 const CJK = /[㐀-鿿]/;
 const throwsWith = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(e.message); } };
@@ -52,8 +52,8 @@ export async function run({ check }) {
   check('shot --out: a bare name goes to <game>/.threedog/shots/, a path with a directory is kept as given',
     shotFile(g, 'day.png', 'x') === join(shots, 'day.png') && shotFile(g, 'day', 'x', '_1') === join(shots, 'day_1.png')
     && shotFile(g, 'out/day.png', 'x') === join(process.cwd(), 'out', 'day.png') && shotFile(g, undefined, 'main_w1') === join(shots, 'main_w1.png'));
-  const a = styleArgs(['--n', '4', 'ref.png', '--json', '--', '-grain.png', '--odd.png']);
-  check('style args: after a bare -- every argument is a path, even one starting with -', a.pos.join() === 'ref.png,-grain.png,--odd.png' && a.val('--n') === '4' && a.flag('--json'));
+  const a = pictureArgs(['--n', '4', 'ref.png', '--json', '--', '-grain.png', '--odd.png']);
+  check('picture args: after a bare -- every argument is a path, even one starting with -', a.pos.join() === 'ref.png,-grain.png,--odd.png' && a.val('--n') === '4' && a.flag('--json'));
 
   // ── D6: describe / loading text is English whatever the locale ──
   const fake = { modules: new Map([['terrain', { name: 'terrain', isReady: () => false }]]), moduleName: () => '地形', stream: { ready: true }, ready: false, t: k => k };
@@ -72,15 +72,27 @@ export async function run({ check }) {
   const tpl = JSON.parse(readFileSync(join(TOOLS, 'templates/game/package.json'), 'utf8'));
   check('template package name is the plain game name, linked where npm links it (node_modules/<name>)',
     render(JSON.stringify(tpl), { name: 'my-farm' }).includes('"name":"my-farm"') && /join\(ROOT, 'node_modules', name\)/.test(ng));
-  check('new-game / init reject unknown flags (no --style: the art starts in the game style/ folder)',
+  // every template layer starts from the same picture/ folder: a main.js still importing the removed style/ would only fail at build time, in a slower test
+  const made = {};
+  for (const [k, o] of Object.entries({ blank: {}, world: { openWorld: true }, sample: { openWorld: true, example: true } })) {
+    const dir = mkdtempSync(join(tmpdir(), 'td-tpl-'));
+    copyTemplates(dir, { name: 'g', ...o });
+    made[k] = { picture: ['index', 'palette', 'lights', 'materials'].every(f => existsSync(join(dir, 'picture', f + '.js'))), noStyle: !existsSync(join(dir, 'style')), main: readFileSync(join(dir, 'main.js'), 'utf8'), lights: readFileSync(join(dir, 'picture', 'lights.js'), 'utf8') };
+    rmSync(dir, { recursive: true, force: true });
+  }
+  check('new-game: every layer has picture/, no style/, and main.js wires createPicture with the engine lights off',
+    Object.values(made).every(m => m.picture && m.noStyle && /createPicture\(engine\)/.test(m.main) && /lights: false/.test(m.main) && !m.main.includes('style/index')), JSON.stringify(Object.values(made).map(m => [m.picture, m.noStyle])));
+  check('new-game: picture/lights.js sizes the shadow map by engine.tier', /engine\.tier/.test(made.blank.lights));
+  check('new-game: the worlds with a sky leave lights and fog to picture/', [made.world, made.sample].every(m => /lights: false/.test(m.main) && !/sky: \{/.test(m.main)));
+  check('new-game / init reject unknown flags (no --style: the art starts in the game picture/ folder)',
     !!parseArgs(['g', '--style', 'x']).error && parseArgs(['g', '--example']).openWorld === true);
 
   // ── F7: R40 switches ──
-  const mat = "import * as THREE from 'three';\nconst wall = makeMaterial('wall');\nconst m = new THREE.MeshStandardMaterial({ color: 0x88aa66 });\n";
-  const off = '// hint-off-file(material) the ground keeps its own colors\n' + mat;
+  const mat = "const spin = Math.random();\n";
+  const off = '// hint-off-file(random) a wobble nobody replays\n' + mat;
   check('R40: hint-off-file(kind) with a reason works, also in a CRLF file', scanText(off).length === 0 && scanText(off.replaceAll('\n', '\r\n')).length === 0 && scanText(mat).length === 1);
   check('R40: a switch that cannot work says why (unknown kind, bad package.json value)',
-    scanText('// hint-off(materials)\n' + mat).some(r => r.kind === 'switch' && /no hint kind "materials"/.test(r.msg)) && hintsConfigProblems({ materal: false }).length === 1);
+    scanText('// hint-off(randoms)\n' + mat).some(r => r.kind === 'switch' && /no hint kind "randoms"/.test(r.msg)) && hintsConfigProblems({ randm: false }).length === 1);
   // The per-game switch needs games: two throwaway ones under games/ (the repo may have none), the same direct material in both, the switch in one;
   // the one without it must still get the hint, so the check cannot pass just because R40 skipped games/. Removed afterwards, with a games/ made for them
   const gamesDir = join(ROOT, 'games'), hadGames = existsSync(gamesDir);
@@ -90,11 +102,11 @@ export async function run({ check }) {
     writeFileSync(join(gamesDir, dir, 'main.js'), mat);
   };
   try {
-    fixture('zz-hints-off', { hints: { material: false } });
+    fixture('zz-hints-off', { hints: { random: false } });
     fixture('zz-hints-on');
     const r40 = (await import('../rules/R40-bypass-hints.mjs')).default.run();
-    const hinted = dir => r40.some(r => r.kind === 'material' && r.file.startsWith(`games/${dir}/`));
-    check('R40: a game\'s own package.json "hints": { "material": false } is honored; the same file in a game without it is still hinted',
+    const hinted = dir => r40.some(r => r.kind === 'random' && r.file.startsWith(`games/${dir}/`));
+    check('R40: a game\'s own package.json "hints": { "random": false } is honored; the same file in a game without it is still hinted',
       !hinted('zz-hints-off') && hinted('zz-hints-on'));
   } finally {
     for (const d of ['zz-hints-off', 'zz-hints-on']) rmSync(join(gamesDir, d), { recursive: true, force: true });
@@ -107,14 +119,21 @@ export async function run({ check }) {
     // ── D4: palette --json is JSON only ──
     writeFileSync(join(tmp, 'p.png'), png(20, 20, (x) => (x < 10 ? [200, 40, 40] : [40, 40, 200])));
     const js = await paletteText(join(tmp, 'p.png'), { n: 3, json: true });
-    check('style palette --json: the output parses as JSON (nothing after it)', (() => { try { return !!JSON.parse(js).summary; } catch { return false; } })());
+    check('picture palette --json: the output parses as JSON (nothing after it)', (() => { try { return !!JSON.parse(js).summary; } catch { return false; } })());
+    // [guard] a leftover dev server on the port was another game: the shot and its picture check passed on the wrong picture
+    const answer = root => async () => ({ ok: true, json: async () => ({ root }) });
+    check('shot <url>: a server of another folder is refused, naming both', /serves .*old-game, not .*new-game/.test((await wrongServer('http://localhost:5173/', '/x/new-game', answer('/x/old-game'))).wrong ?? ''));
+    check('shot <url>: the game own server passes (slashes and case do not matter)', !Object.keys(await wrongServer('http://localhost:5173/', 'C:\\Games\\Mine', answer('c:/games/mine/'))).length);
+    const silent = await wrongServer('http://localhost:5173/', '/x', async () => ({ ok: false }));
+    check('shot <url>: a server that cannot say is reported, never passed quietly', /does not say which game/.test(silent.unknown ?? ''), JSON.stringify(silent));
+    check('shot <url>: another host is not asked', !Object.keys(await wrongServer('https://example.com/', '/x', () => { throw new Error('asked'); })).length);
     // ── D5: detail at the smaller picture's scale ──
     writeFileSync(join(tmp, 'ref.png'), png(200, 200, (x, y) => (((x >> 1) + (y >> 1)) % 2 ? [220, 220, 220] : [30, 30, 30])));
     writeFileSync(join(tmp, 'shot.png'), png(100, 100, (x, y) => ((x + y) % 2 ? [220, 220, 220] : [30, 30, 30])));
     const c = await compareImages(join(tmp, 'ref.png'), join(tmp, 'shot.png'));
-    check('style compare: the same texture at half resolution has a detail ratio near 1 (not enlarged first), and notes say so',
+    check('picture compare: the same texture at half resolution has a detail ratio near 1 (not enlarged first), and notes say so',
       c.diff.detail.ratio > 0.5 && c.diff.detail.ratio < 2 && c.notes.some(n => /smaller picture's scale/.test(n)), `ratio ${c.diff.detail.ratio}`);
-    check('style compare: notes say regions are positional and point at --ref-region / --shot-region', c.notes.some(n => /by position/.test(n) && /--ref-region/.test(n)));
+    check('picture compare: notes say regions are positional and point at --ref-region / --shot-region', c.notes.some(n => /by position/.test(n) && /--ref-region/.test(n)));
 
     // ── D2: a page error before window.engine stops the wait at once ──
     const page = await browser.newPage();
@@ -139,11 +158,22 @@ export async function run({ check }) {
     check('waitEngine: no error and no engine → the window.engine hint', /threw no error/.test(msg) && /window\.engine = engine/.test(msg), msg.slice(0, 200));
     await early.close(); await quiet.close();
     // ── D1: waitLoaded steps until loading is done, and names what is pending when it never is ──
-    await page.setContent(`<script>let n = 0; window.engine = { step() { n++ }, describe: () => ({ perf: { chunks: { queued: 89 } } }),
+    const scene = 'scene: { kids: [], traverse(f) { this.kids.forEach(f) } }';
+    await page.setContent(`<script>let n = 0; window.engine = { ${scene}, step() { n++ }, describe: () => ({ perf: { chunks: { queued: 89 } } }),
       loading: { view: () => ({ done: n >= 12, waiting: 'waiting for module terrain', counts: { pending: 1 }, pending: [{ kind: 'module', name: 'terrain' }] }) } };</script>`);
     await waitLoaded(page, { timeout: 5000 });
     check('waitLoaded: steps the headless engine until loading is done', await page.evaluate(() => window.engine.loading.view().done));
-    await page.setContent(`<script>window.engine = { step() {}, describe: () => ({ perf: { chunks: { queued: 89 } } }),
+    // [guard] the game's code after await engine.start() (a lamp added after a later await) is in the shot: waitLoaded waits until the page is quiet
+    // the lamp's file takes 0.6 s (longer than the quiet window): the open request is what keeps the wait going
+    const lamp = await newGamePage(browser);
+    await lamp.route('http://threedog.test/lamp.json', r => setTimeout(() => r.fulfill({ body: '{}', headers: { 'access-control-allow-origin': '*' } }), 600));
+    await lamp.setContent(`<script>window.engine = { ${scene}, step() {}, loading: { view: () => ({ done: true }) } };
+      fetch('http://threedog.test/lamp.json').then(() => engine.scene.kids.push({ isLight: true }));</script>`);
+    const { tail } = await waitLoaded(lamp, { timeout: 5000 });
+    check('waitLoaded: waits for a light added after a file the page still loads, and reports it', tail.quiet && tail.lights === 1 && tail.ms >= 400
+      && await lamp.evaluate(() => engine.scene.kids.length === 1), JSON.stringify(tail));
+    await lamp.close();
+    await page.setContent(`<script>window.engine = { ${scene}, step() {}, describe: () => ({ perf: { chunks: { queued: 89 } } }),
       loading: { view: () => ({ done: false, waiting: 'waiting for module terrain', counts: { pending: 1 }, pending: [{ kind: 'module', name: 'terrain' }] }) } };</script>`);
     check('waitLoaded: never done → fails naming what is pending ("waiting for module terrain: 89 chunks queued")',
       await throwsWith(() => waitLoaded(page, { timeout: 300 }), /no screenshot taken: waiting for module terrain: 89 chunks queued/));
@@ -158,10 +188,10 @@ export async function run({ check }) {
   const p = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', env, timeout: 60000 });
   check('[guard] the GPU fallback note goes to stderr, so a --json command\'s stdout stays one JSON object', !p.stdout.includes('Note:') && /Note: the GPU launch failed/.test(p.stderr), JSON.stringify({ out: p.stdout, err: p.stderr.slice(0, 300) }));
 
-  // round-4 demo: every shot printed "Look: skipped (no pixels read)": Playwright evaluates a string as an expression, so the probe's
+  // round-4 demo: every shot printed "Picture: skipped (no pixels read)": Playwright evaluates a string as an expression, so the probe's
   // function source came back uncalled. Source checks passed; only a real shot shows it, so this runs one end to end
-  const outFile = join(mkdtempSync(join(tmpdir(), 'threedog-shot-')), 'look.png');
+  const outFile = join(mkdtempSync(join(tmpdir(), 'threedog-shot-')), 'picture.png');
   const sh = spawnSync(process.execPath, [join(TOOLS, 'bin', 'threedog.mjs'), 'shot', '-w', 'engine', '--out', outFile], { cwd: ROOT, encoding: 'utf8', timeout: 240000 });
-  check('[guard] a real threedog shot prints the look numbers (the page probe ran), not "skipped"', /\nLook: luminance [\d.]+/.test(sh.stdout) && !/Look: skipped/.test(sh.stdout),
+  check('[guard] a real threedog shot prints the picture numbers (the page probe ran), not "skipped"', /\nPicture: luminance [\d.]+/.test(sh.stdout) && !/Picture: skipped/.test(sh.stdout),
     (sh.stdout + sh.stderr).split('\n').filter(l => /Look|Error|error/.test(l)).slice(0, 4).join(' | '));
 }

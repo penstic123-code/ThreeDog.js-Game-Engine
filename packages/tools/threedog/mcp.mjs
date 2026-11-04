@@ -109,7 +109,7 @@ const TOOLS = {
   },
   explain: {
     description: 'Explain why an op cannot run now (with its last attempts), or where a quest is stuck.',
-    schema: obj({ about: str('"op" (name = the op, args = its arguments) or "quest" (name = the quest id), or another key a module explains'), name: str('The op name or the quest id'),
+    schema: obj({ about: str('"op" (name = the op, args = its arguments) or "quest" (name = the quest id), or "picture" (name = a value such as fog.far: which line last changed it), or another key a module explains'), name: str('The op name, the quest id or the picture value'),
       args: { type: 'object', description: 'Op arguments (about "op" only)', additionalProperties: true } }, ['about', 'name']),
     args: a => [a.about, a.name, ...(a.about === 'op' ? pairs(a.args) : [])],
   },
@@ -124,20 +124,20 @@ const TOOLS = {
     args: a => a.name ? [a.name] : [],
   },
   snap: {
-    description: 'Screenshot as a small image (480 px wide; full file in .threedog/shots/) plus the look check of threedog shot on the live page (glare and its source, shadows, noon / midnight). Read those lines before the image.',
+    description: 'Screenshot as a small image (480 px wide; full file in .threedog/shots/) plus the picture check of threedog shot on the live page (glare and its source, shadows, noon / midnight). Read those lines before the image.',
     schema: obj({ name: str('File name without extension (default "snap")'), size: num('Image width in pixels (default 480); raise it only to read fine detail') }),
     args: a => [...(a.name ? [a.name] : []), '--width', String(a.size > 0 ? a.size : SNAP_WIDTH)],
   },
-  style_palette: {
-    cmd: 'style-palette',
-    description: 'Measure a reference picture: main colors with share, hue, brightness and a summary line. Start of any look work; read before guessing colors. Needs no game.',
+  picture_palette: {
+    cmd: 'picture-palette',
+    description: 'Measure a reference picture: main colors with share, hue, brightness and a summary line. Start of any picture work; read before guessing colors. Needs no game.',
     schema: obj({ image: str('Picture file (png, jpg, webp), relative to the game folder'), n: num('How many colors (2 to 32, default 8)'),
       average: { type: 'boolean', description: 'Also the overall mean color (use it for exposure and tint)' },
       ignore_ui: { type: 'boolean', description: 'Cut a flat phone-UI frame around the picture' }, region: str('Only this rectangle "x,y,w,h" in pixels') }, ['image']),
     args: a => [a.image, ...opt('--n', a.n), ...(a.average ? ['--average'] : []), ...(a.ignore_ui ? ['--ignore-ui'] : []), ...opt('--region', a.region)],
   },
-  style_compare: {
-    cmd: 'style-compare',
+  picture_compare: {
+    cmd: 'picture-compare',
     description: 'Numbers for two pictures: brightness, saturation, contrast, fine detail, main color, plus a side-by-side image file (open it and look at both). Run after each snap; read the numbers first. Needs no game.',
     schema: obj({ reference: str('Reference picture file'), screenshot: str('Your screenshot, e.g. ".threedog/shots/snap.png"'),
       region: str('Optional rectangle "x,y,w,h" cut from both'),

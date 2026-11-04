@@ -1,4 +1,4 @@
-// Calendar: the game's time of day, day number, seasons and clock-time timers (engine.calendar). Gameplay time, not a look: NPC schedules,
+// Calendar: the game's time of day, day number, seasons and clock-time timers (engine.calendar). Gameplay time, not a picture: NPC schedules,
 // shop hours, content `clock` conditions, audio rules { time } / { daylight } and engine.skip({ to }) read it, with or without a sky.
 // Why its own module and not part of sky: an indoor game, a management sim with a custom backdrop or a game with its own sky dome has days and
 // opening hours but no engine sky; when the calendar lived in sky, NPC schedules stalled without one. The sky only reads it to draw (sun, moon,

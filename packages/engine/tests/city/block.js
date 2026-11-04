@@ -1,15 +1,16 @@
 // City block built in code (can be baked to public/models/baked/city-block.glb with npm run bake; may later be replaced by a Blender-exported glTF).
-import { THREE, makeMaterial } from '../../index.js';
+import { THREE } from '../../index.js';
+import { neutralMaterial } from '../../render/neutral.js';
 import data from './content/index.js';
 
 // ---------- Build a block in code (later replaced by a Blender-exported glTF) ----------
 export function buildBlock() {
   const root = new THREE.Group();
-  const mat = makeMaterial('building', { color: 0xc8c4bc });   // no style: neutral default material, color passed through
-  const ground = new THREE.Mesh(new THREE.BoxGeometry(160, 1, 160), makeMaterial('ground', { color: 0x9a9a96 }));
+  const mat = neutralMaterial('building', { color: 0xc8c4bc });   // neutral default material, color passed through
+  const ground = new THREE.Mesh(new THREE.BoxGeometry(160, 1, 160), neutralMaterial('ground', { color: 0x9a9a96 }));
   ground.name = 'ground'; ground.position.y = -0.5; root.add(ground);
   // A platform in the middle of the plaza that can be walked onto + a ramp
-  const stage = new THREE.Mesh(new THREE.BoxGeometry(8, 1.2, 8), makeMaterial('ground', { color: 0xb0aca4 }));
+  const stage = new THREE.Mesh(new THREE.BoxGeometry(8, 1.2, 8), neutralMaterial('ground', { color: 0xb0aca4 }));
   stage.name = 'floor_stage'; stage.position.set(0, 0.6, -14); root.add(stage);
   const ramp = new THREE.Mesh(new THREE.BoxGeometry(3, 0.3, 6), stage.material);
   ramp.name = 'ramp'; ramp.position.set(0, 0.55, -7.2); ramp.rotation.x = Math.atan2(1.2, 6); root.add(ramp);

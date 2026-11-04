@@ -1,6 +1,6 @@
 // The world example's own art: procedural models built in code (trees, rocks, grass, flowers, the 'humanoid' body, the 'pickup' shape).
-// An asset pack, not a style: content names the models (pine, ['flower', color], humanoid), and how they are shaded comes from the style's
-// material roles (style/index.js). engine.assets.manifest(assets) registers them; `models` is the same generators as a plain name -> function map.
+// An asset pack: content names the models (pine, ['flower', color], humanoid), and how they are shaded comes from picture/materials.js.
+// engine.assets.manifest(assets) registers them; `models` is the same generators as a plain name -> function map.
 import { models as scenery } from './models.js';
 import { humanoid } from './humanoid.js';
 import { pickup } from './shapes.js';

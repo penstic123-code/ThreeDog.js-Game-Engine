@@ -79,7 +79,7 @@ console.log(`\n## 3. shadow parameter comparison (openWorld, ${FRAMES} frames, p
 row('updateEvery', 'snap', 'shadow updates', 'shadow draw calls per update', 'CPU ms/frame', 'render ms/frame');
 row('---', '---', '---', '---', '---', '---');
 for (const [updateEvery, snap] of [[1, 0.5], [3, 0.5], [1, 'texel'], [3, 'texel']]) {
-  const r = await median(world, ([n, o]) => { engine.look.shadow.set(o); return window.bench.run(n, { move: 6 }); }, [FRAMES, { updateEvery, snap }]);
+  const r = await median(world, async ([n, o]) => { const sun = engine.lights.sun, h = [engine.shadows.budget(sun, { every: o.updateEvery }), engine.shadows.box(sun, { snap: o.snap })], r = await window.bench.run(n, { move: 6 }); h.forEach(x => x.remove()); return r; }, [FRAMES, { updateEvery, snap }]);
   row(updateEvery, snap, `${r.shadowRenders}/${FRAMES}`, r.shadowCalls, r.cpuMs, r.renderMs);
 }
 await world.close();

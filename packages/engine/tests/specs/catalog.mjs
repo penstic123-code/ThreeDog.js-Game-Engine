@@ -2,6 +2,56 @@
 // Same format as the other files here.
 export const specs = [
   {
+    name: '[guard] catalog post and shadows: a capability row reads the live chain and switch, in the short list too',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const h = engine.post.add({ name: 'catDim', slot: 'ldr', fuse: { glsl: 'color.rgb *= uAmount;', uniforms: { uAmount: 0.5 } }, params: { amount: 0.5 } });
+        const post = engine.catalog('post'), shadows = engine.catalog('shadows'), ids = engine.catalog().map(s => s.id);
+        h.enabled = false; const paused = engine.catalog('post').facts.effects.find(x => x.name === 'catDim')?.enabled; h.enabled = true;
+        const was = engine.shadows.enabled; engine.shadows.enabled = !was; const flipped = engine.catalog('shadows').facts.enabled; engine.shadows.enabled = was;
+        h.remove();
+        return { post, shadows, ids, was, flipped, paused, gone: engine.catalog('post').facts.effects.some(x => x.name === 'catDim'), json: JSON.stringify(post).length > 0 };
+      });
+      const dim = r.post.facts?.effects.find(x => x.name === 'catDim');
+      check('catalog(post) lists the effect with slot, switch and params; removed, it is gone', dim?.slot === 'ldr' && dim.enabled === true && r.paused === false && dim.params.amount === 0.5 && !r.gone, JSON.stringify([r.paused, r.post.facts]));
+      check('catalog(post) names the entries', ['add', 'get', 'own'].every(n => r.post.queries.api.includes(n)), JSON.stringify(r.post.queries));
+      check('catalog(shadows) reads the live switch and names the entries', r.flipped === !r.was && ['box', 'budget', 'cascades'].every(n => r.shadows.queries.api.includes(n)), JSON.stringify(r.shadows));
+      check('both are rows of the short list', r.ids.includes('post') && r.ids.includes('shadows'), JSON.stringify(r.ids));
+    },
+  },
+  {
+    name: '[guard] debug override of a three.js value: held above picture code, listed, undone by remove and clear, a wrong type refused',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.pause();
+        const R = engine.renderer, S = engine.scene, out = {}, fog = S.fog, base = R.toneMappingExposure;
+        const code = engine.onRender(() => { R.toneMappingExposure = 0.5; });   // the game's picture code, writing every frame
+        engine.step(1 / 30, { render: true });
+        const h = engine.debug.override('t-three', R, 'toneMappingExposure', 3);
+        const f = engine.debug.override('t-three', S, 'fog', null);
+        engine.step(1 / 30, { render: true }); out.held = R.toneMappingExposure; out.noFog = S.fog === null;
+        out.listed = engine.describe('scene').scene.overrides;
+        out.json = JSON.stringify(out.listed).length > 0;
+        h.remove(); engine.step(1 / 30, { render: true }); out.back = R.toneMappingExposure;
+        out.fogStill = S.fog === null;
+        out.cleared = engine.debug.clear('t-three'); out.fogBack = S.fog === fog;
+        const err = fn => { try { fn(); return ''; } catch (e) { return e.message; } };
+        out.bad = [err(() => engine.debug.override('t-three', engine.lights.sun, 'color', 0xff0000)), err(() => engine.debug.override('t-three', R, 'noSuchKey', 1)),
+          err(() => engine.debug.override('t-three', 'nope', 'visible', false)), err(() => engine.debug.override('t-three', R, 'toneMappingExposure'))];
+        out.left = engine.describe('scene').scene.overrides;
+        code.remove(); R.toneMappingExposure = base;
+        return out;
+      });
+      check('the override beats picture code writing the same value in onRender', r.held === 3 && r.noFog, JSON.stringify(r));
+      check('describe().scene.overrides lists owner, target, key, value as plain data', r.listed.some(o => o.owner === 't-three' && o.key === 'toneMappingExposure' && o.value === 3) && r.listed.some(o => o.key === 'fog' && o.value === null), JSON.stringify(r.listed));
+      check('remove() stops it and the writer it covered is back; the other override stays', r.back === 0.5 && r.fogStill, JSON.stringify(r));
+      check('clear(owner) restores the rest', r.cleared === 1 && r.fogBack, JSON.stringify(r));
+      check('a Color given a number, a key the object lacks, a non-object and a missing value are refused with nothing added', /THREE\.Color/.test(r.bad[0]) && /noSuchKey/.test(r.bad[1]) && /three\.js object/.test(r.bad[2]) && /give the value/.test(r.bad[3]) && !r.left?.some?.(o => o.owner === 't-three'), JSON.stringify(r.bad));
+    },
+  },
+  {
     name: 'catalog: modules, ownership of ops / saves / describe, params, time model, op detail, find',
     url: '/tests/city/index.html',
     async run({ check, ev }) {

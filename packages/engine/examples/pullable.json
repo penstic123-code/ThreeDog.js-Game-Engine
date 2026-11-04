@@ -7,15 +7,20 @@
         "README.md",
         "contactShadows.js"
       ],
-      "use": "import { applyContactShadows, groundStatic } from './contactShadows.js';  applyContactShadows(engine);"
+      "use": "import { applyContactShadows, groundStatic } from './contactShadows.js';  applyContactShadows(engine, { sun, hemi });  // your own three.js lights"
     },
     "day-night-grade": {
       "dir": "techniques/day-night-grade",
       "files": [
         "README.md",
-        "dayNightGrade.js"
+        "picture/index.js",
+        "picture/palette.js",
+        "picture/lights.js",
+        "picture/materials.js",
+        "picture/sky.js",
+        "picture/post.js"
       ],
-      "use": "import { dayNightStyle, followDayNight } from './dayNightGrade.js';  createEngine({ style: [yourStyle, dayNightStyle()] });  followDayNight(engine, { lamps });"
+      "use": "import { createPicture } from './picture/index.js';  const picture = createPicture(engine);  // createEngine({ lights: false }); shapes take picture.mat.<name>, picture.addLamp(x, y, z)"
     },
     "interior-light": {
       "dir": "techniques/interior-light",
@@ -23,7 +28,7 @@
         "README.md",
         "interiorLight.js"
       ],
-      "use": "import { exposureZones, windowLight } from './interiorLight.js';  exposureZones(engine, { isInside, exposure, ambient });  windowLight(engine, { position, lookAt, width, height });"
+      "use": "import { exposureZones, windowLight } from './interiorLight.js';  const zones = exposureZones(engine, { hemi, isInside, exposure, ambient });  engine.onFrame(dt => zones.update(dt));  windowLight(engine, { position, lookAt, width, height });"
     },
     "modular-building": {
       "dir": "techniques/modular-building",
@@ -39,7 +44,7 @@
         "README.md",
         "nightLights.js"
       ],
-      "use": "import { createNightLights } from './nightLights.js';  createNightLights(engine, { /* lamps, glow names */ });"
+      "use": "import { createNightLights } from './nightLights.js';  engine.use(lightPool({ spot: 8 }));  const lights = createNightLights(engine);  lights.addLamp(position, { head: headMaterial });  lights.addGlow(windowMaterial);"
     },
     "outlines-and-rim": {
       "dir": "techniques/outlines-and-rim",
@@ -73,7 +78,7 @@
         "rc2d.js",
         "shaders.js"
       ],
-      "use": "import { createRadianceCascades2D } from './rc2d.js';  createRadianceCascades2D(engine, { layer: 5, ambient: 0.15 });"
+      "use": "import { createRadianceCascades2D } from './rc2d.js';  const rc = createRadianceCascades2D(engine, { layer: 5, ambient: 0.15 });  // then put rc.pass in your post chain before the tone curve (README)"
     },
     "stylized-shading": {
       "dir": "techniques/stylized-shading",
@@ -89,15 +94,20 @@
         "README.md",
         "keyLight.js"
       ],
-      "use": "import { applyKeyFill, aimSun, fitSunShadow } from './keyLight.js';  applyKeyFill(engine, route);  aimSun(engine, { elevation, azimuth, camera });  fitSunShadow(engine, { extent });"
+      "use": "import { applyKeyFill, aimSun, fitSunShadow } from './keyLight.js';  applyKeyFill({ sun, hemi, scene }, route);  aimSun(sun, { elevation, azimuth, camera });  fitSunShadow(sun, { extent });  // your own three.js lights"
     },
     "webgpu-tsl": {
       "dir": "webgpu-tsl",
       "files": [
         "README.md",
-        "tslScene.js"
+        "picture/index.js",
+        "picture/palette.js",
+        "picture/lights.js",
+        "picture/materials.js",
+        "picture/sky.js",
+        "picture/post.js"
       ],
-      "use": "import 'threedog/tsl';  import { createTslScene } from './tslScene.js';  createEngine({ renderer: 'webgpu' });  createTslScene(engine);  // before engine.start()"
+      "use": "import 'threedog/tsl';  import { createPicture } from './picture/index.js';  const picture = createPicture(engine);  // createEngine({ renderer: 'webgpu', lights: false }); shapes take picture.mat.ground, picture.mat.grass, picture.mat.lantern"
     },
     "wet-road": {
       "dir": "techniques/wet-road",

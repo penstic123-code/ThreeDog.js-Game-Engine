@@ -22,7 +22,7 @@ import { onRendererSwap } from './backend.js';
 
 const WRAPPED = Symbol.for('threedog.ownFrame');
 const STRINGS = {
-  took: 'the game draws the canvas itself ({what} drawn over the whole canvas outside the engine frame: renderer.render / composer.render), so the engine stopped drawing its own frame and its post chain (engine.post, look.post), adaptive resolution and photo mode do not apply to the picture. Fine if intended. To hand it back delete your render call; the engine draws again on the next frame. To keep the engine frame and add your pass: engine.look.post.add(pass). A layer on top (minimap, HUD) is not a takeover: draw it with renderer.setScissorTest(true), a smaller viewport, or autoClear = false, best in engine.onRender(fn, { when: \'after\' }) [own-frame]',
+  took: 'the game draws the canvas itself ({what} drawn over the whole canvas outside the engine frame: renderer.render / composer.render), so the engine stopped drawing its own frame and its post chain (engine.post), adaptive resolution and photo mode do not apply to the picture. Fine if intended. To hand it back delete your render call; the engine draws again on the next frame. To keep the engine frame and add your pass: engine.post.add(pass). A layer on top (minimap, HUD) is not a takeover: draw it with renderer.setScissorTest(true), a smaller viewport, or autoClear = false, best in engine.onRender(fn, { when: \'after\' }) [own-frame]',
 };
 const _vp = new Vector4(), _size = new Vector2();
 

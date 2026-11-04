@@ -66,8 +66,8 @@ export const specs = [
         const height = o => new THREE.Box3().setFromObject(o).max.y;
         const viaManifest = await engine.assets.model('mb-building');
         // optional AO: every geometry gets a color attribute (a vertexColors material on a geometry without one draws black)
-        const { createModularKit, makeSlots, bakeVertexAO } = window.mbTest;
-        const aoKit = createModularKit({ prefix: 'mbao', slots: makeSlots('gray'), ao: { bake: bakeVertexAO, samples: 8 } }), noColor = [];
+        const { createModularKit, bakeVertexAO } = window.mbTest;
+        const aoKit = createModularKit({ prefix: 'mbao', slots: kit.slots, ao: { bake: bakeVertexAO, samples: 8 } }), noColor = [];
         aoKit.building({ front: 'SDS/WWW', sign: 'AO' }).traverse(o => { if (o.isMesh && !o.geometry.attributes.color) noColor.push(o.parent.name + '/' + o.name); });
         aoKit.dispose();
         let facadeError = '';

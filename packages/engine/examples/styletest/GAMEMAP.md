@@ -12,27 +12,28 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 ## Engine modules (engine.use)
 
 - createEngine: { bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...prese…
-- openWorld preset ({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, …) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
+- openWorld preset ({ camera: fixedCamera(), seed: SEED, terrain: { ...terrainPreset(), ...TERRAIN }, flatten: [{ x: st…) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
 - interactions ({ ...presets.interactions.nearest })
 - dialogue ({ holdSeconds: 1e6 })
 - inventory
 - hud
 - lightPool ({ point: 2 })
+- particles
 - content
 
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
 
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
-- terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
-- vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
+- terrain: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/terrain.md`
+- vegetation: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/vegetation.md`
 - calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
-- weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
-- water: `node_modules/threedog/docs/recipes/44-water-weather-look-hooks.md` · `node_modules/threedog/docs/api/water.md`
+- weather: `node_modules/threedog/docs/recipes/44-water-weather-hooks.md` · `node_modules/threedog/docs/api/weather.md`
+- water: `node_modules/threedog/docs/recipes/44-water-weather-hooks.md` · `node_modules/threedog/docs/api/water.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
-- characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
-- …8 more modules: their pages are in `node_modules/threedog/docs/api/`
+- characters: `node_modules/threedog/docs/recipes/13-animation.md` · `node_modules/threedog/docs/api/characters.md`
+- …9 more modules: their pages are in `node_modules/threedog/docs/api/`
 
 Not used yet (check these before writing the system yourself):
 
@@ -54,10 +55,14 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 17 |  |
 | content/templates.js | 10 |  |
 | content/vegetation.js | 32 |  |
-| look.js | 12 | This example's look, a style part merged over the style under test (createEngine({ style: [worldSty… |
-| main.js | 97 | @ts-check Style test: one fixed scene to judge a style by (and the check an AI runs after turning a… |
+| main.js | 86 | @ts-check Style test: one fixed scene to judge a picture by (and the check an AI runs after turning… |
 | models.js | 88 | The exhibits that are not in the world example's art (../world/art), built in code and registered b… |
-| params.js | 33 | URL parameters of the style test page. Import this file first in main.js: it rewrites word values i… |
+| params.js | 30 | URL parameters of the style test page. Import this file first in main.js: it rewrites word values i… |
+| picture/env.js | 39 | @ts-check ?env=1: soft light from the sky. A gradient of the sky's two colors over the ground color… |
+| picture/index.js | 17 | @ts-check The picture this page judges: wiring only. The picture under test is the world example's;… |
+| picture/lights.js | 10 | @ts-check The room's lamp. The sun and the ambient belong to the picture under test; this page only… |
+| picture/materials.js | 29 | @ts-check The exhibits' materials by name. One surface kind each: wood and plaster are matte Lamber… |
+| picture/palette.js | 23 | @ts-check What this page adds to the picture it tests: the colors and surface values of the exhibit… |
 | views.js | 32 | Named camera positions of the style test. Same name = same framing every time, so two screenshots d… |
 
 ## NPCs (content/npcs.js)
@@ -129,6 +134,5 @@ Code that breaks saves or manages world models: none (rule R33).
 
 ## Style keys
 
-- Style: parts
 - Models (asset names): pine, pineLow, roundTree, roundTreeLow, rock, grass, flower, woodBlock, stoneBlock, metalBall, glassPanes, shadowStage, room
 - Vegetation (content/vegetation.js): 松树, 圆树, 石头, 草, 野花

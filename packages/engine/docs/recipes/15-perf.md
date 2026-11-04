@@ -20,7 +20,7 @@ Which renderer measures: tests that compare pixels run on software rendering (Sw
 - **Which materials cost**: `engine.debug.view('shaderCost')` colors each material green -> red by its compiled program (fragment code lines + samplers,
   approximate; gray = not compiled yet); `engine.debug.view('overdraw')` shows pixels drawn many times over (bright = many layers: foliage cards, particles).
   `'off'` restores. For real GPU timings use `threedog capture` (Spector.js) or the browser's GPU profiler.
-- **Other view modes and the panel**: `debug.view('triggers')` shows hidden zones; modules add their own modes (`engine.debug.defineView(name, { what, apply })`)
+- **Other view modes and the panel**: `debug.view('triggers')` shows hidden zones (`triggers({ debugColor, debugOpacity })` colors them); modules add their own modes (`engine.debug.defineView(name, { what, apply })`)
   and `engine.debug.viewModes()` lists every mode. `engine.debug.panel` is the F3 panel (dev builds; null without the `debug()` module).
 - **F3 panel** (`debug()` module, included in openWorld, collapsed by default; the action `debugPanel` opens it, `presets.bindings.debug` binds F3): frame rate, CPU ms/frame, draw calls, triangles,
   chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
@@ -46,7 +46,7 @@ Which renderer measures: tests that compare pixels run on software rendering (Sw
 ## 2. Set a budget (so going over reports itself)
 Off by default and costs nothing. The game gives the limits in `createEngine` (only the given categories are checked):
 ```js
-const engine = createEngine({ canvas, style, budget: { drawCalls: 250, fps: 55, low1: 30, triangles: 600000, chunkApplyMs: 3, rigidBodies: 300, startupMs: 5000 } });
+const engine = createEngine({ canvas, budget: { drawCalls: 250, fps: 55, low1: 30, triangles: 600000, chunkApplyMs: 3, rigidBodies: 300, startupMs: 5000 } });
 // or at runtime: engine.budget.enable({ drawCalls: 200 });
 const r = engine.budget.report();   // { ok, over: [{ category, value, limit, top }] }; going over also prints one console hint
 ```
@@ -71,7 +71,7 @@ and they get timed.
 | Symptom | Fix |
 |---|---|
 | Many draw calls | Use `vegetation` / InstancedMesh for repeated objects; install `hlod()` for a block of buildings; share geometry and materials between copies of a model (`assets.model` shares by default) |
-| Expensive shadows | Style `sky.shadow.updateEvery: 3` (update every 3 frames), reduce `mapSize`/`extent`; filter `look.shadow.set({ type: 'basic' })` (hard edge, cheapest) / `'pcf'` (default) / `'vsm'` (softest, costliest), switch live with `engine.look.shadow.set({ type: 'vsm', radius: 3 })` (radius: pcf and vsm only; blurSamples: vsm only; a switch recompiles materials, so avoid doing it every frame); the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
+| Expensive shadows | `engine.shadows.budget(light, { every: 3 })` (update every 3 frames), reduce `light.shadow.mapSize` / the box's `extent`; filter `renderer.shadowMap.type = THREE.BasicShadowMap` (hard edge, cheapest) / `THREE.PCFShadowMap` (default) / `THREE.VSMShadowMap` (softest, costliest), blur with `light.shadow.radius` (pcf and vsm only) and `.blurSamples` (vsm only); a switch recompiles materials, so avoid doing it every frame; the vegetation species option `shadowRing` (default 1) sets within how many chunk rings it casts shadows; change it while playing with `engine.vegetation.setShadowRing('tree', 0)` |
 | Stutter while walking | Put generation work in `engine.jobs.add(function* () { ...; yield; })` or `engine.stream.add`; chunk upload budget `engine.terrain.applyBudgetMs` |
 | Slow start | Look at which is slowest in `engine.startup.modules`; `npm run bake` for large models; preload only the necessary assets |
 | Slow physics | Keep dynamic rigid bodies within a few hundred (the `rigidBodies` budget); `rigid({ terrainRing: 1 })` |

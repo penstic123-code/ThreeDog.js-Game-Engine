@@ -2,7 +2,7 @@
 // and a 'world' type module draws nothing: the files that define world modules have no scene.add( and no renderer. in code.
 // Why static as well as at runtime: engine.use already throws for a missing type, but only for the modules a test installs; this reads them all.
 // The world rule is per defining file, not per folder, because one folder may hold both halves (modules/weather: Weather.js is the state,
-// weatherLook.js the look). Drawing for a world module goes in its look half, which reads the state.
+// weatherDraw.js the picture). Drawing for a world module goes in its drawing half, which reads the state.
 // Known limits: a definition is an object literal with name: '...' and label or install (like R16); a world module that draws from a helper
 // file it imports is not followed.
 import { ts, parse, visit, walk, read, codeOnly, strValue, lines, P } from './_lib.mjs';
@@ -36,7 +36,7 @@ export default {
         const code = codeOnly(raw);
         if (/\bscene\.add\(|\brenderer\./.test(code)) out.push({ level: 'error', file: f, line: i + 1,
           msg: `a world module file draws (${code.match(/\bscene\.add\(|\brenderer\./)[0]})`,
-          fix: 'a world module holds state only: draw it from a look module that reads the state (see modules/weather/weatherLook.js)' });
+          fix: 'a world module holds state only: draw it from a picture module that reads the state (see modules/weather/weatherDraw.js)' });
       });
     }
     return out;

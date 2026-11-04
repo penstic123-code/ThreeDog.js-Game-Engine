@@ -3,7 +3,7 @@
 //   threedog examples pull <name> [--out dir] [--force]   copy the game-facing files to <game>/techniques/<name>/ (or --out), print what to import
 // The list lives in one place: the engine package's examples/pullable.json (name -> dir, files, the import line). A folder not named there is
 // not pullable, so a demo page or test helper never lands in a game by accident.
-// Why copy and not import from node_modules: a technique is learned and then adapted to the game's own look (its DESIGN.md); the copy is the
+// Why copy and not import from node_modules: a technique is learned and then adapted to the game's own picture (its DESIGN.md); the copy is the
 // game's to change, and an engine update never changes it behind the game's back. There is no link back and no update command, on purpose.
 // Why all-or-nothing: a file that exists with different content stops the whole pull (nothing is written) unless --force, so an edited copy is
 // never half-overwritten. A file with the same content is skipped silently.
@@ -81,7 +81,7 @@ export function main(argv) {
       parseOptions(rest, { flags: [], values: [], page: null });
       const l = listExamples(), w = Math.max(...l.map(x => x.name.length));
       for (const x of l) console.log(`${x.name.padEnd(w)}  ${x.summary}`);
-      console.log('\nthreedog examples pull <name> [--out dir] copies one into this game (techniques/<name>/). Learn the technique, then adapt it to the game\'s own look.');
+      console.log('\nthreedog examples pull <name> [--out dir] copies one into this game (techniques/<name>/). Learn the technique, then adapt it to the game\'s own picture.');
       return 0;
     }
     if (sub === 'pull') {
@@ -91,7 +91,7 @@ export function main(argv) {
       console.log(`${name} -> ${where}/: ${r.written.length ? 'wrote ' + r.written.join(', ') : 'nothing new'}${r.same.length ? ` (unchanged: ${r.same.join(', ')})` : ''}`);
       console.log(`Use it (paths relative to ${where}/): ${r.use}`);
       if (r.packages.length) console.log(`Imports packages: ${r.packages.join(', ')} (install any this game lacks)`);
-      console.log(`Read ${where}/README.md first: why it works, the knobs, the cost, and how to adapt it to this game's look.`);
+      console.log(`Read ${where}/README.md first: why it works, the knobs, the cost, and how to adapt it to this game's picture.`);
       return 0;
     }
     const near = closest(sub ?? '', ['list', 'pull']);

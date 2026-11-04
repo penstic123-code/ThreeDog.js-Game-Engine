@@ -1,6 +1,6 @@
 // Error tiers.
 // What to do when a module hook, onFixed / onFrame / clock callback or event listener throws (the main loop and the event bus both come here).
-//   look and ui modules (the module's type says it: particles, sky, music, a HUD, a menu...): disable the module (its hooks are no longer called),
+//   picture and ui modules (the module's type says it: particles, sky, music, a HUD, a menu...): disable the module (its hooks are no longer called),
 //     log once to the console, emit module:disabled; the game carries on -- a missing picture, sound or panel does not change game state.
 //   Gameplay (all other modules, the game's own callbacks and event listeners): in dev and tests (DEV) fail hard -- freeze gameplay (freeze('error')),
 //     engine.error records where and why, emits engine:error, and describe() / describeText() show it on the first line;
@@ -13,8 +13,8 @@ import { errorInfo, hintText } from './errorHints.js';
 const STRINGS = { once: '[engine] {key} threw (later errors at the same place are not reported again)', disabled: '[engine] {type} module {name} threw and was disabled (the game continues) [module-disabled]', halted: '[engine] {key} threw and gameplay is frozen (in dev / tests a gameplay error fails hard; see engine.error for details) [gameplay-frozen]', listener: 'listener of event {name}',
   rejected: '[engine] a promise rejected and nothing caught it (e.g. audio.play() of a missing file, an async callback that threw); reported once, the game continues. Add .catch or await it in try. ' };
 
-/** look / ui modules only show the game, so an error in one switches it off instead of freezing gameplay (the type is the one source; no extra flag) */
-export const failsSoft = m => m?.type === 'look' || m?.type === 'ui';
+/** picture / ui modules only show the game, so an error in one switches it off instead of freezing gameplay (the type is the one source; no extra flag) */
+export const failsSoft = m => m?.type === 'picture' || m?.type === 'ui';
 
 /** Handle an error. key: where it happened (for display); module: the module definition that threw (none means a game callback / event listener, counted as gameplay); soft: report only once */
 export function reportError(engine, err, key, { module = null, soft = false } = {}) {
@@ -53,7 +53,7 @@ export function watchRejections(engine) {
 /** An event listener threw (called by the event bus): counted as gameplay */
 export function reportListenerError(engine, name, err) { reportError(engine, err, STRINGS.listener.replace('{name}', name)); }
 
-/** Disable a look / ui module: remove its fixed / frame / afterRender hooks */
+/** Disable a picture / ui module: remove its fixed / frame / afterRender hooks */
 function disableModule(engine, m, err) {
   if (engine.disabledModules.has(m.name)) return;
   engine.disabledModules.add(m.name);

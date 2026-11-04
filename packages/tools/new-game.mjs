@@ -1,5 +1,5 @@
 // Create a new game in one step: npm run new-game -- name [--open-world] [--example]
-// Default: the blank template (templates/game): an empty scene with a camera, empty content files, an empty style/ folder, no gameplay, no genre.
+// Default: the blank template (templates/game): an empty scene with a camera, empty content files, a gray picture/ folder, no gameplay, no genre.
 // --open-world: overlays templates/openworld (generated terrain, day/night sky, follow camera, a player).
 // --example: overlays templates/example (hp, hunger, rest op, apples, stash, HUD) on the open world, for people who want to see patterns.
 // Copies the template layers to games/<name>/, replacing __NAME__ in files with the name; links node_modules/<name>, generates GAMEMAP and runs check (scoped to the new game).
@@ -23,7 +23,7 @@ if (!/^[a-z0-9-]+$/.test(name)) { console.error(`name "${name}" is not allowed: 
 const dir = join(GAMES, name);
 if (existsSync(dir) || workspaces().some(d => d.endsWith(`/${name}`) || d.endsWith(`\\${name}`))) { console.error(`${rel(dir)} already exists, pick another name`); process.exit(1); }
 
-// Blank template (templates/game) = a scene and a camera, empty content, empty style/; --open-world overlays templates/openworld, --example the sample (templates/example)
+// Blank template (templates/game) = a scene and a camera, empty content, gray picture/; --open-world overlays templates/openworld, --example the sample (templates/example)
 copyTemplates(dir, { ...opts, name });
 // package.json dependencies follow the open-world choice
 const pkgPath = join(dir, 'package.json'), pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));

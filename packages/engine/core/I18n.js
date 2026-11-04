@@ -17,7 +17,7 @@ const CORE = {
     'common.generating': '生成 {name}', 'common.world': '世界',
     'loading.queued': '等待 {name}', 'loading.download': '下载 {name}', 'loading.decode': '解码 {name}', 'loading.upload': '上传 {name}', 'loading.build': '生成 {name}', 'loading.failed': '加载失败：{name}', 'common.on': '开', 'common.off': '关',
     'input.moveForward': '前进', 'input.moveBack': '后退', 'input.moveLeft': '向左', 'input.moveRight': '向右',
-    'input.run': '奔跑', 'input.interact': '交互', 'input.confirm': '确认', 'input.cancel': '返回', 'input.uiUp': '菜单上移', 'input.uiDown': '菜单下移', 'input.uiLeft': '菜单左移', 'input.uiRight': '菜单右移',
+    'input.run': '奔跑', 'input.interact': '交互', 'input.noKey': '无按键', 'input.confirm': '确认', 'input.cancel': '返回', 'input.uiUp': '菜单上移', 'input.uiDown': '菜单下移', 'input.uiLeft': '菜单左移', 'input.uiRight': '菜单右移',
     'key.Space': '空格', 'key.Mouse0': '鼠标左键', 'key.Mouse1': '鼠标中键', 'key.Mouse2': '鼠标右键', 'key.Enter': '回车', 'ground.default': '默认',
   },
   en: {
@@ -25,7 +25,7 @@ const CORE = {
     'common.generating': 'Generating {name}', 'common.world': 'world',
     'loading.queued': 'Waiting for {name}', 'loading.download': 'Downloading {name}', 'loading.decode': 'Decoding {name}', 'loading.upload': 'Uploading {name}', 'loading.build': 'Building {name}', 'loading.failed': 'Failed to load: {name}', 'common.on': 'On', 'common.off': 'Off',
     'input.moveForward': 'Forward', 'input.moveBack': 'Back', 'input.moveLeft': 'Left', 'input.moveRight': 'Right',
-    'input.run': 'Run', 'input.interact': 'Interact', 'input.confirm': 'Confirm', 'input.cancel': 'Back', 'input.uiUp': 'Menu up', 'input.uiDown': 'Menu down', 'input.uiLeft': 'Menu left', 'input.uiRight': 'Menu right',
+    'input.run': 'Run', 'input.interact': 'Interact', 'input.noKey': 'No key', 'input.confirm': 'Confirm', 'input.cancel': 'Back', 'input.uiUp': 'Menu up', 'input.uiDown': 'Menu down', 'input.uiLeft': 'Menu left', 'input.uiRight': 'Menu right',
     'key.Space': 'Space', 'key.Mouse0': 'Left click', 'key.Mouse1': 'Middle click', 'key.Mouse2': 'Right click', 'key.Enter': 'Enter', 'ground.default': 'default',
   },
 };

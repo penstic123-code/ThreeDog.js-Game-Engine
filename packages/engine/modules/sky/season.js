@@ -1,12 +1,12 @@
-// Sky season tint (helper of Sky.js): blends style.seasons colors into the engine's foliage / ground tint uniforms every frame.
+// Sky season tint (helper of Sky.js): blends engine.sky.seasonTints into the engine's foliage / ground tint uniforms every frame.
 // The season itself is the calendar's (modules/calendar): the sky only reads which season it is and how far along, to draw it.
 import * as THREE from 'three';
 
 // This season's color, blending to the next season over the last 20% of the season
 const c1 = new THREE.Color(), c2 = new THREE.Color();
 export function applySeason(sky, uniforms) {
-  // no seasons in this game's calendar (or no calendar: sky alone is a fixed time): the style's season colors never apply, the tint stays neutral
-  const S = sky.seasonStyle, cal = sky.engine.calendar; if (!S || !cal?.seasons.length) return;
+  // no seasons in this game's calendar (or no calendar: sky alone is a fixed time): the season colors never apply, the tint stays neutral
+  const S = sky.seasonTints, cal = sky.engine.calendar; if (!S || !cal?.seasons.length) return;
   const cur = S[cal.season] || {}, next = S[cal.seasons[(cal.seasonIndex + 1) % cal.seasons.length]] || {};
   const k = Math.max(0, (cal.seasonProgress - 0.8) / 0.2);
   // mode 'multiply' (default): the color multiplies the surface. mode 'mix': the surface moves `strength` of the way to the color (orange on green

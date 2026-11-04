@@ -2,7 +2,7 @@
 // start through one path; without WebGPU each fallback does what createEngine({ fallback }) says and says so loudly, with the reason in
 // describe().renderer; fallback 'webgl' refuses a NodeMaterial and the WebGPU route refuses a ShaderMaterial by name, never a blank picture;
 // a ground + swaying trees scene draws on the WebGPU route through the engine's own patches; the default WebGL engine reports as before.
-import { probeLook } from '@threedog/tools/look';
+import { probePicture } from '@threedog/tools/picture-check';
 const LOUD = '[threedog] WebGPU unavailable (';
 export const specs = [
   {
@@ -47,7 +47,6 @@ export const specs = [
       check("renderer: 'webgpu' scene (ground + wind trees through the engine's tsl patches) draws, on webgpu or its webgl2 fallback",
         ['webgpu', 'webgl2'].includes(s.renderer.backend) && s.mean > 5, JSON.stringify(s));
       check('the wind patch works on the WebGPU route: uWind 0 -> 2 moves the trees (> 1% of pixels)', s.sway > 1, JSON.stringify(s));
-      check('the baseline room environment is built on WebGPURenderer after init (three/webgpu PMREM)', s.env, JSON.stringify(s));
     },
   },
   {
@@ -59,7 +58,7 @@ export const specs = [
       console.log('  debug view numbers:', JSON.stringify(r));
       check('every built-in mode is listed', ['albedo', 'lighting', 'shadow', 'normals', 'overdraw', 'shaderCost'].every(m => r.modes.includes(m)), JSON.stringify(r.modes));
       for (const [m, v] of Object.entries(r.views)) {
-        check(`${m} on ${r.backend}: draws its own picture (> 5% of pixels differ from the real look, not blank), no console error`,
+        check(`${m} on ${r.backend}: draws its own picture (> 5% of pixels differ from the real picture, not blank), no console error`,
           v.mode === m && v.changed > 5 && v.mean > 5 && v.errors.length === 0, JSON.stringify(v));
       }
       const V = r.views;
@@ -89,15 +88,15 @@ export const specs = [
   },
   {
     // the tools an AI reads the game through, on a page whose engine runs renderer: 'webgpu' (the parity page's WebGPU variant)
-    name: "[guard] tools on WebGPU: describe() names the backend, inspect.perf does not report 0 programs, shot's look probe sees light changes",
+    name: "[guard] tools on WebGPU: describe() names the backend, inspect.perf does not report 0 programs, shot's picture probe sees light changes",
     url: '/tests/parity/index.html?backend=webgpu',
     software: true,
     async run({ check, ev }) {
-      await ev(src => { window.__probeLook = (0, eval)('(' + src + ')'); }, probeLook.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
       const r = await ev(async () => {
         const E = window.engine;
         E.camera.position.set(-6, 7, 9); E.camera.lookAt(0, 0.5, 0); E.camera.updateMatrixWorld();
-        const d = E.describe(), p = E.inspect.perf(), probe = await window.__probeLook(E, { time: false });
+        const d = E.describe(), p = E.inspect.perf(), probe = await window.__probePicture(E, { time: false });
         return { renderer: d.renderer, isGPU: !!E.renderer.isWebGPURenderer, perfKeys: Object.keys(d.perf), counts: E.counts(),
           perf: { programs: p.programs, budgets: p.budgets.map(b => b.name), drawCalls: p.drawCalls, text: p.text.split('\n')[0],
             costs: p.programCosts, costText: /costliest programs/.test(p.text) },
@@ -111,7 +110,7 @@ export const specs = [
         r.perf.drawCalls > 0 && r.perf.programs === null && !r.perf.budgets.includes('programs') && /programs not counted \(WebGPU\)/.test(r.perf.text), JSON.stringify(r.perf));
       check('inspect.perf on WebGPU lists the costliest programs from the generated node code, costliest first, and says so in the text',
         r.perf.costs.length > 0 && r.perf.costs.every((c, i, a) => c.fragmentLines > 0 && (i === 0 || a[i - 1].score >= c.score)) && r.perf.costText, JSON.stringify(r.perf.costs));
-      check("shot's look probe: turning shadows off changes pixels (WebGPU's per-frame light nodes follow each extra render)", r.shadows?.area > 0, JSON.stringify(r.shadows));
+      check("shot's picture probe: turning shadows off changes pixels (WebGPU's per-frame light nodes follow each extra render)", r.shadows?.area > 0, JSON.stringify(r.shadows));
     },
   },
   {
@@ -126,7 +125,7 @@ export const specs = [
       check("a tsl hook throwing inside three's build: three's 'TSL:' log names the patch and slot and points at the game's line",
         r.build.includes("[threedog] patch 'late' (slot lighting)") && /"after\(\)" at "[^"]*(test-backend|tests\/backend\/main\.js)[^"]*:\d+"/.test(r.build), r.build.slice(0, 400));
       check("a patch's node that fails while three builds it (null input): three's 'TSL:' log names patch and slot, then the material and mesh",
-        /THREE\.TSL: .*\[threedog\] patch 'wetLook' \(slot color\): .*null/.test(r.nullPatch) && /node build failed for MeshLambertNodeMaterial 'nullInput' .*Mesh 'nullBox'.*patches on it: wetLook/.test(r.nullPatch), r.nullPatch.slice(0, 600));
+        /THREE\.TSL: .*\[threedog\] patch 'wetPatch' \(slot color\): .*null/.test(r.nullPatch) && /node build failed for MeshLambertNodeMaterial 'nullInput' .*Mesh 'nullBox'.*patches on it: wetPatch/.test(r.nullPatch), r.nullPatch.slice(0, 600));
       check("a post effect's node that fails while three builds it: the log names the effect",
         /THREE\.TSL: .*\[threedog\] post effect 'nullFog': /.test(r.nullPost) && /node build failed for/.test(r.nullPost), r.nullPost.slice(0, 600));
       check('a TSL Loop outside an Fn in a post effect (three drops it silently): a dev warning names the effect and the fix',

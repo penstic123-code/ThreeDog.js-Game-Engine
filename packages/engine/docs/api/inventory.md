@@ -53,7 +53,7 @@ Inventory (inventory() module)
   - `data?: Record<string, any>` The piece's own data (a dropped sword keeps its durability)
   - `name?: string` Name in the prompt ("Pick up {name}"), default the item's name
   - `model?: string` Shape on the ground: a model name from an asset pack (default the item's model, else 'pickup:<item>', else 'pickup', else a gray box)
-  - `color?: ColorLike` Color of the gray placeholder / a geometry-only model (default the item's color, else style.pickup.color)
+  - `color?: ColorLike` Color of the gray placeholder / a geometry-only model (default the item's color, else pickups({ color }))
   - `radius?: number` Reach in meters, default pickups({ radius }) (2)
   - `auto?: boolean` Taken by walking into it (no key press, no prompt), by every actor in pickups.takers
   - `mesh?: Object3D | null` The game's own three.js object for this one pickup (only detached when it goes; otherwise the model name decides the shape)

@@ -3,17 +3,21 @@
 // A meadow with a river, round trees, a wheat field and a flock of sheep on an island with a ragged rim, over a pale backdrop with no horizon.
 // Parameters (params.js): time day | dusk | night, weather clear | snow, view overview | flock | field | river | rim.
 // main.js holds wiring only: modules, the island's terrain functions, view switching and the snow-to-winter link. Objects are content (rule R33),
-// the look is the style in style/.
+// the whole picture is plain three.js in picture/.
 import { params, VIEW_NAMES } from './params.js';   // first: rewrites ?time=dusk style words before the engine reads the URL
 import { createEngine, openWorld, presets, content, fixedCamera } from '../../index.js';
-import style from './style/index.js';
+import { createPicture } from './picture/index.js';
+import { GROUND } from './picture/palette.js';
+import { mat } from './picture/materials.js';
 import packs from './assets.js';
 import data from './content/index.js';
 import { VIEWS } from './views.js';
 
-// ---------- 1. The island: outline, height and ground types are world rules, so they live here, not in the style ----------
+// ---------- 1. The island: outline, height and ground types are world rules, so they live here, not in picture/ ----------
 // Every function runs in terrain workers: pure, only its parameters and Math (recipe 28 §1).
 const island = {
+  ...GROUND,
+  material: mat.ground, effects: /** @type {const} */ (false),   // drawn as given: picture/materials.js brings its own snow, and this island has no cloud shadow
   resolution: 48,   // 64 m chunk / 48 = 1.33 m cells: the rim is cut along cells, so finer cells give a finer brushed edge (recipe 42 §4)
   // the river's centre line z = amp * sin(x * freq) + shift: one set of numbers both functions read (n.params), so the dip and the river
   // ground type cannot drift apart
@@ -32,23 +36,24 @@ const island = {
     mask: (x, z) => 30 - Math.hypot(x, z * 1.15),                             // > 0 is ground: a 60 x 52 m oval
     // a ragged outline and a chipped rim. round stays 0: with round > 0 the bent-down top leaves see-through gaps above the wall (acceptance notes)
     edge: { noise: 3, size: 9, jitter: 0.5, round: 0 },
-    // own wall material: it takes no season tint, so in snow the earth walls stay brown under a white top
-    side: { depth: 2.5, material: engine => engine.makeMaterial('cliff', { vertexColors: true }) },
+    // own wall material: it takes no snow, so in snow the earth walls stay brown under a white top
+    side: { depth: 2.5, material: mat.cliff },
     bottom: { depth: (x, z, n, m) => 1.5 + m * 0.35 + 2 * n.fbm(x * 0.08, z * 0.08), ground: 'rock' },   // hangs lower inland
   },
 };
 
-// ---------- 2. Engine: own style, open-world preset with a fixed sky; a two-season calendar so snow can turn the island white ----------
+// ---------- 2. Engine: no placeholder lights, open-world preset with a fixed sky; a two-season calendar so snow can turn the island white ----------
 const WINTER_DAY = 1001;   // seasons last 1000 days each, so the season never blends towards the next one (it does over the last 20%)
-const engine = createEngine({ bindings: { ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style, saveKey: 'threedog-sheepisland',
+const engine = createEngine({ bindings: { ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, saveKey: 'threedog-sheepisland',
   ui: { loading: { title: 'sheep island' } } });
 engine.use(openWorld({ camera: fixedCamera(), terrain: island, water: false, rigid: false, ambience: false,
   calendar: { ...presets.calendar.fixedTime, time: 0.5, seasons: ['summer', 'winter'], daysPerSeason: 1000 },
   weather: { ...presets.weather.temperate, start: 'clear' }, autoWeather: false }), content());
+const picture = createPicture(engine);
 engine.assets.manifest(packs);
 engine.content.load(data);
 
-// ---------- 3. Snow means winter: the engine's season tint (style.seasons.winter) whitens foliage and ground ----------
+// ---------- 3. Snow means winter: picture/materials.js whitens foliage and ground when the season is winter ----------
 // The weather module sends no change event and a weather has no ground cover of its own, so the calendar day follows the weather each frame.
 engine.onFrame(() => {
   const day = engine.weather?.name === 'snow' ? WINTER_DAY : 1;
@@ -73,4 +78,4 @@ engine.events.on('engine:ready', () => engine.ops.run('sheepisland.view', { name
 if (params.badView) console.warn(`sheepisland: unknown view '${params.badView}', showing overview. Views: ${VIEW_NAMES.join(', ')}`);
 
 engine.start();
-window.engine = engine;   // handy for debugging in the browser console
+Object.assign(window, { engine, picture });   // handy for debugging in the browser console

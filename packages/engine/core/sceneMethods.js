@@ -1,17 +1,10 @@
-// Scene and render settings on the engine (split out of Engine.js): add / detach / remove objects, pixel ratio, shadows, fog distance,
-// tone mapping and exposure, one-off renders (renderOnce).
+// Scene and render settings on the engine (split out of Engine.js): add / detach / remove objects, pixel ratio, one-off renders (renderOnce).
 // add registers each root in the thing registry (things.js) so engine.thing / hit.thing can say what it is and what a save keeps. A plain
 // engine.scene.add(obj) is registered the same way (things.js adopts roots added under the scene), so both ways in give the same answer.
 import { DEV } from './validate.js';
 import { codedError } from './errorHints.js';
 import { thing } from './thingOps.js';
-import { TONE, exposureDriver } from './look/coreParts.js';
 import { freshFrame, renderOnce as drawOnce } from '../render/backend.js';
-
-/** The engine's fog distance when nobody set one (look.fog far's default; also the stream radius without terrain or fog) */
-export const FOG_FAR = 600;
-/** The fog distance in effect: look.fog far (with every layer: terrain view, style, game, weather), else FOG_FAR @param {any} e */
-export const fogFarOf = e => e.look?.fog?.value('far') ?? FOG_FAR;
 
 /** A short stack for "added at main.js:50" (dev): 4 frames are enough (this, add, its caller) and keep the cost low; it is formatted only when read */
 function captureStack() {
@@ -97,7 +90,7 @@ export const sceneMethods = {
   },
   // an engine.setPixelRatio call is the game's (or settings') request: written even when the game took the ratio, and re-read so it is not an outside write
   setPixelRatio(p) { this.renderer.setPixelRatio(p); this._oPixelRatio?.mark(); },
-  /** Raise camera.far to at least far (terrain view range, fog). Goes through ownership: a game that owns camera.far (look.view.manual('far')) keeps its value. @param {number} far */
+  /** Raise camera.far to at least far (terrain view range). Goes through ownership: a game that owns camera.far (engine.view.manual('far')) keeps its value. @param {number} far */
   viewFar(far) {
     if (this.camera.far >= far) return;
     if (this._oFar) this._oFar.drive(far); else { this.camera.far = far; this.camera.updateProjectionMatrix(); }

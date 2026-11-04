@@ -34,7 +34,7 @@
 //
 // Debug display: engine.debug.view('triggers') draws all trigger zones as wireframes, engine.debug.view('off') clears them. It is a debug view mode
 //   (core/debugView.js) and not a triggers option, so it works like every other "show me the hidden thing": one call, owner-scoped, said in describe().render.
-//   Look comes from style.triggers = { debugColor, debugOpacity } of the style; neutral gray if absent (a dev overlay: its line material is not a makeMaterial role).
+//   The debug lines take their color from triggers({ debugColor, debugOpacity }); neutral gray if absent.
 //   The action triggersDebug toggles that view; it has no key of its own (presets.bindings.debug binds F4 with the debug panel's F3).
 import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
@@ -44,6 +44,7 @@ import { Cells } from '../../core/cells.js';
 // Zones are indexed (core/cells.js, the shared xz index) by the cells their bounding box covers, so a step looks at the zones near the actor instead of every
 // zone. A zone with its own `who` (any position, unknown until it runs) or one covering more than MAX_CELLS cells goes to the always-checked `_global` list.
 const CELL = 16, MAX_CELLS = 64, PAD = 0.01;   // PAD: contains() is inclusive, so a point exactly on the edge must still find the zone's cell
+const DEBUG_GRAY = 0x9a9a9a;
 const bySeqDesc = (a, b) => b._seq - a._seq;   // the order zones have always run in: newest first
 
 const ADD_KEYS = ['shape', 'position', 'radius', 'size', 'height', 'rotation', 'onEnter', 'onExit', 'onStay', 'once', 'enabled', 'tag', 'who', 'cooldown', 'userData'];
@@ -54,10 +55,11 @@ const STRINGS = {
 };
 
 export class Triggers {
-  constructor(engine, { action = 'triggersDebug' } = {}, track) {
+  constructor(engine, { action = 'triggersDebug', debugColor = DEBUG_GRAY, debugOpacity = 0.8 } = {}, track) {
     this.engine = engine;
     this._list = [];
     this.action = action;
+    /** @internal the debug wireframe's line color and opacity */ this._debugLine = { color: debugColor, opacity: debugOpacity, transparent: true, depthTest: false };
     this._one = [null];           // by default "who" is a single position: reuse this array to avoid per-frame allocation
     this._custom = [null];
     this._cps = []; this._cids = [];   // positions / ids of a custom who, resolved each visit
@@ -70,7 +72,7 @@ export class Triggers {
     /** @internal the wireframe group while the debug view 'triggers' is on (null otherwise) */ this._view = null;
     engine.i18n.add(STRINGS);
     track(engine.input.action(action, { label: 'triggers.debug', optional: true, owner: 'triggers' }));   // a dev tool: silent while unbound
-    /** @internal */ this._viewDef = engine.debug.defineView('triggers', { what: 'every trigger zone drawn as a wireframe over the real look (style.triggers.debugColor)', apply: scene => this._drawView(scene) });
+    /** @internal */ this._viewDef = engine.debug.defineView('triggers', { what: 'every trigger zone drawn as a wireframe over the real picture (triggers({ debugColor }))', apply: scene => this._drawView(scene) });
   }
 
   add(opts = {}) {
@@ -245,9 +247,9 @@ export class Triggers {
    * Added to the scene directly, not engine.add: a debug overlay is not a game thing (describe().scene and saves must not count it).
    */
   _drawView(scene) {
-    const st = this.engine.style.triggers || {}, g = this._view = new THREE.Group();
+    const g = this._view = new THREE.Group();
     g.name = 'triggers-debug';
-    this._mat = new THREE.LineBasicMaterial({ color: st.debugColor ?? 0x9a9a9a, transparent: true, opacity: st.debugOpacity ?? 0.8, depthTest: false });   // debug overlay only
+    this._mat = new THREE.LineBasicMaterial(this._debugLine);   // debug overlay only
     for (const t of this._list) this._addDebugMesh(t);
     scene.add(engineOwned('triggers', g));
     return () => {
@@ -272,6 +274,8 @@ export class Triggers {
 
 const TRIGGER_PARAMS = {
   action: { type: 'string', default: 'triggersDebug', desc: "input action that toggles the debug view 'triggers' (engine.debug.view)" },
+  debugColor: { type: 'color', default: DEBUG_GRAY, desc: "line color of the debug view 'triggers'" },
+  debugOpacity: { type: 'number', default: 0.8, desc: "line opacity of the debug view 'triggers'" },
 };
 
 /** Trigger zone module. Provides engine.triggers once installed. Optional dependency: level (used by fromMarkers) */
@@ -281,7 +285,7 @@ export function triggers(opts = {}) {
   return {
     name: 'triggers', type: 'rules', label: 'Triggers', params: TRIGGER_PARAMS, options: o, noSkip: 'zone enter/exit is re-evaluated on the next fixed step', optional: ['level'], stage: 'gameplay', after: ['interactions'],
     install(e, ctx) {
-      tr = new Triggers(e, opts, ctx.track);
+      tr = new Triggers(e, o, ctx.track);
       // audio rule condition { zone: 'cave' | ['cave', 'mine'] }: some trigger zone with that tag is occupied
       ctx.track(e.audio.condition('zone', v => [].concat(v).some(tag => tr.byTag(tag).some(t => t.inside))));
       e.saves.register('triggers', { save: () => tr._save(), load: d => tr._load(d) });

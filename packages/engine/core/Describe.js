@@ -22,9 +22,8 @@ import { inspectMaterials } from './InspectMaterials.js';
 import { inspectPerf } from './InspectPerf.js';
 import { codedError, coded } from './errorHints.js';
 import { r1 } from './math.js';
-import { describeRender } from './describeRender.js';
-import { describeLook } from './look/report.js';
-import { describeOwned } from './owned.js';
+import { describeRender, describePicture } from './describeRender.js';
+import { describeOwned, checkWrittenOnce } from './owned.js';
 import { describeScene } from './thingOps.js';
 import { describeHolds } from './holds.js';
 import { warnOnce } from './validate.js';
@@ -37,7 +36,7 @@ const drawStats = r => { const s = stats(r); return { drawCalls: s.drawCalls, tr
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
 const RELATIVE = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];   // relative to the camera heading
-const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'look', 'owned', 'shared', 'control']);
+const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'picture', 'owned', 'shared', 'control']);
 const ACTIONS_MAX = 8;   // what the player can do now, with why not: saves the AI a guess for a few dozen characters   // the core's own fields
 const sector = a => Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8;
 
@@ -54,8 +53,8 @@ export function describeApi(e) {
   /**
    * Current game state (plain object, JSON.stringify-able). radius: how far counts as "nearby" (meters), default 30
    * @param {string | string[] | { radius?: number, center?: { x: number, z: number }, only?: string[] }} [opts] center: measure "nearby" from here instead
-   *   of the player (inspect uses it); only: just these top-level sections (a name or an array is short for { only }), e.g. describe('look')
-   *   or describe({ only: ['look', 'shared'] }). Why: the whole object is ~40 KB on a mid-size world, most of it engine tables (shared, look, slots)
+   *   of the player (inspect uses it); only: just these top-level sections (a name or an array is short for { only }), e.g. describe('picture')
+   *   or describe({ only: ['picture', 'shared'] }). Why: the whole object is ~40 KB on a mid-size world, most of it engine tables (shared, slots)
    *   that a question about one part does not need, and only the asked sections are built. An unknown section name is reported in the result as unknownSections, never a silent {}
    * @example engine.describe('player').player.x
   */
@@ -98,7 +97,7 @@ function pendingModules(e) {
 
 // Engine tables no module hook writes into (hooks add to time / player / camera / ui / perf / cutscene / nearby): a describe({ only }) that asks
 // for nothing else skips the hooks, describe.add and the action list
-const TABLES = new Set(['ready', 'error', 'disabledModules', 'loading', 'holds', 'input', 'control', 'shared', 'modules', 'slots', 'scene', 'threePatches', 'owned', 'look', 'render', 'renderer']);
+const TABLES = new Set(['ready', 'error', 'disabledModules', 'loading', 'holds', 'input', 'control', 'shared', 'modules', 'slots', 'scene', 'threePatches', 'owned', 'render', 'picture', 'renderer']);
 const NONE = Symbol('none');   // a conditional section that is absent this time
 
 /**
@@ -107,13 +106,14 @@ const NONE = Symbol('none');   // a conditional section that is absent this time
  * name is not a section this time: api() then builds everything to name the sections that exist
  */
 function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
+  checkWrittenOnce(e);
   const p = e.player?.position, center = at || p || e.focus, cam = e.camera;
   /** @type {Record<string, () => any>} the core's sections in output order; NONE = left out */
   const core = {
     ready: () => e.ready,
     error: () => e.error,                                    // gameplay error in dev / tests (gameplay is frozen)
     unhandled: () => e._unhandled || NONE,                   // dev: first promise rejection nobody caught, and how many followed (errors.js)
-    disabledModules: () => [...e.disabledModules],           // look / ui modules disabled after an error
+    disabledModules: () => [...e.disabledModules],           // picture / ui modules disabled after an error
     moduleStates: () => pendingModules(e) ?? NONE,           // while a module is initializing or failed
     loading: () => e.loading.view(),                         // what is pending / failed and whether it blocks the start (Loading.js)
     time: () => ({ tick: e.tick, real: r1(e.time.now('real')), ambient: r1(e.time.now('ambient')), calendar: r1(e.clock.now), paused: e.paused, frozen: e.frozen, ...(e.frozen ? { frozenBy: e.stacks.get('freeze').names() } : {}), headless: e.headless, run: e.runState,
@@ -142,8 +142,8 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
     scene: () => describeScene(e),                           // engine.add / world things: counts by save tier and what will not survive a load (thingOps.js)
     threePatches: () => threePatches.list(),                 // page-wide changes to three.js classes still on (core/threePatches.js)
     owned: () => describeOwned(e),                           // every property the engine writes on its own and who writes it now (owned.js)
-    look: () => describeLook(e),                             // every look part key, its value and who set it (look/report.js)
     render: () => describeRender(e),                         // renderer / post / lights and who set each (describeRender.js)
+    picture: () => describePicture(e),                       // tone, fog, environment, background, lights, shadows as three.js holds them now (describeRender.js)
     // which renderer was asked for and which backend draws; reason = why not WebGPU (core/startup.js _startRenderer). backend null before start()
     renderer: () => e._backend ?? { requested: e._backendWant.requested, backend: null, reason: null },
     perf: () => ({

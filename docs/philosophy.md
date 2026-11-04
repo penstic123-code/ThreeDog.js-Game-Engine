@@ -6,7 +6,7 @@ An AI coding agent asked for a three.js game starts from an empty scene. Before 
 
 The main user of the engine is an agent, not a person at a keyboard. That one fact explains most of the decisions below: an agent already knows three.js well, it reads little documentation, and it trusts whatever a tool tells it. So the engine stays close to three.js, keeps its index short, and has to report problems honestly.
 
-> **Where this stands.** The published version is 0.5, which still has the look layer described in the next section. Version 0.6 removes it and is being finished on a work branch. Everything here describes 0.6 unless it says otherwise. The last section lists what is planned and not yet built.
+> **Where this stands.** This page describes version 0.6, the first version in which the engine no longer draws the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
 
 ## Why the engine stopped drawing the picture
 
@@ -54,15 +54,15 @@ Agreement between systems comes from a few small mechanisms, and each one covers
 
 ## The gap this design accepts
 
-Two pieces of the game's own picture code can still collide. If `sky.js` and `rain.js` both assign `sun.intensity`, the later line wins and nothing complains, because this is an ordinary JavaScript assignment. Catching it directly would mean wrapping three.js, which brings the look layer back. The engine accepts this gap on purpose and closes it from the outside, in three steps that are being built for 0.6:
+Two pieces of the game's own picture code can still collide. If `sky.js` and `rain.js` both assign `sun.intensity`, the later line wins and nothing complains, because this is an ordinary JavaScript assignment. Catching it directly would mean wrapping three.js, which brings the look layer back. The engine accepts this gap on purpose and closes it from the outside, in three steps:
 
 | Kind of value | Example | Rule | On a collision |
 |---|---|---|---|
-| Only one can exist | Sky, fog, tone and exposure, main light | The code takes a slot with `provides` | Error at install, or an explicit `replaces` |
+| Only one can exist | Sky, fog, tone and exposure, main light | The code takes a slot with `provides`, from a short table of names | Error at install, or an explicit `replaces` |
 | Several parties change it | A sunset and a cutscene both dim the sun | A shared value through `engine.mod`, read in one place and written to three.js once | Combined by the formula |
 | Just more things | Another lamp, another object | Add it | No conflict, only a budget |
 
-Anything undeclared falls to a development tool that records which line wrote a picture value and reports two writers in one frame. Declaring is voluntary, so this tool is the safety net, and it only sees code that actually runs. Nothing here can tell that a warm lamp clashes with a cold sea. That judgment stays with screenshots and human eyes. This design also has not yet been tested with picture code from different sources in one game.
+Anything undeclared falls to a development tool that records which line wrote a picture value, reports two writers in one frame, reports a write to a value another part holds, and lists what a removed part left behind. Declaring is voluntary, so this tool is the safety net, and it only sees code that actually runs. Nothing here can tell that a warm lamp clashes with a cold sea. That judgment stays with screenshots and human eyes. Three parts written in three styles do run together in a test, and each planned collision fails with a message naming both sides; a real game has not tried it yet.
 
 ## Principles
 

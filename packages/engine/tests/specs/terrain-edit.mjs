@@ -38,7 +38,7 @@ const setup = () => {
     trees(E, x, z, r) {
       let n = 0;
       for (const c of E.terrain.chunks.values()) {
-        const im = E.vegetationLook.mesh(c, 'tree'); if (!im) continue;
+        const im = E.vegetationDraw.mesh(c, 'tree'); if (!im) continue;
         const a = im.instanceMatrix.array, CH = E.terrain.CHUNK;
         for (let i = 0; i < im.count; i++) {
           if (a[i * 16] === 0 && a[i * 16 + 2] === 0) continue;   // hidden (scaled to 0)
@@ -50,8 +50,8 @@ const setup = () => {
       return { n, k };
     },
     chunkSnap(E, key) {
-      const c = E.terrain.chunks.get(key), g = E.terrainLook.meshes.get(c).mesh.geometry.attributes;
-      return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationLook.mesh(c, 'tree')?.instanceMatrix.array ?? [])]);
+      const c = E.terrain.chunks.get(key), g = E.terrainDraw.meshes.get(c).mesh.geometry.attributes;
+      return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationDraw.mesh(c, 'tree')?.instanceMatrix.array ?? [])]);
     },
   };
 };

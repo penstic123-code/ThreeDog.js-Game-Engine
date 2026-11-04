@@ -23,6 +23,10 @@
   - `textures?: number` Texture count
   - `chunkApplyMs?: number` Terrain chunk upload milliseconds per frame
   - `rigidBodies?: number` Rigid body count
+  - `lights?: number` Lit point + spot lights, a game's own and pooled ones (default limit 8)
+  - `shadowLights?: number` Lit point + spot lights that cast shadows
+  - `shadowMaps?: number` Shadow maps drawn each frame, sun and cascades included, a point light counts six
+  - `shadowMapSize?: number` The largest side of a shadow map, in pixels
   - `applyTransitMs?: number` Per-frame cost of applying background results, by stage (engine.budget.cost): worker transit (approximate), creating three.js objects, colliders, GPU upload (approximate), stream build()
   - `applyBuildMs?: number`
   - `applyColliderMs?: number`

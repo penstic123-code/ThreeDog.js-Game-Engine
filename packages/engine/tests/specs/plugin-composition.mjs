@@ -3,7 +3,7 @@
 // list still said A, B); the plugins of one style pack shared one owner, so switching B off also dropped A's material; turning a material
 // patch plugin off left the materials already made with the patch (a streamed world got mixed looks); off('<pack>') did not say that the
 // pack's starting values stay. If any of these comes back, or off / on stops giving back the exact picture, this fails.
-// Page: perf city (WebGL, real look / plugin / patch code). Same format as the other files here.
+// Page: perf city (WebGL, real picture / plugin / patch code). Same format as the other files here.
 
 /** Shared by the pixel items: render the engine at a small fixed size, read every pixel, compare two reads */
 const PIX = `(() => {
@@ -16,7 +16,7 @@ const PIX = `(() => {
 
 export const specs = [
   {
-    name: '[guard] plugins composed: post effects keep their place across off / on; look.post.set is a pause, plugins.off an unload',
+    name: '[guard] plugins composed: post effects keep their place across off / on; handle.enabled is a pause, plugins.off an unload',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -29,98 +29,65 @@ export const specs = [
         out.offResult = engine.plugins.off('60-pa');
         out.offOrder = order();
         engine.plugins.on('60-pa'); out.back = order();
-        engine.look.post.set({ pa: false }); engine.look.post.set({ pa: true }); out.paused = order();
-        out.list = engine.plugins.list().filter(p => /^6[01]-/.test(p.name)).map(p => `${p.name}:${p.reach.join()}`);
+        engine.post.get('pa').enabled = false; engine.post.get('pa').enabled = true; out.paused = order();
         engine.plugins.off('60-pa'); engine.plugins.off('61-pb');
         return out;
       });
       console.log('  plugin post order:', JSON.stringify(r));
       check('A, B with no order render A then B; after off(A) / on(A) still A then B (the place is the registration place)', r.start === 'pa,pb' && r.offOrder === 'pb' && r.back === 'pa,pb', JSON.stringify(r));
-      check('look.post.set({ pa: false / true }) keeps the place too', r.paused === 'pa,pb', r.paused);
-      check('off() returns what it did: the plugins it took out, their reach, and how to pause instead', r.offResult?.off?.join() === '60-pa' && /look\.post\.set\(\{ pa: false \}\)/.test(r.offResult.note ?? ''), JSON.stringify(r.offResult));
-      check('plugins.list() says each post plugin reaches the live picture', r.list.join() === '60-pa:live,61-pb:live', r.list.join());
+      check('handle.enabled = false / true keeps the place too', r.paused === 'pa,pb', r.paused);
+      check('off() returns what it did: the plugins it took out and how to pause instead', r.offResult?.off?.join() === '60-pa' && r.offResult.note?.includes("engine.post.get('pa').enabled = false"), JSON.stringify(r.offResult));
     },
   },
   {
-    name: '[guard] plugins composed: each style plugin is its own owner (B off gives A back, not the base); the same key from two plugins is a conflict unless one replaces the other; off(pack) keeps the pack\'s starting values',
+    name: '[guard] plugins composed: each plugin is its own owner (B off gives A back, not the base); the same key from two plugins is a conflict unless one replaces the other',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const { THREE, createEngine } = threedogTest, out = {};
+        const { createEngine, ShaderPass, CopyShader } = threedogTest, out = {};
         const err = async f => { try { await f(); return ''; } catch (e) { return e.message; } };
-        const mk = (plugins, key) => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key + performance.now(),
-          style: { name: 'ink', exposure: 1.3, materials: { prop: { type: 'toon' } }, plugins } });
-        const red = () => Object.assign(new THREE.MeshLambertMaterial({ color: 0xff0000 }), { name: 'prop' });
-        const blue = () => Object.assign(new THREE.MeshPhongMaterial({ color: 0x0000ff }), { name: 'prop' });
-        // two plugins replacing one role, neither says it replaces the other: a dev conflict naming both
+        const mk = (plugins, key) => { const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key + performance.now() });
+          e.plugins.add(plugins); return e; };
+        const effect = tag => ({ name: 'tint', tag, create: () => new ShaderPass(CopyShader) });
+        const red = () => effect('red'), blue = () => effect('blue');
+        // two plugins naming one effect, neither says it replaces the other: a dev conflict naming both
         const c = mk({ './plugins/10-a.js': { default: red() }, './plugins/20-b.js': { default: blue() } }, 'pc-conflict');
         out.conflict = await err(() => c.start());
         c.dispose?.();
-        // B declares it replaces A: B wins while on; B off gives A's red back (A still on); off(pack) gives the base; the starting values stay
+        // B declares it replaces A: B wins while on; B off gives A's red back (A still on); both off gives the base
         const e = mk({ './plugins/10-a.js': { default: red() }, './plugins/20-b.js': { default: blue(), replaces: '10-a' } }, 'pc-replace');
         await e.start();
-        const hex = () => e.makeMaterial('prop').type;
+        const hex = () => e.post._list.find(h => h.name === 'tint')?._def.tag ?? 'none';
         out.both = hex();
-        out.offB = e.plugins.off('ink/20-b'); out.afterB = hex(); out.aOn = e.plugins.list().find(p => p.name === 'ink/10-a')?.on;
-        e.plugins.on('ink/20-b'); out.backB = hex();
-        out.offPack = e.plugins.off('ink'); out.base = hex(); out.exposure = e.renderer.toneMappingExposure;
-        out.slots = e.describe().slots.filter(s => s.file.startsWith('style ink')).map(s => s.affects.join());
+        out.offB = e.plugins.off('20-b'); out.afterB = hex(); out.aOn = e.plugins.list().find(p => p.name === '10-a')?.on;
+        e.plugins.on('20-b'); out.backB = hex();
+        e.plugins.off('20-b'); e.plugins.off('10-a'); out.base = hex();
         e.dispose?.();
         return out;
       });
       console.log('  plugin owners:', JSON.stringify(r));
-      check('two style plugins replacing the same role: shared-conflict naming both plugins', /shared-conflict/.test(r.conflict) && /ink\/10-a/.test(r.conflict) && /ink\/20-b/.test(r.conflict), r.conflict);
-      check('B (replaces A) wins; B off gives A\'s red with A still on; B on again is blue', r.both === 'MeshPhongMaterial' && r.afterB === 'MeshLambertMaterial' && r.aOn === true && r.backB === 'MeshPhongMaterial', JSON.stringify(r));
-      check('off(pack) takes every plugin of the pack out (base material back) and says the pack\'s starting values stay', r.base === 'MeshToonMaterial' && r.offPack?.off?.length === 2 && /starting values/.test(r.offPack.note ?? '') && Math.abs(r.exposure - 1.3) < 1e-6, JSON.stringify({ base: r.base, offPack: r.offPack, exposure: r.exposure }));
-    },
-  },
-  {
-    name: '[guard] plugins composed: a material patch plugin off / on rebuilds the materials already made (look.materials.rebuild), keeping wind and cloud shadow',
-    url: '/tests/perf/index.html?mode=city',
-    async run({ check, ev }) {
-      const r = await ev(async () => {
-        await engine.loading.settled(); engine.pause();
-        const { THREE, applyEffects, materialPatches } = threedogTest, out = {};
-        const m0 = applyEffects(engine.makeMaterial('pcrate', { color: 0x886644 }), { wind: 0.05, clouds: true, engine });
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), m0); engine.add(mesh, { id: 'pc-crate' });
-        engine.plugins.add({ './plugins/70-tint.js': { default: { slot: 'color', glsl: 'diffuseColor.rgb *= vec3(0.2, 1.0, 0.2);', roles: ['pcrate'] } } });
-        out.reach = engine.plugins.list().find(p => p.name === '70-tint')?.reach;
-        out.start = materialPatches(mesh.material);   // the plugin was added after m0 was made: on() rebuilt it
-        out.off = engine.plugins.off('70-tint');
-        out.afterOff = materialPatches(mesh.material);
-        out.color = mesh.material.color.getHex();
-        engine.plugins.on('70-tint'); out.afterOn = materialPatches(mesh.material);
-        out.noRebuild = engine.plugins.off('70-tint', { rebuild: false }); out.stale = materialPatches(mesh.material).includes('70-tint');
-        out.manual = engine.look.materials.rebuild(); out.fresh = !materialPatches(mesh.material).includes('70-tint');
-        engine.remove(mesh);
-        return out;
-      });
-      console.log('  plugin material reach:', JSON.stringify(r));
-      check('plugins.list() reports a patch plugin as reaching new materials only (off / on rebuilds the made ones)', r.reach?.join() === 'new materials only', JSON.stringify(r.reach));
-      check('on: the material already on the mesh carries the patch; off: it is gone; wind and cloud shadow stay; the call color stays',
-        r.start.includes('70-tint') && !r.afterOff.includes('70-tint') && ['wind', 'clouds'].every(n => r.afterOff.includes(n) && r.start.includes(n)) && r.afterOn.includes('70-tint') && r.color === 0x886644, JSON.stringify(r));
-      check('off() says how many materials it rebuilt; { rebuild: false } leaves them and names the exact call', r.off?.rebuilt >= 1 && r.stale && /engine\.look\.materials\.rebuild\(\)/.test(r.noRebuild?.note ?? ''), JSON.stringify({ off: r.off, noRebuild: r.noRebuild }));
-      check('look.materials.rebuild() brings the made materials in line and reports the count and time', r.fresh && r.manual?.rebuilt >= 1 && typeof r.manual.ms === 'number', JSON.stringify(r.manual));
+      check('two plugins naming the same effect: the second fails at start, naming both files, the effect and the way out', /plugins\/20-b\.js/.test(r.conflict) && /plugins\/10-a\.js/.test(r.conflict) && /'tint' is already added/.test(r.conflict) && /export const replaces/.test(r.conflict), r.conflict);
+      check('B (replaces A) wins; B off gives A\'s red with A still on; B on again is blue', r.both === 'blue' && r.afterB === 'red' && r.aOn === true && r.backB === 'blue', JSON.stringify(r));
+      check('both off gives the base', r.base === 'none', r.base);
     },
   },
   {
     software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
-    name: '[guard] plugins composed (WebGL pixels): sky + weather + fog, material + wind + cloud shadow, bloom + grading + grain: each plugin off changes the picture, on gives the exact previous picture, the post order stays',
+    name: '[guard] plugins composed (WebGL pixels): sky + weather + fog, bloom + grading + grain over a material with wind + cloud shadow: each plugin off changes the picture, on gives the exact previous picture, the post order stays',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async PIX => {
         await engine.loading.settled(); engine.pause();
         const { THREE, postEffects: E, applyEffects } = threedogTest, out = {};
         const hold = engine.freeze('pc-pixels', { ambient: true }), px = (0, eval)(PIX);   // wind, clouds, weather stand still: two reads differ only by the plugins
-        // material + wind + cloud shadow: a crate in front of the camera with both effects, and a tint patch plugin on its role
+        // material + wind + cloud shadow: a crate in front of the camera with both effects
         const cam = engine.camera, ahead = cam.getWorldDirection(new THREE.Vector3()).multiplyScalar(4).add(cam.position);
-        const crate = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), applyEffects(engine.makeMaterial('pcomb', { color: 0xaa8855 }), { wind: 0.05, clouds: true, engine }));
+        const crate = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), applyEffects(new THREE.MeshLambertMaterial({ color: 0xaa8855 }), { wind: 0.05, clouds: true, engine }));
         crate.position.copy(ahead); engine.add(crate, { id: 'pcomb-crate' });
-        // fog as a module plugin (it writes look.fog under its own owner and lets go on dispose), with the page's sky and weather running
-        const fogRule = { name: 'pcFog', type: 'look', install(en) { this.h = en.look.fog.set({ color: '#ff00ff', near: 1, far: 30 }, { owner: 'pcFog' }); }, dispose() { this.h?.remove(); } };
+        // fog as a module plugin (it writes scene.fog and puts the old one back on dispose), with the page's sky and weather running
+        const fogRule = { name: 'pcFog', type: 'picture', install(en) { this.old = en.scene.fog; this.en = en; en.scene.fog = new en.THREE.Fog('#ff00ff', 1, 30); }, dispose() { this.en.scene.fog = this.old; } };
         engine.plugins.add({
           './plugins/80-fog.js': { default: fogRule },
-          './plugins/81-tint.js': { default: { slot: 'color', glsl: 'diffuseColor.rgb *= vec3(0.3, 0.3, 1.0);', roles: ['pcomb'] } },
           './plugins/82-bloom.js': { default: E.bloom({ strength: 0.8, threshold: 0.2 }) },
           './plugins/83-grade.js': { default: E.lut({ contrast: 1.3, saturation: 0.6, temperature: 0.4 }) },
           './plugins/84-grain.js': { default: E.grain({ amount: 0.15, animated: false }) },
@@ -128,13 +95,13 @@ export const specs = [
         const order = () => engine.post.list().map(x => x.name).join();
         const base = px.read(), order0 = order();
         out.rows = {};
-        for (const n of ['80-fog', '81-tint', '82-bloom', '83-grade', '84-grain']) {
+        for (const n of ['80-fog', '82-bloom', '83-grade', '84-grain']) {
           engine.plugins.off(n); const off = px.read();
           engine.plugins.on(n); const on = px.read();
           out.rows[n] = { changed: px.diff(base, off), back: px.diff(base, on), order: order() === order0 };
         }
         px.done(); hold?.remove?.();
-        for (const n of ['80-fog', '81-tint', '82-bloom', '83-grade', '84-grain']) engine.plugins.off(n);
+        for (const n of ['80-fog', '82-bloom', '83-grade', '84-grain']) engine.plugins.off(n);
         engine.remove(crate);
         return out;
       }, PIX);

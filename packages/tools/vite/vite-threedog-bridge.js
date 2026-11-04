@@ -122,6 +122,11 @@ export default function threedogBridge() {
       let tail = Promise.resolve();
       const inOrder = fn => { const run = tail.then(fn); tail = run.catch(() => {}); return run; };
 
+      // which folder this server is for: `threedog shot <url>` asks before it trusts the page (a leftover server on the port is another game)
+      server.middlewares.use('/__threedog/root', (req, res) => {
+        if (!isLocalRequest(req)) { res.statusCode = 403; return res.end(); }
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ root: server.config.root }));
+      });
       server.middlewares.use('/__threedog/cmd', (req, res) => {
         const reply = (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
         if (req.method !== 'POST' || !isLocalRequest(req)) return reply(403, { ok: false, error: 'the bridge only accepts commands from the local command line' });

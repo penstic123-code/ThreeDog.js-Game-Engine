@@ -58,7 +58,7 @@ export const specs = [
     },
   },
   {
-    name: '小城示例（关卡模块、无地形、无游戏自己的 style）',
+    name: '小城示例（关卡模块、无地形）',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const g = await ev(() => ({ stage: engine.surface(0, -14), ramp: engine.surface(0, -7.2), street: engine.surface(10, 10), boxes: engine.collision.boxes.size }));
@@ -114,21 +114,21 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
-        const S = engine.settings, P = 'look.post.tint.enabled', on = () => engine.stacks.get(P).value();
+        const S = engine.settings, P = 'post.tint.enabled', on = () => engine.stacks.get(P).value();
         const out = { missing: err(() => S.define('tint', true, { limits: P })) };   // the effect does not exist yet
-        const h = engine.look.post.add({ name: 'tint', fuse: { glsl: 'color.rgb *= 0.98;' } });
+        const h = engine.post.add({ name: 'tint', fuse: { glsl: 'color.rgb *= 0.98;' } });
         S.define('tint', true, { limits: P });
         out.start = on();
         S.set('tint', false); out.off = on();
         // a cutscene (system layer) turns it back on: the player's choice still wins
-        const cut = engine.look.post.set({ 'tint.enabled': true }, { owner: 'cut', layer: 'system' }); out.cut = on();
+        const cut = engine.mod(P, { owner: 'cut', set: true, layer: 'system' }); out.cut = on();
         S.set('tint', true); out.back = on(); cut.remove();
         // a number row is a factor 0..1 on a number value
-        const L = 'look.lights.sun.intensity', base = engine.stacks.get(L).value();
+        const L = 'test.sunCap', base = engine.stacks.define(L, { base: 2, min: 0 }).value();
         S.define('sunCap', 1, { limits: L }); S.set('sunCap', 0.5); out.half = engine.stacks.get(L).value() / base;
         S.set('sunCap', 1); out.full = engine.stacks.get(L).value() / base;
         out.dup = err(() => S.define('tint2', true, { limits: P }));
-        out.builtin = err(() => S.define('myShadows', true, { limits: 'look.shadow.enabled' }));
+        out.builtin = err(() => S.define('myShadows', true, { limits: 'shadows.enabled' }));
         out.kind = err(() => S.define('tintAmount', 0.5, { limits: P }));
         h.remove();
         return out;

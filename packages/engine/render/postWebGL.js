@@ -16,6 +16,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FusedPass, groupFuse, checkDepthOrder } from './fuse.js';
 import { codedError } from '../core/errorHints.js';
 import { holdShadowRedraw } from './backend.js';
+import { notePatch, patchOn } from '../core/threePatches.js';
 
 // One FusedPass per group of neighboring fuse effects, kept while the same effects stay grouped (a changed group recompiles once)
 function fuseEntry(post, group, used) {
@@ -33,13 +34,15 @@ function fuseEntry(post, group, used) {
 // shadows the picture shows, and it also uses up a requested redraw (needsUpdate, sky's shadow.updateEvery), so "every N frames" still works.
 // Why wrapping the pass's render and not an extra marker pass: the chain's pass list is what tests and post.object() show.
 const HOLDS = new WeakSet();
+notePatch('post-shadow-hold', "render of the first pass of the WebGL post chain, which may be the game's own Pass: wrapped so shadow maps redraw once a frame (render/postWebGL.js)", () => {},
+  { scope: 'post chain', lost: 'effects that draw the scene again (ao, outline) redraw every shadow map a second time each frame' });
 function holdAfterScene(post, pass) {
   if (!pass || HOLDS.has(pass)) return;
   HOLDS.add(pass);
   const render = pass.render;
   pass.render = function (...a) {
     const out = render.apply(this, a);
-    if (post._shadowRelease === null) post._shadowRelease = holdShadowRedraw(post.engine.renderer, post.engine.scene);
+    if (post._shadowRelease === null && patchOn('post-shadow-hold')) post._shadowRelease = holdShadowRedraw(post.engine.renderer, post.engine.scene);
     return out;
   };
 }
@@ -75,6 +78,8 @@ function toTarget(post, dt, target) {
 
 // The meshes three draws a texture background with (WebGLBackground's plane and box), by their material names
 const BG_MATERIALS = ['BackgroundMaterial', 'BackgroundCubeMaterial'];
+notePatch('post-background-tone', "onBeforeRender of three's own background mesh (the one WebGLBackground keeps): tone mapping on while the engine draws straight to the canvas (render/postWebGL.js)", () => {},
+  { scope: 'engine renderer', lost: 'with no effect on, a texture background is not tone-mapped, so it changes when the first effect turns on' });
 /**
  * draw() with three's background mesh tone-mapped. three resets material.toneMapped of that mesh in every render (before drawing it) and keeps
  * the mesh to itself, so it is found once in the render list (the background is unshifted to opaque[0]) and given an onBeforeRender that turns
@@ -91,7 +96,7 @@ function toneBackground(post, draw) {
     if (!m || !BG_MATERIALS.includes(m.material?.name) || post._bgMeshes.has(m)) return;
     post._bgMeshes.add(m);
     const before = m.onBeforeRender;
-    m.onBeforeRender = function (...a) { before.apply(this, a); if (post._toneBg) this.material.toneMapped = true; };
+    m.onBeforeRender = function (...a) { before.apply(this, a); if (post._toneBg && patchOn('post-background-tone')) this.material.toneMapped = true; };
     draw();
   } finally { post._toneBg = false; }
 }

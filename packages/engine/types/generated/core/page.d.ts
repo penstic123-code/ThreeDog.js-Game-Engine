@@ -9,10 +9,17 @@ export class Page {
     visible: boolean;
     /** The mouse is locked to the canvas (first-person / shoulder cameras lock on click) @type {boolean} */
     pointerLocked: boolean;
-    /** The WebGL context is lost and not yet restored @type {boolean} */
+    /** The WebGL context is lost and not yet restored, or the WebGPU device is lost @type {boolean} */
     contextLost: boolean;
     /** The page is away: the window lost focus or the tab is hidden @type {boolean} */
     get away(): boolean;
-    /** The real-time loop holds gameplay now (away with pauseOnBlur, or the WebGL context is lost) @type {boolean} */
+    /** The real-time loop holds gameplay now (away with pauseOnBlur, or the WebGL context / WebGPU device is lost) @type {boolean} */
     get held(): boolean;
+    /**
+     * Let go of the mouse (a game's own screen, a click-driven moment). Not read as the player's Esc, so the pause menu stays shut. Does nothing without a lock; the next
+     * click on the view locks again.
+     * @returns {void}
+     * @example engine.page.releaseLock(); showMyMap();
+     */
+    releaseLock(): void;
 }

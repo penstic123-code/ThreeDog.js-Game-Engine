@@ -7,19 +7,19 @@
 import * as THREE from 'three';
 import { warnOnce } from '../../core/validate.js';
 import { fmt } from '../../core/opsCheck.js';
-import { makeMaterial } from '../../render/materials.js';
+import { neutralMaterial } from '../../render/neutral.js';
 import { codedError } from '../../core/errorHints.js';
 
 /**
  * Build a procedural model asset now (synchronously) when `name` is a registered builder; null when it is a file model, unknown, or the
- * builder is async (those load through loadAssetModel). The builder gets this = { palette: style.palette, engine } like any generator in the manifest.
+ * builder is async (those load through loadAssetModel). The builder gets this = { palette: engine.assets.palette, engine } like any generator in the manifest.
  */
 export function buildNow(engine, name) {
   const build = engine.assets.builder(name);
   if (!build) return null;
-  const v = build.call({ palette: engine.style.palette, engine });
+  const v = build.call({ palette: engine.assets.palette, engine });
   if (!v || typeof v.then === 'function') return null;
-  if (v.isBufferGeometry) return new THREE.Mesh(v, makeMaterial('character', { vertexColors: !!v.attributes.color }, engine));
+  if (v.isBufferGeometry) return new THREE.Mesh(v, neutralMaterial('character', { vertexColors: !!v.attributes.color }));
   if (!v.name) v.name = name;
   return v;
 }
@@ -48,6 +48,7 @@ export function loadAssetModel(ch, name, use) {
     if (m.name === 'placeholder' && e.loading.get(name, 'model')?.phase === 'failed') { e.remove(m); fail('load failed'); return; }
     const rig = ch._rig;   // drop the placeholder body and the joint properties it put on the character
     for (const k in rig.joints || {}) if (ch[k] === rig.joints[k]) delete ch[k];
+    e.characters?._capsules.delete(rig.capsule);
     e.remove(rig.root);
     ch._rig = ch.hips = ch.head = null; ch.limbs = [];
     use(m);

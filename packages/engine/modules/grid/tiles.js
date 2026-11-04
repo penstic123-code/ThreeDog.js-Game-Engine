@@ -2,39 +2,35 @@
 // whose four corners sit on engine.surface + lift, so tiles hug a ramp or terrain and work on any ground provider
 // (procedural terrain, a Blender level, a flat greenhouse floor). One merged mesh = one draw call; it is rebuilt only when
 // the layer version or the ground (level:loaded) changes.
-// Look: layer option tiles.look(data, cell) -> color | null, else tiles.colors = { field: color } (call site, same shape as the style table), else the style table style.grid.tiles[layer] = { field: color }
-// (first truthy field in the table's order wins), else neutral gray. tiles: false = off; a function = your own part.
+// Picture: layer option tiles.color(data, cell) -> color | null, else tiles.colors = { field: color }, else the module's table grids({ tiles: { layer: { field: color } } })
+// (first truthy field in the table's order wins), else neutral gray. tiles: false = off; a function = your own part. layer.material is the three.js material they draw with.
 import * as THREE from 'three';
-import { makeMaterial } from '../../render/materials.js';
+import { neutralMaterial } from '../../render/neutral.js';
 import { surfaceOr } from '../../core/ground.js';
+import { readParams, keysSchema } from '../../core/params.js';
 
 const GAP = 0.03;   // fraction of a cell left between tiles: keeps tiles visibly separate (crisp edges)
 const FALLBACK = 0x9a9a9a;
 
-/** Look function from a { field: color } table: the first truthy field in the table's order wins (same table shape as style.grid.tiles[layer]; the call-site option tiles.colors wins over the style) @internal */
-function tableLook(table) {
+/** Color function from a { field: color } table: the first truthy field in the table's order wins (the layer's tiles.colors wins over the module's grids({ tiles })) @internal */
+function tableColor(table) {
   if (!table) return null;
   const order = Object.entries(table);
   return d => { for (const [f, c] of order) if (d[f]) return c; return null; };
 }
 
-/** Look function from the style table (null if the style has none for this layer) @internal */
-function styleLook(e, name) {
-  return tableLook(e.style.grid?.tiles?.[name]);
-}
-
 /** Build the tile view of a layer, or null when off. Returns { frame(), dispose() } @internal */
-export function layerTiles(e, layer) {
+export function layerTiles(e, layer, st) {
   const t = layer.opts.tiles, name = layer.name;
   if (t === false) return null;
   if (typeof t === 'function') return customTiles(e, layer, t(e, layer));
-  const look = (t && typeof t === 'object' && (t.look || tableLook(t.colors))) || styleLook(e, name) || (t ? () => FALLBACK : null);
-  if (!look) return null;   // no style table and not asked for: a pure data layer
-  const lift = (t && typeof t === 'object' && t.lift) ?? e.style.grid?.tileLift ?? 0.03;
-  const mat = makeMaterial('decal', { vertexColors: true }, e);
+  if (t && typeof t === 'object') readParams(`layer('${name}') tiles`, keysSchema(['color', 'colors', 'lift']), t);
+  const color = (t && typeof t === 'object' && (t.color || tableColor(t.colors))) || tableColor(st.tiles[name]) || (t ? () => FALLBACK : null);
+  if (!color) return null;   // no table and not asked for: a pure data layer
+  const lift = t?.lift ?? st.tileLift;
   // drawn over the ground it lies on: depth offset instead of a big lift keeps it glued to slopes
-  mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2;
-  const geo = new THREE.BufferGeometry(), mesh = new THREE.Mesh(geo, mat);
+  const own = neutralMaterial('decal', { vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const geo = new THREE.BufferGeometry(), mesh = new THREE.Mesh(geo, own);
   mesh.name = `grid:${layer.grid.name}.${name}`; mesh.receiveShadow = true; mesh.frustumCulled = false;
   e.add(mesh, { owner: 'engine:grid' });
   let ver = -1, ground = 0, built = -1;
@@ -44,7 +40,7 @@ export function layerTiles(e, layer) {
     const cells = layer.query(), pos = [], clr = [], idx = [];
     let last = 0;   // height of the previous corner: a corner beyond the island borrows it instead of -Infinity
     for (const { cell, data } of cells) {
-      const c = look(data, cell);
+      const c = color(data, cell);
       if (c == null) continue;
       col.set(c);
       // from the grid's mapping (its cell centers), so a replaced mapping draws where its cells are
@@ -65,7 +61,7 @@ export function layerTiles(e, layer) {
       mesh.visible = g.zone == null || e.world?.zone == null || e.world.zone === g.zone;
       if (layer._ver !== ver || ground !== built) { ver = layer._ver; built = ground; rebuild(); }
     },
-    dispose() { off.remove(); e.remove(mesh); geo.dispose(); mat.dispose(); },
+    dispose() { off.remove(); e.remove(mesh); geo.dispose(); own.dispose(); },   // a material the game set stays the game's
   };
 }
 

@@ -1,7 +1,7 @@
 // Diagnostic view modes behind engine.debug.view('albedo' | 'lighting' | 'shadow' | 'normals' | 'overdraw' | 'shaderCost' | 'off') (DebugOverrides.js).
 // Temporary and owner-scoped: it changes how the scene is drawn (material swap / scene.overrideMaterial / lights hidden) and puts everything back on 'off'
 // or when its owner clears (engine.debug.clear(owner)). Never saved, never part of the game's state; describe().render says so while one is active,
-// so an AI reading a screenshot does not take "all white clay" for the real look.
+// so an AI reading a screenshot does not take "all white clay" for the real picture.
 // Why a view is an entry of the debug override chain and not its own material swap: two independent swaps on one mesh restored each other's stale
 // material and disposed the real one (review H3). In the chain, the albedo view is a { material: 'flat' } entry on the scene and the other modes an apply()
 // entry whose undo only puts back what it changed, and only disposes the override material it created.
@@ -24,7 +24,7 @@ const EXPLAIN = {
   lighting: 'every surface plain white matte: shows only what the lights do (no textures)',
   shadow: 'plain white matte lit by direct lights only (ambient and hemisphere lights hidden, environment map off): shadows read as black',
   normals: 'surface normals as color (x/y/z -> r/g/b); a normal map shows here, flat shading looks faceted',
-  overdraw: 'every drawn layer adds a little orange, depth test off: bright = many surfaces drawn over each other on that pixel (transparent foliage, particles, stacked planes)',
+  overdraw: 'every drawn layer adds a little orange, depth test off: bright = many layers drawn over each other on that pixel (transparent foliage, particles, stacked planes)',
   shaderCost: 'each material colored by its compiled program cost (fragment code lines + samplers, approximate): green cheap, red the costliest in this scene, gray not compiled yet',
 };
 const OVERDRAW = 0x1a0c04;   // per layer: ~10 layers of it reach white
@@ -91,7 +91,7 @@ export class DebugView {
   /** @param {any} engine @param {any} debug the engine.debug override chain it lives in */
   constructor(engine, debug) {
     this.engine = engine; this.debug = debug;
-    /** @type {{ mode: string, owner: string } | null} the active view (null = the real look) */
+    /** @type {{ mode: string, owner: string } | null} the active view (null = the real picture) */
     this.active = null;
     this._holder = engine.stacks.define('debug.view', { kind: 'top', save: false });
     this._entry = null;
@@ -112,7 +112,7 @@ export class DebugView {
   /** Every mode a view can show now: the built-in ones and those modules added @returns {string[]} */
   modes() { return [...VIEW_MODES, ...this._defs.keys()]; }
   /**
-   * Show a diagnostic view; 'off' restores the real look. Temporary: never saved, and a game that reads it must not branch on it.
+   * Show a diagnostic view; 'off' restores the real picture. Temporary: never saved, and a game that reads it must not branch on it.
    * owner names who asked ('debug' by default): while one owner's view is on, another owner can neither switch it nor turn it off unless it passes force.
    * @param {'albedo' | 'lighting' | 'shadow' | 'normals' | 'overdraw' | 'shaderCost' | 'off' | string} mode a built-in mode or one a module added (defineView)
    * @param {{ owner?: string, force?: boolean }} [opts]

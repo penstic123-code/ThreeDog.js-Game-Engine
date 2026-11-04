@@ -1,34 +1,37 @@
 // Placement preview (engine.grids.preview): picks the target cell every frame (under the pointer, in front of the player, or from
 // your function), keeps a rotation turned by an input action, asks can(), and shows a see-through footprint
-// (style.grid.ok / bad colors). It never changes gameplay state: place() runs the grid.place op with what it shows.
-// The look is a replaceable part: look: false (no visual, the handle still answers), or (engine) => ({ update(view), hide(), dispose() }).
+// (grids({ ok, bad }) colors). It never changes gameplay state: place() runs the grid.place op with what it shows.
+// The picture is a replaceable part: draw: false (no visual, the handle still answers), or (engine) => ({ update(view), hide(), dispose() }); pv.material is the default box's.
 import * as THREE from 'three';
-import { makeMaterial } from '../../render/materials.js';
+import { neutralMaterial } from '../../render/neutral.js';
 import { screenToGround } from '../../core/screenToGround.js';
 import { warnOnce } from '../../core/validate.js';
 import { failure } from '../../core/opsFail.js';
+import { codedError } from '../../core/errorHints.js';
 
-// tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot); a style may override them
-const OK = 0xe0e0e0, BAD = 0x3a3a3a;
 const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview cannot be turned by input. Bind it (engine.input.bind("{a}", ["KeyR"]) or presets.bindings.gridRotate), or pass rotate: false and call pv.rotate() from your own control';
 
-/** Default look: a flat translucent box over the footprint @internal */
-function boxLook(e) {
-  const st = e.style.grid ?? {}, opacity = st.previewOpacity ?? 0.45;
-  const mat = makeMaterial('decal', { transparent: true, opacity, depthWrite: false }, e);
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+/** Default picture: a flat translucent box over the footprint @internal */
+function boxPart(e, st) {
+  const own = neutralMaterial('decal', { transparent: true, opacity: st.previewOpacity, depthWrite: false });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), own);
   mesh.name = 'grid:preview'; mesh.visible = false; mesh.renderOrder = 2;
   e.add(mesh, { owner: 'engine:grid' });
-  const ok = new THREE.Color(st.ok ?? OK), bad = new THREE.Color(st.bad ?? BAD), h = st.previewHeight ?? 0.08;
+  const ok = new THREE.Color(st.ok), bad = new THREE.Color(st.bad), h = st.previewHeight;
   return {
+    get material() { return mesh.material; },
+    set material(m) {
+      if (!m?.isMaterial) throw codedError('grids-misuse', `pv.material takes a three.js material, got ${m}`);
+      mesh.material = m;
+    },
     update(v) {
       mesh.visible = true;
       mesh.scale.set(v.size[0] - 0.04, h, v.size[1] - 0.04);
       mesh.position.set(v.center.x, v.center.y + h / 2, v.center.z);
-      mat.color.copy(v.ok ? ok : bad);
+      /** @type {any} */ (mesh.material).color?.copy(v.ok ? ok : bad);   // telling can from cannot is the preview's job, on any material that has a color
     },
     hide() { mesh.visible = false; },
-    dispose() { e.remove(mesh); mesh.geometry.dispose(); mat.dispose(); },
+    dispose() { e.remove(mesh); mesh.geometry.dispose(); own.dispose(); },   // a material the game set stays the game's
   };
 }
 
@@ -46,17 +49,23 @@ function target(e, from, g) {
 
 /** Create a preview handle @internal */
 export function makePreview(e, grids, opts) {
-  const { grid, item, from = 'pointer', rotate = 'rotate', look } = opts;
+  const { grid, item, from = 'pointer', rotate = 'rotate', draw } = opts;
   const g = grids._must(grid), rule = grids._rule(item);
   // declared by the preview, owned by the grid module and taken away with the preview (or the module), so nothing outlives it; the game binds
   // the key (presets.bindings.gridRotate) like every module action
   const decl = rotate ? e.input.action(rotate, { label: 'grid.rotate', owner: 'grids', optional: true }) : null;
   if (rotate && !e.input.keysOf(rotate).length) warnOnce(NO_KEY.replaceAll('{a}', rotate));
-  const part = look === false ? null : typeof look === 'function' ? look(e) : boxLook(e);
+  const part = draw === false ? null : typeof draw === 'function' ? draw(e) : boxPart(e, grids);
   const h = {
     /** target cell or null (nothing under the pointer) */ cell: null,
     rotation: opts.rotation ?? 0,
     /** why it cannot be placed: 'noTarget' or the grid.can() code; null when ok */ ok: false, code: 'noTarget',
+    /** The default box's three.js material (null with draw: false or your own part). Set it to swap the picture, used as given; its color still shows ok / bad */
+    get material() { return part?.material ?? null; },
+    set material(m) {
+      if (!part || !('material' in part)) throw codedError('grids-misuse', "pv.material: this preview has draw: false or your own part, so it draws no default box");
+      part.material = m;
+    },
     /** Turn by quarter turns (the rotate action does this too) */
     rotate(n = 1) { h.rotation = (((h.rotation + n) % 4) + 4) % 4; },
     /** Run grid.place with the shown cell and rotation; returns the op result */

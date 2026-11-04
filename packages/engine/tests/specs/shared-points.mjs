@@ -60,10 +60,6 @@ export const specs = [
         out.afterBad = S.get('fog.far').value(); okClamp.remove();
         out.priorityGone = err(() => E.mod('fog.far', { owner: 'x', mul: 2, priority: 'effect' })) === null && S.get('fog.far').names().includes('x');
         cave.remove();
-        // three.js yield hook
-        S.get('fog.far').yieldToThree('main.js:9');
-        out.yielded = E.describe().shared['fog.far'].writer;
-        S.get('fog.far').reclaim();
         E.dispose();
         return out;
       });
@@ -87,7 +83,6 @@ export const specs = [
       check('an unknown layer throws shared-layer', r.badLayer?.code === 'shared-layer', JSON.stringify(r.badLayer));
       check('clamp max a string / NaN / min > max throw shared-value on engine.mod and on handle.change, and the value stays a number', r.badClamp.every(c => c === 'shared-value') && r.badChange.every(c => c === 'shared-value') && Number.isFinite(r.afterBad), JSON.stringify([r.badClamp, r.badChange, r.afterBad]));
       check('the old priority option is gone (only an unknown-option warning)', r.priorityGone);
-      check('a direct three.js write shows as writer three (engine yielded)', r.yielded === 'three (engine yielded)', r.yielded);
     },
   },
   {

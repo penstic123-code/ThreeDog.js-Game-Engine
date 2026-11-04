@@ -130,12 +130,12 @@ export const specs = [
       const { openWorld } = await import('../../index.js');
       const names = o => openWorld(o).map(m => m.name).join(',');
       check('shorthand and full list: all parts, camera included; debug is left out of non-dev builds (node is not dev)',
-        names({ seed: 3, time: 0.3, camera: 'follow' }) === 'world,terrain,terrainLook,vegetation,vegetationLook,calendar,sky,weather,weatherLook,water,collision,rigid,cameraRig,characters,ambience,settings', names({ seed: 3, camera: 'follow' }));
+        names({ seed: 3, time: 0.3, camera: 'follow' }) === 'world,terrain,terrainDraw,vegetation,vegetationDraw,calendar,sky,weather,weatherDraw,water,collision,rigid,cameraRig,characters,ambience,settings', names({ seed: 3, camera: 'follow' }));
       let noCam = ''; try { openWorld({ seed: 3 }); } catch (e) { noCam = e.message; }
       check('[guard] openWorld picks no camera: leaving camera out throws open-world-camera with the choices', /\[open-world-camera\]/.test(noCam) && /camera: 'follow'/.test(noCam), noCam);
       // sky: false 只关画天空；时间归 calendar，照样在（其他部件读它的 timeOfDay / 季节）
       const dropped = names({ sky: false, camera: false, collision: false, debug: true });
-      check('false drops any part, camera too; debug: true forces the panel in (sky: false keeps the calendar)', dropped === 'world,terrain,terrainLook,vegetation,vegetationLook,calendar,weather,weatherLook,water,rigid,characters,ambience,settings,debugPanel', dropped);
+      check('false drops any part, camera too; debug: true forces the panel in (sky: false keeps the calendar)', dropped === 'world,terrain,terrainDraw,vegetation,vegetationDraw,calendar,weather,weatherDraw,water,rigid,characters,ambience,settings,debugPanel', dropped);
       let err = ''; try { openWorld({ camera: 'follow', terrain: 'island' }); } catch (e) { err = e.message; }
       check('a non-object part value names the fix', /terrain must be false .* or an options object/.test(err), err);
     },

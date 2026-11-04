@@ -84,14 +84,14 @@ export const specs = [
           return out;
         };
         const crit = await run('cm-crit', { name: 'cmCrit', type: 'rules', critical: true, init() { throw new Error('crit boom'); } });
-        const soft = await run('cm-soft', { name: 'cmSoft', type: 'look', init() { throw new Error('soft boom'); } });
+        const soft = await run('cm-soft', { name: 'cmSoft', type: 'picture', init() { throw new Error('soft boom'); } });
         const dflt = await run('cm-dflt', { name: 'cmDflt', type: 'rules', init() { throw new Error('dflt boom'); } });
         const never = await run('cm-never', { name: 'cmNever', type: 'rules', isReady: () => false }, E => { E.loading.timeoutMs = 300; });
         [console.error, console.warn] = quiet;
         return { crit, soft, dflt, never };
       });
       check('critical init failure: start() rejects, message has the module name and "crit boom", engine not ready', /cmCrit/.test(r.crit.rejected ?? '') && /crit boom/.test(r.crit.rejected) && !r.crit.ready && r.crit.state === 'failed', JSON.stringify(r.crit));
-      check('non-critical look module failing init: start() resolves, the module is disabled', r.soft.rejected === null && r.soft.ready && r.soft.disabled.includes('cmSoft'), JSON.stringify(r.soft));
+      check('non-critical picture module failing init: start() resolves, the module is disabled', r.soft.rejected === null && r.soft.ready && r.soft.disabled.includes('cmSoft'), JSON.stringify(r.soft));
       check('a module is not critical by default: gameplay init failure is reported (engine.error) but start() still resolves', r.dflt.rejected === null && r.dflt.ready && r.dflt.state === 'failed', JSON.stringify(r.dflt));
       check('isReady that never turns true: start() rejects after loading.timeoutMs naming the module', /cmNever/.test(r.never.rejected ?? '') && r.never.code === 'module-not-ready', JSON.stringify(r.never));
     },

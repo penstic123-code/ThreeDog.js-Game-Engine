@@ -12,16 +12,17 @@ export const name = 'tune write: panel values become one marked block (dry-run d
 
 export async function run({ check }) {
   const ok = (cond, msg, detail) => check(msg, cond, detail);
-  const t = { look: { tone: { exposure: 1.25 }, lights: { 'sun.color': '#ffeedd' } }, materials: { rock: { roughness: 0.8, color: '#887766' } }, uniforms: { uWind: 0.4 }, style: { water: { color: 0x3388aa } } };
+  const t = { values: { 'engine.renderer.toneMappingExposure': 1.25, 'engine.water.material.color': '#3388aa', 'engine.uniforms.uWind.value': 0.39999999999999997 }, css: { accent: '#7fd3ff' },
+    materials: { rock: { roughness: 0.8, color: '#887766' } } };
   const src = 'const engine = await createEngine({});\nengine.start();\n';
   const a = planTune(src, t);
   ok(!a.replaced && a.after.startsWith(src.trim()) && /\/\/ threedog:tune begin[\s\S]*\/\/ threedog:tune end\n$/.test(a.after), 'first write appends one marked block, the file before it unchanged');
-  ok(a.after.includes('engine.look.tone.set({ exposure: 1.25 });') && a.after.includes('"sun.color": 0xffeedd') && a.after.includes('rock: { roughness: 0.8, color: 0x887766 }')
-    && a.after.includes('engine.uniforms.uWind.value = 0.4;') && a.after.includes('export const tunedStyle'), 'look / materials / uniforms / style each written as plain calls', a.after);
+  ok(a.after.includes('engine.renderer.toneMappingExposure = 1.25;') && a.after.includes('engine.water.material.color.set(0x3388aa);') && a.after.includes('rock: { roughness: 0.8, color: 0x887766 }')
+    && a.after.includes('engine.uniforms.uWind.value = 0.4;') && a.after.includes(`engine.uiRoot.style.setProperty('--threedog-accent', "#7fd3ff");`), 'numbers, colors, UI colors and materials each written as plain three.js', a.after);
   ok(/^@@ line \d+ \(appended\) @@/.test(a.diff) && a.diff.split('\n').slice(1).every(l => l.startsWith('+ ')), 'dry run diff: only added lines');
-  const b = planTune(a.after, { look: { tone: { exposure: 0.9 } } });
-  ok(b.replaced && b.after.split('threedog:tune begin').length === 2 && b.after.includes('exposure: 0.9') && !b.after.includes('exposure: 1.25'), 'a second write replaces the block (never two)');
-  ok(b.diff.includes('- engine.look.tone.set({ exposure: 1.25 });') && b.diff.includes('+ engine.look.tone.set({ exposure: 0.9 });'), 'its diff shows old lines - and new +');
+  const b = planTune(a.after, { values: { 'engine.renderer.toneMappingExposure': 0.9 } });
+  ok(b.replaced && b.after.split('threedog:tune begin').length === 2 && b.after.includes('toneMappingExposure = 0.9') && !b.after.includes('toneMappingExposure = 1.25'), 'a second write replaces the block (never two)');
+  ok(b.diff.includes('- engine.renderer.toneMappingExposure = 1.25;') && b.diff.includes('+ engine.renderer.toneMappingExposure = 0.9;'), 'its diff shows old lines - and new +');
   ok(tuneBlock({}).split('\n').length === 2, 'nothing tuned: an empty block');
 
   const old = '// threedog:begin file=fx/tint.glsl\ndiffuseColor.rgb *= 0.5;\n// threedog:end';

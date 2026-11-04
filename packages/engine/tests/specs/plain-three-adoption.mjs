@@ -1,5 +1,5 @@
 // [guard] Plain three.js is adopted: a game written only with three.js calls (scene.add, new THREE.PointLight, its own materials,
-// look.post.add of a plain Pass, scene.fog writes, its own EffectComposer) gets what engine calls would have given it. Why a guard: the owner's
+// engine.post.add of a plain Pass, scene.fog writes, its own EffectComposer) gets what engine calls would have given it. Why a guard: the owner's
 // rule is "the AI writes three.js, the engine plugs it in" (docs/plans/2026-11-03-slot-map.md). Before, scene.add left an object
 // unknown to engine.thing / describe / thing.set, a three.js Pass had to be wrapped in an effect { name, create }, and a game's own composer was drawn
 // over by the engine's frame every frame. If any of these regresses, the AI is pushed back to engine-only calls without being told.
@@ -8,7 +8,7 @@
 
 export const specs = [
   {
-    name: '[guard] plain three.js adoption: scene.add is engine.add, lights and own materials untouched, fog write yields and mod multiplies, look.post.add(Pass) slots, own composer takes the frame',
+    name: '[guard] plain three.js adoption: scene.add is engine.add, lights and own materials untouched, a fog write stays, engine.post.add(Pass) slots, own composer takes the frame',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -41,22 +41,18 @@ export const specs = [
         for (let i = 0; i < 5; i++) engine.step(0.05);
         out.lamp = { owner: engine.thing(lamp).owner, intensity: lamp.intensity, color: lamp.color.getHex() };
         out.mat = { color: mat.color.getHex(), roughness: mat.roughness, fog: mat.fog };
-        // 3. fog: engine.mod multiplies on top of the engine's value (one line); a direct scene.fog write yields
-        const far0 = engine.scene.fog.far;
-        const m = engine.mod('look.fog.far', { owner: 'storm', mul: 0.5 }); engine.step(0.05);
-        out.mul = { far0, far: engine.scene.fog.far };
-        m.remove(); engine.step(0.05);
-        engine.scene.fog.far = 77; engine.step(0.05); W.applyState(engine, { weather: 'clear' }); engine.step(0.05);
-        out.fogWrite = { far: engine.scene.fog.far, writer: engine.describe().owned?.fog?.writer ?? JSON.stringify(engine.describe().owned).slice(0, 200) };
-        // 4. look.post.add(pass): a three.js Pass as it is; RenderPass / OutputPass are already the engine's; remove() leaves it alive
+        // 3. fog: a direct scene.fog write stays
+        engine.scene.fog = new engine.THREE.Fog(0x8899aa, 10, 400); engine.scene.fog.far = 77; engine.step(0.05); W.applyState(engine, { weather: 'clear' }); engine.step(0.05);
+        out.fogWrite = { far: engine.scene.fog.far };
+        // 4. engine.post.add(pass): a three.js Pass as it is; RenderPass / OutputPass are already the engine's; remove() leaves it alive
         const copy = new ShaderPass(CopyShader);
         let disposed = 0; const d0 = copy.dispose.bind(copy); copy.dispose = () => { disposed++; d0(); };
-        const ch = engine.look.post.add(copy); engine.step(0.05);
+        const ch = engine.post.add(copy); engine.step(0.05);
         const C = engine.post.object();
         out.pass = { list: engine.post.list().filter(e => e.name.startsWith('CopyShader')).map(e => `${e.name}:${e.slot}`), inChain: C.passes.includes(copy),
           describe: JSON.stringify(engine.describe().render?.post ?? '').includes('CopyShader') };
         const RenderPass = C.passes[0].constructor, EffectComposer = C.constructor;
-        const n0 = C.passes.length; engine.look.post.add(new RenderPass(engine.scene, engine.camera));
+        const n0 = C.passes.length; engine.post.add(new RenderPass(engine.scene, engine.camera));
         out.renderPassSkipped = engine.post.object().passes.length === n0;
         ch.remove(); engine.step(0.05);
         out.removed = { gone: !engine.post.object().passes.includes(copy), alive: disposed === 0 };
@@ -71,7 +67,7 @@ export const specs = [
         for (let i = 0; i < 3; i++) engine.step(0.05);
         out.back = { engineDraws, yielded: engine._ownFrame.yielded };
         delete engine.post.render; own.dispose();
-        out.badPass = err(() => engine.look.post.add({}));
+        out.badPass = err(() => engine.post.add({}));
         return out;
       });
       console.log('  plain three adoption:', JSON.stringify(r));
@@ -83,32 +79,31 @@ export const specs = [
       check('engine.add(obj, { id }) on an adopted object gives it the id', r.named, String(r.named));
       check('a plain PointLight is adopted and keeps its own values through rain and dusk', r.lamp.owner === 'game' && r.lamp.intensity === 5 && r.lamp.color === 0xffaa66, JSON.stringify(r.lamp));
       check('an own MeshStandardMaterial keeps its values and takes the scene fog', r.mat.color === 0x336699 && r.mat.roughness === 0.8 && r.mat.fog === true, JSON.stringify(r.mat));
-      check("engine.mod('look.fog.far', { mul: 0.5 }) halves the engine's fog distance (the one line an effect writes)", Math.abs(r.mul.far - r.mul.far0 * 0.5) < 1e-3 * r.mul.far0, JSON.stringify(r.mul));
-      check('scene.fog.far = 77 yields: the value stays through a weather change and describe names three', r.fogWrite.far === 77 && /three/.test(r.fogWrite.writer), JSON.stringify(r.fogWrite));
-      check('look.post.add(ShaderPass) joins the chain in hdr, shows in list and describe', r.pass.inChain && r.pass.list.join() === 'CopyShader#1:hdr' && r.pass.describe, JSON.stringify(r.pass));
-      check("look.post.add(RenderPass of engine.scene) is skipped (the engine renders the scene)", r.renderPassSkipped, String(r.renderPassSkipped));
+      check('scene.fog.far = 77: the value stays through a weather change', r.fogWrite.far === 77, JSON.stringify(r.fogWrite));
+      check('engine.post.add(ShaderPass) joins the chain in hdr, shows in list and describe', r.pass.inChain && r.pass.list.join() === 'CopyShader#1:hdr' && r.pass.describe, JSON.stringify(r.pass));
+      check("engine.post.add(RenderPass of engine.scene) is skipped (the engine renders the scene)", r.renderPassSkipped, String(r.renderPassSkipped));
       check('its remove() takes it out and does not dispose it (three semantics)', r.removed.gone && r.removed.alive, JSON.stringify(r.removed));
       check("a game's own EffectComposer rendered in onFrame takes the frame: the engine stops drawing", r.own.yielded && r.own.engineDraws <= 1, JSON.stringify(r.own));
       check('deleting the own render call hands the frame back on the next frame', !r.back.yielded && r.back.engineDraws >= 2, JSON.stringify(r.back));
-      check('look.post.add of a non-pass throws with the accepted shapes', r.badPass.includes('three.js Pass') && r.badPass.includes('node function') && r.badPass.includes('[look-verb]'), r.badPass);
+      check('engine.post.add of a non-pass throws with the accepted shapes', r.badPass.includes('three.js Pass') && r.badPass.includes('node function') && r.badPass.includes('[post-effect]'), r.badPass);
     },
   },
   {
-    name: '[guard] plain three.js adoption, post on both renderers: look.post.add(Pass) on WebGL, look.post.add(node function) on WebGPU',
+    name: '[guard] plain three.js adoption, post on both renderers: engine.post.add(Pass) on WebGL, engine.post.add(node function) on WebGPU',
     url: '/tests/post-webgpu/index.html',
     software: true,
     async run({ check, ev }) {
       const r = await ev(() => window.postAddPass());
       console.log('  addPass both backends:', JSON.stringify(r));
-      check('WebGPU: look.post.add((input, { tsl }) => tsl.vec4(input.rgb.mul(0.25), input.a)) runs in the RenderPipeline (picture darker) and is listed', r.gpu.dark < r.gpu.base * 0.5 && r.gpu.list.join() === 'nodePass#1:hdr', JSON.stringify(r.gpu));
-      check('WebGL: look.post.add(ShaderPass) is in the composer and listed', r.gl.inChain && r.gl.list.join() === 'CopyShader#1:hdr', JSON.stringify(r.gl));
+      check('WebGPU: engine.post.add((input, { tsl }) => tsl.vec4(input.rgb.mul(0.25), input.a)) runs in the RenderPipeline (picture darker) and is listed', r.gpu.dark < r.gpu.base * 0.5 && r.gpu.list.join() === 'nodePass#1:hdr', JSON.stringify(r.gpu));
+      check('WebGL: engine.post.add(ShaderPass) is in the composer and listed', r.gl.inChain && r.gl.list.join() === 'CopyShader#1:hdr', JSON.stringify(r.gl));
       check('WebGL: a node function names the WebGPU-only form', r.glNode.includes('only node()'), r.glNode);
     },
   },
   {
-    // Why a guard: the cloud shadow used to reach engine materials only, so a game's own three.js crate stayed bright under a cloud that
-    // darkened the grass right next to it. The engine adopts plain lit materials as they enter the scene (render/terms.js syncPlainTerms).
-    name: '[guard] plain three.js adoption, cloud shadow: a plain MeshStandardMaterial added with scene.add darkens under clouds on WebGL and WebGPU, opt-out per material (also late), sun only, one program, free when off',
+    // Why a guard: the engine used to add the cloud shadow to a game's plain materials on its own. Now a game material compiles exactly what the game wrote, and
+    // one line, applyEffects(mat), gives it the term, so a crate can still darken under the same clouds as the ground.
+    name: '[guard] cloud shadow on a game material: nothing is added unasked with the signal on; applyEffects(mat) darkens it on WebGL and WebGPU, sun only, one program, free when off',
     url: '/tests/engine-webgpu/index.html',
     software: true,
     async run({ check, ev }) {
@@ -116,21 +111,15 @@ export const specs = [
       console.log('  plain clouds:', JSON.stringify(r));
       for (const side of ['gl', 'gpu']) {
         const o = r[side];
-        check(`${side}: a plain MeshStandardMaterial box added with scene.add carries the clouds term and darkens when the cloud shadow deepens`,
-          o.patches.includes('clouds') && o.plain > 10, JSON.stringify([o.plain, o.patches]));
-        check(`${side}: material.userData.cloudShadow = false keeps it out (no patch, no darkening)`, o.offPatches.length === 0 && Math.abs(o.off) < 2, JSON.stringify([o.off, o.offPatches]));
-        check(`${side}: six plain materials of one type share one program`, o.allPatched && o.share.keys === 1 && (o.share.builds ?? 0) <= 2, JSON.stringify(o.share));
-        check(`${side}: describe().owned['cloudShadow.plain'] names the adopted and the opted-out materials in the scene, and drops them once they leave`,
-          o.owned?.materials.includes('plainCrate') && o.owned.optedOut.includes('noClouds') && o.ownedAfter === null, JSON.stringify([o.owned, o.ownedAfter]));
-        // Why: the shadow is 0 by default, so its cost must be a branch on the uniform, not a second program per material type
+        check(`${side}: a plain material in the scene with uCloudShadow up has no patch and does not darken`, o.leftPatches.length === 0 && Math.abs(o.leftDim) < 2, JSON.stringify([o.leftDim, o.leftPatches]));
+        check(`${side}: a MeshStandardMaterial passed to applyEffects carries the clouds term and darkens when the cloud shadow deepens`, o.patches.includes('clouds') && o.plain > 10, JSON.stringify([o.plain, o.patches]));
+        check(`${side}: six materials of one type share one program`, o.share.keys === 1 && (o.share.builds ?? 0) <= 2, JSON.stringify(o.share));
+        // Why: going back to 0 and up again is a branch on the uniform, not a second program per material type
         check(`${side}: turning the cloud shadow on and off builds no new program`, o.newPrograms === 0, String(o.newPrograms));
         // Why: clouds used to darken all direct light, so a street lamp's pool of light flickered under the drifting noise
         check(`${side}: a PointLight lamp (sun and sky light off) is not shaded by clouds`, o.lampLit > 20 && Math.abs(o.lamp) < 2, JSON.stringify([o.lampLit, o.lamp]));
-        check(`${side}: userData.cloudShadow = false set after scene.add takes the term off next frame (no darkening, listed as opted out); clearing it puts it back`,
-          o.lateBefore && !o.latePatches.includes('clouds') && o.lateOwned.includes('lateOut') && Math.abs(o.late) < 2 && o.lateBack, JSON.stringify([o.lateBefore, o.latePatches, o.lateOwned, o.late, o.lateBack]));
       }
-      check('gpu: a NodeMaterial in the scene is not patched and describe lists it under notAdopted with the reason',
-        r.gpu.node?.patches.length === 0 && r.gpu.node.notAdopted.includes('myNodeMat') && /NodeMaterial/.test(r.gpu.node.whyNot), JSON.stringify(r.gpu.node));
+      check('gpu: a NodeMaterial in the scene is left alone until the game passes it to applyEffects', r.gpu.node?.left === 0 && r.gpu.node.asked.includes('clouds'), JSON.stringify(r.gpu.node));
     },
   },
 ];

@@ -1,7 +1,7 @@
 // The headless page opened by npm run bake (packages/tools/bake.mjs opens it with Playwright through the workspace's vite dev server, so generated code is identical to npm run dev).
 // Collects what to bake (the lists come from the dev server's /__threedog/bake-lists): the bake list, i.e. the
 //   bake = { name: () => object | { build, params, source: 'file' } } exported by files named bake.js in this workspace (except tests/).
-//   Models from a game's style/ folder are baked by naming them in that bake.js (looks are not packages, so nothing exports `assets` to scan).
+//   Models from a game's style/ folder are baked by naming them in that bake.js (pictures are not packages, so nothing exports `assets` to scan).
 // For each entry it asks the dev server for the hash (same scheme as the automatic cache); if equal to the last bake it is skipped, otherwise it is generated and exported as GLB for bake.mjs to write.
 const info = await fetch('/__threedog/bake-lists').then(r => r.json());
 const { toGLB } = await import(/* @vite-ignore */ info.baked);
@@ -27,7 +27,7 @@ window.threedogBake = async ({ only, index }) => {
     const { key } = await fetch('/__threedog/cache/key', { method: 'POST', body: JSON.stringify({ name: it.name, src, params }) }).then(r => r.json());
     if (old?.exists && old.key === key && JSON.stringify(old.params ?? null) === JSON.stringify(params)) { out.push({ ...base, status: 'same' }); continue; }
     const t0 = performance.now(), v = await it.build(...(params == null ? [] : [params]));
-    const buf = await toGLB(v, undefined, it.name);
+    const buf = await toGLB(v, it.name);
     out.push({ ...base, status: 'baked', key, src, params, source: it.source, ms: Math.round(performance.now() - t0), data: b64(buf) });
   }
   return out;

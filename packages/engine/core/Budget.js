@@ -2,7 +2,7 @@
 //   createEngine({ budget: { drawCalls: 250, fps: 55 } })  or  engine.budget.enable({ drawCalls: 250 })
 //   engine.budget.report()   // { ok, over: [{ category, value, limit, top }] }; null when off
 // Off by default; when off, sample() returns immediately and costs nothing. The engine presets no limit numbers.
-// Categories: drawCalls, triangles, textures, cpuMs, fps, low1 (the last two are lower bounds) + module-registered metrics (chunkApplyMs, rigidBodies...)
+// Categories: drawCalls, triangles, textures, cpuMs, fps, low1 (fps and low1 are lower bounds) + registered metrics (lights, shadowLights, shadowMaps, shadowMapSize, chunkApplyMs, rigidBodies...)
 // + the apply-cost stages (applyTransitMs, applyBuildMs, applyColliderMs, applyUploadMs, applyStreamMs: ms per frame, see ApplyCost).
 // "Who uses the most": draw calls are estimated by the userData.budgetTag of an object (or its parent); untagged counts as 'other'.
 /** @import { Handle } from '../types/common' */
@@ -217,7 +217,7 @@ export class Budget {
    * @returns {BudgetTagStat[]}
   */
   byTag() {
-    const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled, shadowCost = SHADOW_TYPES[e.look.shadow?.value('type')]?.cost ?? 1;
+    const e = this.engine, cam = e.camera, out = new Map(), shadows = e.renderer.shadowMap.enabled, shadowCost = Object.values(SHADOW_TYPES).find(t => t.three === e.renderer.shadowMap.type)?.cost ?? 1;
     // shadow passes a caster is drawn in: one per shadow map the renderer draws (each cascade on both renderers), six for a point light
     const passes = Math.max(1, shadowMaps(e.renderer, e.scene).reduce((n, m) => n + m.faces, 0));
     cam.updateMatrixWorld();

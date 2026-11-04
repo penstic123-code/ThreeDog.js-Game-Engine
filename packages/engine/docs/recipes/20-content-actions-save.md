@@ -96,13 +96,13 @@ engine.saves.autosave(3);     // autosave to 'auto' every 3 minutes of play (wai
 ```
 
 ## 3. Interact keys: which object, and who acts
-`interactions({ pick })` decides what the interact key uses (no default, `[interaction-setup]` names the fix); the key is the game's binding.
+`interactions({ pick })` decides what the interact key uses (no default, `[interaction-setup]` names the fix). It takes no key: bind one in `createEngine({ bindings: presets.bindings.interact })`, or with `engine.input.bind`.
 Pick the rule that fits the camera, not the genre default:
 ```js
 engine.use(interactions({ ...presets.interactions.nearest }));                   // E, nearest within 2.5 m (top-down, third person)
 engine.use(interactions({ pick: 'facing' }));  // only what the actor faces (within 60°): the door behind you stays dark
 engine.use(interactions({ pick: 'aim', radius: 2 })); // closest to the screen-center ray: first person, shooters
-engine.use(interactions({ pick: (list, ctx) => list.find(c => c.id.startsWith('npc')) ?? list[0], keys: ['KeyE'] }));   // own rule; list = enabled ones in range, nearest first
+engine.use(interactions({ pick: (list, ctx) => list.find(c => c.id.startsWith('npc')) ?? list[0] }));   // own rule; list = enabled ones in range, nearest first
 engine.interactions.pickMode = 'aim';                // switch at runtime (entering a first-person mode)
 ```
 One object with two verbs = two interactions with different key actions; each key picks among its own action, and `engine.interactions.options` lists
@@ -120,6 +120,7 @@ when the key is released, the actor leaves the radius, `enabled()` turns false o
 skip the hold; an approach returns `{ approaching }`, a promise of onUse's result).
 ```js
 engine.interactions.add(well, { label: 'Pump', hold: 1.5, onUse: fill });
+engine.interactions.add(shell, { id: 'shell-1', label: 'Pick up', once: true, counter: 'shells' });   // mesh gone after E, counted: recipe 03 "Pick and count"
 engine.interactions.add(clerk, { label: 'Talk', radius: Infinity, approach: true, onUse: talk });
 ```
 **Who acts** is `engine.actor` (a world record id, default `'player'`). Interactions, trigger zones, objective-marker distances, the world simulation

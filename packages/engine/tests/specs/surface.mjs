@@ -1,9 +1,9 @@
-// Surface looks (render/surface*.js): texture names in material specs, the `detail` patch, season mix mode, lighting (shadowTint, rim, wrap, toon ramp).
+// Surface effects on plain materials: the `detail` patch, season mix mode, lighting (shadowTint, rim, wrap), the toon ramp, textures loaded by name.
 // Pixel checks render a small scene into a render target and hash the bytes; the goldens of the "default unchanged" checks were taken from the code before these features.
 
 // Shared in-page helpers (a string, injected into each ev so every check renders the same scene)
 const SCENE = `
-  const { THREE, makeMaterial, applyEffects, terrainMaterial, materialPatches, fakeAssets, engineWith } = threedogTest, R = engine.renderer;
+  const { THREE, rampTexture, applyEffects, terrainMaterial, materialPatches, fakeAssets, engineWith } = threedogTest, R = engine.renderer;
   const rt = new THREE.WebGLRenderTarget(48, 48), cam = new THREE.PerspectiveCamera(50, 1, 0.1, 100), bytes = new Uint8Array(48 * 48 * 4);
   cam.position.set(0, 3, 6); cam.lookAt(0, 0.5, 0);
   const colored = g => { const n = g.attributes.position.count, c = new Float32Array(n * 3); for (let i = 0; i < n; i++) { c[i * 3] = 0.45; c[i * 3 + 1] = 0.65; c[i * 3 + 2] = 0.3; } g.setAttribute('color', new THREE.BufferAttribute(c, 3)); return g; };
@@ -20,7 +20,8 @@ const SCENE = `
     let h = 0; for (const b of bytes) h = (Math.imul(h, 31) + b) | 0;
     return { h, errs: errs.join('').slice(0, 300), px: Array.from(bytes) };
   };
-  const eng = style => engineWith(style, fakeAssets(async () => { throw new Error('no assets'); }));   // a real engine: makeMaterial reads its look.materials
+  const eng = () => engineWith({}, fakeAssets(async () => { throw new Error('no assets'); }));
+  const grays = n => Array.from({ length: n }, (_, i) => (i + 1) / n);   // a toon ramp of n even bands
 `;
 
 export const specs = [
@@ -32,8 +33,8 @@ export const specs = [
       const r = await ev(`(async () => { ${SCENE}
         const d = new Uint8Array(4 * 4 * 4); for (let i = 0; i < 16; i++) d.set([128, 128, 128, 255], i * 4);
         const tex = new THREE.DataTexture(d, 4, 4); tex.needsUpdate = true;
-        const e = engineWith({ materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'gray', strength: 1, fade: false } } }, fakeAssets(async () => tex));
-        const m = terrainMaterial(null, e), before = shot(m);
+        const e = engineWith({}, fakeAssets(async () => tex));
+        const m = terrainMaterial(null, e, { detail: { texture: 'gray', strength: 1, fade: false } }), before = shot(m);
         await new Promise(r => setTimeout(r, 50));
         const after = shot(m);
         let diff = 0; for (let i = 0; i < before.px.length; i++) diff = Math.max(diff, Math.abs(before.px[i] - after.px[i]));
@@ -49,29 +50,31 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(`(async () => { ${SCENE}
         const out = {};
-        out.lambert = shot(makeMaterial('default', { vertexColors: true }, eng({ materials: { default: { type: 'lambert' } } }))).h;
-        out.toon = shot(makeMaterial('default', { vertexColors: true }, eng({ materials: { default: { type: 'toon', steps: 3 } } }))).h;
-        out.standard = shot(makeMaterial('default', { vertexColors: true }, eng({ materials: { default: { type: 'standard', roughness: 0.8 } } }))).h;
+        out.lambert = shot(new THREE.MeshLambertMaterial({ vertexColors: true })).h;
+        // the 3-band ramp as 8-bit bytes: what the golden was taken with
+        const toon3 = () => { const t = new THREE.DataTexture(new Uint8Array([85, 85, 85, 255, 170, 170, 170, 255, 255, 255, 255, 255]), 3, 1); t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t; };
+        out.toon = shot(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toon3() })).h;
+        out.standard = shot(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 })).h;
         engine.uniforms.uGroundTint.value.set(1, 0.5, 0.2);
-        out.season = shot(terrainMaterial(null, eng({ materials: { terrain: { type: 'lambert' } } }))).h;
+        out.season = shot(terrainMaterial(null, eng())).h;
         engine.uniforms.uGroundTint.value.set(1, 1, 1);
         const px = 16, d = new Uint8Array(px * px * 4);
         for (let i = 0; i < px * px; i++) { const n = 60 + (i * 37 % 140); d.set([n, n, n, 255], i * 4); }
         const tex = new THREE.DataTexture(d, px, px); tex.needsUpdate = true;
         // 旧实现没有 fade：fade: false 时画面必须和旧实现逐字节相同（迁移没改画面）
-        const e = engineWith({ materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6, fade: false } } }, fakeAssets(async () => tex));
-        const m = terrainMaterial(null, e); out.detailBefore = shot(m).h;
+        const e = engineWith({}, fakeAssets(async () => tex));
+        const m = terrainMaterial(null, e, { detail: { texture: 'x', scale: 0.7, strength: 0.6, fade: false } }); out.detailBefore = shot(m).h;
         await new Promise(r => setTimeout(r, 50)); out.detail = shot(m).h;
         // 默认 fade 开着（b8a68961，2026-11-01 有意改的：比一个像素还细的花纹淡掉，远处不闪），默认画面另记一份 golden，取自 b8a68961 之后
-        const ef = engineWith({ materials: { terrain: { type: 'lambert' } }, terrain: { detail: { texture: 'x', scale: 0.7, strength: 0.6 } } }, fakeAssets(async () => tex));
-        const mf = terrainMaterial(null, ef); out.fadeBefore = shot(mf).h;
+        const ef = engineWith({}, fakeAssets(async () => tex));
+        const mf = terrainMaterial(null, ef, { detail: { texture: 'x', scale: 0.7, strength: 0.6 } }); out.fadeBefore = shot(mf).h;
         await new Promise(r => setTimeout(r, 50)); out.fade = shot(mf).h;
         return out; })()`);
       check('lambert / toon / standard 材质的画面与改动前逐字节相同', r.lambert === 813980680 && r.toon === 141705411 && r.standard === -2046925158, JSON.stringify(r));
       check('季节地面色（乘）与改动前相同', r.season === -449878753, String(r.season));
       // the after-load goldens changed on purpose (2026-11-03): the detail texture is read as data like the gray stand-in, no longer decoded as
       // sRGB (the old after-load frames were the darkened ones); the before-load goldens did not move
-      check('style.terrain.detail 迁到 detail 补丁后（fade: false）：加载前的画面与旧实现逐字节相同，加载后按数据读贴图', r.detailBefore === 1844044487 && r.detail === -793329462, `${r.detailBefore} ${r.detail}`);
+      check('terrain({ detail }) 迁到 detail 补丁后（fade: false）：加载前的画面与旧实现逐字节相同，加载后按数据读贴图', r.detailBefore === 1844044487 && r.detail === -793329462, `${r.detailBefore} ${r.detail}`);
       check('detail 默认 fade 开：加载前后的画面与 golden 相同（加载后的取自贴图按数据读之后）', r.fadeBefore === -1051862270 && r.fade === 1607165640, `${r.fadeBefore} ${r.fade}`);
     },
   },
@@ -81,9 +84,10 @@ export const specs = [
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(`(async () => { ${SCENE}
-        const out = {}, std = { materials: { default: { type: 'standard', roughness: 0.8 } } }, E = eng(std);
-        const base = shot(makeMaterial('default', { vertexColors: true }, E)).h;
-        const withDetail = d => shot(makeMaterial('default', { vertexColors: true, detail: d }, E));
+        const out = {}, E = eng(), std = () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
+        const base = shot(std()).h;
+        const detailed = (d, e = E) => applyEffects(std(), { clouds: false, detail: d, engine: e });
+        const withDetail = d => shot(detailed(d));
         const errs = [];
         for (const [k, d] of Object.entries({ grain: { noise: 'grain', strength: 0.5 }, paper: { noise: 'paper' }, stroke: { noise: 'stroke', direction: 30, stretch: 8 },
           tri: { noise: 'grain', projection: 'triplanar', strength: 0.5 }, bump: { noise: 'grain', normal: 0.3, strength: 0 }, rough: { noise: 'grain', roughness: 0.6, strength: 0 },
@@ -107,15 +111,15 @@ export const specs = [
         // texture by asset name: placeholder first, picture after loading
         const px = 8, d = new Uint8Array(px * px * 4); for (let i = 0; i < px * px; i++) d.set([i % 2 ? 250 : 20, 100, 60, 255], i * 4);
         const tex = new THREE.DataTexture(d, px, px); tex.needsUpdate = true;
-        const T = engineWith(std, fakeAssets(async n => { if (n !== 'rock.png') throw new Error('no ' + n); return tex; }));
-        const mt = makeMaterial('default', { vertexColors: true, detail: { texture: 'rock.png', strength: 1, scale: 1 } }, T);
+        const T = engineWith({}, fakeAssets(async n => { if (n !== 'rock.png') throw new Error('no ' + n); return tex; }));
+        const mt = detailed({ texture: 'rock.png', strength: 1, scale: 1 }, T);
         out.texBefore = shot(mt).h; await new Promise(r => setTimeout(r, 50)); out.texAfter = shot(mt).h;
         const bad = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        out.badNoise = bad(() => makeMaterial('default', { detail: { noise: 'grian' } }, E));
-        out.badGlsl = bad(() => makeMaterial('default', { detail: { glsl: 'float f(){return 1.;}' } }, E));
-        out.badMode = bad(() => makeMaterial('default', { detail: { mode: 'blend' } }, E));
+        out.badNoise = bad(() => detailed({ noise: 'grian' }));
+        out.badGlsl = bad(() => detailed({ glsl: 'float f(){return 1.;}' }));
+        out.badMode = bad(() => detailed({ mode: 'blend' }));
         out.noEngine = bad(() => applyEffects(new THREE.MeshLambertMaterial(), { detail: { texture: 'rock.png' }, engine: { assets: null } }));
-        out.lambertRough = bad(() => shot(makeMaterial('default', { vertexColors: true, detail: { noise: 'grain', roughness: 0.5 } }, eng({ materials: { default: { type: 'lambert' } } }))));
+        out.lambertRough = bad(() => shot(applyEffects(new THREE.MeshLambertMaterial({ vertexColors: true }), { clouds: false, detail: { noise: 'grain', roughness: 0.5 }, engine: E })));
         return out; })()`);
       check('九种写法（三种噪声、三平面、法线、粗糙度、叠加 / 混合、自定义 glsl）都编译，画面都与无细节不同', r.errs === '' && r.moves, r.errs);
       check('grain / paper / stroke / add / mix 画面互不相同', r.differ);
@@ -133,7 +137,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(`(async () => { ${SCENE}
-        const out = {}, E = eng({ materials: { terrain: { type: 'lambert' } } }), U = engine.uniforms;
+        const out = {}, E = eng(), U = engine.uniforms;
         const px = m => shot(m).px;
         U.uGroundTint.value.set(1, 0.5, 0.2);
         const mult = shot(terrainMaterial(null, E));
@@ -154,57 +158,41 @@ export const specs = [
   },
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: '[守] 贴图资源名：材质规格里直接写 map / normalMap / roughnessMap…，色彩空间、wrap、repeat 自动设置；占位到位；写错有改法',
+    name: '[guard] textures by name into a plain slot: engine.assets.useTexture swaps it in when loaded, color maps sRGB, data maps linear, a failed load warns with the fix',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(`(async () => { try { ${SCENE}
         const out = {}, loads = [];
         const px = 4, d = new Uint8Array(px * px * 4).fill(180); const img = new THREE.DataTexture(d, px, px); img.needsUpdate = true;
         const assets = fakeAssets(async (n, o = {}) => { loads.push([n, o]); if (n === 'missing.png') throw new Error('404 ' + n); const t = img.clone(); t.colorSpace = o.color === false ? THREE.NoColorSpace : THREE.SRGBColorSpace; return t; });
-        const E = engineWith({ materials: { rock: { type: 'standard', map: 'rock.png', normalMap: 'rock_n.png', roughnessMap: 'rock_r.png', repeat: [3, 2], wrap: 'mirror', roughness: 1 } } }, assets);
-        const m = makeMaterial('rock', { vertexColors: true }, E);
-        out.stand = m.map?.isTexture && m.normalMap?.isTexture;
+        const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+        const into = (slot, name, opts) => assets.useTexture(name, t => { t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping; t.repeat.set(3, 2); m[slot] = t; m.needsUpdate = true; }, { where: 'rock.' + slot, instead: 'the slot stays empty', opts });
         const before = shot(m).h;
+        into('map', 'rock.png', {}); into('normalMap', 'rock_n.png', { color: false }); into('roughnessMap', 'rock_r.png', { color: false });
         await new Promise(r => setTimeout(r, 50));
         out.cs = [m.map.colorSpace, m.normalMap.colorSpace, m.roughnessMap.colorSpace];
         out.rep = [m.map.repeat.x, m.map.repeat.y, m.map.wrapS === THREE.MirroredRepeatWrapping];
         out.loads = loads.map(l => l[0] + ':' + (l[1].color === false ? 'linear' : 'srgb')).join(',');
-        out.changed = shot(m).h !== before; out.errs = shot(m).errs;
+        const after = shot(m); out.changed = after.h !== before; out.errs = after.errs;
         const warns = []; const w0 = console.warn; console.warn = (...a) => warns.push(a.join(' '));
-        const bad = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        out.typo = bad(() => makeMaterial('rock', { normalmap: 'x.png' }, E)) + warns.join(' ');
-        out.typo2 = bad(() => makeMaterial('rock', { roughnesMap: 'x.png' }, E));
-        makeMaterial('rock', { map: 'missing.png' }, E); await new Promise(r => setTimeout(r, 50));
-        const lam = makeMaterial('rock', { type: 'lambert', roughnessMap: 'r.png' }, engineWith({ materials: { rock: { type: 'lambert' } } }, E.assets));
+        into('emissiveMap', 'missing.png', {}); await new Promise(r => setTimeout(r, 50));
         console.warn = w0; out.warns = warns.join(' | ');
-        out.noEngine = bad(() => makeMaterial('rock', { map: 'a.png' }, engineWith(E.style, null)));
-        out.badWrap = bad(() => makeMaterial('rock', { wrap: 'tile' }, E));
-        // a texture object: the rock spec writes repeat / wrap, so the slot gets a copy that shares the image (ad39a799: a texture you made keeps
-        // its own repeat / wrap; only the copy follows the spec), and the game's texture is left as it was
-        const m2 = makeMaterial('rock', { map: img }, E);
-        out.obj = m2.map !== img && m2.map.image === img.image && m2.map.repeat.x === 3 && m2.map.repeat.y === 2 && m2.map.wrapS === THREE.MirroredRepeatWrapping
-          && img.repeat.x === 1 && img.wrapS === THREE.ClampToEdgeWrapping;
-        // a spec that says nothing about repeat / wrap: the very same texture object goes into the slot
-        const m3 = makeMaterial('rock', { map: img }, engineWith({ materials: { rock: { type: 'standard' } } }, assets)); out.objSame = m3.map === img;
         return out; } catch (e) { return { crash: e.stack.slice(0, 600) }; } })()`);
       if (r.crash) { check('crash ' + r.crash.replace(/\s+/g, ' '), false); return; }
-      check('占位到位：加载前槽里就有占位贴图，加载后画面变化，无着色器报错', r.stand && r.changed && r.errs === '', r.errs);
-      check('色彩空间：map 为 sRGB，normalMap / roughnessMap 为线性（以 { color: false } 请求）', r.cs[0] === 'srgb' && r.cs[1] === '' && r.cs[2] === '' && /rock\.png:srgb/.test(r.loads) && /rock_n\.png:linear/.test(r.loads), JSON.stringify(r.cs) + r.loads);
-      check('repeat / wrap 作用到贴图', r.rep[0] === 3 && r.rep[1] === 2 && r.rep[2], JSON.stringify(r.rep));
-      check('键写错（normalmap / roughnesMap）报错带相近名', /did you mean 'normalMap'/.test(r.typo) && /did you mean 'roughnessMap'/.test(r.typo2), r.typo + ' | ' + r.typo2);
-      check('加载失败与材质类型不支持该槽：警告里带改法', /did not load.*Register it/.test(r.warns) && /use type 'standard'/.test(r.warns), r.warns);
-      check('没有引擎时写贴图名：报错说明怎么传；wrap 写错给可选值', /pass the engine/.test(r.noEngine) && /repeat \| clamp \| mirror/.test(r.badWrap), r.noEngine + ' | ' + r.badWrap);
-      check('传 Texture 对象：规格写了 repeat / wrap 就用共享图像的副本、游戏的贴图不被改；没写就是同一个对象', r.obj && r.objSame, JSON.stringify([r.obj, r.objSame]));
+      check('the picture changes when the textures arrive, no shader error', r.changed && r.errs === '', r.errs);
+      check('color space: map sRGB, normalMap / roughnessMap linear (asked with { color: false })', r.cs[0] === 'srgb' && r.cs[1] === '' && r.cs[2] === '' && /rock\.png:srgb/.test(r.loads) && /rock_n\.png:linear/.test(r.loads), JSON.stringify(r.cs) + r.loads);
+      check('repeat / wrap are plain writes on the texture', r.rep[0] === 3 && r.rep[1] === 2 && r.rep[2], JSON.stringify(r.rep));
+      check('a failed load warns with the fix', /did not load.*Register it/.test(r.warns), r.warns);
     },
   },
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: '[守] 光照出口：shadowTint / rim / wrap / lighting.glsl / style.lighting / toon ramp 与 soften 生效、编译、同补丁不同数值共用 1 个程序；错误写法给改法',
+    name: '[守] 光照出口：applyEffects lighting（shadowTint / rim / wrap / glsl）与 rampTexture（soften）生效、编译、同补丁不同数值共用 1 个程序；错误写法给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(`(async () => { try { ${SCENE}
-        const out = {}, E = eng({ materials: { default: { type: 'lambert' } } });
-        const mk = (lighting, e = E) => makeMaterial('default', { vertexColors: true, lighting }, e);
+        const out = {}, E = eng();
+        const mk = lighting => applyEffects(new THREE.MeshLambertMaterial({ vertexColors: true }), { clouds: false, lighting, engine: E });
         const plain = shot(mk(undefined), { shadow: true }).h;
         const cases = { tint: { shadowTint: { color: 0x4060ff, strength: 1 } }, rim: { rim: { color: 0xffaa66, strength: 1, power: 2 } }, wrap: { wrap: 0.6 },
           rimBack: { rim: { color: 0xffaa66, strength: 1, power: 2, shadowSide: 1 } }, all: { wrap: 0.3, shadowTint: { color: 0x4060ff }, rim: { color: 0xffffff } },
@@ -218,28 +206,30 @@ export const specs = [
         shot(mk({ shadowTint: { color: 0x4060ff, strength: 0.2 }, rim: { color: 0xffffff } }), { shadow: true }); const n1 = count();
         const hs = []; for (let i = 1; i <= 6; i++) hs.push(shot(mk({ shadowTint: { color: 0x2040ff + i * 900, strength: 0.1 * i, soft: 0.1 + i * 0.05 }, rim: { color: 0xffffff - i * 3000, power: i, strength: 0.1 * i } }), { shadow: true }).h);
         out.programs = count() - n1; out.distinct = new Set(hs).size;
-        // style.lighting applies to every lit spec material; lighting: false opts out
-        const S = eng({ lighting: { shadowTint: { color: 0x4060ff, strength: 1 } }, materials: { default: { type: 'lambert' } } });
-        out.styleWide = shot(makeMaterial('default', { vertexColors: true }, S), { shadow: true }).h !== plain;
-        out.optOut = shot(makeMaterial('default', { vertexColors: true, lighting: false }, S), { shadow: true }).h === plain;
         // toon ramp
-        const toon = (extra) => shot(makeMaterial('default', { vertexColors: true }, eng({ materials: { default: { type: 'toon', ...extra } } })));
-        const t3 = toon({ steps: 3 }), t5 = toon({ steps: 5 }), rampGray = toon({ ramp: [0.3, 0.65, 1] }), rampCol = toon({ ramp: [0x5a6aa8, 0xc8b89a, 0xffffff] }), soft = toon({ ramp: [0.3, 0.65, 1], soften: 0.6 });
+        const toon = (ramp, soften) => shot(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: rampTexture(ramp, soften) }));
+        const t3 = toon(grays(3)), t5 = toon(grays(5)), rampGray = toon([0.3, 0.65, 1]), rampCol = toon([0x5a6aa8, 0xc8b89a, 0xffffff]), soft = toon([0.3, 0.65, 1], 0.6);
         out.toonOk = [t3, t5, rampGray, rampCol, soft].every(x => !x.errs);
         out.toonDiff = new Set([t3.h, t5.h, rampGray.h, rampCol.h, soft.h]).size === 5;
         const bad = f => { try { f(); return ''; } catch (e) { return e.message; } };
         out.badGlsl = bad(() => mk({ glsl: 'void f(){}' }));
         out.badTint = bad(() => mk({ shadowTint: { strength: 1 } }));
-        out.badRamp = bad(() => toon({ ramp: [0.5] }));
-        out.rampOnLambert = bad(() => makeMaterial('default', { ramp: [0, 1] }, E));
-        out.basic = bad(() => shot(makeMaterial('default', { lighting: { wrap: 0.5 } }, eng({ materials: { default: { type: 'basic' } } }))));
+        out.badRamp = bad(() => toon([0.5]));
+        out.basic = bad(() => shot(applyEffects(new THREE.MeshBasicMaterial(), { clouds: false, lighting: { wrap: 0.5 }, engine: E })));
+        // a slot typo fails where the patch is given, GLSL and TSL forms alike
+        out.slotTypo = bad(() => applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, engine: E, patches: [{ name: 'typo', slot: 'colr', glsl: 'diffuseColor.rgb *= 0.9;' }] }));
+        out.tslSlotTypo = bad(() => applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, engine: E, patches: [{ name: 'typo2', tsl: { colr: c => c.output } }] }));
+        // lighting: false is no shaping at all: the same picture and no patch on the material
+        const off = mk(false);
+        out.lightingOff = shot(off, { shadow: true }).h === plain && !materialPatches(off).some(p => p.name === 'lighting');
         return out; } catch (e) { return { crash: e.stack.replace(/\s+/g, ' ').slice(0, 500) }; } })()`);
       if (r.crash) { check('crash ' + r.crash, false); return; }
       check('shadowTint / rim / rim 背光 / wrap / 全开 / 自定义 glsl 都编译，画面都与不加不同', r.errs === '' && r.moves, r.errs);
       check('同补丁、6 组不同颜色与数值的材质：新增 0 个着色器程序（共用 1 个）', r.programs === 0 && r.distinct >= 5, `programs +${r.programs}, distinct ${r.distinct}`);
-      check('style.lighting 作用于所有受光规格材质；lighting: false 退出（画面回到不加）', r.styleWide && r.optOut);
-      check('toon：steps / ramp 灰度 / ramp 颜色 / soften 都编译且画面互不相同', r.toonOk && r.toonDiff);
-      check('写错：glsl 缺函数给签名；shadowTint 缺 color、ramp 太短、非 toon 写 ramp 都给改法', /threedogLighting\(inout ReflectedLight light/.test(r.badGlsl) && /needs a color/.test(r.badTint) && /at least 2/.test(r.badRamp) && /belong to type 'toon'/.test(r.rampOnLambert), [r.badGlsl, r.badTint, r.badRamp, r.rampOnLambert].join(' | '));
+      check('toon：不同段数 / 灰度 / 颜色 / soften 的 rampTexture 都编译且画面互不相同', r.toonOk && r.toonDiff);
+      check('patch 的 slot 写错（GLSL 和 TSL 两种写法）都当场报错并列出可用的 slot', /unknown slot 'colr'/.test(r.slotTypo) && /color/.test(r.slotTypo.replace("'colr'", '')) && /unknown tsl slot 'colr'/.test(r.tslSlotTypo), r.slotTypo + ' | ' + r.tslSlotTypo);
+      check('applyEffects lighting: false：画面与不加相同，材质上没有 lighting 补丁', r.lightingOff === true);
+      check('写错：glsl 缺函数给签名；shadowTint 缺 color、ramp 太短都给改法', /threedogLighting\(inout ReflectedLight light/.test(r.badGlsl) && /needs a color/.test(r.badTint) && /at least 2/.test(r.badRamp), [r.badGlsl, r.badTint, r.badRamp].join(' | '));
       check('basic 材质写 lighting：报错说明缺哪个片段', /lights_fragment_end/.test(r.basic), r.basic);
     },
   },

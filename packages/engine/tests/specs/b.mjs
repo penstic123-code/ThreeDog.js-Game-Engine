@@ -162,7 +162,7 @@ export const specs = [
     },
   },
   {
-    name: '[guard] Camera: a direct camera.position edit takes the camera (the rig stops, one warning), look.view.manual hands it back',
+    name: '[guard] Camera: a direct camera.position edit takes the camera (the rig stops, one warning), engine.view.manual hands it back',
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -176,19 +176,19 @@ export const specs = [
           by = engine.describe().owned.camera.writer; globalThis.__holder = engine.cameraOverride?.owner;
         });
         const stays = engine.camera.position.x === x;
-        engine.look.view.manual('camera', false); engine.step(0.1);
-        const m = engine.look.view.manual('camera'); const mHolder = engine.cameraOverride?.owner; m.remove(); const freed = engine.cameraOverride;
+        engine.view.manual('camera', false); engine.step(0.1);
+        const m = engine.view.manual('camera'); const mHolder = engine.cameraOverride?.owner; m.remove(); const freed = engine.cameraOverride;
         const w = [...during.warns, ...after.warns].filter(w => w.includes('camera was changed outside'));
-        return { clean: during.warns.length, n: w.length, takeover: w.every(t => t.includes("engine.takeCamera('me')") && !t.includes("look.view.manual('camera')")), stays, by,
+        return { clean: during.warns.length, n: w.length, takeover: w.every(t => t.includes("engine.takeCamera('me')") && !t.includes("engine.view.manual('camera')")), stays, by,
           back: engine.describe().owned.camera.writer, moved: engine.camera.position.x !== x, holder: globalThis.__holder, mHolder, freed };
       });
       check('no warning when the camera is edited during an override', r.clean === 0, JSON.stringify(r));
       check('direct camera.position edit: exactly 1 warning, the rig stops (the value stays), describe().owned says so', r.n === 1 && r.stays && /yielded/.test(r.by), JSON.stringify(r));
-      // the warning's takeover is the one canonical form, takeCamera (the hand-back for the yielded camera stays look.view.manual('camera', false))
+      // the warning's takeover is the one canonical form, takeCamera (the hand-back for the yielded camera stays engine.view.manual('camera', false))
       check("the warning names engine.takeCamera('me') as the takeover", r.takeover, JSON.stringify(r));
-      check('look.view.manual(camera, false) hands it back: the rig places the camera again', r.back === 'engine' && r.moved, JSON.stringify(r));
-      // guard: one camera state. A direct write and look.view.manual are takeCamera holds (cameraOverride names them); remove() frees the camera
-      check('[guard] direct write / look.view.manual(camera) show as the camera holder; hand-back clears it', r.holder === 'three' && r.mHolder === 'manual:game' && r.freed === null, JSON.stringify(r));
+      check('engine.view.manual(camera, false) hands it back: the rig places the camera again', r.back === 'engine' && r.moved, JSON.stringify(r));
+      // guard: one camera state. A direct write and engine.view.manual are takeCamera holds (cameraOverride names them); remove() frees the camera
+      check('[guard] direct write / engine.view.manual(camera) show as the camera holder; hand-back clears it', r.holder === 'three' && r.mHolder === 'manual:game' && r.freed === null, JSON.stringify(r));
     },
   },
   // ---------- Seams (review 6.8): vehicle saves, brake key, rigid-body shadows, fixed camera interrupting a blend, nav version, entity growth ----------

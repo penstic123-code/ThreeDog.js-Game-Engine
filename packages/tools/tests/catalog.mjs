@@ -18,6 +18,4 @@ export async function run({ check }) {
     queries: { describe: null, extra: [], api: [] }, problems: [] }, ids: ['collision'], ops: [] }, 'collision', {}, ROOT);
   check('Params: type and desc merged from the api page, missing doc shown', /maxClimb:number\?=1\.1 — Max walkable slope/.test(col.text) && /noSuchKey:any\? — \(no doc\)/.test(col.text)
     && col.data.problems.some(p => /1 param\(s\) without a description.*noSuchKey/.test(p)), col.text);
-  const look = catalogCommand({ data: { id: 'bloom', kind: 'look', verbs: ['set'], params: { strength: { type: 'number', default: 0 } }, problems: [] }, ids: [], ops: [] }, 'look.bloom', {}, ROOT);
-  check('Look part text: params with (no doc), no crash without ops / saves', /strength:number=0 — \(no doc\)/.test(look.text), look.text);
 }

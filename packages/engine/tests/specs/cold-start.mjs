@@ -41,7 +41,7 @@ export const specs = [
         const one = async (post) => {
           const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cs-compile-' + post, ui: { loading: false } });
           // a pass-through effect turns the composer on; nothing on = straight to the canvas (PostFX direct; MSAA there is the canvas's own)
-          if (post) E.look.post.add({ name: 'through', slot: 'ldr', fuse: { glsl: '' } });
+          if (post) E.post.add({ name: 'through', slot: 'ldr', fuse: { glsl: '' } });
           let target;
           const ca = E.renderer.compileAsync.bind(E.renderer);
           E.renderer.compileAsync = (s, c, t) => { target = E.renderer.getRenderTarget(); return ca(s, c, t); };
@@ -56,59 +56,6 @@ export const specs = [
       check('post on: compiled for composer.renderTarget1 (the half-float target the scene really draws into)', r.on.active && r.on.sameAsComposer, JSON.stringify(r));
       check('post off: compiled for the canvas', !r.off.active && r.off.isNull, JSON.stringify(r));
       check('the render target is back to the canvas after compiling', r.on.after && r.off.after, JSON.stringify(r));
-    },
-  },
-  {
-    name: 'Cold start: the baseline room environment (PMREM) is built only once a material that reads scene.environment is in the scene',
-    url: PAGE,
-    async run({ check, ev }) {
-      const r = await ev(async () => {
-        const { createEngine, THREE } = threedogThreads;
-        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cs-env', ui: { loading: false } });
-        const box = new THREE.BoxGeometry();
-        E.scene.add(new THREE.Mesh(box, new THREE.MeshToonMaterial()), new THREE.Mesh(box, new THREE.MeshBasicMaterial()));
-        const atCreate = !!E._roomEnv;
-        await E.start();
-        E.step(1 / 30);
-        const toonOnly = { built: !!E._roomEnv, env: E.scene.environment };
-        // three 0.187 hands scene.environment to Standard / Physical, Lambert and Phong (WebGLPrograms.getParameters): any one of them turns it on
-        const m = new THREE.Mesh(box, new THREE.MeshToonMaterial());
-        E.scene.add(m);
-        E.step(1 / 30);
-        const stillToon = !!E._roomEnv;
-        m.material = new THREE.MeshStandardMaterial();   // a material swap on a mesh the walk saw is seen too (core/sceneDelta.js watchMaterial)
-        E.step(1 / 30);
-        const out = { atCreate, toonOnly: toonOnly.built || toonOnly.env !== null, stillToon, built: !!E._roomEnv, isOurs: E.scene.environment === E._roomEnv?.texture,
-          intensity: E.scene.environmentIntensity, want: E.look.lights.value('env.intensity') };
-        // the game's own map still wins: env.intensity changes never overwrite it
-        const mine = new THREE.Texture(); E.scene.environment = mine; E.look.lights.set({ env: { intensity: 0.7 } }); E.step(1 / 30);
-        out.gameKeeps = E.scene.environment === mine;
-        E.dispose();
-        return out;
-      });
-      check('createEngine builds no PMREM', !r.atCreate, JSON.stringify(r));
-      check('a Toon / Basic-only scene never gets the room map', !r.toonOnly && !r.stillToon, JSON.stringify(r));
-      check('swapping in a MeshStandardMaterial builds it and sets it as scene.environment at look.lights env.intensity', r.built && r.isOurs && r.intensity === r.want && r.want > 0, JSON.stringify(r));
-      check('a scene.environment the game set is never overwritten', r.gameKeeps, JSON.stringify(r));
-    },
-  },
-  {
-    name: 'Cold start: a Lambert scene has the room map at ready, so compileAsync compiled the environment variant',
-    url: PAGE,
-    async run({ check, ev }) {
-      const r = await ev(async () => {
-        const { createEngine, THREE } = threedogThreads;
-        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'cs-env2', ui: { loading: false } });
-        E.scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial()));
-        let envAtCompile = null;
-        const ca = E.renderer.compileAsync.bind(E.renderer);
-        E.renderer.compileAsync = (s, c, t) => { envAtCompile = !!s.environment; return ca(s, c, t); };
-        await E.start();
-        const out = { envAtCompile, ready: E.scene.environment === E._roomEnv?.texture };
-        E.dispose();
-        return out;
-      });
-      check('scene.environment was set before compileAsync (it is part of the program key)', r.envAtCompile && r.ready, JSON.stringify(r));
     },
   },
   {

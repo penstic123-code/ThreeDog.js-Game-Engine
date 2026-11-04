@@ -53,8 +53,9 @@ vanish at that distance? Does anything flicker at seams when the camera moves?
 - **Merged hero block**: a fixed set piece merged once for the fewest draws, when it never changes.
 
 ## The engine helper (optional convenience)
-`kit.js` is the kit: modules, assembler, manifest entries; it imports only `three` and `three/addons`. `main.js` is the demo page; it builds the
-same seed three times (gray block-out, warm with soft cove trims, cool with hard stepped trims and faintly emissive frames; the two coloured
+`kit.js` is the kit: modules, assembler, manifest entries; it imports only `three` and `three/addons`. `main.js` is the demo page and `picture/` its
+picture in plain three.js (lights, tone curve, one Lambert material per slot, every value in `picture/palette.js`). The page builds the same seed
+three ways (gray block-out, warm with soft cove trims, cool with hard stepped trims and faintly emissive frames; the two coloured
 sets are demo values, not advice). In the kit, the block-out stage is `facade` strings of `.` (blank walls) and `roof`. A style is the slot
 materials (`wall`, `trim`, `roof`, `frame`, `glass`, `accent`, `awning`, `sign`) plus `profiles` plus `windows`. The only textures are gray
 masks (awning stripes, sign text) tinted by the slot material's colour, so a material swap recolours them too. `street` mirrors upper floors
@@ -111,7 +112,7 @@ Rules (correctness):
   notice". Where pieces meet, either one covers the seam (corner pilasters cover the wall ends; front / back trims run past the corners,
   side trims stop at the walls) or they are offset by a few millimetres (the sill top sits above the reveal floor).
 - **Generators get every input from `params`.** The slot materials are live objects, so the kit's manifest entries are `cache: false`
-  (the dev cache would otherwise keep a model built with old materials). To bake a street, make the slots `makeMaterial` roles inside the
+  (the dev cache would otherwise keep a model built with old materials). To bake a street, build the slot materials inside the
   generator instead (recipe 05, section 2a) and drop `cache: false`.
 
 Limits:

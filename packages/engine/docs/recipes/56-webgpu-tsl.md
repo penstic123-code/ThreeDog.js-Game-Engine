@@ -17,7 +17,7 @@ WebGL stays the default and the faster choice on most machines today. Measured i
 on an integrated GPU WebGL drew a frame fastest, WebGPU took about 1.5 times as long and WebGPURenderer's WebGL2 backend (what a browser
 without WebGPU gets) about 1.7 times; on a discrete laptop GPU WebGL was still fastest. The first frame on WebGPU came 0.6 to 1.3 s later
 (shader compilation). How to decide:
-- Choose WebGPU when the game's look is built from TSL (you want to write shaders in JavaScript, compose them as functions, or start from a
+- Choose WebGPU when the game's picture is built from TSL (you want to write shaders in JavaScript, compose them as functions, or start from a
   three.js WebGPU example), or when you need something only node materials have.
 - Stay on WebGL when the game must run well on modest hardware, when it already has GLSL (ShaderMaterials, `onBeforeCompile`, a three.js
   `Pass`), or when start-up time matters more than the shading style. Recipe 43 is the GLSL route for the same tasks.
@@ -36,9 +36,9 @@ Your own `new WebGPURenderer(...)` as `renderer` goes the same way (the engine c
 browser gives no WebGPU, `fallback` decides, and the console says once which one happened (`[threedog] WebGPU unavailable (...)`):
 - `'webgl2'` (default): the same WebGPURenderer on its WebGL2 backend. Your TSL keeps working; frames are slower than plain WebGL.
 - `'webgl'`: a `WebGLRenderer` instead. Faster, but node materials cannot draw there (`start()` fails when the scene has one). The engine's
-  own materials (terrain, vegetation, water, `makeMaterial`) are plain three.js materials with both a GLSL and a tsl form of each patch, so they
-  draw on either renderer with the same look. What engine modules built before `start()` is rebuilt for WebGLRenderer there: the post chain,
-  the sky dome (with the `look.sky.patch` hooks set so far), fog, cascaded shadows, particles, rain and snow. Your own objects are not:
+  own materials (terrain, vegetation, water) are plain three.js materials with both a GLSL and a tsl form of each patch, so they
+  draw on either renderer with the same picture. What engine modules built before `start()` is rebuilt for WebGLRenderer there: the post chain,
+  the sky dome (with the `engine.sky.clouds` / `layer` hooks set so far), fog, cascaded shadows, particles, rain and snow. Your own objects are not:
   build node materials after `start()` when `engine.describe().renderer.backend !== 'webgl'`.
 - `'error'`: `start()` rejects; the game shows its own message.
 
@@ -56,7 +56,7 @@ A node material is lit, shadowed and fogged by three like its plain twin; you re
 `normalNode`, `emissiveNode`, `roughnessNode`, `opacityNode` ...).
 
 ## The engine's values as nodes: `uniforms(engine)`
-`uniforms(engine)` returns `engine.uniforms` as TSL nodes with the same names: `uTime`, `uWind`, `uCloud`, `uSunDir`, `uDaylight`
+`uniforms(engine)` returns `engine.uniforms` as TSL nodes with the same names: `uTime`, `uWind`, `uCloud`, `uSunDir`, `uSunColor`, `uDaylight`
 (0 at night, 1 at noon), `uTimeOfDay`, `uFoliageTint`, `uGroundTint` ... (the list: `uniforms` in [the engine API](../api/engine.md)). The node reads the
 engine's value each render, so weather, the calendar and the sky move your material with no per-frame code.
 ```js
@@ -141,22 +141,25 @@ const rock = applyEffects(new MeshStandardNodeMaterial({ color: 0x9a9080 }), { p
 engine.add(new THREE.Mesh(new THREE.DodecahedronGeometry(1), rock));
 ```
 
+## Half-transparent surfaces and fog differ from plain WebGL
+WebGL straight to the canvas tone-maps and encodes each material first, then applies fog and blends in display values. WebGPU, and WebGL with any `engine.post` effect on, fog and blend in linear and tone-map once. Those two match pixel for pixel, opaque unfogged surfaces match on all three, and half-transparent or fogged ones shift on the straight WebGL path, more in dim scenes. So on WebGL turning the first post effect on can move those surfaces a little. This is how three.js's renderers work, not a fault to fix in your scene.
+
 ## Sky and fog hooks
-The engine's sky dome and fog kinds have node versions; nothing changes in how you set them (recipe 08). The GLSL hooks (`look.sky.patch`
-clouds and layers, `look.fog.patch('fog')`, style sky layers) take `{ glsl, tsl }` on this route: see 52's [tsl forms](52-look.md#tsl-forms).
-A sky of your own: three's `SkyMesh` (`three/addons/objects/SkyMesh.js`) through `engine.look.sky.replace`.
+The engine's sky dome has a node version; nothing changes in how you set it (recipe 08). The GLSL hooks (`engine.sky.clouds`, `engine.sky.layer`
+clouds and layers) take `{ glsl, tsl }` on this route: see 52's [tsl forms](52-around-the-picture.md#tsl-forms).
+A sky of your own: three's `SkyMesh` (`three/addons/objects/SkyMesh.js`) through `engine.sky.replace`.
 
 ## Post effects as nodes
 On WebGPURenderer the post chain is one three.js `RenderPipeline` (`engine.post.object()` returns `{ pipeline, scenePass }`). The slots, order
 and ownership rules of recipe 52 are unchanged; an effect gives `node: (input, ctx) => color` instead of `create`, and a fused snippet gives
-`fuse.tsl: (color, uv, ctx) => color` beside its `fuse.glsl`. `ctx.p` holds a live uniform per number or color param (so `look.post.set` does
+`fuse.tsl: (color, uv, ctx) => color` beside its `fuse.glsl`. `ctx.p` holds a live uniform per number or color param (so `handle.set()` does
 not rebuild), `ctx.tsl` is three/tsl, `ctx.scenePass` the scene pass (depth: `ctx.scenePass.getTextureNode('depth')`). The effects of
 `@threedog/post-effects` run on both routes as they are. An effect that reads depth, with a GLSL pass and a TSL node in one object
 (volumetric fog, god rays): [recipe 59](59-depth-post-effects.md).
 ```js
-engine.look.post.add({ name: 'warmGrade', slot: 'ldr', params: { amount: 0.3 },
+engine.post.add({ name: 'warmGrade', slot: 'ldr', params: { amount: 0.3 },
   node: (input, { tsl, p }) => tsl.vec4(tsl.mix(input.rgb, input.rgb.mul(tsl.vec3(1.05, 0.95, 0.8)), p.amount), input.a) });
-engine.look.post.set({ 'warmGrade.amount': 0.5 });   // a uniform write, no rebuild
+engine.post.get('warmGrade').set({ amount: 0.5 });   // a uniform write, no rebuild
 ```
 `ldr` runs after tone mapping (display colors 0-1); something that should glow or bleed belongs in `hdr`. An effect with only `create`
 (a three.js `Pass`) stops with its name.
@@ -230,12 +233,12 @@ engine.onFrame(() => engine.renderOnce(minimap, top));   // one extra picture pe
 import { RenderPipeline } from 'three/webgpu';
 
 // wrong: new PostProcessing(renderer) from older three examples (three 0.187 names it RenderPipeline), and a second pipeline beside the engine's
-console.log(engine.post.object()?.pipeline instanceof RenderPipeline);   // the engine's own, once its chain is built; add effects with look.post.add
+console.log(engine.post.object()?.pipeline instanceof RenderPipeline);   // the engine's own, once its chain is built; add effects with engine.post.add
 ```
 Also: three's `uniform` takes a value, not a `{ value }` object, so passing it `engine.uniforms.uWind` throws; use `uniforms(engine).uWind`.
 A type mismatch never errors: look at the result (`engine.debug.view('lighting')`, `threedog shot`).
-Many materials, many programs: WebGPURenderer builds one program per distinct set of patch uniform objects. Materials made from one spec
-(`makeMaterial(role)`, the same `detail` / `lighting` options) share theirs, so a hundred stones build one; a patch you write once and pass
+Many materials, many programs: WebGPURenderer builds one program per distinct set of patch uniform objects. Materials given the same
+`detail` / `lighting` options through `applyEffects` share theirs, so a hundred stones build one; a patch you write once and pass
 to every material shares too, a fresh patch object per material builds one program each.
 
 ## GLSL to TSL

@@ -8,6 +8,7 @@ import { ENGINE } from '../paths.mjs';
 const { Views } = await import(pathToFileURL(join(ENGINE, 'core/Views.js')).href);
 const { holdMethods } = await import(pathToFileURL(join(ENGINE, 'core/holds.js')).href);
 const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/stacks.js')).href);
+const { Events } = await import(pathToFileURL(join(ENGINE, 'core/Events.js')).href);
 
 export const name = 'named camera views: define / show / release';
 
@@ -15,11 +16,14 @@ export async function run({ check }) {
   // a minimal engine with the real camera takeover (holds.js), so views cannot bypass it
   const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60) }, Object.getOwnPropertyDescriptors(holdMethods));
   engine.stacks = new Stacks(engine); engine.stacks.define('camera', { kind: 'top', save: false });
+  engine.events = new Events();
+  const cuts = []; engine.events.on('camera:shot', c => cuts.push(c.name));
   const v = new Views(engine);
   const def = v.define('gate', { position: [0, 2, 10], target: [0, 2, 0], fov: 35 });
   check('defined view is listed', v.has('gate') && v.list().join() === 'gate');
   const shown = v.show('gate');
   check('show places the camera and takes it over', shown && engine.camera.position.z === 10 && engine.camera.fov === 35 && engine.cameraOverride?.owner === 'views');
+  check('show announces the cut, so the light pool settles at once', cuts.join() === 'gate');
   const dir = new THREE.Vector3(); engine.camera.getWorldDirection(dir);
   check('the camera looks at the target (down -z)', dir.z < -0.99);
   shown.remove();

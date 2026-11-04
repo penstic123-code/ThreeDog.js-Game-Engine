@@ -215,7 +215,7 @@ plugins all call it, so each effect has a name, an owner and on / off with `look
 
 Every `engine.look.<part>` has the same verbs: `set` (values), `patch(hook, code)` (swap one named hook; nothing else), `add` (one more named
 thing: `look.post.add`, `look.materials.add`), `replace(thing)` (the one three.js thing the part draws), `manual(keys)`, and one read, `value(key)`.
-A whole module is still `engine.use(mine(), { replaces: '<slot>' })`. Plan: `docs/plans/2026-11-03-look-api.md`.
+A whole module is still `engine.use(mine(), { replaces: '<slot>' })`.
 
 | Before | Now |
 |---|---|
@@ -225,4 +225,96 @@ A whole module is still `engine.use(mine(), { replaces: '<slot>' })`. Plan: `doc
 | `look.<part>.clear(owner)` (typed, never there) | drop the handle `set()` returned: `h.remove()` |
 | writer `manual:look.fog.replace` in `describe().owned` | `three (engine yielded)` |
 
+- *silent*: `collide: 'circle'` on a prop or template measures the model's base, not its widest extent, so trees and lamps block much less (a pine: 1.51 m -> 0.30 m). A row of such props that worked as a fence may now let the player through: write `collide: { circle: <radius> }` on it, or use `engine.collision.addSegment`.
+- *loud*: a `collide` other than `false`, `'box'`, `'circle'` or `{ circle, occluder? }` throws at load (`collide: true` used to mean a box: write `'box'`).
 - *silent*: `engine.catalog(...).verbs` lists a part's own named verbs too (`post`: `add`, `materials`: `add`, `glow`, `shadow`: `include`).
+
+## Style tools become picture tools
+
+- `threedog style check` → gone with style packs: a look is plain three.js in `look/`, and `npm run check` type-checks it.
+- `threedog style palette | compare` → `threedog picture palette | compare`; bridge commands `style-palette`, `style-compare` → `picture-palette`, `picture-compare`; MCP tools `style_palette`, `style_compare` → `picture_palette`, `picture_compare`. Options and output are unchanged.
+- `npm run check` no longer runs R34 (a game's `style/` folder).
+## Module looks: options and materials
+
+- `material spec { lighting: { rim, wrap, shadowTint } }` → a plain patch in the `lighting` slot through `applyEffects` (recipe 43); toon `ramp` → three.js `gradientMap` (recipe 09 §1).
+- `createEngine({ style: { ui: { bg, accent, css, fonts, templates } } })` → `createEngine({ ui: { theme: { bg, accent }, css, fonts, templates } })`.
+- *silent*: `style.ui.promptHeight` → `interactions({ promptHeight })`; `ui.theme.promptHeight` `[ui-misuse]`.
+- `ui: { bg: '#123' }` (a color beside the part names) `[ui-misuse]` → `ui: { theme: { bg: '#123' } }`.
+- *silent*: `style.pickup: { color, size, lift }` → `pickups({ color, size, lift })`; the `pickup` material role → `engine.pickups.material`.
+- *silent*: `style.character.animation` → `characters({ animation })`; the capsule's `character` material role → `engine.characters.material`.
+- *silent*: `style.triggers: { debugColor, debugOpacity }` → `triggers({ debugColor, debugOpacity })`.
+- *silent*: `style.palette` → `engine.assets.palette` (plain object; `this.palette` in generators and the cache key read it). A baked file no longer stands in for a generator while a palette is set, unless it is `source: 'file'`.
+- *silent*: a cached or baked model's material comes back as recorded, not rebuilt from the current material role; a toon `gradientMap` now counts as lost in the GLB (`{ build, cache: false }`). `assets.report()` `madeByStyle` → `madeByEngine`; `materialInfo` `from` is `'engine' | 'game'` and `keys` is gone.
+- *silent*: `style.grid: { ok, bad, previewOpacity, previewHeight, tiles, tileLift }` → `grids({ ... })`, same keys; the `decal` role → `pv.material`, `layer.material`.
+## The ground's look is plain three.js on the module
+
+- `style.terrain.colors | biomeColors | steep | variation | detail`, the look keys of `style.terrain.config` → `terrain({ colors, biomeColors, steep, variation, detail, shading, colorResolution, normals, normalFn })`.
+- `look.ground.set({ colors | biomeColors | steep | variation | shading | normals | detail })` → `engine.terrain.recolor({ ... })`; each value is given whole, `null` takes it out.
+- `look.ground.replace(m)`, `style.terrain.material` → `engine.terrain.material = m`, drawn as given; `applyEffects(m, { patches: engine.terrain.patches })` keeps cloud shadow, season and detail.
+- `look.ground.replace(m, { effects: false })` → `engine.terrain.material = m`, or `terrain({ material: m, effects: false })`.
+- `engine.terrainLook.setMaterial(m)` → `engine.terrain.material = m`.
+- *silent*: `style.terrain` is no longer read, and the default ground is the plain neutral material whatever `style.materials` says.
+
+## The water's look is plain three.js on the module
+
+- `look.water.set({ color | opacity })`, `style.water.color | opacity`, `style.materials.water` → `engine.water.material.color.set(...)`, `engine.water.material.opacity = ...`.
+- `look.water.set({ waveHeight | waveScale | waveSpeed | fresnel })`, `style.water.*` → `engine.water.uniforms.uWave | uWaveScale | uWaveSpeed | uFresnel.value = ...`.
+- `look.water.set({ depthColor | foam })`, `style.water.depthColor | foam`, `look.water.patch('wave' | 'surface', glsl)`, `water({ uniforms })` → `engine.water.shader({ depthColor, foam, wave, surface, uniforms })`.
+- `look.water.set({ normalMap | normalScale | normalRepeat | normalSpeed })` → `engine.water.normalMap(name, { scale, repeat, speed })`; the texture field `engine.water.normalMap` → `engine.water.normalTexture`.
+- `look.water.set({ shininess | specular })` → your own `MeshPhongMaterial` through `engine.water.material`.
+- `look.water.replace((engine, { uniforms, waves, surface, normalMap }) => m)`, `style.water.material` → `engine.water.material = m`; the four are `engine.water.uniforms`, `.patches` (by `name`), `.normalTexture`.
+- *silent*: `style.water` is no longer read, and the default water is the plain neutral Lambert whatever `style.materials` says.
+## Plants take plain materials (2026-11-04)
+- `look.wind.set({ frequency, amplitude })` → `engine.uniforms.uWindFreq.value`, `engine.uniforms.uWindAmp.value`.
+- `look.wind.patch('sway', spec)` → `engine.vegetation.sway(spec)` (now reaches planted species too).
+- `look.vegetation.patch('color', spec)` → `engine.vegetation.color(spec)`.
+- `makeMaterial('vegetation')` default → neutral gray; `engine.vegetation.material = myMaterial` for all, `vegetation.define(name, { material })` for one.
+
+## Weather looks are options and plain writes (2026-11-04)
+- `style.weather.rain / snow / area / lightning / lightningBrightness / overcastColor` → the same keys on `weather({ ... })`. `style.weather.snow.cover` → `weather({ snow: { cover } })`.
+- `style.weather.types` → removed; write the numbers in `weather({ types })`.
+- `look.weather.replace({ field: spec })` → `engine.weather.define(field, spec)`; `null` as spec gives the field back.
+- `look.weather.set({ 'rain.speed', 'rain.opacity', 'rain.slant' })` → `engine.weather.particles.rain.spec.speed = 30` (live, no rebuild).
+- `look.weather.set({ 'rain.color', 'rain.length', 'snow.size', 'snow.sway' })` → `engine.weather.particles.rain.uniforms.uColor.value.set(...)`, `uLen`, `uPx`, `uSwayAmp`.
+- `look.weather.set({ 'lightning.brightness', overcastColor })` → `engine.weather.lightningBrightness = 0.5`, `engine.weather.overcastColor.set(...)`.
+- `style.particles.<name>`, `style.particles.default` → `particles({ effects: { name: spec }, default: spec })`; `fx.material` is get / set, `fx.uniforms` holds the `{ value }` objects.
+- `look.weather.patch('rain.fragment', text)` → `engine.weather.define('rain', { glsl: { fragment: text } })`, or set `engine.weather.particles.rain.material`.
+
+## The dev panel writes three.js directly (2026-11-04)
+
+- `openPanel(engine, { overrides })` and `?ov=` → `openPanel(engine)`; "apply and rebuild" and "export overrides" are gone, values are written live and saved with "write back".
+- `engine.styleWorkbench` → `engine.devPanel` (`{ pane, tune }`); `describe().stylePanel` → `describe().devPanel`.
+- The panel's environment switch only turns on and off a `scene.environment` that is already there; making one is the game's call.
+- Panel multipliers for sun, ambient and fog → each light's `intensity` and `scene.fog` near / far / density.
+- The `threedog tune` block: `engine.look.<part>.set(...)` and `tunedStyle` → plain writes (`engine.scene.fog.far = 90;`, `engine.water.material.color.set(0x3388aa);`). A `.threedog/tune.json` saved before this: press "write back" again.
+
+## Materials are plain three.js (2026-11-04)
+
+- `makeMaterial('role', { color })`, `engine.makeMaterial` → `new THREE.MeshLambertMaterial({ color })` (any three.js material) in your `look/` code; `MATERIAL_PURPOSES` is gone with the roles.
+- `look.materials.set({ role: { key } })`, `look.materials.replace(role, mat)`, `look.materials.object(role)`, `look.materials.rebuild()` → write your own material objects; a module's material is `engine.<module>.material`.
+- `look.materials.add(name, patch, { roles })` → `applyEffects(material, { patches: [patch] })`.
+- Spec keys `type`, `steps`, `ramp`, `soften` → `new THREE.MeshToonMaterial({ gradientMap: rampTexture(ramp, soften) })`.
+- Spec keys `map: 'name'`, `repeat`, `wrap` → `engine.assets.useTexture(name, t => { mat.map = t; })`, then `t.repeat` and `t.wrapS`.
+- `look.surface.set({ lighting })`, `style.lighting`, spec key `lighting`, `look.surface.patch('lighting', glsl)` → `applyEffects(mat, { lighting: { wrap, shadowTint, rim } })` or `{ lighting: { glsl } }`, per material.
+- `look.surface.set({ detail })`, spec key `detail`, `look.surface.patch('detail', glsl)` → `applyEffects(mat, { detail })`, with `detail: { glsl }`.
+- `look.surface.set({ ramp, soften })` → `rampTexture(ramp, soften)` on each toon material.
+- `look.materials.glow(match, { night, day, dusk })` → `mat.emissiveIntensity` from `engine.uniforms.uNight` in your frame code (recipe 09 "Night glow").
+- A Material or a ShaderPatch in `plugins/` → put it on its mesh or module in `look/`; `plugins.off / on` lost `{ rebuild }`, and `reach` / `rebuilt` are gone from their results and from `plugins.list()`.
+- `userData.materialSource` is gone; `inspect.scene` says `from: engine | game`.
+- Hint kind `material` of R40 is gone: remove it from `threedog.hints`.
+## No style option: the look is game code (2026-11-04)
+
+- `createEngine({ style })` → throws. Write the picture as plain three.js in the game's `look/` code; UI colors and CSS go in `createEngine({ ui })`.
+- A style given as a list of parts (deep merge, `null` removes, `describe().look` naming the `pack`) → gone; game code composes plain values however it likes.
+- `engine.style` → gone from the public API; read the three.js object or the module you are after.
+- `style.background` → `engine.scene.background = new THREE.Color(0xefebe4)`.
+- `style.antialias` → `createEngine({ antialias })`.
+- `style.toneMapping`, `style.exposure` → `engine.renderer.toneMapping = THREE.AgXToneMapping`, `engine.renderer.toneMappingExposure = 1.2`.
+- `style.plugins` → the game's `plugins/` folder, or `engine.plugins.add(files)`; plugin names lose the `<pack>/` prefix, `engine.plugins.off('<pack>')` and the `style` field of `engine.plugins.list()` are gone.
+- `style.clouds.shadow / scale / speed` → `engine.uniforms.uCloudShadow.value`, `uCloudScale.value`, `uCloudSpeed.value.set(x, z)`.
+- `style.wind.frequency` → `engine.uniforms.uWindFreq.value`.
+- `style.seasons` → `engine.sky.seasonTints = { mode, strength, autumn: { foliage, ground } }`, plain data read every frame.
+- `style.sky.shadow`, `style.sky.environment`, `style.sky.clouds` → `sky({ shadow, environment, clouds })`.
+- `style.sky.fog` → `engine.scene.fog` or `look.fog.set`; `style.sky.dim` → `engine.sky.dim.tint` / `.stars`; other `style.sky.<key>` → `look.sky.set({ <key> })`.
+- Types `Style`, `StyleInput`, `StyleWater`, `StyleTerrain`, `StyleWind` → gone. `StyleSky` → `SkyLookOptions`, `StyleShadow` → `SkyShadowOptions`, `StyleFog` → `SkyFogOptions`, `StyleEnvironment` → `SkyEnvironmentOptions`, `StyleSkyClouds` → `SkyCloudOptions`, `StyleSkyLayer` → `SkyLayerOptions`, `StyleSeasons` → `SeasonTints`.
+- Error code `style-value` → gone.

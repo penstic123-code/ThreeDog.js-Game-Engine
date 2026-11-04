@@ -22,12 +22,12 @@ export const specs = [
           return { px: Array.from(bytes).join(','), err: err.slice(0, 400) };
         };
         const make = clouds => {
-          const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'appearance-sky', style: { sky: { clouds: { coverage: 1, ...clouds } } } });
-          try { e.use(sky()); } catch (err) { e.dispose(); return { error: err.message }; }
+          const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'appearance-sky' });
+          try { e.use(sky({ clouds: { coverage: 1, ...clouds } })); } catch (err) { e.dispose(); return { error: err.message }; }
           e.uniforms.uCloud.value = 0.6; e.uniforms.uTime.value = 40; e.sky.uniforms.uNight.value = 0.2;
           return { e, mat: e.sky.dome.material };
         };
-        // the original dome fragment shader, kept here as the oracle for "default look unchanged"
+        // the original dome fragment shader, kept here as the oracle for "default picture unchanged"
         const OLD = `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
 uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
 uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
@@ -79,7 +79,7 @@ void main(){
   float n = threedogNoise(d.xz / (d.y + 0.3) * 3.0 + time * 0.01);
   return vec4(mix(shade, lit, n) * uTint, smoothstep(1.0 - cover, 1.0, n));
 }`;
-        const hook = (h) => { const x = make({}); if (x.error) return x; try { x.e.look.sky.patch('clouds', h); } catch (err) { x.e.dispose(); return { error: err.message }; } return { e: x.e, mat: x.e.sky.dome.material }; };
+        const hook = (h) => { const x = make({}); if (x.error) return x; try { x.e.sky.clouds(h); } catch (err) { x.e.dispose(); return { error: err.message }; } return { e: x.e, mat: x.e.sky.dome.material }; };
         const cust = hook({ glsl, uniforms: { uTint: new THREE.Color(1, 0.5, 0.5), uPaper: new THREE.Texture() } });
         const ct = shot(cust.mat, 0.9);
         out.custom = { err: ct.err, differs: ct.px !== ref, hasUniform: !!cust.e.sky.uniforms.uTint };
@@ -96,15 +96,15 @@ void main(){
       check('horizon / opacity / fade / noise 参数各自改变画面', r.horizon && r.opacity && r.fade && r.noise, JSON.stringify([r.horizon, r.opacity, r.fade, r.noise]));
       check("kind: 'cumulus' 编译通过、画面不同于默认", r.cumulus.err === '' && r.cumulus.differs, JSON.stringify(r.cumulus));
       check('cumulus 受光随太阳方向变化', r.cumulusSun);
-      check('look.sky.patch(clouds, { glsl, uniforms })（含贴图）编译通过、画面不同，uniform 在 sky.uniforms 里', r.custom.err === '' && r.custom.differs && r.custom.hasUniform, JSON.stringify(r.custom));
+      check('engine.sky.clouds({ glsl, uniforms })（含贴图）编译通过、画面不同，uniform 在 sky.uniforms 里', r.custom.err === '' && r.custom.differs && r.custom.hasUniform, JSON.stringify(r.custom));
       check('kind 写错：报错并给出可选值与相近名', /kind 'cumulous'.*'plane' \| 'cumulus'.*did you mean 'cumulus'/.test(r.errKind), r.errKind);
       check('hook 没定义 threedogClouds：报错给出函数签名', /threedogClouds\(vec3 dir/.test(r.errGlsl || ''), r.errGlsl);
-      check("style.sky.clouds.glsl 不是选项：报错指向 look.sky.patch('clouds')", /look\.sky\.patch\('clouds'/.test(r.errStyle || ''), r.errStyle);
+      check("clouds.glsl 不是选项：报错指向 engine.sky.clouds()", /sky\.clouds\(/.test(r.errStyle || ''), r.errStyle);
       check('uniforms 类型不支持：报错说明可用类型', /uniforms\.uBad must be a number/.test(r.errUniform), r.errUniform);
     },
   },
   {
-    name: '[守] 地面着色：style.terrain.variation 默认逐位等于旧写法；blend / jitter / patches 生效；配置能 structuredClone 进 worker 且结果相同；自定义地面材质（贴图 + 三向投影补丁）跨区块无缝并能编译',
+    name: '[守] 地面着色：terrain({ variation }) 默认逐位等于旧写法；blend / jitter / patches 生效；配置能 structuredClone 进 worker 且结果相同；自定义地面材质（贴图 + 三向投影补丁）跨区块无缝并能编译',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(() => {
@@ -141,8 +141,8 @@ void main(){
           pars: 'uniform sampler2D uTri; uniform float uTriScale;',
           color_fragment: `vec3 tn = abs(normalize(cross(dFdx(vThreedogWorld), dFdy(vThreedogWorld)))); tn /= tn.x + tn.y + tn.z;
             diffuseColor.rgb *= texture2D(uTri, vThreedogWorld.zy * uTriScale).rgb * tn.x + texture2D(uTri, vThreedogWorld.xz * uTriScale).rgb * tn.y + texture2D(uTri, vThreedogWorld.xy * uTriScale).rgb * tn.z;` } } };
-        const mats = [terrainMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, map }), { style: {}, assets: {} }),
-          terrainMaterial(applyEffects(new THREE.MeshLambertMaterial({ vertexColors: true }), { clouds: false, patches: [triplanar] }), { style: {}, assets: {} })];
+        const mats = [terrainMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, map }), { assets: {} }),
+          terrainMaterial(applyEffects(new THREE.MeshLambertMaterial({ vertexColors: true }), { clouds: false, patches: [triplanar] }), { assets: {} })];
         const errors = []; const prev = R.debug.onShaderError; R.debug.onShaderError = (gl, p, vs, fs) => errors.push((gl.getProgramInfoLog(p) || '') + (gl.getShaderInfoLog(fs) || ''));
         const err0 = console.error; let logged = ''; console.error = (...x) => { logged += x.join(' '); };
         const sc = new THREE.Scene(), cam = new THREE.OrthographicCamera(-CH, CH, CH, -CH, 1, 500); cam.position.set(CH, 100, CH / 2); cam.lookAt(CH, 0, CH / 2);
@@ -195,7 +195,7 @@ void main(){
   },
   {
     software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
-    name: '[守] 风摆：style.wind.glsl 替换摆动函数（照抄默认写法时与默认逐像素相同，换写法则画面不同，含自定义 uniform）；写错报错给签名；1 万株草 = 1 次 draw call（附耗时）',
+    name: '[守] 风摆：applyEffects 的 wind.glsl 替换摆动函数（照抄默认写法时与默认逐像素相同，换写法则画面不同，含自定义 uniform）；写错报错给签名；1 万株草 = 1 次 draw call（附耗时）',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(() => {

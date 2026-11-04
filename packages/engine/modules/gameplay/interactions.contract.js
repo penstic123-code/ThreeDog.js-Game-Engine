@@ -5,7 +5,7 @@ export default {
   api: ['add', 'get', 'pick'],
   ops: ['interaction.use'],
   events: ['interaction:hold', 'interaction:interrupt'],
-  saves: {},   // not saved: the game / world adds interactions again when things are rebuilt on load
+  saves: { interactions: 1 },   // only what once / counter used; the interactions themselves the game / world adds again when things are rebuilt on load
   describe: true,
   options: { pick: 'nearest' },   // the probe needs no key (the game binds it in real use)
   probe: {

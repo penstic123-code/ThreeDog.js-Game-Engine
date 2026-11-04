@@ -2,34 +2,38 @@
 
 **In this recipe**: 1. Switching weather · 2. The game's own weather table · 3. Sky colors, sun, stars (and the sky color for your own shader) · 4. Time and brightness (how a game's value and the weather multiply) · 5. Verify · 6. Day and night in game logic · 7. Wet roads
 
-Modules: `sky()` (draws day/night from `engine.calendar`, sun and moon, fog; the time itself is `calendar()`, recipe 06), `weather()` (needs sky; the game's weather types, smooth transitions, rain and snow,
-lightning). All look data lives in the style; the engine has only a neutral fallback.
+Modules: `sky()` (draws the dome from `engine.calendar`, sun and moon, and computes the signals; it writes no light, fog or exposure, those are your `picture/` code, recipe 62; the time itself is `calendar()`, recipe 06), `weather()` (needs sky; the game's weather types, smooth transitions, rain and snow,
+lightning; their picture is `weather({ rain, snow, lightning })`, recipe 44). The engine has only a neutral fallback.
 
 ```js
-// 1. keyframes (default): style.sky.keyframes / style.exposure lists drive the day; nothing to write
-// 2. a function of the frame context, fed by one call: any key marked fn (fog color / near / far / density, sky top / horizon / backdrop, lights, exposure)
-engine.look.fog.set({ color: ({ state }) => state.boss ? '#400' : 'horizon' });  engine.look.state({ boss: true });
-// 3. your own three.js sky (three/addons Sky, a ShaderMaterial dome, a skybox): never written; time / weather keep flowing through engine.uniforms
-engine.look.sky.replace(mySky);  mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir;   // the same Vector3, refreshed every frame
+engine.use(sky({ keyframes: ROWS, sunSize: 600, clouds: { coverage: 0.6 }, dim: { stars: false } }));   // start values
+engine.uniforms.uSunPower.value = 4;        // sun, moon, star and dome cloud numbers: engine.uniforms, the dome's own objects, on both renderers
+engine.uniforms.uCloudCover.value = 0.8;    // also uSunSize uSunGlow uMoonSize uMoonPower uMoonColor uStars uStarScale uCurve uSkyCloudScale uSkyCloudSpeed uCloudOpacity uCloudSoft uCloudColor uCloudShade
+engine.sky.top = boss ? '#400' : null;      // plain fields, read each frame: top, horizon (color over the keyframes, null = keyframes), orbit.tilt / sway, dim.tint / stars
+engine.sky.backdrop = 0x335577;             // one flat color in place of the dome; null gives the dome back
+engine.sky.keyframes(NIGHT_ROWS);           // the day's rows, live
+engine.sky.clouds({ glsl, tsl });           // your cloud function; null = the built-in kind
+engine.sky.layer('aurora', { glsl, tsl, blend: 'add' });   // a named dome layer; null removes it
+engine.sky.replace(mySky);                  // skybox name | Texture | CubeTexture | Object3D, never written; null gives the dome back
+mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir;   // the same Vector3, refreshed every frame
 ```
 
-WebGPU (recipe 56): same dome and fog kinds as node materials. Hooks take `{ glsl, tsl: (ctx) => vec4 }` ([52](52-look.md#tsl-forms)); GLSL alone throws `[webgpu-needs-tsl]`. Own sky: three's `SkyMesh` via `look.sky.replace`.
+WebGPU (recipe 56): same dome as a node material. Hooks take `{ glsl, tsl: (ctx) => vec4 }` ([52](52-around-the-picture.md#tsl-forms)); GLSL alone throws `[webgpu-needs-tsl]`. Own sky: three's `SkyMesh` via `engine.sky.replace`.
 
-The sky follows one contract: **inputs** `{ time, weather, season, day, state, sky }` (state = what the game gave `engine.look.state(...)`),
-**outputs** sun direction / color / intensity, hemisphere, fog, environment, exposure and background, plus the shared `engine.uniforms`
-(`uSunDir`, `uDaylight`, `uTimeOfDay`, `uWind`, `uCloud`, season tints) and events (`day:start`, `season:change`, `weather:change`) that wind,
-rain and vegetation read. The keyframes are only the default implementation: a function replaces one key, `replace` the whole dome, and
-everything else keeps running (`replace` swaps the one thing a part draws; the whole sky module with time, lights and fog is
-`engine.use(mySky(), { replaces: 'sky' })`, recipe 52 [verbs](52-look.md#verbs)). The function gets `{ time, weather, season, day, state, sky }`: write `({ sky }) => sky.isDay ? ...`.
+The sky follows one contract: **inputs** time, weather, season,
+**outputs** the dome and the background, plus the shared `engine.uniforms`
+(`uSunDir`, `uSunColor`, `uDaylight`, `uTimeOfDay`, `uSkyTop`, `uSkyHorizon`, `uWind`, `uCloud`, `uRain`, `uSnow`, `uWeatherLight`, `uWeatherFog` (the weather state writes the last six every frame), season tints) and events (`day:start`, `season:change`, `weather:change`) that wind,
+rain and vegetation read. The keyframes are only the default implementation: `engine.sky.replace` swaps the whole dome and everything else keeps running (the whole sky module is
+`engine.use(mySky(), { replaces: 'sky' })`).
 
-### Your own sky object: what `look.sky.replace(obj)` does with it
+### Your own sky object: what `engine.sky.replace(obj)` does with it
 The engine hides its dome, adds `obj` to the scene root when it has no parent yet (and removes it again on `replace(null)` only then), and from
 then on **never moves, scales or writes it**: it does not follow the camera, is not scaled to the far plane and is not exempted from culling.
 (The built-in dome does all three itself: an `onBeforeRender` copies the camera position and scales it to `0.9 × camera.far`.) So a dome of
 your own must, on its own:
 
 - **contain the camera and stay inside the far plane**: either a fixed sphere big enough for everywhere the camera goes (radius < `camera.far`,
-  which the engine pulls in to the view range unless you take it: `engine.look.view.manual('far')`), or one that follows the camera; or skip
+  which the engine pulls in to the view range unless you take it: `engine.view.manual('far')`), or one that follows the camera; or skip
   depth altogether as below, so the radius no longer matters;
 - **compute the view direction per pixel from world space**: pass `worldPosition - cameraPosition` (linear, safe to interpolate) as the
   varying and do every non-linear step (normalize, `atan`, projecting onto a cloud plane, noise) in the fragment shader. A direction taken from
@@ -59,7 +63,7 @@ const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.Shader
 }));
 sky.frustumCulled = false; sky.renderOrder = -1000;
 sky.onBeforeRender = (r, s, cam) => { sky.position.copy(cam.position); sky.updateMatrixWorld(); };   // centred on the camera: any radius works
-engine.look.sky.replace(sky);
+engine.sky.replace(sky);
 ```
 Time of day still reaches it through `engine.uniforms` (`uSunDir`, `uDaylight`, `uTimeOfDay` ...): put them in its `uniforms` to follow the day.
 
@@ -77,8 +81,7 @@ ones (clear cloudy overcast rain storm snow fog) are an opt-in preset: `weather(
 `types: { ...presets.weather.temperate.types, dust: {...} }`.
 The preset supplies types and an `autoPool`; the weather changes by itself only with `auto: true` (or `engine.weather.setAuto(true)`). To pin one
 for a picture: `engine.weather.set('clear')`, or a shot's `--weather clear` (it also turns `auto` off); a shot prints the weather under the picture.
-Left-out fields are calm (no cloud, rain, snow, grey, lightning; sun, fog, wind 1). The style's `style.weather.types` only fills fields the game's
-table leaves out, for types the game has (the table's own numbers win, a preset counts as the game's). There is no patch option for one field
+Left-out fields are calm (no cloud, rain, snow, grey, lightning; sun, fog, wind 1). There is no patch option for one field
 of a preset type: spread that one type, `const T = presets.weather.temperate.types; weather({ types: { ...T, rain: { ...T.rain, fog: 0.5 } } })`.
 ```js
 import { createEngine, presets, sky, weather } from 'threedog';
@@ -92,45 +95,37 @@ Fields: `cloud` cloud cover 0-1, `sun` sunlight multiplier, `fog` fog distance m
 0-1, `grey` how gray the sky turns, `lightning` lightning. A table where nothing rains or snows builds no particles.
 With openWorld the weather module is already installed; pass its options through the preset: `openWorld({ camera: 'follow', weather: { types, autoPool } })`.
 
-## 3. Changing sky colors, sun, stars (style)
-`sky.keyframes` in the style (your pack's `index.js`):
-`[time 0-1, zenith color, horizon color (= fog color), sunlight color, sunlight intensity, ambient intensity]`, interpolated by time; the rows
+## 3. Changing sky colors, sun, stars
+`sky({ keyframes })`:
+`[time 0-1, zenith color, horizon color, sun color, ambient intensity]`, interpolated by time; the rows
 run from time 0 to time 1 (both midnight: the first row at 0, the last at 1 with the same values), else the sky throws. What each column drives
-(and which light carries the moonlight) is in `api/style.md` under `keyframes`;
-also `sunSize sunGlow moonSize starDensity clouds skybox shadow` (defaults and ranges in `api/style.md` too; `hoursPerDay` is timing, so it is a
-`calendar()` option, not a style key). At run time every look key of `style.sky` is a `look.sky` param, one entry per value:
-`engine.look.sky.set({ keyframes, moonSize, starScale, orbitTilt, dim: { stars: false } })`, a panorama is `engine.look.sky.replace('pano')`.
-`sky()` takes only how the game lights its world (`time`, `fog`, `sun`, `hemisphere`, plus the `shadow` / `environment` blocks); `sky({ moonSize })`
-throws naming the `look.sky.set` call.
-**Day and night brightness** come from two columns: sunlight intensity and ambient intensity. With no `sky.keyframes` the sky uses a neutral gray
-curve (night from 19:12 to 04:48, moonlight 0.4, ambient 0.35 against 3 / 1.2 at noon). The ambient column is the whole diffuse fill: the engine's neutral room
-environment (the light Standard / Lambert / Phong materials get from `scene.environment`) takes the share `look.lights` `env.share` (0..1) of
-it and the hemisphere light the rest, so a dark-night pack is dark on PBR surfaces too and the sun keeps its contrast by day. `env.intensity` keeps
-one meaning, the absolute `scene.environmentIntensity`: a game or pack that writes it under a sky gets that value as written (fixed, not following
-the day; the hemisphere light then keeps the whole budget, `describe().look.env.source.mode` `'absolute'`). `describe().look.env.source` says which map lights
-them (`room` / `sky` / `asset:<name>` / `game`) and `followsTime`; `look.env.replace('sky')` builds it from the dome instead (outdoor reflections
-show the sky, not a studio; it darkens by itself), an asset map is a fixed photo and does not follow. Check with `shot --time 12:00` and `--time 22:00`.
-The look of rain and snow is in `style.weather.rain / snow` (shape, density, shaders, the game's own particles: recipe 44).
+(and which light carries the moonlight) is on `keyframes` in `SkyPictureOptions`, `types/world.d.ts`;
+also `sunSize sunGlow moonSize starDensity clouds` (defaults and ranges there too; `hoursPerDay` is timing, so it is a
+`calendar()` option, not a sky key). `sky()` takes `time` and the dome's start values: all of these are `sky({ ... })` start values; at run time use the entries at the top of this page. `sky({ sun | hemisphere | fog })`
+throw naming what to write in your `picture/` code.
+**Day and night brightness** is your `picture/` code: the sky lights nothing. Read `uDaylight` and write your own lights (recipe 62), and check with `shot --time 12:00` and
+`--time 22:00`. The keyframes only color the dome; the ambient column also dims a skybox and the weather's sky tint. `engine.sky.environment({ into: engine.scene })` builds an environment map
+from the dome (outdoor reflections show the sky, not a studio; it darkens by itself), recipe 34.
+The look of rain and snow is `weather({ rain, snow })` (shape, density, shaders; the game's own particles with `engine.weather.define`: recipe 44).
 
 ### Sky color for my shader (horizon color, zenith color)
 A shader of your own that should meet the sky (a sea fading to the horizon, distant cards, a reflection) reads the colors the sky draws this frame:
-`engine.uniforms.uSkyHorizon` and `engine.uniforms.uSkyTop` (`THREE.Color`, linear). They hold the keyframes, a `look.sky.set({ top, horizon })`,
-the weather's grey tint and lightning; with `style.sky.backdrop` the horizon is the backdrop color. The fog in its default color (`'horizon'`) is
-this same color every frame, at night and in rain too; it differs only when the game sets `look.fog.set({ color })`, or takes the fog
-(`look.fog.manual()`, `scene.fog = ...`). Share the object, do not copy it in `onFrame`: `onFrame` runs before the sky updates, so a copy is one
+`engine.uniforms.uSkyHorizon` and `engine.uniforms.uSkyTop` (`THREE.Color`, linear). They hold the keyframes, `engine.sky.top` / `horizon`,
+the weather's grey tint and lightning; with a backdrop the horizon is the backdrop color. A fog of yours that should melt into the sky copies
+it in `engine.onRender`: `scene.fog.color.copy(engine.uniforms.uSkyHorizon.value)`. Share the object, do not copy it in `onFrame`: `onFrame` runs before the sky updates, so a copy is one
 frame old (after a time jump, the first picture shows the old hour's color).
 ```js
 const sea = new THREE.ShaderMaterial({ uniforms: { uHorizon: engine.uniforms.uSkyHorizon, uTop: engine.uniforms.uSkyTop, uSunDir: engine.uniforms.uSunDir },
   fragmentShader: '... gl_FragColor = vec4(mix(base, uHorizon, fresnel), 1.0); #include <tonemapping_fragment> #include <colorspace_fragment>' /* ... */ });
 engine.uniforms.uSkyHorizon.value.getHexString();   // read it in JS too (game logic, a HUD swatch)
 ```
-`look.sky.value('horizon')` is the override a game set (`null` = the keyframes), not the drawn color.
+`engine.sky.horizon` is the override a game set (`null` = the keyframes), not the drawn color.
 
 ## 4. Time and brightness (game code)
 ```js
 await engine.skip({ to: '19:30' });   // jump forward to a time: timers, calendar.at / daily, day:start fire on the way (needs a calendar dayLength; recipe 06)
 engine.mod('clock.rate', { owner: 'game', set: 0 });   // the calendar and calendar seconds stop together, so the sky stops moving (set: 2 = double speed; remove() undoes it); game seconds per day: calendar({ dayLength: 600 }); the three kinds of time are in recipe 06
-engine.look.fog.set({ far: 300 });        // base fog distance (meters); weather multiplies it; terrain({ viewFog: true }) writes the layer below
+engine.scene.fog = new THREE.Fog(0x99aabb, 90, 300);   // fog is plain three.js; engine.uniforms.uViewDistance (terrain({ viewFog: true }) writes it) and uWeatherFog are signals your picture/ code reads
 ```
 **The sky draws the calendar's time; it does not own it.** Day, time of day and seasons are the `calendar()` module (recipe 06 "The time table");
 the sky reads `engine.calendar.timeOfDay` each frame to place the sun and blend the keyframes, and `engine.calendar.season` for the season tint.
@@ -148,26 +143,18 @@ Seasons are off by default (`engine.calendar.season` is `null`, no `season:chang
 calendar({ seasons: ['spring', 'summer', 'autumn', 'winter'], daysPerSeason: 28, dayLength: 360 });   // days advance only with a dayLength; or the preset: openWorld({ camera: 'follow', calendar: presets.calendar.fourSeasons })
 calendar({ seasons: [{ name: 'wet', days: 10 }, { name: 'dry', days: 20 }], dayLength: 360 });   // seasons of their own length
 ```
-**A direct write to** `engine.lights.sun.intensity / color`, `engine.lights.hemi` or `scene.fog` **takes that value over**: the sky stops writing it and
-keeps yours, so the day cycle no longer changes it (warned once). To adjust and keep the cycle: `engine.look.lights.set(...)` / `look.fog.set(...)` or a
-modifier layer below; to take it on purpose: `engine.look.lights.manual('sun')` (recipe 52 "Who writes it").
-To darken or tint everything (a cave, a horror segment), add multipliers of your own on the look values; they stack with the weather's without
-overwriting it ([recipe 52](52-look.md#how-look-values-stack)):
+The lights and the fog are your own three.js objects, so nothing overwrites them. To darken or tint everything (a cave, a horror segment), your `picture/` code reads one signal of yours and multiplies
+it in with the weather's (`uWeatherLight`, `uWeatherFog`); the sky color has its own shared points, which stack with the weather's without overwriting it ([recipe 55](55-mods-time-wrap.md#picture-points-follow-the-same-rule)):
 ```js
-const cave = [engine.mod('look.lights.sun.intensity', { owner: 'cave', mul: 0.3 }), engine.mod('look.lights.hemi.intensity', { owner: 'cave', mul: 0.4 }),
-  engine.mod('look.fog.far', { owner: 'cave', mul: 0.5 }),                                          // enter the cave: entries multiply
-  engine.mod('look.sky.tint', { owner: 'cave', value: { color: 0x402030, amount: 0.5 } })];         // amount = zenith, horizon: = horizon
-cave.forEach(h => h.remove());                                                                 // leave the cave
+const cave = engine.mod('sky.tint', { owner: 'cave', value: { color: 0x402030, amount: 0.5 } });   // amount = zenith, horizon: = horizon
+cave.remove();                                                                                       // leave the cave
 ```
-These are ordinary shared points (recipe 55): the light and fog values multiply, `look.sky.flash` adds, `look.sky.tint` / `look.ground.cover`
-entries blend weighted by their amount, `{ for: 3 }` ends one by itself. A game's own `look.lights.set({ sun: { intensity: 3 } })` is the base they
-multiply: rain still dims it and the sunset still fades it (`engine.describe().shared['look.lights.sun.intensity'].how` says `arena 3 × weather 0.6`).
-Write once and it stays in effect; no need to write every frame. For a gradual change, write a new value every frame.
+These are ordinary shared points (recipe 55): `sky.flash` adds, `sky.tint` / `ground.cover` entries blend weighted by their amount, `{ for: 3 }` ends one by itself.
 
 ## 5. Verify
 - Text: `npm run shot -- / --time 19:30 --weather dust --wait 2 --describe-only`, then look for "Time: 19:30..." and "Weather: dust (rain 0, snow 0, fog 0.35)".
   `describe().weather` has `name progress rain snow fog wind cloud`; `describe().time` has `clock day season isDay dayLength rate`.
-- Take a screenshot only after the look changed: `npm run shot -- / --time 19:30 --weather dust`.
+- Take a screenshot only after the picture changed: `npm run shot -- / --time 19:30 --weather dust`.
 
 ## 6. Day and night in game logic
 Gameplay reads day and night from the calendar: test `engine.calendar.isDay`, and fade with `engine.calendar.daylight` (0-1); they work with or

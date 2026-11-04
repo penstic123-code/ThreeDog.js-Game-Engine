@@ -1,5 +1,5 @@
 // Default 'prompt' UI part: the "E · Talk" label that follows the nearest interaction. Interactions picks the target and projects it to the screen;
-// this only draws { x, y, text } and turns a click into view.use() (the op interaction.use). Look: CSS class .threedog-prompt (style.ui.css).
+// this only draws { x, y, text } and turns a click into view.use() (the op interaction.use). Picture: CSS class .threedog-prompt (ui.css).
 import { injectUICSS, placeAt } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 /** @import { PromptView } from '../../types/gameplay' */

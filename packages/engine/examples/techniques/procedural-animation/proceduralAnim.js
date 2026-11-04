@@ -69,7 +69,7 @@ export function createProceduralAnimator(parts, knobs = {}) {
   return {
     knobs: K,
     /**
-     * Pose for this frame. Call it once per rendered frame (onFrame or character.onPose) with the frame's dt: looks only, never gameplay.
+     * Pose for this frame. Call it once per rendered frame (onFrame or character.onPose) with the frame's dt: visuals only, never gameplay.
      * @param {number} dt frame seconds
      * @param {{ speed: number, state: string, grounded: boolean, vy?: number }} motion what the character is doing (written by fixed steps)
      */

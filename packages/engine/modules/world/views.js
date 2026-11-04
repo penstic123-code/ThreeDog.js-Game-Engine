@@ -17,7 +17,7 @@ const STRINGS = {
   positionFrom: 'positionFrom of world.present(\'{kind}\') must be \'record\' (the model follows the record, default) or \'view\' (the model moves itself, the record follows the model)',
 };
 /** Dev: code wrote the position of a model world places every frame (positionFrom 'record'): the write is lost next frame */
-const moved = (e, id) => e.thingConflict(`world model of '${id}' was moved by code outside its present update; world puts it back on the record every frame (positionFrom 'record'). Move the record instead: ops.run('thing.set', { id: '${id}', position }) or world.move, or present it with positionFrom: 'view'`);
+const moved = (e, id) => e.thingConflict(`world model of '${id}' was moved by code outside its present update; world puts it back on the record every frame (positionFrom 'record'). Move the record instead: ops.run('thing.set', { id: '${id}', position }) or world.move, or present it with positionFrom: 'view'. Picture-only motion (a leg swing, a stagger) goes in the present's update(rec, obj, dt), which runs right after the placing`);
 const say = (s, kind, id = '', got = '') => s.replace(/\{kind\}/g, kind).replace('{id}', id).replace('{got}', got);
 const OPTS = ['build', 'update', 'dispose', 'show', 'radius', 'positionFrom'];
 const FULL = { detail: 'full' };

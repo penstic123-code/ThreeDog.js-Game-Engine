@@ -87,12 +87,12 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const R = engine.renderer, sky = engine.sky, el = R.domElement, toURL = el.toDataURL;
-        const before = { pr: R.getPixelRatio(), map: sky?.shadowMapSize, bloom: engine.post.get('bloom')?.enabled };
+        const R = engine.renderer, sun = engine.lights.sun, el = R.domElement, toURL = el.toDataURL;
+        const before = { pr: R.getPixelRatio(), map: sun.shadow.mapSize.x, bloom: engine.post.get('bloom')?.enabled };
         el.toDataURL = () => { throw new Error('tainted canvas (test)'); };
         let err = null;
         try { engine.photo.take({ bloom: !before.bloom }); } catch (e) { err = e.message; } finally { el.toDataURL = toURL; }
-        return { err, before, after: { pr: R.getPixelRatio(), map: sky?.shadowMapSize, bloom: engine.post.get('bloom')?.enabled } };
+        return { err, before, after: { pr: R.getPixelRatio(), map: sun.shadow.mapSize.x, bloom: engine.post.get('bloom')?.enabled } };
       });
       check('the error reaches the caller', /tainted canvas/.test(r.err ?? ''), JSON.stringify(r));
       check('pixel ratio, shadow map size and bloom are back to what they were', JSON.stringify(r.after) === JSON.stringify(r.before), JSON.stringify(r));
@@ -160,7 +160,7 @@ export const specs = [
       page.on('console', m => { if (m.type() === 'warning' && m.text().includes('test.light')) warns.push(m.text()); });
       const r = await ev(() => {
         const { defineOwned, allowOwned } = threedogTest, light = { intensity: 1 }, door = { open: 0 };
-        const L = { manual: "engine.look.lights.manual('test')" };
+        const L = { manual: "engine.test.manual('test')" };
         const own = defineOwned(engine, { id: 'test.light.intensity', part: 'testPart', key: 'test', read: () => light.intensity, write: v => { light.intensity = v; }, objects: [light], levels: L });
         const frame = () => own.drive(1);   // what a module does each frame: check, write unless taken, mark
         frame(); frame();
@@ -178,7 +178,7 @@ export const specs = [
       });
       await new Promise(res => setTimeout(res, 200));
       check('outside write: engine yields, the value stays', r.yielded === 'yielded' && r.kept === 9, JSON.stringify(r));
-      check('exactly one warning, quoting the takeover call', warns.length === 1 && warns[0].includes("engine.look.lights.manual('test')") && warns[0].includes("manual('test', false)"), warns.join(' | '));
+      check('exactly one warning, quoting the takeover call', warns.length === 1 && warns[0].includes("engine.test.manual('test')") && warns[0].includes("manual('test', false)"), warns.join(' | '));
       check('defineOwned without levels.manual throws at define time (the warning always leads with a takeover call)', /levels\.manual is required/.test(r.noManual), r.noManual);
       check('hand back: the engine writes again; a tween on the object is exempt (no yield)', r.back === 1 && r.tweened === 'engine', JSON.stringify(r));
     },

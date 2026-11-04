@@ -14,7 +14,7 @@ function glslType(label, name, v) {
 /**
  * Turn a style's `uniforms` object into GLSL declarations and three.js uniform objects (arrays of 2-4 numbers become vectors)
  * @internal
- * @param {string} label where the object came from, for errors (e.g. 'style.sky.clouds.uniforms')
+ * @param {string} label where the object came from, for errors (e.g. 'sky clouds uniforms')
  * @param {Record<string, any> | undefined} src
  * @returns {{ uniforms: Record<string, { value: any }>, decl: string }}
  */

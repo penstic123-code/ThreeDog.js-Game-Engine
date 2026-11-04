@@ -3,6 +3,14 @@
 export class Layer {
     /** Layer name @type {string} */
     name: string;
+    set material(m: import("three").Material | null);
+    /**
+     * The three.js material of this layer's tiles (null when it draws none: a data layer, tiles: false or your own part). Set it to swap the picture, used as given.
+     * Tile colors are vertex colors, so a material with vertexColors: true shows them; without it, its own color covers every tile.
+     * @example field.layer('soil').material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+     * @type {import('three').Material | null}
+     */
+    get material(): import("three").Material | null;
     /**
      * Data of a cell, or undefined. Read only (frozen in dev builds): change it with set / clear / updateAll
      * @example field.layer('zone').get([3, 5])?.buildable

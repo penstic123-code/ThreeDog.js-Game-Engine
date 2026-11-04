@@ -8,13 +8,12 @@ import { createServices } from './services.js';
 import { Stacks } from './stacks.js';
 import { PostFX } from '../render/PostFX.js';
 import { createDefaultLights } from '../render/lights.js';
-import { registerEngine, makeMaterial, MATERIAL_PURPOSES } from '../render/materials.js';
-import { defineMaterialsLook, defineSurfaceLook } from '../render/lookSurface.js';
+import { registerEngine } from '../render/materials.js';
 import { createUniforms } from '../render/effects.js';
 import { bindUniforms } from '../render/engineUniforms.js';
 import { UIParts } from '../ui/Parts.js';
 import { defineCoreParts } from '../ui/defaults.js';
-import { applyUIStyle } from '../ui/theme.js';
+import { applyUITheme } from '../ui/theme.js';
 import { trackValidate, warnOnce, DEV } from './validate.js';
 import { readParams } from './params.js';
 import { loopMethods } from './loop.js';
@@ -32,13 +31,15 @@ import { createMovement } from './movement.js';
 import { moduleMethods } from './modules.js';
 import { skipMethods } from './skip.js';
 import { checkMethods } from './checks.js';
-import { styleFrom, NO_STYLE, styleIsEmpty } from './styleParts.js';
 import { canvasBox, placeUI, resizeMethods } from './canvasBox.js';
 import { sceneMethods } from './sceneMethods.js';
 import { EngineCamera } from './engineCamera.js';
 import { recordRender } from './describeRender.js';
-import { defineCoreLook, defineCloudShadowLook, defineSeasonLook, defineViewLook } from './look/coreParts.js';
-import { defineShadowLook } from './look/shadowPart.js';
+import { installPictureWriters } from './pictureWriters.js';
+import { ownHook } from './moduleTypes.js';
+import { defineShadows } from './shadows.js';
+import { defineTerms } from '../render/terms.js';
+import { defineView } from './view.js';
 import { nameShaderErrors } from '../render/shaderErrors.js';
 import { probeMethods } from '../render/probes.js';
 import { headlessSettled } from './headlessLoad.js';
@@ -50,7 +51,7 @@ const FALLBACKS = ['webgl2', 'webgl', 'error'];
 /** @internal */
 export const ENGINE_PARAMS = {
   canvas: 'object?', renderer: { type: 'string|object', optional: true, desc: "'webgl' (default), 'webgpu', or a renderer the game built" },
-  fallback: { type: 'string', optional: true, values: FALLBACKS }, style: 'object|array?', antialias: 'bool?',
+  fallback: { type: 'string', optional: true, values: FALLBACKS }, antialias: 'bool?',
   pixelRatio: 'number?', adaptiveResolution: { type: 'bool', default: true }, targetFps: { type: 'number', default: 55, min: 1 },
   ui: 'object?', audio: 'object?', fov: { type: 'number', default: 55, min: 1, max: 179 }, near: { type: 'number', default: 0.3, min: 0 },
   locale: { type: 'string', default: 'auto' }, strings: 'object?', bindings: 'object?', saveKey: { type: 'string', default: 'game' },
@@ -82,10 +83,15 @@ function rendererWant(r, rendererIn, fallback) {
 }
 
 
+// Dev note once when createEngine keeps the engine's placeholder lights; lights: false says the game writes its own picture
+const NO_PICTURE = 'createEngine(): the placeholder picture is on: a still white sun and hemisphere light with soft shadows, no tone curve, no environment map (see describe().render.defaults), ' +
+  'gray background, ground, capsule characters and box props. Not an error, but the game has no picture yet: making the art is part of building the game. ' +
+  'A new game writes its picture in picture/ with createEngine({ lights: false }) (recipes/62-picture-code.md)';
+
 export class Engine {
   /**
    * @param o  createEngine options: each option, its default and meaning is documented once on EngineOptions (types/core.d.ts).
-   *   style can also be a list of parts deep-merged left to right (rules in core/styleParts.js). ENGINE_PARAMS and the destructuring below must match it.
+   *   ENGINE_PARAMS and the destructuring below must match it.
    */
   constructor(opts = {}) {
     /** @internal first-frame phases (startup.js): when the page's scripts had run and the engine began / finished building */
@@ -93,14 +99,15 @@ export class Engine {
     /** This engine's dev checks (createEngine({ validate })); another engine on the page does not change it @type {boolean} */
     this.validate = opts.validate !== false;
     /** @internal */ this._untrackValidate = trackValidate(opts.validate);
-    // createEngine({ post }) was a third switch next to look.post.set, and read as "turn bloom on" when nothing had added a bloom. Said here,
-    // before the unknown-option check, so the message names the one way instead of only "unknown option"
-    if (opts.post !== undefined) throw codedError('post-effect', 'createEngine({ post }) is gone. The engine ships no effects: add one with engine.look.post.add(bloom()) ' +
-      "(import { bloom } from '@threedog/post-effects'), or a plugins/10-bloom.js file (export default bloom()); switch an added one with " +
-      `engine.look.post.set(${JSON.stringify(opts.post)}) after it is added (a style's costly effects start off on low-tier devices: set turns them on)`);
+    // createEngine({ post }) read as "turn bloom on" when nothing had added a bloom. Said here, because an unknown key would only be ignored
+    if (opts.post !== undefined) throw codedError('post-effect', 'createEngine({ post }) is gone. The engine ships no effects: add one with engine.post.add(bloom()) ' +
+      `(@threedog/post-effects), or as a file in the plugins folder; switch it with its handle: engine.post.get('bloom').enabled = false`);
+    // said before the unknown-option check for the same reason: a picture given here has one place to go, and the generic message does not name it
+    if (opts.style !== undefined) throw codedError('engine-misuse', "createEngine({ style }) is gone: there is no style table. Write the picture as plain three.js in the game's picture/ code " +
+      "(scene.background, scene.fog, renderer.toneMapping, engine.<module>.material, engine.uniforms), and the screen UI's colors and CSS with createEngine({ ui }). recipes/62-picture-code.md");
     const o = readParams('createEngine()', ENGINE_PARAMS, opts);
     /** @internal createEngine options as read (engine.catalog('core').params shows them with the schema) */ this._createParams = o;
-    const { canvas: canvasIn, renderer: rendererName, style: styleIn, antialias, pixelRatio, adaptiveResolution, targetFps, ui = {}, audio = {},
+    const { canvas: canvasIn, renderer: rendererName, antialias, pixelRatio, adaptiveResolution, targetFps, ui = {}, audio = {},
       fov, near, locale, strings = {}, bindings = {}, saveKey, joystick,
       headless = new URLSearchParams(location.search).has('threedog-headless'), validate,
       decoders = null, budget = null, urlState = DEV, seed, movement, threads, pauseOnBlur, batching = {}, lights, fallback } = o;
@@ -111,8 +118,7 @@ export class Engine {
     const gpuWanted = rendererIn === 'webgpu';
     const canvas = canvasIn ?? (gpuWanted ? undefined : rendererIn?.domElement);
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
-    const style = this.style = styleFrom(styleIn);   // a list of parts is deep-merged (styleParts.js); one object is used as is
-    if (styleIsEmpty(opts.style)) warnOnce(NO_STYLE);
+    if (opts.lights !== false) warnOnce(NO_PICTURE);
     // a game-supplied renderer is used as is: the engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself
     const owned = !rendererIn || gpuWanted;
     this._ownsRenderer = owned;               // dispose() releases the WebGL context only of a renderer the engine built
@@ -121,7 +127,7 @@ export class Engine {
     // every headless browser low tier and drop the game's costly post from shots. An engine-built renderer needs it before it exists: MSAA defaults
     // from the tier and is the canvas's own (antialias, fixed when the context is made), so an effect-free frame skips the post chain
     const tierFirst = (headless && forcedTier()) || (owned ? tierBeforeRenderer() : null);
-    const aa = antialias ?? style.antialias ?? (owned ? tierFirst !== 'low' : null);
+    const aa = antialias ?? (owned ? tierFirst !== 'low' : null);
     const r = this.renderer = gpuWanted ? newWebGPURenderer(canvas, aa) : rendererIn ?? new THREE.WebGLRenderer({ canvas, antialias: aa, powerPreference: 'high-performance' });
     /** @internal what the game asked for and what to do without WebGPU; start() fills describe().renderer from it */
     this._backendWant = rendererWant(r, rendererIn, fallback);
@@ -136,17 +142,18 @@ export class Engine {
     r.info.autoReset = false;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(style.background ?? 0x8c8c8c);
-    /** Default lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral without sky, driven by sky when installed @type {{ sun: any, hemi: any }} */
-    /** Look parts by name, each with set / patch / replace (recipes/52-look.md): tone, lights, cloudShadow from core, the rest from the modules that provide them @type {Record<string, import('../index').LookPart>} */
-    this.look = {};
+    /** @internal the neutral background a scene starts with: describe().render.defaults, and the reference a sky compares with @type {any} */ this.baseBackground = new THREE.Color(0x8c8c8c);
+    this.scene.background = this.baseBackground;
+    /** Placeholder lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral and still; createEngine({ lights: false }) leaves them out of the scene @type {{ sun: any, hemi: any }} */
     this.lights = createDefaultLights(this, { add: lights !== false });
-    // the engine's own renderer: render defaults are a technical baseline under every style (AgX, soft shadows, neutral environment; coreParts.js);
-    // a pack that wants none sets it (toneMapping: 'none', look.shadow enabled false, look.lights env.intensity 0)
-    this.stacks = new Stacks(this);   // look values are shared points (core/look/points.js): the registry exists before the first look part
-    defineCoreLook(this, { owned, baseline: owned });   // writes renderer.toneMapping once (style.toneMapping, else AgX); look.tone (exposure) and look.lights (coreParts.js)
-    defineShadowLook(this, { owned, baseline: owned });   // look.shadow: the master switch and filter (a sky adds its shadow-box keys)
-    recordRender(this, { owned });   // baseline for describe().render (after the curve is written): which values the engine / style set
+    // the engine's own renderer gets soft shadows by default; tone curve and environment stay three.js's defaults
+    this.stacks = new Stacks(this);   // shared points: the registry exists before the first engine.shadows / engine.post point
+    defineShadows(this, { owned });   // engine.shadows: master switch, cascades, box, budget on the lights a game hands in (core/shadows.js)
+    recordRender(this, { owned });   // baseline for describe().render (after the curve is written): which values the engine set
+    // Dev server only. A bundled build (npm test, threedog shot, release) is one minified file, so a stack there names assets/index-x.js:1 for every value: a
+    // wrong answer. Written as the literal, not DEV_SERVER: only the literal folds at build time, so the tracker leaves a release bundle altogether
+    // @ts-ignore Vite's import.meta.env (undefined outside Vite)
+    if (import.meta.env?.DEV) installPictureWriters(this);
     this.camera = new EngineCamera(fov, box.w / box.h, near, 1500);   // a PerspectiveCamera that camera rigs can switch to orthographic (core/engineCamera.js)
     this.camera.position.set(0, 10, 20);
     this.focus = new THREE.Vector3();          // camera focus (updated by the camera module): the view loads around it; simulation follows world.anchor
@@ -186,18 +193,16 @@ export class Engine {
     clearHooks(this);
     this._hookErrors = new Set();              // places that already reported an error (once per place, see errors.js)
     this.error = null;                         // gameplay error in dev/test: { where, message, cause?, docs? }; gameplay is frozen (see errors.js)
-    this.disabledModules = new Set();          // look / ui modules disabled after they threw
+    this.disabledModules = new Set();          // picture / ui modules disabled after they threw
     /**
      * This engine's shader uniforms (uTime, uWind, uCloud, season tints...); share these objects in your own ShaderMaterial or patch @type
      * {import('../types/core').EngineUniforms}
      */
-    this.uniforms = createUniforms(style);
+    this.uniforms = createUniforms();
     bindUniforms(r, this.uniforms);             // built-in shader effects read this engine's uniforms when compiled by this renderer
-    defineViewLook(this);                       // look.view: manual() for camera.far / pixel ratio / camera pose the engine changes on its own (coreParts.js)
-    defineCloudShadowLook(this);                // look.cloudShadow: the cloud-shadow patch every engine material carries, declared (coreParts.js)
-    defineSeasonLook(this);                     // look.season: the season / cover tint's replace slot (coreParts.js, render/terms.js)
-    defineMaterialsLook(this, MATERIAL_PURPOSES); defineSurfaceLook(this);   // look.materials / look.surface: what makeMaterial reads (render/lookSurface.js)
-    this._materials = registerEngine(this);    // makeMaterial without an engine argument uses the first live engine's style
+    defineView(this);                           // engine.view: manual() for camera.far / fov / pixel ratio / camera pose the engine changes on its own (core/view.js)
+    defineTerms(this);                          // engine.terms: the game's own cloud shadow or season tint in place of the engine's (render/terms.js)
+    this._materials = registerEngine(this);    // applyEffects without an engine option uses the first live engine
 
     createServices(this, { canvas, validate, locale, strings, saveKey, joystick, bindings, audio, decoders, budget, seed, headless, urlState, threads, batching });
     this.startup = null;                       // startup timing report (set once start() finishes)
@@ -205,12 +210,9 @@ export class Engine {
     this._whileCompiling = [];                 // @internal one-time warm-ups a module queues during loading; start() runs them while the GPU compiles
     this._prof = null;                         // module hook timing (profile(true) turns it on)
     this._afterTick = null;                    // at startup, checked once at the end of each frame for readiness
-    // effects come through look.post.add only (a style's plugins, the plugins folder, game code); style.post was the second way in, gone
-    if (style.post != null) throw codedError('style-value', 'style.post is gone: a style brings its post effects as plugins (style/plugins/10-bloom.js: export default bloom(); ' +
-      "the style object: plugins: import.meta.glob('./plugins/*.js', { eager: true })), the same files a game's plugins/ folder takes. docs/MIGRATING-0.4.md");
     // a game's own renderer keeps its own MSAA choice by default (used as is, like its pixel ratio)
     this.post = new PostFX(this, { antialias: aa ?? ownMsaa(r) });
-    this._uiStyle = applyUIStyle(this, style.ui);   // theme variables, the style's CSS and fonts; removed on dispose
+    this._uiStyle = applyUITheme(this, ui);    // theme variables and the game's CSS; removed on dispose
     this.ui = new UIParts(this, ui);           // UI parts: every piece of screen UI is replaceable or off (ui/Parts.js)
     defineCoreParts(this);
     this.ui.get('loading')?.show({});
@@ -244,13 +246,11 @@ export class Engine {
    * Seconds are views of it: engine.time.now('real' | 'ambient' | 'calendar' | channel)
    */
   get tick() { return this.time.tick; }
-  /** Material by role from this engine's style: engine.makeMaterial('prop', { color: 0x8a5a36 }) */
-  makeMaterial(purpose, params) { return makeMaterial(purpose, params, this); }
   /** Ray cast: the nearest hit or null, see Rays.js */
   raycast(origin, dir, opts) { return this.rays.cast(origin, dir, opts); }
   /** Cast a ray from screen coordinates (-1..1) */
   pick(ndcX, ndcY, opts) { return this.rays.pick(ndcX, ndcY, opts); }
-  /** Set up a scenario: { time, weather, pos, save, wait, cutscene, state }, see UrlState.js */
+  /** Set up a scenario: { time, weather, pos, at, save, wait, cutscene, state }, see UrlState.js */
   applyState(params) { return this._urlState.apply(params); }
   /**
    * Scenario ready: start() has finished, the URL parameters / latest applyState are applied, and (headless) a load begun after start has settled
@@ -274,11 +274,11 @@ export class Engine {
   onFixed(fn, { channel, phase = 'early' } = {}) {
     if (phase !== 'early' && phase !== 'late') throw codedError('engine-misuse', `engine.onFixed(fn, { phase }): phase is 'early' (default, before modules) or 'late' (after modules), got ${JSON.stringify(phase)}`);
     if (channel) this.time._get(channel);   // unknown channel: throw now, not every step
-    const f = channel ? () => fn(this.time.dt(channel)) : fn, key = phase === 'late' ? '_fixedLate' : '_fixed';
+    const f = ownHook(this, channel ? () => fn(this.time.dt(channel)) : fn), key = phase === 'late' ? '_fixedLate' : '_fixed';
     this[key].push(f); return { remove: () => { this[key] = this[key].filter(x => x !== f); } };
   }
   /** Once per frame: animation, camera, UI. Returns a handle { remove() } */
-  onFrame(fn) { this._frame.push(fn); return { remove: () => { this._frame = this._frame.filter(f => f !== fn); } }; }
+  onFrame(fn) { const h = ownHook(this, fn); this._frame.push(h); return { remove: () => { this._frame = this._frame.filter(f => f !== h); } }; }
   /**
    * Around the main render, after the camera update and batching: fn({ renderer, scene, camera, dt }). when 'before' (default) runs just before the
    * engine's frame render: render to your own target there (mirror, minimap, portal, picking); the render target is reset afterwards. 'after' runs
@@ -288,8 +288,9 @@ export class Engine {
   onRender(fn, { when = 'before' } = {}) {
     if (typeof fn !== 'function') throw codedError('engine-misuse', `engine.onRender(fn, { when }): fn must be a function, got ${typeof fn}`);
     if (when !== 'before' && when !== 'after') throw codedError('engine-misuse', `engine.onRender(fn, { when }): when must be 'before' or 'after', got ${JSON.stringify(when)}`);
-    this._onRender[when].push(fn);
-    return { remove: () => { this._onRender[when] = this._onRender[when].filter(f => f !== fn); } };
+    const h = ownHook(this, fn);
+    this._onRender[when].push(h);
+    return { remove: () => { this._onRender[when] = this._onRender[when].filter(f => f !== h); } };
   }
 
   /**

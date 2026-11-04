@@ -101,8 +101,8 @@ export const presets = Object.freeze({
   camera: Object.freeze({
     /** Far, slow orbit for open landscapes (the follow camera's own defaults) */
     follow: Object.freeze({}),
-    /** Close over-the-shoulder view with a locked mouse (third-person shooter, soulslike) */
-    overShoulder: Object.freeze({ distance: 3, shoulder: 0.7, pitch: 0.15, pointerLock: true }),
+    /** Close over-the-shoulder view with a locked mouse (third-person shooter, soulslike): look up to about +60° and down, the ground shortens the arm */
+    overShoulder: Object.freeze({ distance: 3, shoulder: 0.7, pitch: 0.15, minPitch: -1.05, maxPitch: 1.2, groundClearance: 0.3, hideTargetNear: 0.9, pointerLock: true }),
     /** Third-person action: locked mouse, look up to about +60° and down, the ground shortens the arm (look direction kept), walls pull it in, the player hides when the camera is inside it */
     thirdPersonAction: Object.freeze({ distance: 4.5, minDistance: 1.5, maxDistance: 9, height: 1.6, shoulder: 0.5, pitch: 0.25, minPitch: -1.05, maxPitch: 1.2,
       ground: 'shorten', groundClearance: 0.3, hideTargetNear: 0.9, pointerLock: true }),

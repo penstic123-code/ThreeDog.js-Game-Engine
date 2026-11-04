@@ -35,7 +35,7 @@ export const BRIEF = e => {
 /**
  * What bears on a picture, printed under every `threedog shot` and `threedog snap` (one formatter for both): time and day / night, weather,
  * the camera with its focus, and a page error or failed load if any. Why not describeText: a ~15-line state block after every picture buried
- * the look lines; the rest is one command away (threedog describe). Self-contained: it is serialized into the page.
+ * the picture lines; the rest is one command away (threedog describe). Self-contained: it is serialized into the page.
  */
 export const PICTURE = e => {
   const d = e.describe(), t = d.time, w = d.weather, c = d.camera, r = v => Math.round(v * 10) / 10;

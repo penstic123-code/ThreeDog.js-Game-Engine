@@ -72,6 +72,7 @@
 - `music:change` [MusicChangeEvent] Background music changed track (null means silence)
 - `music:stinger` [{ name: string }] A stinger was played
 - `state:applied` [StateParams] Scenario parameters were applied (URL parameters or engine.applyState)
+- `state:placed` [{ x: number; z: number }] A scenario (at, pos) moved the player: a camera or view that eases jumps there
 - `anim:end` [{ root: Object3D; state: string }] A one-shot action of the animation state machine finished
 - `world:add` [{ id: string; kind: string }] A record was added to world
 - `world:change` [{ id: string; kind: string; keys: string[] }] world.set changed fields (keys lists which)
@@ -84,7 +85,7 @@
 - `net:sync` [{ tick: number; full: boolean }] Client (net): host state applied (full: a whole snapshot, else a diff); redraw UI from state here
 - `net:result` [{ seq: number; name: string; ok: boolean; code: string | null; value… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
 - `engine:error` [EngineError] A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error)
-- `module:disabled` [{ name: string; message: string }] A look or ui module errored and was disabled (the game continues)
+- `module:disabled` [{ name: string; message: string }] A picture or ui module errored and was disabled (the game continues)
 - `vehicle:enter` [{ character: Character; vehicle: Rideable }] A character boarded a vehicle
 - `vehicle:exit` [{ character: Character; vehicle: Rideable }] A character exited a vehicle
 - `flow:change` [{ from: string; to: string }] Game flow state changed

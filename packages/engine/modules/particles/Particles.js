@@ -31,29 +31,40 @@
 //   fog true        affected by fog
 //   maxPixels 512   largest on-screen size of one particle (pixels), so smoke drifting past the camera does not fill the screen
 //
-// Style: style.particles[name] = {...same params...} sits under the define() params (what define sets wins).
-//         so a game can write only engine.particles.define('leaves', { max: 200 }) and leave color and texture to the style.
-//         style.particles.default = {...} is the fallback for all effects.
-//   The style can also define effects directly: a name in style.particles that the game never define()d is defined from the style on the first emit/attach.
+// Pictures: particles({ effects: { name: {...same params...} }, default: {...} }). effects[name] sits under the define() params (what define sets wins),
+//   so a game can write only engine.particles.define('leaves', { max: 200 }) and keep color and texture with the rest of its picture. default is the fallback for all effects.
+//   A name in effects that the game never define()d is defined on the first emit/attach.
+// Material: each effect's material is a plain three.js material, swapped with fx.material = myMaterial and drawn as given; fx.uniforms are the engine's { value } objects.
 import * as THREE from 'three';
 import { vec3 } from '../../core/math.js';
 import { Effect, NEUTRAL, KEYS } from './effect.js';
 import { warnMissing } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { readParams, keysSchema, isOptions } from '../../core/params.js';
+import { codedError } from '../../core/errorHints.js';
 // one schema per public entry (unknown keys throw in dev with did-you-mean). Effect param values come in many shapes (number or [min, max], color), so only key names are checked
 const FX_PARAMS = keysSchema(KEYS);
+const PARTICLES_PARAMS = {
+  effects: { type: 'object', optional: true, desc: 'effect params by name: under what define() gives, and defined on the first emit / attach when define() never ran' },
+  default: { type: 'object', optional: true, desc: 'params every effect starts from' },
+};
 const EMIT_PARAMS = { count: { type: 'number', default: 10, min: 0, desc: 'particles in this burst' }, overrides: 'any?' };   // overrides: null is allowed (no override)
 const ATTACH_PARAMS = { rate: { type: 'number', optional: true, min: 0, desc: 'particles per second (default: the effect rate)' }, offset: 'any?', overrides: 'any?' };
 const _vs = new THREE.Vector2();   // canvas CSS size (particle point scale follows the canvas height, not the window)
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Object3D, PositionLike } from '../../types/common' */
-/** @import { ParticleEffect, ParticleEmitter, ParticleOptions } from '../../types/gameplay' */
+/** @import { ParticleEffect, ParticleEmitter, ParticleOptions, ParticlesOptions } from '../../types/gameplay' */
 
 /** engine.particles */
 export class Particles {
-  /** @internal */
-  constructor(engine) {
+  /**
+   * @internal
+   * @param {any} engine
+   * @param {ParticlesOptions} [opts]
+   */
+  constructor(engine, { effects = {}, default: fallback = {} } = {}) {
     /** @internal */ this.engine = engine;
+    /** @internal what particles({ effects }) gave */ this._given = effects;
+    /** @internal what particles({ default }) gave */ this._fallback = fallback;
     /** Defined effects @type {Map<string, ParticleEffect>} */
     this.effects = new Map();
     /** @internal */ this.emitters = new Set();
@@ -63,12 +74,12 @@ export class Particles {
     /** @internal */ this._e = new THREE.Vector3();
   }
 
-  /** @internal */
-  _styleFor(name) { const s = this.engine.style.particles || {}; return { ...(s.default || {}), ...(s[name] || {}) }; }
-
   /**
-   * Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of the style
-   * pack preset. Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer), .material is the shader material
+   * Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of particles({ effects,
+   * default }). Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer); .material is its plain three.js material (set
+   * your own and it is drawn as given, null gives the engine's back); .uniforms are the engine material's { value } objects (uMap, uHasMap, uScale,
+   * uMaxPx), which a ShaderMaterial of yours can share. A material of yours lasts until the effect is defined again
+   * @example engine.particles.define('sparks', { blending: 'additive' }).material = myMaterial;
    * @param {string} name
    * @param {ParticleOptions} [opts]
    * @returns {ParticleEffect}
@@ -76,7 +87,7 @@ export class Particles {
   define(name, opts = {}) {
     readParams(`particles.define('${name}')`, FX_PARAMS, opts);
     const old = this.effects.get(name);
-    const o = { ...NEUTRAL, ...this._styleFor(name), ...opts };
+    const o = { ...NEUTRAL, ...this._fallback, ...this._given[name], ...opts };
     const fx = new Effect(this, name, o);
     this.effects.set(name, fx);
     // emitters attached to the old effect keep running on the new one (redefining tunes an effect, it does not stop it)
@@ -92,8 +103,8 @@ export class Particles {
   /** @internal */
   _get(name) {
     let fx = this.effects.get(name);
-    if (!fx && this.engine.style.particles?.[name]) fx = this.define(name);
-    if (!fx) warnMissing('particle', name, [...this.effects.keys(), ...Object.keys(this.engine.style.particles || {}).filter(k => k !== 'default' && !this.effects.has(k))]);
+    if (!fx && this._given[name]) fx = this.define(name);
+    if (!fx) warnMissing('particle', name, [...new Set([...this.effects.keys(), ...Object.keys(this._given)])]);
     return fx;
   }
 
@@ -167,17 +178,27 @@ export class Particles {
       h.object.getWorldQuaternion(this._q);
       h.fx.spawn(p, n, o, o.worldSpace === false ? this._q : null);
     }
-    for (const fx of this.effects.values()) { fx.material.uniforms.uScale.value = scale; fx.update(dt); }
+    for (const fx of this.effects.values()) { fx.uniforms.uScale.value = scale; fx.update(dt); }
   }
 }
 
 /**
- * Particles -> engine.particles
+ * Particles -> engine.particles. effects: params by name, under what define() gives; a name define() never saw is defined on its first emit / attach.
+ * default: params every effect starts from
+ * @param {ParticlesOptions} [opts]
  * @returns {ModuleDef<Particles>}
+ * @example engine.use(particles({ default: { color: 0xc8b89a }, effects: { dust: { max: 300, size: [0.3, 0.8] } } }));
  */
-export function particles() {
+export function particles(opts = {}) {
+  readParams('particles', PARTICLES_PARAMS, opts);
+  // checked here, not on the first emit: a typo in a style table should fail at startup, not in the middle of play
+  for (const [name, spec] of Object.entries(opts.effects ?? {})) {
+    if (!isOptions(spec)) throw codedError('module-params', `particles({ effects: { ${name} } }): an effect is an object of params, e.g. { max: 200, color: 0xcccccc }; got ${JSON.stringify(spec)}`);
+    readParams(`particles({ effects: { ${name} } })`, FX_PARAMS, spec);
+  }
+  if (opts.default) readParams('particles({ default })', FX_PARAMS, opts.default);
   let p = null;
-  return { name: 'particles', type: 'look', provides: ['particles'], label: 'Particles', stage: 'effects', install(e) { e.i18n.add({ 'zh-CN': { 'module.particles': '粒子' }, en: { 'module.particles': 'particles' } }); p = new Particles(e); return p; }, frame(dt) { p.update(dt); },
+  return { name: 'particles', type: 'picture', provides: ['particles'], label: 'Particles', params: PARTICLES_PARAMS, options: opts, stage: 'effects', install(e) { e.i18n.add({ 'zh-CN': { 'module.particles': '粒子' }, en: { 'module.particles': 'particles' } }); p = new Particles(e, opts); return p; }, frame(dt) { p.update(dt); },
     counts() { return { alive: p.count(), emitters: p.emitters.size }; },   // engine.counts().particles
     // "did the dust burst fire": live particles in total and per effect that has any (idle effects left out to stay short). Kept under `alive`
     // because the numbers change every frame (an emitter's smoke): state comparisons (the session spec) skip that key as presentation, not game state

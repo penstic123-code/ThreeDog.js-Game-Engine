@@ -115,12 +115,12 @@ const rowLine = s => `${s.id} [${[s.stage, s.state].filter(Boolean).join(', ') |
   + `${s.time ? ' · time: ' + s.time : ''}${s.problems ? ` · ${s.problems} problem(s)` : ''}`;
 /**
  * Answer first: the rows that can do something (ops) or have problems get a line each; the rest are named on one line per kind.
- * Why: 18 look parts and a dozen op-less modules were 35 of 50 lines on the world example, all saying "ops: — · saves: —". full = every row.
+ * Why: 18 drawing parts and a dozen op-less modules were 35 of 50 lines on the world example, all saying "ops: — · saves: —". full = every row.
  */
 function summaryText(rows, full) {
   const loud = s => full || s.ops?.length || s.problems || s.state === 'failed' || s.state === 'initializing';
   const quiet = rows.filter(s => !loud(s)), byKind = {};
-  for (const s of quiet) (byKind[s.kind === 'look' ? 'look parts' : 'modules without ops'] ??= []).push(s.id.replace(/^look\./, ''));
+  for (const s of quiet) (byKind[s.kind === 'capability' ? 'capabilities' : 'modules without ops'] ??= []).push(s.id);
   return [...rows.filter(loud).map(rowLine), ...Object.entries(byKind).map(([k, ids]) => `${ids.length} ${k}: ${ids.join(', ')}`),
     `Details: threedog catalog <id> (module, op name, core or game)${full ? '' : '; --full for one line per module'}`].join('\n');
 }
@@ -132,7 +132,7 @@ function moduleText(x, where) {
     out.push(`requires: ${list(x.requires)} · optional: ${list(x.optional.map(o => o.name + (o.installed ? '' : ' (missing)')))}`);
   if (x.params) out.push('params:', ...Object.entries(x.params).map(([k, s]) => paramLine(k, s)));
   if (x.ops?.length) out.push('ops:', ...x.ops.map(opLine));
-  if (x.kind === 'look') out.push(`verbs: ${list(x.verbs)}${x.group ? ' · group ' + x.group : ''}${x.hooks ? ' · hooks: ' + Object.keys(x.hooks).join(', ') : ''}`);
+  else if (x.kind === 'capability') out.push(`now: ${JSON.stringify(x.facts)}`);
   else out.push(`saves: ${list(x.saves.map(p => `${p.key} v${p.version}`))}`);
   if (x.time) out.push(`time: hooks ${list(x.time.hooks)} · steps in ${x.time.step} · skip hook ${x.time.skip ? 'yes' : x.time.noSkip ? 'no (noSkip: ' + x.time.noSkip + ')' : 'no'}`);
   const q = x.queries, qs = q ? [q.describe, ...q.extra].filter(Boolean) : [];
@@ -156,7 +156,7 @@ export function catalogCommand(r, id, opt, dir) {
   if (!r.data) return { ok: false, text: `✗ catalog: no module or op "${id}". Modules: ${r.ids.join(', ')}; ops: ${r.ops.slice(0, 20).join(', ')}` };
   const where = locate(id, r.data.kind, dir);
   const data = { ...r.data, files: where };
-  if (data.params && data.kind !== 'op') {   // type and description come from the JSDoc-generated api page (look parts: their own desc)
+  if (data.params && data.kind !== 'op') {   // type and description come from the JSDoc-generated api page (drawing parts: their own desc)
     data.params = Object.fromEntries(Object.entries(data.params).map(([k, s]) => [k, { ...s }]));
     const missing = mergeDocs(data.params, data.kind === 'module' ? optionDocs(id) : null);
     if (missing.length) data.problems = [...(data.problems ?? []), `${missing.length} param(s) without a description (no doc): ${missing.join(', ')}`];

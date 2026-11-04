@@ -95,6 +95,13 @@ export class Input {
      * @param {string} action @returns {readonly string[]}
      */
     keysOf(action: string): readonly string[];
+    /**
+     * True when an action needs a key and has none, so no player input can fire it. Not for an optional action, and not for one bound to [] on purpose
+     * (a mouse-only game): "no key at all" is the fault, whichever key the game or the player chose is not.
+     * @param {string} action @returns {boolean}
+     * @example if (engine.input.isUnbound('interact')) engine.input.bind(presets.bindings.interact);
+     */
+    isUnbound(action: string): boolean;
     /** Key name shown in the UI, e.g. "E" @param {string} action @returns {string} */
     label(action: string): string;
     /** Held (a snapshot of this step in fixed, the latest state in frame) @param {string} action @returns {boolean} */
@@ -137,7 +144,7 @@ export class Input {
         remove(): void;
     };
     /**
-     * describe().input: the context stack, declared actions nobody bound (unbound; optional ones left out) and the player's rebindings
+     * describe().input: the context stack, declared actions nobody bound (unbound: isUnbound) and the player's rebindings
      * @returns {{ stack: string[], unbound: string[], rebound: Record<string, string[]> }}
      */
     describe(): {
@@ -173,7 +180,7 @@ export class Input {
         remove(): void;
     };
     /**
-     * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean}
+     * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore picture/zoom @returns {boolean}
      */
     get enabled(): boolean;
     /**

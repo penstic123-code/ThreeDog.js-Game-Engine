@@ -14,7 +14,7 @@
 // Shadows: none by default; lightPool({ shadows: k }) makes k of the point lights cast, used by sources added with castShadow: true.
 // An idle shadow light (no source, or faded to 0) stops re-rendering its cube shadow map (shadow.autoUpdate = false): six shadow passes a frame for a dark light.
 // When every point light casts (shadows >= point) there are no plain ones, so sources without castShadow also take the shadow lights (they cast then) instead of never lighting.
-// Day / night: a source added with `dusk` (street lamps, shop lights) is scaled by the same daylight curve as look.materials.glow (render/lookGlow.js,
+// Day / night: a source added with `dusk` (street lamps, shop lights) is scaled by the daylight curve of engine.uniforms.uNight (render/daylight.js,
 // shared code, not a copy), so its real light, its stand-in and the game's window glow switch on together. Off by default: a torch in a cave, a
 // muzzle flash or a lamp the game wants lit at noon keeps its intensity. Its scaled intensity is what the choice scores, so lamps that are off by
 // day give their lights to sources that are lit.
@@ -24,7 +24,7 @@ import { warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { vec3 } from '../../core/math.js';
 import { codedError, coded } from '../../core/errorHints.js';
-import { DUSK, daylightOf, nightOf } from '../../render/lookGlow.js';
+import { DUSK, daylightOf, nightOf } from '../../render/daylight.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { LightPool, LightPoolOptions } from '../../types/world' */
 
@@ -64,11 +64,11 @@ const LIGHT_POOL_PARAMS = keysSchema(OPT_KEYS);
 export function lightPool(opts = {}) {
   readParams('lightPool', LIGHT_POOL_PARAMS, opts);
   const { point = 8, spot = 0, shadows = 0, every = 0.1, fade = 0.3 } = opts;
-  let e = null, timer = Infinity, time = 0, seq = 0, daylight = null;
+  let e = null, timer = Infinity, time = 0, seq = 0, daylight = null, cut = false, offCut = null;
   const sources = [], groups = [], tmp = new THREE.Vector3(), at = new THREE.Vector3();
 
   const worldPos = (src, out) => src.follow ? out.setFromMatrixPosition(src.follow.matrixWorld) : out.copy(src.pos);
-  // 1 for a source that ignores the time of day, else glow's night factor (0 by day, 1 at night) for its dusk
+  // 1 for a source that ignores the time of day, else the night factor (0 by day, 1 at night) for its dusk
   const nightK = src => src.dusk === null ? 1 : nightOf(daylight, src.dusk);
   const litOf = src => src.intensity * nightK(src);
   const setGlow = (src, k) => {
@@ -147,7 +147,7 @@ export function lightPool(opts = {}) {
     for (const k of ['intensity', 'distance', 'decay', 'priority', 'angle', 'penumbra', 'flicker', 'target', 'name']) if (k in o) src[k] = o[k];
     if ('dusk' in o) {
       const d = o.dusk === true ? DUSK : o.dusk === false || o.dusk == null ? null : o.dusk;
-      if (d !== null && !(typeof d === 'number' && d >= 0 && d <= 1)) throw codedError('look-param', STRINGS.dusk.replace('{d}', String(DUSK)) + JSON.stringify(o.dusk), TypeError);
+      if (d !== null && !(typeof d === 'number' && d >= 0 && d <= 1)) throw codedError('lightpool-dusk', STRINGS.dusk.replace('{d}', String(DUSK)) + JSON.stringify(o.dusk), TypeError);
       src.dusk = d;
     }
     if ('glow' in o) { if (src.glow) setGlow(src, 1); src.glow = glowOf(o.glow); setGlow(src, src.slot ? 1 - src.slot.w : 1); }
@@ -224,7 +224,7 @@ export function lightPool(opts = {}) {
   }
 
   return {
-    name: 'lightPool', type: 'look', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late',
+    name: 'lightPool', type: 'picture', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late',
     install(engine) { engine.i18n.add({ 'zh-CN': { 'module.lightPool': '光源池' }, en: { 'module.lightPool': 'light pool' } });
       e = engine;
       const k = Math.max(0, Math.min(shadows, point));
@@ -233,16 +233,20 @@ export function lightPool(opts = {}) {
       makeGroup('point', false, point - k);
       makeGroup('spot', false, spot);
       if (e.ready) warnOnce(STRINGS.late);
+      offCut = e.events.on('camera:shot', () => { cut = true; });
       return api;
     },
     frame(dt) {
       time += dt;   // presentation seconds for flicker: keeps running while gameplay is frozen, like the picture
       daylight = daylightOf(e);
-      if (daylight === null && sources.some(s => s.dusk !== null)) warnOnce(coded('look-param', STRINGS.noDay));
+      if (daylight === null && sources.some(s => s.dusk !== null)) warnOnce(coded('lightpool-dusk', STRINGS.noDay));
+      // a camera cut (a view, a fixed shot): no fade, the picture is new anyway. Twice: the first pass frees the slots of sources left behind, the
+      // second hands them over. Without it `shot --view` drew the lamps of the old spot, 1/30 s after the cut and 0.3 s before any fade would end
+      if (cut) { cut = false; timer = 0; for (let i = 0; i < 2; i++) { assign(); update(fade); } return; }
       if ((timer += dt) >= every) { timer = 0; assign(); }
       update(dt);
     },
-    dispose() { for (const L of api.lights) { L.removeFromParent(); L.target?.removeFromParent(); L.dispose(); } },
+    dispose() { offCut?.remove(); for (const L of api.lights) { L.removeFromParent(); L.target?.removeFromParent(); L.dispose(); } },
     describe() {
       const u = api.usage();
       return { lights: api.lights.length, lit: u.lit, sources: u.sources, shadows: Math.max(0, Math.min(shadows, point)) };

@@ -1,6 +1,42 @@
 // describe().render: current renderer / post / light values, each tagged engine | style | game (core/describeRender.js).
 export const specs = [
   {
+    name: '[guard] describe picture: values set directly on three.js objects are what describe().picture reports, with no engine call in between',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.pause();
+        const T = engine.THREE, R = engine.renderer, S = engine.scene;
+        const was = { tone: R.toneMapping, exposure: R.toneMappingExposure, fog: S.fog, bg: S.background, env: S.environment, envI: S.environmentIntensity, type: R.shadowMap.type, on: R.shadowMap.enabled };
+        R.toneMapping = T.CineonToneMapping; R.toneMappingExposure = 0.00125;
+        S.fog = new T.FogExp2(0x123456, 0.0375); S.background = new T.Color(0xabcdef);
+        S.environment = new T.Texture(); S.environmentIntensity = 0.625;
+        R.shadowMap.type = T.BasicShadowMap;
+        const lamp = new T.PointLight(0xff8000, 7.25); lamp.name = 'guardLamp'; lamp.castShadow = true; S.add(lamp);
+        const hidden = new T.Group(); hidden.visible = false; const off = new T.SpotLight(0x00ff00, 2); off.name = 'guardOff'; hidden.add(off); S.add(hidden);
+        const a = engine.describe('picture').picture;
+        S.fog = new T.Fog(0x654321, 3, 90); S.background = null; S.environment = null;
+        const b = engine.describe('picture').picture, text = engine.describeText({ full: true });
+        S.remove(lamp); S.remove(hidden);
+        const c = engine.describe('picture').picture;
+        R.toneMapping = was.tone; R.toneMappingExposure = was.exposure; S.fog = was.fog; S.background = was.bg; S.environment = was.env; S.environmentIntensity = was.envI;
+        R.shadowMap.type = was.type; R.shadowMap.enabled = was.on;
+        return { a, b, c, text };
+      });
+      const lamp = r.a.lights.find(l => l.name === 'guardLamp'), off = r.a.lights.find(l => l.name === 'guardOff');
+      check('tone mapping and exposure, full precision', r.a.toneMapping === 'cineon' && r.a.exposure === 0.00125, JSON.stringify([r.a.toneMapping, r.a.exposure]));
+      check('FogExp2: type, color, density', r.a.fog?.type === 'FogExp2' && r.a.fog.color === '#123456' && r.a.fog.density === 0.0375, JSON.stringify(r.a.fog));
+      check('Fog: type, color, near, far', r.b.fog?.type === 'Fog' && r.b.fog.color === '#654321' && r.b.fog.near === 3 && r.b.fog.far === 90, JSON.stringify(r.b.fog));
+      check('environment present and intensity', r.a.environment.present === true && r.a.environment.intensity === 0.625 && r.b.environment.present === false, JSON.stringify([r.a.environment, r.b.environment]));
+      check('background', r.a.background?.type === 'Color' && r.a.background.color === '#abcdef' && r.b.background === null, JSON.stringify([r.a.background, r.b.background]));
+      check('a light the game added: type, color, intensity, castShadow', lamp?.type === 'PointLight' && lamp.color === '#ff8000' && lamp.intensity === 7.25 && lamp.castShadow === true && lamp.visible === true, JSON.stringify(lamp));
+      check('a light under a hidden group is listed as not visible', off?.visible === false && off.castShadow === false, JSON.stringify(off));
+      check('a removed light is gone from the list', !r.c.lights.some(l => l.name === 'guardLamp'));
+      check('shadows: enabled and type', r.a.shadows.type === 'basic' && typeof r.a.shadows.enabled === 'boolean', JSON.stringify(r.a.shadows));
+      check('full text has the scene line', /^scene: background none fog Fog #654321 3\.\.90 environment none$/m.test(r.text), r.text.split('\n').find(l => l.startsWith('scene:')));
+    },
+  },
+  {
     name: 'describe render: values listed, a change made by the game is tagged game (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
@@ -11,17 +47,15 @@ export const specs = [
         const m0 = engine.renderer.toneMapping;
         engine.renderer.toneMapping = engine.THREE.NeutralToneMapping; engine.step(0.05); engine.step(0.05);
         const after = engine.describe().render, kept = engine.renderer.toneMapping === engine.THREE.NeutralToneMapping;
-        let old = ''; try { engine.look.tone.set({ mapping: 'aces' }); } catch (e) { old = e.message; }
         const text = engine.describeText({ full: true });
         engine.renderer.toneMapping = m0;
-        return { before, after, kept, old, text };
+        return { before, after, kept, text };
       });
-      check(r.before.toneMapping.writer !== 'game', 'tone mapping untouched is not tagged game');
-      check(r.after.toneMapping.value === 'neutral' && r.after.toneMapping.writer === 'game' && r.kept, 'renderer.toneMapping written by the game: tagged game, never overwritten by the engine', JSON.stringify(r.after.toneMapping));
-      check(/renderer\.toneMapping = THREE\./.test(r.old), 'look.tone.set({ mapping }) is gone: the error gives the plain three.js line', r.old);
-      check(Array.isArray(r.before.post) && Array.isArray(r.before.lights) && r.before.lights.length > 0, 'post and lights lists present');
-      check(r.before.lights.every(l => l.source === 'engine-default'), 'default lights are marked engine-default');
-      check(/^renderer: /m.test(r.text), 'full text has the renderer line');
+      check('tone mapping untouched is not tagged game', r.before.toneMapping.writer !== 'game');
+      check('renderer.toneMapping written by the game: tagged game, never overwritten by the engine', r.after.toneMapping.value === 'neutral' && r.after.toneMapping.writer === 'game' && r.kept, JSON.stringify(r.after.toneMapping));
+      check('post and lights lists present', Array.isArray(r.before.post) && Array.isArray(r.before.lights) && r.before.lights.length > 0);
+      check('default lights are marked engine-default', r.before.lights.every(l => l.source === 'engine-default'));
+      check('full text has the renderer line', /^renderer: /m.test(r.text));
     },
   },
   {
@@ -35,10 +69,10 @@ export const specs = [
         p.remove(); f.remove(); c.remove(); engine.debug.clear('t-view');
         return { none, held, after: engine.describe().holds };
       });
-      const shape = o => Array.isArray(o) && o.every(x => typeof x.owner === 'string' && typeof x.at === 'number');
-      check(['pause', 'freeze', 'camera', 'debugView'].every(k => r.held[k]?.[0]?.owner === 't-' + (k === 'debugView' ? 'view' : k === 'camera' ? 'cam' : k)), 'each kind lists its owner', JSON.stringify(r.held));
-      check(Object.values(r.held).every(shape), 'every kind has the same [{ owner, at }] shape');
-      check(!r.after.pause && !r.after.freeze && !r.after.camera && !r.after.debugView, 'released claims leave the list', JSON.stringify(r.after));
+      const shape = o => Array.isArray(o) && o.every(x => typeof x.owner === 'string' && typeof x.at === 'string');
+      check('each kind lists its owner', ['pause', 'freeze', 'camera', 'debugView'].every(k => r.held[k]?.[0]?.owner === 't-' + (k === 'debugView' ? 'view' : k === 'camera' ? 'cam' : k)), JSON.stringify(r.held));
+      check('every kind has the same [{ owner, at }] shape', Object.values(r.held).every(shape), JSON.stringify(r.held));
+      check('released claims leave the list', !r.after.pause && !r.after.freeze && !r.after.camera && !r.after.debugView, JSON.stringify(r.after));
     },
   },
   {
@@ -60,10 +94,10 @@ export const specs = [
           return { dpr, base, low, max, warns: warns.filter(x => /render scale/.test(x)), text };
         } finally { console.warn = w0; }
       });
-      check(r.base.devicePixelRatio === r.dpr && typeof r.base.upscaled === 'boolean' && r.base.floor === 0.6, 'scale lists current / devicePixelRatio / upscaled / floor', JSON.stringify(r.base));
-      check(r.low.autoLowered === true && r.low.current < r.max && r.low.upscaled === true, 'after auto-lowering: autoLowered and upscaled are true', JSON.stringify(r.low));
-      check(r.warns.length === 1 && /->/.test(r.warns[0]) && /adaptiveResolution: false/.test(r.warns[0]), 'one dev warning names the change, the fps and how to turn it off', JSON.stringify(r.warns));
-      check(/render scale: .*auto-lowered/.test(r.text), 'the text summary says so too');
+      check('scale lists current / devicePixelRatio / upscaled / floor', r.base.devicePixelRatio === r.dpr && typeof r.base.upscaled === 'boolean' && r.base.floor === 0.6, JSON.stringify(r.base));
+      check('after auto-lowering: autoLowered and upscaled are true', r.low.autoLowered === true && r.low.current < r.max && r.low.upscaled === true, JSON.stringify(r.low));
+      check('one dev warning names the change, the fps and how to turn it off', r.warns.length === 1 && /->/.test(r.warns[0]) && /adaptiveResolution: false/.test(r.warns[0]), JSON.stringify(r.warns));
+      check('the text summary says so too', /render scale: .*auto-lowered/.test(r.text));
     },
   },
   {
@@ -84,7 +118,7 @@ export const specs = [
         const pick = n => (d[n] === undefined ? 'missing' : keys(d[n]));
         return { mods: Object.fromEntries(['ambience', 'collision', 'music', 'particles', 'photo', 'rigid', 'water', 'settings', 'debugPanel'].map(n => [n, pick(n)])),
           hasDust: engine.particles.effects.has('dust'), live: d.particles?.alive.effects, sea: d.water?.sea, byPaths,
-          tone: d.render?.toneMapping, exposure: d.render?.exposure, run: d.time.run, installed: [...engine.modules.keys()] };
+          tone: d.render?.toneMapping, exposure: d.render?.exposure, rendererExposure: engine.renderer.toneMappingExposure, run: d.time.run, installed: [...engine.modules.keys()] };
       });
       const want = { ambience: 'on,rules', collision: 'atPlayer,boxes,cameraOcclusion,circles,fields', music: 'current,ducked,gain,intensity,override,pending,playing,ready,ruled,stems,tracks',
         particles: 'alive,effects,emitters', photo: 'album,keyBound,last,maxAlbum', rigid: 'bodies,colliders,dynamic,fixed,frozen,ready,sleeping,vehicles', water: 'bodies,sea',
@@ -96,7 +130,7 @@ export const specs = [
       if (r.hasDust) check('particles: a burst shows in live', r.live?.dust > 0, JSON.stringify(r.live));
       check('water: the sea reports its level and size', typeof r.sea?.level === 'number' && r.sea.size > 0, JSON.stringify(r.sea));
       check('no `by` key anywhere in describe() (who set it = writer)', r.byPaths.length === 0, r.byPaths.join(', '));
-      check('render: toneMapping / exposure say writer, exposure points at its look record', typeof r.tone?.writer === 'string' && typeof r.exposure?.writer === 'string' && 'look' in r.exposure, JSON.stringify([r.tone, r.exposure]));
+      check('render: toneMapping says writer, exposure is the value on the renderer', typeof r.tone?.writer === 'string' && Math.abs(r.exposure?.value - r.rendererExposure) < 0.01, JSON.stringify([r.tone, r.exposure, r.rendererExposure]));
       check('time.run lists pause owners as owners', Array.isArray(r.run?.owners) && r.run.owners.length > 0, JSON.stringify(r.run));
     },
   },

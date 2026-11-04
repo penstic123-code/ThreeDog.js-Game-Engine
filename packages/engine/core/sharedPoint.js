@@ -1,5 +1,5 @@
 // Shared points: the ONE way several owners change a shared thing (time channels, the calendar rate, pause / freeze / camera holders, move speed,
-// input gates; look values, character control and keys move onto it next). One entry, one line:
+// input gates, shadows.enabled, sky.tint, post values, a game's own). One entry, one line:
 //   const h = engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });   // bullet time; h.remove() ends it early
 //   ctx.mod('time.world', { mul: 0.8, layer: 'effect' });                                // inside a module: owned by it, removed with it
 // Why entries and not "write the field, remember the old value": with two effects the remembered value is wrong as soon as they end in another
@@ -19,18 +19,17 @@
 //     It sits above system: a cutscene or menu cannot turn back on what the player turned off; only debug overrides the player
 //   - kinds: 'number' (default) | 'value' (any data: a color, a string, a boolean; set only) | 'any' (true while anyone holds it: pause, gates)
 //     | 'top' (the latest holder is in charge: the camera) | 'one' (an exclusive slot: a second holder is shared-taken; module `provides`)
-//   - a direct three.js write of what a point drives: the engine yields (point.yieldToThree()), describe says writer 'three (engine yielded)'
 // Plain JS stays first-class: a game's own fields and onFixed logic never need this; it is for things several owners write.
 // The registry (engine.stacks: define / get / mod, save, timers, describe().shared) is core/stacks.js.
 import { codedError, coded } from './errorHints.js';
 import { DEV, warnOnce, note } from './validate.js';
 import { callerAt } from './stackFrames.js';
 
-/** The one layer table, lowest first. Who uses which: engine = the engine's own defaults and drivers, style = style packs, game = game code and
+/** The one layer table, lowest first. Who uses which: engine = the engine's own defaults and drivers, game = game code and
  *  game modules (the default), effect = temporary effects (weather, bullet time), system = cutscenes, menus, photo tools, settings = the
  *  player's settings menu (restrict only), debug = debug overrides and panels. Settings is above system so the player's restriction holds in a
  *  cutscene too (screen shake turned off stays off there); only debug can override it. */
-export const LAYERS = { engine: 0, style: 100, game: 200, effect: 300, system: 400, settings: 500, debug: 600 };
+export const LAYERS = { engine: 0, game: 200, effect: 300, system: 400, settings: 500, debug: 600 };
 const NUM_OPS = ['set', 'add', 'mul', 'clamp'];
 const LAYERED = new Set(['number', 'value']);
 const KINDS = ['number', 'value', 'any', 'top', 'one'];
@@ -62,7 +61,7 @@ export function ownerArgs(a, b, fallback = 'game') {
   return { owner: /** @type {string | undefined} */ (a) ?? fallback, opts: b ?? {} };
 }
 
-/** 'look.fog.far' or 'move.speed[player]': the name a message and describe().shared use */
+/** 'sky.flash' or 'move.speed[player]': the name a message and describe().shared use */
 const label = (name, id) => (id == null ? name : `${name}[${id}]`);
 
 /** One shared point. Made by engine.stacks.define; games normally only call engine.mod(name, ...) and read value(). */
@@ -75,7 +74,7 @@ export class Stack {
     for (const [k, b] of [['min', min], ['max', max]]) if (typeof b !== 'number' || Number.isNaN(b)) throw codedError('shared-value', `engine.stacks.define('${name}', { ${k} }): ${k} is a number (leave it out for no bound), got ${shown(b)}`);
     if (min > max) throw codedError('shared-value', `engine.stacks.define('${name}', { min, max }): min must be <= max, got min ${min} > max ${max}. Fix: { min: ${max}, max: ${min} }`);
     this.min = min; this.max = max; this.save = save; this.per = per; this.onChange = onChange;
-    /** the copyable "take it over on purpose" call the conflict error offers (a look part's manual()); default: a set on the system layer */
+    /** the copyable "take it over on purpose" call the conflict error offers (a module's own takeover entry); default: a set on the system layer */
     this.manual = manual;
     /** the settings layer may set here (key bindings: the player's rebinding replaces the game's keys, it is not a restriction) */
     this.settingsSet = settingsSet;
@@ -83,7 +82,6 @@ export class Stack {
     this._by = new Map();
     // value memo: id -> { ver, base, v }. Movers read speed / gravity per character per step; every change goes through _changed, which bumps _ver
     this._ver = 0; this._memo = new Map();
-    /** @internal set while someone wrote the three.js property directly: { at } */ this._yielded = null;
   }
   /** @internal */
   _map(id, make) { let m = this._by.get(id ?? ''); if (!m && make) this._by.set(id ?? '', m = new Map()); return m; }
@@ -274,7 +272,6 @@ export class Stack {
     const r = { value: this.value(id ?? undefined), writer: lead ? lead.owner : 'default' };
     if (lead?.layer && LAYERED.has(this.kind)) r.layer = lead.layer;
     if (lead?.where) r.at = lead.where;
-    if (this._yielded) Object.assign(r, { writer: 'three (engine yielded)', at: this._yielded.at ?? r.at });
     const hiddenBelow = lead && LAYERED.has(this.kind) ? LAYERS[lead.layer] : -Infinity;
     r.also = list.filter(e => e !== lead).map(e => {
       const h = this._show(e);
@@ -298,17 +295,6 @@ export class Stack {
     }
     return parts.join(' ');
   }
-  /**
-   * The hook for direct three.js writes: whoever applies this point to a three.js property found a value it did not write there (the game
-   * wrote it), so the engine stops applying it (the applier checks point.yielded) and describe says writer 'three (engine yielded)'.
-   * Not an error: three.js is always writable. reclaim() hands it back to the layers.
-   * @param {string | null} [at] where the outside write was seen, if known
-   */
-  yieldToThree(at = null) { if (this._yielded) return; this._yielded = { at }; this._changed(); }
-  /** Hand a yielded point back to the layers (look.<part>.manual(key, false) and the like) */
-  reclaim() { if (!this._yielded) return; this._yielded = null; this._changed(); }
-  /** True while a direct three.js write holds it (see yieldToThree) */
-  get yielded() { return !!this._yielded; }
   /** The ids that have entries (per-record points) */
   ids() { return [...this._by.keys()].filter(k => k !== ''); }
   /** Drop every entry */

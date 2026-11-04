@@ -11,7 +11,7 @@ const ENGINE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SAFE = new Set(['core/errorHints.js', 'core/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/threePatches.js', 'core/validate.js']);
 const THREE_OK = new Set(['three/tsl', 'three/webgpu']);
 // three's TSL display nodes (bloom, ao for the WebGPU post chain): they import only three/tsl and three/webgpu themselves
-// plus CSMShadowNode (modules/sky/cascades.tsl.js): three/webgpu, three/tsl and CSMFrustum, which takes only Vector3 / Matrix4 from 'three'
+// plus CSMShadowNode (render/cascades.tsl.js): three/webgpu, three/tsl and CSMFrustum, which takes only Vector3 / Matrix4 from 'three'
 const THREE_TSL_ADDON = /^three\/addons\/(tsl\/display\/[\w]+|csm\/CSMShadowNode)\.js$/;
 
 /** Every import reachable from render/fx/index.js, and the ones it must not have */

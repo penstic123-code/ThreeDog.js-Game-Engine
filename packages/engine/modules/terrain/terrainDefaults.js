@@ -15,7 +15,7 @@ export const DEFAULT_TERRAIN = {
   height: null,
   groundType: null,
   params: null,        // plain data handed to height / groundType as n.params (a preset's settings); must be serializable
-  // How the ground gets its color (look only; style.terrain.config may set shading, colorResolution, normals, normalFn):
+  // How the ground gets its color (picture only):
   // 'smooth' blended per grid point | 'flat' one color and normal per triangle | 'texture' colors come from a per-chunk color map
   // (colorResolution pixels per chunk edge, independent of the mesh resolution; vertex colors are plain white then)
   shading: 'smooth',
@@ -31,7 +31,7 @@ export const DEFAULT_TERRAIN = {
   // mask (x, z, n) -> > 0 ground, pure like height; or a gray image { url | data, width, height, size: [w, l], center, threshold }
   shape: null,
   boundsPad: { up: 3, radius: 8 },   // chunk bounding sphere margin (m): center raised by up, radius grown by radius; raise for tall height-moving shaders
-  // Colors are art and come from the style (style.terrain): colors palette name -> color, biomeColors ground type -> palette names
+  // Colors are art and come from the game: colors palette name -> color, biomeColors ground type -> palette names
   // (two are blended by noise), steep [{ maxNormalY, colors }] slope colors. Empty here: every ground type is the neutral gray fallback
   colors: {},
   biomeColors: {},

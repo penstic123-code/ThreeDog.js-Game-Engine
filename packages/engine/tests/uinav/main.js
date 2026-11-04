@@ -2,12 +2,12 @@
 //   (none)   the engine's own dialogue / quests / inventory / follow camera; navigator.getGamepads is replaced by window.__pad so a test plays gamepad-only
 //   fakes=1  dialogue, quests and the camera are the fakes of tests/contract/ (no engine module of those names): NPC talk, timeline say, the content
 //            loader, the hud, control: 'camera' and character.enter (with a fake vehicle) must work on them through the contract surface only
-import { createEngine, presets, world, collision, followCamera, characters, interactions, dialogue, quests, inventory, hud, content, timeline, THREE } from '../../index.js';
+import { createEngine, presets, makeWindow, world, collision, followCamera, characters, interactions, dialogue, quests, inventory, hud, content, timeline, THREE } from '../../index.js';
 import { fakeDialogue } from '../contract/fakeDialogue.js';
 import { fakeQuests } from '../contract/fakeQuests.js';
 import { fakeCamera } from '../contract/fakeCamera.js';
 import { fakeVehicle } from '../contract/fakeVehicle.js';
-window.fakeVehicle = fakeVehicle;   // the test builds a vehicle without the rigid module
+Object.assign(window, { fakeVehicle, makeWindow });   // the tests build a vehicle without the rigid module, and their own windows
 
 const fakes = new URLSearchParams(location.search).has('fakes');
 // a standard-layout pad the test drives: 16 buttons (A B X Y LB RB LT RT Select Start L3 R3 Up Down Left Right), two sticks

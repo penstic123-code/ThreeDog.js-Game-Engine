@@ -1,0 +1,14 @@
+// @ts-check
+// The picture of the surface demo: wiring only. Nothing here moves, so there is no onRender; a picture with signals would call each part from one.
+import { THREE } from 'threedog';
+import { COLORS, FOG, TONE_MAPPING } from './palette.js';
+import { createLights } from './lights.js';
+import { createMaterials } from './materials.js';
+
+/** Returns { walls, roof, ground, crate, crateSame, crateJitter, scales, sun, hemi } @param {any} engine @param {{ fov: number, position: number[] }} shot */
+export function createPicture(engine, shot) {
+  engine.renderer.toneMapping = TONE_MAPPING;
+  engine.scene.background = new THREE.Color(COLORS.sky);
+  engine.scene.fog = new THREE.Fog(COLORS.sky, FOG.near, FOG.far);
+  return { ...createLights(engine), ...createMaterials(engine, shot) };
+}

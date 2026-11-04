@@ -38,11 +38,11 @@ export function reportGltf(gltf, entry = {}, root = gltf.scene, renderer) {
   const mats = [...materials].map(m => {
     const maps = {};
     for (const k of [...COLOR_SLOTS, ...DATA_SLOTS]) if (m[k]?.isTexture) {
-      maps[k] = m[k].colorSpace || LINEAR;
+      maps[k] = m[k].colorSpace || 'none';   // not LINEAR: NoColorSpace is '', so a correct data map read as absent and every intact normal map was reported lost
       const t = textures.get(m[k]) ?? textures.set(m[k], { name: m[k].name || '(unnamed)', slots: [] }).get(m[k]);
       if (!t.slots.includes(k)) t.slots.push(k);
     }
-    return { name: m.name || '(unnamed)', type: m.type, maps, flatShading: !!m.flatShading, vertexColors: !!m.vertexColors, madeByStyle: !!m.userData?.materialSource };
+    return { name: m.name || '(unnamed)', type: m.type, maps, flatShading: !!m.flatShading, vertexColors: !!m.vertexColors, madeByEngine: !!m.userData?.purpose };
   });
   const texList = [...textures].map(([t, v]) => ({ ...v, colorSpace: t.colorSpace || LINEAR, problems: colorSpaceIssues(t, v.slots) }));
   for (const t of texList) for (const p of t.problems) flag('warn', 'color-space', `texture ${t.name}: ${p}`);
@@ -57,7 +57,7 @@ export function reportGltf(gltf, entry = {}, root = gltf.scene, renderer) {
       if (fm.pbrMetallicRoughness?.baseColorTexture && !live.maps.map) flag('warn', 'base-color-lost', `material "${live.name}" has a base color texture in the file but none in the scene`);
       if (fm.pbrMetallicRoughness?.metallicRoughnessTexture && !live.maps.roughnessMap && !live.maps.metalnessMap) flag('warn', 'metal-rough-lost', `material "${live.name}" has a metallic-roughness texture in the file but none in the scene`);
       if (live.flatShading) flag('warn', 'flat-shading', `material "${live.name}" is flat shaded; the file asks for smooth normals`);
-      if (live.madeByStyle) flag('warn', 'material-replaced', `material "${live.name}" was made by makeMaterial (style role), not read from the file`);
+      if (live.madeByEngine) flag('warn', 'material-replaced', `material "${live.name}" was made by the engine, not read from the file`);
     }
     for (const a of json.animations || []) if (!clips.some(c => c.name === a.name)) flag('warn', 'clip-lost', `file clip "${a.name}" did not load`);
     const names = new Set(nodes.map(sanitize)), gone = (json.nodes || []).map(n => sanitize(n.name)).filter(n => n && !names.has(n));
@@ -76,7 +76,7 @@ export function reportGltf(gltf, entry = {}, root = gltf.scene, renderer) {
 /** Text for the console / describe: one block, issues last */
 export function reportText(r) {
   const c = r.counts, L = [`model ${r.name ?? r.url}${r.fromFile ? '' : ' (built in code: no file to compare with)'}: ${c.nodes} nodes · ${c.materials} materials · ${c.textures} textures (${c.normalMaps} normal maps) · ${c.clips} clips · ${c.colliders} col_ · ${c.templates} template/id nodes`];
-  for (const m of r.materials) L.push(`  material ${m.name} (${m.type}${m.flatShading ? ', flat' : ''}${m.madeByStyle ? ', from style' : ''}) ${Object.entries(m.maps).map(([k, v]) => `${k}:${v}`).join(' ') || 'no textures'}`);
+  for (const m of r.materials) L.push(`  material ${m.name} (${m.type}${m.flatShading ? ', flat' : ''}${m.madeByEngine ? ', made by the engine' : ''}) ${Object.entries(m.maps).map(([k, v]) => `${k}:${v}`).join(' ') || 'no textures'}`);
   for (const c of r.clips) L.push(`  clip ${c.name} ${c.seconds}s`);
   for (const i of r.issues) L.push(`  ${i.severity === 'warn' ? '!' : '·'} [${i.code}] ${i.msg}`);
   return L.join('\n');

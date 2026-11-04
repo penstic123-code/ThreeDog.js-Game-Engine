@@ -3,12 +3,12 @@
 Fog you march through, light shafts, haze that thickens with distance, edge or focus effects: they all read the scene depth behind each pixel
 and turn it into a distance or a world position. This recipe writes one such effect with both forms, a three.js `Pass` (GLSL) for
 WebGLRenderer and a TSL node for WebGPURenderer, in one effect object. How effects are ordered, switched and tuned is recipe 52's
-[Post effect chain](52-look.md#post-effect-chain); the TSL side in general is [recipe 56](56-webgpu-tsl.md#post-effects-as-nodes).
-For plain distance or height fog on materials, `engine.look.fog` is enough (recipe 38); a post effect is for what fog on materials cannot do.
+[Post effect chain](52-around-the-picture.md#post-effect-chain); the TSL side in general is [recipe 56](56-webgpu-tsl.md#post-effects-as-nodes).
+For plain distance or height fog on materials, `engine.scene.fog` is enough (recipe 38); a post effect is for what fog on materials cannot do.
 
 ## One effect, both renderers
 `needsDepth: true` gives the WebGL pass the scene depth as `readBuffer.depthTexture`; on WebGPU the same depth is `ctx.scenePass.getTextureNode('depth')`.
-Both turn the stored depth into the view distance with the camera's near and far. Number and color params are live: `look.post.set` writes
+Both turn the stored depth into the view distance with the camera's near and far. Number and color params are live: `handle.set()` writes
 them without a rebuild (WebGL through `update`, WebGPU through the uniforms in `ctx.p`).
 ```js
 import * as THREE from 'three';
@@ -52,9 +52,9 @@ function depthHazeNode(input, { tsl: T, scenePass, camera, p }) {
 }
 
 const update = (pass, p) => { pass.material.uniforms.uColor.value.copy(p.color); pass.material.uniforms.uDensity.value = p.density; };
-engine.look.post.add({ name: 'depthHaze', slot: 'hdr', needsDepth: true, params: { color: new THREE.Color(0.72, 0.76, 0.82), density: 0.02 },
+engine.post.add({ name: 'depthHaze', slot: 'hdr', needsDepth: true, params: { color: new THREE.Color(0.72, 0.76, 0.82), density: 0.02 },
   create: ({ camera, params }) => { const pass = new DepthHazePass(camera); update(pass, params); return pass; }, update, node: depthHazeNode });
-engine.look.post.set({ 'depthHaze.density': 0.05 });   // live on both renderers
+engine.post.get('depthHaze').set({ density: 0.05 });   // live on both renderers
 ```
 - Slot `hdr`: the effect works in linear color, before tone mapping, so a bright sun shaft can bloom after it.
 - A world position instead of a distance (height fog, a fog volume): on WebGL multiply the clip-space point by `camera.projectionMatrixInverse`,

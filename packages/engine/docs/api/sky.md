@@ -2,24 +2,26 @@
 
 Sky dome, sun / moon light and fog drawn from the calendar's time (sky() module)
 
-- Options `SkyOptions` (also includes the fields of Pick<StyleSky, 'shadow' | 'environment'>):
-  - `fog?: boolean | StyleFog` Whether the sky makes scene.fog: true (default; the sky creates it and writes color and distance every frame) / false (scene.fog = null, never touched). An object is style.sky.fog settings (kind, color, density...) and means true. To keep the fog and write it yourself: engine.look.fog.manual() (or scene.fog = your own THREE.Fog), not an option here. Example: `sky({ fog: false })   // no fog at all`
+- Options `SkyOptions` (also includes the fields of Pick<SkyPictureOptions, 'clouds' | 'backdrop' | 'keyframes' | 'sunSize' | 'sunGlow' | 'sunBrightness' | 'moonSize' | 'moonColor' | 'moonBrightness' | 'starDensity' | 'starScale' | 'gradientCurve' | 'orbitTilt' | 'orbitSway' | 'dim'>):
   - `time?: string | number` The fixed time of day drawn while no calendar() is installed: 'HH:MM' or 0–1 (0.5 noon), default 0.33 (a sunset arena: sky({ time: '18:30' })). With calendar() the sky draws engine.calendar.timeOfDay and this option throws (start the day with calendar({ time }))
-  - `sun?: boolean` Whether the sky drives engine.lights.sun: true (default; color, intensity, direction and shadow box from the keyframes) / false (hidden, never touched: light the world with your own three.js lights). How the game lights its world, so a sky() option, not a style key. Example: `sky({ sun: false, hemisphere: false })   // a dungeon lit by the game's own lights`
-  - `hemisphere?: boolean` Same for engine.lights.hemi (ambient): true (default) / false (hidden); to write it yourself: engine.look.lights.manual('hemi')
 
 ## Methods and properties
-- `sky.setShadowMapSize(n: number)` — Change shadow resolution (raise temporarily for photo mode)
+- `sky.keyframes(rows: any[][])` — The day's colors, live: rows [time, zenith, horizon, sunColor, ambient] sorted from 0 to 1 (the same rows as sky({ keyframes })). Throws, changing nothing, on rows that are not sorted from 0 to 1. Example: `engine.sky.keyframes([[0, 0x101828, 0x202838, 0x8090b0, 0.3], [0.5, 0x4080c0, 0xc0d8e8, 0xffffff, 1.2], [1, 0x101828, 0x202838, 0x8090b0, 0.3]]);`
+- `sky.clouds(spec: string | { glsl?, tsl?, uniforms? } | null)` — Your own cloud function on the dome: glsl defines `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)`, tsl is its WebGPURenderer form (ctx) => vec4 node; each renderer needs its own form (modules/sky/clouds.js). null gives the built-in kind back. Recompiles the dome once: a scene change, not every frame. Example: `engine.sky.clouds({ glsl: 'vec4 threedogClouds(vec3 d, float t, vec3 s, float night, vec3 lit, vec3 shade, float cover){ return vec4(lit, step(0.5, threedogNoise(d.xz * 4.0)) * cover); }' });`
+- `sky.layer(name: string, spec: string | { glsl?, tsl?, uniforms?, order?, blend? } | null | …)` — Add, change or remove (null) a named dome layer drawn after the clouds and stars: glsl defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)` returning (rgb, amount), tsl is its WebGPURenderer form (modules/sky/domeLayers.js). Recompiles the dome once. Example: `engine.sky.layer('aurora', { glsl: 'vec4 threedogSkyLayer(vec3 d, float t, vec3 s, float n){ return vec4(0.2, 1.0, 0.5, n * smoothstep(0.1, 0.6, d.y) * 0.4); }', blend: 'add' });`
+- `sky.replace(sky: string | import("three").Texture | THREE.Object3D | null)` — Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back. The engine never writes your object: it hides the dome, adds your object to the scene only when it has no parent, puts a plain texture's panorama mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind ...). Example: `engine.sky.replace(new SkyMesh());`
+- `sky.environment(options?: { into?, interval? }) → { texture, remove }` — Render the sky into an environment map. Only after this call is anything built: a PMREM target, rebuilt when the sky changed and interval seconds passed (default 1, 4 times longer on a low-tier device). With into, that object's .environment gets the map at each rebuild (a map you wrote there yourself stays); without it nothing is written anywhere and you read handle.texture. handle.remove() takes the map off and frees it. One at a time. Intensity and rotation are three.js: scene.environmentIntensity. Example: `const env = engine.sky.environment({ into: engine.scene });`
 - Properties:
   - `fixedTime: number` The time of day drawn while no calendar is installed (0-1; sky({ time: '17:30' }) or applyState({ time })); with engine.calendar the sky draws the calendar's time and this is unused
+  - `seasonTints: import("../../../world").SeasonTints | null` What each calendar season tints the plants and ground, read every frame, or null for no tint: plain data the game's picture/ code writes
+  - `dim: { tint: boolean; stars: boolean }` What the sky dims for every game, plain fields read each frame (a fantasy sky can stay bright at night, keep its stars through clouds): tint false keeps a sky.tint color at full strength at any hour, stars false keeps the stars through the weather's cover
+  - `top: any` Zenith color over the keyframes, any THREE.Color input (null = the keyframes); read each frame
+  - `horizon: any` Horizon color over the keyframes, any THREE.Color input (null = the keyframes); read each frame. The color drawn: engine.uniforms.uSkyHorizon
   - `dome: THREE.Object3D` Dome mesh
   - `sunDir: THREE.Vector3` Sun direction (unit vector toward the sun)
   - `orbit: { tilt: number; sway: number; distance: number }` Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters)
-  - `shadow: SkyShadowParams` Current shadow params (change via look.shadow.set)
-  - `csm: any` three's CSM (addons/csm) while shadow.cascades > 1, else null; its lights[0] is sun (recipes/45)
-  - `shadowMapSize: number` Shadow resolution (pixels)
+  - `backdrop: any` One flat color in place of the dome, a THREE.Color while on, else null (sky({ backdrop }) starts with one). Set any THREE.Color input, null gives the dome back.
   - `drawnTime: any` Time of day being drawn, 0-1: engine.calendar.timeOfDay, or fixedTime without a calendar. Read-only: the time itself is the calendar's
   - `sunHeight: number` Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon) of the drawn sun (the calendar's daylight is the gameplay value)
-  - `isDay: boolean` Whether the drawn sun is above the horizon (look functions: ({ sky }) => sky.isDay ? ...; gameplay reads engine.calendar.isDay)
+  - `isDay: boolean` Whether the drawn sun is above the horizon (picture functions: ({ sky }) => sky.isDay ? ...; gameplay reads engine.calendar.isDay)
   - `daylight: number` Daylight of the drawn sun 0-1 (0 at night, 1 at noon)
-  - `environment: SkyEnvironmentInfo | null` Environment lighting now: { source, intensity, rotation, interval, builds }, null when off

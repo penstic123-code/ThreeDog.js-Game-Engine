@@ -1,6 +1,6 @@
 // The quest log window as the UI part 'questLog'. Quests keeps the behavior through engine.ui (the J key toggles it; open = UI focus stack, input lock,
 // Esc closes, ui:open / ui:close 'questLog'); the part only draws { title, key, quests, close() }. Replace it or turn it off with engine.ui.set('questLog', ...).
-// Default look: a .threedog-win window; its body can be replaced by style.ui.templates.quests({ quests }, { esc, t }) or restyled via .threedog-quest*.
+// Default picture: a .threedog-win window; its body can be replaced by ui.templates.quests({ quests }, { esc, t }) or restyled via .threedog-quest*.
 import { injectUICSS, esc } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 /** @import { QuestLogView } from '../../types/gameplay' */
@@ -25,7 +25,7 @@ function questLogPart(engine) {
   const draw = v => {
     if (!w) { w = document.createElement('div'); w.className = 'threedog-ui threedog-win threedog-win-quests'; engine.uiRoot.appendChild(w); }
     w.hidden = false;
-    const tpl = engine.style.ui?.templates?.quests;
+    const tpl = engine.ui.templates.quests;
     w.innerHTML = `<div class="threedog-win-head"><span>${esc(v.title)}</span><span><span class="threedog-win-hint">${esc(v.key)}</span> <button class="threedog-btn threedog-close" type="button">${esc(engine.t('common.close'))}</button></span></div>${tpl ? tpl(v, tools) : body(v)}`;
     w.querySelector('.threedog-close').onclick = () => v.close();
   };

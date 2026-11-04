@@ -19,7 +19,7 @@ export const name = 'tool output sizes: each AI-facing command\'s default output
 const BUDGET = {
   'describe': 800, 'describe --full': 4000, 'inspect': 800, 'inspect materials': 2600, 'inspect perf': 1500, 'ops': 1000,
   'errors latest 20': 4000, 'loading': 600, 'scene': 4000, 'pick 480,270': 800, 'catalog': 2000, 'thing player': 1000,
-  'explain quest first-light': 800, 'catalog inventory': 4000, 'snap size-guard --no-look': 800,
+  'explain quest first-light': 800, 'catalog inventory': 4000, 'snap size-guard --no-picture': 800,
   'status': 600,   // last: before the first page command the headless page may not be open yet
 };
 
@@ -56,16 +56,16 @@ export async function run({ check }) {
     check('scene: says the reason counts over all undrawn objects and how to get more', /Not drawn because: /.test(sc.text) && /--limit N/.test(sc.text), sc.text.slice(0, 300));
     const cat = await execute(ENGINE, 'catalog', ['--full']), catShort = await execute(ENGINE, 'catalog', []);
     check('catalog --full keeps one line per module; the default names the rest on one line per kind', cat.text.split('\n').length > catShort.text.split('\n').length
-      && /look parts: /.test(catShort.text), catShort.text.slice(0, 300));
-    const only = await execute(ENGINE, 'eval', ['JSON.stringify([Object.keys(engine.describe("look")), Object.keys(engine.describe({ only: ["time", "nope"] }))])']);
+      && /modules without ops: |capabilities: /.test(catShort.text), catShort.text.slice(0, 300));
+    const only = await execute(ENGINE, 'eval', ['JSON.stringify([Object.keys(engine.describe("picture")), Object.keys(engine.describe({ only: ["time", "nope"] }))])']);
     check('describe(name) / describe({ only }) return just those sections; an unknown name is reported, not dropped silently',
-      /\[\["look"\],\["time","unknownSections","sections"\]\]/.test(only.text.replace(/\\"/g, '"')), only.text);
+      /\[\["picture"\],\["time","unknownSections","sections"\]\]/.test(only.text.replace(/\\"/g, '"')), only.text);
     // describe({ only }) builds just those sections: each one equals the same section of the whole object (one synchronous eval: same tick).
-    // A module's own section, a section hooks write into (time, player, camera, nearby) and engine tables (look, shared: hooks skipped)
+    // A module's own section, a section hooks write into (time, player, camera, nearby) and engine tables (picture, shared: hooks skipped)
     const same = await execute(ENGINE, 'eval', ['const all = engine.describe(), mod = [...engine.modules.values()].find(m => m.describe && all[m.name] !== undefined)?.name; '
-      + 'const ks = ["look", "shared", "slots", "time", "player", "camera", "nearby", "ui", mod]; '
+      + 'const ks = ["picture", "shared", "slots", "time", "player", "camera", "nearby", "ui", mod]; '
       + 'return JSON.stringify({ mod, diff: ks.filter(k => JSON.stringify(engine.describe(k)[k]) !== JSON.stringify(all[k])), '
-      + 'pair: JSON.stringify(engine.describe({ only: ["look", "time"] })) === JSON.stringify({ look: all.look, time: all.time }) })']);
+      + 'pair: JSON.stringify(engine.describe({ only: ["picture", "time"] })) === JSON.stringify({ picture: all.picture, time: all.time }) })']);
     const sm = JSON.parse(JSON.parse(same.text.replace(/^✓ /, '')));
     check('describe({ only }): every asked section equals the same section of the full describe()', sm.mod && !sm.diff.length && sm.pair, same.text);
     const mat = await execute(ENGINE, 'eval', ['const r = engine.inspect.materials(), lines = r.text.split("\\n").slice(1 + r.issues.length).filter(l => !l.startsWith("…")); '

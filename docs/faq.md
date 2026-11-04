@@ -2,7 +2,7 @@
 
 English · [中文](faq.zh-CN.md) · [How ThreeDog thinks](philosophy.md)
 
-These answers describe version 0.6, which is being finished. The published version is 0.5 and still has the look layer. Items marked *planned* are not built yet.
+These answers describe version 0.6. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
 
 ## The idea
 
@@ -42,7 +42,7 @@ Mostly, and the mechanisms are fixed frame order, modules that declare what they
 
 ### What happens when two pieces of picture code write the same value?
 
-Today the later assignment wins and nothing complains, because it is plain JavaScript. Wrapping three.js to stop this would bring back the layer that was removed. The answer has three parts. On the dev server, a tool reports two writers in one frame, with both file and line numbers, and `engine.explain({ picture: 'fog.far' })` says which line wrote a value. Values several parties change go through `engine.mod`. Values that can exist only once will take a slot, so a second claim fails at install; that convention is *planned*. None of this has been tested yet with code from different sources.
+Today the later assignment wins and nothing complains, because it is plain JavaScript. Wrapping three.js to stop this would bring back the layer that was removed. The answer has three parts. On the dev server, a tool reports two writers in one frame, with both file and line numbers, and `engine.explain({ picture: 'fog.far' })` says which line wrote a value. Values several parties change go through `engine.mod`. Values that can exist only once take a slot, so a second claim fails at install. Three parts written in different styles run together in a test, and each planned collision fails with a message naming both sides. No real game has tried this yet.
 
 ### Can it tell when two assets look wrong together?
 

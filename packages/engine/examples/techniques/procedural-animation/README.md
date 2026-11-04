@@ -3,7 +3,7 @@ Animate code-built characters and props without a skeleton: walk cycles from spe
 # Procedural animation (technique example)
 
 A neutral box quadruped that walks, trots, jumps, lands and sits. Run `npm run dev` and open `/procanim.html` (WASD, Shift runs, Space jumps,
-stand still 4 s to sit; `?walk=2` walks by itself). The engine never imports this folder.
+stand still 4 s to sit; `?walk=2` walks by itself). The picture is plain three.js in `picture/`. The engine never imports this folder.
 
 ## The principle
 Motion reads as alive when it is tied to cause: feet keep up with the ground, soft parts lag behind the body, weight shows on landing, and
@@ -47,7 +47,7 @@ do ears and tail settle without jitter? Values are a starting point to tune by e
 `threedog examples pull procedural-animation` copies the folder. `proceduralAnim.js` is the technique and imports nothing:
 `createProceduralAnimator(parts, knobs)` returns an animator with `update(dt, { speed, state, grounded, vy })`; `spring(stiffness, damping)`
 is the sub-stepped spring (a long frame stays stable). `creature.js` (`buildCreature`, imports `three`) is a neutral box quadruped that exists
-only so there is something to move; `main.js` wires it to a player, in a game change main's import to `from 'threedog'`.
+only so there is something to move; `main.js` wires it to a player.
 1. Build the body with a pivot (a `Group`) at every joint. Names do not matter to the animator, only the `parts` object you pass.
 2. Give it to a character as a ready rig: `createPlayer({ ..., rig: { root, body: parts.body, limbs: [] } })` (`npcs.add` takes the same
    `rig`). `limbs: []` means the engine swings nothing itself (recipe 13 section 3b describes its own limb swing, for comparison).
@@ -61,7 +61,7 @@ starting point for a mid-sized box creature: cycle `stride`, `strideGrow`; gait 
 idle `breathe`, `breatheRate`; springs `earStiffness`, `earDamping`, `tailStiffness`, ...; landing `squash`, `squashMax`.
 
 Rules (correctness):
-- **Looks run per frame, gameplay per fixed step.** `update` belongs in `onPose` / `onFrame` with that frame's `dt`. It reads facts the fixed
+- **Visuals run per frame, gameplay per fixed step.** `update` belongs in `onPose` / `onFrame` with that frame's `dt`. It reads facts the fixed
   steps wrote (`moveAmount`, `state`, `grounded`, `vy`) and writes only the body's own parts. Never read a pose for gameplay (hit timing,
   footstep damage): frames drop and fast-forward runs frame hooks at a lower rate (`engine.step`).
 - **Write absolute values from a remembered rest pose**, never `+=` per frame. `rest.bodyY` is read once; every frame sets

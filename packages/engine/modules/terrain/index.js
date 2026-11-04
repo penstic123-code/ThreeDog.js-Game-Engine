@@ -1,5 +1,5 @@
 // Terrain module: chunked, streamed ground built from a height function (or a height map), with edits, workers and ground types.
-// After install: engine.terrain is the data part (chunk manager: heights, chunks, edits, collision); engine.terrainLook draws it (slot 'terrain-look').
+// After install: engine.terrain is the data part (chunk manager: heights, chunks, edits, collision); engine.terrainDraw draws it (slot 'terrain-draw').
 // engine.surface()/slope()/groundType() come from the data part.
 //
 // The engine ships no landform and no ground types: terrain() alone is flat gray ground at y = 0 (a placeholder, with a dev warning).
@@ -9,12 +9,13 @@
 //   Both run in workers, so they are pure (threads.pure rules: only parameters and globals like Math; an outside variable throws here, naming it).
 //   Settings a function needs travel as params (plain data, read as n.params). The engine still does chunks, streaming, collision, flatten and edits on top.
 // Height map: terrain({ heightmap: { url: '/textures/height.png', size: [1024, 1024], min: -5, max: 60 } }), a grayscale image, whiter is higher, read at startup.
-// Colors come from the style.terrain (colors palette, biomeColors per ground type, steep); a type without a color is neutral gray.
-// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-look-hooks.md).
-// Material: terrain({ material }) or style.terrain.material, a Material or (engine) => Material; chunks carry position, normal, color
-//   and uv (world xz / chunk size, continuous across chunks). Cloud shadows and season tint are added to it; terrain({ material, effects: false })
-//   draws it exactly as given (the same switch as look.ground.replace(m, { effects: false })), so a game's own shader is never patched.
-// Edits: engine.terrain.edit(pos, { radius: 2, lower: 1 }) digs; { paint: 'tilled' } paints a ground type (its color: style.terrain.biomeColors). Saved, see terrainEdit.js.
+// Colors: terrain({ colors, biomeColors, steep, variation }), plain data the workers bake into each chunk; a type without a color is neutral gray.
+//   engine.terrain.recolor({ ... }) changes them at run time (recipes/36-sky-ground-plants.md).
+// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-draw-hooks.md).
+// Material: terrain({ material }), a Material or (engine) => Material; chunks carry position, normal, color and uv (world xz / chunk size, continuous
+//   across chunks). Cloud shadows, season tint and terrain({ detail }) are added to it; terrain({ material, effects: false }) draws it exactly as given.
+//   engine.terrain.material = m at any time draws m as given too; engine.terrain.patches keeps the effects on it (applyEffects(m, { patches })).
+// Edits: engine.terrain.edit(pos, { radius: 2, lower: 1 }) digs; { paint: 'tilled' } paints a ground type (its color: terrain({ biomeColors })). Saved, see terrainEdit.js.
 
 // Outline: terrain({ shape: { mask: (x, z, n) => 40 - Math.hypot(x, z), side: { depth: 2 } } }) keeps ground only where mask > 0 (an island
 //   with cliff sides); off it engine.surface is -Infinity, engine.ground.has false, and a fall emits terrain:void. See recipes/42-terrain-shape.md.
@@ -24,41 +25,40 @@ import { DEFAULT_TERRAIN } from './terrainGen.js';
 
 import { readParams, keysSchema } from '../../core/params.js';
 import { compilePure } from '../../core/threadPure.js';
-import { warnOnce, DEV } from '../../core/validate.js';
+import { warnOnce } from '../../core/validate.js';
 import { loadGray } from '../../core/grayMap.js';
 import { prepareShape, voidWatcher } from './terrainShapeMain.js';
-import { defineGroundLook } from './lookGround.js';
-import { TerrainLook } from './look.js';
+import { TerrainDraw, checkGround } from './draw.js';
 import { codedError } from '../../core/errorHints.js';
 
-const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a look). '
+const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a picture). '
   + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/terrain-noise';
 
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
-// normals is in the worker config (DEFAULT_TERRAIN) but is only a look value: look.ground.set({ normals }) / style.terrain.config.normals
-const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'viewFog', ...Object.keys(DEFAULT_TERRAIN).filter(k => k !== 'normals')], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
+const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'detail', 'variation', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
 
 export function terrain(opts = {}) {
-  if (DEV && 'normals' in opts) throw codedError('terrain-option', 'terrain({ normals }) moved: engine.look.ground.set({ normals }) after engine.use(terrain()), or style.terrain.config.normals in the style (one entry per look value)');
   readParams('terrain', TERRAIN_PARAMS, opts);
-  const { viewChunks = 4, density = 1, material, effects, viewFog = false, ...cfg } = opts;
+  checkGround('terrain', opts);
+  // material and detail stay on the main thread (a texture, a function): everything left in cfg is plain data for the workers
+  const { viewChunks = 4, density = 1, material, effects, detail = null, viewFog = false, ...cfg } = opts;
   // effects only says how the game's own material is used: without one it would silently do nothing
   if (effects !== undefined && (material == null || typeof effects !== 'boolean'))
     throw codedError('terrain-option', 'terrain({ effects }): goes with your own material, terrain({ material: myMaterial, effects: false }) = drawn as given (no cloud shadow / season / detail patch); got ' + JSON.stringify({ effects, material: material == null ? material : typeof material }));
   let w = null, watchVoid = null, sideMat = null;
-  // the config the chunks are generated from now (a loaded height map, look.ground colors): shared by both halves
+  // the config the chunks are generated from now (a loaded height map, recolor): shared by both halves
   const state = { cfg: null };
-  // Two modules from one call: 'terrain' (data: heights, chunks, edits, collision, queries) and 'terrainLook' (meshes, materials, look.ground).
-  // Why two: collision, paths and vegetation read only the data, so engine.use(myGround, { replaces: 'terrain-look' }) swaps every pixel of the
-  // ground and keeps all of play. The look reads chunk data and never changes it.
+  // Two modules from one call: 'terrain' (data: heights, chunks, edits, collision, queries) and 'terrainDraw' (meshes, materials, recolor).
+  // Why two: collision, paths and vegetation read only the data, so engine.use(myGround, { replaces: 'terrain-draw' }) swaps every pixel of the
+  // ground and keeps all of play. The draw part reads chunk data and never changes it.
   const data = {
     name: 'terrain', type: 'world', provides: ['terrain'], label: 'Terrain', params: TERRAIN_PARAMS, options: opts, noSkip: 'void-fall watch only; nothing accumulates over time', optional: ['vegetation'], stage: 'ground',
     install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.terrain': '地形' }, en: { 'module.terrain': 'terrain' } });
       for (const k in cfg) if (cfg[k] === undefined) delete cfg[k];
-      // the shape of the ground only: the look keys (colors, shading...) are added by the look half (lookConfig), so a replaced look leaves them out
-      const terrainCfg = Object.fromEntries(Object.entries(cfg).filter(([k]) => !LOOK_KEYS.includes(k)));
+      // the shape of the ground only: the picture keys (colors, shading...) are added by the drawing half (drawConfig), so a replaced draw part leaves them out
+      const terrainCfg = Object.fromEntries(Object.entries(cfg).filter(([k]) => !DRAW_KEYS.includes(k)));
       // a game's generator functions go to the workers as source text: checked here (outside variables name themselves) so the error points at this call
       for (const k of ['height', 'groundType']) if (typeof terrainCfg[k] === 'function') terrainCfg[k] = compilePure(terrainCfg[k], `terrain({ ${k} })`).src;
       if (!terrainCfg.height && !terrainCfg.heightmap) warnOnce(NO_HEIGHT);
@@ -66,7 +66,7 @@ export function terrain(opts = {}) {
       w = new ChunkManager(e, terrainCfg);
       if (terrainCfg.shape) watchVoid = voidWatcher(e, w);
       w.density = density;
-      w.viewFog = viewFog;   // opt-in: the look half puts the view distance on the fog (hides the edge); otherwise the style's / the game's look.fog far stays
+      w.viewFog = viewFog;   // opt-in: the drawing half writes the view distance to the signal uViewDistance (a game's fog reads it to hide the edge)
       state.cfg = terrainCfg;
       e.setGround({
         height: (x, z) => w.T.surface(x, z),
@@ -97,7 +97,7 @@ export function terrain(opts = {}) {
       const hm = state.cfg.heightmap, mk = state.cfg.shape?.mask;
       const needH = hm?.url && !hm.data, needM = mk?.url && !mk.data;
       if (!needH && !needM) return;
-      const cfg2 = state.cfg = { ...state.cfg };   // look.ground rebuilds from the current config
+      const cfg2 = state.cfg = { ...state.cfg };   // recolor rebuilds from the current config
       if (needH) cfg2.heightmap = { ...hm, ...await loadGray(hm.url), url: undefined };
       if (needM) cfg2.shape = { ...cfg2.shape, mask: { ...mk, ...await loadGray(mk.url), url: undefined } };
       w.reinit(cfg2, speciesRules(w));
@@ -105,68 +105,46 @@ export function terrain(opts = {}) {
     isReady(e) { return e.stream.sources().every(s => w.isReadyAround(s)); },
     dispose() { w.dispose(); },
   };
-  let look = null, fog = null;
+  let drawPart = null, fog = null;
   const lookModule = {
     // the same terrain({...}) call: material / effects are read here, the rest by the data part
-    name: 'terrainLook', type: 'look', label: 'Terrain look', params: TERRAIN_PARAMS, options: opts, requires: ['terrain'], provides: ['terrain-look'], stage: 'effects',
+    name: 'terrainDraw', type: 'picture', label: 'Terrain drawing', params: TERRAIN_PARAMS, options: opts, requires: ['terrain'], provides: ['terrain-draw'], stage: 'effects',
     install(e, ctx) {
-      e.i18n.add({ 'zh-CN': { 'module.terrainLook': '地形外观' }, en: { 'module.terrainLook': 'terrain look' } });
-      const style = e.style.terrain || {};
+      e.i18n.add({ 'zh-CN': { 'module.terrainDraw': '地形外观' }, en: { 'module.terrainDraw': 'terrain drawing' } });
       // the colors the workers bake into each chunk: no chunk is generated before the first frame, so this reinit only swaps the config
-      const lc = lookConfig(e, style, cfg);
-      state.cfg = { ...state.cfg, ...lc };
+      state.cfg = { ...state.cfg, ...drawConfig(e, cfg) };
       w.reinit(state.cfg, speciesRules(w));
-      const given = { colors: cfg.colors && lc.colors, biomeColors: cfg.biomeColors && lc.biomeColors, steep: cfg.steep, shading: cfg.shading, material, effects };
-      fog = viewFogSync(e, ctx);
-      // effects false (terrain({ material, effects: false })): the game's material is drawn untouched, as look.ground.replace(m, { effects: false })
-      look = new TerrainLook(e, w, { material: material ?? style.material, effects: material == null || effects !== false, sideMat });
-      // look.ground: what terrain({...}) itself was given goes on the game layer (owner 'terrain()'); the style's values are the style layer
-      defineGroundLook(e, look, w, { cfg: () => state.cfg, setCfg: c => { state.cfg = c; }, species: () => speciesRules(w), game: given });
-      return look;
+      fog = viewFogSync(e);
+      // effects false (terrain({ material, effects: false })): the game's material is drawn untouched
+      drawPart = w.drawPart = new TerrainDraw(e, w, { material, effects: material == null || effects !== false, detail, sideMat,
+        config: { get: () => state.cfg, set: c => { state.cfg = c; }, species: () => speciesRules(w) } });
+      return drawPart;
     },
     frame() { fog(w.viewFogFar); },
-    describe() { return { chunks: look?.meshes.size ?? 0 }; },
-    dispose() { look?.dispose(); look = null; },
+    describe() { return { chunks: drawPart?.meshes.size ?? 0 }; },
+    dispose() { drawPart?.dispose(); drawPart = w.drawPart = null; },
   };
   return [data, lookModule];
 }
 
-/** Look keys of terrain({...}) and style.terrain: baked into the chunk colors by the workers, but only the look half reads them */
-const LOOK_KEYS = ['colors', 'biomeColors', 'steep', 'variation', 'shading', 'colorResolution', 'normals', 'normalFn'];
+/** Picture keys of terrain({...}): baked into the chunk colors by the workers, but only the drawing half reads them */
+const DRAW_KEYS = ['colors', 'biomeColors', 'steep', 'variation', 'shading', 'colorResolution', 'normals', 'normalFn'];
 
-/** The look half's part of the worker config: the style's colors / variation / config looks, with what terrain({...}) itself gave on top */
-function lookConfig(e, style, cfg) {
-  const pick = o => Object.fromEntries(Object.entries(o || {}).filter(([k]) => LOOK_KEYS.includes(k)));
-  const out = { ...pick(style.config), ...pick(cfg) };
-  out.colors = { ...(style.colors || {}), ...(cfg.colors || {}) };
-  if (style.biomeColors) out.biomeColors = { ...style.biomeColors, ...(cfg.biomeColors || {}) };
-  if (style.steep && !cfg.steep) out.steep = style.steep;
-  if (style.variation && !cfg.variation) {   // plain data, so it rides along to the workers
-    readParams('style.terrain.variation', keysSchema(['blend', 'jitter', 'patches']), style.variation);
-    readParams('style.terrain.variation.blend', keysSchema(['size', 'strength']), style.variation.blend || {});
-    readParams('style.terrain.variation.jitter', keysSchema(['size', 'min', 'range']), style.variation.jitter || {});
-    readParams('style.terrain.variation.patches', keysSchema(['size', 'strength', 'levels', 'tint']), style.variation.patches || {});
-    out.variation = style.variation;
-  }
-  if (typeof out.normalFn === 'function') out.normalFn = compilePure(out.normalFn, 'terrain({ normalFn })').src;   // also a style's normalFn
+/** The drawing half's part of the worker config: the picture keys terrain({...}) was given */
+function drawConfig(e, cfg) {
+  const out = Object.fromEntries(Object.entries(cfg).filter(([k]) => DRAW_KEYS.includes(k)));
+  if (typeof out.normalFn === 'function') out.normalFn = compilePure(out.normalFn, 'terrain({ normalFn })').src;
   // low-tier devices start with a coarser color map (a quarter of the pixels and upload); the game's own colorResolution wins
   if (out.shading === 'texture' && out.colorResolution == null && e.tier === 'low') out.colorResolution = 64;
   return out;
 }
 
 /**
- * terrain({ viewFog: true }): the view distance is the engine layer of look.fog.far, written by the look half through ctx.mod, so it leaves with
- * the module (a replaced look, an unloaded terrain). Checked each frame: the view distance changes (settings), and a sky installed or swapped
- * later brings a new fog point. Returns fn(far or null).
+ * terrain({ viewFog: true }): the view distance goes out as the signal uViewDistance; the fog itself is the game's, which reads it for its far.
+ * shortcut: the value stays after the terrain unloads; upgrade if a game swaps terrains with different ranges.
  */
-function viewFogSync(e, ctx) {
-  let h = null, at = null, stack = null;
-  return far => {
-    const st = e.stacks.has('look.fog.far') ? e.stacks.get('look.fog.far') : null;
-    if (far === at && st === stack) return;
-    h?.remove(); h = null; at = far; stack = st;
-    if (far != null && st) h = ctx.mod('look.fog.far', { layer: 'engine', set: far });
-  };
+function viewFogSync(e) {
+  return far => { if (far != null) e.uniforms.uViewDistance.value = far; };
 }
 
 /** Every species' placement rule (the workers get the full table when the terrain config is replaced) */

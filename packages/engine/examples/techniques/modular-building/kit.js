@@ -2,7 +2,7 @@
 // Modular building kit (optional technique example, see README.md). Shapes only: every module is built from parameters and drawn with the
 // game's own materials, one per slot (wall, trim, roof, frame, glass, accent, awning, sign). Imports only three and three/addons, so a game can
 // copy the folder and change anything.
-// The pieces are deliberately plain: they teach the method (grid, modules, variation, shared geometry), not a look.
+// The pieces are deliberately plain: they teach the method (grid, modules, variation, shared geometry), not a picture.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -18,7 +18,7 @@ export const PROFILES = {
   cove: [[0, 0], [0.35, 0], [0.5, 0.25], [0.75, 0.45], [1, 0.75], [1, 1], [0, 1]],
 };
 
-/** Window variants a street picks from: a few shared variants (not a random size per window) keep the look designed and the geometry shared */
+/** Window variants a street picks from: a few shared variants (not a random size per window) keep the picture designed and the geometry shared */
 export const WINDOWS = [
   { width: 0.9, height: 1.4, sill: 0.9, mullions: 1, planter: false },
   { width: 1.1, height: 1.5, sill: 0.8, mullions: 2, planter: true },

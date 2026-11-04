@@ -7,7 +7,7 @@ export function compareModels(next, old) {
   const out = [], add = (severity, code, msg) => out.push({ severity, code, msg });
   const gone = (kind, a, b, severity = 'error') => {
     const have = new Set(b), miss = [...new Set(a)].filter(n => !have.has(n));
-    if (miss.length) add(severity, 'missing-' + kind.replace(/\W+/g, '-'), `${kind} missing in the new file: ${miss.join(', ')} (the old file has ${miss.length > 1 ? 'them' : 'it'}; the game may refer to ${miss.length > 1 ? 'them' : 'it'})`);
+    if (miss.length) add(severity, 'missing-' + kind.replace(/[\W_]/g, '-'), `${kind} missing in the new file: ${miss.join(', ')} (the old file has ${miss.length > 1 ? 'them' : 'it'}; the game may refer to ${miss.length > 1 ? 'them' : 'it'})`);
   };
   gone('col_ collider', old.report.colliders, next.report.colliders);
   gone('template/id node', old.level.records.map(r => r.node), next.level.records.map(r => r.node));

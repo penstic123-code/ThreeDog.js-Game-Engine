@@ -38,12 +38,12 @@ How to judge it: a shot at the real camera, with the busiest background the game
 - **Selection highlight**: a colored hull or `OutlinePass` on the selected object only.
 
 ## The engine helper (optional convenience)
-Copy `outlines.js` into a game; `main.js` is only the demo. It gives `trackResolution(engine)` (the drawing-buffer size for screen-unit hulls),
+Copy `outlines.js` into a game; `main.js` (shapes) and `picture/` (this page's whole picture, plain three.js: lights, materials by name, the post pass) are only the demo. It gives `trackResolution(engine)` (the drawing-buffer size for screen-unit hulls),
 `addHull(mesh, { thickness, units: 'world' | 'screen', color })`, and `rimPatch({ color, strength, power, shadowSide })`.
 
 | route | how | width | cost |
 |---|---|---|---|
-| post outline | `@threedog/post-effects` `outline()` via `engine.look.post.add(...)`: one full-screen pass that draws where depth jumps (`mode: 'normal'` / `'both'` also creases) | screen pixels | one full-screen pass reading depth, any number of objects; `'normal'` adds a scene render; `offLayer` adds a render of the exempt objects |
+| post outline | `@threedog/post-effects` `outline()` through `engine.post.add(...)` (see `picture/post.js`): one full-screen pass that draws where depth jumps (`mode: 'normal'` / `'both'` also creases) | screen pixels | one full-screen pass reading depth, any number of objects; `'normal'` adds a scene render; `offLayer` adds a render of the exempt objects |
 | inverted hull | `addHull(mesh, { units })`: a back-face copy pushed out along smooth normals, unlit, keeps fog | `'world'`: meters, thins with distance; `'screen'`: pixels, constant | one more draw (and its vertices) per outlined mesh; no full-screen cost |
 | rim light | `rimPatch()`: a fresnel edge light added in the material's lighting (engine `threedogRim`) | follows the form | a few ALU per pixel, no extra draw |
 

@@ -6,7 +6,7 @@ export class DebugOverrides {
      * Diagnostic view: 'albedo' | 'lighting' | 'shadow' | 'normals' to look at one part of the render, 'overdraw' (bright = many layers on a pixel),
      * 'shaderCost' (materials green -> red by compiled program cost, approximate), 'off' to restore; modules add their own (triggers: 'triggers' draws
      * the trigger zones), viewModes() lists them all. Temporary and owner-scoped; never saved
-     * (describe().render says which view is active, so it is not mistaken for the real look). While one owner's view is on, another owner can neither switch it
+     * (describe().render says which view is active, so it is not mistaken for the real picture). While one owner's view is on, another owner can neither switch it
      * nor turn it off without force: true; engine.debug.clear(owner) turns that owner's view off too.
      * @example engine.debug.view('normals');   // look at the screenshot, then engine.debug.view('off')
      * @param {'albedo' | 'lighting' | 'shadow' | 'normals' | 'overdraw' | 'shaderCost' | 'off' | string} mode @param {{ owner?: string, force?: boolean }} [opts]
@@ -69,18 +69,26 @@ export class DebugOverrides {
     /**
      * Change how an object looks for diagnosis, owned by `owner`. Returns { remove() }. Never saved, never part of the game state; listed in
      * describe().scene.overrides while active. A thing id is remembered as the id: when that thing is removed, or a load replaces it, the override is dropped.
+     * Any three.js value: override(owner, object, key, value) writes object[key] and keeps it there every frame, above picture code that writes it in
+     * onRender, so "show me this with exposure 3" holds; remove() puts the old value back.
      * @param {string} owner who sets it (a tool or session name); engine.debug.clear(owner) removes all of that owner's overrides
-     * @param {string | import('three').Object3D} target a thing id (engine.thing), an object name or any Object3D, or a look part id ('look.tone'): then patch is that part's set() values, written on its debug layer above every game owner
-     * @param {{ visible?: boolean, material?: 'flat' | 'wire', apply?: (obj: any) => (() => void) | void }} patch flat = unlit base colour, wire = wireframe, apply = your own change (return its undo)
+     * @param {any} target a thing id (engine.thing), an object name or any Object3D; with a key, any three.js object (renderer, scene, a light, a material) is that part's set() values, written on its debug layer above every game owner
+     * @param {string | { visible?: boolean, material?: 'flat' | 'wire', apply?: (obj: any) => (() => void) | void }} patch flat = unlit base colour, wire = wireframe, apply = your own change (return its undo); a string: the property to write
+     * @param {any} [value] with a property name: its value, of the type the property holds (null works: scene.fog off)
      * @example const h = engine.debug.override('ai-session', 'windmill', { material: 'flat' }); h.remove();   // or engine.debug.clear('ai-session')
+     * @example engine.debug.override('ai-session', engine.renderer, 'toneMappingExposure', 3);
+     * engine.debug.override('ai-session', engine.scene, 'fog', null);   // the same picture with no fog
+     * @returns {{ remove(): void }}
      */
-    override(owner: string, target: string | import("three").Object3D, patch: {
+    override(owner: string, target: any, patch: string | {
         visible?: boolean;
         material?: "flat" | "wire";
         apply?: (obj: any) => (() => void) | void;
-    }): any;
+    }, value?: any): {
+        remove(): void;
+    };
     /**
-     * Remove every override of one owner (nothing else), its look-part debug values and its view; returns how many were removed
+     * Remove every override of one owner (nothing else), and its view; returns how many were removed
      * @param {string} owner
      */
     clear(owner: string): number;

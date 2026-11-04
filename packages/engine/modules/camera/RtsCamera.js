@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { rigModule, defineRig, CAMERA_STRINGS, YAW_RIG, rigPlaced } from './common.js';
 import { xzOf } from '../../core/math.js';
-import { setFov } from '../../core/look/coreParts.js';
+import { setFov } from '../../core/view.js';
 import { surfaceOr } from '../../core/ground.js';
 
 export class RtsCamera {

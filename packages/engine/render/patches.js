@@ -115,6 +115,11 @@ function clash(list, p) {
 
 const LISTS = new WeakMap();   // material -> its patches (not userData: that gets JSON-cloned and exported to glTF)
 
+// A list read back from a material (engine.<module>.patches) comes through applyEffects a second time: already placed, it stays as it is.
+// Placing it again would wrap its code in a second marker, and the 'same cacheKey, different code' check would then reject the module's own patch.
+const ANCHORED = new WeakSet();
+const anchored = p => { if (ANCHORED.has(p)) return p; const a = toAnchors(p); ANCHORED.add(a); return a; };
+
 // Shared declarations appear once per stage. Patches may share engine.uniforms (uTime ...) and the threedog_* chunks, and each patch's pars is
 // written to stand alone, so two patches on one material each declare `uniform float uTime;` (twice is a GLSL redefinition: the program fails).
 // Done here, in the one place that joins the pars, so no patch has to guard its own lines: threedog_* includes are expanded once (a second
@@ -176,7 +181,7 @@ function apply(shader, list, m, renderer) {
  * patchMaterial(mat, [{ name: 'ripple', needs: { patches: ['clouds'] }, conflicts: ['wind'], shadow: true, ... }]);
  * patchMaterial(mat, [{ name: 'snap', slot: 'clipPosition', cacheKey: 64, uniforms: { uGrid: { value: 64 } }, pars: 'uniform float uGrid;',
  *   glsl: 'gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uGrid) / uGrid * gl_Position.w;' }]);
- * @internal games and styles go through applyEffects(material, { patches })
+ * @internal games go through applyEffects(material, { patches })
  * @param {Material} material
  * @param {ShaderPatch[]} patches
  * @param {{ strict?: boolean }} [opts]
@@ -207,8 +212,8 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
   }
   // slot form is converted to anchor form at the entry (one internal representation), so the later conflict / shadow / cacheKey checks are the same for both forms; derived ones (copyPatches / shadow material) are already converted
   const before = list.slice();
-  for (const p of deriving ? patches : withProviders(patches, list).map(toAnchors)) {
-    // a GLSL-only patch on a NodeMaterial throws even when not strict: skipping it would draw the material without its look, silently
+  for (const p of deriving ? patches : withProviders(patches, list).map(anchored)) {
+    // a GLSL-only patch on a NodeMaterial throws even when not strict: skipping it would draw the material without its picture, silently
     if (m.isNodeMaterial && !deriving && p.tsl == null) throw codedError('shader-patch', `[threedog] patch '${p.name}' has no tsl version; add tsl: (ctx) => ..., or keep this material on WebGLRenderer (${m.type} is a NodeMaterial)`);
     const nodeGap = m.isNodeMaterial && !deriving ? nodePatches(m).gaps(m, p) : '';
     if (nodeGap) {
@@ -247,17 +252,23 @@ function changedClassic(m) {
 
 // WebGPURenderer keys a classic material's program by its customProgramCacheKey (the patch names and cacheKeys above) plus its enumerable
 // properties, and shares one node build between materials whose keys match. The build holds the patch's own uniform nodes (render/fx:
-// one node per { value } object), so two materials with the same patches but their own uniform objects would draw with the first one's
-// values. This enumerable property adds those objects' identities to the WebGPU key only (WebGLRenderer never reads it, and there every
-// material binds its own uniforms, so sharing a program is right). Materials that share the uniform objects (one material, or patches
-// made once and reused) still share one program.
+// one node per { value } object) and runs the patch's tsl, while cacheKeys follow the GLSL, so two materials with the same patch names but
+// their own uniform objects, or other tsl under the same GLSL (or none), would draw as the first one, with no error. This enumerable
+// property adds the identities of those objects and tsl functions to the WebGPU key only (WebGLRenderer never reads it, and there every
+// material binds its own uniforms, so sharing a program is right). Materials that share them (one material, patches made once and reused,
+// sharedPatch, the built-in effects) still share one program; a tsl function written fresh per material gets one program per material.
 const NODE_KEY = 'threedogNodeKey';
 const IDS = new WeakMap();
 let nextId = 0;
 const idOf = o => { let i = IDS.get(o); if (i === undefined) IDS.set(o, i = ++nextId); return i; };
+/** Every function of a patch's tsl: (ctx) => node, { slot: fn }, or a lighting slot's hook object */
+const tslFunctions = t => typeof t === 'function' ? [t] : t && typeof t === 'object' ? Object.values(t).flatMap(tslFunctions) : [];
 function nodeKey(m) {
   const ids = [];
-  for (const p of LISTS.get(m) ?? []) for (const u in p.uniforms ?? {}) if (!engineUniformName(p.uniforms[u])) ids.push(idOf(p.uniforms[u]));
+  for (const p of LISTS.get(m) ?? []) {
+    for (const u in p.uniforms ?? {}) if (!engineUniformName(p.uniforms[u])) ids.push(idOf(p.uniforms[u]));
+    for (const f of tslFunctions(p.tsl)) ids.push(idOf(f));
+  }
   return ids.join('.');
 }
 
@@ -319,9 +330,11 @@ export function dressNodeTwins(r) {
   };
   lib._threedogTwins = true;
 }
+notePatch('node-twin-dress', "renderer.library.fromMaterial of a WebGPURenderer: the node twin of a classic material gets the material's patches as nodes (render/patches.js)", null,
+  { scope: 'engine renderer', lost: 'without it every patched material on WebGPU draws without its picture and without a word (wind, season, cloud shadows, detail, lighting), so it stays' });
 
 // start() on WebGPURenderer, and each object added later: a classic material whose patches cannot all run there (a GLSL-only patch, a slot
-// with no node place) is named instead of drawing without its look
+// with no node place) is named instead of drawing without its picture
 addWebGPURule(m => {
   const list = !m.isNodeMaterial ? LISTS.get(m) : null;
   return list?.length ? webgpuPartOrNull('nodePatches')?.problem(m, list) ?? null : null;
@@ -334,7 +347,7 @@ function nodePatches(m) {
 
 // A patch read a varying that an engine patch brings (vThreedogWorld comes from 'world') without writing needs; it used to fail compiling with undeclared identifier,
 // with no hint to write needs: { patches: ['world'] }. There is a single provider and adding it changes nothing else visible, so it is added automatically before the patch (dev warns once when needs was not written),
-// and also when needs was written: applyEffects / look.materials.add / style entries all pass through here, so none has to remember to add 'world'.
+// and also when needs was written: every entry passes through here, so none has to remember to add 'world'.
 const reads = (p, name) => new RegExp(`\\b${name}\\b`).test(JSON.stringify([p.glsl ?? '', p.pars ?? '']));
 /** patches with every engine patch they read from (by needs.patches or by the varyings their code uses) inserted before them, once */
 function withProviders(patches, list) {
@@ -402,6 +415,13 @@ export function replacePatchCode(materials, old, neu) {
 }
 
 /**
+ * The patches on a material, a copy of the list. @internal modules hand it out as engine.<module>.patches
+ * @param {Material} material
+ * @returns {ShaderPatch[]}
+ */
+export function patchesOf(material) { return [...(LISTS.get(material) ?? [])]; }
+
+/**
  * Take the patch named `name` off a material (no-op when absent); returns the material.
  * @internal sky cascades
  * @param {Material} material
@@ -420,7 +440,7 @@ export function unpatchMaterial(material, name) {
 /**
  * Give `to` the patches of `from`, e.g. after `from.clone()` (three's Material.copy does not carry onBeforeCompile, so a clone
  * starts without patches). Returns `to`.
- * @internal engine code that clones materials (makeMaterial, vegetation fromModel) calls it
+ * @internal engine code that clones materials (vegetation fromModel) calls it
  * @param {Material} from
  * @param {Material} to
  * @returns {Material}
@@ -428,22 +448,7 @@ export function unpatchMaterial(material, name) {
 export function copyPatches(from, to) {
   const list = LISTS.get(from);
   if (!list?.length || from === to) return to;
-  copyTerms(from, to);   // the copy carries the cloud / season terms, so a later look.cloudShadow / look.season replace reaches it too
-  deriving = true;   // already checked on `from`
-  try { return patchMaterial(to, list, { strict: false }); } finally { deriving = false; }
-}
-
-/**
- * Give `to` the patches of `from` except the names in `skip` and those `to` already has (look.materials.rebuild: the new material keeps the wind /
- * cloud shadow a module added after makeMaterial, while the look.materials patches come from the current layers). Returns `to`.
- * @internal
- * @param {Material} from @param {Material} to @param {Set<string>} skip
- * @returns {Material}
- */
-export function carryPatches(from, to, skip) {
-  const have = new Set(materialPatches(to)), list = (LISTS.get(from) || []).filter(p => !skip.has(p.name) && !have.has(p.name));
-  copyTerms(from, to);
-  if (!list.length) return to;
+  copyTerms(from, to);   // the copy carries the cloud / season terms, so a later engine.terms call reaches it too
   deriving = true;   // already checked on `from`
   try { return patchMaterial(to, list, { strict: false }); } finally { deriving = false; }
 }
@@ -453,7 +458,7 @@ export function carryPatches(from, to, skip) {
 // applyEffects to opt in. WeakSet, not userData: userData is carried by clone and written into the file on glTF export, so a game material cloned from an engine one would be mistaken for it.
 const MADE = new WeakSet();
 /**
- * Record a material as engine-made (makeMaterial, terrain, vegetation clones, water); returns it.
+ * Record a material as engine-made (terrain, vegetation clones, water); returns it.
  * @internal
  * @template {Material} M @param {M} m @returns {M}
  */
@@ -510,7 +515,7 @@ function shadowMaterial(material, kind) {
     () => { for (const [p, d] of before) { if (d) Object.defineProperty(THREE.Mesh.prototype, p, d); else delete THREE.Mesh.prototype[p]; } },
     { lost: 'meshes with wind or another vertex-moving patch cast a still shadow' });
 }
-notePatch('material-compile-accessor', "onBeforeCompile / customProgramCacheKey on each material the engine patches (cloud shadow on plain lit materials, wind, fog): an own get / set, so the game's own hook assigned before or after still runs, then the engine's",
+notePatch('material-compile-accessor', "onBeforeCompile / customProgramCacheKey on each material the engine patches (what applyEffects was asked for, wind, fog): an own get / set, so the game's own hook assigned before or after still runs, then the engine's",
   () => {},   // off: materials patched from now on get three's plain properties (patchMaterial asks patchOn)
   { scope: 'patched materials', lost: "on materials patched from now on, assigning material.onBeforeCompile replaces the engine's patches (wind, cloud shadow, fog) instead of running before them" });
 for (const [prop, kind] of [['customDepthMaterial', 'depth'], ['customDistanceMaterial', 'distance']]) {

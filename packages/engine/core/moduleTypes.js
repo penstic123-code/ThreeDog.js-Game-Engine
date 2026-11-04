@@ -1,7 +1,7 @@
 // Module types: what a module may own (a module's `stage` only says when it runs; its `type` says what it may own and how its errors are handled:
-// look / ui fail soft, see core/errors.js). Mixed into Engine with modules.js.
-//   type: 'world' | 'look' | 'actor' | 'rules' | 'ui' | 'net' | 'tool'  -- every module declares one, built-in or the game's (missing = error).
-// Why a type and not a rule in the docs: an AI follows the shape of the code, not a paragraph. A look module that defines an op, or a ui module that binds
+// picture / ui fail soft, see core/errors.js). Mixed into Engine with modules.js.
+//   type: 'world' | 'picture' | 'actor' | 'rules' | 'ui' | 'net' | 'tool'  -- every module declares one, built-in or the game's (missing = error).
+// Why a type and not a rule in the docs: an AI follows the shape of the code, not a paragraph. A picture module that defines an op, or a ui module that binds
 // keys, is the start of two modules owning one thing; the check names the rule and the one-line fix where the mistake is made.
 // No subtypes: differences inside a type are the declarations the engine already checks (provides, requires, shared values written with ctx.mod,
 // material slots patched, the post stage, backends, sounds).
@@ -10,11 +10,12 @@
 // attributed: the check is a guard rail at the common places, not a sandbox.
 import { DEV, fmt } from './validate.js';
 import { codedError } from './errorHints.js';
+import { callerAt } from './stackFrames.js';
 
 /** type -> what it may own (shown in the missing / unknown type error and in recipes/14) */
 export const MODULE_TYPES = {
   world: 'game state: save parts, world records, ops, ground / collision / navigation data (draws nothing)',
-  look: 'what is seen and heard: look values, three.js objects, particles, sounds (changes no game state)',
+  picture: 'what is seen and heard: picture values, three.js objects, particles, sounds (changes no game state)',
   actor: 'characters: their control slots and movement values (other state only through ops)',
   rules: 'game logic: save parts, ops, events; may take input, control or the camera for a while (a cutscene)',
   ui: 'DOM panels and menus: declares input actions, runs ops (binds no keys, writes no game save)',
@@ -30,9 +31,9 @@ const STRINGS = {
 };
 const RULES = {
   // [types it is wrong for, why, fix]
-  'ops.define': [['look'], 'a look module only shows the game, it never adds actions that change it',
-    "define the op in a rules (or world) module and let the look module read the state; or give {name} type: 'rules' if it really is game logic"],
-  'world.write': [['look', 'ui'], 'world records are game state; a {type} module only reads them',
+  'ops.define': [['picture'], 'a picture module only shows the game, it never adds actions that change it',
+    "define the op in a rules (or world) module and let the picture module read the state; or give {name} type: 'rules' if it really is game logic"],
+  'world.write': [['picture', 'ui'], 'world records are game state; a {type} module only reads them',
     "run an op that writes it (engine.ops.run('<noun.verb>', args)) or move the write into a rules / world module"],
   'input.bind': [['ui'], 'a ui module declares actions; which key does what is the game\'s choice',
     "declare the action (ctx.input.action(name, { context })) and bind keys in the game: engine.input.bind(name, ['KeyE']) or createEngine({ bindings })"],
@@ -65,6 +66,18 @@ export function asModule(e, m, fn) {
   const was = e._curModule;
   e._curModule = m;
   try { return fn(); } finally { e._curModule = was; }
+}
+
+/**
+ * @internal dev: a frame hook registered while a module installs stays that module's: it runs as the module, so the picture writers tool can tell two parts in one
+ * file apart (a stack cannot) and the type checks reach it. part / at let the leftovers check find a hook that outlived its module. Outside dev fn stays as it is.
+ */
+export function ownHook(e, fn) {
+  const m = DEV ? e._curModule : null;
+  if (!m) return fn;
+  const f = (...a) => asModule(e, m, () => fn(...a));
+  f.part = m.name; f.at = callerAt();
+  return f;
 }
 
 /** @internal describe().modules row: name, type, and provides / requires when there are any */

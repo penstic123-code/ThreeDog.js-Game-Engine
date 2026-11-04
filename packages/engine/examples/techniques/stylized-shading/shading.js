@@ -1,7 +1,7 @@
 // @ts-check
 // Stylized shading: three routes that reshape how light lands on a surface, all as patches on three's own lit materials, so every route still
-// takes the engine's sun, its shadow map, hemisphere / point lights and fog (nothing here replaces the light loop or edits ShaderChunk).
-// Copy this file into a game (for example src/look/shading.js); it imports only three and threedog. Numbers live in uniforms, so materials
+// takes the game's sun, its shadow map, hemisphere / point lights and fog (nothing here replaces the light loop or edits ShaderChunk).
+// Copy this file into a game (for example src/picture/shading.js); it imports only three and threedog. Numbers live in uniforms, so materials
 // that differ only in values share one shader program.
 import * as THREE from 'three';
 import { applyEffects } from 'threedog';

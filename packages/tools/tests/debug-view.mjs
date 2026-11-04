@@ -33,7 +33,7 @@ export async function run({ check }) {
   check('another owner cannot clear it without force', v.state().mode === 'normals');
   check('another owner cannot switch it either (the note says who holds it)', v.set('albedo', { owner: 'someone else' }).note && v.state().mode === 'normals');
   v.set('off');
-  check('off restores the real look', v.state().mode === 'off' && !scene.overrideMaterial && mesh.material === mat);
+  check('off restores the real picture', v.state().mode === 'off' && !scene.overrideMaterial && mesh.material === mat);
   v.set('albedo', { owner: 'a' }); v.set('off', { owner: 'b', force: true });
   check('force clears another owner\'s view', v.state().mode === 'off' && mesh.material === mat);
 

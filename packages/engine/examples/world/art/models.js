@@ -1,13 +1,12 @@
 // The world example's procedural models: trees, rocks, grass and flowers built in code, no files. Exported as an asset pack (index.js `assets`):
 // engine.assets.manifest(assets) registers each name, and content names them like any file model ({ model: 'pine' }, ['flower', 0xff0000]).
 // To swap one for a file, register the same name later: engine.assets.manifest({ models: { pine: '/models/pine.glb' } }).
-// Colors come from the palette: the engine calls a `function` generator with this.palette = style.palette (a part of the style, so one change
-// retints every tree and rock: style: [style, { palette: { leaf: 0xd98a3a } }]); keys left out keep the values below. Called by hand
-// (models.pine()) the defaults are used. Existing .glb files are not touched by the palette.
+// Colors are the PALETTE below, one change retints every tree and rock. A `function` generator also takes this.palette when the page running it hands one in
+// (the styletest example and the test pages do); keys left out keep the values below. Existing .glb files are not touched by the palette.
 import * as THREE from 'three';
 import { mergeColored } from '../../../index.js';
 
-/** Default palette: a style's palette field overrides any of these keys */
+/** The colors of the procedural art */
 export const PALETTE = {
   bark: 0x7a5536,        // pine trunk
   barkWarm: 0x84603d,    // round tree trunk

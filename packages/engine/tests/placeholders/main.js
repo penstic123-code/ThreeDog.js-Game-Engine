@@ -1,4 +1,4 @@
-// Test page: the engine with no style, no model and no terrain generator. Everything should be the neutral placeholder look
+// Test page: the engine with no style, no model and no terrain generator. Everything should be the neutral placeholder picture
 // (gray capsules, gray boxes, flat gray ground at y = 0, technical render baseline) and each missing piece warned once with its fix.
 import { createEngine, presets, world, terrain, collision, followCamera, characters, interactions, inventory, pickups } from '../../index.js';
 

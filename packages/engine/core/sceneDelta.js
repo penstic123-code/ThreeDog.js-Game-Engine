@@ -57,10 +57,10 @@ if (!P[KEY]) {
 }
 notePatch('scene-add-hook', 'Object3D.prototype.add / remove: wrapped once per page to see what enters and leaves a watched scene at any depth (three\'s childadded fires on the direct parent only)',
   () => { const o = P[ORIG]; if (!o || !P[KEY]) return; P.add = o.add; P.remove = o.remove; delete P[KEY]; delete P[ORIG]; },
-  { lost: 'plain scene.add is no longer adopted like engine.add, and fog, cascades, cloud shadow, night glow and light counts miss objects added later' });
+  { lost: 'plain scene.add is no longer adopted like engine.add, and fog, cascades, night glow and light counts miss objects added later' });
 notePatch('mesh-material-accessor', 'mesh.material on each object with a material that enters a watched scene: an own get / set on that object (the class accessor still runs) so a material swap is seen',
   () => {},   // off: objects entering from now on keep a plain material (_walk asks patchOn)
-  { scope: 'objects in the scene', lost: 'mesh.material = other on objects entering from now on is not seen: the new material misses fog, cascades and cloud shadow until the object re-enters' });
+  { scope: 'objects in the scene', lost: 'mesh.material = other on objects entering from now on is not seen: the new material misses fog and cascades until the object re-enters' });
 
 /** The accessor (get / set) `material` resolves to on this object or up its prototype chain, or null when it is a plain value */
 function materialAccessor(o) {

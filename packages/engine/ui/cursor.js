@@ -6,7 +6,7 @@
 //   a function () => Element | null   the controls inside that element (buttons, inputs, selects, [data-nav]) in screen layout: up / down / left / right
 //                                      go to the nearest control that way, so lists, grids and settings rows all work without declaring columns
 //   { count(), confirm(i), moved?(i) } a list the owner draws itself (dialogue choices handed to a replaceable UI part): any direction steps by one
-// Look: the DOM kind adds the class is-cursor to the selected control (style it in style.ui.css); a list owner draws its own (dialogue: view.selected).
+// Picture: the DOM kind adds the class is-cursor to the selected control (style it in ui.css); a list owner draws its own (dialogue: view.selected).
 const SEL = 'button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), [data-nav]';
 const DIRS = { uiUp: [0, -1], uiDown: [0, 1], uiLeft: [-1, 0], uiRight: [1, 0] };
 const STICK = 0.5, REPEAT_FIRST = 0.4, REPEAT = 0.15;   // stick: half tilt counts, held it repeats like a key (first after 0.4 s, then every 0.15 s)

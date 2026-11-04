@@ -22,7 +22,7 @@ game only advances on step); once you open the page in a browser, commands go to
 | Command | What it does | Example output |
 |---|---|---|
 | `describe` | One-line scene summary: position / time and weather / nearby / quest | `player (4.0, 7.0) in forest · 07:11 day 1 · clear` |
-| `describe --full` | The state as text, summary first (`engine.describeText()`: at most 30 lines, the nearest things, the game's `describe.add` sections, one line per module with its key counts, the engine tables (shared, slots, look...) as one count line, and a last line on how to expand). Details: `describe <path>` for one part (in code `engine.describe('look')` or `describe({ only: ['look', 'shared'] })`), `engine.describeText({ full: true })` for everything | `quests: active[1], done=0, failed=0` |
+| `describe --full` | The state as text, summary first (`engine.describeText()`: at most 30 lines, the nearest things, the game's `describe.add` sections, one line per module with its key counts, the engine tables (shared, slots, owned...) as one count line, and a last line on how to expand). Details: `describe <path>` for one part (in code `engine.describe('picture')` or `describe({ only: ['picture', 'shared'] })`), `engine.describeText({ full: true })` for everything | `quests: active[1], done=0, failed=0` |
 | `describe --all` | Everything: every nearby thing and every module's full data (`describeText({ full: true })`); large, prefer a path | |
 | `describe render` | How the picture is set: tone mapping, exposure, shadow filter, post effects with params, default lights, each tagged `engine` (default), `style` or `game` (changed after). Also the `renderer:` lines of `describe --full`. Information only, never warns | `{ "toneMapping": { "value": "aces", "by": "style" }, ... }` |
 | `describe player.position` | Player coordinates { x, y, z } (numbers) | `{ "x": 4, "y": 1.2, "z": 7 }` |
@@ -53,7 +53,7 @@ game only advances on step); once you open the page in a browser, commands go to
   game itself it belongs in an op (a teleporter pad). `step 1` after it collects `auto` pickups: the pickup check runs in the fixed step after any move.
 - **Ops with a reach** (`interaction.use`, `pickup.take`) check the player's distance as a key press would, also from the bridge: put the player next
   to the thing first (`threedog state "pos=x,z"`), then `threedog op interaction.use id=gate`. A `tooFar` result carries `facts: { distance, radius, at }`.
-- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the file name (no overwrite); every shot prints the look numbers and hints (recipes/35 "Look check after every shot"; `--no-look` skips them).
+- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the file name (no overwrite); every shot prints the picture numbers and hints (recipes/35 "Picture check after every shot"; `--no-picture` skips them).
 - **`step` / `press` pause the real page**; resume with `threedog resume` when done (they pause as owner `threedog`, so a game's own pause stays). A headless page only advances on step anyway.
 - **Run state** is printed after `step` / `press` / `skip` / `resume` and by `threedog status`: `running`, `title-frozen` (title screen waiting for start), `test-paused` (only the bridge paused it), `paused(by owners)` (every `pause` / `freeze` owner, e.g. `ui-inventory`) or `loading`. The same object is `engine.runState` and `describe().time.run`: `{ state, owners, blockedBy }`, where `blockedBy` lists what keeps input from driving the game (opaque input contexts such as `win-settings`, `ui-title`, `dialogue`, `cutscene`, plus `error` and `loading`); the bridge and the MCP tools copy it as-is. A test that pauses passes `pause(owner, { kind: 'test' })` to read as `test-paused`.
 - **Who holds what**: `describe().holds` lists every holder in one place: `pause / freeze / camera / debugView` as `[{ owner, at }]` (`at` = game clock time of the take, `engine.clock.now`, so two new games read the same), `input` (pushed contexts `[{ context, owner, pass }]`), `gates` (`input.gate` owners by action) and `stacks` (every other `engine.mod` quantity), so a stuck pause, a closed jump or a camera nobody gave back has a name.
@@ -85,7 +85,7 @@ threedog snap after-walk              # only now look at pixels
 The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`, `{ "step": … }`, `{ "expect": { path: value } }` (section 9; no `hold` there).
 - **State checks** (`op`, `expect`, `describe`, `js`): fast and exact, but they skip input. They prove rules, not that the player can reach them.
 - **Simulated-input checks** (`press`, `hold`, `engine.input.simulate`): bridge key events through the game's input path, never a physical keyboard/mouse. `verify` prints `Layers: direct N, simulated-input N, real-browser-input 0 (not verified), visual 0`, then an **Evidence** block (each check's layer and what it asserted), a fixed **NOT proven** line (pointer lock and mouse look, real GPU/visuals, real FPS) and **Coverage** (ops run vs defined, refused ops counted as run and marked; modules in three groups: tested = an op ran, indirect = no op but describe section compared / save part changed / events fired, untested; lists capped at 10 with "+N more"; uses `engine.catalog()`). `threedog scenario` prints the same Coverage block; the full lists are in `--json` (`data.evidence.coverage`, `data.coverage`). Not yet covered: content ids (defined vs touched).
-- **Visual checks** (`snap`, `shot`): the only ones that see the look (exposure, color, UI overlap). Slowest; take them last.
+- **Visual checks** (`snap`, `shot`): the only ones that see the picture (exposure, color, UI overlap). Slowest; take them last.
 
 ## 3. Windows / PowerShell notes
 - **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `threedog state "pos=1,-8"` (the bridge
@@ -150,7 +150,7 @@ import { expectDescribe } from '@threedog/tools/describe-snapshot';   // in the 
 await expectDescribe({ check, ev }, 'market-noon', { only: ['player', 'quests', 'nearby'], tolerance: { default: 0.5, player: 1 } });
 ```
 Update after an intended change: `threedog test <name> --update-snapshots` (writes instead of comparing) or `threedog snap-describe save <name>`.
-Review the JSON diff in git before committing. Take a screenshot only when the look changed.
+Review the JSON diff in git before committing. Take a screenshot only when the picture changed.
 
 ## 8. Errors carry a code, a fix and a doc page
 Every error and warning the engine raises carries a stable **code**: `err.code`, `err.fix` (what to do) and `err.docs` (pages to read), and its message
@@ -169,7 +169,7 @@ combination so tests and scenarios reuse it.
 
 ## 10. MCP server: Claude Code, Cursor and other MCP clients
 `threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
-`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `style_palette`, `style_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check`, `art_list` and `lib_list`;
+`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `picture_palette`, `picture_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check`, `art_list` and `lib_list`;
 tests/mcp.mjs fails when this list and the server's tools differ) and returns the same text as the
 command line (every default answer fits in about 4 KB, `tests/tool-output-sizes.mjs` guards it; a `data` payload over 3 KB keeps its small fields and names `threedog <cmd> --json` for the rest); `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `style_palette` and `style_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
 (or start `npm run dev` yourself; a tool call without a server answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As
@@ -195,10 +195,10 @@ Tools: MCP, or `node node_modules/@threedog/tools/bin/threedog.mjs <cmd>` (`COMM
 - What is this object, why can't I click it -> `thing(id).explain()`.
 - Stuck, or a value is not what you set -> `describe().holds` / `.shared` / `.control`.
 - What caused this -> `events.trace(name)`, `traceFocus(id)`.
-- Placeholders (gray look, capsule, boxes) -> the look is not made yet: `style/` (recipe 09), code models (05), tuning (35).
-- The picture looks wrong -> `engine.debug.view('lighting')`, `describe().look`, `threedog inspect materials`.
+- Placeholders (gray picture, capsule, boxes) -> the picture is not made yet: `picture/` (recipes 62, 09), code models (05), tuning (35).
+- The picture looks wrong -> `engine.debug.view('lighting')`, `describe().picture`, `threedog inspect materials`.
 - Slow or stutters -> `threedog inspect perf`, `debug.view('shaderCost')`.
-- "... so the engine stopped writing it" -> your direct write owns it now: `look.<part>.manual(key)`, `describe().owned` (recipe 52).
+- "... so the engine stopped writing it" -> your direct write owns it now: `engine.view.manual(key)`, `describe().owned` (recipe 52).
 - Models made in code -> hot swap, `threedog gallery --shots` (recipe 05 §2c); another game's art -> `threedog art copy`.
-- Verifying a change -> `describeText()` for logic, shots for looks, `threedog verify <scenario>` (read "not proven").
+- Verifying a change -> `describeText()` for logic, shots for the picture, `threedog verify <scenario>` (read "not proven").
 - Saves or time skips broken -> `checkSave`, `checkSkip`.

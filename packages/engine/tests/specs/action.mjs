@@ -1,7 +1,7 @@
 // Action example (examples/action, page /action.html): the combat rules are the example's ops, driven here by real input and by ops.
 // Guard: walking with W reaches the slime, Mouse0 swings (through a real pointer lock: setPointerCapture once threw InvalidStateError while locked),
 // the slime loses hp, dies, leaves a drop that E picks up into the bag; save / load restores hp, bag and the slime; every death mode works;
-// the page runs with no style (gray placeholders).
+// the rules run with no picture code (?picture=none); the picture is the page's own lights, the engine's stay out of the scene.
 const READY = { timeout: 60000 };
 const open = async (page, q = '') => { await page.goto(new URL('/action.html' + q, page.url()).href); await page.waitForFunction(() => window.engine?.stateApplied && engine.world.ready, null, READY); };
 const state = () => {
@@ -20,6 +20,7 @@ export const specs = [
       let s = await ev(state);
       check('the room is content: one slime with 3 hp, player at full hp', s.slime?.hp === 3 && s.hp === 5 && s.slimes.length === 1, JSON.stringify(s));
       check('templates built the room (floor, walls, slime have models)', await ev(() => ['floor', 'wall-n', 'slime-1'].every(id => !!engine.world.view(id))));
+      check('the picture is picture/: its own sun lights the room, the engine placeholder is out of the scene', await ev(() => { const { sun, hemi } = actionTest.picture; return sun.parent === engine.scene && sun.intensity > 0 && hemi.intensity > 0 && !engine.lights.sun.parent; }));
 
       // Walk with the real keyboard until the slime is in reach (it also comes closer once the player is within its aggro radius)
       const d0 = s.slime.d;
@@ -77,7 +78,7 @@ export const specs = [
     },
   },
   {
-    name: 'Action example: death modes gameover (R retries) and restart (room reset), and no style',
+    name: 'Action example: death modes gameover (R retries) and restart (room reset), and no picture code',
     url: '/action.html?death=gameover',
     async run({ page, check, ev, frames }) {
       await page.waitForFunction(() => engine.world.ready, null, READY);
@@ -94,10 +95,10 @@ export const specs = [
       const reset = await ev(() => __t.until(() => engine.world.get('slime-1') && !engine.describe().action.over, 10000).then(() => engine.describe().action, () => null));
       check('restart: dying resets the room (slime back, hp full)', reset?.slimes[0]?.hp === 3 && reset.hp === 5, JSON.stringify(reset));
 
-      await open(page, '?style=none');
+      await open(page, '?picture=none');
       await frames(3);
-      check('no style: the room and the slime still build (gray placeholders)', await ev(() => !engine.style?.action && ['floor', 'slime-1'].every(id => !!engine.world.view(id))));
-      check('no style: attacking still works', await ev(() => { engine.player.placeAt({ x: 0, z: 1.6 }); return __t.until(() => engine.ops.can('player.attack').ok).then(() => engine.ops.run('player.attack').ok); }));
+      check('no picture code: the room and the slime still build, under the engine placeholder lights', await ev(() => !actionTest.picture && !!engine.lights.sun.parent && ['floor', 'slime-1'].every(id => !!engine.world.view(id))));
+      check('no picture code: attacking still works', await ev(() => { engine.player.placeAt({ x: 0, z: 1.6 }); return __t.until(() => engine.ops.can('player.attack').ok).then(() => engine.ops.run('player.attack').ok); }));
     },
   },
 ];

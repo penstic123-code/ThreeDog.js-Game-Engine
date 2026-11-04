@@ -18,7 +18,7 @@ export const specs = [
         const right = { applied: E.stateApplied, terrainReady: E.terrain.isReadyAround({ x: 0, z: 0 }) };
         const t1 = performance.now();
         while (!E.stateApplied && performance.now() - t1 < 30000) await new Promise(res => setTimeout(res, 50));
-        let inst = 0; for (const c of E.terrain.chunks.values()) inst += E.vegetationLook.mesh(c, 'late-box')?.count ?? 0;
+        let inst = 0; for (const c of E.terrain.chunks.values()) inst += E.vegetationDraw.mesh(c, 'late-box')?.count ?? 0;
         const out = { before, right, after: E.stateApplied, elapsed: E.time.now('real') - t0, inst, stats: { ...E.terrain.stats } };
         E.dispose();
         return out;
@@ -30,7 +30,7 @@ export const specs = [
   },
   {
     // [守] 补丁 GLSL 读了 vThreedogWorld 却没写 needs：引擎补上提供它的 'world'（render/patches.js withProviders），而不是编译报 undeclared identifier。
-    //      所有入口（applyEffects、look.materials.add、游戏自己的 style）都经过 patchMaterial，所以只在这一处补；去掉它这条就红。
+    //      所有入口（applyEffects、模块的 patches）都经过 patchMaterial，所以只在这一处补；去掉它这条就红。
     name: '着色器补丁：读 vThreedogWorld 不写 needs 也自动带上 world 补丁并能编译；写了 needs 的同样（threads 测试页）',
     url: '/tests/threads/',
     async run({ check, ev }) {

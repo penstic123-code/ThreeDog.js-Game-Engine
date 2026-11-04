@@ -47,22 +47,22 @@ export async function run({ check }) {
   check('no error summary cuts the message tail itself (use lib/oneline.mjs oneLine)', !cutters.length, cutters.join(', '));
 
   // ── options: unknown ones fail instead of being ignored ──
-  const spec = { flags: ['keep', 'look'], values: ['out', 'time'] };
-  const ok = parseOptions(['/x.html', '--out', 'day.png', '--look', '--time=18:30'], { ...spec, page: '/' });
-  check('values (both spellings), switches and the page are read', ok.opt.out === 'day.png' && ok.opt.look === true && ok.opt.time === '18:30' && ok.page === '/x.html');
+  const spec = { flags: ['keep', 'picture'], values: ['out', 'time'] };
+  const ok = parseOptions(['/x.html', '--out', 'day.png', '--picture', '--time=18:30'], { ...spec, page: '/' });
+  check('values (both spellings), switches and the page are read', ok.opt.out === 'day.png' && ok.opt.picture === true && ok.opt.time === '18:30' && ok.page === '/x.html');
   check('an unknown option fails with did-you-mean', /unknown option --ot; did you mean --out\?/.test(throws(() => parseOptions(['--ot', 'x.png'], spec))));
-  check('a value option without its value fails', /--out needs a value/.test(throws(() => parseOptions(['--out', '--look'], spec))));
+  check('a value option without its value fails', /--out needs a value/.test(throws(() => parseOptions(['--out', '--picture'], spec))));
   check('a command without pages refuses a stray argument', /takes only options/.test(throws(() => parseOptions(['x'], { ...spec, page: null }))));
   const many = parseOptions(['a', '-j4', 'b', '-w', 'g', '--', '--c'], { positional: true, values: ['jobs'], short: { j: 'jobs' }, workspace: true });
   check('short spellings, -w, plain arguments and everything after -- are read', many.opt.jobs === '4' && many.workspace === 'g' && many.rest.join() === 'a,b,--c', JSON.stringify(many));
   check('-w is refused by a command that takes no workspace', /unknown option -w/.test(throws(() => parseOptions(['-w', 'g'], spec))));
-  // 为什么：第二个页面参数以前悄悄顶掉第一个（shot a b 拍的是 b），被另一个选项架空的选项（shot --ref x --no-look）什么也不做也不说
+  // 为什么：第二个页面参数以前悄悄顶掉第一个（shot a b 拍的是 b），被另一个选项架空的选项（shot --ref x --no-picture）什么也不做也不说
   check('[guard] a second page argument fails instead of replacing the first', /one page argument.*"\/a\.html".*"b"/.test(throws(() => parseOptions(['/a.html', 'b'], { ...spec, page: '/' }))));
   // why: a repeated value option used to keep only the last one (check --rule R10 --rule R2 ran R2 alone and said 0 errors)
   check('[guard] a value option given twice fails naming both values', /--out given twice \("a\.png" and "b\.png"\)/.test(throws(() => parseOptions(['--out', 'a.png', '--out=b.png'], spec))));
   check('a list option given twice keeps both, comma-joined', parseOptions(['--rule', 'R10', '--rule=R2'], { values: ['rule'], lists: ['rule'] }).opt.rule === 'R10,R2');
-  const off = { ...spec, flags: [...spec.flags, 'no-look'], values: [...spec.values, 'ref'], conflicts: [['ref', 'no-look', 'the reference is compared in the look check']] };
-  check('[guard] an option another one switches off fails naming why', /--ref does nothing with --no-look: the reference is compared in the look check/.test(throws(() => parseOptions(['--ref', 'r.png', '--no-look'], off)))
+  const off = { ...spec, flags: [...spec.flags, 'no-picture'], values: [...spec.values, 'ref'], conflicts: [['ref', 'no-picture', 'the reference is compared in the picture check']] };
+  check('[guard] an option another one switches off fails naming why', /--ref does nothing with --no-picture: the reference is compared in the picture check/.test(throws(() => parseOptions(['--ref', 'r.png', '--no-picture'], off)))
     && parseOptions(['--ref', 'r.png'], off).opt.ref === 'r.png');
   const shot = readFileSync(join(ROOT, 'packages/tools/shot.mjs'), 'utf8');
   check('shot reads --out and parses through the shared parser', /\bcli\(process\.argv/.test(shot) && /shotFile\(dir, opt\.out/.test(shot));
@@ -101,7 +101,7 @@ export async function run({ check }) {
   }
 
   // ── R1: art code has the error limit only ──
-  check('art files: style/, art/, assets.js, art.js; gameplay files are not', ['games/g/style/index.js', 'games/g/art/tree.js', 'games/g/assets.js', 'games/g/art.js', 'style/index.js'].every(isArtFile)
+  check('art files: picture/, style/, art/, assets.js, art.js; gameplay files are not', ['games/g/picture/lights.js', 'games/g/style/index.js', 'games/g/art/tree.js', 'games/g/assets.js', 'games/g/art.js', 'style/index.js'].every(isArtFile)
     && !['games/g/main.js', 'games/g/content/items.js', 'games/g/party.js'].some(isArtFile));
   {
     const gamesDir = join(ROOT, 'games'), hadGames = existsSync(gamesDir), d = join(gamesDir, 'zz-size');

@@ -1,7 +1,7 @@
-// UI base. The engine provides only structure and behavior (windows open/close, toasts pop up); the look is fully replaceable:
-//   1. Colors, fonts, radii: variables in the style's style.ui (bg, fg, accent...), turned into CSS variables --threedog-* on engine.uiRoot
-//   2. Layout details: style.ui.css is placed after every engine and module default, so it overrides the .threedog-* classes
-//   3. Whole window content: style.ui.templates.<window name>(data, helpers) returns HTML and replaces the default layout
+// UI base. The engine provides only structure and behavior (windows open/close, toasts pop up); the picture is fully replaceable:
+//   1. Colors, fonts, radii: createEngine({ ui: { theme: { bg, fg, accent... } } }), turned into CSS variables --threedog-* on engine.uiRoot
+//   2. Layout details: ui.css is placed after every engine and module default, so it overrides the .threedog-* classes
+//   3. Whole window content: ui.templates.<window name>(data, helpers) returns HTML and replaces the default layout
 //
 // Every window and component uses classes (no inline styles), so option 2 always takes effect.
 import * as THREE from 'three';
@@ -59,7 +59,7 @@ export function toastPart(engine) {
   };
 }
 
-// When the style has style.ui.templates[id](data, { esc, t, icon }), it replaces the default content.
+// A template engine.ui.templates[id](data, { esc, t, icon }) replaces the default content.
 // Opening pushes onto the UI focus stack (uiFocus): Esc goes only to the top window / dialogue / cutscene, see Focus.js.
 /**
  * A toggleable window
@@ -68,7 +68,7 @@ export function toastPart(engine) {
  * @returns {UIWindow}
  */
 export function makeWindow(engine, opts) {
-  const { id, title, hintAction, render, data = () => ({}), onCancel = null } = opts;
+  const { id, title, hintAction, render, data = () => ({}), onCancel = null, closable = true } = opts;
   injectUICSS();
   const w = document.createElement('div'); w.className = `threedog-ui threedog-win threedog-win-${id}`; w.hidden = true; engine.uiRoot.appendChild(w);
   const tools = { esc, t: (k, p) => engine.t(k, p), icon: iconHTML };
@@ -78,16 +78,16 @@ export function makeWindow(engine, opts) {
     get open() { return !w.hidden; },
     refresh() {
       if (w.hidden) return;
-      const tpl = engine.style.ui?.templates?.[id];
+      const tpl = engine.ui.templates[id];
       const body = tpl ? tpl(data(), tools) : render(data(), tools);
       const hint = hintAction ? `<span class="threedog-win-hint">${esc(engine.input.label(hintAction))}</span>` : '';
-      w.innerHTML = `<div class="threedog-win-head"><span>${esc(title())}</span><span>${hint} <button class="threedog-btn threedog-close" type="button">${esc(engine.t('common.close'))}</button></span></div>${body}`;
-      w.querySelector('.threedog-close').onclick = () => api.toggle(false);
+      w.innerHTML = `<div class="threedog-win-head"><span>${esc(title())}</span><span>${hint}${closable ? ` <button class="threedog-btn threedog-close" type="button">${esc(engine.t('common.close'))}</button>` : ''}</span></div>${body}`;
+      if (closable) w.querySelector('.threedog-close').onclick = () => api.toggle(false);
     },
     toggle(on = w.hidden) {
       if (on === !w.hidden) return;
       w.hidden = !on;
-      if (on) { ctx = engine.input.push('win-' + id); focus = uiFocus(engine).push('win-' + id, { cancel: onCancel || (() => api.toggle(false)), nav: () => w }); }
+      if (on) { ctx = engine.input.push('win-' + id); focus = uiFocus(engine).push('win-' + id, { cancel: onCancel || (closable ? () => api.toggle(false) : null), nav: () => w }); }
       else { ctx?.remove(); ctx = null; focus?.remove(); focus = null; }
       api.refresh();
       engine.events.emit(on ? 'ui:open' : 'ui:close', id);

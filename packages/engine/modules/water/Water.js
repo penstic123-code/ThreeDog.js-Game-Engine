@@ -1,57 +1,79 @@
 // Water module: draws the global water plane (sea, big lakes; snaps to a grid following the focus so it doesn't "swim") and independent water bodies (mountain lakes, ponds, each with its own level).
-// Look comes from look.water (its style layer is style.water): color, opacity, waves, normal map, shininess, grazing-angle reflection; water({...})
-// takes only the structural choices (sea, level, flat, size, segments, uniforms for the look hooks). An own water material is
-// look.water.replace(fn) (style layer: style.water.material).
+// water({...}) takes the structural choices (sea, level, flat, size, segments). The picture is plain three.js on the module (recipes/44):
 //
 // engine.use(water());                                      // global water only (level taken from the terrain water level)
 // engine.use(water({ sea: false }));                         // no global water
-// engine.use(water({ level: 4, size: 1200 }));              // level and size are world state: here, never in the style
-// engine.look.water.set({ color: 0x3070a0, normalMap: 'water-n' });   // look values: look.water (style layer style.water), never water({...})
+// engine.use(water({ level: 4, size: 1200 }));
+// engine.water.material.color.set(0x3070a0);                // the neutral material: plain three.js writes
+// engine.water.uniforms.uWave.value = 1.5;                  // uWave uWaveScale uWaveSpeed uFresnel, live
+// engine.water.material = applyEffects(new THREE.MeshPhongMaterial({ color: 0x3070a0, shininess: 90 }), { patches: engine.water.patches });   // your own material, waves kept
+// engine.water.shader({ foam: true, depthColor: { shallow: 0x55ddcc, deep: 0x082040 } });   // which GLSL exists (also wave, surface, uniforms)
+// engine.water.normalMap('water-n', { scale: 0.4, repeat: 0.05, speed: [0.01, 0.006] });
 // const lake = engine.addWaterBody({ position: [120, 0, -40], radius: 25, level: 18 });   // add a mountain lake (can be added any time); lake.remove()
 //
 // three.js objects: engine.water.sea (global water Mesh, may be null), material (shared by all water), bodies (Map: water body → its Mesh)
-// Style: water = { color, opacity, flat, waveHeight, waveScale, waveSpeed, normalMap: '/textures/water-n.jpg', normalScale, normalRepeat,
-//                   normalSpeed: [x, z], fresnel: 0.6, segments, depthColor, foam, uniforms (for the look.water.patch hooks),
-//                   material?: (engine, { uniforms, waves, surface, normalMap }) => Material }   (look hooks: recipes/44-water-weather-look-hooks.md)
 import * as THREE from 'three';
-import { makeMaterial } from '../../render/materials.js';
+import { neutralMaterial } from '../../render/neutral.js';
 import { placeholderTexture } from '../../render/effects.js';
-import { patchMaterial } from '../../render/patches.js';
+import { patchMaterial, unpatchMaterial } from '../../render/patches.js';
 import { readParams, keysSchema } from '../../core/params.js';
-import { waterLook, wavesPatch, surfacePatch } from './surface.js';
-import { defineWaterLook, LOOK_KEYS } from './look.js';
+import { waterShader, wavesPatch, surfacePatch } from './surface.js';
 import { codedError } from '../../core/errorHints.js';
-import { glslFloat } from '../../render/fxNumbers.js';
-import { FRESNEL_POWER } from './surfaceDefaults.js';
+import { glslFloat, FRESNEL_POWER } from '../../render/fxNumbers.js';
 import { DEV } from '../../core/validate.js';
+
+const GREY = new THREE.Color(0xcccccc);
 /** @import { ModuleDef } from '../../types/core' */
-/** @import { Object3D, Material, Vector3 } from '../../types/common' */
-/** @import { WaterBody, WaterOptions } from '../../types/world' */
-// Options accepted by water(): the structural choices only. Look values are look.water params (one entry per value), so the old look
-// options throw in dev naming the look.water.set call; no glsl: look.water.patch('wave' | 'surface') is the one GLSL entry
-const WATER_OPTIONS = ['sea', 'level', 'flat', 'size', 'segments', 'uniforms'];
+/** @import { Object3D, Material, Vector3, Texture } from '../../types/common' */
+/** @import { WaterBody, WaterOptions, WaterShaderOptions } from '../../types/world' */
+// Options accepted by water(): the structural choices only
+const WATER_OPTIONS = ['sea', 'level', 'flat', 'size', 'segments'];
 const WATER_PARAMS = keysSchema(WATER_OPTIONS);
+const SHADER_PARAMS = keysSchema(['wave', 'surface', 'depthColor', 'foam', 'uniforms']);
+const NORMAL_PARAMS = { scale: { type: 'number', min: 0, optional: true, desc: 'normal map strength' }, repeat: { type: 'number', min: 0, optional: true, desc: 'tiles per meter' },
+  speed: { type: 'position', optional: true, desc: 'scroll [x, z] per second' } };
+// keys that were picture values: each names where the same thing is written now
+const NORMAL = 'engine.water.normalMap(name, { scale, repeat, speed })', PHONG = 'a highlight belongs to your own material: engine.water.material = new THREE.MeshPhongMaterial({ shininess, specular })';
+const SHADER = k => `engine.water.shader({ ${k} })`, TUNE = u => `engine.water.uniforms.${u}.value`;
+const MOVED = { color: 'engine.water.material.color.set(...)', opacity: 'engine.water.material.opacity', material: 'engine.water.material = yourMaterial',
+  waveHeight: TUNE('uWave'), waveScale: TUNE('uWaveScale'), waveSpeed: TUNE('uWaveSpeed'), fresnel: TUNE('uFresnel'),
+  depthColor: SHADER('depthColor'), foam: SHADER('foam'), uniforms: SHADER('uniforms'), glsl: "engine.water.shader({ wave, surface })",
+  normalMap: NORMAL, normalScale: NORMAL, normalRepeat: NORMAL, normalSpeed: NORMAL, shininess: PHONG, specular: PHONG };
 
 /** engine.water */
 export class Water {
   /** @internal */
   constructor(engine, opts = {}, track) {
     /** @internal */ this.engine = engine;
-    /** @internal */ this.opts = opts;
-    /** @internal */ this.st = { color: 0x888888, opacity: 0.85, flat: true, waveHeight: 1, waveScale: 1, waveSpeed: 1, fresnel: 0.5,
-      size: 900, segments: 150, normalScale: 0.4, normalRepeat: 0.05, normalSpeed: [0.01, 0.006], shininess: 90, specular: 0xaaaaaa,
-      ...(engine.style.water || {}), ...opts };
+    /** @internal */ this.st = { flat: true, size: 900, segments: 150, ...opts };
     const st = this.st;
     /** @internal */ this.cell = st.size / st.segments;
-    /** @internal */ this.normalMap = null;
-    /** @internal UV factor applied to the water meshes (1 = as built; size * normalRepeat once a normal map tiles them) and each mesh's size */
-    this._uv = new Map();
-    this._setNormalMap(st.normalMap);
+    /** @internal the normal map's name and how it tiles */ this._normal = { name: null, scale: 0.4, repeat: 0.05, speed: [0.01, 0.006] };
     /**
-     * Water material (shared by all water)
-     * @type {Material}
+     * The loaded normal map (null = none): a game material takes it as its own normalMap. Its offset scrolls and the water UVs tile for it whatever material draws
+     * @type {Texture | null}
      */
-    this.material = this._material();
+    this.normalTexture = null;
+    /** @internal UV factor applied to the water meshes (1 = as built; size * repeat once a normal map tiles them) and each mesh's size */
+    this._uv = new Map();
+    /** @internal the uniforms shader() keeps across rebuilds, so a game's handle to one stays live */
+    this._tune = { uWave: { value: 1 }, uWaveScale: { value: 1 }, uWaveSpeed: { value: 1 }, uFresnel: { value: 0.5 } };
+    /** @internal what shader() was given so far */ this._shader = {};
+    const built = this._build(this._shader);
+    /**
+     * The engine's water shader patches (waves, waterSurface when asked for, fresnel), so a game material keeps the behavior: applyEffects(mat, { patches: engine.water.patches })
+     * @type {import('../../render/patches.js').ShaderPatch[]}
+     */
+    this.patches = built.patches;
+    /**
+     * Shader values, written directly and live: uWave, uWaveScale, uWaveSpeed, uFresnel, uTime; with depthColor / foam uWaterShallow, uWaterDeep, uWaterCurve,
+     * uFoamColor, uFoamStart, uFoamEnd, uFoamOpacity; and what shader({ uniforms }) declared
+     * @type {Record<string, { value: any }>}
+     */
+    this.uniforms = built.uniforms;
+    /** @internal the engine's own material; a game's sits in _material instead */
+    this._own = patchMaterial(neutralMaterial('water', { color: 0x888888, transparent: true, opacity: 0.85, flatShading: st.flat }), this.patches);
+    /** @internal */ this._material = this._own;
     /**
      * Water body → mesh
      * @type {Map<WaterBody, THREE.Mesh>}
@@ -65,75 +87,102 @@ export class Water {
     this.sea = null;
     /** @internal */ this._seaChecked = st.sea === false;   // global water is built on the first frame: terrain (water level) is installed by then, so no dependence on install order
     for (const b of engine.waterBodies) this._addBody(b);
-    defineWaterLook(this);   // look.water: the style's values are its style layer, water({...}) options its 'game' layer
     track(engine.events.on('water:add', b => this._addBody(b)));
     // material is shared by all bodies, so not engine.remove (which would dispose it); its ray registration goes too
     track(engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.rays.forget(m); this._uv.delete(m); m.geometry.dispose(); this.bodies.delete(b); } }));
   }
 
   /**
-   * Normal map by asset name (null = none): a flat-normal placeholder until the asset loads, then it takes the asset's image source (shared,
-   * not copied; goes through asset management, so it can be preloaded and released). look.water.set({ normalMap }) rebuilds the material after this
-   * @internal
+   * Water material, shared by all water. Reading gives the plain three.js material in use (a neutral MeshLambertMaterial until you set one); setting swaps it on every
+   * water mesh and draws it as given: no engine patch is added, so a material that should keep the waves goes through applyEffects(m, { patches: engine.water.patches })
+   * @type {Material}
    */
-  _setNormalMap(name) {
-    if (!name) { this.normalMap = null; return; }
-    const n = this.normalMap = placeholderTexture('normal'); n.wrapS = n.wrapT = THREE.RepeatWrapping;
-    this.engine.assets.useTexture(name, t => { if (this.normalMap === n) { n.source = t.source; n.needsUpdate = true; } }, { where: 'water normalMap', instead: 'the generated ripples stay', opts: { color: false } });
-    for (const mesh of this._uv.keys()) this._tile(mesh);
+  get material() { return this._material; }
+  set material(m) {
+    if (!m?.isMaterial) throw codedError('water-option', `engine.water.material takes a three.js Material, got ${m}; e.g. engine.water.material = applyEffects(new THREE.MeshPhongMaterial({ color: 0x3070a0 }), { patches: engine.water.patches })`);
+    const was = this._material;
+    if (m === was) return;
+    this._show(m);
+    if (was === this._own) was.dispose();   // only its GPU program: setting it back compiles it again
   }
-  /** Scale a mesh's UVs to size * normalRepeat (the normal map tiles in meters); a no-op without a normal map or when already at that factor @internal */
+
+  /**
+   * Which GLSL the water has. Keys left out keep what an earlier call gave; null takes one back to the built-in. Refreshes engine.water.patches and engine.water.uniforms
+   * and patches the engine's own material again (one recompile). A game's material is the game's to patch again. uWave, uWaveScale, uWaveSpeed and uFresnel stay the same objects
+   * @example
+   * engine.water.shader({ depthColor: { shallow: 0x55ddcc, deep: 0x082040 }, foam: true });
+   * engine.water.shader({ uniforms: { uBands: 4 }, surface: `vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) {
+   *   return vec4(base.rgb * floor(facing * uBands) / uBands, base.a); }` });
+   * @param {WaterShaderOptions} [opts]
+   * @returns {void}
+   */
+  shader(opts = {}) {
+    readParams('engine.water.shader', SHADER_PARAMS, opts);
+    const next = { ...this._shader, ...opts }, built = this._build(next);   // a wrong value throws here, with nothing changed
+    this._shader = next; this.patches = built.patches; this.uniforms = built.uniforms;
+    for (const name of ['waves', 'waterSurface', 'fresnel']) unpatchMaterial(this._own, name);   // patchMaterial only adds: foam taken back must leave the program
+    patchMaterial(this._own, this.patches);
+  }
+
+  /**
+   * Normal map by asset name (null = none): a flat-normal placeholder until the asset loads, then it takes the asset's image source (shared, not copied; goes through asset
+   * management, so it can be preloaded and released). Goes on the engine's own material; a game's material takes the returned texture (also engine.water.normalTexture).
+   * The tiling and the scroll apply whatever material draws. Keys left out keep their value (defaults scale 0.4, repeat 0.05, speed [0.01, 0.006])
+   * @example
+   * engine.water.normalMap('water-n', { scale: 0.6, repeat: 0.1, speed: [0.02, 0.01] });
+   * @param {string | null} name
+   * @param {{ scale?: number, repeat?: number, speed?: [number, number] }} [opts] scale: strength; repeat: tiles per meter; speed: scroll [x, z] per second
+   * @returns {Texture | null}
+   */
+  normalMap(name, opts = {}) {
+    if (name != null && typeof name !== 'string') throw codedError('water-option', `engine.water.normalMap(name, { scale, repeat, speed }): name is an asset name or path, or null for none; got ${typeof name}`);
+    const o = readParams('engine.water.normalMap', NORMAL_PARAMS, opts), n = this._normal, own = /** @type {THREE.MeshLambertMaterial} */ (this._own);
+    for (const k of ['scale', 'repeat', 'speed']) if (o[k] !== undefined) n[k] = o[k];
+    if ((name ?? null) !== n.name) {
+      n.name = name ?? null;
+      const t = name ? placeholderTexture('normal') : null;
+      this.normalTexture = own.normalMap = t;
+      own.needsUpdate = true;
+      if (t) {
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        this.engine.assets.useTexture(name, a => { if (this.normalTexture === t) { t.source = a.source; t.needsUpdate = true; } }, { where: 'water normalMap', instead: 'the generated ripples stay', opts: { color: false } });
+      }
+    }
+    own.normalScale.set(n.scale, n.scale);
+    for (const mesh of this._uv.keys()) this._tile(mesh);
+    return this.normalTexture;
+  }
+
+  /** Hand a material to every water mesh @internal */
+  _show(m) {
+    this._material = m;
+    for (const mesh of [this.sea, ...this.bodies.values()]) if (mesh) mesh.material = m;
+  }
+  /** Scale a mesh's UVs to size * repeat (the normal map tiles in meters); a no-op without a normal map or when already at that factor @internal */
   _tile(mesh) {
-    const u = this._uv.get(mesh); if (!this.normalMap || !u) return;
-    const f = u.size * this.st.normalRepeat, k = f / u.f; if (k === 1) return;
+    const u = this._uv.get(mesh); if (!this.normalTexture || !u) return;
+    const f = u.size * this._normal.repeat, k = f / u.f; if (k === 1) return;
     const uv = mesh.geometry.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * k, uv.getY(i) * k);
     uv.needsUpdate = true; u.f = f;
   }
-  /** @internal */
-  _material() {
-    const st = this.st, e = this.engine;
-    const look = waterLook(st), surface = surfacePatch(e, look), waves = wavesPatch(e, st, look, !!surface);
-    // A whole custom surface (toon foam bands, pixel ripples): the engine still builds the meshes and keeps the shared uniforms and the
-    // normal-map scroll running; the built-in look (role 'water', waves, fresnel) is skipped. waves (and surface, when depthColor / foam /
-    // the surface hook ask for one; it needs waves before it) are offered for applyEffects({ patches })
-    if (st.material) {
-      this._u = waves.uniforms;
-      const own = st.material(e, { uniforms: waves.uniforms, waves, surface, normalMap: this.normalMap });
-      if (!own?.isMaterial) throw codedError('water-option', 'look.water.replace / style.water.material must return a three.js Material, e.g. material: (engine, { uniforms }) => new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader })');
-      return own;
-    }
-    const m = makeMaterial('water', { color: st.color, transparent: st.opacity < 1, opacity: st.opacity, flatShading: st.flat, shininess: st.shininess, specular: st.specular, roughness: 0.15, metalness: 0 }, e);
-    if (this.normalMap && 'normalMap' in m) {
-      const lit = /** @type {THREE.MeshPhongMaterial | THREE.MeshStandardMaterial} */ (m);   // only lit materials have normalMap; the `in` test guarantees it
-      lit.normalMap = this.normalMap; lit.normalScale = new THREE.Vector2(st.normalScale, st.normalScale);
-    }
-    const grey = new THREE.Color(0xcccccc);
-    const patches = surface ? [waves, surface] : [waves];
-    const uFresnel = { value: st.fresnel };
-    this._u = { ...waves.uniforms, uFresnel };   // the live uniforms look.water.set writes
-    // grazing-angle reflection: the flatter the view, the closer to the fog (horizon) color; the getter follows whatever fog exists at draw time.
-    // Basic material has no normal/view variables, so it gets no reflection
-    const uFresnelColor = { get value() { return e.scene.fog?.color ?? grey; } };
-    if (!('isMeshBasicMaterial' in m)) patches.push({ name: 'fresnel',
-      uniforms: { uFresnel, uFresnelColor },
+  /** The patches and uniforms for what shader() was given @internal */
+  _build(given) {
+    const e = this.engine, water = this, shader = waterShader(given), surface = surfacePatch(e, shader), waves = wavesPatch(e, this._tune, shader, !!surface), { uFresnel } = this._tune;
+    // grazing-angle reflection: the flatter the view, the closer to _reflects(); the getter follows whatever exists at draw time
+    const uFresnelColor = { get value() { return water._reflects(); } };
+    const fresnel = { name: 'fresnel', uniforms: { uFresnel, uFresnelColor },
       pars: 'uniform float uFresnel; uniform vec3 uFresnelColor;', slot: 'output', glsl: `
+        #if defined(LAMBERT) || defined(PHONG) || defined(STANDARD) || defined(TOON) || defined(MATCAP)
         float threedogFres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), ${glslFloat(FRESNEL_POWER)}) * uFresnel;
-        outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));`,
+        outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));
+        #endif`,   // why the #if: a game's MeshBasicMaterial has no normal / view variables, so it gets no reflection, and patches stays one list for every material
       // NodeMaterial: the same blend (threedog/tsl waterFresnel) on the color before fog; the uniform nodes read these objects every render
-      tsl: c => c.tsl.vec4(c.fx.waterFresnel(c.output.rgb, c.tsl.normalView, c.tsl.positionViewDirection,
-        c.fx.patchUniform(uFresnel), c.fx.patchUniform(uFresnelColor)), c.output.a) });
-    return patchMaterial(m, patches, { strict: false });
+      tsl: c => (c.material.isMeshBasicMaterial || c.material.isMeshBasicNodeMaterial ? c.output : c.tsl.vec4(c.fx.waterFresnel(c.output.rgb, c.tsl.normalView, c.tsl.positionViewDirection,
+        c.fx.patchUniform(uFresnel), c.fx.patchUniform(uFresnelColor)), c.output.a)) };
+    return { patches: surface ? [waves, surface, fresnel] : [waves, fresnel], uniforms: { ...waves.uniforms, ...surface?.uniforms, uFresnel } };
   }
-  /** Build the shared material again (look.water changed something structural) and hand it to every water mesh @internal */
-  _rebuild() {
-    const old = this.material;
-    this.material = this._material();
-    for (const m of [this.sea, ...this.bodies.values()]) if (m) m.material = this.material;
-    old.dispose();
-  }
-  /** Tile every water mesh again (look.water.set({ normalRepeat })) @internal */
-  _retile() { for (const mesh of this._uv.keys()) this._tile(mesh);
-  }
+  /** What grazing angles reflect: the fog color; with no fog the sky's horizon, because a fixed gray glows on dark water at night; with no sky a neutral gray @internal */
+  _reflects() { const e = this.engine; return e.scene.fog?.color ?? (e.sky ? e.uniforms.uSkyHorizon.value : GREY); }
   /** @internal */
   _prep(mesh, size) {
     mesh.receiveShadow = true; mesh.renderOrder = 1;
@@ -143,7 +192,7 @@ export class Water {
   _addBody(b) {
     const seg = Math.max(4, Math.round((b.radius ? b.radius * 2 : Math.max(b.hw, b.hd) * 2) / this.cell));
     const geo = b.radius ? new THREE.CircleGeometry(b.radius, Math.max(16, seg * 2)).rotateX(-Math.PI / 2) : new THREE.PlaneGeometry(b.hw * 2, b.hd * 2, seg, seg).rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, this.material);
+    const m = new THREE.Mesh(geo, this._material);
     m.position.set(b.x, b.level - 0.1, b.z);
     this._prep(m, b.radius ? b.radius * 2 : Math.max(b.hw, b.hd) * 2);
     this.engine.add(m, { owner: 'engine:water' });
@@ -154,7 +203,7 @@ export class Water {
     this._seaChecked = true;
     const st = this.st, level = st.level ?? (Number.isFinite(this.engine.waterLevel) ? this.engine.waterLevel : null);
     if (level == null) return;
-    this.sea = new THREE.Mesh(new THREE.PlaneGeometry(st.size, st.size, st.segments, st.segments).rotateX(-Math.PI / 2), this.material);
+    this.sea = new THREE.Mesh(new THREE.PlaneGeometry(st.size, st.size, st.segments, st.segments).rotateX(-Math.PI / 2), this._material);
     this.sea.position.y = level - 0.2;
     this._prep(this.sea, st.size);
     this.engine.add(this.sea, { owner: 'engine:water' });
@@ -173,7 +222,7 @@ export class Water {
       this.sea.position.x = Math.round(focus.x / c) * c;
       this.sea.position.z = Math.round(focus.z / c) * c;
     }
-    if (this.normalMap) { this.normalMap.offset.x += this.st.normalSpeed[0] * dt; this.normalMap.offset.y += this.st.normalSpeed[1] * dt; }
+    if (this.normalTexture) { const s = this._normal.speed; this.normalTexture.offset.x += s[0] * dt; this.normalTexture.offset.y += s[1] * dt; }
   }
 }
 
@@ -183,12 +232,10 @@ export class Water {
  * @returns {ModuleDef<Water>}
  */
 export function water(opts = {}) {
-  if (DEV) for (const k of LOOK_KEYS) if (k in opts) throw codedError('water-option', `water({ ${k} }) moved: engine.look.water.set({ ${k} }) after engine.use(water()), or style.water.${k} in the style (one entry per look value)`);
-  // one entry per job: the whole surface is the look.water replace slot (the replaced material gets the uniforms in its ctx)
-  if (DEV && 'material' in opts) throw codedError('water-option', 'water({ material }) moved: engine.look.water.replace((engine, { uniforms, waves, surface, normalMap }) => material) after engine.use(water()), or style.water.material in the style (one entry per look value)');
+  if (DEV) for (const k in MOVED) if (k in opts) throw codedError('water-option', `water({ ${k} }) is not an option: after engine.use(water()) use ${MOVED[k]} (recipes/44)`);
   readParams('water', WATER_PARAMS, opts);
   let w = null;
-  return { name: 'water', type: 'look', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); },
+  return { name: 'water', type: 'picture', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], optional: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); },
     // "is there water where I think": the global sea (its level and plane size; null = none, e.g. no water level) and each separate body
     describe() {
       const r = v => Math.round(v * 10) / 10, s = w.sea;

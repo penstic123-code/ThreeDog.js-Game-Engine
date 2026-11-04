@@ -73,31 +73,34 @@ export const specs = [
   {
     // [守] 身体是资源不是风格：
     // 程序身体只能走 { model: 'humanoid' } 这一条路（和 GLB 同一个入口）；没有 model 就是灰胶囊。
-    name: '[守] 角色身体是资源：humanoid 按名字立刻建好（关节、肢体摆动）、风格按材质角色上色、colors 单个改色',
+    name: '[守] 角色身体是资源：humanoid 按名字立刻建好（关节、肢体摆动）、资源自己的材质上色、colors 单个改色',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, Character, createEngine, worldStyle, worldArt } = threedogTest, out = {};
-        const mk = (style, key) => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key, style });
+        const { THREE, Character, createEngine, worldArt } = threedogTest, out = {};
+        const mk = key => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key });
         const hex = (ch, name) => ch.root.getObjectByName(name)?.material.color.getHex();
-        const a = mk(worldStyle, 'body-a'); a.assets.manifest(worldArt);
+        const a = mk('body-a'); a.assets.manifest(worldArt);
         const p = new Character(a, { model: 'humanoid' }), q = new Character(a, { model: 'humanoid', colors: { body: 0xff0000 } });
         out.now = { ready: p.ready, joints: ['armL', 'armR', 'legL', 'legR'].every(k => p[k]?.isObject3D), hips: p.hips?.name, limbs: p.limbs.length, head: p.head?.name };
         out.tint = { p: hex(p, 'torso'), q: hex(q, 'torso'), qSkin: hex(q, 'face'), own: p.root.getObjectByName('torso').material !== q.root.getObjectByName('torso').material };
         p.state = 'walk'; p.moveAmount = 3; p.phase = 1; p.animate(0.1);
         out.swing = Math.abs(p.legL.rotation.x) > 0.05;
-        const g = mk([worldStyle, { materials: { cloth: { color: 0x00ff00 } } }], 'body-g'); g.assets.manifest(worldArt);
-        out.styleTint = hex(new Character(g, { model: 'humanoid' }), 'torso');
-        const n = mk(worldStyle, 'body-n'), cap = new Character(n, {});
+        // the art draws with one shared material per name: one write retints every humanoid, already built or not, except a colors copy
+        const cloth = p.root.getObjectByName('torso').material, was = cloth.color.getHex();
+        cloth.color.set(0x00ff00);
+        out.clothTint = { built: hex(p, 'torso'), later: hex(new Character(a, { model: 'humanoid' }), 'torso'), copy: hex(q, 'torso') };
+        cloth.color.set(was);
+        const n = mk('body-n'), cap = new Character(n, {});
         out.capsule = { limbs: cap.limbs.length, meshes: (() => { let k = 0; cap.root.traverse(o => { if (o.isMesh) k++; }); return k; })() };
         try { new Character(n, { model: 'humanoid' }); out.unknown = 'no throw'; } catch (e) { out.unknown = e.message; }
-        for (const e of [a, g, n]) e.dispose();
+        for (const e of [a, n]) e.dispose();
         return out;
       });
       check('humanoid 按名字同步建好：ready、四个关节、hips/head、四条肢体', r.now.ready && r.now.joints && r.now.hips === 'hips' && r.now.head === 'head' && r.now.limbs === 4, JSON.stringify(r.now));
-      check('风格的材质角色给颜色（world 示例画风的 cloth），colors 只改这一个角色且是自己的材质', r.tint.p === 0xd9774a && r.tint.q === 0xff0000 && r.tint.qSkin === 0xf1c9a5 && r.tint.own, JSON.stringify(r.tint));
+      check('身体的颜色来自资源的材质（world 示例的 cloth），colors 只改这一个角色且是自己的材质', r.tint.p === 0xd9774a && r.tint.q === 0xff0000 && r.tint.qSkin === 0xf1c9a5 && r.tint.own, JSON.stringify(r.tint));
       check('走路时腿在摆（rig 从资源的 userData.rig 读回来）', r.swing, String(r.swing));
-      check('别的风格改 materials.cloth 就给所有 humanoid 换色', r.styleTint === 0x00ff00, String(r.styleTint));
+      check('改共用的 cloth 材质就给所有 humanoid 换色（已建好的和新建的），colors 的副本不变', r.clothTint.built === 0x00ff00 && r.clothTint.later === 0x00ff00 && r.clothTint.copy === 0xff0000, JSON.stringify(r.clothTint));
       check('没有 model：灰胶囊（一个网格、没有肢体）', r.capsule.limbs === 0 && r.capsule.meshes === 1, JSON.stringify(r.capsule));
       check('没注册资源包就用 humanoid：立刻报错并说明怎么注册（assets.manifest）', /"humanoid"/.test(r.unknown) && /assets\.manifest/.test(r.unknown), r.unknown);
     },

@@ -3,7 +3,7 @@
   // Scope: game code (games/*, the engine examples packages/engine/examples/), each with its own style/ folder (games/*/style/, examples/*/style/).
   // three.js 的类型来自 @types/three（引擎包的依赖，版本跟 three 对齐），THREE.* 是真类型，不是 any。
   // 引擎自己的 .js 不在 include 里，游戏代码通过 packages/engine/index.d.ts 拿到引擎接口的类型
-  // Engine .js that the examples import (threedog/tsl's render/fx/*.tsl.js, modules/sky/cascades.tsl.js and the files they import) is still
+  // Engine .js that the examples import (threedog/tsl's render/fx/*.tsl.js, render/cascades.tsl.js and the files they import) is still
   // checked and its errors count like any other. The rest of the engine .js is not checked yet: including core/modules/render/ui gives about
   // 1560 errors (2026-11-03, mostly untyped `this` fields and option objects), too many to fix in one go; that is the one known gap.
   // （games 里 import 'threedog'，经 workspace 链接和 package.json 的 types 找到它；示例用相对路径 ../../index.js）。

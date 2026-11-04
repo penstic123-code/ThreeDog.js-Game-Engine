@@ -1,27 +1,28 @@
 // Weather, the state half (type 'world', engine.weather): the game's table of weather types (weather({ types })); without one only a calm 'clear' (the engine assumes no climate).
 // Seven temperate ones are an opt-in preset: weather(presets.weather.temperate), extend with types: { ...presets.weather.temperate.types, dust: {...} }.
 // All fields blend smoothly on change.
-// Affects: cloud shadows, sky color, sun intensity, fog distance, wind (plants sway), rain/snow particles, lightning, ambience.
-// Particle and lightning looks: style.weather.rain / snow / lightning, engine.look.weather.replace (particles.js, recipes/44).
-// weather() installs two modules: this state (current / target / progress, auto weather, lightning timing, events, save) and the look half
-// (weatherLook.js: particles, sky / fog / sun effects, thunder). Why split: the state is game data that saves and skips; the look only reads it,
-// so a game can swap the look without touching the weather a save restores.
+// Affects: cloud shadows, sky color, wind (plants sway), rain/snow particles, lightning, ambience; light and fog are the game's, which reads uWeatherLight / uWeatherFog.
+// Particle and lightning pictures: weather({ rain, snow, lightning }), engine.weather.define(field, spec), engine.weather.particles (particles.js, recipes/44).
+// weather() installs two modules: this state (current / target / progress, auto weather, lightning timing, events, save) and the drawing half
+// (weatherDraw.js: particles, sky effects, thunder). Why split: the state is game data that saves and skips; the picture only reads it,
+// so a game can swap the picture without touching the weather a save restores.
 //
 // engine.weather.set('rain', { seconds: 20 })   // turn to rain over 20 seconds
 // engine.weather.setAuto(true)     // change weather at random (uses engine.random, so step/tests are reproducible and saved)
 // Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with
 // i18n.add.
+import * as THREE from 'three';
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { STRINGS, ERR } from './strings.js';
 import { codedError } from '../../core/errorHints.js';
-import { weatherLookModule } from './weatherLook.js';
+import { weatherDrawModule } from './weatherDraw.js';
 /** @import { ModuleDef } from '../../types/core' */
-/** @import { WeatherName, WeatherPreset, WeatherOptions } from '../../types/world' */
+/** @import { WeatherName, WeatherPreset, WeatherOptions, WeatherParticles, WeatherParticleSystem } from '../../types/world' */
 
 // The table when the game gives none: one calm type, so engine.weather works without assuming rain, snow or storms exist
 const ONLY_CLEAR = { clear: {} };
-const OPTIONS = ['start', 'auto', 'particles', 'types', 'autoPool', 'autoInterval', 'transition', 'area', 'lightningFirst', 'lightningInterval'];
+const OPTIONS = ['start', 'auto', 'particles', 'types', 'autoPool', 'autoInterval', 'transition', 'area', 'lightningFirst', 'lightningInterval', 'lightning', 'lightningBrightness', 'overcastColor', 'rain', 'snow'];
 const SET_PARAMS = keysSchema(['seconds']);
 const WEATHER_PARAMS = keysSchema(OPTIONS);
 // Fields a type leaves out: calm (no cloud, rain, snow, grey or lightning; normal sun, fog and wind)
@@ -36,11 +37,11 @@ export class Weather {
    * Options, not constants: a game's storm rhythm (a bolt every few seconds in a horror level, rare far thunder in a calm one) is its own decision
    * @internal
    */
-  constructor(engine, { start, types, autoPool, autoInterval = [90, 240], transition = 25, lightningFirst = 5, lightningInterval = [6, 20] } = {}) {
+  constructor(engine, { start, types, autoPool, autoInterval = [90, 240], transition = 25, lightningFirst = 5, lightningInterval = [6, 20],
+    lightning = f => f * (Math.random() > 0.3 ? 1 : 0.4), lightningBrightness = 1, overcastColor = 0x8c8c8c } = {}) {   // presentation: flash flickers
     /** @internal */ this.engine = engine;
-    const st = engine.style.weather || {};   // checked by the look half (weatherLook.js); here only its types fill the table
+    if (typeof lightning !== 'function') throw codedError('weather-option', 'weather({ lightning }) must be a function (flash 0..1, engine) => sky flash amount, e.g. lightning: f => f * 0.6; return 0 and draw your own bolt on the weather:lightning event');
     // The game's table is the whole list (a desert game has no snow, a space station no rain); without one only a calm 'clear'.
-    // The style only fills fields of types the table has (its look of 'storm'), it never adds a kind of weather to a game.
     if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw codedError('weather-option', ERR.types.replace('{got}', JSON.stringify(types)));
     const table = types ?? ONLY_CLEAR;
     /**
@@ -49,8 +50,7 @@ export class Weather {
      */
     this.types = {};
     for (const k of Object.keys(table)) {
-      // calm, then the style's look, then the game's own numbers (a preset the game picked counts as the game's)
-      const v = { ...CALM, ...(st.types?.[k] || {}), ...table[k] };
+      const v = { ...CALM, ...table[k] };
       for (const f in v) if (typeof v[f] !== 'number') throw codedError('weather-option', ERR.field.replace('{k}', k).replace('{f}', f).replace('{got}', JSON.stringify(v[f])));
       this.types[k] = v;
     }
@@ -81,6 +81,39 @@ export class Weather {
     /** [min, max] seconds between bolts while a type with lightning > 0.5 holds @type {number[]} */
     this.lightningInterval = lightningInterval;
     /** @internal seconds to the next lightning strike while a type with lightning > 0.5 holds */ this.nextBolt = lightningFirst;
+    /** Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time @type {(flash: number, engine: any) => number} */
+    this.lightning = lightning;
+    /** Multiplies the sky flash of every strike; write it at any time @type {number} */
+    this.lightningBrightness = lightningBrightness;
+    /** Color the sky turns as a weather type raises grey: a THREE.Color, overcastColor.set(0x667788) changes it live @type {THREE.Color} */
+    this.overcastColor = new THREE.Color(overcastColor);
+  }
+
+  /**
+   * The particle systems drawn now, by field: rain and snow when the table has them, plus what define() added. Each has material (the plain three.js
+   * material: read it, or set your own, drawn as given; null gives the engine's back), uniforms ({ value } objects the engine writes each frame, a
+   * ShaderMaterial of yours shares them; uColor, uLen, uPx, uMaxPx, uSwayAmp are yours to write), spec (opacity, speed, slant, density are read each
+   * frame, plain writes), object (the three.js object). Empty when a game replaced the weather drawing
+   * @example engine.weather.particles.rain.spec.speed = 30;
+   * @example engine.weather.particles.rain.uniforms.uColor.value.set(0xa8b8d0);
+   * @type {Record<string, WeatherParticleSystem>}
+   */
+  get particles() { return Object.fromEntries(this.engine.weatherDraw?.systems ?? []); }
+
+  /**
+   * Draw a field of the weather table with particles: your own (ash, petals, sparks) or rain / snow in place of the built-in ones. The amount each
+   * frame is weather.current[field], so they fade with the weather. spec takes the keys of weather({ rain }), or
+   * { create(engine, { area, count }) => { object, update?(amount, { camera, time, wind }) } } for a system of your own; null gives rain / snow back
+   * to weather({ rain, snow }) and removes any other field. Defining a field again replaces it. A field no type has throws with the table's fields
+   * @example engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
+   * @param {string} field
+   * @param {WeatherParticles | null} spec
+   * @returns {WeatherParticleSystem | null}
+   */
+  define(field, spec) {
+    const drawPart = this.engine.weatherDraw;
+    if (!drawPart) throw codedError('weather-option', "weather.define(): the weather is drawn by a game module (replaces: 'weatherDraw'); draw this field there, reading engine.weather.current");
+    return drawPart.define(field, spec);
   }
 
   /**
@@ -119,7 +152,7 @@ export class Weather {
    */
   label(name = this.name) { const k = 'weather.' + name; return this.engine.i18n.has(k) ? this.engine.t(k) : name; }
 
-  // fixed step: transitions, automatic weather, lightning timing (gameplay-relevant randomness all uses engine.random); the flash is the look half's
+  // fixed step: transitions, automatic weather, lightning timing (gameplay-relevant randomness all uses engine.random); the flash is the drawing half's
   /**
    * Advance weather transition, automatic weather and lightning (the module calls this itself every fixed step)
    * @param {number} dt
@@ -152,9 +185,9 @@ export class Weather {
 }
 
 /**
- * Weather: two modules for one engine.use: the state (engine.weather, type 'world') and its look (engine.weatherLook, type 'look'; needs sky)
+ * Weather: two modules for one engine.use: the state (engine.weather, type 'world') and its picture (engine.weatherDraw, type 'picture'; needs sky)
  * @param {WeatherOptions} [opts]
- * @returns {[ModuleDef<Weather>, ModuleDef<import('./weatherLook.js').WeatherLook>]}
+ * @returns {[ModuleDef<Weather>, ModuleDef<import('./weatherDraw.js').WeatherDraw>]}
  * @example engine.use(sky(), weather({ types: presets.weather.temperate.types, start: 'clear' }))
  */
 export function weather(opts = {}) {
@@ -180,6 +213,8 @@ export function weather(opts = {}) {
       return w;
     },
     fixed(dt) { w.tick(dt); },
+    // the weather as signals (engine.uniforms) every frame, from the state and not its picture: a game that draws its own rain still reads them
+    frame(_dt, e) { const U = e.uniforms, c = w.current; U.uCloud.value = c.cloud; U.uWind.value = c.wind; U.uRain.value = c.rain; U.uSnow.value = c.snow; U.uWeatherLight.value = c.sun; U.uWeatherFog.value = c.fog; },
     // engine.skip: fixed hooks do not run, so the skipped fixed steps are replayed here without events (a bolt nobody saw)
     skip(dt) {   // replay the fixed steps (same random draws, same order as stepping, so checkSkip matches); nothing pending = nothing to replay
       if (w.t >= 1 && !w.auto && !(w.current.lightning > 0.5)) return;
@@ -196,5 +231,5 @@ export function weather(opts = {}) {
         cloud: r(c.cloud), lightning: r(c.lightning) };
     },
   };
-  return [state, weatherLookModule({ ...(opts.particles !== undefined && { particles: opts.particles }), ...(opts.area !== undefined && { area: opts.area }) })];
+  return [state, weatherDrawModule(Object.fromEntries(['particles', 'area', 'rain', 'snow'].filter(k => opts[k] !== undefined).map(k => [k, opts[k]])))];
 }

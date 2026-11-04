@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { rigModule, defineRig, viewForward, rightOf, rigPlaced } from './common.js';
 import { setProjection } from './projection.js';
-import { setFov } from '../../core/look/coreParts.js';
+import { setFov } from '../../core/view.js';
 import { vec3 } from '../../core/math.js';
 import { ease as easing } from '../../core/easing.js';
 import { warnMissing } from '../../core/validate.js';
@@ -158,7 +158,7 @@ export class FixedCamera {
     const cam = this.engine.camera;
     cam.position.copy(pos); cam.lookAt(look);
     setProjection(cam, size ? 'orthographic' : 'perspective', size);
-    if (Math.abs(cam.fov - fov) > 1e-3) setFov(this.engine, fov);   // yields to a fov the game set itself (look.view 'fov')
+    if (Math.abs(cam.fov - fov) > 1e-3) setFov(this.engine, fov);   // yields to a fov the game set itself (engine.view 'fov')
     rigPlaced(this.engine);   // a cut between frames is the engine's own write (common.js)
   }
   _latchDirection() {

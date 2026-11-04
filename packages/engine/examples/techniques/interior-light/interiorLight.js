@@ -7,26 +7,28 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 
 /**
  * Exposure and ambient by zone, following the camera. `isInside(cameraPosition)` decides the zone; on a change the hemisphere / environment
- * intensities switch at once (they light through walls) and the exposure eases over `ease` seconds (an eye adapting). Presentation only: it
- * runs in onFrame and writes owner layers of look.lights / look.tone (remove() on the handle gives the style values back).
- * @param {any} engine
- * @param {{ isInside: (p: THREE.Vector3) => boolean, exposure: { inside: number, outside: number }, ambient: { inside: { hemi: number, env: number }, outside: { hemi: number, env: number } }, ease?: number, owner?: string }} o
+ * intensities switch at once (they light through walls) and the exposure eases over `ease` seconds (an eye adapting). Presentation only: call
+ * update(dt) from engine.onFrame; update() with no dt jumps straight to the zone's values. Writes hemi.intensity, scene.environmentIntensity and
+ * renderer.toneMappingExposure, nothing else.
+ * @param {{ camera: THREE.Camera, scene: THREE.Scene, renderer: THREE.WebGLRenderer }} engine
+ * @param {{ hemi: THREE.HemisphereLight, isInside: (p: THREE.Vector3) => boolean, exposure: { inside: number, outside: number }, ambient: { inside: { hemi: number, env: number }, outside: { hemi: number, env: number } }, ease?: number }} o
  */
-export function exposureZones(engine, { isInside, exposure, ambient, ease = 1.2, owner = 'zone' }) {
+export function exposureZones(engine, { hemi, isInside, exposure, ambient, ease = 1.2 }) {
   const zone = { name: '', exposure: 0, target: 0 };
-  /** @param {boolean} immediate @param {number} dt */
-  const apply = (immediate, dt = 0) => {
-    const name = isInside(engine.camera.position) ? 'inside' : 'outside';
-    if (name !== zone.name) {
-      zone.name = name;
-      zone.target = exposure[name];
-      engine.look.lights.set({ hemi: { intensity: ambient[name].hemi }, env: { intensity: ambient[name].env } }, { owner });
-    }
-    const next = immediate || !zone.exposure ? zone.target : zone.exposure + (zone.target - zone.exposure) * Math.min(1, dt / (ease / 3));
-    if (Math.abs(next - zone.exposure) > 1e-4) { zone.exposure = next; engine.look.tone.set({ exposure: next }, { owner }); }
+  return {
+    zone,
+    update(dt = Infinity) {
+      const name = isInside(engine.camera.position) ? 'inside' : 'outside';
+      if (name !== zone.name) {
+        zone.name = name;
+        zone.target = exposure[name];
+        hemi.intensity = ambient[name].hemi;
+        engine.scene.environmentIntensity = ambient[name].env;
+      }
+      zone.exposure = zone.exposure ? zone.exposure + (zone.target - zone.exposure) * Math.min(1, dt / (ease / 3)) : zone.target;
+      engine.renderer.toneMappingExposure = zone.exposure;
+    },
   };
-  const h = engine.onFrame((/** @type {number} */ dt) => apply(false, dt));
-  return { zone, apply, remove() { h?.remove?.(); engine.look.lights.set({ hemi: null, env: null }, { owner }); engine.look.tone.set({ exposure: null }, { owner }); } };
 }
 
 /**

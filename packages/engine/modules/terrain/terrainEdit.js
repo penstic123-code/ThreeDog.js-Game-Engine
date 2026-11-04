@@ -103,7 +103,7 @@ export class TerrainEdits {
   // same code as the worker on the full edit maps, so a rebuilt chunk equals a freshly generated one
   _rebuild(c) {
     const m = this.mgr, T = m.T, t = T.buildChunk(c.cx, c.cz);
-    c.data = t;   // data only: each look copies the new arrays in its change(c) hook
+    c.data = t;   // data only: each draw part copies the new arrays in its change(c) hook
     c.sphere.center.set(t.sphere[0], t.sphere[1], t.sphere[2]); c.sphere.radius = t.sphere[3];
     m._emit('change', c);
     const P = m.plants;

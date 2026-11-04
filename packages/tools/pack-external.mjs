@@ -114,7 +114,7 @@ export async function packExternal({ check, browser, keep = false }) {
       scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' },
       dependencies: { ...deps, '@threedog/post-effects': `file:../${postPkg.filename}`, three: '~0.187.0' } }, null, 2));
     copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
-    usePost(app);   // style/plugins/10-bloom.js: export default bloom(), as the docs show it, so types, build and the preview page need the post-effects package added above
+    usePost(app);   // plugins/10-bloom.js: export default bloom(), as the docs show it, so types, build and the preview page need the post-effects package added above
     writeFileSync(join(app, 'bad.js'), BAD);
     writeFileSync(join(app, 'tsconfig.strict.json'), JSON.stringify(TSCONFIG, null, 2));
     writeFileSync(join(app, 'tsconfig.bad.json'), JSON.stringify({ extends: './tsconfig.strict.json', include: ['bad.js'] }));

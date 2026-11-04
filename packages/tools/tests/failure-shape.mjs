@@ -20,7 +20,9 @@ export async function run({ check }) {
   // [guard] one dev switch: engine code reads import.meta.env only in core/validate.js (DEV, DEV_SERVER, BASE_URL). Why: a raw
   // import.meta.env.DEV elsewhere is off in the npm test bundle (a production build with THREEDOG_TEST), so a dev check there silently never ran under tests
   const { engineFiles, read } = await import('../rules/_lib.mjs');
-  const envReaders = engineFiles().filter(f => !f.endsWith('core/validate.js') && /^(?!\s*\/\/).*import\.meta\.env/m.test(read(f)));
+  // One exception, this exact line: the bundler can drop the picture writers only behind the literal test, and they must never reach a release bundle
+  const WRITERS = 'if (import.meta.env?.DEV) installPictureWriters(this);';
+  const envReaders = engineFiles().filter(f => !f.endsWith('core/validate.js') && /^(?!\s*\/\/).*import\.meta\.env/m.test(read(f).replace(WRITERS, '')));
   check('[guard] import.meta.env is read only in core/validate.js (one dev-mode switch)', envReaders.length === 0, envReaders.join(', '));
   // not bypassable: the real engine has no finding left
   const found = R45.run();

@@ -297,7 +297,7 @@ export function music(opts = {}) {
   readParams('music', MUSIC_PARAMS, opts);
   let m = null;
   return {
-    name: 'music', type: 'look', params: MUSIC_PARAMS, options: opts, label: 'Music', optional: ['dialogue'], stage: 'audio',
+    name: 'music', type: 'picture', params: MUSIC_PARAMS, options: opts, label: 'Music', optional: ['dialogue'], stage: 'audio',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.music': '音乐' }, en: { 'module.music': 'music' } });
       m = new Music(e, opts, ctx.track);
       ctx.track(e.events.on('session:end', () => m.stop({ fade: 0 })));   // a playthrough ends: its music stops at once

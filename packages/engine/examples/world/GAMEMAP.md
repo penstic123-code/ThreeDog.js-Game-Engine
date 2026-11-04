@@ -14,7 +14,7 @@ Content: actions 4 · audio 3 · containers 1 · dialogues 1 · items 4 · npcs 
 ## Engine modules (engine.use)
 
 - createEngine: { ...(gpuRoute && { renderer: 'webgpu' }), bindings: { ...presets.bindings.walk, ...presets.bindings.interact…
-- openWorld preset ({ camera: 'follow', seed: SEED, terrain: terrainPreset(), flatten: [{ x: home.x, z: home.z, radius:…) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
+- openWorld preset ({ camera: 'follow', seed: SEED, terrain: { ...terrainPreset(), ...TERRAIN }, flatten: [{ x: home.x,…) → world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug
 - interactions ({ ...presets.interactions.nearest })
 - dialogue
 - inventory
@@ -30,15 +30,15 @@ Content: actions 4 · audio 3 · containers 1 · dialogues 1 · items 4 · npcs 
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
 
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
-- terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
-- vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
+- terrain: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/terrain.md`
+- vegetation: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/vegetation.md`
 - calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
-- weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
-- water: `node_modules/threedog/docs/recipes/44-water-weather-look-hooks.md` · `node_modules/threedog/docs/api/water.md`
+- weather: `node_modules/threedog/docs/recipes/44-water-weather-hooks.md` · `node_modules/threedog/docs/api/weather.md`
+- water: `node_modules/threedog/docs/recipes/44-water-weather-hooks.md` · `node_modules/threedog/docs/api/water.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
 - rigid: `node_modules/threedog/docs/recipes/11-vehicles.md` · `node_modules/threedog/docs/api/rigid.md`
-- characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
+- characters: `node_modules/threedog/docs/recipes/13-animation.md` · `node_modules/threedog/docs/api/characters.md`
 - …13 more modules: their pages are in `node_modules/threedog/docs/api/`
 
 Not used yet (check these before writing the system yourself):
@@ -51,9 +51,9 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
-| art/humanoid.js | 43 | The 'humanoid' body: the procedural character body, exported in the world example's asset pack (art… |
+| art/humanoid.js | 39 | The 'humanoid' body: the procedural character body, exported in the world example's asset pack (art… |
 | art/index.js | 12 | The world example's own art: procedural models built in code (trees, rocks, grass, flowers, the 'hu… |
-| art/models.js | 59 | The world example's procedural models: trees, rocks, grass and flowers built in code, no files. Exp… |
+| art/models.js | 58 | The world example's procedural models: trees, rocks, grass and flowers built in code, no files. Exp… |
 | art/shapes.js | 10 | The ground pickup shape, registered as the asset model name 'pickup' (assets in art/index.js). It i… |
 | assets.js | 7 | The asset packs this game registers (main.js: engine.assets.manifest(packs)). Kept in their own fil… |
 | content/actions.js | 9 |  |
@@ -72,9 +72,13 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/templates.js | 6 |  |
 | content/vegetation.js | 33 |  |
 | main.js | 173 | Open-world example (slow photography life): riverside cabin + an old fisherman who walks by the clo… |
-| models.js | 29 | Models this game builds in code: the cabin (registered by name in main.js, placed by content/props.… |
-| style/index.js | 62 | The world example's look: one folder = one style (recipes/09-style.md). Starting values only; the g… |
-| style/plugins/10-bloom.js | 6 | The world look's bloom: a post effect plugin of the style (look.post.add puts it in the chain; look… |
+| models.js | 39 | Models this game builds in code: the cabin (registered by name in main.js, placed by content/props.… |
+| picture/index.js | 21 | @ts-check The open world's picture: wiring only. Each part writes plain three.js; one onRender driv… |
+| picture/lights.js | 42 | @ts-check Sun or moon and the ambient, from the sky of this moment (sky.js) and the weather. One sh… |
+| picture/materials.js | 35 | @ts-check Materials by name. They live at module level, not inside createPicture, because the model… |
+| picture/palette.js | 75 | @ts-check The open world's palette: every color and key value of the picture, one copy; the other f… |
+| picture/post.js | 10 | @ts-check The glow on the sun, the lamp and bright water. Added but off on low-tier devices: it blu… |
+| picture/sky.js | 40 | @ts-check The sky and the fog. The engine's dome stays because this world shows its sun, moon, star… |
 
 ## NPCs (content/npcs.js)
 
@@ -172,7 +176,6 @@ Code that breaks saves or manages world models: none (rule R33).
 
 ## Style keys
 
-- Style: none (all neutral fallback look)
 - Models (asset names): pine, pineLow, roundTree, roundTreeLow, rock, grass, flower, cabin
 - Particle presets (style.particles): smoke, leaves, dust
 - Vegetation (content/vegetation.js): 松树, 圆树, 石头, 草, 野花

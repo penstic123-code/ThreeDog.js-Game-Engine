@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, HIDE_RIG, clickToLock, releaseLock } from './common.js';
 import { vec3 } from '../../core/math.js';
-import { setFov } from '../../core/look/coreParts.js';
+import { setFov } from '../../core/view.js';
 
 export class FirstPersonCamera {
   /**

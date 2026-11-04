@@ -10,9 +10,9 @@
 // Chest / corpse / shelf: inventory.container('chest-1', { capacity: 8 }).add('fish');  inventory.transfer('chest-1', 'player', 'fish', 2);
 // Player actions with items are ops: inventory.transfer / inventory.use / inventory.drop (inventoryOps.js).
 //
-// Look:
-// window UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via style.ui.templates.inventory(data, { esc, t, icon })
-//   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in style.ui.css)
+// Picture:
+// window UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via ui.templates.inventory(data, { esc, t, icon })
+//   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in ui.css)
 import { checkOptions, warnMissing, freezeDef } from '../../core/validate.js';
 import { readParams } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';

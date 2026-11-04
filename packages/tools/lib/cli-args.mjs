@@ -28,14 +28,14 @@ export function pagePath(arg, { exists = existsSync, env = process.env } = {}) {
  * The one argument parser of every command (paths.mjs command() adds the workspace on top). Strict on purpose: most commands used to look up
  * the switches they knew with argv.includes and drop the rest, so a typo (`--verbos`, `--only world` where `--only=world` was meant) ran the
  * command the default way and reported success.
- *   flags      switches, never take a value (so `--look /page` keeps /page as the page)
+ *   flags      switches, never take a value (so `--picture /page` keeps /page as the page)
  *   values     options that take one (`--out x` or `--out=x`); given twice is an error (the second used to replace the first silently)
  *   lists      of those values, the ones that may repeat: `--rule R10 --rule R2` comes back as 'R10,R2' (the command splits on commas)
  *   short      one-letter spellings: { j: 'jobs' } makes `-j 4` / `-j4` mean `--jobs 4`
  *   page       the default page when the command takes one page path; null (the default) when it takes none
  *   positional true: the command takes any number of plain arguments (test names, words, a subcommand's names), returned in `rest`
  *   workspace  true: -w / --workspace <name> is accepted and returned as `workspace` (paths.mjs command() resolves it)
- *   conflicts  [a, b, why] pairs where b switches a off (shot: --ref with --no-look), so a given a would silently do nothing
+ *   conflicts  [a, b, why] pairs where b switches a off (shot: --ref with --no-picture), so a given a would silently do nothing
  *   passthrough  true (with positional): unknown --options land in `rest` unchanged for a sub-parser (the dev bridge commands only)
  * Everything after a bare `--` is positional. Throws on an unknown option (naming the closest known one and listing all), a missing value, a
  * value option given twice (unless in lists), a plain argument where none is taken, a second page argument (it used to replace the first), or a conflicting pair.

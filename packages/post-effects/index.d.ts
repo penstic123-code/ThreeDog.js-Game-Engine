@@ -11,14 +11,14 @@ export function grain(o?: { amount?: number; size?: number; animated?: boolean; 
 export function vignette(o?: { strength?: number; start?: number; enabled?: boolean; order?: number }): PostEffect;
 /** Red / blue shift apart toward the screen edge (ldr, fused; starts a fused group because it samples the input). On when listed (enabled: false lists it off) */
 export function chromatic(o?: { amount?: number; enabled?: boolean; order?: number }): PostEffect;
-/** Depth of field (hdr, costly, reads scene depth; passes it on, so it can be on with outline when its order is lower, lines then stay sharp); meters / device pixels. On when listed (enabled: false lists it off); costly, so it still starts off on low-tier devices */
+/** Depth of field (hdr, heavy on weak devices, reads scene depth; passes it on, so it can be on with outline when its order is lower, lines then stay sharp); meters / device pixels. On when added (enabled: false adds it off) */
 export function dof(o?: { focus?: number; range?: number; falloff?: number; maxBlur?: number; enabled?: boolean; order?: number }): PostEffect;
 
-/** Bloom (glow around bright pixels; hdr, costly). Default enabled: on; costly, so it starts off on low-tier devices when a style plugin brings it (look.post.set({ bloom: true }) turns it on; threedog shot renders the high tier unless --tier low) */
+/** Bloom (glow around bright pixels; hdr, heavy on weak devices). On when added (enabled: false adds it off) */
 export function bloom(o?: { strength?: number; radius?: number; threshold?: number; enabled?: boolean; order?: number }): PostEffect;
-/** Ambient occlusion (soft contact shadows in corners; hdr, costly). On when added (enabled: false adds it off); costly, so from a style plugin it starts off on low-tier devices (look.post.set({ ao: true }) turns it on) */
+/** Ambient occlusion (soft contact shadows in corners; hdr, heavy on weak devices). On when added (enabled: false adds it off) */
 export function ao(o?: { radius?: number; intensity?: number; enabled?: boolean; order?: number }): PostEffect;
-/** Outline (hdr, reads scene depth). On when listed (enabled: false lists it off). mode 'depth' (default) = silhouettes, 'normal' = creases (extra scene render, costly), 'both'; wobble = line jitter in pixels; offLayer = objects with that three.js layer enabled get no lines (use OUTLINE_OFF_LAYER) */
+/** Outline (hdr, reads scene depth). On when listed (enabled: false lists it off). mode 'depth' (default) = silhouettes, 'normal' = creases (an extra scene render), 'both'; wobble = line jitter in pixels; offLayer = objects with that three.js layer enabled get no lines (use OUTLINE_OFF_LAYER) */
 export function outline(o?: { color?: ColorLike; thickness?: number; strength?: number; mode?: 'depth' | 'normal' | 'both'; fadeWithDistance?: boolean; wobble?: number; offLayer?: number | null; enabled?: boolean; order?: number }): PostEffect;
 /** Layer number (29) for outline({ offLayer }): mesh.layers.enable(OUTLINE_OFF_LAYER) exempts that object from the lines */
 export const OUTLINE_OFF_LAYER: number;

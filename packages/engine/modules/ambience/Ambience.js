@@ -177,7 +177,7 @@ const AMBIENCE_PARAMS = keysSchema(['rules', 'interval']);
 export function ambience(opts = {}) {
   readParams('ambience', AMBIENCE_PARAMS, opts);
   let a = null;
-  return { name: 'ambience', type: 'look', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late',
+  return { name: 'ambience', type: 'picture', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.ambience': '环境音' }, en: { 'module.ambience': 'ambience' } });
       builtInSounds(e.assets, SYNTHS, { bus: 'ambience' });   // sound assets wind / rain / water / birds / crickets, silent until audio.sounds names them
       a = new Ambience(e, opts);

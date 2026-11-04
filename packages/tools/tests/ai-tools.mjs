@@ -42,7 +42,7 @@ const SAMPLES = {
   'audio-unsupported': 'Audio is not supported by this browser; check typeof AudioContext before calling [audio-unsupported]',
   'indexeddb': 'indexedDB is unavailable [indexeddb]',
   'gameplay-frozen': '[engine] listener of event quest:done threw and gameplay is frozen (in dev / tests a gameplay error fails hard) [gameplay-frozen]',
-  'module-disabled': '[engine] look module particles threw and was disabled (the game continues) [module-disabled]',
+  'module-disabled': '[engine] picture module particles threw and was disabled (the game continues) [module-disabled]',
   'not-installed': "Cannot read properties of undefined (reading 'give')",
   // a read on null is not "not installed" (a three.js mergeGeometries that returned null got that hint once)
   'null-value': "Cannot read properties of null (reading 'boundingSphere')",

@@ -11,17 +11,16 @@ import { bindUniforms } from '../../render/engineUniforms.js';
 import { swapWebGPUPart } from '../../render/backend.js';
 import { makeDome, makeSkyUniforms } from '../../modules/sky/shader.js';
 import { cloudUniforms } from '../../modules/sky/clouds.js';
-import { DOME_FOG, resolveFog, fogPatch, setFogPatch, fogMaterials } from '../../modules/sky/fog.js';
-import { patchMaterial } from '../../render/patches.js';
+import { DOME_FOG } from '../../modules/sky/fog.js';
 import { renderOnce } from '../../render/backend.js';
 
 const W = 200, H = 150;
 // colored keyframes (the neutral ones are grey): a warm sunrise horizon and a blue noon, so a hue mistake shows in the mean
-const KF = [[0, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3], [0.2, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3], [0.25, 0x4060a0, 0xf0a070, 0xffc080, 1.5, 0.6],
-  [0.5, 0x3a78d8, 0xb8d8f0, 0xffffff, 3, 1], [0.75, 0x4060a0, 0xf0a070, 0xffc080, 1.5, 0.6], [0.8, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3], [1, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3]];
+const KF = [[0, 0x101830, 0x203050, 0x8090c0, 0.3], [0.2, 0x101830, 0x203050, 0x8090c0, 0.3], [0.25, 0x4060a0, 0xf0a070, 0xffc080, 0.6],
+  [0.5, 0x3a78d8, 0xb8d8f0, 0xffffff, 1], [0.75, 0x4060a0, 0xf0a070, 0xffc080, 0.6], [0.8, 0x101830, 0x203050, 0x8090c0, 0.3], [1, 0x101830, 0x203050, 0x8090c0, 0.3]];
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), pixelRatio: 1, adaptiveResolution: false,
-  ui: { loading: false }, saveKey: 'test-sky-tsl', urlState: false, style: { sky: { keyframes: KF, clouds: { coverage: 1 } } } });
-engine.use(sky({ time: 0.27 }));
+  ui: { loading: false }, saveKey: 'test-sky-tsl', urlState: false });
+engine.use(sky({ time: 0.27, keyframes: KF, clouds: { coverage: 1 } }));
 await engine.start();
 engine.pause();
 engine.uniforms.uCloud.value = 0.55;   // weather's cloud amount (no weather module here): clouds on
@@ -71,7 +70,7 @@ const change = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) if (i %
 const TIMES = [0.25, 0.28, 0.33, 0.42, 0.5];   // sunrise (06:00) to noon
 
 window.skyTsl = async () => {
-  const out = { kinds: [PLANE.gl.children[0].material.type, PLANE.gpu.children[0].material.type], times: {}, cumulus: {}, fog: {}, errors: {} };
+  const out = { kinds: [PLANE.gl.children[0].material.type, PLANE.gpu.children[0].material.type], times: {}, cumulus: {}, errors: {} };
   let prev = null;
   for (const t of TIMES) {
     S.fixedTime = t; S.update(engine.focus);   // the real sky writes uTop / uHorizon / uSunColor / engine.uniforms.uSunDir ...
@@ -88,58 +87,44 @@ window.skyTsl = async () => {
   }
   S.uniforms.uFogBand.value = 0;
 
-  // ---- fog kinds: a ground plane under FogExp2, WebGL through the 'fog' patch, WebGPU through the scene fog node (the real setFogPatch path)
-  for (const kind of ['exp', 'height']) {
-    const f = resolveFog({ kind, height: 0, falloff: 0.08 });
-    const mk = (M, renderer) => {
-      const scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0xd8b090, 0.02);
-      const m = new M({ color: 0x3a7a3a });
-      const g = new THREE.Mesh(new THREE.PlaneGeometry(400, 400).rotateX(-Math.PI / 2), m); scene.add(g);
-      const box = new THREE.Mesh(new THREE.BoxGeometry(6, 30, 6), m); box.position.set(Math.sin(az) * 40, 0, Math.cos(az) * 40); scene.add(box);
-      const fake = { engine: { renderer, scene } };
-      if (renderer === gl) patchMaterial(m, [fogPatch(f)]); else { setFogPatch(fake, f); fogMaterials(fake); }
-      scene.userData.fake = fake;
-      return scene;
-    };
-    const sg = mk(THREE.MeshBasicMaterial, gl), sw = mk(TG.MeshBasicNodeMaterial, gpu);
-    const fcam = cam.clone(); fcam.lookAt(Math.sin(az) * 10, 0, Math.cos(az) * 10); fcam.updateMatrixWorld();
-    const a = await shot(gl, sg, fcam), b = await shot(gpu, sw, fcam);
-    sw.fog.density = 0; const b0 = await shot(gpu, sw, fcam);   // density read live: no fog = a different picture
-    out.fog[kind] = { ...compare(a, b), node: !!sw.fogNode, liveDensity: change(b, b0) };
-    // a linear THREE.Fog put in by the game: the node steps aside for three's own fog
-    sw.fog = new THREE.Fog(0xffffff, 1, 100); fogMaterials(sw.userData.fake); out.fog[kind].linearYields = sw.fogNode === null;
-  }
-
   const tryIt = fn => { try { fn(); return 'no error'; } catch (e) { return String(e.message); } };
   // ---- the engine entry: createEngine({ renderer: 'webgpu' }) + sky() builds the node dome itself and draws what the WebGL engine draws.
   // navigator.gpu taken away so the WebGPURenderer runs on its WebGL2 backend on every machine (tests/backend does the same)
   Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true });
   try {
     const c2 = Object.assign(document.createElement('canvas'), { width: W, height: H }); c2.style.cssText = `width:${W}px;height:${H}px`; document.body.appendChild(c2);
-    const e2 = createEngine({ canvas: c2, renderer: 'webgpu', pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-sky-tsl-gpu', urlState: false,
-      style: { sky: { keyframes: KF, clouds: { coverage: 1 }, fog: { kind: 'exp' } } } });
-    e2.use(sky({ time: 0.33 }));
+    const e2 = createEngine({ canvas: c2, renderer: 'webgpu', pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-sky-tsl-gpu', urlState: false });
+    e2.use(sky({ time: 0.33, keyframes: KF, clouds: { coverage: 1 } }));
+    e2.scene.fog = new THREE.FogExp2(0xcccccc, 0.01);
     await e2.start(); e2.pause();
     e2.uniforms.uCloud.value = engine.uniforms.uCloud.value; e2.uniforms.uTime.value = engine.uniforms.uTime.value;
     S.fixedTime = 0.33; S.update(engine.focus); e2.sky.update(e2.focus);
+    e2.scene.fog.color.copy(e2.sky.uniforms.uHorizon.value); e2.sky.update(e2.focus);   // a fog in the horizon color: no fog band on the dome, like the WebGL side
     // the engine's own scene (only the dome draws in it: no ground, no objects) against the WebGL dome over the WebGL engine's uniforms
     const a = await shot(gl, sceneOf(makeDome(S.uniforms, st, DOME_FOG)));
     const rt = new TG.RenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace }); renderOnce(e2.renderer, e2.scene, cam, rt);
-    const b = new Uint8Array(await e2.renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H)); rt.dispose();
-    // the real look.sky hook path on the WebGPU engine's node dome
-    out.errors.cloudsHookGpu = tryIt(() => e2.look.sky.patch('clouds', 'vec4 threedogClouds(vec3 d, float t, vec3 s, float n, vec3 l, vec3 h, float c){ return vec4(1.0); }'));
-    out.engine = { isGPU: !!e2.renderer.isWebGPURenderer, dome: e2.sky.dome.material.type, fogNode: !!e2.scene.fogNode, ...compare(a, b) };
+    const read = async () => { renderOnce(e2.renderer, e2.scene, cam, rt); return new Uint8Array(await e2.renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H)); };
+    const b = await read();
+    // engine.uniforms is the dome's own value on this renderer too: a plain .value write moves the picture, and writing it back restores it
+    const moved = {};
+    for (const [k, v] of [['uCurve', 3], ['uCloudCover', 0], ['uSkyCloudScale', 3]]) {
+      const was = e2.uniforms[k].value; e2.uniforms[k].value = v; moved[k] = change(b, await read()); e2.uniforms[k].value = was;
+    }
+    moved.back = change(b, await read()); rt.dispose();
+    // engine.sky.environment on this renderer: three/webgpu's PMREMGenerator draws the node dome
+    const envH = e2.sky.environment({ into: e2.scene }); e2.sky._envFrame(0); out.env = { written: !!envH.texture && e2.scene.environment === envH.texture };
+    envH.remove(); out.env.off = e2.scene.environment === null;
+    // the real hook path on the WebGPU engine's node dome
+    out.errors.cloudsHookGpu = tryIt(() => e2.sky.clouds('vec4 threedogClouds(vec3 d, float t, vec3 s, float n, vec3 l, vec3 h, float c){ return vec4(1.0); }'));
+    out.engine = { isGPU: !!e2.renderer.isWebGPURenderer, dome: e2.sky.dome.material.type, moved, ...compare(a, b) };
     e2.dispose();
   } finally { delete navigator.gpu; }
 
   // ---- errors by name
-  const fakeSky = { engine: { renderer: gpu, scene: new THREE.Scene() } };
   out.errors.layersGpu = tryIt(() => makeDome(S.uniforms, { layers: [{ glsl: 'vec4 threedogSkyLayer(vec3 d, float t, vec3 s, float n){ return vec4(0.0); }' }] }, DOME_FOG, gpuHost));
-  out.errors.fogHookGpu = tryIt(() => setFogPatch(fakeSky, resolveFog({ kind: 'exp' }, 'vec4 threedogFog(vec3 c, float d, vec3 w){ return vec4(c, 0.5); }')));
   const keep = swapWebGPUPart('sky', null);
   try {
     out.errors.noTslDome = tryIt(() => makeDome(makeSkyUniforms({}, engine.uniforms), {}, DOME_FOG, gpuHost));
-    out.errors.noTslFog = tryIt(() => setFogPatch(fakeSky, resolveFog({ kind: 'height' })));
   } finally { swapWebGPUPart('sky', keep); }
   out.errors.glDome = tryIt(() => makeDome(makeSkyUniforms({}, engine.uniforms), {}, DOME_FOG));
   return out;

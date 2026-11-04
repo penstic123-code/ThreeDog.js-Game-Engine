@@ -29,7 +29,7 @@ export const specs = [
       const e = r.errors;
       check('a GLSL-only patch on a NodeMaterial throws, first line naming it', e.glslOnly.includes("patch 'tint' has no tsl version; add tsl: (ctx) => ..., or keep this material on WebGLRenderer")
         && /\[shader-patch\]/.test(e.glslOnly), e.glslOnly);
-      check("a style's own GLSL sway on a NodeMaterial says wind has no tsl version", e.styleWind.includes("patch 'wind' has no tsl version"), e.styleWind);
+      check("a game's own GLSL sway on a NodeMaterial says wind has no tsl version", e.gameWind.includes("patch 'wind' has no tsl version"), e.gameWind);
       check('a tsl patch on lightsPars points at the lighting slot\'s direct hook', /lightsPars/.test(e.lightsPars) && /direct/.test(e.lightsPars), e.lightsPars);
       check("a throwing tsl patch is reported with the prefix patch 'x' (slot y)", e.badCode.startsWith("[threedog] patch 'oops' (slot color): "), e.badCode);
       check('a lighting patch on an unlit NodeMaterial fails by name', /patch 'dark'/.test(e.unlit) && /lit material/.test(e.unlit), e.unlit);

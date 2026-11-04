@@ -13,7 +13,7 @@ function materialsOf(obj) {
     for (const m of [o.material].flat()) {
       if (!m || seen.has(m)) continue;
       seen.add(m);
-      if (out.length < MAT_MAX) { const i = materialInfo(m, o); out.push({ role: i.role, name: m.name || null, from: i.from, keys: i.keys, type: i.type, color: i.color, mesh: o.name || null }); }
+      if (out.length < MAT_MAX) { const i = materialInfo(m, o); out.push({ role: i.role, name: m.name || null, from: i.from, type: i.type, color: i.color, mesh: o.name || null }); }
     }
   });
   if (seen.size > MAT_MAX) out.push({ more: seen.size - MAT_MAX });

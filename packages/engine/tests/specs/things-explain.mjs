@@ -1,4 +1,4 @@
-// engine.thing(id).explain() and engine.debug.override (recipes/41-thing-registry.md): one id answers definition, materials, rules, related ops and
+// engine.thing(id).explain() and engine.debug.override (recipes/40-scene.md): one id answers definition, materials, rules, related ops and
 // save status; diagnostic overrides belong to an owner, show in describe().scene.overrides, are never saved and clear without a trace.
 export const specs = [
   {
@@ -9,7 +9,7 @@ export const specs = [
         'use strict';
         engine.pause();
         const T = engine.THREE, p = engine.player.position, x = Math.round(p.x) + 6, z = Math.round(p.z);
-        const mesh = new T.Mesh(new T.BoxGeometry(1, 2, 1), engine.makeMaterial('prop', { color: 0xaa3322 }));
+        const mesh = new T.Mesh(new T.BoxGeometry(1, 2, 1), Object.assign(new T.MeshLambertMaterial({ color: 0xaa3322 }), { userData: { purpose: 'prop' } }));
         mesh.position.set(x, engine.surface(x, z), z);
         engine._things.setup = true; engine.add(mesh, { id: 'probe-box' }); engine._things.setup = false;
         engine.content.load({ templates: { probe: { model: 'rock', collide: 'box' } }, props: [{ template: 'probe', id: 'probe-rec', x: x + 4, z }] });

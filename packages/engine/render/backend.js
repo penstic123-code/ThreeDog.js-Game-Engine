@@ -6,6 +6,7 @@
 // Imports nothing from three (only the engine's error codes): threedog/tsl (render/fx) registers the WebGPU classes here, so WebGL games never load three/webgpu.
 
 import { codedError } from '../core/errorHints.js';
+import { notePatch, patchOn } from '../core/threePatches.js';
 
 /** Whether this is three's WebGPURenderer (either of its backends) @param {any} r */
 export const isWebGPU = r => !!r?.isWebGPURenderer;
@@ -38,13 +39,15 @@ export const programList = r => isWebGPU(r) ? [] : r.info.programs ?? [];
 // last render object built per material is kept (weakly: the material's lifetime) and its NodeBuilderState read on demand.
 // RECENT: the last builds in order, also weak, so a compile error (which three reports without its render object) can be matched back to one.
 const NODE_PROGRAMS = new WeakMap(), RECENT = [], RECENT_MAX = 256;
+notePatch('node-builder-hook', "renderer.debug.onNodeBuilderCreated of a WebGPURenderer: remembers the render object built per material, a game's own hook still runs (render/backend.js)", () => {},
+  { scope: 'engine renderer', lost: 'on WebGPU: shader errors no longer name the material, and shaderCost and the program costs in inspect.perf stay empty' });
 /** @internal core/Engine.js: on WebGPURenderer, remember the render object three builds per material (a game's own hook still runs) @param {any} r */
 export function watchNodePrograms(r) {
   const d = r?.debug;
   if (!isWebGPU(r) || !d || d._threedogPrograms) return;
   const prev = d.onNodeBuilderCreated;
   d.onNodeBuilderCreated = (builder, ro) => {
-    if (ro?.material) { NODE_PROGRAMS.set(ro.material, ro); RECENT.push(new WeakRef(ro)); if (RECENT.length > RECENT_MAX) RECENT.shift(); }
+    if (ro?.material && patchOn('node-builder-hook')) { NODE_PROGRAMS.set(ro.material, ro); RECENT.push(new WeakRef(ro)); if (RECENT.length > RECENT_MAX) RECENT.shift(); }
     prev?.(builder, ro);
   };
   d._threedogPrograms = true;
@@ -85,6 +88,9 @@ export function memory(r) {
 /** Start this frame's counters from zero (the engine renders with info.autoReset off: onRender targets count too) @param {any} r */
 export function resetStats(r) { r.info.reset(); }
 
+/** Shadows on in the picture right now (the renderer's switch: what a game wrote directly counts too) @param {any} e */
+export const shadowsOn = e => !!e.renderer?.shadowMap?.enabled;
+
 /**
  * Shadow-map refresh. auto: redraw every frame (true) or only when asked (false); now: redraw on the next render.
  * WebGLRenderer has one switch for all lights (renderer.shadowMap); WebGPURenderer has it per light (light.shadow), so there every
@@ -94,7 +100,10 @@ export function resetStats(r) { r.info.reset(); }
 export function setShadowUpdate(r, scene, { auto, now } = {}) {
   if (!isWebGPU(r)) {
     if (auto !== undefined) r.shadowMap.autoUpdate = auto;
-    if (now) r.shadowMap.needsUpdate = true;
+    if (now) {
+      r.shadowMap.needsUpdate = true;
+      for (const o of shadowLights(scene)) o.shadow.needsUpdate = true;   // a light under a budget (light.shadow.autoUpdate off) skips the pass without its own flag
+    }
     return;
   }
   for (const o of shadowLights(scene)) {
@@ -108,7 +117,7 @@ export function setShadowUpdate(r, scene, { auto, now } = {}) {
 
 /**
  * The lights with a shadow in a scene, kept up to date on add / remove (core/sceneDelta.js) instead of walking the scene.
- * Why: the sky asks for these every frame (shadow.updateEvery, the cascades' early update, the budget's shadow pass count); a full
+ * Why: these are asked for every frame (the cascades' early update, the budget's shadow pass count); a full
  * scene walk each time costs more than the frame's game code in a large, streaming world.
  * @param {any} scene @returns {Set<any>}
  */
@@ -145,7 +154,7 @@ export function holdShadowRedraw(r, scene) {
 
 /** Whether a shadow redraw is already requested for the next render @param {any} r @param {any} scene @returns {boolean} */
 export function shadowUpdatePending(r, scene) {
-  if (!isWebGPU(r)) return !!r.shadowMap.needsUpdate;
+  if (!isWebGPU(r)) return !!r.shadowMap.needsUpdate || [...shadowLights(scene)].some(o => o.castShadow && o.shadow.needsUpdate);
   for (const o of shadowLights(scene)) {
     // with cascades the light's own map is never drawn, so its needsUpdate is never cleared: only the cascades' flags count
     const c = cascadeShadows(o);
@@ -155,7 +164,7 @@ export function shadowUpdatePending(r, scene) {
 }
 
 /**
- * The per-cascade LightShadow objects of a light whose shadow is a cascade shadow node (three's CSMShadowNode: modules/sky/cascades.tsl.js),
+ * The per-cascade LightShadow objects of a light whose shadow is a cascade shadow node (three's CSMShadowNode: render/cascades.tsl.js),
  * else []. Its cascade lights are plain Object3Ds, not lights, so a scene walk for lights never reaches their flags.
  * @param {any} light @returns {any[]}
  */
@@ -261,6 +270,9 @@ const drawnIn = new WeakMap();
 export function freshFrame(r) {
   const f = isWebGPU(r) ? r._nodes?.nodeFrame : null;   // _nodes exists after init(); before it nothing has been drawn
   if (!f) return;
+  // three's first render() starts that tick, and starting it runs one tick at once: left to render(), the id moves inside the first draw, after the
+  // line below noted it, so the next draw took the id for new and its scene pass, already done in that id, showed the first draw's picture again
+  r._animation.start();
   if (drawnIn.get(r) === f.frameId) { f.update(); r.info.frame = f.frameId; }
   drawnIn.set(r, f.frameId);
 }
@@ -407,7 +419,7 @@ function gameCompileHook(m) {
 /**
  * What WebGPURenderer does not run (plan section 1.3), material by material; WebGPURenderer skips these without a word, so the engine names them.
  * Covered: ShaderMaterial / RawShaderMaterial, a game's onBeforeCompile, and (a rule render/patches.js adds) a patched classic material whose
- * patches cannot all run as nodes. three Pass objects in look.post are named by the WebGPU post chain itself (render/fx/postWebGPU.tsl.js).
+ * patches cannot all run as nodes. three Pass objects in engine.post are named by the WebGPU post chain itself (render/fx/postWebGPU.tsl.js).
  */
 const WEBGL_ONLY = [
   { test: m => m.isShaderMaterial, what: m => m.isRawShaderMaterial ? 'RawShaderMaterial' : 'ShaderMaterial',

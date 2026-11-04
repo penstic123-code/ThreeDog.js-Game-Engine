@@ -1,6 +1,6 @@
 // Default 'loading' UI part. Covers the view at start, shows progress, fades out when ready. start() drives it (show -> update... -> hide).
 // Replace it with createEngine({ ui: { loading: (engine) => ({ show, update, hide, dispose }) } }), turn it off with { loading: false }.
-// Look: CSS classes .threedog-loading* (override in style.ui.css), or the inner HTML with style.ui.templates.loading({ title }).
+// Picture: CSS classes .threedog-loading* (override in ui.css), or the inner HTML with ui.templates.loading({ title }).
 // text names the item being waited for (engine.loading.text()); when a critical item fails, update gets failed (engine.loading tasks) and the
 // screen stays up with class .threedog-loading-failed, so the player sees why instead of a frozen bar.
 import { injectUICSS, esc } from './UI.js';
@@ -21,7 +21,7 @@ export function loadingScreen(engine, { title } = {}) {
       el = document.createElement('div');
       el.className = 'threedog-loading';
       const t = d.title ?? title ?? engine.t('common.loading');
-      const tpl = engine.style.ui?.templates?.loading;
+      const tpl = engine.ui.templates.loading;
       el.innerHTML = tpl ? tpl({ title: t }, { esc }) :
         `<div class="threedog-loading-box"><div class="threedog-loading-title">${esc(t)}</div><div class="threedog-loading-track"><div class="threedog-loading-bar"></div></div><div class="threedog-loading-msg"></div></div>`;
       engine.uiRoot.appendChild(el);

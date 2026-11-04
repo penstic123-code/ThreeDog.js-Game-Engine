@@ -1,10 +1,10 @@
 // Vegetation module factory: engine.use(vegetation(...)) installs two modules. 'vegetation' (data: species, placement, tree collision,
-// felled trees; Vegetation.js) and 'vegetationLook' (instanced meshes, wind, fade, LOD; look.js, slot 'vegetation-look').
-// Why two: collision, paths and felling read only the data, so engine.use(myPlants, { replaces: 'vegetation-look' }) swaps every pixel
+// felled trees; Vegetation.js) and 'vegetationDraw' (instanced meshes, wind, fade, LOD; draw.js, slot 'vegetation-draw').
+// Why two: collision, paths and felling read only the data, so engine.use(myPlants, { replaces: 'vegetation-draw' }) swaps every pixel
 // of the plants and keeps all of play.
 import { readParams, keysSchema } from '../../core/params.js';
 import { Vegetation } from './Vegetation.js';
-import { VegetationLook } from './look.js';
+import { VegetationDraw } from './draw.js';
 import { codedError } from '../../core/errorHints.js';
 
 const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
@@ -29,7 +29,7 @@ const VEG_PARAMS = keysSchema(OPTS, { chunkSize: 32, viewChunks: 3, density: 1, 
  */
 export function vegetation(opts = {}) {
   readParams('vegetation', VEG_PARAMS, opts);
-  let v = null, own = null, cols = null, ready = null, look = null;
+  let v = null, own = null, cols = null, ready = null, drawPart = null;
   const data = { name: 'vegetation', type: 'world', provides: ['vegetation'], label: 'Vegetation', params: VEG_PARAMS, options: opts, stage: 'ground', after: ['terrain', 'level'], optional: ['terrain', 'level'],
     install(e) {
       e.i18n.add({ 'zh-CN': { 'module.vegetation': '植被' }, en: { 'module.vegetation': 'vegetation' } });
@@ -53,12 +53,12 @@ export function vegetation(opts = {}) {
     describe(e, ctx) { if (own) ctx.out.perf.vegetation = { loaded: own.stats.loaded, visible: own.stats.visible, queued: own.stats.queued }; },
     dispose(e) { own?.dispose(); cols?.remove(); ready?.remove(); v?._view?.remove(); v?._planter?.remove(); } };
   const lookModule = {
-    // the same vegetation({...}) call (its options are the data part's; the look reads the species' define() options)
-    name: 'vegetationLook', type: 'look', label: 'Vegetation look', params: VEG_PARAMS, options: opts, requires: ['vegetation'], provides: ['vegetation-look'], stage: 'effects',
-    install(e) { e.i18n.add({ 'zh-CN': { 'module.vegetationLook': '植被外观' }, en: { 'module.vegetationLook': 'vegetation look' } }); look = new VegetationLook(e, v); return look; },
-    frame() { look.updateFade(); },
-    describe() { return { chunks: look?.meshes.size ?? 0 }; },
-    dispose() { look?.dispose(); look = null; },
+    // the same vegetation({...}) call (its options are the data part's; the draw part reads the species' define() options)
+    name: 'vegetationDraw', type: 'picture', label: 'Vegetation drawing', params: VEG_PARAMS, options: opts, requires: ['vegetation'], provides: ['vegetation-draw'], stage: 'effects',
+    install(e) { e.i18n.add({ 'zh-CN': { 'module.vegetationDraw': '植被外观' }, en: { 'module.vegetationDraw': 'vegetation drawing' } }); drawPart = new VegetationDraw(e, v); return drawPart; },
+    frame() { drawPart.updateFade(); },
+    describe() { return { chunks: drawPart?.meshes.size ?? 0 }; },
+    dispose() { drawPart?.dispose(); drawPart = null; },
   };
   return [data, lookModule];
 }

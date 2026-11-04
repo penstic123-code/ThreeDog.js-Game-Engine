@@ -1,12 +1,15 @@
 import { codedError } from '../core/errorHints.js';
-// UI theme and default CSS in <head> (part of ui/UI.js): the --threedog-* variables from style.ui, the engine's base classes, module
-// defaults, the style's css and fonts. The classes use only var(--threedog-*), never a color of their own.
-/** @import { StyleUI } from '../types/style' */
+// UI theme and default CSS in <head> (part of ui/UI.js): the --threedog-* variables from createEngine({ ui: { theme } }), the engine's base classes, module
+// defaults, the game's css. The classes use only var(--threedog-*), never a color of their own.
+/** @import { UIOptions } from '../types/core' */
 
+// The one set of picture variables every default part reads (table for games: recipes/26-ui-parts.md "Reskin"). The HUD values default to the main ones, not
+// to grays of their own: a game that set bg / fg / accent got every window in its picture and a gray HUD, which read as "the engine UI cannot be reskinned"
 const DEFAULT_UI = {
   bg: 'rgba(28,28,30,.92)', fg: '#ededed', muted: '#a0a0a0', accent: '#d0d0d0', good: '#c8c8c8', line: 'rgba(255,255,255,.15)',
-  font: 'system-ui,"PingFang SC","Microsoft YaHei",sans-serif', radius: '12px', loadingBg: '#202022', shadow: '0 20px 60px rgba(0,0,0,.35)',
-  fadeBg: '#000', hudBg: 'rgba(28,28,30,.75)', hudFg: '#ededed', hudAccent: '#d0d0d0',
+  font: 'system-ui,"PingFang SC","Microsoft YaHei",sans-serif', radius: '12px', radiusSmall: '8px', loadingBg: '#202022', shadow: '0 20px 60px rgba(0,0,0,.35)',
+  fadeBg: '#000', hudBg: 'color-mix(in srgb,var(--threedog-bg) 82%,transparent)', hudFg: 'var(--threedog-fg)', hudAccent: 'var(--threedog-accent)',
+  shadowSmall: '0 1px 2px rgba(0,0,0,.6)',
 };
 
 const BASE_CSS = `
@@ -19,7 +22,7 @@ const BASE_CSS = `
 .threedog-win-head{margin:0 0 10px;font-size:16px;color:var(--threedog-accent);letter-spacing:.04em;display:flex;justify-content:space-between;
   align-items:center;gap:8px}
 .threedog-win-hint{color:var(--threedog-muted);font-weight:400;font-size:12px}
-.threedog-btn{background:none;border:1px solid var(--threedog-line);border-radius:8px;color:var(--threedog-fg);font:inherit;padding:4px 10px;cursor:pointer}
+.threedog-btn{background:none;border:1px solid var(--threedog-line);border-radius:var(--threedog-radius-small);color:var(--threedog-fg);font:inherit;padding:4px 10px;cursor:pointer}
 .threedog-btn:hover,.threedog-btn:focus-visible{border-color:var(--threedog-accent);outline:none}
 .threedog-ui .is-cursor{outline:2px solid var(--threedog-accent);outline-offset:1px}
 .threedog-close{border:0;color:var(--threedog-muted);font-size:13px}
@@ -35,9 +38,9 @@ const BASE_CSS = `
   .threedog-step.is-done{color:var(--threedog-good)}
 .threedog-toasts{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;flex-direction:column;
   gap:6px;align-items:center;z-index:35;pointer-events:none}
-.threedog-toast{background:var(--threedog-bg);border:1px solid var(--threedog-accent);border-radius:999px;
+.threedog-toast{background:var(--threedog-bg);border:1px solid var(--threedog-accent);border-radius:var(--threedog-radius-small);
   padding:6px 14px;animation:threedogIn .25s ease-out;transition:opacity .4s}
-.threedog-prompt{position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:6px 10px;border-radius:8px;background:var(--threedog-bg);
+.threedog-prompt{position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:6px 10px;border-radius:var(--threedog-radius-small);background:var(--threedog-bg);
   color:var(--threedog-fg);font:13px var(--threedog-font);cursor:pointer;z-index:15;white-space:nowrap}
 .threedog-prompt-hold{background:linear-gradient(90deg,var(--threedog-accent) calc(var(--progress,0)*100%),var(--threedog-bg) 0)}
 .threedog-dlg{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));
@@ -70,14 +73,14 @@ const BASE_CSS = `
 @media (prefers-reduced-motion:reduce){.threedog-toast{animation:none}}
 `;
 
-// <head> styles. Engine and module defaults go before every style's CSS, so style.ui.css wins ties of equal specificity
+// <head> styles. Engine and module defaults go before every game's CSS, so ui.css wins ties of equal specificity
 // whatever order modules inject their defaults in. Defaults are deduped by text and shared by every engine on the page (removed
-// with the last one); a pack's CSS, fonts and theme variables belong to their engine and go with its dispose().
+// with the last one); a game's CSS and theme variables belong to its engine and go with its dispose().
 const defaults = new Map();   // css text -> its <style>
-const live = new Set();       // engines whose style.ui is applied
+const live = new Set();       // engines whose ui picture is applied
 const kebab = k => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
 /**
- * Add default CSS (engine or module look, built only from var(--threedog-*)) once per page, ahead of the styles' CSS
+ * Add default CSS (engine or module picture, built only from var(--threedog-*)) once per page, ahead of every game's CSS
  * @internal
  */
 export function injectUICSS(css = '') {
@@ -89,19 +92,19 @@ export function injectUICSS(css = '') {
   }
 }
 /**
- * Apply an engine's style.ui: theme variables (--threedog-*) on engine.uiRoot and style.ui.css after every default. Fonts are asset names
- * (style.ui.fonts: ['pixel'], registered with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }) and loaded at start()),
- * then used in style.ui.font, e.g. '"pixel", system-ui'. The returned handle removes what it added (engine.dispose).
+ * Apply createEngine({ ui }): ui.theme as variables (--threedog-*) on engine.uiRoot and ui.css after every default. Fonts are asset names
+ * (ui.fonts: ['pixel'], registered with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }) and loaded at start()),
+ * then used in ui.theme.font, e.g. '"pixel", system-ui'. The returned handle removes what it added (engine.dispose).
  * @internal
  * @param {{ uiRoot: HTMLElement }} engine
- * @param {StyleUI} [ui]
+ * @param {UIOptions} [ui]
  * @returns {{ remove(): void }}
  */
-export function applyUIStyle(engine, ui = {}) {
-  checkFonts(ui);
+export function applyUITheme(engine, ui = {}) {
+  checkUiOptions(ui);
   live.add(engine);
   injectUICSS();
-  const t = { ...DEFAULT_UI, ...ui }, r = engine.uiRoot.style;
+  const t = { ...DEFAULT_UI, ...ui.theme }, r = engine.uiRoot.style;
   for (const k in t) if (typeof t[k] === 'string' || typeof t[k] === 'number') r.setProperty('--threedog-' + kebab(k), String(t[k]));
   const nodes = [];
   const add = (tag, props) => { const n = Object.assign(document.createElement(tag),
@@ -115,13 +118,16 @@ export function applyUIStyle(engine, ui = {}) {
     },
   };
 }
-// A style holds looks, never files (packages/engine/docs/recipes/09-style.md): a font file is an asset, so the style names it. The old forms carried
-// paths (fontFaces[].url, a fontCSS stylesheet URL) and are refused with the new form, so a pack cannot slip a file back in.
-function checkFonts(ui) {
-  if (ui.fontFaces || ui.fontCSS) throw codedError('ui-misuse', `style.ui.${ui.fontFaces ? 'fontFaces' : 'fontCSS'} is gone: a style names fonts, an asset pack holds the files. `
-    + "Register them with engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } }), then style.ui: { fonts: ['pixel'], font: '\"pixel\", " +
-      "system-ui' }");
-  if (ui.fonts != null && !(Array.isArray(ui.fonts) && ui.fonts.every(n => typeof n === 'string' && !/[/\.]/.test(n))))
-    throw codedError('ui-misuse', `style.ui.fonts must be a list of font asset names, got ${JSON.stringify(ui.fonts)}. Example: fonts: ['pixel'] with `
+// The picture keys sit beside the part names in createEngine({ ui }), so a wrong shape would otherwise do nothing or reach a part: refuse it with the right form.
+/** @param {UIOptions} ui */
+function checkUiOptions({ theme, css, fonts, templates }) {
+  const plain = v => v == null || (typeof v === 'object' && !Array.isArray(v));
+  if (!plain(theme)) throw codedError('ui-misuse', `ui.theme is an object of CSS values, got ${JSON.stringify(theme)}. Example: ui: { theme: { bg: '#1c140e', accent: '#e8a13a' } }`);
+  if (theme?.promptHeight != null) throw codedError('ui-misuse', `ui.theme.promptHeight is not a CSS value: the interaction prompt's height is interactions({ promptHeight: ${theme.promptHeight} })`);
+  if (css != null && typeof css !== 'string') throw codedError('ui-misuse', `ui.css is CSS text placed after every default, got ${typeof css}`);
+  if (!plain(templates)) throw codedError('ui-misuse', 'ui.templates is { windowName: (data, { esc, t, icon }) => html }');
+  // a font file is an asset, so the game names it here: a path would load nothing
+  if (fonts != null && !(Array.isArray(fonts) && fonts.every(n => typeof n === 'string' && !/[/\.]/.test(n))))
+    throw codedError('ui-misuse', `ui.fonts must be a list of font asset names, got ${JSON.stringify(fonts)}. Example: fonts: ['pixel'] with `
       + "engine.assets.manifest({ fonts: { pixel: '/fonts/pixel.woff2' } })");
 }

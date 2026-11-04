@@ -10,7 +10,9 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
   - `seed?: number` Placement seed, default 1
 
 ## Methods and properties
-- `vegetation.view(hooks: { species?, change?, ring?, show?, drop? }) → { remove(): void }` — Draw the plants: the hooks a look that replaces 'vegetation-look' uses. species(sp): defined or defined again (sp.source = the define() options); change(c, name): c.plants[name] placed, replaced or gone, or c.hidden[name] (felled slots) changed; ring(c, ring): LOD ring; show(c, visible); drop(c): released. What is already there is replayed at once. Returns { remove() } (ctx.track it). Example: `ctx.track(engine.vegetation.view({ change(c, name) { draw(c, c.plants[name]) }, drop(c) { undraw(c) } }))`
+- `vegetation.sway(spec: string | { glsl?, tsl?, uniforms? } | null)` — Replace the sway shape of every species whose wind is a number, planted ones too; a species with its own wind object keeps it. null gives the built-in sway back. GLSL defines void threedogWind(inout vec3 transformed, vec3 ip, vec3 position); tsl: (ctx) => the moved object-space position
+- `vegetation.color(spec: string | { glsl?, tsl?, uniforms?, pars? } | null)` — Code in the 'color' slot of every species' material, planted ones too (diffuseColor is yours); tsl: (ctx) => vec4 from ctx.color; null takes it off
+- `vegetation.view(hooks: { species?, change?, ring?, show?, drop? }) → { remove(): void }` — Draw the plants: the hooks a draw part that replaces 'vegetation-draw' uses. species(sp): defined or defined again (sp.source = the define() options); change(c, name): c.plants[name] placed, replaced or gone, or c.hidden[name] (felled slots) changed; ring(c, ring): LOD ring; show(c, visible); drop(c): released. What is already there is replayed at once. Returns { remove() } (ctx.track it). Example: `ctx.track(engine.vegetation.view({ change(c, name) { draw(c, c.plants[name]) }, drop(c) { undraw(c) } }))`
 - `vegetation.rebuild()` — Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically
 - `vegetation.setShadowRing(name: string, ring: number)` — Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default, larger = further and dearer). Takes effect at once; the define() option shadowRing is only the starting value. An unknown name warns with the known ones. Example: `engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk`
 - `vegetation.define(name: string, opts: VegetationOptions) → Species | Promise<Species>` — Define a kind of vegetation (a model name in model / lodGeometry: resolves first, so the result is a Promise of the species)
@@ -18,6 +20,9 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
 - `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — Restore one
 - `vegetation.instanceAt(position: PositionLike, opts?: { radius?, species? }) → VegetationHit | null` — The one nearest to position within radius meters (default 2) (species restricts to one kind), null if none
 - Also: `vegetation.get(name: string) → Species | undefined`, `vegetation.list() → Species[]`, `vegetation.isRemoved(species: string, cx: number, cz: number, id: number) → boolean`
+- Properties:
+  - `material: Material | null` The shared default material: species with no material or model of their own draw it, as given, planted ones too; null gives the neutral default back. Until set, reading gives the neutral source of each species' own copy (only .color written there reaches them all). Throws when a game module drew the plants instead (replaces: 'vegetation-draw').
+  - `patches: any[]` The engine's plant patches (season tint, sway with one amplitude, vegetation.color() code) for applyEffects(myMaterial, { patches })
 
 ## Data structures
 - **VegetationOptions** Parameters of engine.vegetation.define(name, {...})
@@ -27,7 +32,7 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
   - `rule?: VegetationRule` Placement rule (random scatter per chunk)
   - `positions?: number[][]` The game's own spots instead of the random scatter: [x, z], [x, z, scale] or [x, z, scale, yaw] in world metres / size multiplier / radians.
   - `densityMap?: ((x, z) => number) | { url?, data?, width?, height?, size, center?, … }` How much of this species survives at each spot, 0 (none) ..
-  - `wind?: number` Wind sway amplitude, 0 = still
+  - `wind?: number | { amplitude, glsl?, tsl?, uniforms? }` Wind sway amplitude, 0 = still; or this species' own sway: { amplitude, glsl, tsl, uniforms }, which vegetation.sway() leaves alone (recipes/36)
   - `nearOnly?: boolean` Only generated near the player (grass, flowers)
   - `maxRing?: number` No longer drawn beyond this many rings
   - `fade?: false | { start?: number; end?: number }` Distance fade of a near-only species (grass, flowers, pebbles, debris ...): instances shrink out over a band in metres from the player instead of popping per chunk at the ring edge. Default for nearOnly: end = maxRing x chunk size, start = 65% of it. `false` keeps the hard ring edge (also the default for species that are not nearOnly).

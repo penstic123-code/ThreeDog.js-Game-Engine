@@ -31,7 +31,7 @@ const glRT = new THREE.WebGLRenderTarget(W, H), gpuRT = new TG.RenderTarget(W, H
 /** A stand-in engine around one renderer and its own scene: what Effect / makeSystem read (renderer, camera, scene, add / remove, tier, uniforms) */
 const host = renderer => {
   const scene = new THREE.Scene();
-  return { renderer, scene, camera: cam, tier: 'high', uniforms: engine.uniforms, style: {}, assets: engine.assets,
+  return { renderer, scene, camera: cam, tier: 'high', uniforms: engine.uniforms, assets: engine.assets,
     add(o) { scene.add(o); return o; }, remove(o) { scene.remove(o); o.geometry?.dispose(); o.material?.dispose(); } };
 };
 const HGL = host(gl), HGPU = host(gpu);
@@ -127,7 +127,7 @@ window.fxParticles = async () => {
     out.weather[field] = r;
     for (const [h, s] of [[HGL, sa], [HGPU, sb]]) h.remove(s.object);
   }
-  // ---- errors by name: a style's own GLSL on WebGPU, and the TSL side not loaded
+  // ---- errors by name: a game's own GLSL on WebGPU, and the TSL side not loaded
   const tryIt = fn => { try { fn(); return 'no error'; } catch (e) { return String(e.message); } };
   const glsl = { vertex: 'void main(){ gl_Position = vec4(0.0); }', fragment: 'void main(){ gl_FragColor = vec4(1.0); }' };
   out.errors.glslGpu = tryIt(() => makeSystem(HGPU, 'ash', { glsl }, { area: 14, count: 10 }));

@@ -43,6 +43,7 @@ export async function play(dir, { page, stop, timeout = 90000 } = {}) {
   let p = await probe(dir), started = false;
   // a default-port server found by scanning may be another project's: it does not stop this workspace from starting its own; one named in dev.json does
   if (p.state === 'missing' && !p.scanned) return { ok: false, ...await diagnose(dir) };
+  if (p.busy) return { ok: false, ...await diagnose(dir) };   // alive but slow: a second server on top of it helps nobody
   if (p.scanned) p = { state: 'none' };
   if (p.state === 'none') {
     const srv = startServer(dir);

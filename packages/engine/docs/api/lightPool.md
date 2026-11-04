@@ -32,7 +32,7 @@ Light pool: many light sources, a fixed number of real lights (lightPool() modul
   - `target?: PositionLike | null` Spot aim: a position or an Object3D it follows; default straight down
   - `flicker?: ((time: number, index: number) => number) | null` Brightness factor each frame (time = presentation seconds, index = the source's number): (t, i) => 0.85 + 0.15 * Math.sin(t * 13 + i)
   - `glow?: Material | Object3D | null` Stand-in shown while the source has no real light: a halo Sprite / Mesh (its material's opacity) or an emissive material (emissiveIntensity) scaled from its value at add() down to 0 as the real light fades in. Give each source its own material
-  - `dusk?: boolean | number` Follow the time of day with look.materials.glow's daylight curve (shared): true = glow's default dusk, a number = the daylight (0..1; 0 = on only while daylight is 0) below which the source fades in. Off by day (its light goes to lit sources, its stand-in dims too). Default false: lit at any hour. Needs calendar() or sky()
+  - `dusk?: boolean | number` Follow the time of day on the curve of engine.uniforms.uNight: true = its default dusk, a number = the daylight (0..1; 0 = on only while daylight is 0) below which the source fades in. Off by day (its light goes to lit sources, its stand-in dims too). Default false: lit at any hour. Needs calendar() or sky()
 - **LightSourcePatch** What lightPool.add().set(patch) can change (type and castShadow are fixed when added)
   - `position?: PositionLike` New position, or an Object3D to follow
   - `name?: string`

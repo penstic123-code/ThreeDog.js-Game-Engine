@@ -108,7 +108,7 @@ export function createTerrain(userCfg = {}) {
     return (userType && userType(x, z, h, sl, NOISE)) ?? 'default';
   }
 
-  // a ground type the style gives no color: one flat neutral gray (no noise blend, no jitter)
+  // a ground type the game gives no color: one flat neutral gray (no noise blend, no jitter)
   const FALLBACK = [0.5, 0.5, 0.5], GRAY = [FALLBACK];
   const pal = names => names.map(n => PAL[n] || FALLBACK);
   const BCOL = {}; for (const k in cfg.biomeColors) BCOL[k] = pal(cfg.biomeColors[k]);
@@ -120,7 +120,7 @@ export function createTerrain(userCfg = {}) {
     return mix(cols || BCOL[naturalBiome(x, z, h, 1 - ny)] || GRAY, x, z, out);
   }
   const paintColor = (type, x, z, out) => mix(BCOL[type] || GRAY, x, z, out);
-  // Ground color variation (style.terrain.variation, plain data so it travels to workers): defaults are the original look.
+  // Ground color variation (terrain({ variation }), plain data so it travels to workers): defaults are the original picture.
   // blend: wavelength of the two-color noise; jitter: per-cell brightness grain; patches: optional large painterly color blocks
   const V = cfg.variation || {}, BL = V.blend || {}, JT = V.jitter || {}, PT = V.patches;
   const bFreq = BL.size ? 1 / BL.size : 0.03, bStrength = BL.strength ?? 1, jInv = JT.size ? 1 / JT.size : 3, jMin = JT.min ?? 0.92, jRange = JT.range ?? 0.12;

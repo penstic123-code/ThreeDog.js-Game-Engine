@@ -21,7 +21,7 @@ export const specs = [
         for (let i = 0; i < 60 && !(W.view('hs-a') && W.view('hs-b') && W.view('hs-g')); i++) { engine.step(0.05); await tick(); }
         const height = o => { let h = 0; o?.traverse(m => { if (m.isMesh) { m.geometry.computeBoundingBox(); h = Math.max(h, m.geometry.boundingBox.max.y - m.geometry.boundingBox.min.y); } }); return +h.toFixed(2); };
         const parts = o => { let n = 0; o?.traverse(m => { if (m.isMesh) n++; }); return n; };
-        const vegH = () => { const g = engine.vegetationLook?.kind('hsVeg')?.geometry; if (!g) return null; g.computeBoundingBox(); return +(g.boundingBox.max.y - g.boundingBox.min.y).toFixed(2); };
+        const vegH = () => { const g = engine.vegetationDraw?.kind('hsVeg')?.geometry; if (!g) return null; g.computeBoundingBox(); return +(g.boundingBox.max.y - g.boundingBox.min.y).toFixed(2); };
         const now0 = engine.clock.now, pos0 = p.toArray().join(','), before = { a: height(W.view('hs-a')), b: height(W.view('hs-b')), g: parts(W.view('hs-g')), veg: vegH() };
         const viewA = W.view('hs-a');
         // the edit: new functions under the same names (what the new module of assets.js brings)

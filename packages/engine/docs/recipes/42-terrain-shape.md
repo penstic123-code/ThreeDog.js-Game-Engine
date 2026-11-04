@@ -26,7 +26,7 @@ engine.events.on('terrain:void', ({ who }) => {   // fell off: the game decides 
 });
 ```
 
-Colors come from the style as usual: add `cliff` and `rock` to `style.terrain.biomeColors` (a name without a color is neutral gray).
+Colors come from `terrain({ biomeColors })` as usual: add `cliff` and `rock` (a name without a color is neutral gray).
 
 ## 2. The keys
 

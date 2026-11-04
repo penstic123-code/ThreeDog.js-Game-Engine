@@ -5,12 +5,12 @@
 //   engine.catalog('shop')      -> one module expanded: dependencies, ops with args / defaults / failure codes, saved parts, time model
 //   engine.catalog('shop.buy')  -> one op expanded (args schema, reasons, its last attempt)
 //   engine.catalog({ find: 'buy' }) -> the short list filtered by id, label, op or save name
+//   engine.catalog('post')      -> a capability that is no module (post chain, shadows): its entry names and what it holds now
 // Ownership: engine.use / module init take a snapshot of the op, save and describe names before and after (catalogSnap / catalogClaim);
 // what existed before the first engine.use is 'core', what appeared outside any module is 'game'. An op named '<module>.verb' or a save
 // part keyed by the module name belongs to that module even when registered later (from game code calling into the module).
 import { parseSchema, schemaInfo } from './params.js';
 import { ENGINE_PARAMS } from './Engine.js';
-import { lookCatalog, lookSummaries } from './look/report.js';
 
 const TIME_HOOKS = ['fixed', 'frame', 'afterRender', 'skip', 'afterLoad'];
 const MAX_API = 200;   // the dev bridge narrows this to what the api page lists (tools/threedog/catalog.mjs)
@@ -127,6 +127,17 @@ function looseEntry(e, id) {
     ...(id === 'core' ? { params: paramsOf({ name: 'core', params: ENGINE_PARAMS, options: e._createParams }) } : {}) };
 }
 
+// Not modules, but a reader asks for them the same way. Read live from the object, so nothing here can drift
+const CAPABILITIES = {
+  post: e => ({ describe: 'describe().render', facts: { antialias: e.post.antialias, ownedByGame: !e.post._own.on,
+    effects: e.post._list.map(h => ({ name: h.name, slot: h.slot, order: h.order, enabled: h.enabled, params: Object.fromEntries(Object.entries(h.params).map(([k, v]) => [k, toData(v)])) })) } }),
+  shadows: e => ({ describe: 'describe().picture', facts: { enabled: e.shadows.enabled, cascades: !!e.shadows.csm } }),
+};
+function capabilityEntry(e, id) {
+  const { describe, facts } = CAPABILITIES[id](e);
+  return { id, kind: 'capability', ops: [], saves: [], queries: { describe, extra: [], api: apiNames(e[id]) }, facts, problems: [] };
+}
+
 function summary(x) {
   const s = { id: x.id, kind: x.kind };
   if (x.label) s.label = x.label;
@@ -142,6 +153,7 @@ function summary(x) {
 function entries(e) {
   const out = [...e.modules.values()].map(m => moduleEntry(e, m));
   for (const id of ['core', 'game']) { const x = looseEntry(e, id); if (x.ops.length || x.saves.length || x.queries.extra.length) out.push(x); }
+  for (const id of Object.keys(CAPABILITIES)) if (e[id] && !e.modules.has(id)) out.push(capabilityEntry(e, id));
   return out;
 }
 
@@ -150,6 +162,7 @@ function entries(e) {
  * No argument: a short list (id, state, stage, op and save names, time model, problem count). A module id: that module expanded
  * (requires / optional, params with defaults and the values in use, ops with args schema and failure codes, saved parts and versions,
  * time hooks, describe fields and api names, problems such as "fixed hook but no skip hook"). An op name: that op expanded, with its last attempt.
+ * 'post' or 'shadows': that capability's entry names and what it holds now (effects in the chain, cascades on or off).
  * The dev bridge `threedog catalog [id]` prints the same data and adds the doc, recipe and source files.
  * @param {string | { find?: string }} [id]
  * @returns {any}
@@ -163,10 +176,10 @@ export function catalog(e, id) {
     if (e.modules.has(id)) return moduleEntry(e, e.modules.get(id));
     if (e.ops.defs.has(id)) return opInfo(e, id, true);
     if (id === 'core' || id === 'game') return looseEntry(e, id);
-    if (id === 'look' || id.startsWith('look.')) return lookCatalog(e, id);   // look parts (look/part.js): params with why / off, hooks, replace contract
+    if (id in CAPABILITIES && e[id]) return capabilityEntry(e, id);
     return null;
   }
-  const list = [...entries(e).map(summary), ...lookSummaries(e)];
+  const list = entries(e).map(summary);
   const q = id?.find?.toLowerCase();
   return q ? list.filter(s => [s.id, s.label, ...s.ops, ...s.saves].some(x => x?.toLowerCase().includes(q))) : list;
 }

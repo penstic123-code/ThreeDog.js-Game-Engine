@@ -19,7 +19,7 @@ export const specs = [
         check(`${k}: step() right after a renderOnce() in the same task draws its own camera`, x.stepAfter > 5, String(x.stepAfter));
         check(`${k}: photo.take() gives a real picture (canvas size, not one color)`, x.photo.w === 160 * 1.6 && x.photo.spread > 60, JSON.stringify(x.photo));
         check(`${k}: photo.take({ bloom: true }) leaves the game layer as it was and bloom back off`,
-          JSON.stringify(x.photoLook.after) === JSON.stringify(x.photoLook.before) && x.photoLook.bloomAfter === false, JSON.stringify(x.photoLook));
+          JSON.stringify(x.photoPicture.after) === JSON.stringify(x.photoPicture.before) && x.photoPicture.bloomAfter === false, JSON.stringify(x.photoPicture));
         check(`${k}: bakeProbes() runs: 4 probes, finite SH, the red wall shows (DC red > DC blue)`, x.probes.count === 4 && x.probes.finite && x.probes.red > x.probes.blue, JSON.stringify(x.probes));
       }
       check('control: with the node frame frozen the WebGPU route repeats the first picture (the bug renderOnce prevents)', r.control.changed < 1, JSON.stringify(r.control));

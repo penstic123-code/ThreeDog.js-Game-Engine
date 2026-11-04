@@ -1,19 +1,21 @@
 // Plain three.js lights are adopted (docs/plans/2026-11-03-slot-map.md, lights row): a `new THREE.PointLight` / `SpotLight` the game puts anywhere
 // in the scene gets what a lightPool light gets, without the game naming it to the engine:
 //   · counted: engine.budget categories `lights` (visible point + spot lights, pooled ones included: every one costs every lit pixel) and
-//     `shadowLights` (those casting, 0 while renderer.shadowMap.enabled is off); describe().render.lights lists the game's lights with the file:line that added them
+//     `shadowLights` (those casting, 0 while renderer.shadowMap.enabled is off); `shadowMaps` (every map the renderer draws, sun and cascades included, a point
+//     light six) and `shadowMapSize` (the largest side) carry no default limit: the game picks them, usually from engine.tier; describe().render.lights lists the game's lights with the file:line that added them
 //   · the idle-shadow rule: a shadow-casting light at intensity 0 stops redrawing its shadow map (a point light is six shadow passes a frame
 //     for a light that lights nothing) and redraws once it is lit again. This is the one setting of a game light the engine writes, so it is
 //     kept to what it took: only a light whose shadow.autoUpdate was on is idled; only a light the engine idled gets autoUpdate back; a
 //     game that writes autoUpdate itself while the light is idled (its own redraw plan) gets the light handed back and never idled again;
 //     light.userData.idleShadow = false opts one light out; describe().render.lights says shadowIdled: true while the engine holds one.
 //     Listed in threePatches as 'light-idle-shadow' (off() stops it for every light).
-// What stays the game's: color, intensity, distance, castShadow (turning shadows off is the renderer's switch, core/look/shadowPart.js), the shadow map size and bias. The engine never writes them (P1).
+// What stays the game's: color, intensity, distance, castShadow (turning shadows off is the renderer's switch, core/shadows.js), the shadow map size and bias. The engine never writes them (P1).
 // lightPool stays the optional helper for "many lamps, few real lights": that trade-off is a game decision the engine cannot guess.
 // Cost: a scene visitor (no walk per frame); per frame one loop over the shadow-casting game lights, usually zero to three.
 import { sceneVisitor } from './sceneDelta.js';
 import { moduleOwnerOf } from './things.js';
 import { notePatch, patchOn } from './threePatches.js';
+import { shadowMaps } from '../render/backend.js';
 
 const MANY = 8;   // same line as the dev warning in lightWatch.js: above it every lit material slows down first on mobile GPUs
 
@@ -38,6 +40,9 @@ export function watchGameLights(e) {
   const shown = l => { for (let p = l; p; p = p.parent) if (!p.visible) return false; return true; };
   e.budget.metric('lights', () => count(l => shown(l) && l.intensity > 0), { limit: MANY });
   e.budget.metric('shadowLights', () => e.renderer.shadowMap.enabled ? count(l => shown(l) && l.castShadow && l.intensity > 0) : 0);
+  const maps = () => shadowMaps(e.renderer, e.scene);
+  e.budget.metric('shadowMaps', () => maps().reduce((n, m) => n + m.faces, 0));
+  e.budget.metric('shadowMapSize', () => maps().reduce((n, m) => Math.max(n, m.shadow.mapSize.x, m.shadow.mapSize.y), 0));
   e._gameLights = {
     /** The game's own point / spot lights (not a module's, not a pool's) */
     list() { view.sync(); return [...game]; },

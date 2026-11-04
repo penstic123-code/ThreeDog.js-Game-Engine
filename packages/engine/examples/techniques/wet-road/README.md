@@ -39,7 +39,7 @@ leave streaks on it; every puddle fades out over a band of pixels; streaks are n
 
 | Approach | Cost | What it gets right | Where it breaks |
 |---|---|---|---|
-| Environment map (`look.env` sky) | free once set up | daytime sky in puddles and gloss at grazing angles | nothing local: lamps, windows, cars are missing; at night it is almost black |
+| Environment map (`scene.environment`; this example bakes its sky) | free once set up | daytime sky in puddles and gloss at grazing angles | nothing local: lamps, windows, cars are missing; at night it is almost black |
 | Real lights' specular (GGX) | free with lights you already have | exact highlight of each real light on low roughness | only real lights (a light pool has a handful), tiny on puddles, windows and signs are not lights |
 | three's `Reflector` on the ground plane | renders the scene twice | true mirror image of everything | flat plane only, mirror-sharp unless you blur it (more passes), doubles draw calls; too costly for a whole street |
 | Screen-space reflections | a full-screen pass, heavy on integrated GPUs | local reflections of what is on screen | nothing off screen (the sky, lamps above the frame), noisy on rough water, needs depth / normal buffers |
@@ -56,14 +56,15 @@ leave streaks on it; every puddle fades out over a band of pixels; streaks are n
 The parts that carry over to every route are the wetness-from-weather state, the shared mask, and placing reflections at the mirror point.
 
 ## The engine helper (optional convenience)
-`threedog examples pull wet-road` copies it. Only `wetRoad.js` is the technique (defaults in `WET_ROAD_DEFAULTS`); `main.js` is the demo scene,
-in a game change its import to `from 'threedog'`, then:
+`threedog examples pull wet-road` copies it. Only `wetRoad.js` is the technique (defaults in `WET_ROAD_DEFAULTS`); `main.js` and `picture/` are the
+demo scene and its picture, plain three.js. In a game:
 ```js
 const wet = createWetRoad(engine, { materials: [roadMaterial], bounds: [-5, -130, 5, 30] });
 wet.addStreak(lampHead.position, { color: 0xffc890, intensity: 1.6 });   // per emitter; .set({ intensity }) when it switches on / off
 ```
 - Surface: set `darken` per material family. The example darkens to `0.6` and caps roughness at `0.32`; lower `wetRoughness` is shinier and
-  more "just rained". By day give it an environment (`engine.look.env.replace('sky')`).
+  more "just rained". By day give it an environment: write `scene.environment` (`picture/sky.js` bakes its
+  sky through `PMREMGenerator`).
 - Puddles: world-space noise thresholded with `smoothstep(t - soft, t + soft, n)`; check with `mask=1`. Puddles grow in after the film is there
   (wetness above 0.35) and shrink first when drying. Multiply the mask by your own low-spot or rut texture for gutters and tire tracks.
 - Weather: the wetting rate scales with `weather.current.rain`; after rain the road stays wet for `dryDelay` seconds before drying over

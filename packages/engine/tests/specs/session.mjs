@@ -2,7 +2,8 @@
 // Each test is the reproducible acceptance flow for one of them; same format as the other files here.
 
 // describe() fields that move with real time or rendering, not with game state (camera: the view angle is not part of a playthrough yet; alive: ambient particles)
-const VOLATILE = /(^|\.)(fps|cpuMs|perf|budget|render|startup|tick|elapsed|frame|done|events|ops|recent|camera|rel|alive)(\.|$)/;
+// ambient: wind and water time keeps moving behind a freeze by design (core/time.js), so a real frame during newGame()'s freeze moves it on a slow machine; it is picture time, not game state
+const VOLATILE = /(^|\.)(fps|cpuMs|perf|budget|render|startup|tick|elapsed|frame|done|events|ops|recent|camera|rel|alive|ambient)(\.|$)/;
 
 export const specs = [
   {

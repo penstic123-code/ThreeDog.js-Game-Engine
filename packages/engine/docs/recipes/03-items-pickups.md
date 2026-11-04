@@ -1,8 +1,24 @@
 # Adding items and pickups
 
-**In this recipe**: 1. Write data · 2. In code · Single pieces · Limits · Using and dropping · The inventory window · Chests / corpses / shelves ·
+**In this recipe**: Pick and count · 1. Write data · 2. In code · Single pieces · Limits · Using and dropping · The inventory window · Chests / corpses / shelves ·
 3. Verify
 
+## Pick and count: meshes you built, no bag
+Shells on a beach, four kinds of flowers, letters to collect: things the player takes and a number goes up. `interactions()`, `hud()` and a key (`createEngine({ bindings: presets.bindings.interact })`: E) are enough:
+```js
+engine.hud.counter('shells', { label: 'Shells', value: 0, max: 4 });        // at setup, not on session:start
+shells.forEach((shell, i) => engine.interactions.add(shell, { id: `shell-${i}`, label: 'Pick up', once: true, counter: 'shells', onUse: () => engine.audio.sfx('pick') }));
+```
+`once` hides the mesh after a use (`onUse` returning `{ ok: false }` leaves it); `counter` adds 1 through `engine.hud.add(name, n)`, and does nothing without
+`hud()`. Both are saved and go back on a new game. The save knows a thing by `id`, else `mesh.name`: development throws when it has neither, or shares one with another once item.
+A hidden mesh is only hidden: a collider it had is yours to remove in `onUse`. To add up without a thing to take, call `engine.hud.add('score', 10)` yourself.
+
+| Use | When |
+|---|---|
+| `interactions.add(mesh, { once, counter })` | a mesh you already have, a number on screen, nothing to carry or spend |
+| `pickups.spawn` (below) | it goes in a bag, respawns, is taken by walking into it (`auto`), is laid out in `content/`, or a net host must decide who got it |
+
+## Items and pickups
 Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with the key the game gives:
 `inventory()`; its open key is the game's: `presets.bindings.inventory` is I / gamepad Y, `inventory: []` none; no module binds a key by itself) +
 `pickups()` (things lying on the ground; needs `world()`, which `openWorld()` includes) + `interactions({ ...presets.interactions.nearest })` (walk up
@@ -126,8 +142,13 @@ engine.ui.open('inventory'); engine.ui.close('inventory');   // open / close fro
 ```
 The shape of an item on the ground is a model name from an asset pack, built through the same path as content props and templates (one build per
 name, cached / baked, the same shadow rule): the item's `model`, else a model named `pickup:<item id>`, else one named `pickup`, else a neutral gray
-box. A generator that returns bare geometry is drawn in the `pickup` material role in the item's own `color` (a coin, a gem, a medkit or a paper
-note are all just models). `style.pickup` holds look values only (color, size of the placeholder box, lift). For one object of the game's own pass
+box. A generator that returns bare geometry is drawn with `engine.pickups.material` in the item's own `color` (a coin, a gem, a medkit or a paper
+note are all just models).
+```js
+engine.use(pickups({ color: 0xd8c070, size: 0.3, lift: 0.5 }));                         // default color, placeholder box, height above the ground
+engine.pickups.material = new THREE.MeshStandardMaterial({ metalness: 0.8, roughness: 0.3 });   // swaps every box and geometry-only model; used as given
+```
+A pickup or item with its own `color`, and a vertex-colored geometry, draw with a copy of that material carrying the color. For one object of the game's own pass
 `{ mesh }` (a three.js object cannot go into a save, so after loading it falls back to the item's model).
 To give / take items in content use the effect words: `{ give: { coin: 2 } }`, `{ take: { mushroom: 3 } }`; condition words:
 `{ has: { mushroom: 3 } }`, `{ lacks: { coin: 1 } }`.

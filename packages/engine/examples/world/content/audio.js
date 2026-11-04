@@ -1,4 +1,4 @@
-// How this game's sounds play, as content data (content.load reads the audio table): sounds are the game's, not the style's. Each rule names
+// How this game's sounds play, as content data (content.load reads the audio table): sounds are the game's. Each rule names
 // a sound asset (engine.assets.manifest({ sounds }): a file or a synth; the engine modules' own synths are registered under their names); anything omitted is silent.
 // Data only, so no functions: conditions compare measures (daylight from sky, rain / snow / wind from weather, nearWater / altitude from ambience).
 const step = surface => ({ src: 'footstep', params: { surface } });

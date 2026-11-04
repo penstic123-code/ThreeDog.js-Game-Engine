@@ -124,7 +124,7 @@ window.backendCases = async () => {
   const still = await shot(g, cam);
   U.uWind.value = 2;
   const sway = await shot(g, cam);
-  out.scene = { renderer: g.describe().renderer, mean: mean(still), sway: changed(still, sway), env: !!g.scene.environment };
+  out.scene = { renderer: g.describe().renderer, mean: mean(still), sway: changed(still, sway) };
   g.dispose();
   return out;
 };
@@ -179,7 +179,7 @@ window.shadowViewEnvCases = async (renderer) => {
   const sun = g.lights.sun; sun.castShadow = true; sun.position.set(4, 6, 2); sun.target.position.set(0, 0, 0);
   const step = () => g.step(1 / 60, { describe: false });
   step();
-  if (!g.scene.environment) {   // the baseline room map normally arrives with the first standard material; built here if it did not
+  if (!g.scene.environment) {   // no map by default; this check needs one
     const pm = new (renderer === 'webgpu' ? TG.PMREMGenerator : THREE.PMREMGenerator)(g.renderer);
     g.scene.environment = pm.fromScene(new THREE.Scene().add(new THREE.HemisphereLight(0xffffff, 0xffffff, 3)), 0.04).texture;
   }
@@ -216,7 +216,8 @@ window.shaderErrorCases = async () => {
   const out = {};
   try { applyEffects(new TG.MeshLambertNodeMaterial(), { clouds: false, patches: [{ name: 'oops', slot: 'position', tsl: c => c.nope.mul(2) }] }); }
   catch (e) { out.sync = { message: String(e.message).split('\n')[0], top: String(e.stack).split('\n')[1] ?? '' }; }
-  const g = make({ renderer: 'webgpu', lights: true }); await g.start(); g.pause();
+  const g = make({ renderer: 'webgpu', lights: true });
+  await g.start(); g.pause();
   const cam = new THREE.PerspectiveCamera(50, W / H, 0.1, 100); cam.position.set(0, 1, 4); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
   const errs = [], orig = console.error;
   console.error = (...a) => { errs.push(a.map(x => (x instanceof Error ? `${x.message}\n${x.stack}` : String(x))).join(' ')); };
@@ -230,7 +231,7 @@ window.shaderErrorCases = async () => {
     // code that runs fine but returns a node three cannot build (a null input, like a node made for another slot): the 'TSL:' log names
     // the patch and slot, then the material and mesh that now draw as three's plain stand-in
     const nul = applyEffects(new TG.MeshLambertNodeMaterial({ name: 'nullInput' }), { clouds: false,
-      patches: [{ name: 'wetLook', slot: 'color', tsl: c => { const n = c.tsl.mix(c.color, c.tsl.vec4(1), 0.5); n.cNode = null; return n; } }] });
+      patches: [{ name: 'wetPatch', slot: 'color', tsl: c => { const n = c.tsl.mix(c.color, c.tsl.vec4(1), 0.5); n.cNode = null; return n; } }] });
     const nb = new THREE.Mesh(new THREE.BoxGeometry(), nul); nb.name = 'nullBox'; g.scene.add(nb);
     out.nullPatch = await settle();
     nb.removeFromParent();
@@ -238,15 +239,15 @@ window.shaderErrorCases = async () => {
     const warns = [], warn = console.warn;
     console.warn = (...a) => { warns.push(a.map(String).join(' ')); };
     try {
-      g.look.post.add({ name: 'nullFog', slot: 'hdr', node: (input, { tsl }) => { const n = tsl.mix(input, tsl.vec4(1), 0.5); n.cNode = null; return n; } });
+      g.post.add({ name: 'nullFog', slot: 'hdr', node: (input, { tsl }) => { const n = tsl.mix(input, tsl.vec4(1), 0.5); n.cNode = null; return n; } });
       g.post.render(0.016); await new Promise(r => setTimeout(r, 300)); g.post.render(0.016);
       out.nullPost = errs.splice(0).join('\n');
-      g.look.post.set({ 'nullFog.enabled': false });
-      g.look.post.add({ name: 'loopFog', slot: 'hdr', node: (input, { tsl }) => {
+      g.post.get('nullFog').enabled = false;
+      g.post.add({ name: 'loopFog', slot: 'hdr', node: (input, { tsl }) => {
         const acc = tsl.vec4(0).toVar(); tsl.Loop(3, () => { acc.addAssign(input.mul(0.3)); }); return acc; } });
       g.post.render(0.016);
       out.loop = warns.join('\n');
-      g.look.post.set({ 'loopFog.enabled': false });
+      g.post.get('loopFog').enabled = false;
     } finally { console.warn = warn; }
     // code three cannot compile, inside a node program with an engine patch on it
     const bad = applyEffects(new TG.MeshLambertNodeMaterial({ name: 'broken' }), { clouds: false, wind: 0.2 });

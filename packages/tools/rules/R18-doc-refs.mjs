@@ -7,12 +7,15 @@
 //   2. `npm test -- name` (error): each name must be a substring of a real test name, any case (engine and game specs, tool tests, scenarios, pack items).
 //   3. `threedog cmd` / `npm run script` (error): a command of bin/threedog.mjs, or a script of the root / engine / template / game package.json.
 //   4. events `noun:action` (warn): in EventMap, a game's GameEvents, or emitted by game code.
-//   5. `engine.x.y` and `look.x` (error in the engine's docs/ and recipes, warn elsewhere): a property of the Engine type, then of its type
+//   5. `engine.x.y` (error in the engine's docs/ and recipes, warn elsewhere): a property of the Engine type, then of its type
 //      (TypeScript checker on the d.ts program shared with R6 / R7 / R22). Why an error there: an AI copies a name from those docs as a fact, and a
-//      renamed API must take its docs along in the same change. `look.x` is read as `engine.look.x` (the docs write the look parts without `engine.`).
+//      renamed API must take its docs along in the same change.
 //   6. free functions `name(` at the start of a span (warn): exported by the engine, named in any d.ts, declared in the doc set or game code,
 //      or a JS / DOM global. ```js blocks are type-checked by R13, so classes 4–6 skip them.
-// Known limits: names built at runtime and paths without an extension are not checked; class 6 accepts any name a d.ts mentions.
+//   7. links to `file.md#anchor` and `#anchor` (error): the target has that heading or an <a id>. Why: a recipe's section gets renamed and the link keeps sending readers nowhere.
+//   8. `look.<part>` (error, the MIGRATING pages aside): the placeholder form of an API that no longer exists, which class 5 reads as a placeholder and lets through.
+// Known limits: names built at runtime and paths without an extension are not checked; class 6 accepts any name a d.ts mentions; option keys are R13's job (js blocks only);
+//   `§` section numbers, chains after a call (`describe().x`: module names decide those), .js template comments, d.ts comments and error texts are not read.
 // False positives: ALLOW below ([doc or '*', token, reason]), `<!-- r18-ignore-line -->` on the line or the line before, or the words
 //   "engine repository" on the line (a pointer to a file that is not shipped). Every error carries a "did you mean" when one is close.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -184,8 +187,7 @@ function checkMembers(doc, item, ctx) {
   const out = [], { checker, engine, typeOf } = ctx.api;
   if (!engine) return out;
   const level = P.under(doc, P.DOCS_REL) ? 'error' : 'warn';
-  const text = item.text.replace(/(?<![\w.$])look\.(?=[a-z])/g, 'engine.look.');
-  for (const m of text.matchAll(/(?<![\w.$])engine\.([A-Za-z_$][\w$]*)(?:\??\.([A-Za-z_$][\w$]*))?/g)) {
+  for (const m of item.text.matchAll(/(?<![\w.$])engine\.([A-Za-z_$][\w$]*)(?:\??\.([A-Za-z_$][\w$]*))?/g)) {
     const [, a, b] = m;
     if (PLACEHOLDER.test(a) || (b && PLACEHOLDER.test(b)) || allowed(doc, `engine.${a}`)) continue;   // ALLOW: 'engine.crops' = an example module's member
     const sa = checker.getPropertyOfType(engine, a);
@@ -198,7 +200,7 @@ function checkMembers(doc, item, ctx) {
     const props = checker.getPropertiesOfType(t);
     if (!props.length || checker.getPropertyOfType(t, b)) continue;
     const near = closest(b, props.map(s => s.name));
-    // an open type (engine.look: modules add their own parts) accepts any name; only a near miss of a known one is a typo
+    // an open type accepts any name; only a near miss of a known one is a typo
     if (checker.getIndexInfosOfType(t).length && !near) continue;
     out.push({ level, msg: `\`engine.${a}.${b}\` does not exist${near ? `; did you mean \`engine.${a}.${near}\`?` : ''}`,
       fix: `fix the name (the members are in api/${a}.md)` });
@@ -227,11 +229,26 @@ export function checkDoc(doc, text, ctx) {
   return out;
 }
 
+/** GitHub's heading anchor: lower case, punctuation gone, spaces to dashes */
+const slug = h => h.trim().toLowerCase().replace(/[`*]/g, '').replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+const anchorsOf = text => new Set([...[...text.matchAll(/^#{1,6}\s+(.+)$/gm)].map(m => slug(m[1])), ...[...text.matchAll(/<a\s+(?:id|name)="([^"]+)"/g)].map(m => m[1])]);
+
+/** Classes 7 and 8 on one doc's text */
+export function checkAnchors(doc, text, readFile = f => existsSync(f) ? readFileSync(f, 'utf8') : null) {
+  const out = [], lineAt = i => text.slice(0, i).split('\n').length;
+  for (const m of text.matchAll(/\]\(([^()\s#]*\.md)?#([^()\s]+)\)/g)) {
+    const target = m[1] ? readFile(resolve(dirname(abs(doc)), m[1])) : text;
+    if (target != null && !anchorsOf(target).has(decodeURIComponent(m[2]))) out.push({ level: 'error', file: doc, line: lineAt(m.index), msg: `link to ${m[1] ?? ''}#${m[2]}: no such heading or <a id>`, fix: 'point it at the section as it is named now' });
+  }
+  if (!/MIGRATING-/.test(doc)) for (const m of text.matchAll(/\blook\.<part>/g)) out.push({ level: 'error', file: doc, line: lineAt(m.index), msg: 'look.<part> no longer exists', fix: 'name what replaced it: MIGRATING-0.6.md lists each one' });
+  return out;
+}
+
 export default {
   id: 'R18', title: 'Names referenced in hand-written docs exist', game: true,
   async run() {
     const ctx = await context(), docs = docFiles(), out = [];
-    for (const d of docs) out.push(...checkDoc(d, read(d), ctx));
+    for (const d of docs) out.push(...checkDoc(d, read(d), ctx), ...checkAnchors(d, read(d)));
     out.note = `${docs.length} docs, ${ctx.tests.length} test names, ${ctx.events.size} event names`;
     return out;
   },

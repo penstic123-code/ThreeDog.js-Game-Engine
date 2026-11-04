@@ -24,23 +24,23 @@
 - Loved: (not written yet)
 - Not for this game: (not written yet)
 
-## Look and controls
+## Picture and controls
 <!-- Chosen with the user in the first session (see CLAUDE.md "First session"); nothing here is a default to keep silently. -->
-<!-- Optional: the one line the shot's look check reads a wish from (the table below is for people, it is not read). Words:
+<!-- Optional: the one line the shot's picture check reads a wish from (the table below is for people, it is not read). Words:
      bright, dark, high-contrast, low-contrast, saturated, muted, strong-light, dark-nights, bright-nights, no-glare, no-pitch-black. -->
-Look intent (optional): (none)
+Picture intent (optional): (none)
 
 | Item | Choice | Options (engine name) |
 |---|---|---|
-| Reference images | (not chosen) | 1-3 images or games whose look to aim for (art/reference/) |
-| Style | (not chosen) | the game's own style/ folder (empty now): palette, materials, sky, lights, post |
-| Ground shading | (not chosen) | smooth · texture (color map, clean color borders) · flat (one color per triangle, faceted) — `look.ground` · own three.js material / shader on the terrain mesh |
-| Character body | (not chosen) | gray capsule (prototype only, not a finished look) · procedural asset · own GLB from Blender — `{ model }` |
+| Reference images | (not chosen) | 1-3 images or games whose picture to aim for (art/reference/) |
+| Style | (not chosen) | the game's own picture/ folder (gray now): palette, materials, sky, lights, post |
+| Ground shading | (not chosen) | smooth · texture (color map, clean color borders) · flat (one color per triangle, faceted) — `engine.terrain.material` · own three.js material / shader on the terrain mesh |
+| Character body | (not chosen) | gray capsule (prototype only, not a finished picture) · procedural asset · own GLB from Blender — `{ model }` |
 | Asset sources | (not chosen) | per kind (ground and terrain textures, vegetation, characters, props and buildings, effects, sounds): you make or specify · you provide (anything you choose, from anywhere) · generated (procedural code or tools, you confirm) · mix. The AI recommends with reasons; it does not pick an asset library or someone else's style on its own |
-| Materials and palette | (not chosen) | colors per material role, lambert (matte) · toon (banded) · standard (PBR) · unlit · own three.js material / shader (`new THREE.*Material`, `ShaderMaterial`, `onBeforeCompile`) — `look.materials`, `look.surface` |
-| Sky and time of day | (not chosen) | fixed time or day/night cycle, sky colors, fog — `look.sky`, `look.fog`, sky presets · own three.js sky / fog (`look.sky.replace(mySky)`, `scene.fog`) |
-| Lighting and shadows | (not chosen) | sun strength and color, shadow type and softness — `look.lights`, `look.shadow`, `look.env` · own three.js lights (`scene.add`, direct writes) |
-| Post effects | (not chosen) | none · bloom · outline · ao · color grading — `look.post` · own three.js passes / shader (`look.post.replace([{ name, slot, create }])`) |
+| Materials and palette | (not chosen) | colors per material, lambert (matte) · toon (banded) · standard (PBR) · unlit · own three.js material / shader (`new THREE.*Material`, `ShaderMaterial`, `onBeforeCompile`) — `picture/materials.js` |
+| Sky and time of day | (not chosen) | fixed time or day/night cycle, sky colors, fog — `picture/` reading the signals (recipe 62), `scene.fog`, sky presets · own three.js sky (`engine.sky.replace(mySky)`) |
+| Lighting and shadows | (not chosen) | sun strength and color, shadow type and softness — `picture/lights.js` (recipe 62), `engine.shadows`, `engine.sky.environment` · plain three.js lights |
+| Post effects | (not chosen) | none · bloom · outline · ao · color grading — `engine.post.add` · own three.js passes / shader (`engine.post.add({ name, slot, create })`) |
 | Camera and controls | (not chosen) | follow (pointer lock or drag) · first person · top-down / rts · fixed · own camera and controls (recipe 21, sections 6-7) |
 
 ## Systems

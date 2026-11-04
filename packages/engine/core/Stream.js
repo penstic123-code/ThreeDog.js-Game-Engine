@@ -2,7 +2,7 @@
 // camera focus, a teleport destination)
 // and the result unloads when far from all of them. Ten thousand entries build only the nearby ones.
 // const h = engine.stream.add({ position: [40, 0, -20], radius: 8, build: () => makeHouse() }); // the object build returns is added to the scene automatically
-// engine.stream.setRadius(200); // how far from each stream source to build (meters); defaults to the terrain view distance, or the fog distance (look.fog far)
+// engine.stream.setRadius(200); // how far from each stream source to build (meters); defaults to the terrain view distance, or the signal uViewDistance
 // without terrain
 //   h.remove();                     // no longer needed (a built one is unloaded)
 // Stream sources (stream.player, stream.camera, stream.source(...), stream.teleport(...)) are the one list every distance-based loader reads: stream entries,
@@ -19,7 +19,6 @@ import { xzOf } from './math.js';
 import { reportError } from './errors.js';
 import { codedError } from './errorHints.js';
 import { Source, SOURCE_KEYS, SOURCE_STRINGS } from './streamSources.js';
-import { fogFarOf } from './sceneMethods.js';
 
 const KEYS = ['position', 'radius', 'build', 'dispose', 'keep', 'priority'];
 const FULL = { detail: 'full' };
@@ -58,7 +57,7 @@ export class Stream {
   }
   /** The build radius actually in use, in meters @returns {number} */
   get activeRadius() {
-    return this.radius ?? this.engine.ground.viewRange?.() ?? fogFarOf(this.engine);   // the ground's view range (terrain sets it), else the fog distance
+    return this.radius ?? this.engine.ground.viewRange?.() ?? this.engine.uniforms.uViewDistance.value;   // the ground's view range (terrain sets it), else the view-distance signal: not the fog, which is the game's
   }
   /** @internal Key 'cx,cz' of the cell containing (x, z) (hlod shares the same grid) @param {number} x @param {number} z @returns {string} */
   cellKey(x, z) { return Math.floor(x / this.cellSize) + ',' + Math.floor(z / this.cellSize); }

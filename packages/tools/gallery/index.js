@@ -2,7 +2,7 @@
 // so a person or an AI reviews all assets at once instead of hunting them in the world. Open it with ?gallery=1 on the dev page (the vite preset
 // injects the import), or `threedog gallery [-w game]`; `threedog gallery --shots` writes one PNG per asset per light (headless, the same page).
 // The light setups are lighting only and neutral on purpose (white-ish sun high, sun low, sky only): they test how an asset reads under
-// different light, they are not a look. The tone mapping and exposure are copied from the game's renderer, so colors match what the game shows.
+// different light, they are not a picture. The tone mapping and exposure are copied from the game's renderer, so colors match what the game shows.
 // It draws with its own renderer on its own canvas: the game's renderer, scene and state are untouched (the game is paused while open).
 // That renderer is a WebGPURenderer when the game draws with one or an asset carries a node material (WebGLRenderer cannot draw TSL),
 // else a WebGLRenderer. Each grid cell is a 2D canvas the picture is copied into, so both renderers fill the grid the same way.

@@ -88,22 +88,21 @@ export const specs = [
     },
   },
   {
-    name: 'INSPECT-SCENE-MATERIAL 材质来源：makeMaterial 记 materialSource，inspect.scene 给出 colorPath 和 tint 提示',
+    name: 'INSPECT-SCENE-MATERIAL inspect.scene 给出 colorPath 和 tint 提示，分得清引擎做的和游戏做的',
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
         const E = engine, THREE = E.THREE; E.pause();
-        const a = E.makeMaterial('zz-role', { color: '#3b5168' }), tex = new THREE.Texture();
+        const a = new THREE.MeshLambertMaterial({ color: '#3b5168' }), tex = new THREE.Texture();
         const b = new THREE.MeshBasicMaterial({ color: 0x3b5168, map: tex }); b.name = 'tinted';
         const ma = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), a), mb = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), b); ma.name = 'zz-a'; mb.name = 'zz-b';
         E.scene.add(ma, mb);
         const res = E.inspect.scene({ limit: 5000 }), ia = res.items.find(i => i.name === 'zz-a').material.info[0], ib = res.items.find(i => i.name === 'zz-b').material.info[0];
         E.scene.remove(ma, mb); E._resume();
-        return { src: a.userData.materialSource, ia, ib, render: res.render };
+        return { ia, ib, render: res.render, engineMade: res.items.some(i => i.material?.info?.some(m => m.from === 'engine')) };
       });
-      check('makeMaterial 记 materialSource（role / from / keys）', r.src.role === 'zz-role' && ['call-params', 'pack-spec', 'default'].includes(r.src.from) && r.src.keys.includes('color'), JSON.stringify(r.src));
       check('colorPath 说明 color 与 vertexColors；没有 map 时无 tint 提示', /color #3b5168/.test(r.ia.colorPath) && /vertexColors off/.test(r.ia.colorPath) && !r.ia.notes);
-      check('map 且 color 非白 → colorPath 写 map x color，并给 note（不是错误）', /map x color #3b5168/.test(r.ib.colorPath) && r.ib.notes?.length === 1 && r.ib.from.startsWith('unknown'));
+      check('map 且 color 非白 → colorPath 写 map x color，并给 note（不是错误）', /map x color #3b5168/.test(r.ib.colorPath) && r.ib.notes?.length === 1 && r.ib.from === 'game' && r.ia.from === 'game' && r.engineMade);
       check('结果带 renderer 行（复用 describe().render）', /^renderer:/.test(r.render ?? ''));
     },
   },

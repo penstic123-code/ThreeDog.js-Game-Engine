@@ -80,7 +80,7 @@ const conceptHit = (text, c) => {
   const split = camelSplit(text);
   let b = 0;
   // a split part is half a word of a code name (the time of uTimeOfDay), a little weaker than a word in prose, so one uniform name does not beat the line that says "time of day"
-  for (const { a, k } of c.alts) { const h = Math.max(hit(text, a), split ? hit(split, a) * 0.9 : 0) * k; if (h > b) b = h; if (b === 1) break; }
+  for (const { a, k } of c.alts) { const h = Math.max(hit(text, a), split ? hit(split, a) * 0.75 : 0) * k; if (h > b) b = h; if (b === 1) break; }
   return b;
 };
 /** Words of the query found in the text (each counts once; used where a plain count is enough: which section of a recipe to open) */
@@ -93,7 +93,7 @@ const isRule = l => /^\|[\s|:-]+\|?$/.test(l);
 /**
  * Table rows and numbered conventions of a doc (header rows and rules skipped). Only a table whose first header names plain three.js
  * ("You write (plain three.js)", "three.js idiom") gives plain three.js entries; the other tables and the numbered conventions name engine
- * APIs used with three.js (engine.rigid.addBox, engine.terrainLook.meshes...), so they are labelled 'engine + three.js' and never get the plain-first rank.
+ * APIs used with three.js (engine.rigid.addBox, engine.terrainDraw.meshes...), so they are labelled 'engine + three.js' and never get the plain-first rank.
  */
 function plainRows(file, where, out) {
   if (!existsSync(file)) return;
@@ -170,7 +170,10 @@ export function docEntries(docsDir) {
       if (m[1] === '#') h1 = m[2];
       let snip = ''; for (let j = i + 1; j < lines.length && !/^#/.test(lines[j]); j++) if (lines[j].trim() && !lines[j].startsWith('```') && !lines[j].startsWith('|')) { snip = lines[j]; break; }
       const sec = /^(\d+)\./.exec(m[2]);
-      out.push({ src: 'recipe', title: m[2], h1, where: `recipes/${f}${m[1] === '#' ? '' : sec ? ` §${sec[1]}` : ` "${m[2]}"`}`, snip, name: m[2].replace(/^\d+\.\s*/, ''), text: m[2] + ' ' + snip, head: m[1] === '#' ? '' : h1,
+      // snip is shown but only some of it ranks: an "In this recipe" list names every section, so the top of a recipe would outrank the section that
+      // answers; a bullet speaks for one item of a list, so one word in an example ("one street lamp shot out") would decide for the whole section
+      const ranks = !/^\*\*In this recipe\*\*|^\s*[-*] /.test(snip);
+      out.push({ src: 'recipe', title: m[2], h1, where: `recipes/${f}${m[1] === '#' ? '' : sec ? ` §${sec[1]}` : ` "${m[2]}"`}`, snip, name: m[2].replace(/^\d+\.\s*/, ''), text: ranks ? m[2] + ' ' + snip : m[2], head: m[1] === '#' ? '' : h1,
         at: `recipes/${f}${m[1] === '#' ? '' : '#' + slug(m[2])}`, para: paragraph(lines, i + 1), body: sectionText(lines, i + 1) });
     });
   }
@@ -187,7 +190,9 @@ export function search(docsDir, q, max = 5) {
   const N = all.length;
   // rarity counts the typed word (and its stem) only, not its synonyms: a group joins slow, fps and perf, and counting the whole group would make a rare word like fps "common"
   const own = c => ({ alts: c.alts.filter(x => x.k > 0.8) });
-  qt.w = qt.concepts.map(c => Math.log(1 + N / (1 + all.reduce((n, e) => n + (conceptHit(e.text, own(c)) > 0 ? 1 : 0), 0))));
+  // a typed word the docs never use but whose synonym they do (rainy, rain) falls back to the group: alone it would count as the rarest word there is and be reported as unknown
+  const entriesWith = c => all.reduce((n, e) => n + (conceptHit(e.text, c) > 0 ? 1 : 0), 0);
+  qt.w = qt.concepts.map(c => Math.log(1 + N / (1 + (entriesWith(own(c)) || entriesWith(c)))));
   const total = qt.w.reduce((a, b) => a + b, 0) || 1;
   all.forEach((e, order) => {
     const s = score(e.text, qt) * (e.src === 'AI.md' || e.src === 'entry' ? 1.2 : 1) + (e.head ? score(e.head, qt) * 0.5 : 0);
@@ -211,9 +216,10 @@ export function search(docsDir, q, max = 5) {
       at: open?.at ?? e.where.replace(/ (§\d+\w*|".*")$/, ''), para: open?.para ?? '' });
     if (out.length >= max) break;
   }
-  // say so when the match is weak: when the best entry covers less than a third of the query's weight (a long query has ten words, covering half is hard, and a half threshold calls right answers 'not found'), mark it weak; the CLI then says no good match before listing the closest, so an AI does not take a filler result as the answer
-  const best = hits[0]?.cov ?? 0;
-  out.weak = out.length > 0 && best < Math.min(1 / 3, 2 / qt.concepts.length); // long queries: two words' weight is already a lead
+  // say so when the match is weak: when the listed hits together cover less than a third of the query's weight (a long query has ten words, covering half is hard, and a half threshold calls right answers 'not found'), mark it weak; the CLI then says no good match before listing the closest, so an AI does not take a filler result as the answer
+  // the verdict reads the whole list, not the first line: a query's words often sit in different rows, and judged on one row alone a small rewording of that row turned a right answer into "no match"
+  const listed = hits.slice(0, max), cover = qt.concepts.reduce((s, c, i) => s + Math.max(0, ...listed.map(h => conceptHit(h.e.text, c))) * qt.w[i], 0) / total;
+  out.weak = out.length > 0 && cover < Math.min(1 / 3, 2 / qt.concepts.length); // long queries: two words' weight is already a lead
   out.unknown = qt.concepts.filter((c, i) => qt.w[i] >= Math.log(1 + N) - 1e-9).map(c => c.word); // words that appear nowhere in the docs
   out.closestRow = hits.find(h => h.e.src === 'AI.md')?.e.title ?? '';
   return out;

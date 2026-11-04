@@ -1,4 +1,4 @@
-// The dev panel's build plumbing (@threedog/tools/panel, the style workbench + tune folders):
+// The dev panel's build plumbing (@threedog/tools/panel):
 //   · 'virtual:threedog/tweakpane' is the game's own tweakpane (an optional dev package: npm i -D tweakpane), or `export const Pane = null`
 //     when it is not installed, so the panel says so in the page instead of failing the import
 //   · a production build replaces '@threedog/tools/panel' with a stub that only warns, so no shipped bundle contains the panel or tweakpane,

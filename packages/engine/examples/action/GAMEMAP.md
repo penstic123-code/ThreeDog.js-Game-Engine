@@ -27,7 +27,7 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 - calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
-- characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
+- characters: `node_modules/threedog/docs/recipes/13-animation.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - interactions: `node_modules/threedog/docs/recipes/20-content-actions-save.md` · `node_modules/threedog/docs/api/interactions.md`
 - inventory: `node_modules/threedog/docs/recipes/03-items-pickups.md` · `node_modules/threedog/docs/api/inventory.md`
@@ -55,9 +55,12 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 12 |  |
 | content/templates.js | 11 |  |
 | content/views.js | 7 |  |
-| look.js | 6 | This example's look, its whole style (createEngine({ style: look })): the colors models.js reads. L… |
-| main.js | 135 | @ts-check Action example: one room, one player, one slime, one drop. Shows how an action game wires… |
-| models.js | 27 | Models this example builds in code (floor, wall, pillar, enemy), registered by name through assets.… |
+| main.js | 136 | @ts-check Action example: one room, one player, one slime, one drop. Shows how an action game wires… |
+| models.js | 25 | Models this example builds in code (floor, wall, pillar, enemy), registered by name through assets.… |
+| picture/index.js | 14 | @ts-check The action room's picture: wiring only. No sky.js: the engine's dome is what shows beyond… |
+| picture/lights.js | 36 | @ts-check Sun or moon and the ambient, from the signals. The ambient's sky half follows the engine'… |
+| picture/materials.js | 9 | @ts-check Materials by name. Module level, because models.js is an asset generator that `npm run ch… |
+| picture/palette.js | 34 | @ts-check The action room's palette: every color and key value of the picture, one copy; the other … |
 
 ## NPCs (content/npcs.js)
 
@@ -127,5 +130,4 @@ Code that breaks saves or manages world models: none (rule R33).
 
 ## Style keys
 
-- Style: none (all neutral fallback look)
 - Models (asset names): floor, wall, pillar, enemy

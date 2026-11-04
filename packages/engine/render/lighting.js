@@ -1,4 +1,4 @@
-// The `lighting` surface patch and the toon ramp. Extra, optional light shaping on three's lit materials (lambert, phong, standard, toon).
+// The `lighting` patch (applyEffects(mat, { lighting })) and the toon ramp (rampTexture). Extra, optional light shaping on three's lit materials (lambert, phong, standard, toon).
 // three has no "shadow color": a shadow just removes the sun's light. The patch therefore works after the lights are summed (lights_fragment_end):
 // it re-reads the first directional light (three sorts shadow-casting lights first, so that is the sun) and its shadow-map value for this
 // pixel, and shapes the result from them. Limits: one directional light is considered (point / spot lights are untouched); wrap does not
@@ -51,8 +51,8 @@ const SUN = `float threedogSunShadow(){
  */
 
 /**
- * The `lighting` patch (see MaterialLighting in types/style.d.ts). With `glsl` your function replaces the built-in shaping.
- * @internal use materialSpec.lighting, style.lighting or applyEffects(mat, { patches: [lightingPatch(opts)] })
+ * The `lighting` patch. With `glsl` your function replaces the built-in shaping.
+ * @internal use applyEffects(mat, { lighting })
  * @param {LightingOptions} o
  * @param {string} [label]
  * @returns {import('./patches.js').ShaderPatch}
@@ -128,7 +128,7 @@ const rampCache = new Map();
 /**
  * The gradientMap of a toon material from `ramp` (grays or colors, dark to light) and `soften` (0 = hard bands, 1 = bands melt into each other).
  * Color entries tint the light of that band (a cool band in the shade); a gray number n is the light's strength there.
- * @internal
+ * @example new THREE.MeshToonMaterial({ color: 0x8aa0b0, gradientMap: rampTexture([0.35, 0.7, 1], 0.2) });
  * @param {(number | import('../types/common').ColorLike)[]} ramp
  * @param {number} [soften]
  * @returns {THREE.DataTexture}

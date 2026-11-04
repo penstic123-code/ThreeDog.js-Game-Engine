@@ -1,5 +1,5 @@
 // Settings menu text (Chinese, English) and layout CSS.
-// CSS uses only var(--threedog-*) variables, no colors or fonts; a style overrides these classes with style.ui.css.
+// CSS uses only var(--threedog-*) variables, no colors or fonts; a game overrides these classes with ui.css.
 
 export const STRINGS = {
   'zh-CN': {

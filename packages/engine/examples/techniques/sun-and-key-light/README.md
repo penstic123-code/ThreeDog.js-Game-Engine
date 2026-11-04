@@ -60,7 +60,7 @@ off once) and how much darker the shadowed areas are, with the light parameters 
 - Shadow: `renderer.shadowMap.type` (`BasicShadowMap`, `PCFShadowMap`, `VSMShadowMap`), `light.shadow.radius`, `shadow.blurSamples` (VSM),
   `shadow.mapSize`, `shadow.camera` bounds, `shadow.bias`, `shadow.normalBias`
   ([LightShadow](https://threejs.org/docs/#api/en/lights/shadows/LightShadow), [webgl_shadowmap_vsm](https://threejs.org/examples/#webgl_shadowmap_vsm)).
-- Large views: `CSM` from `three/addons/csm` ([webgl_shadowmap_csm](https://threejs.org/examples/#webgl_shadowmap_csm)).
+- Large views: `engine.shadows.cascades(light, { count: 3 })` (recipe 45).
 - Debugging the box: `CameraHelper(light.shadow.camera)` ([CameraHelper](https://threejs.org/docs/#api/en/helpers/CameraHelper)).
 
 ## Style routes
@@ -73,10 +73,11 @@ off once) and how much darker the shadowed areas are, with the light parameters 
 - **Noir / horror**: low or back key, very low fill, little color in the fill; the silhouette carries the scene.
 - **Pixel art**: `basic` shadows, hard and aliased on purpose, with a map sized so a texel matches the art's pixel.
 
-## The engine helper (optional convenience)
-`threedog examples pull sun-and-key-light` copies `keyLight.js` and this README into the game: `applyKeyFill(engine, route, { tint })` sets
-key and fill colors and strengths (owner `key-light`), `aimSun(engine, { elevation, azimuth, camera })` places the sun relative to the camera,
-`fitSunShadow(engine, { extent, biasCm, normalBias })` fits the box and converts the bias from centimeters.
+## The helper (optional convenience)
+`threedog examples pull sun-and-key-light` copies `keyLight.js` and this README into the game. It writes plain three.js on your own lights:
+`applyKeyFill({ sun, hemi, scene }, route, { tint })` sets key and fill colors and strengths, `aimSun(sun, { elevation, azimuth, camera })` places
+the sun relative to the camera, `fitSunShadow(sun, { extent, biasCm, normalBias })` fits the box and converts the bias from centimeters.
+`applyKeyFill` and `fitSunShadow` return `{ remove() }`, which writes back the values they found. The demo's own picture is in `picture/`.
 
 The three routes, side by side:
 
@@ -87,10 +88,10 @@ The three routes, side by side:
 | fill (hemi + env) | 0.35 + 0.1, blue | 1.5 + 0.3, pale gray-blue | 0.55 + 0.1, blue |
 | shadow | pcf, radius 1 | vsm, radius 14 | pcf, radius 2 |
 | measured ground lit : shadow (linear light) | about 4.3 : 1 | about 1.25 : 1 | about 1.9 : 1 |
-| look numbers (`threedog shot`) | luminance 0.60, contrast 0.07 | 0.63, 0.06 | 0.51, 0.12 |
+| picture numbers (`threedog shot`) | luminance 0.60, contrast 0.07 | 0.63, 0.06 | 0.51, 0.12 |
 
 The measured ratios are what this scene gives, not targets. The golden route has a lower ratio *on the ground* than noon (the key arrives at
-13°) and a much higher one on walls facing the sun. The light-number estimate in `main.js` (`ratio`) overstates every ratio because the room
+13°) and a much higher one on walls facing the sun. The light-number estimate in `picture/lights.js` (`ratio`) overstates every ratio because the room
 environment adds more fill than its intensity number suggests. `tint=0` is a neutral studio, `tint=1` a natural afternoon, `tint=1.5` a
 painterly or stylized look.
 
@@ -100,32 +101,29 @@ Shadow softness and cost (GPU path):
   or a smaller map. Cost grows little with radius.
 - `vsm` + `radius` + `blurSamples`: the softest, wide penumbras for overcast or stylized looks; a blur pass and float targets (the engine's
   rough estimate: 1.6x the pcf shadow pass). Can show light bleeding where two casters overlap.
-- This yard fits +-12 m, 1.2 cm per texel (the texel formula and the engine default are in recipe 52, "Atmosphere parts").
+- This yard fits +-12 m, 1.2 cm per texel (one texel is `2 x extent / mapSize`).
 - Cost scales with the casters drawn into the map (each shadow-casting light draws them once more) and the map's pixel count.
   `engine.budget.byTag()` and `threedog stress` show it for your scene; this example does not measure milliseconds.
 
-Cascades vs one fitted shadow: one fitted box (this example, `follow: false`, `extent` around the play area) is the sharpest and cheapest when
+Cascades vs one fitted shadow: one fitted box (this example, `extent` around the play area) is the sharpest and cheapest when
 the camera sees a bounded area: a room, an arena, a top-down board. A large open world with a free camera wants cascades (`?cascades=3`,
-`look.shadow.set({ cascades: 3, maxFar })`, recipe 45): sharp near the camera, coarse far away, at the cost of drawing the casters once per
+`engine.shadows.cascades(sun, { count: 3, maxFar })`, recipe 45): sharp near the camera, coarse far away, at the cost of drawing the casters once per
 cascade and a recompile when switched. Before adding cascades, try a smaller `extent` or `maxFar`.
 
 Lessons from real demos:
-- **Bias too large removed contact shadows.** The old sky bias was about 25 cm in world depth, so anything resting on the ground lost the
-  shadow at its base. The engine default is now about 2 cm (`bias: -0.00005` over a 420 m shadow depth), with `normalBias` (meters) doing
-  most of the work against acne. Try `?bias=25` and look at the small cube and ball: their shadows detach or vanish.
+- **Bias too large removes contact shadows.** A bias of about 25 cm in world depth takes the shadow off the base of anything resting on the
+  ground. About 2 cm is plenty here, with `normalBias` (meters) doing most of the work against acne. Try `?bias=25` and look at the small cube and ball: their shadows detach or vanish.
 - **Strong hemisphere + environment washes shadows out.** The shot check reports "shadows on but none measurable". Lower the fill
-  (`look.lights.set({ hemi })`, `env`) or the sky's ambient before blaming the shadow settings.
+  (`hemi.intensity`, `scene.environmentIntensity`) before blaming the shadow settings.
 - **A +-70 m shadow box blurs small objects in a compact scene.** Try `?extent=70`: the 10 cm cube's shadow turns into a smudge. Fit the box.
 
 Rules (correctness):
-- The engine's sky owns the sun, hemisphere, fog and shadow box. Change them through it: `engine.look.lights.set({ sun, hemi, env })`
-  (an override layer over the keyframes), `engine.look.shadow.set({...})`, `engine.look.sky.set({ backdrop })`. To aim the sun yourself,
-  take only its direction: `engine.look.lights.manual('sun.direction')`, then place `sun.position` relative to `sun.target`. A plain write
-  without `manual` also works but the engine warns that it stopped writing the value (recipe 52, the ownership table).
-- With the sky, a game that wants a fixed sun direction also wants `look.shadow.set({ follow: false })`, or the shadow box keeps moving
-  with `engine.focus` (here the box is centered on the yard).
-- `PCFSoftShadowMap` is gone in three 0.187 (three warns and uses PCF). Soft PCF edges come from `radius`; the engine's types are
-  `basic`, `pcf`, `vsm` (`look.shadow.set({ type })`). Switching the type recompiles every lit material: do it on a settings screen.
+- The lights are yours: `createEngine({ lights: false })`, your own `DirectionalLight` and `HemisphereLight`, nothing else writes them. A sun's
+  direction is `sun.position` relative to `sun.target`; keep the target in the scene (`scene.add(sun.target)`) so a moved target takes effect.
+- The shadow box centers on `sun.target`: a fixed sun over a compact scene keeps it there (here the yard); a moving player needs the target to follow.
+- After writing the box call `sun.shadow.camera.updateProjectionMatrix()`: three.js does not do it for a directional light.
+- `PCFSoftShadowMap` is gone in three 0.187 (three warns and uses PCF). Soft PCF edges come from `radius`; the types are
+  `BasicShadowMap`, `PCFShadowMap`, `VSMShadowMap` (`renderer.shadowMap.type`). Switching the type recompiles every lit material: do it on a settings screen.
 - `bias` is in the shadow camera's 0-1 depth, so its size in meters is `bias x (far - near)`. The page converts from centimeters:
   `bias = -cm / 100 / (shadow.camera.far - shadow.camera.near)`. `normalBias` is already in meters.
 - Do not name your page's URL parameters `time`, `view`, `weather`, `pos`, `season`, `state`, `save`, `wait` or `cutscene`: those are the

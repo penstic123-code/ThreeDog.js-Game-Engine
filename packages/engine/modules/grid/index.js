@@ -6,6 +6,7 @@
 // Where state lives (nothing is stored twice):
 //   placed things  -> world records with a `grid` field (saved by world); occupancy is an index rebuilt from them (world:add / change / remove / load)
 //   per-cell layers -> Layer maps, saved here under the save key 'grids' (version 2) as a per-cell diff against the authored cells (Layer.js)
+// Picture: grids({ ok, bad, previewOpacity, previewHeight, tiles, tileLift }) for the plain values, pv.material and layer.material for the three.js materials.
 // The index is the "don't go around it" check: in dev a record's grid field is frozen (editing it in place throws), writes outside ops
 // trigger the ops guard, and a record whose footprint overlaps another one is reported with the fix.
 import { Grid, MAIN, occKey } from './Grid.js';
@@ -41,9 +42,19 @@ const freeze = p => { Object.freeze(p.cell); Object.freeze(p.size); return Objec
  * @experimental
  */
 export class Grids {
-  /** @internal */
-  constructor(e) {
+  /**
+   * @internal
+   * @param {any} e
+   * @param {GridsOptions} o
+   */
+  constructor(e, o) {
     /** @internal */ this.engine = e;
+    /** Preview color where it can be placed, read when a preview is made @type {any} */ this.ok = o.ok;
+    /** Preview color where it cannot be placed, read when a preview is made @type {any} */ this.bad = o.bad;
+    /** Opacity of the preview box, read when a preview is made */ this.previewOpacity = o.previewOpacity;
+    /** Height of the preview box (meters), read when a preview is made */ this.previewHeight = o.previewHeight;
+    /** Tile colors by layer name, { layer: { field: color } } (first truthy field of a cell wins), read when a layer is made @type {Record<string, Record<string, any>>} */ this.tiles = o.tiles;
+    /** Height of tiles above the ground (meters), read when a layer is made */ this.tileLift = o.tileLift;
     /** @internal */ this._grids = new Map();
     /** @internal */ this._defs = new Map();
     /** @internal id -> { g, keys } */ this._byId = new Map();
@@ -131,16 +142,16 @@ export class Grids {
   }
   /**
    * Show where an item would go: the target cell under the pointer ('pointer', default), in front of the player ('front') or from your
-   * function, turned by the input action rotate (default name 'rotate'; the game binds it, e.g. presets.bindings.gridRotate; the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; style.grid.ok / bad override them).
-   * look: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own. place() runs grid.place with what is shown
+   * function, turned by the input action rotate (default name 'rotate'; the game binds it, e.g. presets.bindings.gridRotate; the engine binds no key itself), light when can() passes, dark otherwise (neutral tool colors; grids({ ok, bad }) override them).
+   * draw: false = no visual; (engine) => ({ update(view), hide(), dispose() }) = your own; pv.material is the default box's three.js material. place() runs grid.place with what is shown
    * @example engine.input.bind({ place: ['Mouse0'], ...presets.bindings.gridRotate });   // the game's own bindings
    *   const pv = engine.grids.preview({ grid: 'field', item: 'tower' });
    *   engine.onFrame(() => { if (engine.input.pressed('place')) { const r = pv.place(); if (!r.ok) toast(engine, engine.t('grid.' + r.code)); } });
-   * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotation?: number, look?: false | ((e: any) => any) }} opts
+   * @param {{ grid: string, item: string, from?: 'pointer' | 'front' | ((e: any) => any), rotate?: string | false, rotation?: number, draw?: false | ((e: any) => any) }} opts
    * @returns {{ cell: [number, number] | null, rotation: number, ok: boolean, code: string | null, rotate(n?: number): void, place(fields?: object): { ok: boolean, value?: any, code?: string }, remove(): void }}
    */
   preview(opts) {
-    readParams('grids.preview()', keysSchema(['grid', 'item', 'from', 'rotate', 'rotation', 'look']), opts);
+    readParams('grids.preview()', keysSchema(['grid', 'item', 'from', 'rotate', 'rotation', 'draw']), opts);
     return makePreview(this.engine, this, opts);
   }
 
@@ -148,11 +159,11 @@ export class Grids {
   _layerAdded(l) {
     const d = this._loaded?.[l.grid.name]?.[l.name];
     if (d) l.fromJSON(d);
-    const t = layerTiles(this.engine, l);
+    const t = layerTiles(this.engine, l, this);
     if (t) this._tiles.set(l, t);
   }
   /** @internal a layer's options changed after content created it: rebuild its tiles */
-  _retile(l) { this._tiles.get(l)?.dispose(); this._tiles.delete(l); const t = layerTiles(this.engine, l); if (t) this._tiles.set(l, t); }
+  _retile(l) { this._tiles.get(l)?.dispose(); this._tiles.delete(l); const t = layerTiles(this.engine, l, this); if (t) this._tiles.set(l, t); }
   /** @internal */
   _index(rec) {
     const p = rec.grid, g = this._grids.get(p.id);
@@ -223,19 +234,37 @@ export class Grids {
   }
 }
 
+// tool colors, not art: neutral defaults that still tell the two apart (light = can place, dark = cannot)
+const GRID_PARAMS = {
+  ok: { type: 'any', default: 0xe0e0e0, desc: 'preview color where it can be placed' },
+  bad: { type: 'any', default: 0x3a3a3a, desc: 'preview color where it cannot be placed' },
+  previewOpacity: { type: 'number', default: 0.45, min: 0, max: 1, desc: 'opacity of the preview box' },
+  previewHeight: { type: 'number', default: 0.08, min: 0, desc: 'height of the preview box (meters)' },
+  tiles: { type: 'any', default: {}, desc: 'tile colors by layer name: { layer: { field: color } }, first truthy field of a cell wins; a layer named here draws tiles' },
+  tileLift: { type: 'number', default: 0.03, desc: 'height of tiles above the ground (meters)' },
+};
+/**
+ * Options of grids()
+ * @typedef {{ ok?: any, bad?: any, previewOpacity?: number, previewHeight?: number, tiles?: Record<string, Record<string, any>>, tileLift?: number }} GridsOptions
+ */
+
 /**
  * Grid placement module: installed as engine.grids. Needs world(). Adds the ops grid.place / grid.remove / grid.move and the save key 'grids' (layers).
+ * Options: ok, bad, previewOpacity, previewHeight (the preview box), tiles, tileLift (layer tiles). The materials are pv.material and layer.material.
  * @example engine.use(world(), grids())
+ * @example engine.use(world(), grids({ ok: 0x66dd88, bad: 0xdd5544, tiles: { soil: { watered: 0x5b3d2a, tilled: 0x8a6243 } } }))
+ * @param {GridsOptions} [opts]
  * @returns {import('../../types/core').ModuleDef<Grids>}
  * @experimental
  */
-export function grids() {
+export function grids(opts = {}) {
+  const o = readParams('grids', GRID_PARAMS, opts);
   let G = null, offOps = null;
   const subs = [];
   return {
-    name: 'grids', type: 'world', label: 'Grid placement', stage: 'gameplay', requires: ['world'],
+    name: 'grids', type: 'world', label: 'Grid placement', stage: 'gameplay', requires: ['world'], params: GRID_PARAMS, options: o,
     install(e) {
-      G = new Grids(e);
+      G = new Grids(e, o);
       e.i18n.add(TEXT);   // grid.<code> player text for every built-in failure code, and the rotate action's label
       e.saves.register('grids', { atomic: true, version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
       offOps = defineGridOps(e, G);

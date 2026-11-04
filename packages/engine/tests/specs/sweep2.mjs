@@ -56,7 +56,7 @@ export const specs = [
   },
   {
     // the cancel convention: whatever a game gets back to end something has remove(); stop / cancel / dispose are not a second way
-    name: '[guard] Sweep2: tween and say() handles end with remove() (no cancel / stop); a look part unregisters with remove()',
+    name: '[guard] Sweep2: tween and say() handles end with remove() (no cancel / stop)',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -66,8 +66,7 @@ export const specs = [
         await E.start();
         const tw = E.timeline.tween({ x: 0 }, { x: 1 }, { duration: 5 });
         const said = E.dialogue.say('hi', { channel: 'bubble' });
-        const part = Object.values(E.look)[0];
-        const out = { tw: [typeof tw.remove, 'cancel' in tw], say: [typeof said.remove, 'stop' in said], part: [typeof part?.author?.remove, typeof part?.dispose] };
+        const out = { tw: [typeof tw.remove, 'cancel' in tw], say: [typeof said.remove, 'stop' in said] };
         let tweenDone = null; tw.then(v => { tweenDone = v; }); tw.remove(); said.remove();
         await Promise.resolve(); await Promise.resolve();
         out.tweenDone = tweenDone;
@@ -76,7 +75,6 @@ export const specs = [
       });
       check('tween promise: remove() and no cancel()', r.tw[0] === 'function' && r.tw[1] === false, JSON.stringify(r));
       check('say() promise: remove() and no stop()', r.say[0] === 'function' && r.say[1] === false, JSON.stringify(r));
-      check('look part: author.remove(), no dispose() (it owns no GPU resource)', r.part[0] === 'function' && r.part[1] === 'undefined', JSON.stringify(r));
     },
   },
 ];

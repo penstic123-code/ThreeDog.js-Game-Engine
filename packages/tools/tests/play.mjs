@@ -14,7 +14,7 @@ const threedog = (...args) => new Promise(res => execFile(process.execPath, [CLI
 export async function run({ check }) {
   if (existsSync(join(ENGINE, '.threedog/dev.json'))) return;
   const st0 = await threedog('status');
-  check('status without a server names the cause and play as the next step', st0.code === 1 && /No dev server/.test(st0.out) && st0.out.includes('threedog play'), st0.out);
+  check('status without a server names the cause and play as the next step', st0.code === 1 && /No dev server|has no \.threedog\/dev\.json/.test(st0.out) && st0.out.includes('threedog play'), st0.out);
   const pl = await threedog('play');
   try {
     const st1 = await threedog('status');

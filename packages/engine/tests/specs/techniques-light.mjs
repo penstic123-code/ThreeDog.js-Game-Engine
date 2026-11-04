@@ -36,12 +36,12 @@ async function sunRoute(ev, wait, page, query) {
   await page.waitForFunction(() => window.engine?.ready && window.sunTest, null, { timeout: 120000 });
   return ev(src => { try {
     engine.step(0.2);
-    const read = (0, eval)(`(${src})`), T = window.sunTest, S = engine.lights.sun, d = S.position.clone().sub(S.target.position), h = Math.hypot(d.x, d.z), ax = -d.x / h, az = -d.z / h;
+    const read = (0, eval)(`(${src})`), T = window.sunTest, S = T.picture.sun, d = S.position.clone().sub(S.target.position), h = Math.hypot(d.x, d.z), ax = -d.x / h, az = -d.z / h;
     const edge = 1 / Math.max(Math.abs(ax), Math.abs(az)) + 0.45;   // 45 cm past the cube's edge, on its shadow side (the noon shadow reaches 65 cm)
     const pts = { open: [3.2, 0, 2.8], cubeShadow: [-2.6 + ax * edge, 0, -1.2 + az * edge] };
     for (let i = 1; i <= 80; i++) pts['s' + i] = [T.points.poleBase[0] + ax * i * 0.25, 0, T.points.poleBase[2] + az * i * 0.25];
     const at = read(pts, true);
-    return { at, sun: engine.lights.sun.intensity };
+    return { at, sun: S.intensity };
   } catch (err) { return { err: String(err.stack) }; } }, readLight.toString());
 }
 
@@ -86,7 +86,7 @@ export const specs = [
         return ev(async src => { try {
           await window.interiorTest.ready;
           engine.step(0.2);
-          return { at: (0, eval)(`(${src})`)(window.interiorTest.points), sun: engine.lights.sun.intensity, probes: (engine.describe().render.probes ?? []).reduce((n, p) => n + p.count, 0) };
+          return { at: (0, eval)(`(${src})`)(window.interiorTest.points), sun: window.interiorTest.picture.sun.intensity, probes: (engine.describe().render.probes ?? []).reduce((n, p) => n + p.count, 0) };
         } catch (err) { return { err: String(err.stack) }; } }, readLight.toString());
       };
       const none = await load('fill=none'), probes = await load('fill=probes');
@@ -97,7 +97,7 @@ export const specs = [
         JSON.stringify({ corner: gain('corner'), northWall: gain('northWall'), none: none.at, probes: probes.at }));
 
       const ex = await ev(() => { try {
-        const z = window.interiorTest.zone, start = z.exposure;
+        const z = window.interiorTest.picture.zone, start = z.exposure;
         engine.setCamera('fixed', { position: [6, 1.7, 12], lookAt: [0, 1.2, 0] });   // walk out of the door
         engine.step(0.1); const mid = z.exposure;
         for (let i = 0; i < 40; i++) engine.step(0.1);

@@ -42,6 +42,19 @@ export class Layer {
     /** @internal 'i,j' -> authored data (content/grids.js layers): what the save diffs against */ this._base = new Map();
     /** @internal the last save diff applied, so a baseline set after the load (content after the save) still gets it */ this._diff = null;
   }
+  /**
+   * The three.js material of this layer's tiles (null when it draws none: a data layer, tiles: false or your own part). Set it to swap the picture, used as given.
+   * Tile colors are vertex colors, so a material with vertexColors: true shows them; without it, its own color covers every tile.
+   * @example field.layer('soil').material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+   * @type {import('three').Material | null}
+   */
+  get material() { return this.grid._owner._tiles.get(this)?.mesh?.material ?? null; }
+  set material(m) {
+    const mesh = this.grid._owner._tiles.get(this)?.mesh;
+    if (!mesh) throw codedError('grids-misuse', `layer '${this.name}'.material: this layer draws no default tiles; give it a picture first: grid.layer('${this.name}', { tiles: true })`);
+    if (!m?.isMaterial) throw codedError('grids-misuse', `layer '${this.name}'.material takes a three.js material, got ${m}`);
+    mesh.material = m;
+  }
   /** @internal */
   _guard(what) { DEV && this.grid.engine.ops.guard(`grid layer ${this.grid.name}.${this.name}.${what}`); }
   /**

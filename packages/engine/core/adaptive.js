@@ -8,7 +8,7 @@
 // one-off costs that resolution cannot fix.
 //
 // shortcut: only the resolution is adjusted. A tier ladder (resolution -> shadows -> view distance -> vegetation) would hang off decide() below as
-// further steps once a game needs it; until then the other knobs stay the game's (settings / look.view).
+// further steps once a game needs it; until then the other knobs stay the game's (settings / engine.view).
 import { DEV, warnOnce } from './validate.js';
 
 const GRACE = 3;          // s after ready that are not judged (warm-up compiles, first uploads, stream fill)
@@ -37,7 +37,7 @@ export function adapt(e, dt, cost, compiled, gpuKnown) {
   if (!compiled) { a.costs.push(cost); a.gaps.push(dt * 1000); }
   if (a.t < WINDOW) return;
   const costs = a.costs, gaps = a.gaps; a.t = 0; a.costs = []; a.gaps = [];
-  // the game set renderer.setPixelRatio itself: adaptive resolution stops (core/owned.js); look.view.manual('pixelRatio', false) resumes it
+  // the game set renderer.setPixelRatio itself: adaptive resolution stops (core/owned.js); engine.view.manual('pixelRatio', false) resumes it
   e._oPixelRatio.check(); if (!e._oPixelRatio.on) return;
   if (!gaps.length) return;
   const gap = median(gaps), clustered = gaps.filter(g => Math.abs(g - gap) <= gap * LOCK_TOL).length >= gaps.length * 0.7;

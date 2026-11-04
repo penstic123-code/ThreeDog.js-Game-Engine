@@ -11,20 +11,20 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 
 ## Engine modules (engine.use)
 
-- createEngine: { bindings: { ...presets.bindings.debug }, style, saveKey: 'threedog-sheepisland', ui: { loading: { title: 's…
+- createEngine: { bindings: { ...presets.bindings.debug }, lights: false, saveKey: 'threedog-sheepisland', ui: { loading: { t…
 - openWorld preset ({ camera: fixedCamera(), terrain: island, water: false, rigid: false, ambience: false, calendar: { …) → world, terrain, vegetation, calendar, sky, weather, collision, characters, settings, debug
 - content
 
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
 
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
-- terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
-- vegetation: `node_modules/threedog/docs/recipes/10-blender-level.md` · `node_modules/threedog/docs/api/vegetation.md`
+- terrain: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/terrain.md`
+- vegetation: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/vegetation.md`
 - calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
-- weather: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/weather.md`
+- weather: `node_modules/threedog/docs/recipes/44-water-weather-hooks.md` · `node_modules/threedog/docs/api/weather.md`
 - collision: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/collision.md`
-- characters: `node_modules/threedog/docs/recipes/12-navmesh.md` · `node_modules/threedog/docs/api/characters.md`
+- characters: `node_modules/threedog/docs/recipes/13-animation.md` · `node_modules/threedog/docs/api/characters.md`
 - settings: `node_modules/threedog/docs/recipes/26-ui-parts.md` · `node_modules/threedog/docs/api/settings.md`
 - content: `node_modules/threedog/docs/recipes/30-templates.md` · `node_modules/threedog/docs/api/content.md`
 
@@ -46,11 +46,15 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/index.js | 7 |  |
 | content/props.js | 20 |  |
 | content/templates.js | 6 |  |
-| content/vegetation.js | 9 |  |
-| main.js | 77 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
+| content/vegetation.js | 11 |  |
+| main.js | 82 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
+| models.js | 49 | sheepisland procedural models: a round tree, a sheep, a wheat tuft. Built in code, no files; regist… |
 | params.js | 26 | URL parameters of the sheep island page. Import this file first in main.js: it rewrites word values… |
-| style/index.js | 80 | sheepisland: this game's style, LOOKS ONLY (recipes/09-style.md, 35-style-from-reference.md), fille… |
-| style/models.js | 60 | sheepisland procedural models: a round tree, a sheep, a wheat tuft. Built in code, no files; regist… |
+| picture/index.js | 21 | @ts-check The picture of sheep island: wiring only. Each part writes plain three.js from the signal… |
+| picture/lights.js | 35 | @ts-check Sun or moon and ambient, both from the day table in palette.js. |
+| picture/materials.js | 62 | @ts-check Materials by name. All matte Lambert with two shader additions: soft light (the wrap and … |
+| picture/palette.js | 61 | @ts-check Sheep island palette: every color and key value of the picture, one copy. A soft painted … |
+| picture/sky.js | 21 | @ts-check A flat painted backdrop: one color at every height, the same as the fog, so the island fl… |
 | views.js | 10 | Named camera positions of the sheep island. Same name = same framing every time, so two screenshots… |
 
 ## NPCs (content/npcs.js)
@@ -104,6 +108,5 @@ Code that breaks saves or manages world models: none (rule R33).
 
 ## Style keys
 
-- Style: none (all neutral fallback look)
 - Models (asset names): wheatTuft, roundTree, sheep
 - Vegetation (content/vegetation.js): wheat

@@ -36,15 +36,15 @@ for (const [x, y, c] of [[-2.5, 0, [4, 2, 0.6]], [0, 0.8, [0.8, 3, 4]], [2.5, -0
 const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 100); camera.position.set(0, 0, 7); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
 
 /**
- * A PostFX on its own renderer: a stand-in engine with that renderer, this scene / camera, its own ownership map and its own look points
- * (stacks + look): effects go in through look.post.add, whose records are shared points, and two PostFX on one registry cleared each other's
+ * A PostFX on its own renderer: a stand-in engine with that renderer, this scene / camera, its own ownership map and its own shared
+ * points: an effect's switch is a shared point, and two PostFX on one registry cleared each other's
  */
 function postOn(renderer, effects) {
   const e = Object.create(engine, { renderer: { value: renderer }, scene: { value: scene }, camera: { value: camera }, tier: { value: 'high' },
     _owned: { value: new Map(), writable: true }, look: { value: undefined, writable: true }, stacks: { value: null, writable: true } });
   e.stacks = new engine.stacks.constructor(e);
   const post = new PostFX(e, { antialias: false });
-  for (const fx of effects) post._look.part.add(fx);   // look.post.add, the one way in (on this PostFX's own look part)
+  for (const fx of effects) post.add(fx);
   return post;
 }
 const read = r => { const c = Object.assign(document.createElement('canvas'), { width: W, height: H }), x = c.getContext('2d', { willReadFrequently: true });
@@ -61,16 +61,16 @@ const thrown = f => { try { f(); return ''; } catch (err) { return String(err?.m
 /** Every node reachable from n (three's Node.traverse) */
 const nodesOf = n => { const out = new Set(); n.traverse(x => out.add(x)); return out; };
 
-// tests/specs/plain-three-adoption.mjs and one-post-entry.mjs: look.post.add, the one way in, on both backends (a Pass on WebGL, a node
+// tests/specs/plain-three-adoption.mjs and one-post-entry.mjs: post.add, the one way in, on both backends (a Pass on WebGL, a node
 // function on WebGPU, an effect { name, create, node } on both)
 window.postAddPass = async () => {
   const out = {};
   const pg = postOn(gpu, []), base = mean(shot(pg));
-  pg._look.part.add((input, { tsl }) => tsl.vec4(input.rgb.mul(0.25), input.a));   // keep alpha: a dimmed alpha reads back unpremultiplied
-  shot(pg); const dark = mean(shot(pg));   // the first frame after a chain change may still show the old pipeline
+  pg.add((input, { tsl }) => tsl.vec4(input.rgb.mul(0.25), input.a));   // keep alpha: a dimmed alpha reads back unpremultiplied
+  const dark = mean(shot(pg));
   out.gpu = { base: +base.toFixed(2), dark: +dark.toFixed(2), list: pg.list().map(e => `${e.name}:${e.slot}`) };
   // the leak (review 2026-11-03): remove() of a node effect must dispose what the engine built for it (bloom's mip targets)
-  const glow = pg._look.part.add((input, ctx) => input.add(ctx.display.bloom(input)), { name: 'glow' });
+  const glow = pg.add((input, ctx) => input.add(ctx.display.bloom(input)), { name: 'glow' });
   shot(pg);
   let freed = 0; const rec = pg.get('glow')?._impl, d0 = rec?.dispose, nBuilt = rec?.nodes?.length ?? 0;
   if (rec) rec.dispose = () => { freed++; d0.call(rec); };
@@ -83,15 +83,15 @@ window.postAddPass = async () => {
     node: (input, { tsl }) => tsl.vec4(input.rgb.mul(0.25), input.a) });
   out.both = {};
   for (const [k, r] of [['gl', gl], ['gpu', gpu]]) {
-    const q = postOn(r, []), b0 = mean(shot(q)); q._look.part.add(both()); shot(q); const on = mean(shot(q));
-    q._look.part.set({ dim: false }); shot(q); const off = mean(shot(q));
+    const q = postOn(r, []), b0 = mean(shot(q)); q.add(both()); shot(q); const on = mean(shot(q));
+    q.get('dim').enabled = false; shot(q); const off = mean(shot(q));
     out.both[k] = { base: +b0.toFixed(1), on: +on.toFixed(1), off: +off.toFixed(1) };
     q.dispose();
   }
   const pl = postOn(gl, []), copy = new ShaderPass(CopyShader);
-  pl._look.part.add(copy); shot(pl);
+  pl.add(copy); shot(pl);
   out.gl = { list: pl.list().map(e => `${e.name}:${e.slot}`), inChain: pl.object()?.passes.includes(copy) ?? false };
-  out.glNode = thrown(() => { pl._look.part.add(input => input); shot(pl); });
+  out.glNode = thrown(() => { pl.add(input => input); shot(pl); });
   pg.dispose(); pl.dispose();
   return out;
 };
@@ -202,12 +202,12 @@ window.postWebGPU = async () => {
   out.graph = { renderOutput: !!ro, bloomUnder: !!bloomNode && under.has(bloomNode), vigInGraph: all.has(vigU), vigAfter: !under.has(vigU), lutAfter: all.has(lutU) && !under.has(lutU) };
   // a number param writes its uniform: no rebuild
   const before = P.output;
-  p._look.part.set({ 'vignette.strength': 0.7 });
+  p.get('vignette').set({ strength: 0.7 });
   out.live = { same: p._pipe.output === before, value: vigU.value };
   // a game's three.js Pass (create only) on WebGPU fails by name with the node: form
-  out.onlyCreate = thrown(() => p._look.part.add({ name: 'myCopy', slot: 'ldr', create: () => new ShaderPass(CopyShader) }));
+  out.onlyCreate = thrown(() => p.add({ name: 'myCopy', slot: 'ldr', create: () => new ShaderPass(CopyShader) }));
   out.onlyCreateGone = !p.get('myCopy') && p._pipe.output === before;
-  out.glslFuse = thrown(() => p._look.part.add({ name: 'tintGL', slot: 'ldr', fuse: { glsl: 'color.rgb *= 0.5;' } }));
+  out.glslFuse = thrown(() => p.add({ name: 'tintGL', slot: 'ldr', fuse: { glsl: 'color.rgb *= 0.5;' } }));
   p.dispose();
 
   // ---------- a param the effect reads as a plain value (ctx.params on WebGPU, a constant baked at create() on WebGL, no update()): set() reaches
@@ -220,24 +220,24 @@ window.postWebGPU = async () => {
   const plain = renderer => {
     const q = postOn(renderer, [tint()]);
     shot(q); const dim = mean(shot(q));
-    q._look.part.set({ 'tint.amount': 0.5 });
-    shot(q); const lit = mean(shot(q));   // the first frame after a chain change may still show the old pipeline
+    q.get('tint').set({ amount: 0.5 });
+    const lit = mean(shot(q));
     q.dispose();
     return { dim: +dim.toFixed(2), lit: +lit.toFixed(2), ratio: +(lit / Math.max(1e-6, dim)).toFixed(3) };
   };
   out.plainParam = { gl: plain(gl), gpu: plain(gpu) };
 
-  // ---------- look.post.manual(): the engine stops rebuilding the chain (both backends); manual(false) rebuilds ----------
+  // ---------- post.own(): the engine stops rebuilding the chain (both backends); own(false) rebuilds ----------
   const manual = (renderer, read) => {
     const q = postOn(renderer, [vignette(), grain({ animated: false })]);
     q.render(0.016);
-    const L = q._look.part, was = read(q);
-    L.manual();
+    const was = read(q);
+    q.own();
     const writer = q.engine._owned.get('post.chain')?.info().writer;
-    L.set({ grain: false });   // a chain change while the game owns it
+    q.get('grain').enabled = false;   // a chain change while the game owns it
     q.render(0.016);
     const kept = read(q) === was;
-    L.manual(false);
+    q.own(false);
     const rebuilt = read(q) !== was;
     const r = { kept, rebuilt, writer };
     q.dispose();

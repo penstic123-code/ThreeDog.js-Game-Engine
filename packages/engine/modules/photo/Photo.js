@@ -1,4 +1,5 @@
-// Photo mode: a sharper shot, then restore. Resolution and shadow precision (with the sky module) rise for the one frame, so normal frame rate is unaffected.
+// Photo mode: a sharper shot, then restore. Resolution and the shadow maps of every casting DirectionalLight in the scene rise for the one frame, so normal
+// frame rate is unaffected. Why every one: the sun is usually the game's own light.
 // Bloom follows the game's post by default (bloom: null): a photo looks like the game; bloom: true / false forces it for the shot only.
 //
 // Taking a photo is the op photo.take (recipes/23-ops.md): the photo key, a game's shutter button, the dev bridge and tests all run it, and
@@ -14,8 +15,7 @@ import { builtInSounds } from '../../core/assetManifest.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { toast } from '../../ui/UI.js';
 import { coded } from '../../core/errorHints.js';
-import { setShadowUpdate } from '../../render/backend.js';
-import { shadowsOn } from '../../core/look/shadowPart.js';
+import { setShadowUpdate, shadowsOn } from '../../render/backend.js';
 const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
 
@@ -31,8 +31,9 @@ export class Photo {
   take(opts = {}) {
     readParams('photo.take()', keysSchema(TAKE_KEYS), opts);
     const o = { scale: this.scale, shadowMapSize: this.shadowMapSize, bloom: this.bloom, quality: this.quality, format: this.format, ...opts };
-    const e = this.engine, r = e.renderer, sky = e.sky;
-    const prevPR = r.getPixelRatio(), prevMap = sky?.shadowMapSize, prevBloom = e.post.get('bloom')?.enabled;
+    const e = this.engine, r = e.renderer;
+    const prevPR = r.getPixelRatio(), prevBloom = e.post.get('bloom')?.enabled, suns = [];
+    if (shadowsOn(e)) e.scene.traverse(l => { if (l.isDirectionalLight && l.castShadow && l.visible) suns.push([l, l.shadow.mapSize.x, l.shadow.mapSize.y]); });
     const pr = Math.min(3, prevPR * o.scale);
     const forceBloom = typeof o.bloom === 'boolean' && prevBloom !== undefined;
     let url, bloomHold = null;
@@ -40,15 +41,15 @@ export class Photo {
     // pixel ratio and shadow map size with photo's bloom hold still on
     try {
       r.setPixelRatio(pr);   // the post chain follows the renderer on its next draw (postWebGL.js follow)
-      if (shadowsOn(e) && sky) sky.setShadowMapSize(o.shadowMapSize);
-      // under its own owner, removed after the shot: the game layer keeps only what the game wrote (tests/specs/render-once.mjs)
-      bloomHold = forceBloom ? e.look.post.set({ 'bloom.enabled': o.bloom }, { owner: 'photo' }) : null;
-      setShadowUpdate(r, e.scene, { now: true });     // shadows may update only every few frames (sky's shadow.updateEvery); force an update on the photo frame
+      for (const [l] of suns) e.shadows.mapSize(l, o.shadowMapSize);
+      // a hold on the system layer, removed after the shot: the game's own choice stays what it was (tests/specs/render-once.mjs); a settings restriction still wins
+      bloomHold = forceBloom ? e.mod('post.bloom.enabled', { owner: 'photo', set: o.bloom, layer: 'system' }) : null;
+      setShadowUpdate(r, e.scene, { now: true });     // shadows may update only every few frames (engine.shadows.budget); force an update on the photo frame
       e.renderOnce();   // the frame the player sees, post included, read below in the same task; a fresh frame on WebGPU (engine.renderOnce)
       url = r.domElement.toDataURL(o.format, o.quality);
     } finally {
       r.setPixelRatio(prevPR);
-      if (shadowsOn(e) && sky) sky.setShadowMapSize(prevMap);
+      for (const [l, w, h] of suns) e.shadows.mapSize(l, w, h);
       bloomHold?.remove();
     }
     const p = e.actorPosition() ?? e.cameraRig?.focusPoint();   // where whoever the user controls stands (engine.actor)

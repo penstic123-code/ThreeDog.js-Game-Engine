@@ -11,7 +11,7 @@
 //     (assignment or .set / .copy…). present's update gets the model as its argument, so writes there are not flagged.
 //   Not flagged: any other callback (ops.define run, onFixed, onFrame, world.simulate / present, clock, sky, timeline, input, other events) and a
 //   line tagged `// runtime: <reason>` (the reason is required).
-//   The runtime checks (engine.thing registry, recipe 41) cover what a static pass cannot: whether an id is stable, whether an object will be saved,
+//   The runtime checks (engine.thing registry, recipe 40) cover what a static pass cannot: whether an id is stable, whether an object will be saved,
 //   deeper call graphs and helper modules that take engine as an argument.
 // Scope: game code (.js/.mjs) of the engine examples, the new-game templates and games/*; content/ folders, tests/, dist/ and bake.js are skipped.
 // Level: the same everywhere (examples, templates and games/*): error for the saved-whole and initial findings, warn for world models.
@@ -42,7 +42,7 @@ const CALLEES = [
 const VIEW = /\bworld\.view$/, ADD = /^(?:engine|e|this\.engine)\.add$|\bscene\.add$/;
 const XFORM = new Set(['position', 'rotation', 'scale', 'quaternion']);
 const VIEW_FIX = "world places this model on its record every frame (and tears it down when far), so the change is lost: change the record with "
-  + "ops.run('thing.set', { id, position }) or world.set / world.move, or write it in the present's update(rec, obj)";
+  + "ops.run('thing.set', { id, position }) or world.set / world.move, or write it in the present's update(rec, obj, dt), which runs right after the placing: picture-only motion (a leg swing, a stagger, a bob) goes there";
 
 const calleeText = call => call.expression.getText().replace(/\?\./g, '.').replace(/\s+/g, '');
 const lastName = expr => ts.isPropertyAccessExpression(expr) ? expr.name.text : ts.isIdentifier(expr) ? expr.text : null;

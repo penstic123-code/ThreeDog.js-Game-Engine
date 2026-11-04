@@ -165,7 +165,7 @@ export class Audio {
    * @param {(e: any) => number} fn
    * @returns {{ remove(): void }}
    * @example engine.audio.measure('danger', e => e.vars.counter('alarm') / 10);   // data: when: { danger: { gt: 0.5 } }
-   * Measures are not only for sound: render/lookGlow.js reads 'daylight' for night glow, so the calendar (or the sky without one) registers it once
+   * Measures are not only for sound: render/daylight.js reads 'daylight' for night glow, so the calendar (or the sky without one) registers it once
    * and nothing else has to know which module tells day from night. remove() drops only this registration (a later one under the name stays).
    */
   measure(name, fn) {

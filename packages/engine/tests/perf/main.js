@@ -7,18 +7,21 @@
 // window.bench.run(frames, { move }) → { cpuMs, renderMs, drawCalls, triangles, shadowRenders, shadowCalls, modules }
 // Under software rendering (cloud swiftshader) GPU time counts as CPU time, so use the numbers only for relative comparison.
 import * as THREE from 'three';
-import { createEngine, presets, Character, createTerrain, openWorld, world, interactions, dialogue, inventory, pickups, quests, timeline, triggers, particles,
-  hud, level, calendar, sky, weather, water, terrain, hlod, settings, makeMaterial, applyEffects, materialPatches, terrainMaterial, grids } from '../../index.js';
+import { patchesOf } from '../../render/patches.js';
+import { createEngine, presets, Character, characters, createTerrain, openWorld, world, interactions, dialogue, inventory, pickups, quests, timeline, triggers, particles,
+  hud, level, calendar, sky, weather, water, terrain, hlod, settings, rampTexture, applyEffects, materialPatches, terrainMaterial, grids } from '../../index.js';
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { SLOTS } from '../../render/slots.js';
 import { injectUICSS } from '../../ui/theme.js';
 import { toGLB } from '../../core/Baked.js';
+import { protoOf } from '../../core/namedModel.js';
+import { neutralMaterial } from '../../render/neutral.js';
+import { isEngineMade } from '../../render/patches.js';
 import { Assets } from '../../core/Assets.js';
-import { defineLookPart } from '../../core/look/part.js';
 import { NOISE_GLSL } from '../../render/effects.js';
-import { styleFrom } from '../../core/styleParts.js';
-import worldStyle from '../../examples/world/style/index.js';   // the world example's look and art (mode world draws that scene)
-import { models as worldModels, assets as worldArt } from '../../examples/world/art/index.js';
+import worldScene from '../fixtures/world-scene/index.js';   // the world example's picture and art (mode world draws that scene)
+import { models as sceneryModels, assets as sceneryArt } from '../../examples/world/art/index.js';
+const worldModels = sceneryModels, worldArt = sceneryArt;   // the art tests read these models on the body
 import * as postEffects from '@threedog/post-effects';
 const { outline } = postEffects;
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
@@ -118,7 +121,7 @@ if (mode === 'native') {
   };
   window.engine = { ready: true };   // "ready" signal for the test scripts
 } else {
-  const engine = window.engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests }, canvas, style: mode === 'world' ? { ...worldStyle, plugins: null } : {},   // world: without its bloom plugin (perf measures the scene)
+  const engine = window.engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.quests }, canvas,
     batching: q.get('batch') === '0' ? false : undefined,
     headless: mode !== 'city', ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false,
     saveKey: 'perf-' + mode });
@@ -134,11 +137,18 @@ if (mode === 'native') {
       const a = r * 0.37, x = Math.cos(a) * r, z = Math.sin(a) * r, h = T.surface(x, z);
       if (h > 4 && h < 10 && T.slope(x, z) < 0.2 && riverAt(x, z, T.noise) === 0) { home = { x, z }; break; }
     }
-    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: { ...terrainPreset(), ...(q.get('shading') && { shading: q.get('shading') }) }, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
+    const { config: worldGround, ...worldColors } = worldScene.terrain ?? {};   // the world example's ground, colors are terrain options
+    const mods = openWorld({ camera: 'follow', seed: 1337, terrain: { ...terrainPreset(), ...worldGround, ...worldColors, ...(q.get('shading') && { shading: q.get('shading') }) }, flatten: [{ x: home.x, z: home.z, radius: 22 }], time: 0.3, dayLength: 360,
       weather: presets.weather.temperate, debug: false, ambience: false });
     // The preset only builds the world; add back the gameplay modules it used to bundle so timings stay comparable with earlier runs (music stays off)
     engine.use(mods, interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), pickups(),
       quests(), timeline(), triggers(), particles(), hud());
+    // the world example's picture as plain writes, without its bloom (perf measures the scene)
+    engine.renderer.toneMapping = THREE.ACESFilmicToneMapping; engine.renderer.toneMappingExposure = worldScene.exposure;
+    engine.uniforms.uCloudShadow.value = worldScene.clouds.shadow;
+    const { clouds: worldClouds, ...worldSky } = worldScene.sky;
+    engine.pickups.material = new THREE.MeshLambertMaterial({ flatShading: true, emissive: 0x403418 });
+    skyLayers(engine, { ...worldSky, clouds: Object.fromEntries(Object.entries(worldClouds).filter(([k]) => k !== 'kind')) });
     const geo = m => [].concat(m).length > 1 ? worldModels[m[0]](...m.slice(1)) : worldModels[m]();
     for (const [name, v] of Object.entries(vegetationDefs)) {
       const { model, lod, ...rest } = v;
@@ -217,12 +227,16 @@ if (mode === 'native') {
 window.bench = bench;
 // a fake engine's assets for specs that build materials without an engine: the given texture() plus the real useTexture on top of it
 const fakeAssets = texture => ({ texture, useTexture: Assets.prototype.useTexture });
-// a real headless engine with this style for specs that test makeMaterial / terrainMaterial: look.materials is the one entry makeMaterial reads,
-// so a bare { style } object no longer stands in for an engine. assets: e.g. fakeAssets(texture), or null for "no asset loader"
-const engineWith = (style, assets) => {
-  const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'engine-with-' + performance.now(), style });
+// a real headless engine for specs that test applyEffects / terrainMaterial. assets: e.g. fakeAssets(texture), or null for "no asset loader"
+const engineWith = (_, assets) => {
+  const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'engine-with-' + performance.now() });
   if (assets !== undefined) e.assets = assets;
   return e;
 };
-window.threedogTest = { THREE, fakeAssets, engineWith, Character, makeMaterial, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, worldStyle, worldArt, worldModels, sky, calendar, styleFrom, postEffects, outline, ShaderPass, CopyShader, water, weather, terrain, Reflector, defineLookPart, world, grids, particles };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+// what a test wants of the sky: the dome layers
+function skyLayers(e, { layers = [] } = {}) {
+  layers.forEach((l, i) => e.sky.layer(l.name ?? `layer${i}`, l));
+  return e;
+}
+window.threedogTest = { THREE, patchesOf, skyLayers, fakeAssets, engineWith, Character, characters, protoOf, neutralMaterial, isEngineMade, rampTexture, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
+  injectUICSS, NOISE_GLSL, createTerrain, worldScene, worldArt, worldModels, sky, calendar, postEffects, outline, ShaderPass, CopyShader, water, weather, terrain, Reflector, world, grids, particles, pickups, triggers };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

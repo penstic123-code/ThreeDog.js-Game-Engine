@@ -337,14 +337,14 @@ export const specs = [
         const hidden = m.el.hidden && engine.describe().hud.markers.at(-1).visible === false;
         m.remove();
         await engine.applyState({ weather: 'rain' }); engine.step(0.1);
-        const w = engine.describe().weatherLook, named = !!engine.scene.getObjectByName('weather-rain')?.visible, text = engine.describeText();
+        const w = engine.describe().weatherDraw, named = !!engine.scene.getObjectByName('weather-rain')?.visible, text = engine.describeText();
         await engine.applyState({ weather: 'clear' }); engine.step(0.1);
-        const dry = engine.describe().weatherLook.rainVisible;
+        const dry = engine.describe().weatherDraw.rainVisible;
         return { nearestOk, dist: m.dist, want, hidden, rain: w.rainVisible, named, dry, text };
       });
       check('{ nearest: berry } points at the nearest berry', r.nearestOk, JSON.stringify({ dist: r.dist, want: r.want }));
       check('setTarget(function returning null) → hidden, describe shows visible=false', r.hidden);
-      check('rain: describe().weatherLook.rainVisible, object name weather-rain, state text says "on screen: raindrops"; false when clear', r.rain && r.named && r.dry === false && /on screen: raindrops/.test(r.text), JSON.stringify({ ...r, text: r.text.split('\n')[2] }));
+      check('rain: describe().weatherDraw.rainVisible, object name weather-rain, state text says "on screen: raindrops"; false when clear', r.rain && r.named && r.dry === false && /on screen: raindrops/.test(r.text), JSON.stringify({ ...r, text: r.text.split('\n')[2] }));
     },
   },
   // ---------- Seams (review 6.8): UI focus stack, trigger zone exit, freezing, repeated content load, load ----------

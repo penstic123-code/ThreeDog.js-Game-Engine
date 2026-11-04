@@ -84,7 +84,7 @@ const checkDigest = (out, max) => {
 };
 export const STATIC_TOOLS = {
   how: {
-    description: 'Which API, recipe or plain three.js way answers a task, from the docs alone (no game needed). Ask before building a system or a look; plain three.js hits come first.',
+    description: 'Which API, recipe or plain three.js way answers a task, from the docs alone (no game needed). Ask before building a system or a picture; plain three.js hits come first.',
     schema: { type: 'object', properties: { task: str('The task in English words, e.g. "tone mapping", "save game", "rain"') }, required: ['task'] },
     run: async (dir, a) => {
       // the same answer as `threedog how`: no match or a weak one says which typed words the docs never use and what to try (how.mjs tryNext)

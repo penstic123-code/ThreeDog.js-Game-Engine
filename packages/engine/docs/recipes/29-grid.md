@@ -40,7 +40,7 @@ player text of its own codes (zh-CN and en; override a line with `engine.i18n.ad
 `can` codes, need their own `grid.<code>` line through `engine.i18n.add`. `engine.explain({ grid: { grid: 'room', item: 'bed', cell: [4, 4] } }).text` says which cell
 and which record is in the way.
 A placed record looks like `{ id, kind, position, rot, ...fields, grid: { id: 'room', cell: [4, 4], size: [2, 1], rotation: 1, item: 'bed' } }`. Give
-it a look with `world.present(kind, ...)` as usual (`rot` is the yaw in radians).
+it a picture with `world.present(kind, ...)` as usual (`rot` is the yaw in radians).
 To build several things at once, call `grid.place` from your own op (`build.wall`), so each placement is still checked.
 
 **Occupancy is not saved separately.** `room.at(cell)` / `room.area(cell, size)` read an index built from the world records' `grid` field, so a save
@@ -80,10 +80,10 @@ Cells that exist from the start go in content: `content/grids.js` <!-- r18-ignor
 `plot: { cell: 1, origin: [20, 0], size: [8, 8], layers: { soil: [[3, 5, { tilled: true }]] } }` <!-- r18-ignore-line -->
 (or `grids.add(name, { layers })`). They are the baseline: a save keeps only cells changed from it, so editing the content later still reaches old saves.
 
-**Tiles.** The game gives a layer its colors: `plot.layer('soil', { tiles: { look: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
-(what the data means is gameplay, so no style ships these). A layer with tiles shows crisp per-cell quads just above the ground, following its
+**Tiles.** The game gives a layer its colors: `plot.layer('soil', { tiles: { color: d => d.watered ? 0x5b3d2a : d.tilled ? 0x8a6243 : null } })`
+(what the data means is gameplay, so the game writes these). A layer with tiles shows crisp per-cell quads just above the ground, following its
 height (slopes, ramps, level meshes).
-`tiles: { colors: { watered: 0x5b3d2a, tilled: 0x8a6243 } }` is the same as `look` from a table (first truthy field wins) and wins over a style's `style.grid.tiles`; `plot.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
+`tiles: { colors: { watered: 0x5b3d2a, tilled: 0x8a6243 } }` is the same as `color` from a table (first truthy field wins) and wins over the module's `grids({ tiles: { soil: { ... } } })`; `plot.layer('soil', { tiles: false })` turns them off; `{ tiles: true }` draws every non-empty cell gray; `lift` raises them; `{ tiles:
 (engine, layer) => ({ update(cells), dispose() }) }` is your own view. Options are read when the layer is first created.
 
 ## 4. Preview
@@ -100,8 +100,17 @@ The engine binds no key: the preview declares the action `rotate` (gone with the
 `engine.input.bind('rotate', ['KeyR'])`; pass `rotate: 'myAction'` to read another one, `false` for none. Without a binding the preview warns once and only `pv.rotate()` turns
 it. `pv.cell`, `pv.rotation`, `pv.ok`, `pv.code` (the `can` answer, `'noTarget'` with no cell, null when ok)
 are readable every frame.
-Colors come from `style.grid.ok / bad / previewOpacity`. `look: false` hides the default box; `look: (engine) => ({ update(view), hide(), dispose()
+Colors come from `grids({ ok, bad, previewOpacity, previewHeight })`. `draw: false` hides the default box; `draw: (engine) => ({ update(view), hide(), dispose()
 })` draws your own (`view = { cells, center, size, rotation, ok, code }`).
+
+## Materials
+```js
+engine.use(world(), grids({ ok: 0x66dd88, bad: 0xdd5544, previewOpacity: 0.6, tileLift: 0.05 }));
+plot.layer('soil').material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+pv.material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, depthWrite: false });
+```
+Both are plain three.js materials, used as given. Tile colors are vertex colors, so a tile material keeps `vertexColors: true` to show them; the default also has a polygon
+offset against the ground. The preview still writes ok / bad to its material's `color`. `layer.material` is null on a layer that draws no tiles, `pv.material` with `draw` off or your own.
 
 ## 5. Baked data vs state the player changes
 Anything the player can change in play must be runtime state, never baked into generated height or ground-type data: a tilled plot (farming), a dug or mined

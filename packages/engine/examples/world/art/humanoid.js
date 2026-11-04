@@ -1,26 +1,22 @@
 // The 'humanoid' body: the procedural character body, exported in the world example's asset pack (art/index.js `assets`), so a character picks it like any model:
-// createPlayer({ model: 'humanoid' }), npcs content { model: 'humanoid' }. It is an asset and not a style part because a body is content the
-// game chooses per character (a GLB hero next to procedural villagers), while a style only decides how things look.
-// Looks still come from the style: each part uses a material ROLE (skin / cloth / trousers / hair), so any style that defines those roles
-// tints and shades it (style: [style, { materials: { cloth: { color: 0x3a6ea5 } } }]; the world example's style/ gives all four); a role the
-// style leaves out is the neutral 'default' material. Per-character colors ({ colors: { body, skin, legs, hair } }) recolor the parts marked userData.part.
+// createPlayer({ model: 'humanoid' }), npcs content { model: 'humanoid' }. It is an asset and not part of the picture because a body is content the
+// game chooses per character (a GLB hero next to procedural villagers), while the picture only decides how things look.
+// Each part uses a material by name from picture/materials.js (skin / cloth / trousers / hair), so one change there retints every humanoid.
+// Per-character colors ({ colors: { body, skin, legs, hair } }) recolor the parts marked userData.part.
 // The rig (which object is the hips, which joints swing) is plain data by NAME in root.userData.rig, because names survive asset copies and
 // GLB export: Character reads it back (rigFromObject) and swings the limbs for walk / run / swim / jump.
 import * as THREE from 'three';
-import { makeMaterial } from '../../../index.js';
+import { mat } from '../picture/materials.js';
 
-// part (the key of a character's `colors`) -> material role
-const ROLE = { body: 'cloth', skin: 'skin', legs: 'trousers', hair: 'hair' };
+// part (the key of a character's `colors`) -> material name
+const MATERIAL = { body: mat.cloth, skin: mat.skin, legs: mat.trousers, hair: mat.hair };
 
 /**
  * Low-poly humanoid (cylinder body, icosahedron head, box limbs). Each joint is a named empty Group with the limb under it; rotating it swings
- * the limb. Joints armL / armR / legL / legR are exposed on the character (c.armL ...). Written with `function`: this = { palette, engine }.
- * @this {{ engine?: any } | undefined}
+ * the limb. Joints armL / armR / legL / legR are exposed on the character (c.armL ...).
  */
 export function humanoid() {
-  const engine = this?.engine, mats = {};
-  const mat = part => mats[part] ??= makeMaterial(ROLE[part], {}, engine);   // look.materials decides each role (style table, then the game's set / replace)
-  const mesh = (geo, part, name) => { const m = new THREE.Mesh(geo, mat(part)); m.castShadow = true; m.userData.part = part; m.name = name; return m; };
+  const mesh = (geo, part, name) => { const m = new THREE.Mesh(geo, MATERIAL[part]); m.castShadow = true; m.userData.part = part; m.name = name; return m; };
   const group = (name, parent, x, y) => { const g = new THREE.Group(); g.name = name; g.position.set(x, y, 0); parent.add(g); return g; };
   const root = new THREE.Group(); root.name = 'humanoid';
   const hips = group('hips', root, 0, 0.85);

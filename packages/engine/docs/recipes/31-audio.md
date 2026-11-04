@@ -9,10 +9,6 @@ Two places, one job each: **the asset manifest says what a sound is** (a file, o
 model), **`audio.sounds` says how it plays** (which sound or variants, volume, bus, cooldown...). Engine modules register their own synths
 (`footstep`, `shutter`, `thunder`, ambience's `wind` `rain` `water` `birds` `crickets`) as built-in sound assets that stay silent until a rule names them.
 ```js
-engine.assets.manifest({ name: 'sfx', sounds: {
-  door: '/sfx/door.ogg', hit1: '/sfx/hit1.ogg', hit2: '/sfx/hit2.ogg', shot: '/sfx/shot.ogg',
-  ding: (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; },   // a synth: connect to out, return seconds (or { stop(t) })
-} });
 const engine = createEngine({ canvas, audio: {
   levels: { music: 0.4, voice: 1 },                                   // volume per bus; an extra key (voice) adds a bus
   sounds: {
@@ -26,6 +22,10 @@ const engine = createEngine({ canvas, audio: {
   ambience: [ /* rule table, section 3 */ ],
   music: { tracks: { /* section 4 */ }, rules: [] },
   footsteps: { beach: 'step.sand', default: 'footstep' },             // section 5
+} });
+engine.assets.manifest({ name: 'sfx', sounds: {
+  door: '/sfx/door.ogg', hit1: '/sfx/hit1.ogg', hit2: '/sfx/hit2.ogg', shot: '/sfx/shot.ogg',
+  ding: (a, p, out) => { a.tone({ freq: 880 * p.pitch, dur: 0.2, out }); return 0.2; },   // a synth: connect to out, return seconds (or { stop(t) })
 } });
 ```
 Code may hold functions (a `volume: e => ...`); the same config as data goes in a content pack (section 8). A full working one:

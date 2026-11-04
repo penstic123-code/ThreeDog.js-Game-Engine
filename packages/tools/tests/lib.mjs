@@ -147,5 +147,24 @@ export async function run({ check }) {
       lsBroken.status === 1 && /^sparks /m.test(lsBroken.stdout) && /2 entries could not be read/.test(lsBroken.stdout)
       && /zz-bad-json \(entry\.json: /.test(lsBroken.stdout) && /zz-no-name \(entry\.json has no "name"\)/.test(lsBroken.stdout), lsBroken.stdout + lsBroken.stderr);
     check('list (API): the broken folders are not entries', !listEntries(lib).some(e => /^zz-/.test(e.name)) && listEntries(lib).length === 4, listEntries(lib).map(e => e.name).join());
+
+    // picture entries: one file from picture/ goes in, comes back under picture/ (a .glsl under picture/shaders/); a file with siblings is refused at add
+    const lib2 = join(tmp, 'library-picture'), gk = join(tmp, 'game-c');
+    put(join(gk, 'package.json'), '{"name":"game-c"}');
+    put(join(gk, 'picture', 'lights.js'), '/** Day and night light group */\nexport function makeLights(THREE) { return { update(s) { return s; } }; }\n');
+    put(join(gk, 'picture', 'bad.js'), "import { day } from './palette.js';\nexport function makeBad() { return day; }\n");
+    put(join(gk, 'picture', 'palette.js'), 'export const day = 1;\n');
+    put(join(gk, 'picture', 'shaders', 'flat.glsl'), 'void main() { gl_FragColor = vec4(1.0); }\n');
+    await addEntry('picture/lights.js', { game: gk, cwd: gk, lib: lib2, kind: 'picture', noPreview: true });
+    await addEntry('picture/shaders/flat.glsl', { game: gk, cwd: gk, lib: lib2, kind: 'picture', noPreview: true });
+    let sib = '';
+    try { await addEntry('picture/bad.js', { game: gk, cwd: gk, lib: lib2, kind: 'picture', noPreview: true }); } catch (x) { sib = x.message; }
+    check('picture: a file that imports a sibling is refused at add, naming the sibling; nothing is stored', /imports siblings/.test(sib) && /palette\.js/.test(sib) && !existsSync(join(lib2, 'bad')), sib);
+    const d = join(tmp, 'game-d');
+    put(join(d, 'package.json'), '{"name":"game-d"}');
+    await pullEntry('lights', { game: d, cwd: d, lib: lib2 });
+    await pullEntry('flat', { game: d, cwd: d, lib: lib2 });
+    check('picture: pull puts the file back under picture/ (.glsl under picture/shaders/), not plugins/ or art/',
+      readFileSync(join(d, 'picture', 'lights.js'), 'utf8').includes('makeLights') && existsSync(join(d, 'picture', 'shaders', 'flat.glsl')) && !existsSync(join(d, 'plugins')) && !existsSync(join(d, 'art')), [existsSync(join(d,'picture','lights.js')), existsSync(join(d,'picture','shaders','flat.glsl')), existsSync(join(d,'plugins')), existsSync(join(d,'art')), existsSync(join(d,'picture','flat.glsl'))].join());
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }

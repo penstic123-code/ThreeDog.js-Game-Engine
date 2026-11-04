@@ -1,11 +1,13 @@
 // Part of content validation (called by content-check.mjs): containers, vegetation, templates, props, renames. ctx holds the helper functions of the main file.
 import { pathToFileURL } from 'node:url';
-import { abs, CONTENT_IDS_REL, CONTENT_STAGES_REL } from '../paths.mjs';
+import { abs, CONTENT_IDS_REL, CONTENT_STAGES_REL, CONTENT_RULES_REL } from '../paths.mjs';
 
 // the engine's id formulas (index ids of pickups / template instances), so the ids checked here are the ids a load produces
 const { pickupId, templateId } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
 // the engine's stages rules: a stages list the engine would throw on is an error here, before the game runs
 const { stagesProblems } = await import(pathToFileURL(abs(CONTENT_STAGES_REL)).href);
+// the engine's collide rule: a value the load would refuse is an error here
+const { collideProblem } = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
 
 /** ctx: { c, items, err, checkModel, checkPos, isObj, known } */
 export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, known }) {
@@ -36,7 +38,8 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
     const m = [t?.model].flat()[0];
     if (!m) err('templates', `template ${name} has no model (the model name)`);
     else checkModel('templates', `template ${name}`, m);
-    if (t?.collide !== undefined && ![false, 'box', 'circle'].includes(t.collide)) err('templates', `collide of template ${name} can only be 'box', 'circle' or false`);
+    const collide = collideProblem(t?.collide);
+    if (collide) err('templates', `template ${name}: collide ${collide}`);
     if (t?.interact && typeof t.interact.op !== 'string') err('templates', `interact of template ${name} needs op (the op name run with { id } when used)`);
     for (const m of stagesProblems(`template ${name}`, t?.stages)) err('templates', m);
     if (Array.isArray(t?.stages)) t.stages.forEach((s, i) => { const sm = [s?.model].flat()[0]; if (typeof sm === 'string') checkModel('templates', `template ${name} stages[${i}]`, sm); });
@@ -65,7 +68,8 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
   if (props.length) {
     if (!Array.isArray(props)) err('props', 'props.js must export a list [{ model, place, x, z }, …]');
     else props.forEach((p, i) => {
-      const where = `prop #${i + 1}`, m = [p?.model].flat()[0];
+      const where = `prop #${i + 1}`, m = [p?.model].flat()[0], collide = collideProblem(p?.collide);
+      if (collide) err('props', `${where}: collide ${collide}`);
       if (p?.template) { if (!templates[p.template]) err('props', `${where} uses template ${p.template}, which templates.js does not define (existing: ${known(templates)})`); }
       else if (!m) err('props', `${where} has no model (the model name), or a template`);
       else checkModel('props', where, m);

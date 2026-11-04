@@ -107,8 +107,12 @@ const needsSoftware = spec => spec.software ?? PIXEL_SRC.test(String(spec.run));
 const smokeSpecs = dir => readdirSync(dir).filter(f => f.endsWith('.html')).sort().map(f => ({
   name: `smoke: ${basename(dir)} ${f === 'index.html' ? '/' : '/' + f}`,
   url: f === 'index.html' ? '/' : '/' + f,
-  async run({ check, ev }) {
+  async run({ check, ev, frames }) {
     check('engine started, URL parameters applied, modules installed', await ev(() => !!engine.stateApplied && engine.modules.size > 0));
+    await frames(2);   // the running frames, where a module's own key check fires (it then counts under "no console errors" too)
+    // a console warning is not a failure here, and a page that loads proves nothing about keys: without this a game whose E does nothing passed
+    const unbound = await ev(() => engine.describe().input.unbound);
+    check('every action a module needs has a key', !unbound.length, `no key for ${unbound.join(', ')}. Add to createEngine({ bindings }) the matching presets.bindings.* map, or bindings: { ${unbound[0]}: ['KeyX'] }`);
   },
 }));
 /** A workspace's items: its tests/specs/*.mjs (lib/specs.mjs; none: the smoke test), then its scenarios (tests/scenarios/*.json, scenario.mjs) */
@@ -153,8 +157,10 @@ function report(name, results, t0, extra = '') {
   progress();
 }
 // A Promise (or any thenable) as ok is always truthy: check('door opens', ev(...)) without await would pass whatever the page says, so it fails instead
-const collect = () => { const results = []; return { results, check: (label, ok, detail = '') => results.push(typeof ok?.then === 'function'
-  ? { label, ok: false, detail: 'check got a Promise: add await' } : { label, ok: !!ok, detail }) }; };
+// Reversed, check(condition, 'name') has the always-truthy name as ok: it could never fail, so a label that is not a string fails instead
+const collect = () => { const results = []; return { results, check: (label, ok, detail = '') => results.push(typeof label !== 'string'
+  ? { label: String(ok), ok: false, detail: 'check(name, condition, detail): the first argument must be the name' }
+  : typeof ok?.then === 'function' ? { label, ok: false, detail: 'check got a Promise: add await' } : { label, ok: !!ok, detail }) }; };
 /** An item whose own run() recorded no check tested nothing (an early return, a loop over an empty list): one failed check says so */
 const noChecks = (results, check) => { if (!results.length) check('no checks recorded', false, 'run() returned without calling check(): it tested nothing'); };
 
@@ -239,7 +245,12 @@ async function runSpecPage(spec, dir, server, { software = false } = {}) {
       // frames(n): wait for the engine's loop to run n more frames (a key press is read on the next frame; software rendering is slow,
       //   so waiting by frames is more reliable than by milliseconds)
       const frames = (n = 2) => page.evaluate(n => window.__t.frames(n), n);
-      await spec.run({ page, check, frames, ev: (fn, arg) => page.evaluate(fn, arg), wait: ms => page.waitForTimeout(ms) });
+      // one argument, like page.evaluate: a second one used to vanish without a word and the function ran with undefined
+      const ev = (fn, arg, ...extra) => {
+        if (extra.length) throw new Error(`ev(fn, arg) takes one argument, got ${extra.length + 1}: pass them together, ev(({ a, b }) => ..., { a, b })`);
+        return page.evaluate(fn, arg);
+      };
+      await spec.run({ page, check, frames, ev, wait: ms => page.waitForTimeout(ms) });
     })(), spec.timeout ?? SPEC_TIMEOUT, 'spec');
   } catch (e) { check('run error', false, String(e).split('\n')[0]); }
   noChecks(results, check);   // before the console check below, which every page gets

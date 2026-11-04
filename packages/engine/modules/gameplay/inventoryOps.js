@@ -23,7 +23,7 @@ export function windowData(inv) {
 
 /**
  * Default 'inventory' part: the list window. Rows of items with a use function get a Use button; options.drop adds a Drop button. Buttons run ops.
- * The style can replace the body with style.ui.templates.inventory(data, { esc, t, icon }).
+ * The game can replace the body with ui.templates.inventory(data, { esc, t, icon }).
  * @internal
  */
 export function inventoryWindow(e, o = {}) {
@@ -37,7 +37,7 @@ export function inventoryWindow(e, o = {}) {
       <span class="threedog-count">×${it.count}</span>${acts}</div>`;
   };
   const draw = d => {
-    const tpl = e.style.ui?.templates?.inventory;
+    const tpl = e.ui.templates.inventory;
     const body = tpl ? tpl(d, tools) : d.items.length ? `<div class="threedog-list">${d.items.map(row).join('')}</div>` : `<p class="threedog-empty">${esc(e.t('inventory.empty'))}</p>`;
     el.innerHTML = `<div class="threedog-win-head"><span>${esc(d.title)}</span><span><span class="threedog-win-hint">${esc(d.hint)}</span> `
       + `<button class="threedog-btn threedog-close" type="button">${esc(e.t('common.close'))}</button></span></div>${body}`;

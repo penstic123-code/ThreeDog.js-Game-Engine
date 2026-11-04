@@ -1,6 +1,6 @@
 // Rule check: npm run check
 // Runs the rules in packages/tools/rules/R*.mjs one by one (each described at the top of its file, with its criteria and allowlist), output
-//   grouped by rule: errors (✗) must be fixed; warnings (!) need a look and can always be cleared (fixed, or confirmed the way the rule says).
+//   grouped by rule: errors (✗) must be fixed; warnings (!) need a picture and can always be cleared (fixed, or confirmed the way the rule says).
 //   The engine's hard rules are rules like the rest: R27 core imports or names no module, R14 no material made directly in engine code,
 //   R15 no hard-coded Chinese text, R39 neutral fallback colors, R46 no import of another module's internal file, R3 every module has a
 //   display name. Then the generator checks (types, content, generated docs up to date) run in parallel.

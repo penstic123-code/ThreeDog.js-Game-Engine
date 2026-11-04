@@ -4,6 +4,17 @@ import { expectDescribe } from '@threedog/tools/describe-snapshot';
 
 export const specs = [
   {
+    // [guard] ev(fn, a, b): b vanished without a word and the function ran on undefined
+    name: '[guard] test runner: a second argument to ev fails, naming the way to pass both',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      let msg = '';
+      try { await ev((a, b) => [a, b], 1, 2); } catch (e) { msg = e.message; }
+      check('ev(fn, a, b) throws', /takes one argument/.test(msg), msg);
+      check('ev(fn, arg) still works', await ev(a => a + 1, 1) === 2);
+    },
+  },
+  {
     name: 'describe snapshot: small town after loading, fields player / camera / ui / modules (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {

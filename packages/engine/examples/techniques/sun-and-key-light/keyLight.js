@@ -1,36 +1,43 @@
 // @ts-check
-// Sun and key light helpers (technique example, README.md next to this file). Imports only three; works on any engine with the sky module.
-// Why helpers at all: aiming the sun and fitting its shadow each take three engine calls in a set order (take the direction, place position
-// relative to target, stop the box following); written once here so a game's lighting code holds only its own numbers.
+// Sun and key light helpers (technique example, README.md next to this file). Imports only three and writes only the lights you pass in.
+// Why helpers at all: aiming a sun relative to the camera and fitting its shadow are a few writes in a set order; written once here so a game's
+// lighting code holds only its own numbers.
 import * as THREE from 'three';
 
 /**
- * Key and fill from one route: the sun is the key, the hemisphere light + room environment the fill. tint 0 = white light, 1 = the route's
- * colors, more = pushed further apart (warm key / cool shadows). Writes the override layer of look.lights (owner), so the sky's keyframes stay
- * underneath and remove() gives them back.
- * @param {any} engine
+ * Key and fill from one route: the sun is the key, the hemisphere light + the scene's environment the fill. tint 0 = white light, 1 = the route's
+ * colors, more = pushed further apart (warm key / cool shadows). Returns { remove() }: it writes back the values it found.
+ * @param {{ sun: THREE.DirectionalLight, hemi: THREE.HemisphereLight, scene?: THREE.Scene }} lights scene: for environmentIntensity; leave it out without an environment
  * @param {{ key: { intensity: number, color: string }, fill: { intensity: number, color: string, ground: string }, env: number }} route
- * @param {{ tint?: number, owner?: string }} [o]
+ * @param {{ tint?: number }} [o]
  */
-export function applyKeyFill(engine, route, { tint = 1, owner = 'key-light' } = {}) {
-  const push = (/** @type {string} */ c) => '#' + new THREE.Color('#ffffff').lerp(new THREE.Color(c), tint).getHexString();
-  return engine.look.lights.set({
-    sun: { intensity: route.key.intensity, color: push(route.key.color) },
-    hemi: { intensity: route.fill.intensity, color: push(route.fill.color), ground: route.fill.ground },
-    env: { intensity: route.env },
-  }, { owner });
+export function applyKeyFill({ sun, hemi, scene }, route, { tint = 1 } = {}) {
+  const saved = { key: sun.intensity, keyColor: sun.color.clone(), fill: hemi.intensity, fillColor: hemi.color.clone(), ground: hemi.groundColor.clone(), env: scene?.environmentIntensity };
+  const white = new THREE.Color('#ffffff');
+  sun.intensity = route.key.intensity;
+  sun.color.copy(white).lerp(new THREE.Color(route.key.color), tint);
+  hemi.intensity = route.fill.intensity;
+  hemi.color.copy(white).lerp(new THREE.Color(route.fill.color), tint);
+  hemi.groundColor.set(route.fill.ground);
+  if (scene) scene.environmentIntensity = route.env;
+  return {
+    remove() {
+      sun.intensity = saved.key; sun.color.copy(saved.keyColor);
+      hemi.intensity = saved.fill; hemi.color.copy(saved.fillColor); hemi.groundColor.copy(saved.ground);
+      if (scene) scene.environmentIntensity = /** @type {number} */ (saved.env);
+    },
+  };
 }
 
 /**
  * Aim the sun for the composition. azimuth is measured around `target` from the camera: 0 = behind the camera (front light), 90 = from the
- * side, 180 = facing the camera (back light). Takes only the direction from the sky (look.lights.manual('sun.direction')); color and
- * intensity stay where they were. Returns the unit direction toward the sun.
- * @param {any} engine
+ * side, 180 = facing the camera (back light). Writes only the direction; color and intensity stay where they were. Returns the unit direction
+ * toward the sun.
+ * @param {THREE.DirectionalLight} sun
  * @param {{ elevation: number, azimuth: number, camera: number[], target?: number[] }} o degrees; camera / target positions
  */
-export function aimSun(engine, { elevation, azimuth, camera, target = [0, 0, 0] }) {
-  engine.look.lights.manual('sun.direction');
-  const sun = engine.lights.sun, t = new THREE.Vector3(target[0], target[1], target[2]);
+export function aimSun(sun, { elevation, azimuth, camera, target = [0, 0, 0] }) {
+  const t = new THREE.Vector3(target[0], target[1], target[2]);
   const toCam = new THREE.Vector3(camera[0] - t.x, 0, camera[2] - t.z).normalize();
   const el = THREE.MathUtils.degToRad(elevation);
   const h = toCam.applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(azimuth));
@@ -41,13 +48,24 @@ export function aimSun(engine, { elevation, azimuth, camera, target = [0, 0, 0] 
 }
 
 /**
- * One shadow box fitted to a compact scene and centered on the sun's target (follow: false). biasCm is the depth bias in centimeters: three
- * adds bias in the shadow camera's 0-1 depth, i.e. a world offset of bias x (far - near). Other look.shadow keys (type, radius, blurSamples,
- * cascades, mapSize) pass through.
- * @param {any} engine
- * @param {{ extent: number, biasCm?: number, normalBias?: number, owner?: string } & Record<string, any>} o
+ * One shadow box fitted to a compact scene, centered on the sun's target. biasCm is the depth bias in centimeters: three adds bias in the shadow
+ * camera's 0-1 depth, i.e. a world offset of bias x (far - near). Returns { remove() }: it writes back the values it found.
+ * @param {THREE.DirectionalLight} sun
+ * @param {{ extent: number, biasCm?: number, normalBias?: number, mapSize?: number, radius?: number, blurSamples?: number }} o
  */
-export function fitSunShadow(engine, { extent, biasCm = 2, normalBias = 0.02, owner = 'key-light', ...rest }) {
-  const c = engine.lights.sun.shadow.camera;
-  return engine.look.shadow.set({ follow: false, extent, bias: -biasCm / 100 / (c.far - c.near), normalBias, ...rest }, { owner });
+export function fitSunShadow(sun, { extent, biasCm = 2, normalBias = 0.02, mapSize = sun.shadow.mapSize.x, radius = sun.shadow.radius, blurSamples = sun.shadow.blurSamples }) {
+  const s = sun.shadow, c = s.camera;
+  const write = (/** @type {number} */ half, /** @type {number} */ size, /** @type {Partial<THREE.DirectionalLightShadow>} */ values) => {
+    Object.assign(c, { left: -half, right: half, top: half, bottom: -half });
+    c.updateProjectionMatrix();   // three.js does not do this for a DirectionalLight's shadow camera
+    Object.assign(s, values);
+    if (s.mapSize.x !== size) {   // a map keeps the size it was made with: drop it and three.js makes the new one
+      s.mapSize.setScalar(size);
+      s.map?.dispose();
+      s.map = null;
+    }
+  };
+  const before = c.right, beforeSize = s.mapSize.x, saved = { bias: s.bias, normalBias: s.normalBias, radius: s.radius, blurSamples: s.blurSamples };
+  write(extent, mapSize, { bias: -biasCm / 100 / (c.far - c.near), normalBias, radius, blurSamples });
+  return { remove() { write(before, beforeSize, saved); } };
 }

@@ -53,34 +53,31 @@ black; the shot reports the "dark" area); dusk = saturation up (neon oranges).
 
 ## The engine helper (optional convenience)
 `dayNightGrade.js` holds one clock and four tables, all keyed by `engine.calendar.timeOfDay` (0 midnight, 0.5 noon). `threedog examples pull
-day-night-grade` copies it; replace its colors with the ones your DESIGN.md look names.
+day-night-grade` copies it; replace its colors with the ones your DESIGN.md picture names.
 
-| Table | Read by | What it sets |
+The whole picture is the `picture/` folder, plain three.js from the signals: `palette.js` holds the tables, the other files read them.
+
+| Table (`picture/palette.js`) | Read by | What it sets |
 |---|---|---|
-| `SKY` = `style.sky.keyframes` | the sky module | dome zenith / horizon, fog (= horizon), sun color + intensity (the moon at night), ambient (hemisphere and environment map) |
-| `EXPOSURE` = `style.exposure` | the sky module | `renderer.toneMappingExposure` |
-| `GRADE` | `followDayNight` each frame | the `lut()` post effect: temperature, saturation, contrast (`look.post`, owner `day-night`) |
-| `LAMPS` | `followDayNight` each frame | the game's lamps: point-light intensity and emissive strength, by `calendar.daylight` (`LAMPS.offAbove: 0.35`) |
+| `SKY` | `picture/sky.js`, `picture/lights.js` | gradient sky and fog (= horizon), sun color + intensity (the moon at night), ambient color + intensity |
+| `EXPOSURE` | `picture/lights.js` | `renderer.toneMappingExposure` |
+| `GRADE` | `picture/post.js` | a `ShaderPass` in the `ldr` slot: temperature, saturation, contrast |
+| `LAMPS` | `picture/lights.js`, `picture/materials.js` | the lamps: point-light intensity and emissive strength, by `uDaylight` (`LAMPS.offAbove: 0.35`) |
 
-`dayNightStyle()` returns the first two plus the `lut` effect as a style fragment: `createEngine({ style: [yourStyle, dayNightStyle()] })`.
-`followDayNight(engine, { lamps })` writes the grade and lamps; `sample(rows, t)` is the interpolation. Keyframes interpolate linearly and
-wrap at midnight, so the first and last rows are the same night. The demo spec checks that ground under a lamp is over 1.3x open ground at 22:00.
+`createPicture(engine)` wires them in one `engine.onRender`, reading `engine.uniforms` (`uTimeOfDay`, `uDaylight`, `uSunDir`). `sample(rows, t)` is the interpolation;
+colors blend through `skyColor` as colors, never as hex numbers. Keyframes interpolate linearly and wrap at midnight, so the first and last rows are
+the same night. The demo spec checks that ground under a lamp is over 1.3x open ground at 22:00.
 
 Cost (1280x720, laptop GPU, this demo; median of 120 frames):
 - Keyframes, exposure, lamp writes: no measurable cost (uniform writes).
-- The `lut` grade pass: about **+1.5 ms** a frame (22:00: 5.8 ms with it, 4.3 ms without), mostly the post chain's full-screen pass; other
-  `ldr` effects (vignette, grain) fuse into the same pass for free.
+- The grade pass: about **+1.5 ms** a frame (22:00: 5.8 ms with it, 4.3 ms without), the post chain's full-screen pass.
 - Point lights: each one adds to every lit material's shader. Keep `distance` short; for many lamps use `engine.lightPool` (recipe 09).
-- `followDayNight` writes the grade only when it moved (sum of changes > 0.004), so the fused shader is not refreshed every frame.
 
 Rules (correctness):
 - Never toggle `light.visible` (or add / remove lights) as the day turns: a light-count change recompiles every lit material. Write intensity.
-- Under a cycle, adjust brightness through the keyframes or `engine.mod('look.lights.hemi.intensity' | 'look.lights.sun.intensity', { mul })`; `look.lights.set` replaces
-  the keyframe value. Fixing night brightness with `look.lights.set({ hemi })` freezes the cycle; use the keyframe ambient, or
-  `engine.mod('look.lights.hemi.intensity', { mul })` for a place (a cave).
+- Under a cycle, adjust brightness in the keyframes. For a place (a cave), add a signal of your own that `picture/lights.js` multiplies in; a fixed value written from gameplay freezes the cycle.
 - Lamps and gameplay read `calendar.daylight` / `isDay` / `between`, never the clock text (`if (clock === '18:00')` breaks other day
   lengths; recipe 08).
-- `lut()` comes from `@threedog/post-effects`; install it in the game.
 
 Sources: written for this engine from its sky contract (recipe 08), the three.js `toneMappingExposure` / AgX docs and common film-grading
 practice (warm key / cool fill, Purkinje shift at night); no code copied.

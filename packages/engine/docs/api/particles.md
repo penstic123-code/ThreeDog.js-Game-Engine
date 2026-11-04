@@ -1,10 +1,13 @@
-# engine.particles — particles()
+# engine.particles — particles(opts?: ParticlesOptions)
 
 Particles (particles() module)
 
+- Options `ParticlesOptions`:
+  - `effects?: Record<string, ParticleOptions>` Effect params by name: under what define() gives, and defined on the first emit / attach when define() never ran
+  - `default?: ParticleOptions` Params every effect starts from
 
 ## Methods and properties
-- `particles.define(name: string, opts?: ParticleOptions) → ParticleEffect` — Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of the style pack preset. Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer), .material is the shader material
+- `particles.define(name: string, opts?: ParticleOptions) → ParticleEffect` — Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of particles({ effects, default }). Returns the effect object: .points is its THREE.Points (a Sprite on WebGPURenderer); .material is its plain three.js material (set your own and it is drawn as given, null gives the engine's back); .uniforms are the engine material's { value } objects (uMap, uHasMap, uScale, uMaxPx), which a ShaderMaterial of yours can share. A material of yours lasts until the effect is defined again. Example: `engine.particles.define('sparks', { blending: 'additive' }).material = myMaterial;`
 - `particles.has(name: string) → boolean` — Whether this effect has been defined
 - `particles.emit(name: string, position: PositionLike, opts?: { count?, overrides? })` — Burst: emit count particles at once (default 10) at position (Vector3 / Object3D / [x, y, z] / {x, y, z}). overrides affect this batch only (color, speed, direction...; max/texture/blending cannot be changed temporarily)
 - `particles.attach(name: string, object3d: THREE.Object3D, opts?: { rate?, offset?, overrides? }) → ParticleEmitter` — Keep emitting while following an object: rate per second, offset in the object's local coordinates [x, y, z] (meters). Returns a handle { remove(), rate, active } (active = false pauses)
@@ -14,7 +17,7 @@ Particles (particles() module)
   - `effects: Map<string, ParticleEffect>` Defined effects
 
 ## Data structures
-- **ParticleOptions** Particle effect parameters (style.particles[name] of the style uses the same format too). All optional
+- **ParticleOptions** Particle effect parameters (define(), and each entry of particles({ effects, default })). All optional
   - `max?: number` Maximum alive at once, default 120 (halved on low-end devices)
   - `lifetime?: Range` Seconds each particle lives [min, max]
   - `rate?: number` Default particles per second for attach

@@ -66,7 +66,7 @@ The engine itself runs on the fixed step except the wall-clock items in the tabl
 "After how long / every how long" uses `engine.clock` (part of the core; one timer queue for every view: `{ channel: 'real' | '<channel>' }`, default calendar seconds; a removed timer never fires, not even later in the same step); "at what time every day / within a time window / when the season changes"
 uses `engine.calendar` (the `calendar()` module with a `dayLength`; at a fixed time of day these never fire).
 
-**The calendar is gameplay, the sky is a look.** `calendar()` owns the time of day, the day, seasons, the timers below and their save; NPC schedules,
+**The calendar is gameplay, the sky is a picture.** `calendar()` owns the time of day, the day, seasons, the timers below and their save; NPC schedules,
 content `clock` conditions, audio rules `{ time }` / `{ daylight }`, `engine.skip({ to })` and the debug panel read it. `sky()` only reads it to draw
 the sun, moon, colors and season tint. So each kind of game installs what it needs:
 - an outdoor day-night game: `calendar(presets.calendar.cycle), sky()` (`openWorld()` installs both; its `calendar` / `time` / `dayLength` go to the calendar);
@@ -96,7 +96,7 @@ engine.events.on('bread:ready', ({ oven }) => engine.inventory?.add('bread', 1))
 
 engine.clock.every(30, () => spawnBird());                           // every 30 calendar seconds (not 30 clock seconds)
 engine.calendar.daily(day => console.log('day', day));              // every day at 00:00
-engine.calendar.onSeason('winter', () => engine.weather?.set('snow', 20));   // needs seasons (presets.calendar.fourSeasons) and a 'snow' weather (presets.weather.temperate)
+engine.calendar.onSeason('winter', () => engine.weather?.set('snow', { seconds: 20 }));   // needs seasons (presets.calendar.fourSeasons) and a 'snow' weather (presets.weather.temperate)
 
 // Clock conversion: 'HH:MM' <-> fraction of a day 0-1
 engine.calendar.timeOfDay = parseClock('17:30');                          // jump straight to 17:30 (see the catch-up rules below)

@@ -120,7 +120,7 @@ window.fxPatches = async () => {
   const node = () => new TG.MeshLambertNodeMaterial();
   out.errors = {
     glslOnly: thrown(() => applyEffects(node(), { clouds: false, patches: [{ name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.5;' }] })),
-    styleWind: thrown(() => applyEffects(node(), { clouds: false, wind: { amplitude: 0.2, glsl: 'void threedogWind(inout vec3 transformed, vec3 ip, vec3 position){}' } })),
+    gameWind: thrown(() => applyEffects(node(), { clouds: false, wind: { amplitude: 0.2, glsl: 'void threedogWind(inout vec3 transformed, vec3 ip, vec3 position){}' } })),
     lightsPars: thrown(() => applyEffects(node(), { clouds: false, patches: [{ name: 'sunny', slot: 'lightsPars', tsl: c => c }] })),
     badCode: thrown(() => applyEffects(node(), { clouds: false, patches: [{ name: 'oops', slot: 'color', tsl: c => c.nope.mul(2) }] })),
     unlit: thrown(() => applyEffects(new TG.MeshBasicNodeMaterial(), { clouds: false, patches: [{ name: 'dark', slot: 'lighting', tsl: c => ({ directDiffuse: c.directDiffuse }) }] })),
@@ -171,7 +171,8 @@ async function waterCases() {
   for (const [name, look] of Object.entries(looks)) {
     const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'fx-patches-water', urlState: false });
     e.use(water({ sea: false, flat: false }));
-    e.look.water.set({ color: 0x3070a0, opacity: 1, waveHeight: 1.6, waveScale: 4, waveSpeed: 1, fresnel: 0.9, ...look });
+    e.water.shader(look);
+    const U = e.water.uniforms; U.uWave.value = 1.6; U.uWaveScale.value = 4; U.uFresnel.value = 0.9;
     const src = e.water.material;
     const scene = (kind, patched) => {
       const s = new THREE.Scene();

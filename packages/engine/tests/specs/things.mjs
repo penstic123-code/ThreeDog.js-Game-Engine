@@ -1,4 +1,4 @@
-// Thing registry (recipes/41-thing-registry.md): the same windmill through the two doors, plain three.js (engine.add(obj, { id })) and a template
+// Thing registry (recipes/40-scene.md): the same windmill through the two doors, plain three.js (engine.add(obj, { id })) and a template
 // placement, must answer engine.thing / hit.thing the same way, change and undo with thing.set, and come back after a save + page reload.
 // Also guards: "cannot be saved" and "two systems manage one object" are reported, engine internals are not listed as game things, the dev stack cap.
 const READY = { timeout: 60000 };
@@ -8,7 +8,7 @@ const reload = async page => { await page.reload(); await page.waitForFunction((
 const build = (x, z, native = true) => {
   const T = engine.THREE;
   if (native) {
-    const mill = new T.Group(), blade = new T.Mesh(new T.BoxGeometry(1, 4, 1), engine.makeMaterial('prop'));
+    const mill = new T.Group(), blade = new T.Mesh(new T.BoxGeometry(1, 4, 1), new T.MeshLambertMaterial());
     blade.position.y = 2; mill.add(blade); mill.position.set(x + 20, engine.surface(x + 20, z), z);
     engine._things.setup = true; engine.add(mill, { id: 'windmill-a' }); engine._things.setup = false;
     mill.updateMatrixWorld(true); engine.rays.addStatic(mill);

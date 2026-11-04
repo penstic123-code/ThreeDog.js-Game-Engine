@@ -1,6 +1,6 @@
 // engine.inspect.perf(): one frame's cost in numbers, each against a budget, with the next call when it is over. Read on call (nothing runs per frame:
 // the counters it reads are three.js's renderer.info and what the loop already measures: cpuMs, cpuPhases, budget.cost.compiles, startup.compileMs).
-// Budgets: the game's engine.budget limits where it set one, else REFERENCE (a mid-range desktop browser at 60 fps). The reference is a starting point
+// Budgets: the game's engine.budget limits where it set one, else a metric's own limit, else REFERENCE (a mid-range desktop browser at 60 fps). The reference is a starting point
 // for reading the numbers, not a rule the engine enforces; engine.budget.enable({...}) sets real ones (and then warns while playing).
 // Plain three.js equivalent: renderer.info.render (calls, triangles), renderer.info.programs.length, renderer.info.memory; performance.now() around render.
 import { inspectMaterials } from './InspectMaterials.js';
@@ -18,6 +18,10 @@ const NEXT = {
   textureMB: 'engine.inspect.materials() lists the largest textures: smaller sizes, KTX2 compressed textures (KTX2Loader)',
   cpuMs: 'engine.profile(true) then engine.profile() (ms per module), engine.cpuPhases (fixed / frame / render)',
   compileMs: 'compile before play: renderer.compileAsync(scene, camera) after adding new materials, keep the light count fixed (lightPool)',
+  lights: 'many lights: light pool, engine.use(lightPool({ point: 8 })) then engine.lightPool.add(torch, { intensity: 4, distance: 8 })',
+  shadowLights: 'set castShadow = false on the lights that can go without; a point light draws six shadow maps',
+  shadowMaps: 'set castShadow = false on the lights that can go without; a point light draws six shadow maps',
+  shadowMapSize: 'pick light.shadow.mapSize from engine.tier in the picture code',
 };
 
 /** @param {any} e the engine @param {{ top?: number }} [opts] top: how many costliest programs to list */
@@ -37,8 +41,11 @@ export function inspectPerf(e, { top = 5 } = {}) {
     drawCalls: s.drawCalls, triangles: s.triangles, programs: s.programs,   // null on WebGPU (no program list): not counted, not budgeted, rather than a 0 that always passes
     textureMB: r1(mats.textureBytes / 1048576), cpuMs: r1(e.cpuMs ?? 0), compileMs: worst,
   };
-  const budgets = Object.keys(values).filter(k => values[k] != null).map(k => {
-    const limit = lim[k] ?? REFERENCE[k], own = lim[k] != null;
+  const gpu = e.budget?.values() ?? {};
+  for (const k of ['lights', 'shadowLights', 'shadowMaps', 'shadowMapSize']) values[k] = gpu[k];
+  // these four have no reference: without a limit they stay out, a number with nothing to read it against
+  const budgets = Object.keys(values).filter(k => values[k] != null && (e.budget?.limitOf(k) ?? REFERENCE[k]) != null).map(k => {
+    const limit = e.budget?.limitOf(k) ?? REFERENCE[k], own = lim[k] != null;
     const ok = values[k] <= limit;
     return { name: k, value: values[k], budget: limit, from: own ? 'engine.budget' : 'reference', ok, ...(ok ? {} : { next: NEXT[k] }) };
   });

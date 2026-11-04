@@ -1,5 +1,5 @@
 // W8 "describe everywhere" guards that need no browser: the R44 rule catches a module definition without describe; triggers' wireframes are only
-// the debug view 'triggers' (no option, no setDebug); things.js and look/layers.js read stack frames through one helper.
+// the debug view 'triggers' (no option, no setDebug); things.js and picture/layers.js read stack frames through one helper.
 // The browser half (each new describe hook returns its fields, no `by` key in describe()) is packages/engine/tests/specs/describe-hooks.mjs.
 import * as THREE from 'three';
 import { join } from 'node:path';
@@ -61,9 +61,8 @@ export async function run({ check }) {
 
   // one stack-frame helper: both callers import it and neither keeps its own regex
   const src = f => readFileSync(join(ENGINE, f), 'utf8');
-  // look/write.js and look/layers.js no longer read frames (look rework); the callers left read them through the helper
   check('things.js, sharedPoint.js and control.js read frames through core/stackFrames.js, no private FRAME regex',
-    ['core/things.js', 'core/sharedPoint.js', 'core/control.js'].every(f => src(f).includes("stackFrames.js'") && !/const FRAME\s*=/.test(src(f))) && !/const FRAME\s*=/.test(src('core/look/write.js')));
+    ['core/things.js', 'core/sharedPoint.js', 'core/control.js'].every(f => src(f).includes("stackFrames.js'") && !/const FRAME\s*=/.test(src(f))));
   const v8 = 'Error\n    at captureStack (http://localhost:5173/packages/engine/core/things.js?v=3:40:9)\n    at add (http://localhost:5173/core/Engine.js:9:1)\n    at http://localhost:5173/src/main.js:50:7';
   const ff = 'add@http://localhost:5173/core/Engine.js:9:1\n@http://localhost:5173/src/main.js:50:7';
   check('V8 frames: query string dropped, host dropped', frameText(stackFrames(v8)[2]) === 'src/main.js:50' && stackFrames(v8).length === 3);

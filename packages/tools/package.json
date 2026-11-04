@@ -1,6 +1,6 @@
 {
   "name": "@threedog/tools",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Tools shared by the engine and games: the threedog command line, vite preset, test runner, rules, doc generators, bake",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "./paths": "./paths.mjs",
     "./browser": "./browser.mjs",
     "./describe-snapshot": "./describe-snapshot.mjs",
-    "./look": "./style/look.mjs",
+    "./picture-check": "./picture/check.mjs",
     "./scenario": "./scenario.mjs",
     "./contract": "./contract.mjs",
     "./panel": "./panel/index.js",
@@ -33,6 +33,8 @@
   },
   "files": [
     "*.mjs",
+    "!worktree-link.mjs",
+    "!real-webgpu.mjs",
     "*.js",
     "*.html",
     "apidoc",
@@ -44,13 +46,13 @@
     "gallery",
     "gamemap",
     "rules",
-    "style",
+    "picture",
     "templates",
     "threedog",
     "vite"
   ],
   "peerDependencies": {
-    "threedog": "^0.5.0",
+    "threedog": "^0.6.0",
     "@gltf-transform/cli": "^4.5.1",
     "tweakpane": "^4.0.5"
   },

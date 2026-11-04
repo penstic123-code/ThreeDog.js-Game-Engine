@@ -27,7 +27,7 @@ engine.assets.manifest({ name: 'heroes', models: { hero: { url: '/models/hero.gl
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });   // no clips / animation in code
 engine.assets.mapping(engine.player.anim.root);                                     // after whenReady: the entry's mapping, or null
 ```
-A character's default names (`Idle`, `Walk`...) never shadow a mapped state, and the entry's `fade` beats the style's.
+A character's default names (`Idle`, `Walk`...) never shadow a mapped state, and the entry's `fade` beats `characters({ animation })`.
 
 - A clip name also matches the part after the last `|`: Blender / FBX2glTF exports `CharacterArmature|Idle`, you write `Idle`.
 - Dev checks: a state whose clip is not in the model warns at `assets.animate()` with the available clip names and where to fix it
@@ -66,7 +66,12 @@ engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero, ani
   jump: { clip: 'Jump', loop: false },
 } } });
 ```
-The default transition time comes from the style's `style.character.animation.fade`.
+The default transition time for every character is `characters({ animation: { fade: 0.15 } })`; a model's manifest mapping and the character's own
+`animation` win over it.
+
+**The placeholder capsule.** A character without a model draws with `engine.characters.material`, one plain three.js material shared by every capsule:
+`engine.characters.material = new THREE.MeshToonMaterial({ color: 0xd9a066 })` swaps them all, as given. `colors: { body }` gives one character a copy in
+that color. A model keeps its own materials.
 
 **By asset name.** `model` also takes the name of a registered model asset: a file model, or a procedural builder. The character is built at once
 with a gray capsule; when the asset loads, a skeleton-correct copy replaces it under the same root, so position, facing, state, collision and the
@@ -79,7 +84,7 @@ await p.whenReady;                                                  // p.anim is
 ```
 
 ## 3b. Procedural bodies are assets too (`model: 'humanoid'`)
-Character bodies are assets, never style: every character picks one with `model`, the same path for a GLB and a procedural builder. an asset
+Character bodies are assets: every character picks one with `model`, the same path for a GLB and a procedural builder. an asset
 pack can supply a code-built humanoid (e.g. box limbs, swung by the engine while walking, running, swimming, jumping); a builder is built at once, so its joints
 (`player.armL`, `legR`...) exist right after `createPlayer`. Without `model` (and without `rig`) a character is a gray capsule, warned once.
 ```js
@@ -88,8 +93,8 @@ engine.assets.manifest(assets);
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' });
 engine.npcs.add({ id: 'fisher', model: 'humanoid', colors: { body: 0x4f6d8f } });   // per-character part colors
 ```
-- **Colors**: the humanoid's parts use material roles `cloth`, `skin`, `trousers`, `hair`, so any style tints every humanoid
-  (`style: [basePack, { materials: { cloth: { color: 0x3a6ea5 } } }]`); `colors: { body, skin, legs, hair }` recolors one character.
+- **Colors**: a builder's materials are its own three.js materials, and colors shared by many bodies come from `this.palette` (recipe 05);
+  `colors: { body, skin, legs, hair }` recolors one character's marked parts.
 - **Your own procedural body**: a builder that returns an Object3D with `root.userData.rig = { body: 'hips', head: 'head', joints: ['armL'],
   limbs: [{ joint: 'legL', offset: 0, amp: 0.9, kind: 'leg' }] }` (object names, so it survives copies and baking) animates like the humanoid; mark
   meshes `userData.part = 'body'` for `colors`. A hand-built one-off passes `{ rig }` instead ([02-npc](02-npc.md)).

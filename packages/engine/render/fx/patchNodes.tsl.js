@@ -165,7 +165,7 @@ function gaps(m, p) {
 }
 
 // The nodes a patch list turns into, kept per SOURCE material: a NodeMaterial patched directly, or a classic material (MeshLambertMaterial ...)
-// patched for both renderers. Why classic materials too: the engine's own materials (makeMaterial, terrain, vegetation, water) stay classic so
+// patched for both renderers. Why classic materials too: the engine's own materials (terrain, vegetation, water) stay classic so
 // one material object draws on WebGLRenderer (GLSL side) and on WebGPURenderer, including fallback: 'webgl', which is decided only in start().
 // three's WebGPURenderer turns a classic material into a fresh node twin per build (NodeLibrary.fromMaterial); render/patches.js wraps that
 // one call so the twin gets these nodes (dress). The source keeps them too, as non-enumerable accessors: three's shadow pass reads

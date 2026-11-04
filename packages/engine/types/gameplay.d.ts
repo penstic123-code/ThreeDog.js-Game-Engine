@@ -1,6 +1,6 @@
 // Gameplay modules: timeline, level, triggers, world changes, particles, settings, music, characters/NPCs, interactions, dialogue, inventory,
 // quests, photo mode, ambience, debug.
-import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike } from './common';
+import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike, Material } from './common';
 import type { Engine } from './core';
 import type { Input } from './generated/core/Input';
 import type { Animator, AnimatorOptions, Rideable } from './physics';
@@ -213,6 +213,10 @@ export interface TriggerEvent { tag: string; trigger: Trigger; who: Vector3 | nu
 export interface TriggersOptions {
   /** Action name that toggles the debug view 'triggers' (engine.debug.view), default 'triggersDebug' */
   action?: string;
+  /** Line color of the debug view 'triggers', default neutral gray */
+  debugColor?: ColorLike;
+  /** Line opacity of the debug view 'triggers', default 0.8 */
+  debugOpacity?: number;
 }
 
 /** engine.triggers */
@@ -234,7 +238,7 @@ export interface Triggers {
 // Particles particles()
 // ======================================================================
 
-/** Particle effect parameters (style.particles[name] of the style uses the same format too). All optional */
+/** Particle effect parameters (define(), and each entry of particles({ effects, default })). All optional */
 export interface ParticleOptions {
   /** Maximum alive at once, default 120 (halved on low-end devices) */
   max?: number;
@@ -288,7 +292,21 @@ export interface ParticleEmitter extends Handle {
   [key: string]: any;
 }
 /** A particle effect */
-export interface ParticleEffect { name: string; o: ParticleOptions; max: number; alive: number; points: Object3D; [key: string]: any }
+export interface ParticleEffect {
+  name: string; o: ParticleOptions; max: number; alive: number; points: Object3D;
+  /** The plain three.js material drawn; set yours and it is drawn as given, null gives the engine's back */
+  material: Material | null;
+  /** The engine material's { value } objects (uMap, uHasMap, uScale, uMaxPx), written whichever material is drawn; a ShaderMaterial of yours can share them */
+  readonly uniforms: Record<string, { value: any }>;
+  [key: string]: any;
+}
+/** particles() options */
+export interface ParticlesOptions {
+  /** Effect params by name: under what define() gives, and defined on the first emit / attach when define() never ran */
+  effects?: Record<string, ParticleOptions>;
+  /** Params every effect starts from */
+  default?: ParticleOptions;
+}
 
 // Particles (engine.particles) is generated from the JSDoc in modules/particles/Particles.js (npm run map); only the type is re-exported here
 import type { Particles } from './generated/modules/particles/Particles';
@@ -445,7 +463,7 @@ export interface CharacterFacts { base: string; speed: number; grounded: boolean
 export type CharacterStates = (character: Character, facts: CharacterFacts) => string | null | undefined;
 /** Character parameters (shared by the player and NPCs) */
 export interface CharacterOptions {
-  /** Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair); the style tints by material role */
+  /** Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair) */
   colors?: { body?: ColorLike; skin?: ColorLike; legs?: ColorLike; hair?: ColorLike };
   /** Walking speed (m/s), default 4.5 */
   speed?: number;
@@ -844,6 +862,12 @@ export interface NPCManager {
 /** engine.characters */
 export interface CharactersApi {
   /**
+   * The three.js material of every placeholder capsule. Set it to swap the look of all of them at once; used as given, with no patches added. A character
+   * with colors.body draws with a copy of it in that color. A model's own materials are the model's.
+   * @example engine.characters.material = new THREE.MeshToonMaterial({ color: 0xd9a066 });
+   */
+  material: Material;
+  /**
    * Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming
    * terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
    */
@@ -903,6 +927,8 @@ export interface CharactersOptions {
   npcs?: boolean;
   /** Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts) */
   npcTiers?: { fullRadius: number; nearEvery: number };
+  /** What every character's Animator starts from, e.g. { fade: 0.15 }; a model's manifest mapping and the character's own animation win over it */
+  animation?: AnimatorOptions;
 }
 /**
  * Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters,
@@ -942,6 +968,10 @@ export interface InteractionOptions {
   hold?: number;
   /** Walk the player there first (walkTo, stops 1.2 m away), then use it; with radius: Infinity it can be used from anywhere (point-and-click) */
   approach?: boolean;
+  /** Hide the object after a use and allow no second one (onUse returning { ok: false } leaves it). Saved under id, else the object's name; development throws when it has neither */
+  once?: boolean;
+  /** Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved */
+  counter?: string;
 }
 /** engine.interactions */
 export interface Interactions {
@@ -976,10 +1006,10 @@ export interface Interactions {
 export interface PromptView {
   /** Interaction id */
   id: string;
-  /** Action that uses it ('interact') and its key label ('E') */
+  /** Action that uses it ('interact') and its key label ('E'; 'No key' when the action needs one and has none, '' when it has none on purpose) */
   action: string;
   key: string;
-  /** The interaction's label, and the default text 'E · label' */
+  /** The interaction's label, and the default text 'E · label' ('label' alone with an empty key) */
   label: string;
   text: string;
   /** Screen pixels above the target */
@@ -1230,7 +1260,7 @@ export interface PickupOptions {
   name?: string;
   /** Shape on the ground: a model name from an asset pack (default the item's model, else 'pickup:<item>', else 'pickup', else a gray box) */
   model?: string;
-  /** Color of the gray placeholder / a geometry-only model (default the item's color, else style.pickup.color) */
+  /** Color of the gray placeholder / a geometry-only model (default the item's color, else pickups({ color })) */
   color?: ColorLike;
   /** Reach in meters, default pickups({ radius }) (2) */
   radius?: number;
@@ -1257,6 +1287,16 @@ export interface Pickups {
   /** Who walks into auto pickups: default engine.actor plus net peers on a host, none on a client */
   takers: (e: Engine) => string[];
   /**
+   * The three.js material of every placeholder box and geometry-only model. Set it to swap all of them at once; used as given. A pickup with its own color or a
+   * vertex-colored geometry draws with a copy of it carrying that color
+   * @example engine.pickups.material = new THREE.MeshStandardMaterial({ color: 0xffd24a, metalness: 0.8 })
+   */
+  material: Material;
+  /** Edge of the placeholder box (meters), read when one is built */
+  size: number;
+  /** Height above the ground new pickups float at (meters) */
+  lift: number;
+  /**
    * Place a pickup on the ground at position; its y, if any, is the reference height on multi-layer ground (needs the interactions module unless auto):
    * spawn(v, { give: 'berry', count: 2 }). Returns a handle, remove() deletes it
    */
@@ -1271,6 +1311,12 @@ export interface PickupsOptions {
   showDistance?: number;
   /** Who walks into auto pickups (actor ids); default engine.actor, plus net peers on a host */
   takers?: (e: Engine) => string[];
+  /** Color of the placeholder box and geometry-only models when the pickup and its item set none, default 0xcccccc */
+  color?: ColorLike;
+  /** Edge of the placeholder box (meters), default 0.25 */
+  size?: number;
+  /** Height above the ground a pickup floats at (meters), default 0.4 */
+  lift?: number;
 }
 
 /**
@@ -1568,6 +1614,8 @@ export interface WindowOptions {
   data?: () => any;
   /** What to do on the back key (Esc), default closes the window (an open window is on the UI focus stack, and Esc goes only to the topmost) */
   onCancel?: () => void;
+  /** false: no close button and Esc does nothing, so only the game's own buttons end it (a win or lose window must not drop the player back into the game). Default true */
+  closable?: boolean;
 }
 /** An entry of the UI focus stack (returned by uiFocus(engine).push) */
 export interface FocusHandle extends Handle {
@@ -1644,7 +1692,7 @@ export interface ModHandle {
   change(value: any): boolean;
 }
 /** Shared-point layers, lowest first. Most code never passes one: game code and game modules are 'game'; effects (weather, bullet time) pass 'effect' */
-export type SharedLayer = 'engine' | 'style' | 'game' | 'effect' | 'system' | 'settings' | 'debug';
+export type SharedLayer = 'engine' | 'game' | 'effect' | 'system' | 'settings' | 'debug';
 /**
  * engine.mod options: exactly one of set / add / mul / clamp on a number point (set on a value point); none on a hold ('freeze') or a slot;
  * value on a 'top' point. Inside a layer: set, then add, then mul, then clamp; a higher layer's set hides what is below. Two owners setting one
@@ -1672,11 +1720,6 @@ export interface Stack {
   readonly name: string; readonly kind: 'number' | 'value' | 'any' | 'top' | 'one';
   /** The describe().shared row */
   row(id?: string): SharedRow;
-  /** Whoever applies this point to a three.js property saw an outside write: stop applying it (check yielded); describe says writer three */
-  yieldToThree(at?: string | null): void;
-  /** Hand a yielded point back to the layers */
-  reclaim(): void;
-  readonly yielded: boolean;
   /** The current value, always recomputed from base + the entries now present (a slot: the holder's name or null) */
   value(id?: string): any;
   holders(id?: string): ModHolder[];
@@ -1773,8 +1816,8 @@ export interface PropDef {
   /** Rotation about the Y axis (radians) */
   rot?: number;
   scale?: number;
-  /** Collision: 'box' cuboid, 'circle' cylinder, false none (default) */
-  collide?: 'box' | 'circle' | false;
+  /** Collision: 'box' cuboid of the bounds, 'circle' cylinder on the model's base, { circle, occluder } the same with its radius in model meters (scales with the prop) and occluder: false so the follow camera passes it; false none (default) */
+  collide?: 'box' | 'circle' | false | { circle: number; occluder?: boolean };
   /** Register for ray acceleration (engine.raycast can hit it), default true */
   static?: boolean;
   /** false: never drawn through engine.batching (default: repeated props batch automatically) */
@@ -1849,8 +1892,8 @@ export interface ContentField {
 export interface ContentTemplate {
   /** Model name (style generator or assets name); every instance clones one shared prototype */
   model: string | any[];
-  /** Collision box or circle from the model's bounds; omitted = does not block */
-  collide?: 'box' | 'circle';
+  /** Collision: 'box' cuboid of the bounds, 'circle' cylinder on the model's base, { circle, occluder } the same with its radius in model meters (scales with the instance) and occluder: false so the follow camera passes it; omitted or false = does not block */
+  collide?: 'box' | 'circle' | false | { circle: number; occluder?: boolean };
   /** false = not registered for rays */
   static?: boolean;
   /** Interaction: using an instance runs op with { id } */
@@ -1985,6 +2028,8 @@ export interface Hud {
   marker(target: HudTarget, opts?: HudMarkerOptions): HudMarker;
   /** Counter or text status (calling again with the same id = update; calling every frame is fine): counter('fish', { label: '鱼', value: 2, max: 5 }), counter('clock', { value: '08:30' }); no value = the label alone */
   counter(id: string, opts: { label?: string; icon?: string; value?: number | string; max?: number; anchor?: HudAnchor }): void;
+  /** Add n (default 1) to a number counter, return the new value; one not declared yet starts at 0 with its id as the label */
+  add(id: string, n?: number): number;
   /** Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged),
    *  value/max 0–max */
   bar(id: string, opts: { value: number; max?: number; label?: string; anchor?: HudAnchor }): void;

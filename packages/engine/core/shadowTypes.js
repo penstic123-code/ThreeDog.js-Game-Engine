@@ -9,7 +9,7 @@ export const SHADOW_TYPES = {
   vsm: { three: THREE.VSMShadowMap, cost: 1.6 },
 };
 
-/** Validate a shadow type name; throws with the allowed values (a wrong name would otherwise silently fall back to the default look). */
+/** Validate a shadow type name; throws with the allowed values (a wrong name would otherwise silently fall back to the default picture). */
 export function shadowTypeOf(name, where) {
   if (Object.hasOwn(SHADOW_TYPES, name)) return SHADOW_TYPES[name].three;
   throw codedError('shadow-type', `${where}: unknown shadow type ${JSON.stringify(name)}. Use one of: ${Object.keys(SHADOW_TYPES).map(k => `'${k}'`).join(', ')}.`);

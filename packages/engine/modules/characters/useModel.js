@@ -16,7 +16,7 @@ export function useModel(ch, model, clips, animation) {
   const have = model.userData.animations || [], map = engine.assets.mapping(model), mapped = map?.states || {};
   for (const [st, clip] of Object.entries(DEFAULT_CLIPS)) if (!mapped[st] && findClip(have, clip)) states[st] = { clip };
   for (const [st, clip] of Object.entries(clips || {})) states[st] = { clip };
-  // the model's own mapping (fade, transitions) beats the style's default for every character; the game's per-character config beats both
-  ch.anim = engine.assets.animate(model, { ...engine.style.character?.animation, ...map, states, ...(animation || {}) });
+  // the model's own mapping (fade, transitions) beats characters({ animation }), the default for every character; the game's per-character config beats both
+  ch.anim = engine.assets.animate(model, { ...engine.characters?._animation, ...map, states, ...(animation || {}) });
   ch.anim.afterPose = dt => ch._firePose(dt);   // a mixer pose is applied inside the Animator's update, so the Animator tells us when it is done
 }

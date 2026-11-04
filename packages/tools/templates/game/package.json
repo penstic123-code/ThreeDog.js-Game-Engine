@@ -22,7 +22,7 @@
     "doctor": "threedog doctor"
   },
   "dependencies": {
-    "threedog": "^0.5.0",
-    "@threedog/tools": "^0.5.0"
+    "threedog": "^0.6.0",
+    "@threedog/tools": "^0.6.0"
   }
 }

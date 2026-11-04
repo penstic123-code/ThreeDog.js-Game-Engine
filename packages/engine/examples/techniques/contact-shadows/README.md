@@ -3,12 +3,13 @@ Contact shadows: make objects sit on the ground instead of floating (shadow box 
 # Contact shadows (technique example)
 
 A neutral gray scene with small objects on the ground and on a table. Demo: `npm run dev` in the engine package, open `/contact-shadows.html`
-(`?mode=float` shows the failure, `&ao=1` the AO pass, `&probes=1` probes). The engine never imports this folder.
+(`?mode=float` shows the failure, `&ao=1` the AO pass, `&probes=1` probes). The whole picture is plain three.js in `picture/`; `main.js` only builds
+shapes. The engine never imports this folder.
 
 ## The principle
 A cup on a table, a box on the floor, a character's feet: if nothing darkens the ground right where the object touches it, the eye reads a
 gap, and the object hovers. What grounds it is a small, dark, sharp-ish shadow at the foot plus darkening in the creases between parts. Three
-things usually remove that darkening together (`?mode=float` is the engine's defaults, built for a 140 m open world):
+things usually remove that darkening together (`?mode=float` is the picture's loose settings, sized for a 140 m open world):
 1. **The shadow map is too coarse for small things.** Shadow detail is texels per meter, nothing else. One sun map covers a box of
    `2 * extent` meters: `extent: 70` on a 2048 map is 140 m / 2048 = **6.8 cm per texel**. A 10 cm cup's shadow is one or two texels,
    blurred away by the soft filter.
@@ -25,7 +26,7 @@ or screen-space) grounds things even where the sun shadow is soft. Light probes 
 ground small objects by themselves, they make the fill vary so shadowed corners and the space under a roof are darker than open ground.
 
 How to judge it: take a shot at the game's real camera and look at whether small things sit or hover. `threedog shot` prints "shadow area
-... darkened by N%"; on the demo the defaults give "shadow area 8.0% (darkened by 11.0%)", the technique "8.9% (darkened by 26.0%)".
+... darkened by N%": the number rises when the fill comes down.
 How strongly shadows should read is a decision for DESIGN.md, not a fixed value.
 
 ## Plain three.js
@@ -46,39 +47,37 @@ How strongly shadows should read is a decision for DESIGN.md, not a fixed value.
 - **Pastel / flat-shaded**: the same box and bias, a gentler fill (soft shadows read as color, not black). No extra cost.
 - **High-contrast / noir**: a lower fill, perhaps a tinted hemisphere ground color. No extra cost.
 - **Toon whose material ignores light**: contact only from vertex AO or a blob decal under the object. One quad per object, no shadow map.
-- **Big open world**: keep the default box for the far view and use cascades; bias, fill and vertex AO still apply.
+- **Big open world**: keep a wide box for the far view and use cascades (`engine.shadows.cascades(sun)`); bias, fill and vertex AO still apply.
 - **Interiors with strong bounce** (a sunlit room): probes, baked once and shipped.
 
-## The engine helper (optional convenience)
-`contactShadows.js` combines what the engine already has. `applyContactShadows(engine, opts)` does steps 1-3 below (and 5 with `ao: true`);
-it returns `{ remove(), describe() }` and writes as owner `contact-shadows`, so `engine.describe().look.shadow` says who set the box.
-`groundStatic(geometry)` bakes vertex AO with the ground as occluder (wraps `bakeVertexAO`). `shadowTexelCm()` gives one texel in
-centimeters. The starting values sit in `PARAMS` (tied to this example's 16 m scene; your game picks its own); `threedog examples pull
-contact-shadows` copies the file, then tune `PARAMS` against your DESIGN.md look.
+## The helper (optional convenience)
+`contactShadows.js` writes plain three.js on the lights you pass in. `applyContactShadows(engine, { sun, hemi })` does steps 1-3 below (and 5 with
+`ao: true`); it returns `{ remove(), describe() }`, and `remove()` writes back the values it found. `groundStatic(geometry)` bakes vertex AO with
+the ground as occluder (wraps `bakeVertexAO`). `shadowTexelCm()` gives one texel in centimeters. The starting values sit in `PARAMS` (tied to this
+example's 16 m scene; your game picks its own); `threedog examples pull contact-shadows` copies the file, then tune `PARAMS` against your DESIGN.md picture.
 
 | Step | What | Cost (1280x720, laptop GPU, this demo) |
 |---|---|---|
-| 1. Size the shadow box to what the player sees up close | `look.shadow.set({ extent: 8 })`: 16 m / 2048 = **0.8 cm per texel** | none: same map, same draws (4.1 -> 4.3 ms a frame) |
-| 2. Bias in texels, not by habit | `normalBias` about 1.5 texels (1.2 cm here), `bias` near 0; re-check after changing `extent` | none |
-| 3. Fill balance | `engine.mod('look.lights.hemi.intensity', { mul: 0.4 })`: shadows go from 11% to 26% darker on average (shot look numbers) | none |
+| 1. Size the shadow box to what the player sees up close | `sun.shadow.camera` left/right/top/bottom at 8 m: 16 m / 2048 = **0.8 cm per texel** | none: same map, same draws (4.1 -> 4.3 ms a frame) |
+| 2. Bias in texels, not by habit | `normalBias` about 1.5 texels (1.2 cm here), `bias` near 0; re-check after changing the box | none |
+| 3. Fill balance | `hemi.intensity` x 0.4: shadows read clearly darker (shot picture numbers) | none |
 | 4. Baked vertex AO on static code-built models | `groundStatic(geometry)`: dark foot, dark creases between parts | load time only: ~95 ms for 880 vertices x 32 rays; 0 per frame |
-| 5. Screen-space AO (optional) | `applyContactShadows(engine, { ao: true })` (GTAO from `@threedog/post-effects`) | **+6.3 ms a frame** (4.3 -> 10.6 ms): only where contact must hold for moving things too |
+| 5. Screen-space AO (optional) | `applyContactShadows(engine, { sun, ao: true })` (GTAO from `@threedog/post-effects`) | **+6.3 ms a frame** (4.3 -> 10.6 ms): only where contact must hold for moving things too |
 | 6. Light probes (optional) | `await engine.bakeProbes({ bounds, spacing })`: bounce light, darker under roofs, lighter beside a sunlit wall | load: 3.6 s for 75 probes (ship the JSON, `engine.loadProbes`); +0.8 ms a frame |
 | Bigger map instead | `mapSize: 4096` | +0.6 ms a frame and 4x the shadow memory; try a smaller `extent` first |
 
-Measured with `engine.step` + a 1 px `readPixels` per frame, median of 120 frames. Notes on the engine side:
-- The box follows `engine.focus`, so a compact box is fine for a third-person or fixed camera; the far ground loses its sun shadow, which is
-  what cascades are for (`look.shadow.set({ cascades: 3 })`, recipe 45) when the view is long.
-- The sky's ambient column feeds the hemisphere light AND the environment map (recipe 34), so a strong env plus a strong hemi doubles the
-  fill. A multiplier (`engine.mod('look.lights.hemi.intensity')`) keeps the day-night cycle.
+Measured with `engine.step` + a 1 px `readPixels` per frame, median of 120 frames. Notes:
+- The box centers on `sun.target`. `picture/lights.js` keeps the target on `engine.focus`, so a compact box is fine for a third-person or fixed
+  camera; the far ground loses its sun shadow, which is what cascades are for (`engine.shadows.cascades(sun, { count: 3 })`, recipe 45) when the view is long.
+- A `scene.environment` lights Standard materials on top of the hemisphere light, so a strong environment plus a strong hemi doubles the fill.
 - Which steps where: small props on tables, a tidy room, a yard: 1-3, plus 4 for every static code-built model (free at run time).
-  Characters and moving props that must look planted close up: add 5 on desktop, keep it off on low-tier devices (`look.post` lists
-  `ao.enabled` as costly).
+  Characters and moving props that must look planted close up: add 5 on desktop, keep it off on low-tier devices (read `engine.tier`).
 
 Rules (correctness):
 - Vertex AO needs `vertexColors: true` on the material and vertices where the darkening should be; it is baked once, so only static geometry.
-- Under a day-night cycle change the fill with a multiplier (`engine.mod('look.lights.hemi.intensity')`), not `look.lights.set({ hemi })`: a set value replaces the keyframes.
-- `look.shadow` is a sky-module part: `applyContactShadows` needs `sky()` installed. Change cascades / map type on a settings screen (they recompile).
+- The fill multiplies `hemi.intensity` once. Under a day-night cycle keep the time of day in `hemi.color` (as `picture/lights.js` does), or leave `hemi`
+  out and multiply by the fill in your own mapping: a cycle that writes `hemi.intensity` each frame undoes it.
+- After writing the shadow camera's box call `updateProjectionMatrix()`; after changing `mapSize` on a light that has drawn, dispose `shadow.map` and set it to null. The helper does both.
 - `ao()` comes from `@threedog/post-effects`; install it in the game.
 
 Common mistakes:

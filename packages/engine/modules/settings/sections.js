@@ -8,7 +8,7 @@
 //   data-reset="controls"                 restore default keys
 //   data-locale="en"                      switch language
 
-import { setFov } from '../../core/look/coreParts.js';
+import { setFov } from '../../core/view.js';
 
 const pct = v => Math.round(v * 100) + '%';
 /** Value shown beside a slider */
@@ -144,7 +144,7 @@ export const OPTIONAL_SECTIONS = {
       const e = s.engine, rig = () => e.cameraRig;
       s.define('camera.sensitivity', rig()?.sensitivity ?? 1, v => { if (rig() && 'sensitivity' in rig()) rig().sensitivity = v; });
       s.define('camera.invertY', rig()?.invertY ?? false, v => { if (rig() && 'invertY' in rig()) rig().invertY = v; });
-      s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (look.view.manual('fov'))
+      s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (engine.view.manual('fov'))
       // a new rig starts from its own defaults (and setCamera resets the fov): put the player's choices back on it
       s._track(e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); }));
     },

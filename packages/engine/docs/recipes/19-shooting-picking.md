@@ -8,20 +8,22 @@ ray registration is needed.**
 
 ## 1. A first-person shooting range (copy it and it runs)
 ```js
-import { createEngine, presets, openWorld, hud, THREE, makeMaterial } from 'threedog';
-import style from './style/index.js';                    // the game's own style
+import { createEngine, presets, openWorld, hud, THREE } from 'threedog';
+import { createPicture } from './picture/index.js';            // the game's own picture, plain three.js (recipe 62)
 import { terrainPreset } from '@threedog/terrain-noise';
 
-const engine = createEngine({ canvas: document.getElementById('view'), style, saveKey: 'range' });
+const engine = createEngine({ canvas: document.getElementById('view'), lights: false, saveKey: 'range' });
 engine.use(openWorld({ seed: 7, terrain: terrainPreset(), camera: 'firstPerson' }), hud());   // camera (required): 'follow' | 'firstPerson' | 'rts' | 'fixed', or pass a module like firstPersonCamera({ height: 1.7 })
+const picture = createPicture(engine);
 engine.input.action('shoot', { label: 'Shoot', keys: ['Mouse0', 'KeyF'] });      // the left mouse button is a key too (Mouse0 / Mouse1 / Mouse2); either it or KeyF works
 engine.characters.createPlayer({ ...presets.player.aim, spawn: engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 }) });
+Object.assign(window, { engine, picture });
 await engine.start();                                    // place targets after the terrain is generated
 
 // Targets: ordinary three.js objects. Put your own data in target.userData; managing them with a Map / Set is faster than traversing the scene
 const targets = [];
 function addTarget(x, z) {
-  const t = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16), makeMaterial('prop', { color: 0xd9534f }));
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16), new THREE.MeshLambertMaterial({ color: 0xd9534f }));
   t.rotation.x = Math.PI / 2;
   t.position.set(x, engine.surface(x, z) + 1.5, z);
   engine.add(t); targets.push(t);
@@ -58,7 +60,7 @@ engine.onFixed(() => {                                   // firing is gameplay: 
   bodies too, pass `targets: 'all'`.
 
 ## 2. What happens after a hit
-- Hit-point effect: `engine.particles.emit(name, hit.point)` (install `particles()` first).
+- Hit-point effect: `engine.particles.emit(name, hit.point)` (install `particles()` first, recipe 64).
 - For bullets with flight time (arcs, enemies dodging): don't use a ray; write `world.add({ kind: 'bullet', ... })` + `world.simulate`, see `18-world.md`.
 - Distance limit: `engine.pick(0, 0, { targets, far: 60 })`.
 - Score, ammo: `hud.counter` / `hud.bar`; numbers that must be saved go in `engine.vars` (`engine.vars.bump('score')`); after changing them call

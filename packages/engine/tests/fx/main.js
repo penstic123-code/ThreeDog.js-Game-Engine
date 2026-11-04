@@ -3,7 +3,7 @@
 // Why also measure on vs off: 0% parity could mean neither side applied the effect; a clear on/off difference shows the effect itself is compared.
 // Why hand-written materials, not engine patches: this checks the function library itself (signatures, spaces, units); the patches' tsl field is the next step.
 // Exceptions, where hand-writing the GLSL would mean copying it: lighting uses the real `lighting` patch on a Lambert material (its chunk needs three's
-// light uniforms), water the real `waves` / `waterSurface` pars and lines (the surface function is generated per look).
+// light uniforms), water the real `waves` / `waterSurface` pars and lines (the surface function is generated per water shader).
 import * as THREE from 'three';
 import * as TG from 'three/webgpu';
 import { Fn, float, vec3, vec4, positionGeometry, positionLocal, positionWorld, positionView, positionViewDirection, normalView, faceDirection,
@@ -15,7 +15,7 @@ import { wind, cloudShadow, season, objectOrigin, uniforms, detailNoise, detailB
   waterWave, waterSurface, waterFresnel } from '../../render/fx/index.js';
 import { applyEffects } from '../../render/materials.js';
 import { lightingPatch } from '../../render/lighting.js';
-import { waterLook, wavesPatch, surfacePatch } from '../../modules/water/surface.js';
+import { waterShader, wavesPatch, surfacePatch } from '../../modules/water/surface.js';
 import { instanceOffset } from '../../render/fx/objectOrigin.tsl.js';
 import pixelmatch from './pixelmatch.js';
 
@@ -175,12 +175,12 @@ function litScene(mat) {
 // ---------- water: waves (vertex), waterSurface (depthColor / foam), fresnel ----------
 // GLSL: the real `waves` / `waterSurface` pars and lines from modules/water/surface.js; the fresnel line as Water.js writes it (inline there)
 const WAVES = { waveHeight: 3, waveScale: 2, waveSpeed: 1 };
-const WATER_LOOKS = { wave: { depthColor: { shallow: 0x55ddcc, deep: 0x103060, by: 'wave', curve: 1.3 }, foam: { color: 0xffffff, start: 0.4, end: 0.8, opacity: 0.9 } },
+const WATER_SHADERS = { wave: { depthColor: { shallow: 0x55ddcc, deep: 0x103060, by: 'wave', curve: 1.3 }, foam: { color: 0xffffff, start: 0.4, end: 0.8, opacity: 0.9 } },
   view: { depthColor: { shallow: 0x66ddbb, deep: 0x081840, curve: 0.8 } } };
 const FRESNEL = 0.9, FRES_TO = new THREE.Color(0.85, 0.8, 0.95);
-function waterGLSL(fx, lookName) {
-  const look = waterLook(lookName ? WATER_LOOKS[lookName] : {}), surf = fx === 'SURFACE' ? surfacePatch(engine, look) : null;
-  const waves = wavesPatch(engine, WAVES, look, !!surf);
+function waterGLSL(fx, shaderName) {
+  const shader = waterShader(shaderName ? WATER_SHADERS[shaderName] : {}), surf = fx === 'SURFACE' ? surfacePatch(engine, shader) : null;
+  const waves = wavesPatch(engine, { uWave: { value: WAVES.waveHeight }, uWaveScale: { value: WAVES.waveScale }, uWaveSpeed: { value: WAVES.waveSpeed } }, shader, !!surf);
   const vert = `${waves.pars}
 varying vec3 vN; varying vec3 vVP; varying float vH;
 void main(){
@@ -210,7 +210,7 @@ void main(){
     uniforms: { ...waves.uniforms, ...surf?.uniforms, uBase: { value: new THREE.Color(0.1, 0.3, 0.4) }, uFresnel: { value: FRESNEL }, uFresnelColor: { value: FRES_TO } },
     defines: { ...(fx !== null ? { FX_WAVES: 1 } : {}), ...(fx === 'FRESNEL' ? { FX_FRESNEL: 1 } : {}) } });
 }
-function waterTSL(fx, lookName) {
+function waterTSL(fx, shaderName) {
   const t = uniforms(engine).uTime;
   const wp = modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz.mul(WAVES.waveScale);
   const h = waterWave(wp, t.mul(WAVES.waveSpeed)).toVarying();   // a varying like GLSL vThreedogWave (interpolated, not re-evaluated per pixel)
@@ -219,7 +219,7 @@ function waterTSL(fx, lookName) {
   m.colorNode = Fn(() => {
     let c = vec4(vec3(0.1, 0.3, 0.4).add(vec3(0, 0, positionWorld.y.mul(0.8))), 0.8);
     if (fx === 'SURFACE') {
-      const L = WATER_LOOKS[lookName];
+      const L = WATER_SHADERS[shaderName];
       c = waterSurface({ depth: L.depthColor, foam: L.foam })(c, h, abs(normalize(cameraPosition.sub(positionWorld)).y), positionWorld, t);
     }
     if (fx === 'FRESNEL') c = vec4(waterFresnel(c.rgb, normalView, positionViewDirection, float(FRESNEL), color(FRES_TO)), c.a);

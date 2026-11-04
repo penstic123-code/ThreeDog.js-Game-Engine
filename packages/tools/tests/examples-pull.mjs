@@ -2,7 +2,7 @@
 // Why a unit test: the pull is only useful if the list is complete (a technique folder missing from pullable.json is invisible), the files it
 // names exist and import nothing that stays behind, and an edited copy in the game is never overwritten without --force.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ENGINE } from '../paths.mjs';
 import { pullable, listExamples, pullExample } from '../examples.mjs';
@@ -21,7 +21,7 @@ export async function run({ check }) {
   const left = [];
   for (const [n, e] of Object.entries(all)) for (const f of e.files.filter(f => f.endsWith('.js'))) {
     const src = readFileSync(join(ENGINE, 'examples', e.dir, f), 'utf8');
-    for (const m of src.matchAll(/^\s*import\s[^'"]*['"](\.[^'"]+)['"]/gm)) if (!e.files.includes(m[1].replace(/^\.\//, ''))) left.push(`${n}/${f} -> ${m[1]}`);
+    for (const m of src.matchAll(/^\s*import\s[^'"]*['"](\.[^'"]+)['"]/gm)) if (!e.files.includes(posix.join(posix.dirname(f), m[1]))) left.push(`${n}/${f} -> ${m[1]}`);   // relative to the importing file: picture/index.js imports ./palette.js
   }
   check('pulled files import only each other or packages (nothing left behind)', !left.length, left.join(', '));
 

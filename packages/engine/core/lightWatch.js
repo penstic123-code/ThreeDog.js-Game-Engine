@@ -15,7 +15,7 @@ const STRINGS = {
   changed: 'Shader programs were compiled during play ({from} -> {to}) and, compared with the last observation, the light layout also changed ({was} -> {now}). ' +
     'three.js compiles every material again for a new light setup, so adding, removing or hiding a light mid-game freezes a frame. ' +
     'Use engine.use(lightPool({ point: 8 })) and engine.lightPool.add(torch, {...}) for many lights, or fade a fixed set with intensity ' +
-    '(recipes/09-style.md "Lights and stalls")',
+    '(recipes/09-materials-lights-models.md "Lights and stalls")',
 };
 
 /** Visible lights by the kinds three.js counts in its light setup (ambient and probes do not change programs), as one comparable string */
@@ -42,7 +42,8 @@ export function watchLights(e) {
   const n = programCount(e.renderer);
   if (n == null) return;
   const first = !e._lightWatch;
-  const w = e._lightWatch ??= { n, lights: lightSetup(e.scene) };
+  // changes and setup: the picture check reads them (packages/tools/picture/check.mjs 'light-layout')
+  const w = e._lightWatch ??= { n, lights: lightSetup(e.scene), changes: [], setup: () => lightSetup(e.scene) };
   // the scene walk runs on the first observation and when programs grow (a light was added), never on a quiet frame
   if (!w.manyDone && (first || n > w.n)) {
     const c = countLoose(e.scene);
@@ -51,6 +52,7 @@ export function watchLights(e) {
   if (n <= w.n) { w.n = n; return; }       // fewer programs (materials disposed) or none new: nothing to say
   const lights = lightSetup(e.scene);
   if (lights !== w.lights) {
+    w.changes.push({ from: w.lights, to: lights, programs: n - w.n });
     // the layout is only reread when programs grow, so we say "since the last observation", never "in this frame"
     warnOnce(coded('light-recompile', STRINGS.changed.replace('{from}', String(w.n)).replace('{to}', String(n)).replace('{was}', w.lights).replace('{now}', lights)));
   }

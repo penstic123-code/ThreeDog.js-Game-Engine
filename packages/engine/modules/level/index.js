@@ -56,7 +56,7 @@
 // scenes built in code (scene) cannot be saved, loading does not switch level -- to support cross-level loading, register the builder in the assets manifest
 // and use level({ url: name }).
 // Event: level:loaded { root, markers, spawn }
-// Look: the level module draws nothing itself, the scene looks entirely like your model, so it does not read the style.
+// Picture: the level module draws nothing itself, the scene looks entirely like your model, so it does not read the style.
 import * as THREE from 'three';
 import { buildHeightfield } from './heightfield.js';
 import { toast } from '../../ui/UI.js';

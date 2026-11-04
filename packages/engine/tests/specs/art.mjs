@@ -3,38 +3,6 @@
 
 export const specs = [
   {
-    name: '[守] 材质开放：游戏自己的 style给实例 / 函数 / 规格三种写法都行，写错类型报错不静默回退',
-    url: '/tests/perf/index.html?mode=city',
-    async run({ check, ev }) {
-      const r = await ev(() => {
-        const { THREE, makeMaterial } = threedogTest, L = engine.look.materials, o = { owner: 'art-test' };
-        const inst = new THREE.MeshMatcapMaterial();
-        const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        // the three forms a style's materials table takes, written through look.materials (the one entry makeMaterial reads)
-        L.replace('glass', inst, o);
-        L.replace('shader', (params, purpose) => new THREE.ShaderMaterial({ userData: { got: purpose + ':' + (params.color ?? '') } }), o);
-        L.replace('broken', () => 42, o);
-        L.set({ typo: { type: 'lamber' }, default: { type: 'toon', steps: 4 } }, o);
-        const a = makeMaterial('glass', { color: 0xff0000, type: 'x' });
-        const b = makeMaterial('shader', { color: 7 });
-        const c = makeMaterial('anything', { color: 0x00ff00 });
-        const out = {
-          clone: a !== inst && a.isMeshMatcapMaterial && a.color.getHex() === 0xff0000 && a.userData.purpose === 'glass' && a.type === 'MeshMatcapMaterial',
-          fn: b.isShaderMaterial && b.userData.got === 'shader:7' && b.userData.purpose === 'shader',
-          spec: c.isMeshToonMaterial && c.gradientMap?.image.width === 4,
-          badFn: err(() => makeMaterial('broken')), badType: err(() => makeMaterial('typo')),
-        };
-        L._clear('art-test');
-        return out;
-      });
-      check('实例写法：每次 clone，params 照常套用', r.clone, JSON.stringify(r));
-      check('函数写法：收到 params 和用途名，返回任意材质', r.fn);
-      check('规格写法：落到 default 的 toon', r.spec);
-      check('函数没返回材质时报错', /must return a three.js Material/.test(r.badFn), r.badFn);
-      check('未知 type 报错并列出可选项', /unknown type 'lamber'.*lambert \| phong/.test(r.badType), r.badType);
-    },
-  },
-  {
     name: '[守] 抗锯齿：开局的 MSAA 就是画布自带的（不开效果时直接画）；运行中切到另一值、或开效果时走后期渲染目标；画质预设能切',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
@@ -44,7 +12,7 @@ export const specs = [
         const out = { canvas: engine.renderer.getContextAttributes().antialias, start: p.antialias };
         p.setAntialias(true); engine.step(1 / 30, { render: true });
         out.on = { active: p.active, s: samples() };
-        const h = engine.look.post.add({ name: 'glow', create: () => ({ ...fake }) }); engine.step(1 / 30, { render: true });
+        const h = engine.post.add({ name: 'glow', create: () => ({ ...fake }) }); engine.step(1 / 30, { render: true });
         out.fx = samples();
         p.setAntialias(false); h.remove(); engine.step(1 / 30, { render: true });
         out.off = { active: p.active, s: samples() };
@@ -78,26 +46,26 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const p = engine.post, L = engine.look.post, made = {};
+        const p = engine.post, made = {};
         // 假 Pass：EffectComposer 只要求这几个成员；名字记在 tag 上，好读出链的顺序
         const fx = (name, slot, order, more = {}) => ({ name, slot, order, params: { k: 1 }, ...more,
           create: ({ params }) => { made[name] = (made[name] || 0) + 1; return { tag: name, k: params.k, enabled: true, needsSwap: false, renderToScreen: false, setSize() {}, render() {}, dispose() {} }; } });
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const chain = () => p.composer.passes.map(x => x.tag ?? (x.isRenderPass ? 'RENDER' : x.isOutputPass ? 'OUTPUT' : '?'));
-        const hs = [fx('grain', 'ldr', 0), fx('aa', 'final', 0), fx('late', 'hdr', 50), fx('early', 'hdr', -5), fx('lut', 'ldr', -1)].map(e => L.add(e));
-        const off = L.add(fx('lazy', 'hdr', 0, { enabled: false }));
+        const hs = [fx('grain', 'ldr', 0), fx('aa', 'final', 0), fx('late', 'hdr', 50), fx('early', 'hdr', -5), fx('lut', 'ldr', -1)].map(e => p.add(e));
+        const off = p.add(fx('lazy', 'hdr', 0, { enabled: false }));
         engine.step(1 / 30, { render: true });
         const out = { order: chain().join(), list: p.list().map(e => e.name).join(), lazyBuilt: !!made.lazy };
-        const px = L.add(fx('pixel', 'scene', 0));
+        const px = p.add(fx('pixel', 'scene', 0));
         out.scene = chain()[0];
-        out.dupScene = err(() => L.add(fx('pixel2', 'scene', 0)));
-        out.dupName = err(() => L.add(fx('grain', 'hdr', 0)));
-        out.badSlot = err(() => L.add(fx('x', 'post', 0)));
+        out.dupScene = err(() => p.add(fx('pixel2', 'scene', 0)));
+        out.dupName = err(() => p.add(fx('grain', 'hdr', 0)));
+        out.badSlot = err(() => p.add(fx('x', 'post', 0)));
         px.remove(); out.restored = chain()[0];
-        L.set({ 'late.k': 7 });                       // 没有 update：下次开启时重建，拿到新参数
+        p.get('late').set({ k: 7 });                       // 没有 update：下次开启时重建，拿到新参数
         out.rebuilt = { made: made.late, k: p.composer.passes.find(x => x.tag === 'late').k };
         out.enableMissing = p.get('nope');
-        L.set({ 'lazy.enabled': true }); out.lazyNow = chain().includes('lazy');
+        p.get('lazy').enabled = true; out.lazyNow = chain().includes('lazy');
         for (const h of [...hs, off]) h.remove();
         out.after = chain().join();
         return out;
@@ -227,7 +195,7 @@ void main(){ vec4 d = threedogDetailNoise(vW.xz * 0.25, 1, 2.0); float nl = dot(
         const fx2Mesh = new THREE.Mesh(g, fx2); engine.renderer.compile(fx2Mesh, engine.camera);
         const prog2 = engine.renderer.properties.get(fx2).currentProgram;
         const lit = compile(applyEffects(new THREE.MeshLambertMaterial(), { patches: [] , detail: { noise: 'paper' } }), L.lambert);
-        const shaped = threedogTest.makeMaterial('stone', { lighting: { wrap: 0.4, shadowTint: { color: 0x4455aa }, rim: { color: 0xffffff } } }, engine);
+        const shaped = applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, lighting: { wrap: 0.4, shadowTint: { color: 0x4455aa }, rim: { color: 0xffffff } }, engine });
         const sh = compile(shaped, L.lambert);
         out.callable2 = { compiles: !!prog2 && (!prog2.diagnostics || prog2.diagnostics.runnable),
           // the patch's pars expand the threedog_* chunks once (patches.js sharedOnce), so look for the chunk's body, not the #include line;
@@ -256,6 +224,31 @@ void main(){ vec4 d = threedogDetailNoise(vW.xz * 0.25, 1, 2.0); float nl = dot(
     },
   },
   {
+    // two wind entries, different scope: a species' wind object is that species' own sway; vegetation.sway() is the shape of every number-amplitude species.
+    // sway() once passed the object as an amplitude: #define THREEDOG_WIND_AMP (NaN * uWindAmp), a shader that does not compile, and the species' own sway lost
+    name: "[guard] vegetation.sway() reshapes number-wind species and leaves a species' own wind object alone (no NaN in the shader)",
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { THREE, patchesOf } = threedogTest, V = engine.vegetation, g = new THREE.BoxGeometry(), L = engine.vegetationDraw;
+        const fn = v => `void threedogWind(inout vec3 transformed, vec3 ip, vec3 position){ transformed.x += ${v}; }`;
+        V.define('swayOwn', { geometry: g, wind: { amplitude: 0.1, glsl: fn('0.125') }, rule: { perChunk: 0 } });
+        V.define('swayNum', { geometry: g, wind: 0.2, rule: { perChunk: 0 } });
+        const pars = n => [L.kind(n).material].flat().map(m => JSON.stringify(patchesOf(m).find(p => p.name === 'wind'), (k, v) => (k === 'uniforms' ? undefined : v))).join();
+        const read = () => ({ own: pars('swayOwn'), num: pars('swayNum') });
+        const out = { before: read() };
+        V.sway(fn('0.5')); out.custom = read();
+        V.sway(null); out.back = read();
+        return out;
+      });
+      const j = JSON.stringify(r);
+      check('no NaN reaches a wind patch', !/NaN/.test(j), j);
+      check("the species' own sway stays through sway(spec) and sway(null), at its own amplitude", [r.custom.own, r.back.own].every(p => p.includes('0.125') && p.includes('(0.1000 *')), j);
+      check('a number-wind species takes the sway() shape at its own amplitude', r.custom.num.includes('0.5') && r.custom.num.includes('(0.2000 *'), j);
+      check('sway(null) gives the number-wind species the built-in sway back', !r.back.num.includes('THREEDOG_WIND_CUSTOM'), j);
+    },
+  },
+  {
     name: '植被：实例挂上摆动影子材质，自定义材质也加上风吹（effects: false 可关）',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
@@ -273,25 +266,23 @@ void main(){ vec4 d = threedogDetailNoise(vW.xz * 0.25, 1, 2.0); float nl = dot(
     },
   },
   {
-    name: '[守] 水的材质入口：style.water.material 整个换掉水面材质（不再套内置波浪 / 菲涅尔），拿到共享 uniforms 和波浪补丁；返回值不是材质时报错',
+    name: '[守] 水的材质入口：engine.water.material 整个换掉水面材质（只有游戏自己选的补丁），uniforms 和波浪补丁可读；不是材质时报错',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, applyEffects, materialPatches } = threedogTest, W = engine.water, st = W.st, old = st.material;
-        let got = null;
-        st.material = (e, ctx) => { got = ctx; return applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [ctx.waves] }); };
-        const m = W._material();
-        const out = { toon: m.isMeshToonMaterial, patches: materialPatches(m).join(), uTime: got?.uniforms.uTime === got?.waves.uniforms.uTime && !!got?.uniforms.uWave,
-          builtin: materialPatches(W.material).join() };
-        st.material = () => 42;
-        try { W._material(); out.bad = ''; } catch (e) { out.bad = e.message; }
-        st.material = old;
+        const { THREE, applyEffects, materialPatches } = threedogTest, W = engine.water, own = W.material;
+        const waves = W.patches.find(p => p.name === 'waves');
+        const m = W.material = applyEffects(new THREE.MeshToonMaterial({ color: 0x3a8acf }), { clouds: false, patches: [waves] });
+        const out = { toon: W.material === m && m.isMeshToonMaterial, patches: materialPatches(m).join(), uTime: W.uniforms.uTime === waves.uniforms.uTime && !!W.uniforms.uWave,
+          builtin: materialPatches(own).join() };
+        try { W.material = 42; out.bad = ''; } catch (e) { out.bad = e.message; }
+        W.material = own;
         return out;
       });
       check('自定义材质生效，只有自己选的波浪补丁', r.toon && r.patches === 'waves', JSON.stringify(r));
       check('拿到共享 uniforms（uTime 与波浪补丁同一个对象）', r.uTime);
       check('默认水面仍是内置波浪 + 菲涅尔', /waves/.test(r.builtin) && /fresnel/.test(r.builtin), r.builtin);
-      check('返回值不是材质时报错给写法', /must return a three.js Material/.test(r.bad), r.bad);
+      check('不是材质时报错给写法', /takes a three.js Material/.test(r.bad), r.bad);
     },
   },
 ];

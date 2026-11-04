@@ -47,8 +47,8 @@ async function imageSpread(url) {
   let lo = 765, hi = 0; for (let i = 0; i < px.length; i += 4) { const v = px[i] + px[i + 1] + px[i + 2]; lo = Math.min(lo, v); hi = Math.max(hi, v); }
   return { w: img.naturalWidth, h: img.naturalHeight, spread: hi - lo };
 }
-/** Every record in the game layer of every look part, as 'part:owner: keys' */
-const gameRecords = e => { const out = []; for (const [id, p] of Object.entries(e.look)) for (const [owner, r] of p._owners?.game ?? []) out.push(`${id}:${owner}: ${[...r.values.keys()].join(',')}`); return out; };
+/** Every record in the game layer of every drawing part, as 'part:owner: keys' */
+const gameRecords = e => { const out = e.stacks.list().filter(n => n.startsWith('post.')).flatMap(n => e.stacks.get(n).holders().map(h => `${n}:${h.owner}`)); return out; };
 /** Two engine-camera frames through post in one task, camera moved in between: % of pixels that changed */
 const postPair = e => { aim(e, -2); e.renderOnce(); const p1 = pixels(e.renderer.domElement); aim(e, 2); e.renderOnce(); return changed(p1, pixels(e.renderer.domElement)); };
 
@@ -70,7 +70,7 @@ async function cases(opts) {
   a.dispose(); b.dispose();
 
   // 2. through post (vignette on: on WebGPU a RenderPipeline with a pass() scene pass), the engine camera moved between two calls in one task
-  e.look.post.replace([vignette({ enabled: true })]);
+  const vig = e.post.add(vignette({ enabled: true }));
   out.post = { active: e.post.active, changed: postPair(e) };
   // 2b. renderOnce(target) through post: the finished frame lands in the target with the canvas's pixels (the WebGL chain's last pass
   // writes to the canvas, so this needs post.render(dt, target)); read both orientations, since a WebGL target reads bottom row first
@@ -84,11 +84,11 @@ async function cases(opts) {
 
   // 4. a photo on this backend, post included: a real picture, not blank
   out.photo = await imageSpread(e.photo.take({ format: 'image/png' }).url);
-  // 4b. a photo that forces bloom on for the shot: bloom applies for the shot only and leaves no record in any look part's game layer
-  e.look.post.replace([bloom({ enabled: false }), vignette({ enabled: true })]);
+  // 4b. a photo that forces bloom on for the shot: bloom applies for the shot only and leaves no record in any drawing part's game layer
+  vig.remove(); e.post.add(bloom({ enabled: false })); e.post.add(vignette({ enabled: true }));
   const records0 = gameRecords(e);
   e.photo.take({ bloom: true });
-  out.photoLook = { before: records0, after: gameRecords(e), bloomAfter: e.post.get('bloom').enabled };
+  out.photoPicture = { before: records0, after: gameRecords(e), bloomAfter: e.post.get('bloom').enabled };
 
   // 5. a probe bake on this backend: the red wall on +x reaches the probes (DC red above DC blue)
   const set = await e.bakeProbes({ bounds: { min: [-1, 1, -1], max: [1, 1, 1] }, spacing: 2, resolution: 8, follow: false });
@@ -104,7 +104,7 @@ async function cases(opts) {
 async function control() {
   const e = createEngine({ canvas: canvas(), ...base, saveKey: 'test-render-once-control', renderer: 'webgpu' });
   fill(e); await e.start(); e.pause();
-  e.look.post.replace([vignette({ enabled: true })]);
+  e.post.add(vignette({ enabled: true }));
   e.renderOnce();   // build the pipeline outside the frozen part
   const f = e.renderer._nodes.nodeFrame, update = f.update;
   f.update = () => {};

@@ -112,10 +112,10 @@ export const AXES = {
     load.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 4, sizeAttenuation: false, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false })));
     return { particles: n };
   } },
-  // A ladder, not a doubling: n = how many effects of @threedog/post-effects are on, in a fixed order (bloom first, the costly ao / dof last)
+  // A ladder, not a doubling: n = how many effects of @threedog/post-effects are on, in a fixed order (bloom first, the heavy ao / dof last)
   post: { unit: 'post effects on', start: 0, cap: 8, next: n => n + 1, build(n) {
     boxes(400); const list = ALL_POST().slice(0, n);
-    if (list.length) { engine.look.post.replace(list); undo.push(() => engine.look.post.replace(null)); }
+    for (const fx of list) { const h = engine.post.add(fx); undo.push(() => h.remove()); }
     return { effects: list.map(e => e.name) };
   } },
   skinned: { unit: `skinned characters (${BONES} bones, ${tube.index.count / 3} triangles, own mixer)`, start: 8, cap: 4096, build(n) { characters(n); return { characters: n }; } },

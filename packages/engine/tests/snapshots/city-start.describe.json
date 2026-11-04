@@ -48,7 +48,7 @@
    "provides": [
     "sky"
    ],
-   "type": "look"
+   "type": "picture"
   },
   {
    "name": "collision",
@@ -69,7 +69,7 @@
   },
   {
    "name": "cameraRig",
-   "type": "look"
+   "type": "picture"
   },
   {
    "name": "characters",
@@ -98,7 +98,7 @@
    "provides": [
     "particles"
    ],
-   "type": "look"
+   "type": "picture"
   },
   {
    "name": "timeline",

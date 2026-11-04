@@ -20,6 +20,18 @@ export function trackPageErrors(page) {
   return list;
 }
 
+// Requests in flight per page (fetch, scripts, images, models; not websockets / event streams: those stay open). waitLoaded's quiet check reads it:
+// game code after `await engine.start()` that awaits a model is invisible to the scene until the file arrives
+const inflight = new WeakMap();
+/** Start counting the page's open requests (newGamePage calls it). @param {import('playwright').Page} page */
+export function trackRequests(page) {
+  if (inflight.has(page)) return;
+  const open = new Set();
+  inflight.set(page, open);
+  page.on('request', r => { if (!['websocket', 'eventsource'].includes(r.resourceType())) open.add(r); });
+  for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, r => open.delete(r));
+}
+
 /** The error that stopped the page, with its [code] and the engine's own fix text when the engine knows it (core/errorHints.js) */
 function fatalText(e, when) {
   const head = String(e?.stack || e).split('\n').slice(0, 3).join('\n    '), h = hintFor(e?.message ?? e);
@@ -81,9 +93,21 @@ export async function waitEngine(page, { field = 'stateApplied', timeout = 90000
     'fix the path or the file; if the game can run without it, remove critical: true from its manifest entry (threedog loading shows every failure)');
 }
 
+const QUIET_MS = 300, TAIL_MS = 10000;
+/** How much is in the scene: what the quiet wait watches, and what a shot compares afterwards @param {import('playwright').Page} page */
+export const sceneCounts = page => page.evaluate(() => {
+  let objects = 0, lights = 0; const mats = new Set();
+  window.engine.scene.traverse(o => { objects++; if (o.isLight) lights++; if (o.material) for (const m of [].concat(o.material)) mats.add(m); });
+  return { objects, lights, materials: mats.size };
+});
 /**
  * After waitEngine: step (no render) until engine.loading.view().done, so a shot never shows a half-built world (terrain chunks, models still arriving).
  * Headless pages only advance on step, so waiting without stepping would never finish. Past timeout (wall ms) it throws naming what is still pending.
+ * Then wait for the game's own code after `await engine.start()`: start() resolving says nothing about lamps added after a later await, and a shot
+ * of that moment silently lacked them. Quiet = no request in flight and the scene's object / light / material counts unchanged for QUIET_MS
+ * (no step meanwhile: only the page's own promises move). Capped at TAIL_MS (a page that never goes quiet is shot as it is, and says so).
+ * → { tail: { ms, objects, lights, materials, quiet } }: how long the code after start() kept changing the scene, and by how much.
+ * A game that adds things after a pause with no request in flight can still come after the quiet window: shot counts again once the picture is taken
  * @param {import('playwright').Page} page
  * @param {{ timeout?: number }} [o]
  */
@@ -102,4 +126,15 @@ export async function waitLoaded(page, { timeout = 120000 } = {}) {
     }
     await new Promise(r => setTimeout(r, 16));   // yield so worker results come back between steps
   }
+  const open = inflight.get(page) ?? new Set(), same = (a, b) => a.objects === b.objects && a.lights === b.lights && a.materials === b.materials;
+  const t0 = Date.now(), first = await sceneCounts(page);
+  let last = first, busy = open.size ? t0 : null;   // busy: the last moment a request was open or the counts moved
+  while (Date.now() - (busy ?? t0) < QUIET_MS && Date.now() - t0 < TAIL_MS) {
+    await new Promise(r => setTimeout(r, 50));
+    const now = await sceneCounts(page);
+    if (open.size || !same(now, last)) busy = Date.now();
+    last = now;
+  }
+  return { tail: { ms: busy ? busy - t0 : 0, objects: last.objects - first.objects, lights: last.lights - first.lights, materials: last.materials - first.materials,
+    quiet: Date.now() - (busy ?? t0) >= QUIET_MS } };
 }

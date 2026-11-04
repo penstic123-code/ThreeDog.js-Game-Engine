@@ -2,25 +2,25 @@
 // timers and saves are the calendar's (modules/calendar); the sky reads engine.calendar each frame to draw.
 // Usage and the engine.sky API are documented in Sky.js.
 import { Sky } from './Sky.js';
-import { dropCascades } from './cascades.js';
-import { setFogPatch } from './fog.js';
-import { followRoomEnvironment } from '../../render/lights.js';
-import { dropOwned, dropOwnedRow } from '../../core/owned.js';
+import { dropOwned } from '../../core/owned.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { parseClock } from '../../core/dayTime.js';
 import { codedError } from '../../core/errorHints.js';
 import { DEV } from '../../core/validate.js';
-import { SKY_LOOK_KEYS } from './lookSky.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { SkyOptions } from '../../types/world' */
 
-// Options sky() accepts: how the game lights its world (time without a calendar, fog, sun, hemisphere) and the shadow / environment blocks
-// (their per-device-tier defaults live in shadow.js / environment.js). Every look value is a look.sky param or hook (lookSky.js), so the old
-// look options throw in dev with the call that replaced them (one entry per value)
-const SKY_OPTIONS = ['time', 'fog', 'sun', 'hemisphere', 'shadow', 'environment'];
-const MOVED = { clouds: 'engine.look.sky.set({ clouds })', backdrop: 'engine.look.sky.set({ backdrop })',
-  layers: "engine.look.sky.patch('layer:<name>', layer) per layer", skybox: 'engine.look.sky.replace(skybox)',
-  ...Object.fromEntries(SKY_LOOK_KEYS.map(k => [k, `engine.look.sky.set({ ${k} })`])) };
+// Options sky() accepts: the time drawn without a calendar, and the dome's
+// start values. After install the numbers are engine.uniforms values (shader.js), the rest plain fields or calls on engine.sky
+const SKY_OPTIONS = ['time', 'clouds', 'backdrop', 'keyframes', 'sunSize', 'sunGlow', 'sunBrightness', 'moonSize', 'moonColor', 'moonBrightness',
+  'starDensity', 'starScale', 'gradientCurve', 'orbitTilt', 'orbitSway', 'dim'];
+// the sky no longer writes lights or fog, so there is nothing to switch off: say what to write instead of the generic unknown-key error
+const REMOVED = { shadow: 'shadows are engine.shadows (box, budget, cascades on engine.lights.sun) and three.js (light.shadow.*, renderer.shadowMap.type)',
+  sun: "lights are the game's: delete the option; createEngine({ lights: false }) drops the placeholder lights, and your picture/ code reads engine.uniforms.uSunDir / uDaylight",
+  hemisphere: "lights are the game's: delete the option; createEngine({ lights: false }) drops the placeholder lights, and your picture/ code reads engine.uniforms.uDaylight / uSkyTop",
+  environment: 'the sky builds no map on its own: delete the option and call engine.sky.environment({ into: engine.scene }); an asset map is plain three.js (recipes/34)',
+  fog: "fog is the game's: delete the option and write scene.fog = new THREE.Fog(color, near, far) in your picture/ code (engine.uniforms.uSkyHorizon is the horizon color)" };
+const MOVED = { layers: 'engine.sky.layer(name, layer) per layer', skybox: 'engine.sky.replace(skybox)' };
 const SKY_PARAMS = keysSchema(SKY_OPTIONS);   // keys only: the values take several shapes (time: 'HH:MM' | 0-1), Sky checks them
 const CAL_KEYS = ['dayLength', 'day', 'daysPerSeason', 'seasons', 'hoursPerDay'];
 const STRINGS = {
@@ -32,7 +32,7 @@ const STRINGS = {
 };
 
 /**
- * Sky dome, sun / moon light and fog drawn from the time of day (engine.calendar; without one a fixed time) -> engine.sky
+ * Sky dome and the sun / daylight / sky-color signals, from the time of day (engine.calendar; without one a fixed time) -> engine.sky
  * @param {SkyOptions} [opts]
  * @returns {ModuleDef<Sky>}
  */
@@ -40,14 +40,15 @@ export function sky(opts = {}) {
   // the old calendar keys: say where they went instead of the generic unknown-key error (the calendar moved out of the sky)
   const moved = CAL_KEYS.find(k => k in opts);
   if (moved) throw codedError('sky-option', STRINGS.calendarKey.replaceAll('{key}', moved));
-  if (DEV) for (const k in MOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) moved: ${MOVED[k]} after engine.use(sky()), or style.sky.${k} in the style (one entry per look value)`);
+  for (const k in REMOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) was removed: ${REMOVED[k]}`);
+  if (DEV) for (const k in MOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) moved: ${MOVED[k]} after engine.use(sky()) (one entry per picture value)`);
   readParams('sky', SKY_PARAMS, opts);
   let s = null;
   return {
-    name: 'sky', type: 'look', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
-    // the one sky: a game's own sky module takes over with engine.use(mySky(), { replaces: 'sky' }) (this one unloads with its look changes)
+    name: 'sky', type: 'picture', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
+    // the one sky: a game's own sky module takes over with engine.use(mySky(), { replaces: 'sky' }) (this one unloads with its picture changes)
     provides: ['sky'],
-    // weather: only its name for the look context (core/look/state.js); calendar: the time drawn (without it one fixed time, sky({ time }))
+    // weather: only its name for the picture context; calendar: the time drawn (without it one fixed time, sky({ time }))
     optional: ['weather', 'calendar'],
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.sky': '天空' }, en: { 'module.sky': 'sky' } });
       // a time given while a calendar draws would sit silently unused (calendar() installed after sky checks the same: modules/calendar/index.js)
@@ -57,9 +58,9 @@ export function sky(opts = {}) {
       if (!e.audio.measures.has('daylight')) ctx.track(e.audio.measure('daylight', () => s.daylight));
       return s;
     },
-    frame(dt, e) { s.update(e.focus); s._envFrame(dt); },
-    afterRender() { s.afterRender(); },
-    dispose() { s._shadowOff?.(); s._horizon?.remove(); s._swap.remove(); s._envOff(); followRoomEnvironment(s.engine, null, s._oEnv.on); setFogPatch(s, null); dropCascades(s); dropOwned(s.engine, [...s._owned, s._oEnv]); dropOwnedRow(s.engine, 'shadow.csm'); dropOwnedRow(s.engine, 'fog.patch'); },
+    frame(dt) { s.update(); s._envFrame(dt); },
+    // the dome goes too: a sky swapped with replaces must not leave the old dome drawn behind the new one
+    dispose() { s._shadowOff(); s._swap.remove(); s._envOff(); dropOwned(s.engine, s._owned); s.dome.removeFromParent(); s.dome.geometry.dispose(); s.dome.material.dispose(); },
     // scenario params time / season go to the calendar when there is one (its own applyState); without it time sets the fixed time drawn
     applyState(e, { time, season }) {
       if (e.calendar) return;

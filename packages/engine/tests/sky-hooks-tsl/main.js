@@ -1,7 +1,7 @@
-// The sky's three hooks in their tsl form (tests/specs/sky-hooks-tsl.mjs): look.sky.patch('clouds'), dome layers (style.sky.layers and
-// look.sky.patch('layer:<name>')) and look.fog.patch('fog'), each given { glsl, tsl } and drawn by two real engines with one style: a WebGL one
+// The sky's two hooks in their tsl form (tests/specs/sky-hooks-tsl.mjs): engine.sky.clouds(), dome layers
+// (engine.sky.layer('<name>')), each given { glsl, tsl } and drawn by two real engines with one style: a WebGL one
 // (the GLSL form) and a WebGPU one on its WebGL2 backend (the tsl form). Per hook: on vs off moves both pictures, and the two agree in mean.
-// ctx's "value so far" (clouds / fog) returned unchanged must draw exactly the hook-less picture. A missing form throws by name on each renderer.
+// ctx's "value so far" (clouds) returned unchanged must draw exactly the hook-less picture. A missing form throws by name on each renderer.
 // Why means, not pixels: the two backends compile different shader text (see tests/sky-tsl/main.js).
 import * as THREE from 'three';
 import * as TG from 'three/webgpu';
@@ -10,20 +10,20 @@ import { createEngine, sky } from '../../index.js';
 import { renderOnce } from '../../render/backend.js';
 
 const W = 200, H = 150;
-const KF = [[0, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3], [0.2, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3], [0.25, 0x4060a0, 0xf0a070, 0xffc080, 1.5, 0.6],
-  [0.5, 0x3a78d8, 0xb8d8f0, 0xffffff, 3, 1], [0.75, 0x4060a0, 0xf0a070, 0xffc080, 1.5, 0.6], [0.8, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3], [1, 0x101830, 0x203050, 0x8090c0, 0.4, 0.3]];
+const KF = [[0, 0x101830, 0x203050, 0x8090c0, 0.3], [0.2, 0x101830, 0x203050, 0x8090c0, 0.3], [0.25, 0x4060a0, 0xf0a070, 0xffc080, 0.6],
+  [0.5, 0x3a78d8, 0xb8d8f0, 0xffffff, 1], [0.75, 0x4060a0, 0xf0a070, 0xffc080, 0.6], [0.8, 0x101830, 0x203050, 0x8090c0, 0.3], [1, 0x101830, 0x203050, 0x8090c0, 0.3]];
 
-// a style layer with both forms and a uniform of its own (uBandK 0 = off): a warm band low over the horizon, added
+// a layer with both forms and a uniform of its own (uBandK 0 = off): a warm band low over the horizon, added
 const bandK = 0;
 const STYLE_LAYER = { name: 'band', blend: 'add', uniforms: { uBandK: bandK },
   glsl: 'vec4 threedogSkyLayer(vec3 d, float t, vec3 s, float n){ return vec4(0.9, 0.5, 0.2, uBandK * (1.0 - smoothstep(0.0, 0.4, abs(d.y - 0.15)))); }',
   tsl: ({ dir, uniforms, tsl }) => tsl.vec4(0.9, 0.5, 0.2, uniforms.uBandK.mul(tsl.smoothstep(0, 0.4, dir.y.sub(0.15).abs()).oneMinus())) };
-const style = { sky: { keyframes: KF, clouds: { coverage: 1 }, fog: { kind: 'exp' }, layers: [STYLE_LAYER] } };
 
 const canvas = () => { const c = Object.assign(document.createElement('canvas'), { width: W, height: H }); c.style.cssText = `width:${W}px;height:${H}px`; document.body.appendChild(c); return c; };
 async function make(kind) {
-  const e = createEngine({ canvas: canvas(), ...(kind === 'webgpu' ? { renderer: kind } : {}), pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-sky-hooks-' + kind, urlState: false, style });
-  e.use(sky({ time: 0.33 }));
+  const e = createEngine({ canvas: canvas(), ...(kind === 'webgpu' ? { renderer: kind } : {}), pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-sky-hooks-' + kind, urlState: false });
+  e.use(sky({ time: 0.33, keyframes: KF, clouds: { coverage: 1 } }));
+  e.scene.fog = new THREE.FogExp2(0xcccccc, 0.01); e.sky.layer('band', STYLE_LAYER);
   await e.start(); e.pause();
   e.renderer.toneMapping = THREE.NoToneMapping;
   e.uniforms.uCloud.value = 0.55; e.uniforms.uTime.value = 12;
@@ -46,7 +46,7 @@ const cam = new THREE.PerspectiveCamera(80, W / H, 0.1, 500); cam.position.set(0
 cam.lookAt(Math.sin(az) * 10, 2 + 10 * Math.tan(0.12), Math.cos(az) * 10); cam.updateMatrixWorld();
 
 const shot = async e => {
-  e.sky.fixedTime = 0.33; e.sky.update(e.focus);   // the sky's per-frame work: fog color / density, the WebGPU scene fog node
+  e.sky.fixedTime = 0.33; e.sky.update(e.focus);   // the sky's per-frame work
   if (e === gl) {
     const rt = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace }); renderOnce(e.renderer, e.scene, cam, rt);
     const b = new Uint8Array(W * H * 4); e.renderer.readRenderTargetPixels(rt, 0, 0, W, H, b); rt.dispose(); return b;
@@ -73,54 +73,41 @@ tsl: ({ dir, time, shade, cover, fx, tsl }) => {
 } };
 const LAYER = { blend: 'mix', glsl: 'vec4 threedogSkyLayer(vec3 d, float t, vec3 s, float n){ return vec4(0.2, 0.9, 0.4, 0.6 * smoothstep(0.3, 0.8, d.y)); }',
   tsl: ({ dir, tsl }) => tsl.vec4(0.2, 0.9, 0.4, tsl.smoothstep(0.3, 0.8, dir.y).mul(0.6)) };
-const FOG = { glsl: 'vec4 threedogFog(vec3 color, float depth, vec3 worldPos){ return vec4(vec3(0.25, 0.3, 0.9), 1.0 - exp(-0.02 * depth)); }',
-  tsl: ({ depth, tsl }) => tsl.vec4(0.25, 0.3, 0.9, tsl.exp(depth.mul(-0.02)).oneMinus()) };
 
 window.skyHooksTsl = async () => {
   const out = { kinds: both.map(e => e.sky.dome.material.type), hooks: {}, same: {}, errors: {} };
   const base = await shots();
 
-  // style.sky.layers with { glsl, tsl, uniforms }: its own uniform switches it on on both
+  // a layer with { glsl, tsl, uniforms }: its own uniform switches it on on both
   for (const e of both) e.sky.uniforms.uBandK.value = 1;
   out.hooks.styleLayer = pairOf(base, await shots());
   for (const e of both) e.sky.uniforms.uBandK.value = 0;
 
-  // look.sky.patch('clouds', { glsl, tsl })
-  for (const e of both) e.look.sky.patch('clouds', CLOUDS);
+  // sky.clouds({ glsl, tsl })
+  for (const e of both) e.sky.clouds(CLOUDS);
   out.hooks.clouds = pairOf(base, await shots());
-  for (const e of both) e.look.sky.patch('clouds', null);
+  for (const e of both) e.sky.clouds(null);
   out.same.cloudsBack = change(base[1], await shot(gpu));
   // ctx.clouds (the built-in kind's result) handed back unchanged = the hook-less dome
-  gpu.look.sky.patch('clouds', { tsl: c => c.clouds });
+  gpu.sky.clouds({ tsl: c => c.clouds });
   out.same.cloudsSoFar = change(base[1], await shot(gpu));
-  gpu.look.sky.patch('clouds', null);
+  gpu.sky.clouds(null);
 
-  // look.sky.patch('layer:<name>', { glsl, tsl, blend })
-  for (const e of both) e.look.sky.patch('layer:aurora', LAYER);
+  // engine.sky.layer(name, { glsl, tsl, blend })
+  for (const e of both) e.sky.layer('aurora', LAYER);
   out.hooks.layer = pairOf(base, await shots());
-  for (const e of both) e.look.sky.patch('layer:aurora', null);
+  for (const e of both) e.sky.layer('aurora', null);
   out.same.layerBack = change(base[1], await shot(gpu));
-
-  // look.fog.patch('fog', { glsl, tsl })
-  for (const e of both) e.look.fog.patch('fog', FOG);
-  out.hooks.fog = pairOf(base, await shots());
-  // ctx.fog (what kind 'exp' alone draws) handed back unchanged = the hook-less fog
-  gpu.look.fog.patch('fog', { tsl: c => c.fog });
-  out.same.fogSoFar = change(base[1], await shot(gpu));
-  for (const e of both) e.look.fog.patch('fog', null);
-  out.same.fogBack = change(base[1], await shot(gpu));
 
   // ---- each renderer needs its own form, and says so by name
   const G = 'vec4 threedogClouds(vec3 d, float t, vec3 s, float n, vec3 l, vec3 h, float c){ return vec4(1.0); }';
-  out.errors.cloudsGlslOnGpu = tryIt(() => gpu.look.sky.patch('clouds', G));
-  out.errors.layerGlslOnGpu = tryIt(() => gpu.look.sky.patch('layer:x', { glsl: LAYER.glsl }));
-  out.errors.fogGlslOnGpu = tryIt(() => gpu.look.fog.patch('fog', FOG.glsl));
-  out.errors.cloudsTslOnGl = tryIt(() => gl.look.sky.patch('clouds', { tsl: CLOUDS.tsl }));
-  out.errors.layerTslOnGl = tryIt(() => gl.look.sky.patch('layer:x', { tsl: LAYER.tsl }));
-  out.errors.fogTslOnGl = tryIt(() => gl.look.fog.patch('fog', { tsl: FOG.tsl }));
-  out.errors.badTsl = tryIt(() => gpu.look.sky.patch('clouds', { tsl: c => c.nope.mul(2) }));
+  out.errors.cloudsGlslOnGpu = tryIt(() => gpu.sky.clouds(G));
+  out.errors.layerGlslOnGpu = tryIt(() => gpu.sky.layer('x', { glsl: LAYER.glsl }));
+  out.errors.cloudsTslOnGl = tryIt(() => gl.sky.clouds({ tsl: CLOUDS.tsl }));
+  out.errors.layerTslOnGl = tryIt(() => gl.sky.layer('x', { tsl: LAYER.tsl }));
+  out.errors.badTsl = tryIt(() => gpu.sky.clouds({ tsl: c => c.nope.mul(2) }));
   // a failed hook leaves the dome as it was
   out.same.afterErrors = change(base[1], await shot(gpu));
-  for (const e of both) { e.look.sky._clear('game'); e.look.fog._clear('game'); }
+  for (const e of both) e.sky.clouds(null);
   return out;
 };

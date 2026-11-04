@@ -1,4 +1,4 @@
-// Named camera positions of the sheep island. Same name = same framing every time, so two screenshots differ only by time, weather or style.
+// Named camera positions of the sheep island. Same name = same framing every time, so two screenshots differ only by time or weather.
 // The island is centred on (0, 0) and is about 60 m across; positions are [x, y, z] in world space.
 export const VIEWS = {
   overview: { pos: [0, 36, 48], look: [0, -1, 0] },        // the whole island floating on the backdrop, from the south, a little above

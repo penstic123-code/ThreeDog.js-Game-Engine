@@ -1,7 +1,7 @@
 // Vegetation data part: what grows where. Species definitions (placement rule, positions, densityMap, rings), placement per chunk
 // (c.plants[name]: matrices, colors, stable ids), tree collision circles (c.colliders), felled-tree records (saved) and instanceAt.
-// Data only: this file makes no mesh and touches no material. Looks subscribe with view({ species, change, ring, show, drop })
-// (vegetation/look.js is the engine's own, slot 'vegetation-look'); the models and materials given to define() are read there.
+// Data only: this file makes no mesh and touches no material. Draw parts subscribe with view({ species, change, ring, show, drop })
+// (vegetation/draw.js is the engine's own, slot 'vegetation-draw'); the models and materials given to define() are read there.
 import { isModelName, vegetationModel } from '../../core/namedModel.js';
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
@@ -34,7 +34,7 @@ function checkPositions(label, list, rule) {
 //   const hit = engine.vegetation.instanceAt(position, { radius: 2, species: '松树' });   // → { species, cx, cz, id, position } or null
 //   engine.vegetation.removeInstance(hit.species, hit.cx, hit.cz, hit.id, { regrowSeconds: 300 });  // grows back after 300 game seconds
 //   engine.vegetation.restoreInstance(...)   // restore immediately
-// Hiding: the slot goes into c.hidden[name] (the look draws it as a zero matrix, count unchanged) and out of the chunk's collision circles.
+// Hiding: the slot goes into c.hidden[name] (the draw part draws it as a zero matrix, count unchanged) and out of the chunk's collision circles.
 // Regrowth: the record stores the expiry time (engine.clock game seconds), checked once per second; the clock is saved, so the countdown continues after
 // reload.
 const KEY_RE = /^veg:(.*):(-?\d+),(-?\d+):(\d+)$/;
@@ -55,10 +55,10 @@ export class Vegetation {
     // whatever provides the ground (a level, a code-built ground, flat). Both hosts keep chunks of one shape, so everything below is shared
     if (engine.terrain && Object.keys(opts).length) throw codedError('vegetation-option', `vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
     /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
-    /** @internal the looks drawing the plants (view()) */ this.views = new Set();
+    /** @internal the draw parts drawing the plants (view()) */ this.views = new Set();
     this.host = engine.terrain ?? new GroundChunks(engine, this, opts);
     // on terrain: this is the terrain's planter (it calls mount / unmount / drop / ring; terrain never reads engine.vegetation); a chunk's
-    // visibility comes from the terrain data part, so a game that replaces the terrain look keeps its trees
+    // visibility comes from the terrain data part, so a game that replaces the terrain drawing keeps its trees
     if (engine.terrain) {
       this._planter = engine.terrain.setPlanter(this);
       this._view = engine.terrain.view({ show: (c, v) => this._emit('show', c, v) });
@@ -104,15 +104,15 @@ export class Vegetation {
    *                 height (rule's scale / stretch / sink / tints / collider still apply; the scatter filters are refused). Stable id = list index
    *   densityMap    how much survives per spot, 0..1: (x, z) => 0..1, or a gray image { url | data + width + height, size: [w, l], center?, outside? }
    *                 (the keys of terrain({ heightmap })). Thins the rule's or the positions' placement; call rebuild() after a function's inputs change
-   *   wind          wind sway amplitude (0 disables)
+   *   wind          wind sway amplitude (0 disables), or this species' own sway: { amplitude, glsl, tsl, uniforms }, which vegetation.sway() leaves alone (recipe 36)
    *   nearOnly      generate only near the player (grass, flowers)
    *   maxRing       not drawn beyond this ring count
    *   fade          near-only species shrink out over a band [start, end] metres from the player instead of popping at the ring edge (default on for
    *                 nearOnly, end = maxRing x chunk size; false = hard edge; { start, end } sets the band)
    *   lodRing       switch to low-poly beyond this ring count
    *   castShadow / shadowRing  whether to cast shadows, and within how many rings
-   *   material      custom material, any three.js material (optional, default is the style's 'vegetation' role); wind, cloud
-   *                 shadows and season tint are added to it (and its shadow sways) unless effects: false
+   *   material      this species' own three.js material (optional; default is engine.vegetation.material); wind, cloud shadows, season tint and the
+   *                 near fade are added to it (and its shadow sways) unless effects: false
    */
   define(name, o) {
     readParams(`vegetation.define('${name}')`, keysSchema(ADD_KEYS), o);
@@ -132,7 +132,7 @@ export class Vegetation {
     readParams(`vegetation.define('${name}').rule`, keysSchema(RULE_KEYS), o.rule);
     if (o.positions != null) checkPositions(`vegetation.define('${name}')`, o.positions, o.rule);
     const density = o.densityMap != null ? makeDensity(o.densityMap, `vegetation.define('${name}')`) : null;
-    // distance fade band of near-only species (nearFade.js), checked here so a bad band throws at define; the look draws it
+    // distance fade band of near-only species (nearFade.js), checked here so a bad band throws at define; the draw part draws it
     if (o.fade && typeof o.fade === 'object') readParams(`vegetation.define('${name}').fade`, keysSchema(['start', 'end']), o.fade);
     const maxRing = o.maxRing ?? (o.nearOnly ? 1 : 99);
     const sp = {
@@ -144,8 +144,8 @@ export class Vegetation {
       nearOnly: !!o.nearOnly, maxRing, lodRing: o.lodRing ?? 1, fade: o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.CHUNK),
       castShadow: o.castShadow ?? !o.nearOnly, shadowRing: o.shadowRing ?? 1, receiveShadow: o.receiveShadow ?? true,
     };
-    sp.source = o;   // what it was made from: the look reads geometry / model / material / wind from it, a hot swap adds it again (_swapped)
-    this._emit('species', sp);   // the look builds geometry and materials now, so a bad model throws here, before anything is registered
+    sp.source = o;   // what it was made from: the draw part reads geometry / model / material / wind from it, a hot swap adds it again (_swapped)
+    this._emit('species', sp);   // the draw part builds geometry and materials now, so a bad model throws here, before anything is registered
     this.species.set(name, sp);
     this.host.registerSpecies(name, sp.rule);
     // a density image still loading: this species places nothing until it is in, then every chunk is placed again. The module's init waits
@@ -211,9 +211,50 @@ export class Vegetation {
     this.host.refreshLevels();
   }
   /**
+   * The shared default material: every species with no material or model of its own draws it. Set it and it is drawn as given, on plants already
+   * planted too (no patches added; give it engine.vegetation.patches to keep the sway, season and color code, or use define({ material }) for a species'
+   * own amplitude and near fade). null gives the neutral default back. Until set, reading gives the neutral source: each species draws its own copy
+   * (engine.vegetationDraw.kind(name).material), so only .color written here reaches them all.
+   * @example engine.vegetation.material = applyEffects(new THREE.MeshToonMaterial({ vertexColors: true }), { patches: engine.vegetation.patches });
+   * @type {import('three').Material | null}
+   */
+  get material() { return this._drawPart('material').material; }
+  set material(m) { this._drawPart('material').material = m; }
+  /**
+   * The engine's shader patches for plants (season tint, sway with one amplitude, the vegetation.color() code), for applyEffects on a game's shared
+   * material. sway() and color() make a new array, and the game re-applies it to a material of its own
+   * @type {any[]}
+   */
+  get patches() { return this._drawPart('patches').patches; }
+  /**
+   * Replace the sway shape of every species whose wind is a number, planted ones too; null gives the built-in sway back. This is the default shape; a species
+   * defined with its own wind object keeps that one (the narrower entry wins). The GLSL defines
+   * void threedogWind(inout vec3 transformed, vec3 ip, vec3 position), moving the vertex in object space (ip = world position of this plant; uTime, uWind,
+   * uWindFreq, THREEDOG_WIND_AMP and your uniforms are in scope). tsl is the WebGPURenderer form, (ctx) => the moved object-space position.
+   * How hard and fast plants sway are the signals engine.uniforms.uWindAmp and uWindFreq
+   * @example engine.vegetation.sway('void threedogWind(inout vec3 t, vec3 ip, vec3 p){ t.x += sin(uTime + ip.x) * max(p.y, 0.0) * THREEDOG_WIND_AMP * uWind; }');
+   * @param {string | { glsl?: string, tsl?: (ctx: any) => any, uniforms?: Record<string, any> } | null} spec
+   * @returns {void}
+   */
+  sway(spec) { this._drawPart('sway').sway(spec); }
+  /**
+   * Code in the 'color' slot of every species' material, planted ones too: diffuseColor (vertex and instance colors, season tint applied) is yours to
+   * change. tsl is the WebGPURenderer form, (ctx) => vec4 from ctx.color. null takes it off
+   * @example engine.vegetation.color({ glsl: 'diffuseColor.rgb *= vec3(1.1, 0.9, 0.7);', tsl: c => c.color.mul(c.tsl.vec4(1.1, 0.9, 0.7, 1)) });
+   * @param {string | { glsl?: string, tsl?: (ctx: any) => any, uniforms?: Record<string, any>, pars?: string } | null} spec
+   * @returns {void}
+   */
+  color(spec) { this._drawPart('color').color(spec); }
+  /** @internal the engine's drawing half; a game that replaced it draws with its own materials, so these entries have nothing to act on */
+  _drawPart(entry) {
+    const l = this.engine.vegetationDraw;
+    if (!l) throw codedError('vegetation-option', `vegetation.${entry}: the plants are drawn by a game module (replaces: 'vegetation-draw'), which owns their materials; set the picture there`);
+    return l;
+  }
+  /**
    * Draw the plants. Hooks: species(sp) (defined or defined again; sp.source is what define() was given), change(c, name) (c.plants[name]
    * placed, replaced or gone, or c.hidden[name] changed: felled slots), ring(c, ring) (LOD ring), show(c, visible) (in view or not), drop(c)
-   * (the chunk was released). Species and chunks already there are replayed at once. This is how a look that replaces 'vegetation-look'
+   * (the chunk was released). Species and chunks already there are replayed at once. This is how a draw part that replaces 'vegetation-draw'
    * draws. Returns { remove() } (ctx.track it).
    * @example ctx.track(engine.vegetation.view({ change(c, name) { draw(c, c.plants[name]) }, drop(c) { undraw(c) } }))
    * @param {{ species?: (sp: any) => void, change?: (c: any, name: string) => void, ring?: (c: any, ring: number) => void, show?: (c: any, visible: boolean) => void, drop?: (c: any) => void }} v
@@ -296,16 +337,16 @@ export class Vegetation {
     return best;
   }
 
-  /** @internal chunk plumbing (terrain chunks and ground chunks): one species' placement result r for chunk c (data; the looks draw it) */
+  /** @internal chunk plumbing (terrain chunks and ground chunks): one species' placement result r for chunk c (data; the draw parts draw it) */
   mount(c, name, r) {
     const sp = this.species.get(name);
     // densityMap thins here, before the colliders are taken, so a dropped plant blocks nothing; survivors keep their stable ids
     if (sp?.density) r = thin(r, c.cx * this.host.CHUNK, c.cz * this.host.CHUNK, sp.density.at, sp.rule.salt);
     c.plants ||= {}; c.colliders ||= {}; c.collidersAll ||= {};
-    // none left (terrain dug, densityMap thinned all): drop the record, so the look tears its mesh down too and collision matches what is drawn
+    // none left (terrain dug, densityMap thinned all): drop the record, so the draw part tears its mesh down too and collision matches what is drawn
     if (r.n === 0) delete c.plants[name]; else c.plants[name] = r;
     if (r.n && r.k?.length) c.collidersAll[name] = r.k; else delete c.collidersAll[name];   // original circles (before felled trees are filtered)
-    this.applyEdits(c, name);   // felled trees stay gone after reload; sets the colliders and tells the looks
+    this.applyEdits(c, name);   // felled trees stay gone after reload; sets the colliders and tells the draw parts
   }
   /** @internal chunk plumbing: drop a near-only species from a chunk that moved out of its ring */
   unmount(c, name) {
@@ -315,10 +356,10 @@ export class Vegetation {
   }
   /** @internal chunk plumbing: the chunk was released */
   drop(c) { this._emit('drop', c); c.plants = {}; c.hidden = null; }
-  /** @internal chunk plumbing: the chunk's ring changed; the looks pick draw distance, low-poly swap and shadows from it */
+  /** @internal chunk plumbing: the chunk's ring changed; the draw parts pick draw distance, low-poly swap and shadows from it */
   ring(c, ring) { c.ring = ring; this._emit('ring', c, ring); }
 
-  /** @internal felled-tree records -> c.hidden[name] (instance slots) and the chunk's collision circles; tells the looks */
+  /** @internal felled-tree records -> c.hidden[name] (instance slots) and the chunk's collision circles; tells the draw parts */
   applyEdits(c, name) {
     const r = c.plants?.[name], hid = new Set();
     if (r) for (const id of this._removed.get(`${name}:${c.cx},${c.cz}`)?.keys() ?? []) { const s = slotOf(r, id); if (s !== undefined) hid.add(s); }

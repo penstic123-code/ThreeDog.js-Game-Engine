@@ -27,20 +27,35 @@ export class Effect {
     this.sz = new Float32Array(N * 2); this.op = new Float32Array(N * 2);
     this.extra = new Float32Array(N * 3);   // gravity, drag, wind (emit may override)
     this.head = 0; this.alive = 0;
+    /** @internal the game's material while one is set */ this._given = null;
     this._c0 = new THREE.Color(); this._c1 = new THREE.Color();
     this._build();
     // fallback 'webgl': an effect defined before start() was built for the WebGPURenderer start() then replaced; build its draw object again
     // for the renderer in use (the particle state lives in the arrays above, so live particles carry over)
     /** @internal */ this._swap = onRendererSwap(sys.engine, () => {
       const vis = this.points.visible, was = [this.aPos, this.aSize, this.aAlpha, this.aAngle, this.aColor].map(a => a.array);
-      this.sys.engine.remove(this.points);
+      this._drop();
       this._build();
       [this.aPos, this.aSize, this.aAlpha, this.aAngle, this.aColor].forEach((a, i) => a.array.set(was[i]));
       this.points.visible = vis;
+      if (this._given) this.points.material = this._given;
       if (this._tex) this._useTexture(this._tex);
     });
     if (o.texture) this._loadTexture(o.texture);
   }
+
+  /** The plain three.js material drawn; set yours and it is drawn as given, null gives the engine's back */
+  get material() { return this._given ?? this._own; }
+  set material(m) {
+    if (m != null && !m.isMaterial) throw codedError('module-params', `particles '${this.name}': material is a three.js material (or null for the engine's); got ${m}`);
+    this._given = m || null;
+    this.points.material = m ?? this._own;
+  }
+  /** The engine material's { value } objects (uMap, uHasMap, uScale, uMaxPx): the engine writes them whichever material is drawn, a ShaderMaterial of yours can share them */
+  get uniforms() { return this._own.uniforms; }
+
+  /** @internal engine.remove disposes what the object draws, so the game's material comes off first: it stays the game's */
+  _drop() { this.points.material = this._own; this.sys.engine.remove(this.points); }
 
   /** @internal The geometry, material and draw object for the engine's current renderer (sprite quads on WebGPU, points on WebGL) */
   _build() {
@@ -50,21 +65,21 @@ export class Effect {
     const attr = (n, size) => { const a = new (gpu ? THREE.InstancedBufferAttribute : THREE.BufferAttribute)(new Float32Array(N * size), size); a.setUsage(THREE.DynamicDrawUsage); g.setAttribute(n, a); return a; };
     this.aPos = attr('position', 3); this.aSize = attr('aSize', 1); this.aAlpha = attr('aAlpha', 1); this.aAngle = attr('aAngle', 1); this.aColor = attr('aColor', 3);
     this._attrs = null;
-    if (gpu) ({ material: this.material, object: this.points } = gpu.particles({ count: N, fog: o.fog !== false, additive: o.blending === 'additive',
+    if (gpu) ({ material: this._own, object: this.points } = gpu.particles({ count: N, fog: o.fog !== false, additive: o.blending === 'additive',
       maxPixels: o.maxPixels, attrs: { aPos: this.aPos, aSize: this.aSize, aAlpha: this.aAlpha, aAngle: this.aAngle, aColor: this.aColor } }));
-    else this.material = new THREE.ShaderMaterial({
+    else this._own = new THREE.ShaderMaterial({
       vertexShader: vert, fragmentShader: frag, transparent: true, depthWrite: false, fog: o.fog !== false,
       blending: o.blending === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending,
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: null }, uHasMap: { value: 0 }, uScale: { value: 400 }, uMaxPx: { value: o.maxPixels } }]),
     });
-    if (!gpu) this.points = new THREE.Points(g, this.material);
+    if (!gpu) this.points = new THREE.Points(g, this._own);
     this.points.frustumCulled = false; this.points.visible = false; this.points.renderOrder = 10;
     this.points.matrixAutoUpdate = false;
     sys.engine.add(this.points, { owner: 'engine:particles' });
   }
 
   /** @internal */
-  _useTexture(tex) { this._tex = tex; this.material.uniforms.uMap.value = tex; this.material.uniforms.uHasMap.value = 1; }
+  _useTexture(tex) { this._tex = tex; this.uniforms.uMap.value = tex; this.uniforms.uHasMap.value = 1; }
 
   _loadTexture(t) {
     if (t.isTexture) this._useTexture(t);
@@ -136,5 +151,5 @@ export class Effect {
     }
   }
 
-  dispose() { this._swap.remove(); this.sys.engine.remove(this.points); }   // remove, then dispose geometry and material
+  dispose() { this._swap.remove(); this._drop(); }
 }

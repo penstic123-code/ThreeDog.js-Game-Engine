@@ -11,7 +11,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 
 ## Engine modules (engine.use)
 
-- createEngine: { canvas, renderer, ui: { loading: false }, saveKey: 'threedog-webgpu-tsl' }
+- createEngine: { canvas, renderer, lights: false, ui: { loading: false }, saveKey: 'threedog-webgpu-tsl' }
 - sky ({ time: Number(url.get('time') ?? 0.72) })
 - fixedCamera ({ shots: { field: { position: [6, 2.2, 9], lookAt: [0, 0.8, 0] } }, start: 'field' })
 
@@ -37,8 +37,13 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
-| main.js | 22 | @ts-check WebGPU + TSL demo (page /webgpu-tsl.html): the scene of tslScene.js with the engine's sky… |
-| tslScene.js | 76 | @ts-check A whole small scene on the WebGPU route, every material a three.js NodeMaterial written i… |
+| main.js | 45 | @ts-check WebGPU + TSL demo (page /webgpu-tsl.html): a field with grass and a lantern, every materi… |
+| picture/index.js | 19 | @ts-check The picture of the WebGPU + TSL demo: wiring only. Materials and post are nodes that read… |
+| picture/lights.js | 26 | @ts-check Sun and ambient from the signals. The engine's placeholder lights are off (createEngine({… |
+| picture/materials.js | 37 | @ts-check Materials by name, every one a three.js NodeMaterial written in TSL. The engine's shader … |
+| picture/palette.js | 24 | @ts-check The picture's numbers: one place for colors, light levels and the tone curve. Neutral sta… |
+| picture/post.js | 17 | @ts-check Soft scanlines. On the WebGPU route a post effect is a node function: input is the pictur… |
+| picture/sky.js | 31 | @ts-check The sky is the game's: a gradient sphere in a TSL node material (a ShaderMaterial does no… |
 
 ## NPCs (content/npcs.js)
 
@@ -81,4 +86,4 @@ Code that breaks saves or manages world models: none (rule R33).
 
 ## Style keys
 
-- Style: none (all neutral fallback look)
+(none)

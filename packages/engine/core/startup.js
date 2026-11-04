@@ -9,7 +9,6 @@ import { codedError, coded } from './errorHints.js';
 import { warnOnce, DEV_SERVER } from './validate.js';
 import { touchStart } from './inputTouch.js';
 import { Loading, failureText } from './Loading.js';
-import { prepareRoomEnvironment } from '../render/lights.js';
 import { startHeadlessLoad } from './headlessLoad.js';
 import * as THREE from 'three';
 import { isWebGPU, backendName, whyNoWebGPU, firstNodeMaterial, webglOnlyOn, tier as detectTier, timerContext, rendererSwapped, compileThrough } from '../render/backend.js';
@@ -81,9 +80,9 @@ export const startupMethods = {
     this._started = true;                      // a module installed from now on runs its init at once (modules.js)
     const tp = performance.now();   // measure
     const progress = p => ls?.update({ progress: 0.2 + p * 0.3, text: L.text() ?? this.t('common.loadingAssets') });
-    // fonts the UI look names (style.ui.fonts: asset names) load with the preload, so the first menu never flashes the fallback font;
+    // fonts the UI picture names (ui.fonts: asset names) load with the preload, so the first menu never flashes the fallback font;
     // an unknown name rejects here with the manifest line to add
-    await Promise.all([this.assets.preload(progress), ...(this.style.ui?.fonts || []).map(n => this.assets.font(n))]);
+    await Promise.all([this.assets.preload(progress), ...this.ui.fonts.map(n => this.assets.font(n))]);
     const preloadMs = ms(tp), tr = performance.now();   // measure
     this._alive('preloading assets');
     if (this._fatal().length) return this._blocked(this._fatal());
@@ -96,9 +95,7 @@ export const startupMethods = {
     // (async where the browser has KHR_parallel_shader_compile). A later change in the number of lights compiles again: see recipes/09 "Lights and stalls"
     this._checkBackendScene();                 // the scene is built now: materials the chosen backend cannot draw fail by name, not as a blank picture
     const tc = performance.now();   // measure
-    // Everything below is handed to the parallel compile together, then awaited once: the baseline room map's prefilter (if a material reads
-    // scene.environment; first, since the map is part of the scene's program key), the scene, and on WebGL the post chain's fullscreen passes
-    const room = prepareRoomEnvironment(this);
+    // Everything below is handed to the parallel compile together, then awaited once: the scene, and on WebGL the post chain's fullscreen passes
     // compile for the target the scene really draws into (the composer's when post is on): see PostFX._sceneTarget.
     // compile() runs synchronously inside compileAsync, so the target only needs to be set around the call, not across the await
     const r = this.renderer, target = this.post._sceneTarget();
@@ -111,7 +108,7 @@ export const startupMethods = {
     const post = !this.headless && this.post.active && !isWebGPU(r) ? compileThrough(r, () => this.post.render(0)) : null;
     // the page's thread is idle until the GPU is done: the one-time warm-ups modules queued run now instead of in the first frame (rigid)
     for (const f of this._whileCompiling.splice(0)) { try { f(); } catch (err) { reportError(this, err, 'warm-up while compiling', { soft: true }); } }
-    await Promise.all([compiling, room, post]);
+    await Promise.all([compiling, post]);
     this._alive('compiling shaders');
     // One hidden frame behind the loading screen: shadow depth materials, the post passes and the background quad are programs compileAsync
     // never sees, and without this frame they compiled in the first frame the player saw (a 300 ms hitch measured)
@@ -169,10 +166,10 @@ export const startupMethods = {
     if (!(this.headless && forcedTier())) {
       const t = detectTier(this.renderer);
       if (t !== this.tier && this._ownsRenderer && this._createParams.pixelRatio == null) this.renderer.setPixelRatio(defaultPixelRatio(devicePixelRatio || 1, t));
-      // MSAA defaults from the tier too (Engine.js: antialias ?? style.antialias ?? tier !== 'low'); decided from a WebGL probe before the WebGPU
-      // adapter was known, so a low-tier device could keep MSAA on the WebGPU route (found by the WebGPU parity test). Untouched when the game or
-      // style chose, or changed it since. The renderer's own samples stay as made: the new value then runs through the post chain (PostFX active)
-      const aaDefault = this._createParams.antialias == null && this.style?.antialias == null && this.post.antialias === (this.tier !== 'low');
+      // MSAA defaults from the tier too (Engine.js: antialias ?? tier !== 'low'); decided from a WebGL probe before the WebGPU
+      // adapter was known, so a low-tier device could keep MSAA on the WebGPU route (found by the WebGPU parity test). Untouched when the game
+      // chose, or changed it since. The renderer's own samples stay as made: the new value then runs through the post chain (PostFX active)
+      const aaDefault = this._createParams.antialias == null && this.post.antialias === (this.tier !== 'low');
       if (t !== this.tier && aaDefault) this.post.setAntialias(t !== 'low');
       this.tier = t;
     }

@@ -1,4 +1,4 @@
-// Guards for per-frame waste, frozen save loads and the look write paths. Each [guard] turns red when someone brings back the old way:
+// Guards for per-frame waste, frozen save loads and the picture write paths. Each [guard] turns red when someone brings back the old way:
 // serializing every staged copy every frame, re-reading layout for an idle menu, wrapping every camera method with a pose compare, a bad offer
 // that makes describe() throw, gameplay running while an async save part loads, a take-handle that adds a cleanup entry per frame.
 
@@ -58,7 +58,7 @@ export const specs = [
         engine.camera.position.x += 5;   // a real outside write must still yield
         engine.step(0.1);
         const afterWrite = engine._owned.get('camera').mode;
-        engine.look.view.manual('camera', false);
+        engine.view.manual('camera', false);
         return { unwrapped, afterCut, afterWrite };
       });
       check('[guard] rig methods are the class methods (no per-call pose compare)', r.unwrapped, JSON.stringify(r));
@@ -127,32 +127,15 @@ export const specs = [
         h.remove(); const stale = h.change(3);
         const W = engine.modules.get('weather');
         W.applyState(engine, { weather: 'rain' }); engine.step(0.1);
-        const tracked = () => engine._modTracked.get('weatherLook')?.size ?? 0;
-        const sun = () => S.get('look.lights.sun.intensity')._map(undefined)?.get('weatherLook');
-        const t0 = tracked(), e0 = sun();
+        const tracked = () => engine._modTracked.get('weatherDraw')?.size ?? 0;
+        const tint = () => S.get('sky.tint')._map(undefined)?.get('weatherDraw');
+        const t0 = tracked(), e0 = tint();
         engine.step(1);
-        return { v1, v2, same, bad: !!bad, stale, t0, t1: tracked(), sameSun: !!e0 && sun() === e0 };
+        return { v1, v2, same, bad: !!bad, stale, t0, t1: tracked(), sameTint: !!e0 && tint() === e0 };
       });
       check('change() rewrites the value in place (same entry, value follows)', r.v1 === 1 && r.v2 === 0.5 && r.same, JSON.stringify(r));
       check('change() checks the value like take; a removed handle changes nothing', r.bad && r.stale === false, JSON.stringify(r));
-      check('[guard] 60 weather frames: no new tracked handle, the same sun entry', r.t1 === r.t0 && r.sameSun, JSON.stringify(r));
-    },
-  },
-  {
-    name: 'Leftovers: describe names the style pack behind a merged style value',
-    url: '/tests/perf/index.html?mode=world',
-    async run({ check, ev }) {
-      const r = await ev(() => {
-        const { createEngine } = threedogTest;
-        const mk = style => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'lo-pack', style });
-        const a = mk([{ name: 'packA', exposure: 1.3 }, { name: 'packB', exposure: 0.9 }, { fog: null }]);
-        const b = mk({ name: 'solo', exposure: 1.1 });
-        const out = { merged: a.describe().look?.tone?.exposure, single: b.describe().look?.tone?.exposure };
-        a.dispose(); b.dispose();
-        return out;
-      });
-      check('merged parts: the later pack is named on the row', r.merged?.writer === 'style' && r.merged.pack === 'packB' && r.merged.value === 0.9, JSON.stringify(r));
-      check('one style object: no pack field (one source)', r.single?.writer === 'style' && r.single.pack === undefined, JSON.stringify(r));
+      check('[guard] 60 weather frames: no new tracked handle, the same sky tint entry', r.t1 === r.t0 && r.sameTint, JSON.stringify(r));
     },
   },
   {
@@ -160,15 +143,15 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const p = engine.post, L = engine.look.post, THREE = threedogTest.THREE;
+        const p = engine.post, THREE = threedogTest.THREE;
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         let made = null;
         const tone = { name: 'myTone', slot: 'tone', create: () => (made = { enabled: true, needsSwap: true, renderToScreen: false, setSize() {}, dispose() {},
           render(r, w, rd) { r.setRenderTarget(this.renderToScreen ? null : w); r.clear(); } }) };
-        const h = L.add(tone);
+        const h = p.add(tone);
         p.render(0.016);
         const passes = p.composer.passes, out = { has: passes.includes(made), output: passes.some(x => x?.isOutputPass), tone: engine.describe().render?.toneMapping?.value };
-        out.second = err(() => L.add({ name: 'otherTone', slot: 'tone', create: () => made }));
+        out.second = err(() => p.add({ name: 'otherTone', slot: 'tone', create: () => made }));
         h.remove(); p.render(0.016);
         out.backOutput = !p.composer || p.composer.passes.some(x => x?.isOutputPass) || !p.active;
         return out;

@@ -1,15 +1,13 @@
 // @ts-check
-// Style test: one fixed scene to judge a style by (and the check an AI runs after turning a reference picture into a style).
+// Style test: one fixed scene to judge a picture by (and the check an AI runs after turning a reference picture into a picture).
 // Exhibits (content/): character, trees, rock, grass, flowers, water, terrain, glass, a shadow receiver, wood / stone / metal, a lit room (outside and inside),
-// and the UI parts (HUD, dialogue, bag) on the `ui` view. Parameters (params.js): time, weather, style, env, view, panel. Camera views: views.js.
-// main.js holds wiring only: modules, finding the stage, view switching, the lamp. The exhibits are content (rule R33).
+// and the UI parts (HUD, dialogue, bag) on the `ui` view. Parameters (params.js): time, weather, env, view, panel. Camera views: views.js.
+// main.js holds wiring only: modules, finding the stage, view switching, when the lamp burns. The exhibits are content (rule R33), the picture is picture/.
 import { params } from './params.js';   // first: rewrites ?time=dusk style words before the engine reads the URL
-import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, fixedCamera, hud, lightPool, createTerrain } from '../../index.js';
-// The style under test: the world example's style folder (its look, named 'world'); the world example's procedural trees / rocks / humanoid are registered from assets.js.
-// To judge your own look, point this import and the one in assets.js at your game's style/index.js.
-import worldStyle from '../world/style/index.js';
+import { createEngine, openWorld, presets, content, interactions, dialogue, inventory, fixedCamera, hud, lightPool, particles, createTerrain } from '../../index.js';
+import { createPicture } from './picture/index.js';   // the picture under test; its procedural trees / rocks / humanoid are registered from assets.js
+import { TERRAIN } from './picture/palette.js';
 import { terrainPreset, riverAt, terrainStrings } from '@threedog/terrain-noise';
-import look from './look.js';
 import data from './content/index.js';
 import packs from './assets.js';
 import { makeViews, pathAt } from './views.js';
@@ -33,30 +31,21 @@ for (let r = 0, found = false; r < 3000 && !found; r += 10) {
   }
 }
 
-// ---------- 1. Engine: style under test + open-world preset with a fixed sky (no clock drift between screenshots) ----------
-const parts = params.style === 'none' ? [] : [worldStyle, look];
-if (params.overrides) parts.push(params.overrides);   // the workbench's "rebuild preview" values
-const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.debug, ...presets.bindings.dialogNumbers }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), style: parts.length ? parts : undefined, strings: terrainStrings, saveKey: 'threedog-styletest',
+// ---------- 1. Engine: open-world preset with a fixed sky (no clock drift between screenshots) + the picture under test ----------
+const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.inventory, ...presets.bindings.debug, ...presets.bindings.dialogNumbers }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, strings: terrainStrings, saveKey: 'threedog-styletest',
   ui: { loading: { title: 'style test' } } });
-engine.use(openWorld({ camera: fixedCamera(), seed: SEED, terrain: terrainPreset(), flatten: [{ x: stage.x, z: stage.z, radius: 30 }], calendar: { ...presets.calendar.fixedTime, time: 0.5 },
+engine.use(openWorld({ camera: fixedCamera(), seed: SEED, terrain: { ...terrainPreset(), ...TERRAIN }, flatten: [{ x: stage.x, z: stage.z, radius: 30 }], calendar: { ...presets.calendar.fixedTime, time: 0.5 },
   weather: presets.weather.temperate, autoWeather: false }),
-  interactions({ ...presets.interactions.nearest }), dialogue({ holdSeconds: 1e6 }), inventory(), hud(), lightPool({ point: 2 }), content());
+  interactions({ ...presets.interactions.nearest }), dialogue({ holdSeconds: 1e6 }), inventory(), hud(), lightPool({ point: 2 }), particles(), content());   // particles: the picture under test defines its effects there
 
+const picture = createPicture(engine, { env: params.env });
 engine.assets.manifest(packs);   // assets.js: the world example's trees / rocks and the test models content/templates.js uses
-engine.characters.createPlayer({ ...presets.player.thirdPerson, model: params.style === 'none' ? null : 'humanoid', spawn: { x: stage.x + 0.5, z: stage.z + 6 } });   // style=none: the gray capsule
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid', spawn: { x: stage.x + 0.5, z: stage.z + 6 } });
 engine.content.load(data, { places: { stage, water } });
-if (params.env) { engine.look.env.replace('sky'); engine.look.env.set({ intensity: 0.8 }); engine.mod('look.lights.hemi.intensity', { owner: 'env', mul: 0.6 }); }   // soft ambient from the sky: lower the hemisphere ambient so shadows stay
 
-// ---------- 2. The room's lamp: emissive plus one pooled light, on from 18:00 to 06:00 ----------
-const lampPos = [stage.x + 14, engine.surface(stage.x + 14, stage.z - 2) + 2.7, stage.z - 2];
-const lampLight = engine.lightPool.add({ x: lampPos[0], y: lampPos[1], z: lampPos[2] }, { color: 0xffc070, intensity: 0, distance: 9 });
-let lampOn = false;
-engine.calendar.between('18:00', '06:00', { on: () => { lampOn = true; }, off: () => { lampOn = false; } });
-engine.onFrame(() => {
-  const lamp = /** @type {import('three').Mesh<any, import('three').MeshLambertMaterial> | undefined} */ (engine.world.view('room')?.getObjectByName('lamp'));
-  if (lamp) lamp.material.emissiveIntensity = lampOn ? 1.6 : 0;
-  lampLight.set({ intensity: lampOn ? 5 : 0 });
-});
+// ---------- 2. The room's lamp: on from 18:00 to 06:00 ----------
+const lamp = picture.addLamp({ x: stage.x + 14, y: engine.surface(stage.x + 14, stage.z - 2) + 2.7, z: stage.z - 2 });
+engine.calendar.between('18:00', '06:00', { on: () => lamp(true), off: () => lamp(false) });
 
 // ---------- 3. Views: an op, so the URL, the dev bridge and tests switch the same way ----------
 /** @type {{ view: string, since: number, views: ReturnType<typeof makeViews> }} */
@@ -64,7 +53,7 @@ const state = { view: params.view, since: 0, views: /** @type {any} */ (null) };
 /** Show the UI exhibits only on the ui view; close them when leaving it */
 function showUi(on) {
   if (on) {
-    engine.dialogue.say('The light is best just before dusk. Mind the step.', { speaker: 'Guide' });   // the main box, shown for its look
+    engine.dialogue.say('The light is best just before dusk. Mind the step.', { speaker: 'Guide' });   // the main box, shown for its picture
     engine.ui.open('inventory');
   } else { engine.dialogue.end(); engine.ui.close('inventory'); }
 }
@@ -85,12 +74,12 @@ engine.ops.define('styletest.view', {
   run: (e, { name }) => { setView(name); return name; },
   reasons: { unknownView: 'View names: overview, character, water, room, path, ui' },
 });
-engine.describe.add('styletest', () => ({ view: state.view, style: params.style, env: params.env, panel: params.panel, stage: { x: +stage.x.toFixed(1), z: +stage.z.toFixed(1) } }));
+engine.describe.add('styletest', () => ({ view: state.view, env: params.env, panel: params.panel, stage: { x: +stage.x.toFixed(1), z: +stage.z.toFixed(1) } }));
 engine.events.on('engine:ready', () => engine.ops.run('styletest.view', { name: params.view }));
 if (params.badView) console.warn(`styletest: unknown view '${params.badView}', showing overview. Views: overview, character, water, room, path, ui`);
 
 // The dev panel (@threedog/tools/panel) on ?panel=1; a production build gets a stub (tweakpane may be missing: the panel then says so in the page)
-if (params.panel) import('@threedog/tools/panel').then(m => m.openPanel(engine, { overrides: params.overrides }));
+if (params.panel) import('@threedog/tools/panel').then(m => m.openPanel(engine));
 
 engine.start();
-window.engine = engine;   // handy for debugging in the browser console
+Object.assign(window, { engine, styletest: { picture } });   // the console and the tests: engine, and the picture's own lights

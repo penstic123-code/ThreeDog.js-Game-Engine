@@ -1,5 +1,5 @@
 // Default 'touch' UI part. An on-screen stick (bottom left) and round action buttons (bottom right). It only turns fingers into
-// view.move(x, y) / view.press(action) / view.release(action); Input does the rest. Look: CSS classes .threedog-stick*, .threedog-touch-* (style.ui.css).
+// view.move(x, y) / view.press(action) / view.release(action); Input does the rest. Picture: CSS classes .threedog-stick*, .threedog-touch-* (ui.css).
 import { injectUICSS } from './UI.js';
 /** @import { Engine, UIPart, TouchView } from '../types/core' */
 

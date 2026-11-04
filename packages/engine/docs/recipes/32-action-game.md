@@ -10,7 +10,7 @@ working example is `examples/action/` (page `/action.html`, about 150 lines of r
 | The room, the enemy and its stats (hp, damage, drop) | content `templates` + `props` with ids (recipe 30) | `content/templates.js` `slime: { model, static: false, state: { hp, maxHp, damage, cooldown, drop } }` |
 | Player hp, attack cooldown, game over | plain object + `engine.describe.add` + `engine.saves.register` | `const game = fresh()` |
 | Attack, damage, enemy hit, death | ops with `can` / `run` (recipe 23), so keys, the dev bridge, MCP, tests and the AI run one rule | `player.attack`, `enemy.damage`, `enemy.attack`, `player.die` |
-| Enemy AI (chase, face, strike) | `engine.world.simulate(kind, { near })`, a fixed step per near record; it strikes with `ops.run(..., { actor: rec.id })` | `world.simulate('slime', ...)` |
+| Enemy AI (chase, face, strike) | `engine.world.simulate(kind, { near, channel? })` (channel: bullet time reaches it, section 4), a fixed step per near record; it strikes with `ops.run(..., { actor: rec.id })` | `world.simulate('slime', ...)` |
 | Gameplay keys | content `actions` (`attack: { keys: ['Mouse0', 'KeyF'] }`), read with `input.pressed` in `onFixed` | `onFixed` runs `player.attack` |
 | Drop | `engine.pickups.spawn(at, { give: item, id })` inside the death op; E picks it up through `interactions`, into the bag of whoever presses | `${id}-drop` |
 | HUD, death screen, retry, save keys | `onFrame`: `hud.bar`, `toast`, `engine.session.newGame()` | the frame hook |
@@ -29,15 +29,17 @@ working example is `examples/action/` (page `/action.html`, about 150 lines of r
 `followCamera({ ...presets.camera.overShoulder })` locks the mouse on a click. While locked, mouse buttons still arrive as `Mouse0`..`Mouse4` keys, so
 `attack: { keys: ['Mouse0'] }` works in both states. The click that takes the lock is itself a `Mouse0` press and swings once; a game that does not
 want that ignores attacks until the `page:pointerlock` event reports `locked: true`. `presets.player.aim` turns the player toward where the camera
-looks, so a swing goes where you aim. Without a style the room and enemy are gray (`?style=none`); colors come from a style part
-(`examples/action/look.js`).
+looks, so a swing goes where you aim. The rules do not need the picture: `?picture=none` runs them under the engine's placeholder lights; the whole picture is
+`examples/action/picture/`.
 
 ## 4. Movement: jumps, speed effects, bullet time, platforms, falling
 ```js
 createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 });                       // double jump: the same jump key twice
 engine.player.launch(16, { owner: 'pad' });                                          // a jump pad / spring
 engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 });       // haste for 5 s; no id = every character (mud, wind)
+engine.time.channel('enemies');                                                     // once, before anything uses it: a channel of your own
 engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });            // bullet time: enemies on channel 'enemies' at 35%
+engine.world.simulate('slime', { near: chase, channel: 'enemies' });                 // world records (the enemy AI above) get the slowed dt
 engine.onFixed(dt => moveShots(dt), { channel: 'enemies' });                        // your own enemy logic on the same slowed dt
 engine.characters.support(liftMesh);                                                 // a moving platform: move liftMesh any way, riders follow
 engine.player.mover = 'manual'; /* a cutscene, your own physics */ engine.player.mover = 'simple';   // take over, give back
@@ -52,7 +54,8 @@ engine.player.mover = 'manual'; /* a cutscene, your own physics */ engine.player
   'player', set: 0, for: 0.8 })`. `move()` takes no speed argument; the direction's length (0-1) scales the speed.
 - **Bullet time / time channels**: a character the engine drives moves and animates on `character.channel` (player `'player'`, NPCs `'world'`), so
   `engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35 })` slows NPCs added with `npcs.add({ channel: 'enemies' })` (far ones too) and
-  `onFixed(fn, { channel: 'enemies' })` code; `clock.after(1, 'poison:tick', data, { channel: 'enemies' })` slows a timer with them. The player keeps
+  `onFixed(fn, { channel: 'enemies' })` code; world records follow only with `world.simulate(kind, { near, channel: 'enemies' })` (without it they
+  keep the 'world' pace while everything else slows); `clock.after(1, 'poison:tick', data, { channel: 'enemies' })` slows a timer with them. The player keeps
   full speed unless you mod `'time.player'`. Your own `player.move(x, z, run, dt)` uses the dt you pass. Effects end in any order (recipe 55).
 - **Platforms**: `characters.support(object, { id?, safe?, carry?: 'position' | 'position+yaw', inherit? })` returns `{ id, remove() }`. The rider
   compares the platform's matrix with the one it recorded, so it does not matter whether the platform moves in your `onFixed` before or after the

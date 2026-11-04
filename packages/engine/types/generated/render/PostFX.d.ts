@@ -14,8 +14,8 @@ export class PostFX {
     /**
      * The three.js EffectComposer the chain runs in, for reading (pass list, sizes, its targets), or null while no post work has run yet (built
      * the first time an effect or MSAA is on; it is not built here, so asking never costs a half-float target). Read-only by rule, not by lock:
-     * the engine owns it, rebuilds composer.passes whenever the chain changes and disposes it with the engine. To add a pass use look.post.add,
-     * to own the whole chain look.post.replace (recipe 52). Why public: a game reading the chain had to dig into an internal field (review 2026-11-03)
+     * the engine owns it, rebuilds composer.passes whenever the chain changes and disposes it with the engine. To add a pass use post.add,
+     * to own the whole chain post.own() (recipe 52). Why public: a game reading the chain had to dig into an internal field (review 2026-11-03)
      * @returns {any}
      */
     object(): any;
@@ -36,14 +36,39 @@ export class PostFX {
         writeBuffer: any;
     } | null;
     /**
-     * Read-only record of an added effect (name, slot, order, enabled, params), or undefined. Change one with engine.look.post.set({ 'bloom.strength': 0.6 })
+     * The one way to add a post effect. x is a three.js Pass (WebGL), a TSL node function (input, ctx) => node (WebGPU), or an effect
+     * { name, create | node | fuse, slot, order, params } (both renderers when it gives create and node, or a fuse). A wrong shape throws with nothing added.
+     * A Pass that draws engine.scene takes the 'scene' slot, FXAA / SMAA / TAA 'final', any other 'hdr' after the effects already there, or 'ldr' once an
+     * OutputPass was added. A RenderPass of engine.scene and an OutputPass are the engine's own stages: skipped and said once (an OutputPass still marks where display color starts).
+     * @example const glow = engine.post.add(new UnrealBloomPass(size, 0.6, 0.4, 0.85), { name: 'glow' }); glow.enabled = false;
+     * @example engine.post.add({ name: 'dim', fuse: { glsl: 'color.rgb *= 0.9;' }, slot: 'ldr' });
+     * @param {any} x @param {{ name?: string, slot?: PostSlot | (string & {}), order?: number }} [o]
+     * @returns {PostHandle}
+     */
+    add(x: any, o?: {
+        name?: string;
+        slot?: PostSlot | (string & {});
+        order?: number;
+    }): PostHandle;
+    /**
+     * An added effect's handle (as add() returns it), or undefined.
+     * @example engine.post.get('bloom').set({ strength: 0.6 });
      * @param {string} name
      * @returns {PostHandle | undefined}
      * @experimental
      */
     get(name: string): PostHandle | undefined;
     /**
-     * Turn MSAA on or off. It is a render setting, not a look part. With no effect on, the start value is the canvas's own MSAA (free: no
+     * Hand the built chain to the game: the engine stops rebuilding it, so the composer's passes (post.object().passes) or the WebGPU pipeline's
+     * outputNode are the game's to edit. own(false) gives it back and rebuilds from the list. describe().owned shows who has it.
+     * @example engine.post.own(); engine.post.object().passes.reverse();
+     * @param {boolean} [on]
+     * @returns {void}
+     * @experimental
+     */
+    own(on?: boolean): void;
+    /**
+     * Turn MSAA on or off. It is a render setting, not a drawing part. With no effect on, the start value is the canvas's own MSAA (free: no
      * post chain); the other value, and any effect, draws through the chain, whose render targets carry the MSAA.
      * @example engine.post.setAntialias(false);
      * @param {boolean} on
@@ -132,7 +157,7 @@ export type PostNodeContext = {
  * slot: a PostSlot; typed as any string too because a slot in a plain JS object (an effect returned from a function) is a string to
  * TypeScript, and the chain throws on an unknown slot naming the valid ones.
  * order: position inside the slot, low first; ties keep the order the names were first added in (a name keeps that place when it is
- * switched off and on, or a plugin is unplugged and plugged again: look.post.set({ name: false }) pauses it in place). costly: off by default on low-tier devices.
+ * switched off and on, or a plugin is unplugged and plugged again: handle.enabled = false pauses it in place).
  * needsDepth: the scene's depth texture is kept for it (readBuffer.depthTexture). Only the buffer the scene render wrote holds
  * scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
  * RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;
@@ -146,17 +171,23 @@ export type PostEffect = {
     slot?: PostSlot | (string & {});
     order?: number;
     enabled?: boolean;
-    costly?: boolean;
     needsDepth?: boolean;
     params?: Record<string, any>;
     update?: (impl: any, params: Record<string, any>) => void;
 };
+/**
+ * What add() and get() return. enabled reads what runs now; writing it is the game's choice on the shared point post.<name>.enabled, so a settings
+ * restriction above it still holds it off. set: params by name, unknown names throw. remove: takes it out of the chain (a game's own Pass is not disposed).
+ * A RenderPass or OutputPass handed to add() gives { name: null, ... }: the engine's own stages stand in for them, so only remove() does anything.
+ */
 export type PostHandle = {
     readonly name: string;
     readonly slot: PostSlot;
     readonly order: number;
-    readonly enabled: boolean;
+    enabled: boolean;
     readonly params: Record<string, any>;
+    set(params: Record<string, any>): void;
+    remove(): void;
 };
 import type { Engine } from '../../core';
 import * as THREE from 'three';

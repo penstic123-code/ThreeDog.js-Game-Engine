@@ -1,19 +1,19 @@
 // [guard] Module types and capabilities cannot be bypassed (core/moduleTypes.js, core/modules.js, docs/plans/done/2026-11-03-ownership-design.md section 6).
-// Why a guard: before types, "who may own what" lived only in the docs, so an AI's look module defined ops and a ui module bound its own keys,
+// Why a guard: before types, "who may own what" lived only in the docs, so an AI's picture module defined ops and a ui module bound its own keys,
 // and a module that depended on 'inventory' broke when a game swapped the bag. One page (perf world: openWorld with world, sky, weather), six rules:
 //   1. a module without a type (or with an unknown one) is refused with the one-line fix
-//   2. a look module defining an op or writing a world record, a ui module binding keys or registering a save part: refused with rule + fix,
+//   2. a picture module defining an op or writing a world record, a ui module binding keys or registering a save part: refused with rule + fix,
 //      nothing half installed; the same calls from a rules module are fine; describe().modules lists name, type, provides, requires
 //   3. requires names a capability; a missing one names both fixes (the engine's part, or your own provides)
 //   4. replaces of a capability keeps its dependents working: engine.<capability> is the new provider's API
-//   5. weather is two modules (state + look) from one weather() call: a save made mid-transition loads mid-transition, and removing the look
+//   5. weather is two modules (state + drawing) from one weather() call: a save made mid-transition loads mid-transition, and removing the drawing
 //      half leaves the state (and its save) alone
 //   6. (static, node) core / render / ui name no module: packages/tools/tests/module-boundaries.mjs runs R27 and R47
 // Same format as the other files here.
 
 export const specs = [
   {
-    name: '[guard] module types: missing type, look / ui rules, requires by capability with both fixes, replaces keeps dependents, weather state + look save mid-transition',
+    name: '[guard] module types: missing type, picture / ui rules, requires by capability with both fixes, replaces keeps dependents, weather state + drawing save mid-transition',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -26,17 +26,17 @@ export const specs = [
         out.noType = { code: noType?.code, msg: noType?.message, installed: engine.has('mtNoType') };
         out.badType = { code: badType?.code, msg: badType?.message };
         // 2. per-type rules: refused at the write, with the rule and the fix; the batch rolls back
-        const lookOp = err(() => engine.use({ name: 'mtLookOp', type: 'look', install(e) { e.ops.define('mt.buy', { run() {} }); } }));
-        const lookWorld = err(() => engine.use({ name: 'mtLookWorld', type: 'look', install(e) { e.world.add({ kind: 'mtThing', position: { x: 0, y: 0, z: 0 } }); } }));
+        const pictureOp = err(() => engine.use({ name: 'mtPictureOp', type: 'picture', install(e) { e.ops.define('mt.buy', { run() {} }); } }));
+        const pictureWorld = err(() => engine.use({ name: 'mtPictureWorld', type: 'picture', install(e) { e.world.add({ kind: 'mtThing', position: { x: 0, y: 0, z: 0 } }); } }));
         const uiKeys = err(() => engine.use({ name: 'mtUiKeys', type: 'ui', install(e, ctx) { ctx.input.action('mtOpen'); ctx.input.bind('mtOpen', ['KeyM']); } }));
         const uiSave = err(() => engine.use({ name: 'mtUiSave', type: 'ui', install(e) { e.saves.register('mtPanel', { save: () => 1, load() {} }); } }));
         // a hook breaking the rule later is caught too (the frame hook runs as the module)
         let hookErr = null;
-        engine.use({ name: 'mtLookLater', type: 'look', frame(dt, e) { if (!hookErr) hookErr = err(() => e.ops.define('mt.later', { run() {} })) ?? 'none'; } });
+        engine.use({ name: 'mtPictureLater', type: 'picture', frame(dt, e) { if (!hookErr) hookErr = err(() => e.ops.define('mt.later', { run() {} })) ?? 'none'; } });
         engine._resume(); await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res))); engine.pause();
-        engine._unuse('mtLookLater');
-        out.rules = [lookOp, lookWorld, uiKeys, uiSave].map(e => ({ code: e?.code, msg: e?.message }));
-        out.rolledBack = !engine.has('mtLookOp') && !engine.ops.defs.has('mt.buy') && !engine.has('mtUiKeys') && !engine.saves.providers.has('mtPanel');
+        engine._unuse('mtPictureLater');
+        out.rules = [pictureOp, pictureWorld, uiKeys, uiSave].map(e => ({ code: e?.code, msg: e?.message }));
+        out.rolledBack = !engine.has('mtPictureOp') && !engine.ops.defs.has('mt.buy') && !engine.has('mtUiKeys') && !engine.saves.providers.has('mtPanel');
         out.hook = { code: hookErr?.code, msg: hookErr?.message };
         const fine = err(() => engine.use({ name: 'mtRules', type: 'rules', install(e) { e.ops.define('mt.ok', { run: () => 1 }); e.saves.register('mtRules', { save: () => 1, load() {} }); } }));
         out.rulesFine = !fine && engine.ops.defs.has('mt.ok');
@@ -51,8 +51,8 @@ export const specs = [
         out.after = { tag: engine.mtShop.buy(), holder: engine.stacks.get('scoreboard').value(), aGone: !engine.has('mtBoardA'), alias: engine.scoreboard?.tag };
         out.row = engine.describe().modules.find(m => m.name === 'mtBoardB');
         out.shopRow = engine.describe().modules.find(m => m.name === 'mtShop');
-        out.builtinRows = ['weather', 'weatherLook', 'sky', 'world'].map(n => engine.describe().modules.find(m => m.name === n));
-        // 5. weather: state + look; a save mid-transition restores mid-transition, the look follows the state
+        out.builtinRows = ['weather', 'weatherDraw', 'sky', 'world'].map(n => engine.describe().modules.find(m => m.name === n));
+        // 5. weather: state + drawing; a save mid-transition restores mid-transition, the picture follows the state
         const W = engine.weather, names = Object.keys(W.types);
         const dry = names.find(k => !W.types[k].rain && !W.types[k].cloud) ?? names[0], wet = names.find(k => W.types[k].rain > 0) ?? names.find(k => k !== dry);
         W.auto = false; W.set(dry, { seconds: 0.01 }); engine.step(0.2);
@@ -65,21 +65,21 @@ export const specs = [
         off.remove();
         engine.step(0.05);
         out.weather = { wet, mid, back: { t: W.t, rain: W.current.rain, name: W.name }, changes: changes.length,
-          lookReads: Math.abs(engine.uniforms.uCloud.value - W.current.cloud) < 1e-9, split: engine.modules.get('weather').type + '+' + engine.modules.get('weatherLook').type };
-        engine._unuse('weatherLook'); engine.step(0.05);
-        out.stateStays = engine.has('weather') && !engine.has('weatherLook') && engine.saves.providers.has('weather');
+          lookReads: Math.abs(engine.uniforms.uCloud.value - W.current.cloud) < 1e-9, split: engine.modules.get('weather').type + '+' + engine.modules.get('weatherDraw').type };
+        engine._unuse('weatherDraw'); engine.step(0.05);
+        out.stateStays = engine.has('weather') && !engine.has('weatherDraw') && engine.saves.providers.has('weather');
         engine._resume();
         return out;
       });
       check('1. no type: module-type error with the one-line fix, nothing installed', r.noType.code === 'module-type' && /add type: 'rules'/.test(r.noType.msg) && !r.noType.installed, JSON.stringify(r.noType));
-      check('1. unknown type: lists the types', r.badType.code === 'module-type' && /'world' \| 'look'/.test(r.badType.msg), JSON.stringify(r.badType));
+      check('1. unknown type: lists the types', r.badType.code === 'module-type' && /'world' \| 'picture'/.test(r.badType.msg), JSON.stringify(r.badType));
       const [op, world, keys, save] = r.rules;
-      check('2. look module defining an op: rule + fix', op.code === 'module-type-rule' && /mtLookOp \(type 'look'\) defined op mt\.buy/.test(op.msg) && /Fix: define the op in a rules/.test(op.msg), JSON.stringify(op));
-      check('2. look module writing a world record: rule + fix', world.code === 'module-type-rule' && /world records are game state/.test(world.msg) && /ops\.run/.test(world.msg), JSON.stringify(world));
+      check('2. picture module defining an op: rule + fix', op.code === 'module-type-rule' && /mtPictureOp \(type 'picture'\) defined op mt\.buy/.test(op.msg) && /Fix: define the op in a rules/.test(op.msg), JSON.stringify(op));
+      check('2. picture module writing a world record: rule + fix', world.code === 'module-type-rule' && /world records are game state/.test(world.msg) && /ops\.run/.test(world.msg), JSON.stringify(world));
       check('2. ui module binding keys: rule + fix', keys.code === 'module-type-rule' && /bound keys/.test(keys.msg) && /engine\.input\.bind/.test(keys.msg), JSON.stringify(keys));
       check('2. ui module registering a save part: rule + fix', save.code === 'module-type-rule' && /registered save part 'mtPanel'/.test(save.msg), JSON.stringify(save));
       check('2. refused installs roll back (no op, no save part, no module)', r.rolledBack);
-      check('2. a look module breaking the rule in its frame hook is caught too', r.hook.code === 'module-type-rule' && /mtLookLater/.test(r.hook.msg), JSON.stringify(r.hook));
+      check('2. a picture module breaking the rule in its frame hook is caught too', r.hook.code === 'module-type-rule' && /mtPictureLater/.test(r.hook.msg), JSON.stringify(r.hook));
       check('2. the same writes from a rules module are fine', r.rulesFine);
       check('3. missing capability: names both fixes (the engine part, or your own provides)', r.need.code === 'module-requires'
         && /engine\.use\(scoreboard\(\), mtNeedy/.test(r.need.msg) && /provides: \['scoreboard'\]/.test(r.need.msg), JSON.stringify(r.need));
@@ -87,16 +87,16 @@ export const specs = [
         && r.after.holder === 'mtBoardB' && r.after.aGone, JSON.stringify(r.after));
       check('2. describe().modules lists name, type, provides, requires', r.row?.type === 'rules' && r.row.provides?.[0] === 'scoreboard' && r.shopRow?.requires?.[0] === 'scoreboard'
         && r.builtinRows.every(x => x?.type), JSON.stringify([r.row, r.shopRow, r.builtinRows]));
-      check('5. weather() is a world state and a look module', r.weather.split === 'world+look', r.weather.split);
-      check('5. a save made mid-transition loads mid-transition (no weather:change), the look reads the state', r.weather.mid.t > 0.05 && r.weather.mid.t < 1
+      check('5. weather() is a world state and a picture module', r.weather.split === 'world+picture', r.weather.split);
+      check('5. a save made mid-transition loads mid-transition (no weather:change), the picture reads the state', r.weather.mid.t > 0.05 && r.weather.mid.t < 1
         && Math.abs(r.weather.back.t - r.weather.mid.t) < 0.02 && r.weather.back.name === r.weather.wet && r.weather.changes === 0 && r.weather.lookReads, JSON.stringify(r.weather));
-      check('5. removing the look half leaves the weather state and its save part', r.stateStays);
+      check('5. removing the drawing half leaves the weather state and its save part', r.stateStays);
     },
   },
   {
-    name: '[guard] module types: a look or ui module that throws in its frame hook is switched off and the game keeps running; a rules module freezes gameplay',
+    name: '[guard] module types: a picture or ui module that throws in its frame hook is switched off and the game keeps running; a rules module freezes gameplay',
     url: '/tests/threads/',
-    expectErrors: /mt-(look|ui|rules)-boom/,   // the three modules throw on purpose
+    expectErrors: /mt-(picture|ui|rules)-boom/,   // the three modules throw on purpose
     async run({ check, ev }) {
       const r = await ev(async () => {
         const quiet = console.error; console.error = () => {};
@@ -112,11 +112,11 @@ export const specs = [
           E.dispose();
           return out;
         };
-        const out = { look: await run('mt-look', 'look'), ui: await run('mt-ui', 'ui'), rules: await run('mt-rules', 'rules') };
+        const out = { picture: await run('mt-picture', 'picture'), ui: await run('mt-ui', 'ui'), rules: await run('mt-rules', 'rules') };
         console.error = quiet;
         return out;
       });
-      for (const k of ['look', 'ui']) {
+      for (const k of ['picture', 'ui']) {
         const x = r[k];
         check(`${k} module throwing in frame: switched off after one call, no engine.error, not frozen, game time runs`, x.disabled && x.calls === 1 && !x.error && !x.frozen && x.clockMoved, JSON.stringify(x));
       }

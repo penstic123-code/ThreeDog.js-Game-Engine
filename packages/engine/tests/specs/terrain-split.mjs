@@ -1,4 +1,4 @@
-// Terrain and vegetation data / look split, can't-bypass checks: both looks are replaceable without touching play; a density change keeps collision; hlod never
+// Terrain and vegetation data / drawing split, can't-bypass checks: both drawings are replaceable without touching play; a density change keeps collision; hlod never
 // draws a building the game hid. Run on both renderers (WebGL and renderer: 'webgpu'): the split must not depend on which one draws.
 // The failed-chunk report has its own spec (terrain-chunk-failed.mjs) because it must not wait for start().
 const PAGE = '/tests/terrain-edit/index.html';
@@ -17,41 +17,41 @@ async function parts(renderer) {
       : { canvas: document.createElement('canvas'), headless: true };
     const mk = key => createEngine({ ...opts(), ui: { loading: false }, urlState: false, saveKey: key, threads: false });
     const height = (x, z) => Math.sin(x * 0.1) * 2 + z * 0.05;
-    // 1. replace the look: a game module that provides 'terrain-look' and draws chunk data its own way
+    // 1. replace the picture: a game module that provides 'terrain-draw' and draws chunk data its own way
     const E = mk('terrain-split');
     E.use(terrain({ height, viewChunks: 2 }), vegetation());
     E.vegetation.define('tree', { geometry: new THREE.BoxGeometry(1, 3, 1), rule: { perChunk: 30, collider: 0.4 } });
     const drawn = new Map(), mat = new THREE.MeshBasicMaterial({ color: 0xff00ff });
-    E.use({ name: 'myGround', type: 'look', provides: ['terrain-look'], install(e, ctx) {
+    E.use({ name: 'myGround', type: 'picture', provides: ['terrain-draw'], install(e, ctx) {
       ctx.track(e.terrain.view({
         add(c) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(c.data.pos, 3)); const m = new THREE.Mesh(g, mat); e.scene.add(m); drawn.set(c, m); },
         remove(c) { const m = drawn.get(c); if (m) { e.scene.remove(m); m.geometry.dispose(); drawn.delete(c); } },
       }));
-    }, describe() { return {}; } }, { replaces: 'terrain-look' });
-    // and the plants: a game module that provides 'vegetation-look' and only counts what it is told to draw
+    }, describe() { return {}; } }, { replaces: 'terrain-draw' });
+    // and the plants: a game module that provides 'vegetation-draw' and only counts what it is told to draw
     const planted = new Map(), felled = [];
-    E.use({ name: 'myPlants', type: 'look', provides: ['vegetation-look'], install(e, ctx) {
+    E.use({ name: 'myPlants', type: 'picture', provides: ['vegetation-draw'], install(e, ctx) {
       ctx.track(e.vegetation.view({
         change(c, name) { planted.set(c.key + ':' + name, c.plants[name]?.n ?? 0); if (c.hidden?.[name]) felled.push(c.key); },
         drop(c) { for (const k of [...planted.keys()]) if (k.startsWith(c.key + ':')) planted.delete(k); },
       }));
-    }, describe() { return {}; } }, { replaces: 'vegetation-look' });
+    }, describe() { return {}; } }, { replaces: 'vegetation-draw' });
     await within(E.start(), 'start E');
     E.pause?.();
     for (let i = 0; i < 80 && !E.ground.chunkCollision(0, 0); i++) E.step(1 / 60, { describe: false });
-    out.lookGone = !E.terrainLook && !E.look.ground;
+    out.lookGone = !E.terrainDraw;
     out.drawn = drawn.size > 0 && [...drawn.values()].every(m => m.material === mat);
     const col = E.ground.chunkCollision(0, 0);
     out.collision = !!col && col.positions.length > 0;
     out.surface = Math.abs(E.surface(3, 4) - height(3, 4)) < 0.3;
     let trees = 0; E.ground.forEachCollider(16, 16, 40, () => trees++);
     out.trees = trees;
-    // plants with the look replaced: the game's look was told every placement, the engine drew none, felling still hides and frees a trunk
+    // plants with the picture replaced: the game's picture was told every placement, the engine drew none, felling still hides and frees a trunk
     let engineMeshes = 0; E.scene.traverse(o => { if (o.isInstancedMesh) engineMeshes++; });
     const hit = E.vegetation.instanceAt({ x: 16, z: 16 }, { radius: 40 });
     if (hit) E.vegetation.removeInstance(hit.species, hit.cx, hit.cz, hit.id);
     let treesFelled = 0; E.ground.forEachCollider(16, 16, 40, () => treesFelled++);
-    out.plants = { gone: !E.vegetationLook, told: [...planted.values()].reduce((a, b) => a + b, 0), engineMeshes, felled: felled.length > 0, trunk: treesFelled === trees - 1 };
+    out.plants = { gone: !E.vegetationDraw, told: [...planted.values()].reduce((a, b) => a + b, 0), engineMeshes, felled: felled.length > 0, trunk: treesFelled === trees - 1 };
     if (hit) E.vegetation.restoreInstance(hit.species, hit.cx, hit.cz, hit.id);
     // 2. density change: the ground keeps its collision token (no rebuild), trees still collide afterwards
     const tok = col?.token, treeTok = E.ground.chunkCollision(0, 0)?.treeToken;   // read again: felling and restoring above made a new one

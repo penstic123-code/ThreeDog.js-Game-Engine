@@ -153,6 +153,17 @@ export function hud(opts = {}) {
      * 'left' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right', the screen corner / edge its column sits at
      */
     counter(id, o) { item('counter', id, o); },
+    /**
+     * Add n (default 1; negative takes away) to a number counter and return the new value. A counter not declared yet starts at 0 with its id as the label, so
+     * declare it with counter() for a player-facing label and max
+     * @example engine.hud.counter('shells', { label: 'Shells', value: 0, max: 4 }); engine.hud.add('shells');
+     */
+    add(id, n = 1) {
+      const it = items.get(id), v = it?.o.value ?? 0;
+      if (typeof v !== 'number') throw codedError('hud-option', `hud.add('${id}'): this counter shows text (${JSON.stringify(v)}), not a number`, TypeError);
+      item('counter', id, it ? { value: v + n } : { label: id, value: n });
+      return v + n;
+    },
     /** Progress bar (calling again with the same id = update): { value, max = 1, label, anchor } (anchor as for counter) */
     bar(id, o) { item('bar', id, o); },
     /** Remove a counter or bar */

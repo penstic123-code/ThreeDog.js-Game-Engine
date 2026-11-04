@@ -4,7 +4,7 @@
 // The mover owns position: only the mover (movers/) changes a character's position inside move(); other systems (pathfinding, triggers, vehicles, loading)
 // request movement via placeAt (teleport), move (direction), enter / exit (vehicles).
 // Characters backed by a world record (the player, recordId = 'player') write position and motion state back to the record after every move / placeAt / enter / exit;
-// the record is saved, world splits near/far by it, the model is just its look.
+// the record is saved, world splits near/far by it, the model is just its picture.
 // Radius and step height default to engine.movement (the single source of "can walk through" parameters); passing radius / stepHeight overrides it for this character only.
 // How to walk is decided by the mover (movers/: 'simple' default, 'rapier' character controller); feel parameters are identical for both.
 // The procedural body (capsule, rig read from a model asset, limb swing) is in proceduralRig.js; loading a body by asset name in assetModel.js.
@@ -38,7 +38,7 @@ export class Character {
    * @param engine
    * @param o  model: the body, one path for all: a model asset name (a procedural builder from an asset pack, or a GLB name), or what
    *                  engine.assets.model() returned; without model and rig a gray capsule (warned once). rig: a ready body (proceduralRig.js format)
-   *           colors: { body, skin, legs, hair } per-character part colors (meshes marked userData.part); the style tints parts by material role
+   *           colors: { body, skin, legs, hair } per-character part colors (meshes marked userData.part; a capsule takes colors.body)
    *           speed walk speed, runSpeed run speed (m/s), radius collision radius
    *           water what water deeper than swimDepth does: 'swim' (default, floats, state 'swim') | 'block' (never enters it) | 'wade' (walks the
    *                 bottom) | (character, { depth, x, z }) => one of those (per spot: a swim skill, a boat, depth); character:water fires on each change.
@@ -114,7 +114,7 @@ export class Character {
     const now = typeof model === 'string' ? buildNow(engine, model) : model;
     if (now) { this._useModel(now, clips, animation); return; }
     if (!rig && !model) warnOnce(NO_CHARACTER);
-    useRig(this, rig || capsule(colors.body ?? 0x8a8a8a, engine));
+    useRig(this, rig || capsule(colors.body, engine));
     if (model) this._whenReady = loadAssetModel(this, model, m => this._useModel(m, clips, animation));
   }
   /** A model object with userData.rig is a procedural body (limb swing); anything else animates by its clips */
@@ -282,6 +282,7 @@ export class Character {
     this.exit();
     this.anim?.dispose();
     for (const m of Object.values(this._movers)) m.dispose?.();
+    this.engine.characters?._capsules.delete(this._rig?.capsule);
     this.engine.remove(this.root);
   }
   /**

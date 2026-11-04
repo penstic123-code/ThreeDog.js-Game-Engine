@@ -26,8 +26,8 @@
 //   removed at once (dev warning naming the module), and its completion or failure changes no state and drops no handle of the newcomer.
 // Exclusive slots: provides: ['inventory'] takes each named slot (a kind 'one' shared point, core/sharedPoint.js) for the module before its install;
 //   a second provider is shared-taken. requires may name a slot instead of a module. engine.use(mine(), { replaces: 'inventory' }) unloads the
-//   holder first (its handles, slot, look parts, dispose), and puts it back if the new install fails.
-// critical: true on a module makes a failed init() stop engine.start() with the reason; without it a failed init is reported (look / ui: disabled;
+//   holder first (its handles, slot, drawing parts, dispose), and puts it back if the new install fails.
+// critical: true on a module makes a failed init() stop engine.start() with the reason; without it a failed init is reported (picture / ui: disabled;
 // other types: error tiers in errors.js) and start() goes on.
 // Dependencies: requires must be installed first (throws if missing). optional is a soft dependency: an array is only recorded (for GAMEMAP and rule R16);
 //   written as { module: 'what is lost without it' }, start() warns once in dev when it is missing: use this form for optional dependencies
@@ -37,7 +37,6 @@ import { codedError, coded } from './errorHints.js';
 import { reportError } from './errors.js';
 import { catalog, catalogSnap, catalogClaim } from './catalog.js';
 import { readParams } from './params.js';
-import { disposeLooksOf } from './look/part.js';
 import { slotMethods, isUseOpts, checkProvides } from './moduleSlots.js';
 import { checkType, asModule } from './moduleTypes.js';
 
@@ -119,14 +118,15 @@ export const moduleMethods = {
     const opts = isUseOpts(mods.at(-1)) ? mods.pop() : null;
     const list = mods.flat(Infinity), gone = this._replaced(list, opts?.replaces);
     const plan = this._planUse(list, gone), done = [];
-    // replaces: the holder goes first (its tracked handles, its slot, its look parts, its dispose), so the newcomer's install sees a free slot
-    const removed = [...gone].map(n => this._unuse(n));
+    // replaces: the holder goes first (its tracked handles, its slot, its drawing parts, its dispose), so the newcomer's install sees a free slot
+    const removed = [...gone].map(n => this._unuse(n, true));
     try {
       for (const m of plan) {
         const had = Object.hasOwn(this, m.name), prev = this[m.name], snap = catalogSnap(this);
         done.push({ m, had, prev });   // before install(): what it tracked before throwing is removed too
         this._modInst.set(m.name, {});   // this install's identity: install and init ctx check it, so a stale async init cannot act on a later install
         const ctx = this._modCtx(m);
+        this._picture?.installing(m);
         for (const slot of m.provides ?? []) ctx.track(this._slot(slot, m.name).take({ owner: m.name }));   // shared-taken when another module holds it
         const api = asModule(this, m, () => m.install?.(this, ctx)) ?? m;   // asModule: the type checks know who is installing (moduleTypes.js)
         catalogClaim(this, m.name, snap);   // ops / save parts / describe names it registered show under it in engine.catalog()
@@ -145,7 +145,6 @@ export const moduleMethods = {
         this._dropTracked(m.name);
         if (installed) try { m.dispose?.(this); } catch { /* the install error below is the one to report */ }
       }
-      for (const m of plan) disposeLooksOf(this, m.name);   // look parts and driven keys of every module in the batch, the one that threw too (review M9)
       this._sortHooks();
       // a replaced module comes back, so a failed swap leaves the game as it was (it installs fresh: its old handles already went)
       if (removed.length) try { this.use(...removed); } catch (e2) { reportError(this, e2, 'putting back the module a failed replaces removed', { soft: true }); }
@@ -217,6 +216,7 @@ export const moduleMethods = {
       let set = this._modTracked.get(name);
       if (!set) this._modTracked.set(name, set = new Set());
       set.add(h);
+      if (this._curModule === m) this._picture?.learn(m);   // the module's own code called this: its file is the part's (core/pictureWriters.js)
       return h;
     };
     // mod: engine.mod with the module as owner, tracked. Why a ctx verb and not "guess the running module": in an async callback the guess is wrong;
@@ -288,7 +288,7 @@ export const moduleMethods = {
   /** Run order of module hooks (module names, first to last), for debugging "who runs first". */
   get moduleOrder() { return this._moduleOrder ?? []; },
 
-  /** Re-sort the module hooks in the main loop (disabled look / ui modules are not put back). */
+  /** Re-sort the module hooks in the main loop (disabled picture / ui modules are not put back). */
   _sortHooks() {
     const order = sortModules([...this.modules.values()]);
     this._moduleOrder = order.map(m => m.name);

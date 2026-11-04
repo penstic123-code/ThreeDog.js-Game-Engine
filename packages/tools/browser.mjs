@@ -3,7 +3,7 @@
 //   CHROMIUM_ARGS.software  WebGL through ANGLE's SwiftShader (--use-gl=swiftshader fails on some Windows setups): same pixels on every machine, so tests use it
 //   CHROMIUM_ARGS.gpu       WebGL through ANGLE on the real GPU (backend per platform): shot / gallery / perf / stress prefer it, it is several times faster
 import { chromium } from 'playwright';
-import { trackPageErrors } from './wait-engine.mjs';
+import { trackPageErrors, trackRequests } from './wait-engine.mjs';
 import { viteOptions } from './paths.mjs';
 
 const COMMON = ['--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'];
@@ -79,6 +79,7 @@ export async function launchBrowser({ prefer = 'software', ...opts } = {}) {
 export async function newGamePage(browser, { errors = [], ...opts } = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, ...opts });
   trackPageErrors(page);   // from creation, so waitEngine sees an error main.js threw during page.goto (before any wait started)
+  trackRequests(page);     // from creation too: the shot's quiet check waits for files the game's code after start() still loads
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error' && !IGNORED_CONSOLE.test(m.text())) errors.push(m.text()); });
   return page;

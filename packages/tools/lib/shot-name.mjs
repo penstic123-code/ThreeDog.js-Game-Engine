@@ -1,5 +1,5 @@
 // File name and place of a `threedog shot` picture (shot.mjs): page, query and options joined with '_', only [\w,.-] kept.
-// Never starts with '-' (or '.'): a name like "-grain-0_view-ref.png" reads as an option to every CLI it is handed to (style compare, rm, git),
+// Never starts with '-' (or '.'): a name like "-grain-0_view-ref.png" reads as an option to every CLI it is handed to (picture compare, rm, git),
 // which is how a page with only query parameters (/?grain=0&view=ref) used to come out. The page part is 'main' when the path is just '/'.
 import { join, resolve } from 'node:path';
 
@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 export function shotName(url, opt, wait) {
   const [path, query = ''] = url.split('?');
   const page = path.replace(/^\/+/, '').replace(/\.html$/, '') || 'main';
-  return [page, query, opt.time && 't' + String(opt.time).replace(':', ''), opt.weather, opt.pos && 'pos' + opt.pos, opt.view && 'view-' + opt.view, 'w' + wait]
+  return [page, query, opt.time && 't' + String(opt.time).replace(':', ''), opt.weather, opt.pos && 'pos' + opt.pos, opt.at && 'at-' + opt.at, opt.view && 'view-' + opt.view, 'w' + wait]
     .filter(Boolean).join('_').replace(/[^\w,.-]+/g, '-').replace(/^[-.]+/, '') || 'main';
 }
 
@@ -31,4 +31,21 @@ export function viewSize(size) {
   const m = /^(\d+)[xX](\d+)$/.exec(String(size ?? '960x540').trim());
   if (!m || !(+m[1] > 0 && +m[2] > 0)) throw new Error(`--size ${size}: give WxH in pixels, e.g. 1280x720`);
   return [+m[1], +m[2]];
+}
+
+const samePath = (a, b) => { const n = p => resolve(p).replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase(); return n(a) === n(b); };
+/**
+ * Before `shot <url>` trusts a page on this machine: is that server this game's? A leftover dev server on 5173 was another game, and the shot
+ * and its picture check went through on the wrong picture. The bridge names its folder (/__threedog/root).
+ * Five seconds to answer: a dev server still compiling on a busy machine took over two, and "could not tell" then hid a wrong server.
+ * @param {string} url @param {string} dir the workspace of this command @param {typeof fetch} [get]
+ * @returns {Promise<{ wrong?: string, unknown?: string }>} wrong: refuse the shot; unknown: could not tell, say so
+ */
+export async function wrongServer(url, dir, get = fetch) {
+  const u = new URL(url);
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) return {};
+  let root = null;
+  try { const r = await get(u.origin + '/__threedog/root', { signal: AbortSignal.timeout(5000) }); if (r.ok) ({ root } = await r.json()); } catch { /* no answer: unknown below */ }
+  if (!root) return { unknown: `${u.origin} does not say which game it serves (no threedog dev bridge, or an older one): check the picture is the right game` };
+  return samePath(root, dir) ? {} : { wrong: `${u.origin} serves ${root}, not ${dir}. A leftover dev server on that port? Stop it, or run this in that game's folder` };
 }

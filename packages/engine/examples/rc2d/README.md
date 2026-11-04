@@ -14,14 +14,18 @@ nothing installs it. Run it with `npm run dev` and open `/rc2d.html` (`?quality=
 1. Copy `rc2d.js` and `shaders.js` into your game (`threedog examples pull rc2d`, or by hand). They import only `three` and `three/addons`.
 2. Put what light sees on one layer: emitters (any mesh with `material.emissive`, strength `emissiveIntensity`) and occluders (meshes
    without emissive). `mesh.layers.enable(5)` keeps them visible to the normal camera too. The floor stays off the layer: it receives light.
-3. `const rc = createRadianceCascades2D(engine, { layer: 5, ambient: 0.15 })`. Each frame it renders in `engine.onRender` and, with `apply`
-   (default), one pass in the engine's `hdr` post slot (`engine.look.post.add`) adds the light to the frame: `color * (1 + light / ambient)`.
-   Set `ambient` to how bright your scene's own light already is, so the light lands on the surface colour (albedo = color / ambient).
-4. Or `apply: false` and read `rc.texture` (linear light per screen uv) in your own materials. `rc.target` is its render target.
-5. `rc.describe()` (size, cascades, intervals, targets), `rc.resize()` (also checked every frame), `rc.dispose()` (frees every target).
+3. `const rc = createRadianceCascades2D(engine, { layer: 5, ambient: 0.15 })`. Each frame it renders in `engine.onRender`. `rc.pass` is a plain
+   three.js `ShaderPass` that adds the light to the frame, `color * (1 + light / ambient)`: put it in your post chain before the tone curve, as
+   this example's `picture/post.js` does. Set `ambient` to how bright your scene's own light already is, so the light lands on the surface colour
+   (albedo = color / ambient).
+4. Or leave `rc.pass` out and read `rc.texture` (linear light per screen uv) in your own materials. `rc.target` is its render target.
+5. `rc.describe()` (size, cascades, intervals, targets), `rc.resize()` (also checked every frame), `rc.dispose()` (frees every target and the
+   pass; take the pass out of the chain first).
 
 Colours and strengths are the game's: change a lamp's `emissiveIntensity` and the light follows the same frame (flicker, day / night).
 `threedog examples pull rc2d` copies the two files and this README into the game (`techniques/rc2d/`), or copy them by hand.
+
+The demo's own picture (ambient light, emitter colours, tone curve, the flicker) is plain three.js in `picture/`; only `rc2d.js` and `shaders.js` travel.
 
 ## Parameters (all in `RC2D_DEFAULTS` / `RC2D_QUALITY` at the top of `rc2d.js`)
 | Option | Default | Meaning |
@@ -31,7 +35,6 @@ Colours and strengths are the game's: change a lamp's `emissiveIntensity` and th
 | `interval` | `4` | cascade 0's ray length in RC pixels; each cascade above is 4x longer. Larger = smoother, softer contact light |
 | `layer` | `5` | the three.js layer of emitters and occluders |
 | `ambient` | `1` | the scene's own light level, see step 3 |
-| `apply` | `true` | add the post pass; `false` = only `rc.texture` |
 
 ## Cost (1280x720 canvas, measured 2026-11-02, the demo scene)
 - GPU (AMD Radeon 780M integrated, D3D11): frame 3.6 ms without, about 15.8 ms with `medium`, 32.6 ms with `high`; `low` about 14 ms

@@ -4,7 +4,7 @@
 //                                                  headless: one PNG per asset per light in <game>/.threedog/gallery/, plus index.html
 //                                                  (all pictures on one page) and index.json; --mode adds <name>-silhouette.png / <name>-value.png
 //                                                  and prints their measured facts per asset; compare a crop with a reference:
-//                                                  threedog style compare <reference.png> .threedog/gallery/<name>-midday.png --out diff.png
+//                                                  threedog picture compare <reference.png> .threedog/gallery/<name>-midday.png --out diff.png
 // Why the dev server (not a build): the gallery is injected by the vite preset in dev only, and an asset edit needs no rebuild to be seen.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -5,9 +5,9 @@ import { DEV, warnOnce } from './validate.js';
 import { Stack } from './sharedPoint.js';
 
 const KEYS = ['owner', 'set', 'add', 'mul', 'clamp', 'value', 'for', 'clock', 'id', 'layer'];
-// Saved: engine / style / game / effect entries (what the playthrough did). Not saved: system / debug (menus, cutscenes, debug: "what the
+// Saved: engine / game / effect entries (what the playthrough did). Not saved: system / debug (menus, cutscenes, debug: "what the
 // screen is doing now", retaken after a load), settings (the settings module re-applies the player's choices from its own prefs)
-const SAVED = new Set(['engine', 'style', 'game', 'effect']);
+const SAVED = new Set(['engine', 'game', 'effect']);
 const saved = e => SAVED.has(e.layer);
 
 /** engine.stacks: every shared point by name; engine.mod(name, o) is the one way to change one */
@@ -23,7 +23,7 @@ export class Stacks {
     this._at = () => engine.clock?.now ?? 0;
     this._hooked = false; this._hook();
   }
-  /** @internal saves and world:remove. The registry is made before them (Engine.js: the look parts' points exist from the first look part on);
+  /** @internal saves and world:remove. The registry is made before them (Engine.js: the drawing parts' points exist from the first drawing part on);
    *  createServices calls this again once saves and events exist */
   _hook() {
     const e = this.engine;
@@ -37,7 +37,7 @@ export class Stacks {
    * (true while held), 'top' (latest holder wins), 'one' (an exclusive slot; modules take theirs with `provides`).
    * per: true = one value per record id (mod with { id }); per: 'optional' = an entry with { id } is that record's, one without is every record's
    * (move.speed: haste on the player, mud on everyone). save: false keeps it out of saves (screen state like the camera holder).
-   * manual: the copyable takeover call the conflict error offers (a look part's manual()).
+   * manual: the copyable takeover call the conflict error offers (a drawing part's manual()).
    * @param {string} name @param {{ kind?: 'number' | 'value' | 'any' | 'top' | 'one', base?: any, min?: number, max?: number, per?: boolean | 'optional', save?: boolean, manual?: string, settingsSet?: boolean, onChange?: (id: string | null) => void }} [o]
    * @returns {Stack}
    * @example engine.stacks.define('damageTaken', { per: true, min: 0 }); engine.mod('damageTaken', { owner: 'shield', id: 'player', mul: 0.5, for: 3 });
@@ -61,7 +61,7 @@ export class Stacks {
   list() { return [...this._all.keys()]; }
   /**
    * The one entry: change a shared point; returns a handle whose remove() ends only this owner's entry.
-   * @param {string} name @param {{ owner: string, set?: any, add?: number, mul?: number, clamp?: { min?: number, max?: number }, value?: any, for?: number, clock?: string, id?: string, layer?: 'engine' | 'style' | 'game' | 'effect' | 'system' | 'settings' | 'debug' }} o
+   * @param {string} name @param {{ owner: string, set?: any, add?: number, mul?: number, clamp?: { min?: number, max?: number }, value?: any, for?: number, clock?: string, id?: string, layer?: 'engine' | 'game' | 'effect' | 'system' | 'settings' | 'debug' }} o
    * @returns {{ owner: string, remove(): void, change(value: any): boolean }} remove() ends it; change(v) rewrites its value in place (same op, layer)
    */
   mod(name, o) {
@@ -79,7 +79,7 @@ export class Stacks {
       if (s.per) {
         for (const id of s.ids()) out[`${s.name}[${id}]`] = s.row(id);
         if (s.size()) out[`${s.name}[*]`] = s.row();
-      } else if (s.size() || s.yielded) out[s.name] = s.row();
+      } else if (s.size()) out[s.name] = s.row();
     }
     return out;
   }

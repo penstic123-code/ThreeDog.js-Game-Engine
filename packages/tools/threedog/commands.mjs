@@ -74,7 +74,7 @@ export const COMMANDS = {
     '"engine.calendar.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes)',
   js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.calendar.timeOfDay" / js --file path',
   'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
-  snap: 'save a screenshot to .threedog/shots/name.png and run the look check on the page, as threedog shot does (snap name, or snap path/to/file.png used as given; --width N scales the returned image down, the saved file stays full size; --no-look skips the check)',
+  snap: 'save a screenshot to .threedog/shots/name.png and run the picture check on the page, as threedog shot does (snap name, or snap path/to/file.png used as given; --width N scales the returned image down, the saved file stays full size; --no-picture skips the check)',
   errors: 'page errors with id, time, tick, source and count: errors = new since the last read; errors latest [N] = the last N, repeatable; errors --since E5 = after id 5 (known classes come with the cause and the doc page)',
   reload: 'reload the page',
   resume: 'resume real-time running (the page is paused after step / press)',
@@ -84,7 +84,7 @@ export const COMMANDS = {
   scene: 'the mesh exists but is not drawn: counts, one line of reasons over every Mesh / Points / Line / Sprite, then the first 6 undrawn ones (surprising before plain view culling) with WHY (visible=false up the parents, layers, material flags, scale 0 / NaN, empty geometry, behind camera, beyond far, outside the view, fog...): scene [--hidden (only undrawn)] [--limit N | --full (40)] [--json]',
   pick: 'what is at screen pixel x,y (from the canvas top-left): pick 480,270 -> record id, kind, template, where it is defined (content file:line), fields',
   thing: 'everything about one id as JSON: thing player-chest (definition file:line, template, model, materials, state, collision rules, related ops, save status, how to change it)',
-  explain: 'why: explain op shop.buy shop=bakery item=bread (can it run; --full adds its last attempt) / explain quest first-light (where it is stuck)',
+  explain: 'why: explain op shop.buy shop=bakery item=bread (can it run; --full adds its last attempt) / explain quest first-light (where it is stuck) / explain picture fog.far (which line last changed it)',
   scenario: 'run one scenario test (tests/scenarios/<name>.json) on this page: scenario barter (prints failed checks; the scenario leaves the page paused)',
   catalog: 'what the game can do, from its registrations: catalog = a line per module with ops or problems, the rest named on one line (--full: a line each); catalog shop = one module ' +
     '(dependencies, params + defaults, ops with args and failure codes, saved parts, time hooks, problems, doc / recipe / source files); catalog shop.buy ' +
@@ -155,13 +155,13 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       return { ok: true, text: [...r.logs.map(l => '· ' + l), '✓ ' + r.text].join('\n') };
     }
     case 'snap': {
-      const usage = 'Usage: threedog snap [name | path] [--width N] [--no-look]. A bare name saves .threedog/shots/<name>.png; a path (absolute, or with a folder) '
+      const usage = 'Usage: threedog snap [name | path] [--width N] [--no-picture]. A bare name saves .threedog/shots/<name>.png; a path (absolute, or with a folder) '
         + 'is used as given; .png is added only when it has no extension. --width N scales the returned image, the file stays full size. '
-        + 'The look check (as in threedog shot) runs on the page after the picture; --no-look skips it';
+        + 'The picture check (as in threedog shot) runs on the page after the picture; --no-picture skips it';
       if (args.includes('--help') || args.includes('-h')) return { ok: true, text: usage };
-      const noLook = rest.includes('--no-look'); if (noLook) rest.splice(rest.indexOf('--no-look'), 1);
+      const noPicture = rest.includes('--no-picture'); if (noPicture) rest.splice(rest.indexOf('--no-picture'), 1);
       const flag = rest.find(x => x.startsWith('-'));
-      if (flag) throw new Error(`Unknown snap option "${flag}". Valid: --width N, --no-look (and --help). ` + usage);
+      if (flag) throw new Error(`Unknown snap option "${flag}". Valid: --width N, --no-picture (and --help). ` + usage);
       if (rest.length > 1) throw new Error(`snap takes one name or path (got ${rest.length}: ${rest.join(' ')}). ` + usage);
       const out = snapPath(dir, rest[0]);
       await ev(driver, 'settled', {});   // like threedog shot: never capture the loading screen mid-fade
@@ -170,7 +170,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       writeFileSync(out.file, png);
       // the same lines as under a threedog shot (pageFns PICTURE): what bears on the picture, the rest via threedog describe
       const brief = await ev(driver, 'picture', {});
-      // --width N: the file keeps the full size (style compare reads it); the picture returned to the caller (MCP image) is scaled down to N px wide
+      // --width N: the file keeps the full size (picture compare reads it); the picture returned to the caller (MCP image) is scaled down to N px wide
       let image = png;
       if (opt.width && opt.width > 0) {
         const b64 = await driver.evaluate(`async ([src, w]) => { const i = new Image(); i.src = 'data:image/png;base64,' + src; await i.decode();
@@ -179,15 +179,15 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
         [png.toString('base64'), opt.width]);
         if (b64) image = Buffer.from(b64, 'base64');
       }
-      // the look check on this same live page: a picture taken through the bridge must not skip what `threedog shot` reports (glare with its
+      // the picture check on this same live page: a picture taken through the bridge must not skip what `threedog shot` reports (glare with its
       // source, shadows, noon / midnight). The probe renders and restores within one call, so the running game is left as it was
-      let look = '';
-      if (!noLook) {
-        const { pageLook, formatLook } = await import('../style/look.mjs');   // lazy: it pulls in the picture reader, which other commands never need
-        const lk = await pageLook((src, arg) => driver.evaluate(src, arg), { dir }).catch(e => ({ error: String(e?.message ?? e) }));
-        look = '\n' + (lk.error ? `Look: skipped (${lk.error})` : formatLook(lk.numbers, lk.probe, lk.hints).join('\n'));
+      let picture = '';
+      if (!noPicture) {
+        const { pagePicture, formatPicture } = await import('../picture/check.mjs');   // lazy: it pulls in the picture reader, which other commands never need
+        const lk = await pagePicture((src, arg) => driver.evaluate(src, arg), { dir }).catch(e => ({ error: String(e?.message ?? e) }));
+        picture = '\n' + (lk.error ? `Picture: skipped (${lk.error})` : formatPicture(lk.numbers, lk.probe, lk.hints).join('\n'));
       }
-      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB)${image !== png ? `, image shown ${opt.width} px wide` : ''}\n` + brief + look };
+      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB)${image !== png ? `, image shown ${opt.width} px wide` : ''}\n` + brief + picture };
     }
     case 'snap-describe': {
       const [mode, name] = rest, snapDir = join(dir, 'tests', 'snapshots');
@@ -240,7 +240,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       return { ok: r.ok, text: r.text.slice(0, max), data: r.data };
     }
     case 'explain': {
-      if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light');
+      if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light / threedog explain picture fog.far');
       const r = rest[0] === 'op' ? await ev(driver, 'op', { name: rest[1], explain: true, pairs: opPairs(rest.slice(2)) })
         : await ev(driver, 'explain', { key: rest[0], value: rest[1] });
       // --full adds the detail (last attempt, events around it)

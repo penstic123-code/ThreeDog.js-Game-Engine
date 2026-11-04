@@ -1,13 +1,13 @@
 # Maintainer workflow
 
-How the coordinator and helper agents work on the engine. The owner (Cedric) pushes and publishes; agents never do. Intent: `design.md`. Structure: `architecture.md`.
+How the coordinator and helper agents work on the engine. The owner pushes and publishes; agents never do. Intent: `design.md`. Structure: `architecture.md`.
 
 ## Helpers and worktrees
 
 - The coordinator gives each helper a brief with a bounded job (a time box and a size cap, "commit first, then polish"), the files it owns, and what it must not touch. Split work by file ownership so two helpers never edit the same file; shared registries (`CHANGELOG`, `AI.md` rows, `runs.md`) are where merges conflict.
 - Each helper works in its own git worktree on its own branch, created from the main checkout while the shell is in the main repository (a worktree is made inside the current directory's repository; after touching any other repository, `cd` back first).
-- A worktree has no `node_modules`. Link it with the setup script: `node "C:\Users\彭诗迪\AppData\Local\Temp\claude\c--Users-----Desktop-three-js----\7d1c5d54-bc34-4623-b4db-291cd0a0b6f4\scratchpad\wt-setup.mjs" <main repo> <worktree>` (undo with `wt-unlink.mjs` in the same folder; if the folder is gone, the junction recipe is: every item in the worktree's `node_modules` links to the main repo's same-named item, except `threedog` and `@threedog/*`, which link to this worktree's `packages/*`). Then check `require.resolve('threedog/package.json')` from the worktree resolves to the worktree's own `packages/engine`, not the main checkout.
-- Before finishing, run `wt-unlink.mjs` with only the worktree path (it removes the junctions, never the targets), and stop any dev server or headless browser started (software rendering eats CPU; check for leftovers after merging).
+- A worktree has no `node_modules`. Run `node packages/tools/worktree-link.mjs link` inside it: every item becomes a junction to the main repo's same-named item, except `threedog` and `@threedog/*`, which link to this worktree's `packages/*` (one junction for the whole folder would run the main repo's code). It then prints where each package resolves (`check` prints it again) and fails if one leaves the worktree.
+- Before finishing, run `node packages/tools/worktree-link.mjs unlink` (it removes the junctions, never their targets), and stop any dev server or headless browser started (software rendering eats CPU; check for leftovers after merging).
 - A helper's report is short: status, commit id, test result (summary and failures only), decisions the coordinator must make. Work that is not finished is listed in the report, not left half-committed.
 
 ## Merging
@@ -25,6 +25,7 @@ How the coordinator and helper agents work on the engine. The owner (Cedric) pus
 - Output is short by default: each failed item with its failed checks, a progress line, then the list of failed items and the `Total:` line. `npm test -- --verbose` (or `-v`) prints every passing check too. Never paste whole logs into context. On a page error read `.threedog/errors.log` first.
 - A new test file is just a new `packages/engine/tests/specs/<name>.mjs` exporting `specs`; the runner finds it (there is no list to register it in). A file that exports no items, or a test name used twice, stops the run before any browser opens.
 - Rendering: specs that read pixels run on software rendering; tests wait on conditions (`frames`, `until`), never fixed sleeps. A failure that appears only under load must be reproduced alone before it is called flaky, and the evidence goes into the log.
+- Real WebGPU: the suite's Chromium lands on WebGPURenderer's WebGL2 backend. `node packages/tools/real-webgpu.mjs` runs specs or pages in system Chrome and fails any page that is not on a real device. Run it by hand after changes to shaders, cascades or the first frame; it needs a GPU and Chrome, so it cannot be in `npm test`.
 - Log every run (full suite, post-merge check, field test) as one row at the top of the table in `docs/testing/runs.md` (newest first): date, commit, what was run, pass / fail counts, and for each failure what was done (fixed, known issue, flaky with evidence). Review reports go in `docs/testing/review/`, usability runs in `docs/testing/usability/` (layout: `docs/testing/README.md`).
 - A test that matches text and the source string it matches change in the same commit.
 
@@ -38,8 +39,15 @@ How the coordinator and helper agents work on the engine. The owner (Cedric) pus
 ## Deleting and breaking
 
 - A replaced way, option, test or doc is deleted in the same change. No compat layer in 0.x.
-- A breaking change gets a note in `packages/engine/docs/MIGRATING-0.4.md` (what was removed, what to write now) and a line in `CHANGELOG.md`.
+- A breaking change gets a note in the current `packages/engine/docs/MIGRATING-<version>.md` (what was removed, what to write now) and a line in `CHANGELOG.md`.
 - A fix is made once, in the layer that owns the cause: grep all callers, group reports by root cause.
+
+## Upgrading three.js
+
+`package.json` allows 0.187.x only. Before moving to a newer minor, read what the engine reaches that three does not promise to keep; each breaks in its own way when renamed:
+- `renderer._animation.start()` and `renderer._nodes?.nodeFrame` (`render/backend.js`, the WebGPU first-frame fix): no public entry exists. The first has no optional chain and throws every frame, the second goes quiet.
+- CSMShadowNode's `_init` and `_shadowNodes` (`render/cascades.tsl.js`).
+- Everything in `describe().threePatches` (`packages/engine/docs/THREE.md`).
 
 ## Plans
 

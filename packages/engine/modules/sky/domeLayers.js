@@ -1,4 +1,4 @@
-// Extra sky layers drawn on the dome after the clouds and stars (rainbow, aurora, a painted band): style.sky.layers / look.sky.patch('layer:<name>').
+// Extra sky layers drawn on the dome after the clouds and stars (rainbow, aurora, a painted band): engine.sky.layer(name, spec).
 // Default none, and then the dome shader text is exactly the plain one.
 //   layers: [{ glsl, uniforms?, order?, blend? }]
 //   glsl     defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)`: dir = unit view direction (whole sphere,
@@ -15,20 +15,20 @@ import { readParams, keysSchema, isOptions } from '../../core/params.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { codedError } from '../../core/errorHints.js';
 
-const KEYS = ['glsl', 'tsl', 'uniforms', 'order', 'blend', 'name'];   // name: the layer's name for look.sky.patch('layer:<name>')
+const KEYS = ['glsl', 'tsl', 'uniforms', 'order', 'blend', 'name'];   // name: the layer's name for engine.sky.layer(name, ...)
 
 /**
  * Check the layer list and return { uniforms, decl, body } for the GLSL dome (empty strings without layers) and `layers` ({ tsl, blend, where }
  * in draw order) for the node dome.
  * @param {any[]} list @param {{ gpu?: boolean, names?: string[] }} [o] gpu: the dome is a node material (tsl drawn, glsl optional);
- *   names: look.sky's layer names per entry, so an error says look.sky.patch('layer:<name>') instead of the index
+ *   names: the layer names per entry, so an error says engine.sky.layer('<name>') instead of the index
  */
 export function resolveDomeLayers(list, { gpu = false, names } = {}) {
   if (list == null) return { uniforms: {}, decl: '', body: '', layers: [] };
-  if (!Array.isArray(list)) throw codedError('sky-option', 'style.sky.layers must be an array of { glsl, uniforms?, order?, blend? }; see modules/sky/domeLayers.js');
+  if (!Array.isArray(list)) throw codedError('sky-option', 'dome layers must be an array of { glsl, uniforms?, order?, blend? }; see modules/sky/domeLayers.js');
   const uniforms = {}, decl = [], body = [], layers = [];
   list.map((l, i) => ({ l, i })).sort((a, b) => (a.l?.order ?? 0) - (b.l?.order ?? 0) || a.i - b.i).forEach(({ l, i }, n) => {
-    const where = names?.[i] != null ? `look.sky.patch('layer:${names[i]}')` : `style.sky.layers[${i}]`;
+    const where = names?.[i] != null ? `engine.sky.layer('${names[i]}')` : `dome layer ${i}`;
     if (isOptions(l)) readParams(where, keysSchema(KEYS), l);
     if (l?.tsl != null && typeof l.tsl !== 'function') throw codedError('sky-option', `${where}.tsl must be (ctx) => vec4 node (WebGPURenderer); see modules/sky/domeLayers.js`);
     if (l?.glsl == null && l?.tsl != null && !gpu) throw codedError('sky-option', `${where} has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })`);

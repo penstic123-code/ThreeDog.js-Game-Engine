@@ -17,12 +17,12 @@ import * as THREE from 'three';
 import { defineOwned } from '../../core/owned.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { setProjection } from './projection.js';
-import { setFov } from '../../core/look/coreParts.js';
+import { setFov } from '../../core/view.js';
 import { codedError } from '../../core/errorHints.js';
 
 // the takeover calls the owned-camera warning quotes (core/owned.js): takeCamera is the one explicit entry (its remove() gives the camera back);
 // back is the hand-back for a camera the engine yielded to a direct write (that takeover has no handle)
-const LEVELS = { manual: "const cam = engine.takeCamera('me') (cam.remove() gives it back)", back: "engine.look.view.manual('camera', false)" };
+const LEVELS = { manual: "const cam = engine.takeCamera('me') (cam.remove() gives it back)", back: "engine.view.manual('camera', false)" };
 
 /** True during a cutscene takeover, and updates engine.focus from the focus the owner supplied */
 function applyOverride(e) {
@@ -110,7 +110,7 @@ function lockView(e, st) {
 /** Release the mouse lock; stop listening for clicks too when switched away (call from onExit; from onOverride with keepListening) */
 export function releaseLock(rig, keepListening = false) {
   if (!keepListening) { rig._off?.abort(); if (rig.engine.input.swallowLockClick === rig._swallow) rig.engine.input.swallowLockClick = null; }
-  if (document.pointerLockElement === rig.engine.renderer.domElement) document.exitPointerLock?.();
+  if (document.pointerLockElement === rig.engine.renderer.domElement) rig.engine.page.releaseLock();
 }
 
 /** The camera's own view direction on the XZ plane */
@@ -178,7 +178,7 @@ export function rigModule(kind, opts) {
     return c;
   }
   return {
-    name: 'cameraRig', type: 'look', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision'], stage: 'control',
+    name: 'cameraRig', type: 'picture', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision'], stage: 'control',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.cameraRig': '相机' }, en: { 'module.cameraRig': 'camera' } });
       engine = e; fov0 = e.camera.fov; modInput = ctx.input; declared.clear();
       e.setCamera = setCamera;
@@ -194,9 +194,11 @@ export function rigModule(kind, opts) {
         c.onEnter?.(false); c.follow(e.player?.cameraFollow ? e.player.root : null); fresh = true;   // follows the player only if the game asked (createPlayer({ cameraFollow }))
         e.events.emit('camera:change', { kind, previous: old.kind });   // settings re-apply the player's sensitivity / fov to the new rig
       }));
+      // a scenario put the player somewhere else (?at, ?pos): a rig that eases would open on a glide across the map; follow() puts it there at once
+      ctx.track(e.events.on('state:placed', () => { if (c.target) { c.follow(c.target); fresh = true; } }));
       // The camera module places position / orientation every frame: a game that moves the camera directly takes it (the rig stops), warned once
       const cam = e.camera, p = cam.position, q = cam.quaternion;
-      // One camera state: takeCamera's 'camera' stack. look.view.manual('camera') and a direct write become a takeCamera hold too (owner
+      // One camera state: takeCamera's 'camera' stack. engine.view.manual('camera') and a direct write become a takeCamera hold too (owner
       // 'manual:<who>' / 'three'), so cameraOverride, describe().holds and the rig's onOverride see every takeover the same way; handing back
       // (manual('camera', false)) removes that hold. Why: four entries with four states meant a pointer lock or focus that only one of them reset.
       let hold = null;

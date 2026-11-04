@@ -1,24 +1,24 @@
 # The ground up close: options and diagnosis
 
-Not a standard recipe. Several looks are right for different games, and none is the default. **Decide from the reference images first**: is the
+Not a standard recipe. Several pictures are right for different games, and none is the default. **Decide from the reference images first**: is the
 ground flat color shapes, a painted surface, a photographic texture, or a few lit polygons? Then pick a row. If the ground already looks wrong,
 jump to the symptoms.
 
-## Approaches (pick by the look you want)
-| Look | How | Typical values |
+## Approaches (pick by the picture you want)
+| Picture | How | Typical values |
 |---|---|---|
 | Flat color blocks, no detail (minimal, flat illustration; on purpose) | `shading: 'flat'` or `'smooth'`, `colors` / `biomeColors`, no `detail`; a few `variation.patches` with `levels` | `resolution: 16`; `patches: { size: 90, levels: 3, strength: 0.15 }` |
-| Color map + detail layer + near grass (soft variation, crisp borders) | `terrain({ shading: 'texture', colorResolution })`, `style.terrain.detail`, grass with `vegetation.define(name, { nearOnly: true })` | `colorResolution: 128`; `detail: { noise: 'dabs', scale: 0.5, strength: 0.25, normal: 0.03 }` |
-| Tiling or triplanar textures (your own painted, photographed or generated images) | material spec `map` + `repeat`, or `detail: { texture: 'name' }` (`projection: 'triplanar'` on slopes and rocks) | `repeat: 8`; `detail: { texture, scale: 0.5, strength: 0.6 }` |
-| Vertex color + toon lighting | vertex colors from `colors` and `variation.jitter`, `type: 'toon'` with a `ramp`; detail optional | `jitter: { size: 2, min: 0.9, range: 0.15 }`; `ramp: [0.4, 0.75, 1]` |
+| Color map + detail layer + near grass (soft variation, crisp borders) | `terrain({ shading: 'texture', colorResolution, detail })`, grass with `vegetation.define(name, { nearOnly: true })` | `colorResolution: 128`; `detail: { noise: 'dabs', scale: 0.5, strength: 0.25, normal: 0.03 }` |
+| Tiling or triplanar textures (your own painted, photographed or generated images) | your own material with `map` and `texture.repeat` through `terrain({ material })`, or `detail: { texture: 'name' }` (`projection: 'triplanar'` on slopes and rocks) | `repeat: 8`; `detail: { texture, scale: 0.5, strength: 0.6 }` |
+| Vertex color + toon lighting | vertex colors from `colors` and `variation.jitter`, `terrain({ material })` with a `MeshToonMaterial`, `gradientMap: rampTexture(...)`; detail optional | `jitter: { size: 2, min: 0.9, range: 0.15 }`; `rampTexture([0.4, 0.75, 1])` |
 | Your own shader or plain three.js | `terrain({ material })`, or recipe 40 section 8 (what you give up) | any |
 
 Detail noises (recipe 43): `grain` fine speckle, `paper` fibres, `stroke` directional streaks (stretched on purpose), `dabs` soft oval dabs with
-no direction. `fade` (on by default) removes the detail where its pattern is smaller than a pixel. At run time: `look.ground.set`,
-`look.surface.set({ detail })`, `look.surface.patch('detail', glsl)` (recipe 52).
+no direction. `fade` (on by default) removes the detail where its pattern is smaller than a pixel. At run time: `engine.terrain.recolor({ detail })`. On any
+other material: `applyEffects(mat, { detail })`, with your own function as `detail: { glsl }` (recipe 43).
 
 Where each key is defined: `variation` (blend, jitter, patches) recipe 36; `shading`, `colorResolution`, `normals`, `normalFn`, heights from a
-grid recipe 37; `detail` keys recipe 43; run-time changes `look.ground` recipe 52; terrain basics recipe 28.
+grid recipe 37; `detail` keys recipe 43; run-time changes `engine.terrain.recolor` recipe 36; terrain basics recipe 28.
 
 ## Symptom, causes, options
 **Brushed metal at grazing angles.** Cause: `stroke` stretches one axis (`stretch` 6) and `world` projection looks straight down, so a flat
@@ -32,7 +32,7 @@ Options, any of them: more height samples (a larger image or table), or the data
 { interp: 'cubic' })` for smooth heights everywhere outside the terrain module (placement, gameplay; recipe 37 section 7; a terrain `height`
 function runs in a worker and cannot capture a sampler); a finer `resolution` (more triangles, collision and edit cells); `shading: 'smooth'`,
 or `normals: 'smooth'` with `shading: 'texture'`; `diagonal: 'adaptive'` against zigzag ridges; or noise in the `height` function (`n.fbm`; ridges from
-folding it) instead of a sparse table. Terraces can also be the look you want: `interp: 'nearest'`, or a stepped `height`.
+folding it) instead of a sparse table. Terraces can also be the picture you want: `interp: 'nearest'`, or a stepped `height`.
 
 **Blurry up close.** Cause: the color map is `colorResolution + 2` pixels per 64 m chunk side; 128 is 0.5 m per pixel, which is soft when the
 camera is within a few meters. It does not depend on the mesh `resolution`. On a `low` tier the default is 64 (twice as coarse) unless you set
@@ -43,8 +43,8 @@ pixel, so it stays sharp); near grass over the ground; or accept soft color and 
 (wavelength and `strength` of the two-color noise) and `steep`. One color with no `biomeColors` and a flat blend is one green. Options: two
 colors in `biomeColors` for the type; `blend.strength` 1.5; `variation.patches` with a `tint`; more ground types.
 
-**Dark blotches.** Cause: usually cloud shadows (`style.clouds.shadow` above 0), not texture; they drift with `speed`, and bigger clouds mean
-bigger blotches. Test by setting `clouds.shadow: 0` (live: `look.cloudShadow`); if they vanish, lower it or change `scale`. Blotches that
+**Dark blotches.** Cause: usually cloud shadows (`engine.uniforms.uCloudShadow.value` above 0), not texture; they drift with `uCloudSpeed`, and bigger clouds mean
+bigger blotches. Test by setting `uCloudShadow` to 0; if they vanish, lower it or change `uCloudScale`. Blotches that
 never move are `variation.patches` or a strong `detail`.
 
 **Shimmer far away.** Cause: a pattern smaller than a pixel aliases. `detail.fade` (default) fades it out; `fade: false` keeps it. In your own

@@ -1,14 +1,14 @@
 // @threedog/post-effects: optional post effects. The engine ships none (it owns no look); a style or a game adds the ones it wants, the one
-// way every post effect gets in (engine.look.post.add). Each effect gives create (WebGL) and node (WebGPU), so one value runs on both:
+// way every post effect gets in (engine.post.add). Each effect gives create (WebGL) and node (WebGPU), so one value runs on both:
 //   import { vignette, grain } from '@threedog/post-effects';
-//   engine.look.post.add(vignette());                       // game code
+//   engine.post.add(vignette());                       // game code
 //   plugins/20-grain.js: export default grain();            // the game's plugins folder, or a style's style/plugins/ folder
 // Styles bring bloom / ao / outline as their own plugin files; they all import from here, never from each other.
 // hdr slot (linear, before tone mapping): bloom, ao, outline, dof. ldr slot (sRGB, after it): lut, grain, vignette, chromatic.
 // lut / grain / vignette / chromatic carry a `fuse` GLSL snippet, so when several are on they run as one fullscreen pass.
-// Added = on: an effect given to look.post.add (or exported by a plugin file) is on unless it says enabled: false (list it off for the game to switch on later with
-// look.post.set({ '<name>.enabled': true })); the engine's rule for every effect, so listing one never silently does nothing. The costly ones
-// (bloom, ao, dof, outline mode normal/both) start off on low-tier devices when a style's plugins bring them; engine.look.post.set({ name: true }) turns them on.
+// Added = on: an effect given to engine.post.add (or exported by a plugin file) is on unless it says enabled: false (added off for the game to switch on later with
+// handle.enabled = true); the engine's rule for every effect, so adding one never silently does nothing. The heavy ones (bloom, ao, dof, outline mode normal/both)
+// are the game's call on weak devices: read engine.tier and leave them out.
 import * as THREE from 'three';
 export { dof } from './dof.js';
 export { bloom, ao } from './hdr.js';
@@ -25,7 +25,7 @@ identity.format = THREE.RGBAFormat; identity.minFilter = identity.magFilter = TH
  * @example
  * import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
  * const { texture3D } = await new LUTCubeLoader().loadAsync('/luts/warm.cube');
- * engine.look.post.add(lut({ enabled: true, lut: texture3D, amount: 0.8, saturation: 1.1, temperature: 0.2 }))
+ * engine.post.add(lut({ enabled: true, lut: texture3D, amount: 0.8, saturation: 1.1, temperature: 0.2 }))
  * @param {{ lut?: import('three').Data3DTexture | null, amount?: number, contrast?: number, saturation?: number, temperature?: number, enabled?: boolean, order?: number }} [o]
  *   lut: a 3D LUT texture (null = only the numbers below); amount: how much of the LUT result to use (0..1); contrast, saturation: 1 = unchanged;
  *   temperature: -1 cool .. 1 warm
@@ -53,7 +53,7 @@ export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temp
 
 /**
  * Film grain (ldr slot): per-pixel noise, a little weaker in highlights.
- * @example engine.look.post.add(grain({ enabled: true, amount: 0.06 }))
+ * @example engine.post.add(grain({ enabled: true, amount: 0.06 }))
  * @param {{ amount?: number, size?: number, animated?: boolean, enabled?: boolean, order?: number }} [o]
  *   amount: noise strength; size: grain size in device pixels; animated: new noise every frame (24 per second)
  * @returns {PostEffect}
@@ -75,7 +75,7 @@ export function grain({ amount = 0.06, size = 1, animated = true, enabled, order
 
 /**
  * Vignette (ldr slot): darker screen corners.
- * @example engine.look.post.add(vignette({ enabled: true, strength: 0.4 }))
+ * @example engine.post.add(vignette({ enabled: true, strength: 0.4 }))
  * @param {{ strength?: number, start?: number, enabled?: boolean, order?: number }} [o]
  *   strength: darkness at the corners (0..1); start: distance from the center where darkening begins (0 center .. 1 corner)
  * @returns {PostEffect}
@@ -92,7 +92,7 @@ export function vignette({ strength = 0.35, start = 0.45, enabled, order = 20 } 
 /**
  * Chromatic aberration (ldr slot): red and blue shift apart toward the screen edge. Samples the pass input, so it starts a fused group
  * (default order puts it first, so it still joins the others).
- * @example engine.look.post.add(chromatic({ enabled: true, amount: 0.004 }))
+ * @example engine.post.add(chromatic({ enabled: true, amount: 0.004 }))
  * @param {{ amount?: number, enabled?: boolean, order?: number }} [o]  amount: edge shift in screen fractions
  * @returns {PostEffect}
  */

@@ -35,8 +35,13 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
-| main.js | 64 | @ts-check 2D radiance cascades demo (page /rc2d.html): a top-down street at night. Street lamps, li… |
-| rc2d.js | 198 | @ts-check 2D radiance cascades: screen-space global illumination for top-down and side-view games (… |
+| main.js | 56 | @ts-check 2D radiance cascades demo (page /rc2d.html): a top-down street at night. Street lamps, li… |
+| picture/index.js | 19 | @ts-check The picture of the rc2d demo: wiring only. |
+| picture/lights.js | 12 | @ts-check The scene's own light is one dim ambient; everything else on the street is lit by the cas… |
+| picture/materials.js | 19 | @ts-check Materials by name. An emitter is a black surface with an emissive: rc2d.js reads emissive… |
+| picture/palette.js | 16 | @ts-check Every value of the rc2d demo's picture. A street at night: one dim ambient, and the emiss… |
+| picture/post.js | 12 | @ts-check The cascades and the one pass that adds their light to the frame. 'hdr' slot: the light i… |
+| rc2d.js | 188 | @ts-check 2D radiance cascades: screen-space global illumination for top-down and side-view games (… |
 | shaders.js | 145 | GLSL for rc2d.js (2D radiance cascades), GLSL ES 3.0 as three.js compiles a ShaderMaterial under We… |
 
 ## NPCs (content/npcs.js)
@@ -80,4 +85,4 @@ Code that breaks saves or manages world models: none (rule R33).
 
 ## Style keys
 
-- Style: none (all neutral fallback look)
+(none)

@@ -75,14 +75,21 @@ class ProbeSet {
       e.scene.add(engineOwned('probes', this.probe));
       // the engine writes probe.sh every frame: a game that writes it itself (its own SH) takes it over, the engine yields (core/owned.js)
       const n = e._probeN = (e._probeN ?? 0) + 1;   // unique per engine: a reused id would replace another live set's record
-      this._owned = defineOwned(e, { id: `probes.sh#${n}`, part: 'lights', key: 'probes', read: () => this.probe.sh.toArray(), objects: [this.probe],
-        levels: { manual: "engine.look.lights.manual('probes')" } });
+      this._owned = defineOwned(e, { id: `probes.sh#${n}`, part: 'probes', key: 'sh', read: () => this.probe.sh.toArray(), objects: [this.probe],
+        levels: { manual: 'probes.own()' } });
       this._tmp = new THREE.Vector3();
       this._frame = e.onFrame(() => this._update());
       this._update();
     }
     sets(e).add(this);
   }
+  /**
+   * Take probe.sh over (the engine stops writing it) or, with false, hand it back. Writing probe.sh yourself takes it over the same way, with a warning.
+   * @example probes.own(); probes.probe.sh.copy(mySH);
+   * @param {boolean} [on] default true
+   * @returns {void}
+   */
+  own(on = true) { this._owned?.manual(on); }
   _update() {
     const o = this._owned, f = this.follow, e = this._e, p = this._tmp;
     o.check();
@@ -141,7 +148,7 @@ async function bakeOne(e, cam, rt, p, hide) {
   return (await LightProbeGenerator.fromCubeRenderTarget(e.renderer, rt)).sh.toArray();
 }
 
-/** The debug view: one dot per probe, colored by its average (DC) light, over the real look */
+/** The debug view: one dot per probe, colored by its average (DC) light, over the real picture */
 function drawProbes(e, scene) {
   const list = [...sets(e)], n = list.reduce((s, x) => s + x.count, 0);
   if (!n) return () => {};

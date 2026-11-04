@@ -16,7 +16,7 @@ import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
 import { srcOf } from './ids.js';
 import { placeY } from '../../core/ground.js';
-import { list, PLACEMENT_FIELDS } from './rules.js';
+import { list, PLACEMENT_FIELDS, collideProblem } from './rules.js';
 import { DEV, fmt, closest } from '../../core/validate.js';
 import { codedError } from '../../core/errorHints.js';
 
@@ -35,6 +35,8 @@ export function addProps(e, api, props, st, zoneOf, ids) {
     const at = DEV ? srcOf(props, i) : null;
     if (p.template) return placeTemplate(e, api, st, p, i, zoneOf(p), ids, at);   // an instance of a content template (templates.js), not a plain prop
     if (p.grid) return placeGridItem(e, p, i, zoneOf(p), ids, at);               // a pre-placed grid item (grid module)
+    const collide = collideProblem(p.collide);
+    if (collide) throw codedError('content-misuse', `props[${i}] (model ${JSON.stringify(p.model)}): collide ${collide}`);
     const id = propId(p, i), { x, y, z } = api.where(p), zone = zoneOf(p), floor = api._floorOf(p);
     if (p.id != null) ids.claim(p.id, `props[${i}] (model ${JSON.stringify(p.model)})`);
     // compute y from the ground now (same as when the model is built): unmoved props equal the content and stay out of the save

@@ -12,14 +12,14 @@ one line; the detail is here.
 - **Level ownership**: world data carrying `zone: engine.world.zone` (= the current level name) gets its model built and is simulated only in that
   level; when you leave, the data stays (content NPCs, pickups and props already work this way);
   things that need not be kept (trigger zones, etc.) use `level.track(handle)` and are deleted automatically on level change.
-- **Module type**: every module says what it may own with `type` (`'rules'` for game logic; `'world'` state that draws nothing, `'look'` what is
+- **Module type**: every module says what it may own with `type` (`'rules'` for game logic; `'world'` state that draws nothing, `'picture'` what is
   seen and heard, `'ui'` panels, `'actor'`, `'net'`, `'tool'`; recipes/14). Modules depend on capabilities (`requires: ['inventory']`), never on
-  another module's name or private fields; a module doing two kinds of thing is two definitions from one factory (`weather()`: state + look).
+  another module's name or private fields; a module doing two kinds of thing is two definitions from one factory (`weather()`: state + drawing).
 - **Who owns a handle**: every `{ remove() }` handle has one owner that removes it, chosen by how long it should live: the module
   (`ctx.track(h)` in its install / init: until the module goes), the playthrough (`engine.session.track(h)`: until newGame / load / quit), or
   the level (`level.track(h)`: until the level changes). A handle with none lives until `engine.dispose()`.
 - **Two doors, one scene**: plain three.js (`engine.add(mesh, { id })`) and templates (`engine.content.spawn`, props) land in the same registry;
-  `engine.thing(id)` says what it is and what a save keeps (`recipes/41-thing-registry.md`). What must be saved with its own state or edited without
+  `engine.thing(id)` says what it is and what a save keeps (`recipes/40-scene.md`). What must be saved with its own state or edited without
   code goes in `content/` (templates + props with ids, pickups, npcs, containers, game kinds) or the level model; a save stores only changes on top.
   Startup code never creates what a save stores whole (rule R33): things that appear during play come from `engine.content.spawn` inside an op.
 - To find leaks read `engine.counts()` (listeners, timers, geometry count; they should not grow when entering and leaving a level repeatedly).
@@ -27,13 +27,10 @@ one line; the detail is here.
 ## Textures
 The opts of `assets.texture(name, opts)` are part of the cache key: the same image with different opts gives two separately configured textures.
 
-## Values the engine drives (sun, hemi, fog, camera)
-With a sky or camera module installed the engine writes `engine.lights.sun / hemi` (intensity, color, position), `scene.fog` and the `camera` pose
-every frame. Setting them directly is plain three.js and works: the engine yields that value (stops writing it, warns once). Say it on purpose with
-`engine.look.<part>.manual(key)` (no warning; `manual(key, false)` gives it back), or adjust without taking it, keeping the day cycle, with
-`look.<part>.set(...)`: the game's value is the base, weather and the sunset still multiply it and the settings menu can only turn it down
-(the "Customization ladder" below; how they stack: `recipes/52-look.md` "How look values stack"). The camera: `engine.takeCamera(owner)`
-or a timeline camera step.
+## Values the engine writes on its own (camera, shadow box)
+Lights, fog, exposure and the environment have one writer, the game's `picture/` code: the sky computes signals and no module writes them (`recipes/62-picture-code.md`). With a camera module the
+engine writes the `camera` pose every frame, and a sky keeps the shadow box around the focus. Setting one of those directly is plain three.js and works: the engine yields that value (stops
+writing it, warns once). The camera: `engine.takeCamera(owner)` or a timeline camera step.
 
 ## Customization ladder
 Pick the row for what you want; each row is the one entry for it (take the first that fully works). Plain JS fields and your own `onFixed`
@@ -46,11 +43,11 @@ logic need none of this.
 | Run code before / after / around a module method (a weight limit on `inventory.add`) | `engine.wrap(engine.inventory, 'add', (next, ...a) => next(...a), { owner })` | `recipes/55-mods-time-wrap.md` |
 | Close one action for a while (stunned: no jump) | `engine.input.gate(action, { owner, for })` | `recipes/55-mods-time-wrap.md` |
 | Replace a whole system (your own inventory, interactions, dialogue, quests, flow, characters, camera; your own vehicle for `character.enter`) | `engine.use(mine(), { replaces: '<slot>' })` for a part that `provides` that slot; a module (or object) that meets that contract (`<module>.contract.js`; vehicle: `modules/characters/vehicle.contract.js`), checked with `runContract` | `recipes/55-mods-time-wrap.md` "Replacing a module" |
-| Change a look value (light, fog, sky, water, tone, post, materials) | `engine.look.<part>.set(values, { owner })`; take a value the engine drives: `manual(key)`; swap a named shader hook: `patch(hook, code)` (never a `glsl` key in an option); one more named thing: `add(...)` (`look.post.add`, `look.materials.add`); swap the one three.js thing a part draws: `replace(thing)`; read: `value(key)`; a whole module: `engine.use(mine(), { replaces })`; your own fog: `scene.fog = ...` | `recipes/52-look.md#verbs` |
-| Write the look yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md`, `recipes/54-three-idioms.md` |
+| Change a picture value (light, fog, sky, water, tone, post) | write it in your `picture/` code on the three.js object or the module's `material` (recipe 62); a value the engine drives (camera far, fov, pixel ratio): `engine.view.manual(key)` first; a screen effect: `engine.post.add(x)` |
+| Write the picture yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md`, `recipes/54-three-idioms.md` |
 
-The starting look comes from the game's `style/` folder; what a style section builds as a factory can also be passed at the call site, and the
-call site wins (`terrain({ material })` and the like; the water surface has only `look.water.replace`); a new style factory ships with its call-site option. No module option starts a value taken over.
+The starting picture comes from the game's `picture/` folder; what it builds as a factory can also be passed at the call site, and the
+call site wins (`terrain({ material })` and the like; the water surface is `engine.water.material`); a new style factory ships with its call-site option. No module option starts a value taken over.
 
 **Time channels**: most games use only the default (fixed `dt` in real seconds, `engine.clock` for calendar time). A channel exists so one group
 of things can run slower or faster than the rest (bullet time on enemies, haste on the player): `engine.onFixed(fn, { channel: 'enemies' })` gets
@@ -58,21 +55,21 @@ that channel's scaled `dt`, and `engine.mod('time.enemies', { owner, mul })` sca
 
 ### One task, which entry
 Where a task has more than one entry they are layers of the ladder above, not alternatives: take the first, go down only for the reason given.
-Look rows (light, glow, environment, post) follow the order in `THREE.md` (plain three.js first): they name the hook your three.js code plugs
+Picture rows (light, glow, environment, post) follow the order in `THREE.md` (plain three.js first): they name the hook your three.js code plugs
 into, or a convenience for after.
 
 | Task | First | Go down a layer when |
 |---|---|---|
-| Windows, signs, screens glow at night | `look.materials.glow(match, { night })` | your own emissive logic: plain three.js. `lightPool.add(obj, { glow })` is something else: the stand-in a pooled lamp shows while it holds no real light |
+| Windows, signs, screens glow at night | a material whose `emissiveIntensity` reads `engine.uniforms.uNight` (recipe 09 §1b) | `lightPool.add(obj, { glow })` is something else: the stand-in a pooled lamp shows while it holds no real light |
 | Time of day | `engine.calendar` (`calendar({ time })`) | no calendar at all (one fixed scene): `sky({ time })`; timers: `engine.clock`; one group faster / slower: a time channel |
-| Sun / light strength | `look.lights.set(values, { owner })`: a layer over the day keyframes, `remove()` gives them back | take it over (the day cycle stops writing it): write `engine.lights.sun` directly, or `look.lights.manual('sun')` |
+| Sun / light strength | your own three.js light in `picture/`, reading `engine.uniforms` (recipe 62) | the placeholders: write `engine.lights.sun` directly |
 | A game test (write one for your game) | a spec file `tests/specs/<name>.mjs` exporting `specs` (COMMANDS.md "A game's tests": minimal example, `npm test -- <name>`) | the test is steps and checks only: a scenario JSON `tests/scenarios/<name>.json` (recipes/23 §7); compare whole state: describe snapshots (recipes/16 §7) |
 | Teleport the player | `player.placeAt(p)` in an op | not streamed in yet: `await engine.stream.teleport(p)` (waits, then places); a test or scenario: `applyState({ pos })` |
-| Camera | install one: `openWorld({ camera })`, `engine.use(fixedCamera({ position, lookAt }))` | switch kinds at run time: `setCamera(kind)`; a shot of your own: `takeCamera(owner)` |
-| Sky | the style's sky layers, tuned with `look.sky.set` | a custom sky of your own (shader dome, skybox, painted backdrop): `look.sky.replace(obj)` (recipe 08 "Your own sky object"); on WebGPU three's `SkyMesh` the same way |
-| Environment light | the style, then `look.env.replace('sky' \| asset)` / `look.env.set` | light that changes from place to place: `bakeProbes` |
-| Post effects | your own three.js Pass in the engine's chain: `look.post.add(pass)`, the one way in (the engine renders through its composer) | ready-made effects as an optional convenience: `@threedog/post-effects` through the same call or a plugin file, tuned with `look.post.set`; a whole chain of your own: `look.post.replace([...])` |
-| Ambient occlusion | `look.post.set({ 'ao.enabled': true })` (screen space) | a model made in code: `bakeVertexAO(geometry)`; bounce light between places: `bakeProbes` |
+| Camera | install one: `openWorld({ camera })`, `engine.use(fixedCamera({ position, lookAt }))` | switch kinds at runtime: `setCamera(kind)`; a shot of your own: `takeCamera(owner)` |
+| Sky | `sky({ ... })` start values, tuned through `engine.uniforms` and `engine.sky` | a custom sky of your own (shader dome, skybox, painted backdrop): `engine.sky.replace(obj)` (recipe 08 "Your own sky object"); on WebGPU three's `SkyMesh` the same way |
+| Environment light | `engine.sky.environment({ into: engine.scene })`, or `scene.environment` | light that changes from place to place: `bakeProbes` |
+| Post effects | your own three.js Pass in the engine's chain: `engine.post.add(pass)`, the one way in (the engine renders through its composer) | ready-made effects as an optional convenience: `@threedog/post-effects` through the same call or a plugin file, tuned with its handle; a whole chain of your own: `engine.post.own()` |
+| Ambient occlusion | `engine.post.add(ao())` (screen space) | a model made in code: `bakeVertexAO(geometry)`; bounce light between places: `bakeProbes` |
 
 ## Owners
 Everything that holds the engine is named by an owner, and only that owner releases it. Positional `pause('menu')` and `pause({ owner: 'menu' })` are the same.
@@ -84,7 +81,6 @@ Everything that holds the engine is named by an owner, and only that owner relea
 | Camera | `takeCamera(owner, { focus? })` | `handle.remove()` | handle |
 | Where a character goes | `control.take(character, { owner, layer, step? })` (layers base < script < cutscene < net; higher pauses lower) | `handle.remove()` | handle `{ active, move(), remove() }` |
 | Debug override / view | `debug.override(owner, ...)`, `debug.view(mode, { owner })` | `debug.clear(owner)` | handle / state |
-| Look values | `look.<part>.set(values, { owner })` | `handle.remove()` | handle |
 
 ## Worker limits
 `modules/terrain/terrainGen.js` (via `chunkJob.js`) runs in a Worker and must not import three.js; a vegetation `rule` is sent to the Worker and must
@@ -167,8 +163,8 @@ inside template strings, which then throw on the first call).
 
 ## Core conventions
 - Lighting without `sky`: every engine has `engine.lights = { sun, hemi }` (neutral); to light the scene yourself hide or adjust them and add three.js
-  lights. The engine ships no art: the humanoid, pickup shapes and flat shading come from the game's `style/` folder and `assets.js` (e.g.
-  `terrain.config.shading: 'flat'` in its style); without them the engine shows a gray capsule, a gray box and flat gray ground at y = 0, with a
+  lights. The engine ships no art: the humanoid, pickup shapes and flat shading come from the game's `picture/` folder and `assets.js` (e.g.
+  `terrain({ shading: 'flat' })`); without them the engine shows a gray capsule, a gray box and flat gray ground at y = 0, with a
   dev warning naming the fix.
 - Gameplay state (world, containers, vars, quests) changes only in fixed steps or inside ops; dev warns otherwise (`npm test` prints the first place, all in
   `<game>/.threedog/ops-guard.log`). (game side)
@@ -184,8 +180,7 @@ inside template strings, which then throw on the first call).
   so `await` them. Saved data names things by stable ids, never positions; when it changes shape raise `version` and add a `migrate` step
   (`recipes/20-content-actions-save.md` "Save format").
 - Day / night in gameplay comes from the calendar: read `calendar.isDay`, use `calendar.daylight` (0-1) for fades (they work with no sky); don't judge by clock text yourself.
-- A game's own look parameters (colors, materials) can live anywhere plain three.js code lives; put them in its `style/` folder when you want
-  them in one place (mixed, tuned with `look.<part>.set`).
+- A game's own picture parameters (colors, materials) can live anywhere plain three.js code lives; its `picture/` folder keeps them in one place (recipe 62).
 - Vegetation `rule` must not contain functions (it is sent to a Worker).
 - Terrain is editable: `engine.terrain.edit(pos, { lower|raise|flatten|paint })`, only inside an op or fixed step; custom
   `terrain({ height, groundType })` must be pure functions.
@@ -193,13 +188,13 @@ inside template strings, which then throw on the first call).
   never removes its world record.
 - Window blur, tab hidden, pointer lock and WebGL context loss are listened to only in `core/page.js`; modules read `engine.page` or listen to
   `page:*`. Show "saved" only after `saves.save` returns true.
-- Character bodies are assets, not style: `createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' | 'hero' })` (a procedural builder is built
+- Character bodies are assets: `createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' | 'hero' })` (a procedural builder is built
   now; a file shows a gray capsule and is swapped in when it loads: `await player.whenReady`, event `character:model`), or `{ rig }`; a name no model
-  asset has throws. The style tints bodies through material roles (cloth, skin, trousers, hair).
+  asset has throws. Per-character colors: `colors: { body, skin, legs, hair }` on meshes marked `userData.part`.
 - Importing the engine makes `Mesh.prototype.customDepthMaterial` / `customDistanceMaterial` default to a depth material carrying the mesh material's
   vertex patches, so wind-swayed meshes cast swaying shadows with nothing to set up; assigning your own value still wins. Shader time, wind and cloud
   cover are per engine in `engine.uniforms` (share them in your own `ShaderMaterial`); with two engines on a page, pass the engine to
-  `makeMaterial(role, params, engine)`.
+  `applyEffects(mat, { engine })`.
 
 ## Failures: which shape
 A runtime "can't" (not enough money, shelf empty) is returned as `{ ok: false, code, facts, nextActions }` (ops.run / can / undo, and direct calls such as `container.trade`, which a module builds by returning that shape, or a code string from an op's `can`). Misuse (a wrong call, a typo) is a thrown `codedError`. Documented exceptions: `checkSkip` / `checkSave` return `{ ok, diffs }`, `walkTo` returns `{ status }`. Read `code` (there is no `reason` field). Predicates (op `can`, `grid.can()`) may return a plain code string.

@@ -4,6 +4,31 @@
 
 export const specs = [
   {
+    // [guard] `shot --view` showed the lamps of the old spot: the pool only reassigns every 0.1 s and fades over 0.3 s, and a shot draws 1/30 s after the cut.
+    // A dark picture from a good scene sent a game into a wrong round of brightness tuning
+    name: '[guard] lightPool: a camera view lights the lamps at the new spot in the very next frame, at full strength',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk } = threedogThreads, T = threedogThreads.all;
+        const E = mk(T.createEngine, 'pool-view');
+        E.use(T.lightPool({ point: 1 }));
+        E.lightPool.add({ x: 0, y: 3, z: 0 }, { intensity: 10, distance: 20 });
+        E.lightPool.add({ x: 200, y: 3, z: 0 }, { intensity: 10, distance: 20 });
+        E.views.define('far', { position: [200, 5, 8], target: [200, 0, 0] });
+        await E.start();
+        E.camera.position.set(0, 5, 8); E.step(0.5);
+        const before = E.lightPool.lights[0].position.x;
+        E.views.show('far'); E.step(1 / 30);
+        const L = E.lightPool.lights[0], after = { x: L.position.x, intensity: L.intensity };
+        E.dispose();
+        return { before, after };
+      });
+      check('the one pool light starts at the near lamp', r.before === 0, JSON.stringify(r));
+      check('one frame after the view it sits on the lamp at the view, at full strength', r.after.x === 200 && r.after.intensity === 10, JSON.stringify(r));
+    },
+  },
+  {
     name: 'lightPool: walking past 40 torches keeps the program count and light count constant; nearest torches get the lights; stand-ins fade; usage / remove',
     url: '/tests/lights/index.html',
     async run({ check, ev }) {
@@ -58,7 +83,7 @@ export const specs = [
         } finally { console.warn = warn; }
       });
       check('no warning while the pool keeps the lights fixed', !/light-recompile/.test(r.quiet), r.quiet);
-      check('adding a light after ready: warning with code light-recompile pointing to lightPool and recipe 09', /\[light-recompile\]/.test(r.w) && /lightPool/.test(r.w) && /09-style/.test(r.w), r.w);
+      check('adding a light after ready: warning with code light-recompile pointing to lightPool and recipe 09', /\[light-recompile\]/.test(r.w) && /lightPool/.test(r.w) && /09-materials-lights-models/.test(r.w), r.w);
     },
   },
   {

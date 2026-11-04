@@ -34,9 +34,9 @@ export const specs = [
         out.back = run();
         // 2. bloom -> OutputPass -> LUT: a pass added after the game's OutputPass runs after tone mapping, before it in hdr.
         // The page draws effect-free straight to its MSAA canvas (no chain); the first pass builds the chain, and stays on through 3
-        const pre = new ShaderPass(CopyShader), hp = engine.look.post.add(pre); engine.step(0.05);
+        const pre = new ShaderPass(CopyShader), hp = engine.post.add(pre); engine.step(0.05);
         const OutputPass = engine.post.object().passes.find(p => p.isOutputPass).constructor, output = new OutputPass(), lut = new ShaderPass(CopyShader);
-        const ho = engine.look.post.add(output), hl = engine.look.post.add(lut); engine.step(0.05);
+        const ho = engine.post.add(output), hl = engine.post.add(lut); engine.step(0.05);
         const passes = engine.post.object().passes, slots = () => engine.post.list().filter(e => e.name.startsWith('CopyShader')).map(e => e.slot);
         out.post = { slots: slots(), order: [passes.indexOf(pre), passes.findIndex(p => p.isOutputPass), passes.indexOf(lut)],
           slotRow: JSON.stringify(engine.describe().slots?.filter(s => s.slot === 'post').map(s => s.plugged)) };
@@ -47,7 +47,7 @@ export const specs = [
         R.setPixelRatio(pr0 * 0.5); R.setSize(w0 - 20, h0 - 10, false); engine.step(0.05);
         const db = R.getDrawingBufferSize(new THREE.Vector2()), rt = engine.post.object().renderTarget1;
         out.size = { db: [db.x, db.y], rt: [rt.width, rt.height] };
-        R.setPixelRatio(pr0); R.setSize(w0, h0, false); engine.look?.view?.manual?.('pixelRatio', false); hp.remove(); engine.step(0.05);
+        R.setPixelRatio(pr0); R.setSize(w0, h0, false); engine.view.manual('pixelRatio', false); hp.remove(); engine.step(0.05);
         // 4. scene.add / scene.remove of temporary objects: the registry lets them go; an id'd object and a same-line re-add keep theirs
         const T = engine._things, n0 = T.byId.size, geo = new THREE.BoxGeometry(), mat = new THREE.MeshBasicMaterial();
         for (let i = 0; i < 50; i++) { const b = new THREE.Mesh(geo, mat); engine.scene.add(b); engine.scene.remove(b); }
@@ -78,7 +78,7 @@ export const specs = [
       check('an overlay drawn with autoClear = false (another scene) in onFrame does not stop the engine frame', !r.overlay.yielded && r.overlay.draws === 3, JSON.stringify(r.overlay));
       check("a minimap drawn in a module's afterRender does not stop the engine frame", !r.afterRender.yielded && r.afterRender.draws === 3, JSON.stringify(r.afterRender));
       check('renderer.render(engine.scene, engine.camera) to the whole canvas still takes the frame, and deleting it hands it back', r.own.yielded && r.own.draws <= 1 && !r.back.yielded && r.back.draws >= 2, JSON.stringify([r.own, r.back]));
-      check('look.post.add(pass) after an OutputPass runs after tone mapping (ldr), before it in hdr; chain order pre < output < lut', r.post.slots.join() === 'hdr,ldr' && r.post.order[0] < r.post.order[1] && r.post.order[1] < r.post.order[2], JSON.stringify(r.post));
+      check('engine.post.add(pass) after an OutputPass runs after tone mapping (ldr), before it in hdr; chain order pre < output < lut', r.post.slots.join() === 'hdr,ldr' && r.post.order[0] < r.post.order[1] && r.post.order[1] < r.post.order[2], JSON.stringify(r.post));
       check('describe().slots names the skipped OutputPass', r.post.slotRow.includes('OutputPass'), r.post.slotRow);
       check('removing the OutputPass puts the later pass back before tone mapping', r.postNoOutput.join() === 'hdr,hdr', JSON.stringify(r.postNoOutput));
       check("renderer.setSize / setPixelRatio by the game: the composer's targets follow the drawing buffer", r.size.db.join() === r.size.rt.join(), JSON.stringify(r.size));
@@ -86,10 +86,10 @@ export const specs = [
       check('a casting game light at intensity 0 is idled and describe says shadowIdled; userData.idleShadow = false opts out', r.light.idled === false && r.light.shown && r.light.opt === true, JSON.stringify(r.light));
       check('the game writing shadow.autoUpdate while idled gets the light back: the engine never switches it again', r.light.handed === true && r.light.staysGame === true, JSON.stringify(r.light));
       const ids = r.patches.map(p => p.id);
-      const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'hlod-visible'];
+      const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'hlod-visible', 'post-shadow-hold', 'post-background-tone', 'node-twin-dress', 'node-builder-hook', 'device-lost-hook'];
       check('threePatches lists every change (class, objects, renderer) with scope and what is lost', want.every(id => ids.includes(id)) && r.patches.every(p => p.scope && p.lost),
         JSON.stringify(r.patches.map(p => [p.id, p.scope, p.offable])));
-      check('the two that cannot be undone say so (offable false): shader-chunks, hlod-visible', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'hlod-visible,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));
+      check('the three that cannot be undone say so (offable false): shader-chunks, hlod-visible, node-twin-dress', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'hlod-visible,node-twin-dress,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));
     },
   },
   {

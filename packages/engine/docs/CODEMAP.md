@@ -6,7 +6,7 @@
 
 Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 
-Type = what the module may own (core/moduleTypes.js): world, look, actor, rules, ui, net, tool.
+Type = what the module may own (core/moduleTypes.js): world, picture, actor, rules, ui, net, tool.
 
 | Module (engine.xxx) | Type | File |
 |---|---|---|
@@ -18,17 +18,16 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 | vegetation | world | modules/vegetation/index.js |
 | world | world | modules/world/index.js |
 | calendar | world | modules/calendar/index.js |
-| sky | look | modules/sky/skyModule.js |
-| water | look | modules/water/Water.js |
+| sky | picture | modules/sky/skyModule.js |
+| water | picture | modules/water/Water.js |
 | weather | world | modules/weather/Weather.js |
-| weatherLook | look | modules/weather/weatherLook.js |
-| interactions | rules | modules/gameplay/Interactions.js |
+| weatherDraw | picture | modules/weather/weatherDraw.js |
 | pickups | rules | modules/gameplay/pickups.js |
 | grids | world | modules/grid/index.js |
 | triggers | rules | modules/triggers/index.js |
-| particles | look | modules/particles/Particles.js |
-| terrainLook | look | modules/terrain/index.js |
-| vegetationLook | look | modules/vegetation/index.js |
+| particles | picture | modules/particles/Particles.js |
+| terrainDraw | picture | modules/terrain/index.js |
+| vegetationDraw | picture | modules/vegetation/index.js |
 | content | rules | modules/content/index.js |
 | inventory | rules | modules/gameplay/Inventory.js |
 | quests | rules | modules/gameplay/Quests.js |
@@ -90,7 +89,7 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - copies.js: Two copies of the engine on one page (e.g
 - dayTime.js: 'HH:MM' <-> day fraction
 - debugView.js: Diagnostic view modes behind engine.debug.view('albedo' / '…
-- describeRender.js: describe().render: renderer, post, lights and probes
+- describeRender.js: describe().picture: what three.js holds right now, read str…
 - describeText.js: engine.describeText(): write describe() as plain English fo…
 - easing.js: Easing functions: input progress 0..1, output 0..1 (back/el…
 - engineCamera.js: engine.camera's class: a THREE.PerspectiveCamera that can a…
@@ -112,7 +111,6 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - inputTouch.js: The touch part of input: which on-screen controls the game …
 - lifecycle.js: Engine lifecycle: dispose() and counts() for leak hunting
 - lightWatch.js: Dev-only check (called from loop.js after each render once …
-- look/ engine.look.<part>: what a game calls — coreParts.js, part.js, points.js, report.js, shadowPart.js, state.js, write.js
 - loop.js: Main loop (part of Engine, mixed into Engine.prototype): fi…
 - math.js: Small shared helpers
 - moduleSlots.js: Exclusive slots for modules ("only one may hold this": 'sky…
@@ -130,6 +128,8 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - owned.js: One ownership model for every property the engine writes on…
 - page.js: engine.page: the one place that listens to the browser wind…
 - params.js: Param schemas: one plain-object description per field, shar…
+- pictureSlots.js: The names of the picture values only one writer may hold: t…
+- pictureWriters.js: "Who wrote this picture value": the last file:line that cha…
 - plugins.js: engine.plugins: the plugins folder (docs/plans/2026-11-03-s…
 - pureWorker.js: Worker that runs pure-function batches for engine.threads (…
 - saveApply.js: Applying a save (split out of Saves.js): every part is chec…
@@ -145,6 +145,7 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - session.js: engine.session: one playthrough, from "new game" or "load" …
 - shaderCost.js: Approximate shader cost per compiled program, for engine.de…
 - shadowTypes.js: three 0.187 shadow filters
+- shadows.js: engine.shadows: the shadow engineering in three.js shape: e…
 - sharedPoint.js: Shared points: the ONE way several owners change a shared t…
 - skip.js: engine.skip: jump time in segments
 - stackFrames.js: Read 'file.js:50' places out of an Error stack: where a thi…
@@ -152,7 +153,6 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - startup.js: Startup (part of Engine, mixed into Engine.prototype): star…
 - streamCells.js: Per-chunk view of stream sources for loaders that sync whol…
 - streamSources.js: Stream sources (internal half of engine.stream): the places…
-- styleParts.js: A style built from parts: createEngine({ style: [basePack, …
 - targeting.js: Target selection: pure functions (no camera, input or engin…
 - textureBytes.js: Estimated GPU bytes of a three.js texture (engine.inspect.m…
 - thingExplain.js: engine.thing(id).explain(): everything known about one id i…
@@ -166,6 +166,7 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - uiClock.js: UI timers on the page clock
 - util.js: Small shared core helpers
 - validate.js: Runtime checks: when an option or name is misspelled, print…
+- view.js: engine.view: the camera and drawing-buffer values the engin…
 - wrap.js: engine.wrap: the one entry for changing what a module's pub…
 
 **modules/** (one line per folder: what it does; its files besides the index.js / contract.js every module has)
@@ -190,18 +191,21 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - photo/ Photo mode: a sharper shot, then restore — Photo.js
 - rigid/ Real physics (Rapier): objects that topple, roll, get pushed an… — RigidBodies.js, Vehicles.js, sync.js
 - settings/ Settings menu module entry — Settings.js, apply.js, sections.js, strings.js, view.js
-- sky/ look.sky: the sky dome as a look part — Sky.js, cascades.js, cascades.tsl.js, clouds.js, domeLayers.js, environment.js, fog.js, frame.js, look.js, lookFog.js, lookShadow.js, lookSky.js, season.js, shader.js, shadow.js, skyModule.js, tint.js
-- terrain/ Terrain module: chunked, streamed ground built from a height fu… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, look.js, lookGround.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
+- sky/ Sky module: signals (engine.uniforms: uSunDir, uSunColor, uDayl… — Sky.js, clouds.js, dome.js, domeLayers.js, environment.js, fog.js, frame.js, season.js, shader.js, skyModule.js, tint.js
+- terrain/ Terrain module: chunked, streamed ground built from a height fu… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, draw.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zones: who enters, stays, leaves — 
-- vegetation/ Vegetation module factory: engine.use(vegetation(...)) installs… — Vegetation.js, densityMap.js, groundChunks.js, look.js, lookWind.js, modelGeometry.js, nearFade.js
-- water/ Water module: draws the global water plane (sea, big lakes; sna… — Water.js, look.js, surface.js, surfaceDefaults.js
-- weather/ Weather, the state half (type 'world', engine.weather): the gam… — Weather.js, look.js, particles.js, shaders.js, strings.js, weatherLook.js
+- vegetation/ Vegetation module factory: engine.use(vegetation(...)) installs… — Vegetation.js, densityMap.js, draw.js, groundChunks.js, modelGeometry.js, nearFade.js
+- water/ Water module: draws the global water plane (sea, big lakes; sna… — Water.js, surface.js
+- weather/ Weather, the state half (type 'world', engine.weather): the gam… — Weather.js, particles.js, shaders.js, strings.js, weatherDraw.js
 - world/ world() module: installed as engine.world (world data, see Worl… — World.js, explain.js, persist.js, pos.js, records.js, sim.js, simFar.js, state.js, thingSource.js, views.js
 
 **render/**
 - PostFX.js: Post effects in five slots (both renderers)
 - backend.js: Renderer facts that differ between WebGLRenderer and WebGPU…
+- cascades.js: Cascaded shadows of one DirectionalLight: 2-4 maps along th…
+- cascades.tsl.js: Cascaded shadows on WebGPURenderer (the WebGPU half of casc…
+- daylight.js: Day and night as a signal
 - detail.js: The `detail` surface patch: grain, paper, brush strokes or …
 - effects.js: Built-in shader effects
 - engineUniforms.js: Engine uniforms (helper of patches.js)
@@ -209,20 +213,17 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 - fx/ threedog/tsl entry: the TSL Fn library — cloudShadow.tsl.js, detail.tsl.js, lighting.tsl.js, nodeErrors.tsl.js, noise.tsl.js, objectOrigin.tsl.js, particles.tsl.js, patchNodes.tsl.js, postWebGPU.tsl.js, season.tsl.js, sky.tsl.js, uniforms.tsl.js, water.tsl.js, wind.tsl.js
 - fxNumbers.js: The numbers inside the engine's shared shader functions, wr…
 - hotGlsl.js: Shader hot reload in dev
-- lighting.js: The `lighting` surface patch and the toon ramp
-- lights.js: Default lights every engine has (engine.lights, the mechani…
-- lookGlow.js: Night glow: emissive following daylight
-- lookSurface.js: look.materials and look.surface
-- materials.js: Materials and shaders: Material factory makeMaterial(role, …
+- lighting.js: The `lighting` patch (applyEffects(mat, { lighting })) and …
+- lights.js: Placeholder lights (engine.lights): a directional "sun" + h…
+- materials.js: Shader effects on plain three.js materials (shadows, fog an…
 - modeling.js: Modeling gaps three lacks
+- neutral.js: The one way engine code makes a material of its own: plain …
 - ownFrame.js: The game draws the frame itself: the engine notices and yie…
 - patches.js: Named shader patches
-- postLook.js: look.post: the post chain as a look part
 - postWebGL.js: Post chain on WebGLRenderer (EffectComposer)
 - probes.js: Baked light probes
 - shaderErrors.js: Shader errors naming the patch and slot
 - slots.js: Semantic patch slots
-- surface.js: Surface keys of a material spec
 - terms.js: Built-in material terms a game can take over whole: the clo…
 - uniformDecl.js: Declares style-supplied GLSL uniforms
 
@@ -243,7 +244,7 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 | anim:end | core/Animator.js | — |
 | audio:ready | core/Audio.js | — |
 | camera:change | camera | settings |
-| camera:shot | camera | — |
+| camera:shot | core/Views.js, camera | lights |
 | character:fall | characters | — |
 | character:jump | characters | — |
 | character:land | characters | — |
@@ -278,9 +279,9 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 | net:sync | net | — |
 | page:blur | core/page.js | core/Input.js |
 | page:contextlost | core/page.js | — |
-| page:contextrestored | core/page.js | — |
+| page:contextrestored | core/page.js | sky |
 | page:focus | core/page.js | — |
-| page:pointerlock | core/page.js | — |
+| page:pointerlock | core/page.js | ui/Focus.js |
 | photo:denied | photo | — |
 | photo:taken | photo | — |
 | pickup:take | gameplay | — |
@@ -298,8 +299,9 @@ Type = what the module may own (core/moduleTypes.js): world, look, actor, rules,
 | session:failed | core/session.js | flow, rigid |
 | session:start | core/session.js | core/things.js, camera, flow |
 | settings:change | settings | — |
-| settings:shadows | (the game) | terrain |
+| settings:shadows | core/shadows.js | terrain |
 | state:applied | core/UrlState.js | — |
+| state:placed | core/UrlState.js | camera |
 | template:stage | content | — |
 | terrain:chunkFailed | terrain | — |
 | terrain:void | rigid, terrain | — |
@@ -357,8 +359,8 @@ Modules declare actions without keys; the game binds them (createEngine({ bindin
 
 ## i18n key groups (engine.t; full keys are in each string table)
 
-- core/I18n.js: common.* (8), loading.* (6), input.* (12), key.* (5), ground.* (1), shop.* (1)
-- core/page.js: page.* (2)
+- core/I18n.js: common.* (8), loading.* (6), input.* (13), key.* (5), ground.* (1), shop.* (1)
+- core/page.js: page.* (3)
 - core/saveFiles.js: saves.* (8)
 - modules/ambience/Ambience.js: module.* (1)
 - modules/calendar/index.js: module.* (1)
@@ -394,29 +396,6 @@ Modules declare actions without keys; the game binds them (createEngine({ bindin
 - modules/vegetation/index.js: module.* (2)
 - modules/water/Water.js: module.* (1)
 - modules/weather/strings.js: module.* (1), weather.* (8)
-- modules/weather/weatherLook.js: module.* (1)
+- modules/weather/weatherDraw.js: module.* (1)
 - modules/world/index.js: module.* (1)
 - ui/defaults.js: title.* (2)
-
-## Style keys (who reads engine.style.xxx)
-
-| Key | Read in |
-|---|---|
-| character | characters |
-| clouds | core/look/coreParts.js |
-| exposure | core/look/coreParts.js |
-| grid | grid |
-| lighting | render/lookSurface.js |
-| materials | render/lookSurface.js |
-| palette | core/Assets.js, core/assetLoad.js, characters |
-| particles | particles |
-| pickup | gameplay |
-| seasons | sky |
-| sky | sky |
-| terrain | terrain |
-| toneMapping | core/look/coreParts.js |
-| triggers | triggers |
-| ui | gameplay, hud, ui/LoadingScreen.js, ui/UI.js |
-| water | water |
-| weather | weather |
-| wind | vegetation |

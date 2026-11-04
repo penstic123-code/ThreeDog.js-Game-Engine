@@ -1,6 +1,6 @@
 # threedog
 
-> A web 3D game engine on three.js 0.187 (plain three.js, no React): core and modules installed with engine.use. It ships no art: each game draws its own look (plain three.js, its style/ folder and assets).
+> A web 3D game engine on three.js 0.187 (plain three.js, no React): core and modules installed with engine.use. It ships no art: each game draws its own picture (plain three.js in its picture/ folder, and assets).
 
 Reading order: docs/AI.md (the index: one line per task) -> the recipe for the task -> docs/api/<module>.md for details -> the game's GAMEMAP.md.
 
@@ -19,7 +19,7 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [06-clock-events](docs/recipes/06-clock-events.md): Scheduling events on the game clock
 - [07-flow-scenes-pause](docs/recipes/07-flow-scenes-pause.md): Scene transitions and pause (flow)
 - [08-weather-sky](docs/recipes/08-weather-sky.md): Add weather or change the sky
-- [09-style](docs/recipes/09-style.md): The game's style folder: changing the art
+- [09-materials-lights-models](docs/recipes/09-materials-lights-models.md): Materials, lights and models: the game's own picture
 - [10-blender-level](docs/recipes/10-blender-level.md): Importing Blender models and levels
 - [11-vehicles](docs/recipes/11-vehicles.md): Physics: rigid bodies, pushing, joints, vehicles
 - [12-navmesh](docs/recipes/12-navmesh.md): Navigation mesh (nav)
@@ -42,23 +42,21 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [32-action-game](docs/recipes/32-action-game.md): Action game wiring: hp, attacks, enemy AI, drops and death without engine combat rules
 - [33-stream-sources](docs/recipes/33-stream-sources.md): Stream sources: what is loaded where (teleport, far camera)
 - [34-environment-lighting](docs/recipes/34-environment-lighting.md): Environment lighting
-- [35-style-from-reference](docs/recipes/35-style-from-reference.md): Making a new look from a reference picture
-- [36-sky-ground-plant-looks](docs/recipes/36-sky-ground-plant-looks.md): Sky, ground and plant looks: what a style can change
-- [37-terrain-look-hooks](docs/recipes/37-terrain-look-hooks.md): Crisp ground color borders, terrain normals, height from a grid
-- [38-environment-look-hooks](docs/recipes/38-environment-look-hooks.md): Owning lights, fog and exposure yourself
-- [40-scene](docs/recipes/40-scene.md): Scene: what is in the world, where, and what a save keeps
-- [41-thing-registry](docs/recipes/41-thing-registry.md): Things: what is in the scene, who manages it, what a save keeps (engine.thing)
+- [35-picture-from-reference](docs/recipes/35-picture-from-reference.md): Making a new picture from a reference picture
+- [36-sky-ground-plants](docs/recipes/36-sky-ground-plants.md): Sky, ground and plants
+- [37-terrain-hooks](docs/recipes/37-terrain-hooks.md): Crisp ground color borders, terrain normals, height from a grid
+- [38-environment-hooks](docs/recipes/38-environment-hooks.md): Lights, fog and exposure
+- [40-scene](docs/recipes/40-scene.md): Scene: what is in the world, where, who manages it, and what a save keeps (engine.thing)
 - [42-terrain-shape](docs/recipes/42-terrain-shape.md): Terrain outline: islands, floating rocks, a world that ends
-- [43-shader-patches-surface-looks](docs/recipes/43-shader-patches-surface-looks.md): Writing shader patches and surface looks
-- [44-water-weather-look-hooks](docs/recipes/44-water-weather-look-hooks.md): Water and rain/snow looks: depth color, foam, reflections, particles, lightning
-- [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Cascaded shadows
+- [43-shader-patches-surfaces](docs/recipes/43-shader-patches-surfaces.md): Writing shader patches and surfaces
+- [44-water-weather-hooks](docs/recipes/44-water-weather-hooks.md): Water and rain/snow: depth color, foam, reflections, particles, lightning
+- [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Shadows: cascades, box, budget, the switch
 - [46-blender-art-route](docs/recipes/46-blender-art-route.md): Blender to game (GLB) route
 - [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Snow cover, flat backdrop, rounded terrain rim
-- [48-make-material](docs/recipes/48-make-material.md): 48. `engine.makeMaterial(role, spec)`: which keys work, who wins
 - [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (a smelter, a recharging turret, growing crops) that plugs into the engine's contracts
 - [50-own-renderer](docs/recipes/50-own-renderer.md): Bring your own renderer: `createEngine({ renderer })`
 - [51-capability-catalog](docs/recipes/51-capability-catalog.md): Capability catalog: ask what the game can do before reading docs
-- [52-look](docs/recipes/52-look.md): 52 Change any look: `engine.look`
+- [52-around-the-picture](docs/recipes/52-around-the-picture.md): 52 Around the picture: reading it back, the post chain, who writes what
 - [53-ground-up-close](docs/recipes/53-ground-up-close.md): The ground up close: options and diagnosis
 - [54-three-idioms](docs/recipes/54-three-idioms.md): Plain three.js in this engine
 - [55-mods-time-wrap](docs/recipes/55-mods-time-wrap.md): Shared values, exclusive slots, time channels and wrapping module methods
@@ -67,3 +65,7 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [58-input](docs/recipes/58-input.md): Input: modules declare actions, the game binds keys
 - [59-depth-post-effects](docs/recipes/59-depth-post-effects.md): A post effect that reads depth (volumetric fog, god rays)
 - [60-judge-the-picture](docs/recipes/60-judge-the-picture.md): 60 Make the picture look good: what each knob does and how to judge it
+- [61-deploy](docs/recipes/61-deploy.md): Deploy: put the built game on a web server, at the site root or under a sub-path
+- [62-picture-code](docs/recipes/62-picture-code.md): The whole picture in plain three.js: signals in, picture out
+- [63-third-person-start](docs/recipes/63-third-person-start.md): Third-person start: walking, camera, save, pause, menu
+- [64-particles](docs/recipes/64-particles.md): Particles: dust, smoke, sparks, splashes

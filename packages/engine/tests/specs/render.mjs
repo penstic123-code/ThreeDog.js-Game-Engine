@@ -30,30 +30,30 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const p = engine.post, L = engine.look.post, out = {};
+        const p = engine.post, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const pass = (swap, disposed = { n: 0 }) => ({ enabled: true, needsSwap: swap, renderToScreen: false, setSize() {}, render() {}, dispose() { disposed.n++; } });
         const before = p.list().map(e => e.name).join();
-        out.ldr = err(() => L.add({ name: 'ldrDepth', slot: 'ldr', needsDepth: true, create: () => pass(false) }));   // 色调映射输出之后已经没有场景深度
-        const grade = L.add({ name: 'grade', slot: 'hdr', order: 5, create: () => pass(true) });
-        out.late = err(() => L.add({ name: 'edges', slot: 'hdr', order: 50, needsDepth: true, create: () => pass(true) }));
+        out.ldr = err(() => p.add({ name: 'ldrDepth', slot: 'ldr', needsDepth: true, create: () => pass(false) }));   // 色调映射输出之后已经没有场景深度
+        const grade = p.add({ name: 'grade', slot: 'hdr', order: 5, create: () => pass(true) });
+        out.late = err(() => p.add({ name: 'edges', slot: 'hdr', order: 50, needsDepth: true, create: () => pass(true) }));
         out.lateGone = !p.get('edges');
-        const edges = L.add({ name: 'edges', slot: 'hdr', order: 1, needsDepth: true, create: () => pass(true) });   // 先读深度再换缓冲：可以
+        const edges = p.add({ name: 'edges', slot: 'hdr', order: 1, needsDepth: true, create: () => pass(true) });   // 先读深度再换缓冲：可以
         out.earlyOk = !!p.get('edges');
         // enable 打开一个会破坏顺序的效果：报错并保持关着
-        const late2 = L.add({ name: 'late2', slot: 'hdr', order: 60, needsDepth: true, enabled: false, create: () => pass(false) });
-        out.enable = err(() => L.set({ 'late2.enabled': true }));
+        const late2 = p.add({ name: 'late2', slot: 'hdr', order: 60, needsDepth: true, enabled: false, create: () => pass(false) });
+        out.enable = err(() => p.get('late2').enabled = true);
         out.enableKept = p.get('late2').enabled === false;
         late2.remove();
         // create 抛错：不留在链里，后面的调用不受影响
-        out.create = err(() => L.add({ name: 'boom', create: () => { throw new Error('boom!'); } }));
+        out.create = err(() => p.add({ name: 'boom', create: () => { throw new Error('boom!'); } }));
         out.createGone = !p.get('boom') && err(() => p.setAntialias(true)) === '';
         // remove 两次只 dispose 一次
-        const d = { n: 0 }, once = L.add({ name: 'once', create: () => pass(false, d) });
+        const d = { n: 0 }, once = p.add({ name: 'once', create: () => pass(false, d) });
         once.remove(); once.remove(); out.disposed = d.n;
-        // look.post.set 拼错：报错并提示 did you mean
-        const warn = console.warn; let w = ''; console.warn = m => { w += m; };
-        out.typo = err(() => engine.look.post.set({ 'grde.enabled': false })); console.warn = warn; out.typoWarn = out.typo;
+        // handle.set 拼错：报错并列出它有的参数
+        const typed = p.add({ name: 'typed', params: { amount: 1 }, create: () => pass(false) });
+        out.typo = err(() => typed.set({ amout: 2 })); typed.remove();
         grade.remove(); edges.remove(); p.setAntialias(false);
         out.after = p.list().map(e => e.name).join() === before;
         return out;
@@ -64,23 +64,17 @@ export const specs = [
       check('enable 打开会破坏顺序的效果：报错并保持关着', /'late2' reads scene depth/.test(r.enable) && r.enableKept, r.enable);
       check('create 抛错：效果被移除，别的调用照常', /boom!/.test(r.create) && r.createGone, JSON.stringify(r));
       check('句柄 remove() 可重复调用，只 dispose 一次', r.disposed === 1, String(r.disposed));
-      check('look.post.set 拼错名字：报错并点出这个键', /unknown key.*grde.enabled/.test(r.typo), r.typo);
+      check('handle.set 拼错名字：报错并点出这个键和能用的键', /takes amount; unknown: amout/.test(r.typo), r.typo);
       check('全部还原', r.after);
     },
   },
   {
-    name: '[守] 补丁跟着走：游戏自己的 style材质实例经 makeMaterial clone 后补丁还在；copyPatches；多材质网格的影子取会动的那个；重打补丁时旧影子材质被释放；needs.data 拼错报错',
+    name: '[守] 补丁跟着走：copyPatches；多材质网格的影子取会动的那个；重打补丁时旧影子材质被释放；needs.data 拼错报错',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, makeMaterial, applyEffects, materialPatches, copyPatches } = threedogTest, L = engine.look.materials, out = {};
+        const { THREE, applyEffects, materialPatches, copyPatches } = threedogTest, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        const snap = { name: 'snap', cacheKey: 8, glsl: { vertex: { project_vertex: '// snap' } } };
-        const inst = applyEffects(new THREE.MeshToonMaterial(), { clouds: false, patches: [snap] });
-        L.replace('prop', inst, { owner: 'patch-test' });   // a style's Material entry sits in the same slot, one layer down
-        const m = makeMaterial('prop', { color: 0xff0000 });
-        out.clone = { patches: materialPatches(m).join(), notSame: m !== inst, color: m.color.getHex() === 0xff0000 };
-        L._clear('patch-test');
         const src = applyEffects(new THREE.MeshLambertMaterial(), { wind: 0.05 });
         out.copied = materialPatches(copyPatches(src, src.clone())).join();
         // 多材质：树干（只有云影）在前、树叶（风吹）在后，影子要跟树叶走
@@ -97,7 +91,6 @@ export const specs = [
         out.dataTypo = err(() => applyEffects(new THREE.MeshLambertMaterial(), { patches: [{ name: 'x', needs: { data: ['instanced'] }, glsl: { vertex: { begin_vertex: '//' } } }] }));
         return out;
       });
-      check('makeMaterial 克隆游戏自己的 style实例：自己的补丁还在，参数照常套用', r.clone.patches === 'snap' && r.clone.notSame && r.clone.color, JSON.stringify(r.clone));
       check('copyPatches 把补丁带到 clone 上', r.copied === 'world,clouds,wind', r.copied);
       check('多材质网格：影子用第一个会动的材质（不是第一个打过补丁的）', r.multi === 'wind', r.multi);
       check('重打补丁 / 源材质 dispose：派生影子材质被 dispose', r.disposed.n === 2 && r.disposed.fresh, JSON.stringify(r.disposed));
@@ -112,8 +105,8 @@ export const specs = [
       const r = await ev(() => {
         const { THREE, terrainMaterial, materialPatches, fakeAssets } = threedogTest;
         const warn = console.warn; console.warn = () => {};
-        const fake = { style: { terrain: { detail: { texture: 'grain', strength: 0.35 } } }, assets: fakeAssets(() => new Promise(() => {})) };
-        const m = terrainMaterial(new THREE.MeshBasicMaterial({ vertexColors: true }), fake);
+        const fake = { assets: fakeAssets(() => new Promise(() => {})) };
+        const m = terrainMaterial(new THREE.MeshBasicMaterial({ vertexColors: true }), fake, { detail: { texture: 'grain', strength: 0.35 } });
         console.warn = warn;
         const s = { uniforms: {}, vertexShader: THREE.ShaderLib.basic.vertexShader, fragmentShader: THREE.ShaderLib.basic.fragmentShader };
         m.onBeforeCompile(s, null);
@@ -130,7 +123,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, applyEffects, terrainMaterial, makeMaterial, fakeAssets } = threedogTest, R = engine.renderer, errors = [];
+        const { THREE, applyEffects, terrainMaterial, fakeAssets } = threedogTest, R = engine.renderer, errors = [];
         const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
         cam.position.set(0, 20, 40); cam.lookAt(0, 0, 0);
         const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(10, 30, 10); sun.castShadow = true; scene.add(sun, sun.target);
@@ -141,7 +134,7 @@ export const specs = [
         g.setAttribute('color', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count * 3).fill(0.8), 3));
         const types = { lambert: THREE.MeshLambertMaterial, phong: THREE.MeshPhongMaterial, standard: THREE.MeshStandardMaterial, toon: THREE.MeshToonMaterial };
         const combos = [{}, { wind: 0.03 }, { season: 'foliage' }, { wind: 0.02, season: 'ground' }, { clouds: false, wind: 0.04 }];
-        const fakeEngine = { style: { terrain: { detail: { texture: 'grain' } } }, assets: fakeAssets(() => new Promise(() => {})) };
+        const fakeEngine = { assets: fakeAssets(() => new Promise(() => {})) }, grain = { detail: { texture: 'grain' } };
         let n = 0;
         const place = o => { o.position.set((n % 10) * 3 - 15, 0, Math.floor(n / 10) * 3 - 10); o.castShadow = o.receiveShadow = true; scene.add(o); n++; };
         const warn = console.warn; console.warn = () => {};
@@ -149,18 +142,18 @@ export const specs = [
           const m = applyEffects(new M({ vertexColors: true }), c);
           place(inst ? new THREE.InstancedMesh(g, m, 2) : new THREE.Mesh(g, m));
         }
-        for (const M of Object.values(types)) place(new THREE.Mesh(g, terrainMaterial(new M({ vertexColors: true }), fakeEngine)));
+        for (const M of Object.values(types)) place(new THREE.Mesh(g, terrainMaterial(new M({ vertexColors: true }), fakeEngine, grain)));
         // BatchedMesh: the world position and wind phase read batchingMatrix
         const bm = new THREE.BatchedMesh(2, 64, 64, applyEffects(new THREE.MeshLambertMaterial(), { wind: 0.03, season: 'foliage' }));
         bm.addInstance(bm.addGeometry(new THREE.BoxGeometry(1, 2, 1))); place(bm);
-        place(new THREE.Mesh(g, terrainMaterial(new THREE.MeshBasicMaterial({ vertexColors: true }), fakeEngine)));
+        place(new THREE.Mesh(g, terrainMaterial(new THREE.MeshBasicMaterial({ vertexColors: true }), fakeEngine, grain)));
         console.warn = warn;
         // 引擎自己的着色器材质：天空穹顶、雨雪、水（如果装了）
         engine.particles.define('renderTestGlsl', {});
-        const own = [engine.sky.dome.material, engine.weatherLook.systems.get('rain')?.object.material, engine.water.material].filter(Boolean);
+        const own = [engine.sky.dome.material, engine.weatherDraw.systems.get('rain')?.object.material, engine.water.material].filter(Boolean);
         for (const m of own) place(new THREE.Mesh(g, m));
         const dot = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
-        for (const m of [engine.weatherLook.systems.get('snow').object.material, engine.particles.effects.get('renderTestGlsl').material]) place(new THREE.Points(dot, m));
+        for (const m of [engine.weatherDraw.systems.get('snow').object.material, engine.particles.effects.get('renderTestGlsl').material]) place(new THREE.Points(dot, m));
         // canary: a patch with a GLSL typo must be the one and only error, which proves the check sees real compile failures
         place(new THREE.Mesh(g, applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, patches: [{ name: 'canary', glsl: { fragment: { color_fragment: 'diffuseColor.rgb *= threedogNope;' } } }] })));
         const prev = R.debug.onShaderError;
@@ -245,61 +238,51 @@ export const specs = [
     },
   },
   {
-    name: '[守] 每个引擎自己的 uniforms 和游戏自己的 style：两个引擎时间不串、makeMaterial 默认用第一个引擎的游戏自己的 style；引擎兜底是技术基线（AgX、曝光 1、无云影）',
+    name: '[守] 每个引擎自己的 uniforms 和渲染设置：两个引擎时间不串、一个引擎的色调和云影不碰另一个、applyEffects 默认用第一个活着的引擎；引擎兜底：没有色调曲线、曝光 1、无云影',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE, createEngine, makeMaterial } = threedogTest, out = {};
-        out.neutral = { tone: engine.renderer.toneMapping === THREE.AgXToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
+        const { THREE, createEngine, applyEffects, materialPatches } = threedogTest, out = {};
+        out.neutral = { tone: engine.renderer.toneMapping === THREE.NoToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
         const warn = console.warn; let w = ''; console.warn = m => { w += m; };
-        const second = createEngine({ canvas: document.createElement('canvas'), style: { name: 'tiny', toneMapping: 'aces', exposure: 1.05, clouds: { shadow: 0.55 }, materials: { default: { type: 'phong' } } }, headless: true, ui: { loading: false }, saveKey: 'render-test-2' });
+        const second = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'render-test-2' });
+        second.renderer.toneMapping = THREE.ACESFilmicToneMapping; second.renderer.toneMappingExposure = 1.05; second.uniforms.uCloudShadow.value = 0.55;
         const t1 = engine.time.now('real'), t2 = second.time.now('real'), u1 = engine.uniforms.uTime.value;
         engine.step(0.5, { render: false });
         out.time = { first: +(engine.time.now('real') - t1).toFixed(2), second: +(second.time.now('real') - t2).toFixed(2), uTime: Math.abs(engine.uniforms.uTime.value - u1 - (engine.time.now('real') - t1)) < 1e-9, separate: engine.uniforms.uTime !== second.uniforms.uTime };
-        out.styleDefault = makeMaterial('anything').type;   // 第一个引擎（空游戏自己的 style）→ lambert
-        out.styleSecond = makeMaterial('anything', {}, second).type;
-        out.warned = /different styles/.test(w);
+        // detail 贴图名走哪个引擎的 assets：不传就是第一个活着的引擎，传了就是传的那个
+        const asked = []; const spy = name => ({ useTexture: n => asked.push(name + ':' + n) });
+        const a0 = engine.assets, a1 = second.assets; engine.assets = spy('first'); second.assets = spy('second');
+        const named = o => applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, detail: { texture: 'x.png' }, ...o });
+        named({}); named({ engine: second });
+        engine.assets = a0; second.assets = a1;
+        out.asked = asked.join();
+        // a frame on each engine after the writes: the values must survive the engine's own update, and stay on the engine they were written to
+        second.step(0.1, { render: false });
         out.own = { cloud: second.uniforms.uCloudShadow.value, tone: second.renderer.toneMapping === THREE.ACESFilmicToneMapping, exposure: second.renderer.toneMappingExposure };
+        out.first = { tone: engine.renderer.toneMapping === THREE.NoToneMapping, exposure: engine.renderer.toneMappingExposure, cloudShadow: engine.uniforms.uCloudShadow.value };
         second.dispose(); console.warn = warn;
-        out.afterDispose = makeMaterial('anything').type;
+        out.afterDispose = materialPatches(applyEffects(new THREE.MeshLambertMaterial())).join();
         return out;
       });
-      check('引擎兜底：技术基线 AgX（游戏自己的 style没写曲线也一样）、曝光 1、没有云影', r.neutral.tone && r.neutral.exposure === 1 && r.neutral.cloudShadow === 0, JSON.stringify(r.neutral));
+      check('引擎兜底：没写曲线就是 three.js 默认（无）、曝光 1、没有云影', r.neutral.tone && r.neutral.exposure === 1 && r.neutral.cloudShadow === 0, JSON.stringify(r.neutral));
       check('第二个引擎不让第一个的 elapsed 变快，uTime 跟 elapsed 一致，两套 uniforms', r.time.first === 0.5 && r.time.second === 0 && r.time.uTime && r.time.separate, JSON.stringify(r.time));
-      check('makeMaterial 不传引擎：用第一个引擎的游戏自己的 style并提示传引擎', r.styleDefault === 'MeshLambertMaterial' && r.warned, JSON.stringify(r));
-      check('makeMaterial(role, params, engine) 用那个引擎的游戏自己的 style', r.styleSecond === 'MeshPhongMaterial');
-      check('游戏自己的 style自己给 ACES / 1.05 / 云影 0.55（测试里的小画风）', r.own.cloud === 0.55 && r.own.tone && r.own.exposure === 1.05, JSON.stringify(r.own));
-      check('第二个引擎 dispose 后不再参与', r.afterDispose === 'MeshLambertMaterial');
+      check('applyEffects 不传引擎用第一个引擎，engine 选项用传的那个', r.asked === 'first:x.png,second:x.png', r.asked);
+      check('游戏直接写 renderer.toneMapping / toneMappingExposure / uniforms.uCloudShadow：ACES / 1.05 / 云影 0.55 走完一帧还在', r.own.cloud === 0.55 && r.own.tone && r.own.exposure === 1.05, JSON.stringify(r.own));
+      check('写第二个引擎不碰第一个：第一个还是无曲线、曝光 1、无云影', r.first.tone && r.first.exposure === 1 && r.first.cloudShadow === 0, JSON.stringify(r.first));
+      check('第二个引擎 dispose 后 applyEffects 照常', r.afterDispose === 'world,clouds', r.afterDispose);
     },
   },
   {
-    name: '[守] makeMaterial 参数拼错（roughnes）提示一次并给建议；真实 three.js 属性与别的材质类型的键不报',
-    url: '/tests/perf/index.html?mode=city',
-    async run({ check, ev }) {
-      const r = await ev(() => {
-        const { makeMaterial } = threedogTest;
-        const warn = console.warn; let w = ''; console.warn = m => { w += m + '\n'; };
-        makeMaterial('typo-probe', { type: 'standard', color: 0xff0000, roughnes: 0.3 });
-        const typo = w; w = '';
-        makeMaterial('typo-probe', { color: 0xff0000, roughness: 0.3, transparent: true, opacity: 0.5, side: 2 });
-        makeMaterial('typo-probe', { type: 'physical', clearcoat: 1, clearcoatRoughness: 0.2, sheen: 0.5 });   // accessor properties on the prototype are real properties
-        console.warn = warn;
-        return { typo, ok: w };
-      });
-      check('拼错的 roughnes 警告里带 did-you-mean', /roughnes/.test(r.typo) && /roughness/.test(r.typo), r.typo);
-      check('真实属性（含 lambert 没有的 roughness）不警告', r.ok === '', r.ok);
-    },
-  },
-  {
-    name: '[守] UI 样式顺序：游戏自己的 style的 style.ui.css 永远排在模块默认 CSS 后面；默认 CSS 按内容去重；引擎 dispose 拿走自己的样式',
+    name: '[守] UI 样式顺序：游戏的 ui.css 永远排在模块默认 CSS 后面；默认 CSS 按内容去重；引擎 dispose 拿走自己的样式',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const { createEngine, injectUICSS } = threedogTest, H = document.head, out = {};
         const threedog = () => [...H.querySelectorAll('style[data-threedog], style[data-threedog-pack], link[data-threedog-pack]')];
         const before = threedog().length;
-        const second = createEngine({ canvas: document.createElement('canvas'), style: { ui: { css: '.threedog-hud-stats{top:auto}', bg: '#123' } }, headless: true, ui: { loading: false }, saveKey: 'render-test-ui' });
-        injectUICSS('.threedog-late-module{color:red}');   // 模块在游戏自己的 style之后才装、才注入默认 CSS
+        const second = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false, css: '.threedog-hud-stats{top:auto}', theme: { bg: '#123' } }, saveKey: 'render-test-ui' });
+        injectUICSS('.threedog-late-module{color:red}');   // 模块在游戏的 ui.css 之后才装、才注入默认 CSS
         injectUICSS('.threedog-late-module{color:red}');   // 同一段只加一次
         const list = threedog(), last = list[list.length - 1];
         out.packLast = list.filter(n => 'threedogPack' in n.dataset).every(n => list.indexOf(n) > list.findIndex(x => x.textContent.includes('threedog-late-module')));
@@ -307,19 +290,16 @@ export const specs = [
         out.dedupe = list.filter(n => n.textContent.includes('threedog-late-module')).length;
         out.theme = second.uiRoot.style.getPropertyValue('--threedog-bg');
         out.rootClean = document.documentElement.style.getPropertyValue('--threedog-bg') === '';
-        let bad = ''; try { createEngine({ canvas: document.createElement('canvas'), style: { ui: { fontFaces: [{ family: 'x', url: '/f.woff2' }] } }, headless: true, ui: { loading: false }, saveKey: 'render-test-bad' }); } catch (e) { bad = e.message; }
-        out.bad = bad;
         second.dispose();
         out.packGone = !threedog().some(n => n.textContent.includes('hud-stats{top:auto}'));
         out.defaultsKept = threedog().some(n => n.dataset.threedog === 'default');   // 第一个引擎还在：默认 CSS 留着
         out.before = before;
         return out;
       });
-      check('游戏自己的 style的 <style> 在后注入的模块默认 CSS 之后（同优先级时游戏自己的 style赢）', r.packLast && r.lastIsPack, JSON.stringify(r));
+      check('游戏 ui.css 的 <style> 在后注入的模块默认 CSS 之后（同优先级时游戏的 CSS 赢）', r.packLast && r.lastIsPack, JSON.stringify(r));
       check('同一段默认 CSS 只注入一次', r.dedupe === 1, String(r.dedupe));
       check('主题变量写在 engine.uiRoot 上，不写 :root', r.theme === '#123' && r.rootClean, JSON.stringify(r));
-      check('旧写法 fontFaces（风格里写字体文件路径）：报错，教改成资源包 fonts + style.ui.fonts 写名字', /fontFaces is gone/.test(r.bad) && /fonts: \['pixel'\]/.test(r.bad), r.bad);
-      check('dispose 拿走这个引擎的游戏自己的 style CSS，别的引擎还在用的默认 CSS 留着', r.packGone && r.defaultsKept, JSON.stringify(r));
+      check('dispose 拿走这个引擎的 ui.css，别的引擎还在用的默认 CSS 留着', r.packGone && r.defaultsKept, JSON.stringify(r));
     },
   },
   {
@@ -327,7 +307,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const W = engine.weatherLook, out = {}, rain = W.systems.get('rain'), snow = W.systems.get('snow');
+        const W = engine.weatherDraw, out = {}, rain = W.systems.get('rain'), snow = W.systems.get('snow');
         out.chunks = [rain.object.material, snow.object.material].every(m => m.fragmentShader.includes('#include <colorspace_fragment>') && m.fragmentShader.includes('#include <tonemapping_fragment>'));
         out.noRawTime = ![rain.object.material, snow.object.material].some(m => /uTime/.test(m.vertexShader));
         engine.step(0.2, { render: false });
@@ -384,14 +364,14 @@ export const specs = [
       const r = await ev(() => {
         const { createEngine } = threedogTest, out = {};
         const err = kf => {
-          const e2 = createEngine({ canvas: document.createElement('canvas'), style: { sky: { keyframes: kf } }, headless: true, ui: { loading: false }, saveKey: 'render-test-sky' });
-          try { e2.use(threedogTest.sky()); return ''; } catch (e) { return e.message; } finally { e2.dispose(); }
+          const e2 = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'render-test-sky' });
+          try { e2.use(threedogTest.sky({ keyframes: kf })); return ''; } catch (e) { return e.message; } finally { e2.dispose(); }
         };
-        const row = t => [t, 0x222222, 0x444444, 0xffffff, 1, 1];
+        const row = t => [t, 0x222222, 0x444444, 0xffffff, 1];
         out.late = err([row(0.2), row(1)]); out.unsorted = err([row(0), row(0.6), row(0.4), row(1)]); out.dup = err([row(0), row(0.5), row(0.5), row(1)]);
         out.ok = err([row(0), row(0.5), row(1)]);
         out.tier = engine.tier;
-        out.mapSize = engine.sky.shadowMapSize;
+        out.mapSize = engine.lights.sun.shadow.mapSize.x;
         return out;
       });
       for (const k of ['late', 'unsorted', 'dup']) check(`关键帧${k}：报错说清楚要求`, /sorted by time, starting at 0 and ending at 1/.test(r[k]), r[k]);

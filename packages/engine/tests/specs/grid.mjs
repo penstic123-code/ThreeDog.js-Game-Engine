@@ -94,14 +94,16 @@ export const specs = [
     },
   },
   {
-    name: 'grid: tiles hug a level ramp without terrain; preview follows its target, turns with the rotate action, colors from the style',
+    name: 'grid: tiles hug a level ramp without terrain; preview follows its target, turns with the rotate action, colors from the module',
     url: URL,
     async run({ check, ev }) {
       const r = await ev(async (src) => {
         const G = await (0, eval)(src)();
         engine.pause();
         const ramp = G.add('ramp', { cell: 1, origin: [2, -3], size: [6, 6] });
-        const soil = ramp.layer('soil', { tiles: { look: d => (d.watered ? 0x334455 : 0x886644) } });
+        const soil = ramp.layer('soil', { tiles: { color: d => (d.watered ? 0x334455 : 0x886644) } });
+        // a misspelled tiles key would quietly draw the fallback color
+        const badTiles = (() => { try { ramp.layer('soilBad', { tiles: { look: () => 0 } }); return ''; } catch (x) { return x.message; } })();
         engine.ops.define('test.rampTill', { run: () => { for (let i = 0; i < 6; i++) soil.set([i, 2], { tilled: true, watered: i % 2 === 0 }); } });
         engine.ops.run('test.rampTill');
         engine.step(1 / 30, { render: false });
@@ -110,8 +112,8 @@ export const specs = [
         for (let k = 0; k < pos.count; k++) worst = Math.max(worst, Math.abs(pos.getY(k) - 0.03 - engine.surface(pos.getX(k), pos.getZ(k))));
         const ys = [pos.getY(0), pos.getY(pos.count - 1)];
         // preview on the farm, target from a function (cell [3, 3])
-        engine.style.grid = { ok: 0x00ff00, bad: 0xff0000 };   // this page has no style: give the preview its two colors
-        const farm = G.get('farm'), st = engine.style.grid;
+        G.ok = 0x00ff00; G.bad = 0xff0000;   // the two colors grids({ ok, bad }) gives
+        const farm = G.get('farm'), st = G;
         engine.input.bind({ rotate: ['KeyR'] });   // the game binds the key (what presets.bindings.gridRotate holds)
         const pv = G.preview({ grid: 'farm', item: 'bed', from: () => ({ x: -6.5, z: -6.5 }) });
         engine.step(1 / 30, { render: false });
@@ -127,13 +129,14 @@ export const specs = [
         const unbound = engine.input.actions.has('unboundRot') && !engine.input.keysOf('unboundRot').length; pv2.remove();
         const declGone = !engine.input.actions.has('unboundRot');
         engine._resume();
-        return { unbound, declGone, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
+        return { badTiles, unbound, declGone, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
       }, setup.toString());
+      check('[guard] an unknown tiles key throws (the old look is color now)', /look/.test(r.badTiles), r.badTiles);
       check('[guard] tiles: one quad per cell, every corner on engine.surface + lift (a level ramp, no terrain module)', r.tiles === 6 && r.worst < 1e-3 && r.ys[1] > r.ys[0] + 1, JSON.stringify(r));
-      check('preview: target cell from the function, green from style.grid.ok', JSON.stringify(r.first) === '{"cell":[3,3],"ok":true}' && r.okColor === r.st.ok, JSON.stringify(r));
+      check('preview: target cell from the function, green from grids({ ok })', JSON.stringify(r.first) === '{"cell":[3,3],"ok":true}' && r.okColor === r.st.ok, JSON.stringify(r));
       check('preview: the rotate action turns it (2x1 box becomes 1x2), place() runs grid.place with the shown rotation', r.turned === 1 && r.size[0] < r.size[1] && r.placed.ok && r.at === r.placed.value, JSON.stringify(r));
       check('[guard] preview declares its rotate action but binds no key; remove() takes the declaration away', r.unbound && r.declGone, JSON.stringify(r));
-      check('preview turns red (style.grid.bad) on the now occupied cell; stop() removes it', !r.after.ok && r.after.code === 'occupied' && r.after.noReason && r.after.color === r.st.bad && r.gone, JSON.stringify(r.after));
+      check('preview turns red (grids({ bad })) on the now occupied cell; stop() removes it', !r.after.ok && r.after.code === 'occupied' && r.after.noReason && r.after.color === r.st.bad && r.gone, JSON.stringify(r.after));
     },
   },
   {

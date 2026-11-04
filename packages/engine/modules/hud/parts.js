@@ -1,8 +1,8 @@
 // Default HUD UI parts (hud.marker, hud.counter, hud.bar). hud/index.js keeps the logic (targets, projection, edge arrows, quest sync)
 // and hands each part plain data; a game replaces any of them with engine.ui.set('hud.counter', ...) or turns it off with false.
-// Look: CSS classes .threedog-hud .threedog-hud-stats .threedog-hud-marker .threedog-hud-arrow .threedog-hud-counter .threedog-hud-bar;
-//   colors --threedog-hud-bg/fg/accent (style.ui.hudBg...); layout is plain CSS, so style.ui.css moves the stats column, sizes, fonts.
-//   Inner HTML: style.ui.templates.hudMarker / hudCounter / hudBar (data, { esc, t }) => HTML.
+// Picture: CSS classes .threedog-hud .threedog-hud-stats .threedog-hud-marker .threedog-hud-arrow .threedog-hud-counter .threedog-hud-bar;
+//   colors follow ui.theme bg / fg / accent unless ui.theme hudBg / hudFg / hudAccent say otherwise; layout is plain CSS, so ui.css moves the stats column, sizes, fonts.
+//   Inner HTML: ui.templates.hudMarker / hudCounter / hudBar (data, { esc, t }) => HTML.
 import { esc, placeAt } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 
@@ -15,10 +15,10 @@ export const CSS = `
 .threedog-hud-top-left,.threedog-hud-top,.threedog-hud-top-right{top:var(--hy)}
 .threedog-hud-bottom-left,.threedog-hud-bottom,.threedog-hud-bottom-right{bottom:calc(12px + env(safe-area-inset-bottom,0px))}
 .threedog-hud-left,.threedog-hud-right{top:50%;transform:translateY(-50%)}
-.threedog-hud-counter,.threedog-hud-bar{background:var(--threedog-hud-bg);border-radius:8px;padding:4px 10px;min-width:120px}
+.threedog-hud-counter,.threedog-hud-bar{background:var(--threedog-hud-bg);border-radius:var(--threedog-radius-small);padding:4px 10px;min-width:120px}
 .threedog-hud-bar-track{height:6px;border-radius:3px;background:var(--threedog-line);overflow:hidden;margin-top:3px}
 .threedog-hud-bar-fill{height:100%;width:calc(var(--threedog-hud-fill,0) * 100%);background:var(--threedog-hud-accent)}
-.threedog-hud-marker{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.threedog-hud-marker{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;white-space:nowrap;text-shadow:var(--threedog-shadow-small)}
 .threedog-hud-marker::after{content:'';width:10px;height:10px;margin-top:2px;border-radius:50%;background:var(--threedog-hud-accent)}
 .threedog-hud-marker.threedog-hud-arrow{transform:translate(-50%,-50%)}
 .threedog-hud-marker.threedog-hud-arrow::after{width:0;height:0;border-radius:0;border:7px solid transparent;border-left:12px solid var(--threedog-hud-accent);order:-1;transform:rotate(var(--threedog-hud-angle,0rad))}
@@ -33,7 +33,7 @@ export const CSS = `
  */
 export function defineHudParts(e, root) {
   const tools = { esc, t: (k, p) => e.t(k, p) };
-  const tpl = name => e.style.ui?.templates?.[name];
+  const tpl = name => e.ui.templates[name];
 
   // One marker: update({ x, y, arrow, angle, label, icon, distance }) moves and redraws it; hide() hides it
   e.ui.define('hud.marker', () => {
@@ -46,10 +46,12 @@ export function defineHudParts(e, root) {
         el.hidden = false;
         el.classList.toggle('threedog-hud-arrow', d.arrow);
         if (d.arrow) el.style.setProperty('--threedog-hud-angle', d.angle.toFixed(3) + 'rad');
-        placeAt(el, d.x, d.y);
         const t = tpl('hudMarker');
         const h = t ? t(d, tools) : `${d.icon || d.label ? `<span class="threedog-hud-label">${esc(d.icon)} ${esc(d.label)}</span>` : ''}${d.distance ? `<span class="threedog-hud-dist">${esc(d.distance)}</span>` : ''}`;
         if (h !== html) { html = h; el.innerHTML = h; }   // rebuild only when the text changed (called every frame)
+        // An edge arrow is centered on its spot, so a long label would run off the screen: keep the whole marker inside
+        const half = d.arrow ? el.offsetWidth / 2 : 0, w = el.parentNode?.clientWidth ?? 0;
+        placeAt(el, half && w ? Math.min(Math.max(d.x, half), w - half) : d.x, d.y);
       },
       hide() { el.hidden = true; },
       dispose() { el.remove(); },

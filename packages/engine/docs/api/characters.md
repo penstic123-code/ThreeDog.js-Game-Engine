@@ -5,6 +5,7 @@ Characters: createPlayer() (characters() module)
 - Options `CharactersOptions`:
   - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
   - `npcTiers?: { fullRadius: number; nearEvery: number }` Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts)
+  - `animation?: AnimatorOptions` What every character's Animator starts from, e.g. { fade: 0.15 }; a model's manifest mapping and the character's own animation win over it
 
 ## Methods and properties
 - `characters.findSpawn(position?: PositionLike, opts?: FindSpawnOptions) → Vector3` — Find a spawn point: searches outward from position (default origin) for walkable (not steep, no obstacle), non-water ground, without assuming terrain height; e.g. findSpawn(v, { minH: 3, maxH: 20 }). Returns a Vector3 (y is the ground height)
@@ -15,6 +16,7 @@ Characters: createPlayer() (characters() module)
 - `characters.findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }) → PathResult` — Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable
 - `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { remove(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
 - Properties:
+  - `material: Material` The three.js material of every placeholder capsule. Set it to swap the look of all of them at once; used as given, with no patches added. A character with colors.body draws with a copy of it in that color. A model's own materials are the model's. Example: `engine.characters.material = new THREE.MeshToonMaterial({ color: 0xd9a066 });`
   - `pathsPerStep: number` How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps
 
 ## Character (engine.player / NPC are both Character)
@@ -113,7 +115,7 @@ Characters: createPlayer() (characters() module)
   - `control: PlayerControl` Required, no default: 'camera' (keys relative to the camera) / (player, input, dt) => ({ x, z, run? }) (null stands still). presets.player.* fill it. Given once: a game that steers the player for a while takes control (engine.control.take(player, { owner, layer: 'script', step }))
   - `cameraFollow?: boolean` true: the camera module follows the player (and back after a vehicle, and on a new session). Omitted with a camera installed warns in dev
 - **CharacterOptions** Character parameters (shared by the player and NPCs)
-  - `colors?: { body?, skin?, legs?, hair? }` Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair); the style tints by material role
+  - `colors?: { body?, skin?, legs?, hair? }` Per-character part colors: recolor the body's meshes marked userData.part (a humanoid rig: body, skin, legs, hair)
   - `speed?: number` Walking speed (m/s), default 4.5
   - `runSpeed?: number` Running speed (m/s), default 7
   - `radius?: number` Collision radius (meters), default 0.4

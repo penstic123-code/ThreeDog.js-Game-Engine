@@ -2,7 +2,7 @@
 // Kept in their own file so `npm run check` imports the same objects and checks the model / sound names content uses against them.
 // A file:        models: { crate: '/models/crate.glb' }          A model made in code: models: { crate: () => geometry | Object3D }
 // A sound file:  sounds: { door: '/sfx/door.ogg' }             A sound made in code: sounds: { ding: (audio, p, out) => seconds }
-// A texture made in code: textures: { brick: () => new THREE.CanvasTexture(canvas) }.  A material made in code is a style.materials role instead.
+// A texture made in code: textures: { brick: () => new THREE.CanvasTexture(canvas) }.  A material made in code goes in picture/materials.js instead.
 import { THREE } from 'threedog';
 
 export default [{

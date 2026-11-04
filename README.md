@@ -30,15 +30,15 @@ ThreeDog takes over those systems so they are written once and work together. Th
 
 <p align="center"><img src="docs/brand/diagrams/design.png" alt="The loop: the AI writes three.js, the engine plugs it in and coordinates, the AI checks the result" width="820"></p>
 
-**A board with slots, not a framework to learn.** Engine objects are ordinary three.js objects, so everything an agent already knows about three.js still applies. The engine offers slots: a sky, a material for a role, a post effect, a module for inventory or weather. Whatever the agent writes in plain three.js is plugged into the matching slot automatically where the engine can see the intent (adding to the scene, creating a light, adding a pass, dropping a file into `plugins/`), or with one line where it cannot.
+**A board with slots, not a framework to learn.** Engine objects are ordinary three.js objects, so everything an agent already knows about three.js still applies. The engine offers slots: a sky, a post effect, a module for inventory or weather. Whatever the agent writes in plain three.js is plugged into the matching slot automatically where the engine can see the intent (adding to the scene, creating a light, adding a pass, dropping a file into `plugins/`), or with one line where it cannot.
 
-**The engine never fights the game.** When a game writes a value itself, for example a light's intensity or the scene's fog, the engine stops writing it and records that the game owns it. Every change the engine makes to three.js itself is listed and can be inspected.
+**The engine never fights the game.** The engine does not write the game's lights, fog, tone mapping, exposure or materials, so `sun.intensity = 3` means exactly what it says. The few values the engine still touches, such as the backdrop behind its sky dome, stop being written the moment the game writes them. Every change the engine makes to three.js itself is listed and can be inspected.
 
-**The engine does three things and no more.** It coordinates systems that would otherwise disagree (time, weather, lights, saves). It takes on engineering that is hard and gets repeated in every game (streaming a large world, physics, pathfinding, saving without losing data). And it lets the agent see and check what it made. Anything three.js already does well, the engine leaves to three.js.
+**The engine does three things and no more.** It coordinates systems that would otherwise disagree (time, weather, input, saves). It takes on engineering that is hard and gets repeated in every game (streaming a large world, physics, pathfinding, saving without losing data). And it lets the agent see and check what it made. Anything three.js already does well, the engine leaves to three.js.
 
 **One way to do each job.** Each task has one entry. When a better entry replaces an old one, the old one is removed and using it raises an error that shows the new call.
 
-**The engine never decides how a game looks.** Without a game's own style, everything is drawn as neutral gray placeholders. Colors, materials, sky and post effects belong to the game, so very different styles sit on the same engine without either one looking like a default.
+**The engine never decides how a game looks.** A game writes its picture in plain three.js, in a `picture/` folder it owns. Until it does, everything is drawn as neutral gray placeholders. Colors, materials, lights, fog and post effects belong to the game, so very different styles sit on the same engine without either one looking like a default.
 
 ## Made for AI agents
 
@@ -51,13 +51,13 @@ Each feature below starts from a problem agents actually run into.
 | Two ways to do one thing, and the agent mixes them | Each task has one recommended entry, listed in a table in [CONVENTIONS.md](packages/engine/docs/CONVENTIONS.md) |
 | The agent cannot tell what the running game is doing | `threedog describe` prints the game's state as short text, and `threedog explain` says why an action cannot run (for example, the door is locked and needs a key) |
 | Checking a change means asking a person to play | The agent drives the game itself: it presses keys, steps time, runs actions and takes screenshots, from the command line or over MCP (Model Context Protocol, which tools such as Claude Code and Cursor use) |
-| An agent cannot judge its own screenshot reliably | Every screenshot comes with a look check that reports facts: which areas are blown out or too dark, which light is likely the cause and its current value. It never suggests target values, because the look belongs to the game |
+| An agent cannot judge its own screenshot reliably | Every screenshot comes with a picture check that reports facts: which areas are blown out or too dark, which light is likely the cause and its current value. It never suggests target values, because the picture belongs to the game |
 
 ## Architecture
 
 <p align="center"><img src="docs/brand/diagrams/arch.png" alt="Layers: your game, modules, core, rendering, three.js and Rapier; agent tools drive and read the game" width="820"></p>
 
-- **Your game** holds its rules, content, style and plugins, and any plain three.js it writes.
+- **Your game** holds its rules, content, picture code and plugins, all in plain JavaScript and three.js.
 - **Core** owns what every game shares and what must never disagree: the lifecycle (nothing runs before it is ready), one time source (slow motion and pause are views of it), values with owners, input grouped by context (menus and dialogue push a context instead of locking keys), one controller per character, saves that roll back cleanly when a load fails, and player actions that can be checked, logged and replayed.
 - **Modules** add features on top of the core. A game installs only the ones it uses.
 - **Rendering** runs the same engine content on WebGL and on WebGPU. Every visual effect the engine ships exists in both forms, and a check refuses an effect written for only one.
@@ -72,7 +72,7 @@ A module is one feature with one declared type. It talks to the rest of the engi
 | Type | What it owns |
 |---|---|
 | `world` | State of the world: terrain data, calendar, weather data. Draws nothing |
-| `look` | How things appear: sky, terrain look, water, effects. Its errors never stop the game |
+| `picture` | How things are drawn: sky dome, terrain, water, effects. Its errors never stop the game |
 | `actor` | Characters and what moves them |
 | `rules` | Gameplay: inventory, quests, interactions, through checked player actions |
 | `ui` | Menus, HUD, settings. Its errors never stop the game |
@@ -83,25 +83,35 @@ A module of your own is written the same way and is treated the same as a built-
 
 ### How several owners share one value
 
-The sun's brightness, the fog distance or the speed of time can be wanted by several parts of a game at once. Instead of each one writing the value and undoing the others, every writer adds an entry on a layer, and the engine recomputes the result from the entries that remain.
+A few values are wanted by several parts of a game at once: the speed of time, whether shadows are on, how strong a post effect is. Instead of each part writing the value and undoing the others, every writer adds an entry on a layer, and the engine recomputes the result from the entries that remain.
 
-<p align="center"><img src="docs/brand/diagrams/layers.png" alt="Value layers from lowest to highest: engine, style, game, effect, system, settings, debug" width="820"></p>
+<p align="center"><img src="docs/brand/diagrams/layers.png" alt="Value layers from lowest to highest: engine, game, effect, system, settings, debug" width="820"></p>
 
-From lowest to highest: the engine's default, the game's style, the game's own value, temporary effects such as weather, sunset or slow motion (they multiply or add), menus and cutscenes, the player's settings (which may only lower a value or switch it off), and debug.
+From lowest to highest: the engine's default, the game's own value, temporary effects such as weather or slow motion (they multiply or add), menus and cutscenes, the player's settings (which may only lower a value or switch it off), and debug.
 
 - An effect that ends simply removes its entry, so effects can end in any order and nothing remembers a stale value.
 - The player's settings sit above menus and cutscenes, so nothing the game does can switch back on what the player turned off.
-- Two owners setting the same value on the same layer is an error in development, and `describe()` shows who wrote every value.
+- Two owners setting the same value on the same layer is an error in development, and `describe()` shows who wrote each shared value.
 
-### How the look is put together
+### How the picture is put together
 
-<p align="center"><img src="docs/brand/diagrams/look.png" alt="Style packs, the plugins folder and game code feed the look parts, which drive the post chain and materials on WebGL or WebGPU" width="820"></p>
+<p align="center"><img src="docs/brand/diagrams/picture.png" alt="Signals in, picture out: the engine computes signals, the game's picture folder reads them and writes plain three.js, and the checks read the result" width="820"></p>
 
-A style pack is a folder of starting values plus look plugins. A plugin works alone or inside several style packs, through the same path as the game's own `plugins/` folder. Every look part answers the same small set of verbs (`set`, `patch`, `add`, `replace`, `manual`, `value`), and post effects keep a stable place in their stage of the chain.
+The engine does not draw the game's picture. Every frame it offers signals, plain values in `engine.uniforms`: the time of day, the sun's direction, how hard it is raining, how far the player can see. The game's `picture/` folder reads them and writes ordinary three.js.
+
+```js
+engine.onRender(() => {
+  sun.intensity = palette.sun * engine.uniforms.uDaylight.value;
+});
+```
+
+Terrain chunks, instanced vegetation, water, the sky dome and rain stay in the engine because they are hard engineering, and each hands out an ordinary three.js material that the game sets or replaces. When weather or a cutscene should change the picture, it changes a signal, and the picture code reads the combined result.
+
+Picture files in one game, or pieces pulled from a library, can still collide, so they sort their values by kind. A value only one piece may own, such as the fog, is claimed with `provides`. A value several pieces change goes through a shared value. More lamps and more objects are simply added. Anything undeclared falls to a development tool that records which line wrote each picture value and reports two lines writing the same value in one frame. The [design notes](docs/philosophy.md) explain why it works this way, the [questions and answers](docs/faq.md) cover the doubts, and the [history](docs/evolution.md) keeps the wrong turns.
 
 ## Gallery
 
-These screenshots come from games an AI agent built with the engine in 15-minute look tests. Nothing has been retouched. The two sets use different styles, and the style is written by the game, not shipped by the engine.
+These screenshots come from games an AI agent built with earlier versions of the engine, in 15-minute picture tests. Nothing has been retouched. The sets use different styles, and the style is written by the game, not shipped by the engine.
 
 | | |
 |---|---|
@@ -138,7 +148,7 @@ npm run new-game -- my-game --open-world   # creates games/my-game
 npm run dev -- my-game
 ```
 
-Without `--open-world`, the new game starts as a blank scene with a camera and an empty `style/` folder. It also writes a `CLAUDE.md` and a `.mcp.json`, so Claude Code opened in that folder finds the engine's docs and its MCP server by itself. Existing files are never overwritten.
+Without `--open-world`, the new game starts as a blank scene with a camera and a gray `picture/` folder (its picture, in plain three.js). It also writes a `CLAUDE.md` and a `.mcp.json`, so Claude Code opened in that folder finds the engine's docs and its MCP server by itself. Existing files are never overwritten.
 
 **Commands an agent uses while the game runs:**
 
@@ -147,7 +157,7 @@ npx threedog how "day and night cycle"   # which API or recipe answers a task
 npx threedog describe --full             # the game's current state as text
 npx threedog press interact              # press an action or a key in the running game
 npx threedog step 2                      # advance the game by 2 seconds
-npx threedog shot                        # a screenshot plus the look check
+npx threedog shot                        # a screenshot plus the picture check
 ```
 
 `npx threedog --help` lists every command, and [COMMANDS.md](packages/engine/docs/COMMANDS.md) explains them.
@@ -162,7 +172,7 @@ npm run check                              # docs, types and content checks
 npm test
 ```
 
-A minimal game in code, and the two changes the engine makes to three.js globals on import, are in [packages/engine/README.md](packages/engine/README.md).
+A minimal game in code, and what the engine changes in three.js on import, are in [packages/engine/README.md](packages/engine/README.md).
 
 ## Packages
 
@@ -175,9 +185,8 @@ A minimal game in code, and the two changes the engine makes to three.js globals
 
 ## Status
 
-Version 0.5 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`); APIs may still change. What changed since 0.4 is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps, most common first, are in [MIGRATING-0.5.md](packages/engine/docs/MIGRATING-0.5.md).
-
-Version 0.6 is being finished. It moves the picture out of the engine and into plain three.js in the game. The [design notes](docs/philosophy.md) explain why, and the [questions and answers](docs/faq.md) cover the common doubts.
+Version 0.6 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`), chosen at the start of a game, and APIs may still change. This version moves the picture out of the engine and into plain three.js in the game. What changed is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps are in [MIGRATING-0.6.md](packages/engine/docs/MIGRATING-0.6.md).
+The [design notes](docs/philosophy.md) explain why, and the [questions and answers](docs/faq.md) cover the common doubts, including what the engine cannot do yet.
 
 ## Documentation
 

@@ -1,11 +1,11 @@
-// Water and weather look hooks (recipes/44): defaults draw what they always drew (compared pixel by pixel with the old shaders kept
+// Water and weather drawing hooks (recipes/44): defaults draw what they always drew (compared pixel by pixel with the old shaders kept
 // here as the oracle), new parameters take effect, replacement GLSL compiles, wrong settings throw or warn with the fix.
 
 const HELPERS = `
-  const { THREE, createEngine, water, weather, sky, makeMaterial, patchMaterial } = threedogTest;
+  const { THREE, createEngine, water, weather, sky, patchMaterial } = threedogTest;
   const R = engine.renderer;
-  const make = (style, mods) => {
-    const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'appearance-water', style });
+  const make = (_, mods) => {
+    const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'appearance-water' });
     try { e.use(...mods); } catch (err) { e.dispose(); return { error: err.message }; }
     return { e };
   };
@@ -67,48 +67,47 @@ const page = fn => new Function(`${HELPERS}\nconst OLD = ${JSON.stringify(OLD_PA
 export const specs = [
   {
     software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
-    name: '[守] 水面外观：默认和旧着色器逐像素一致；depthColor / foam 生效；glsl.wave 照抄默认写法逐像素相同、glsl.surface 带自定义 uniform 能编译；写错报错给改法；Reflector 经 water.material 接入能渲染',
+    name: '[守] 水面外观：默认和旧着色器逐像素一致；depthColor / foam 生效；wave 照抄默认写法逐像素相同、surface 带自定义 uniform 能编译；写错报错给改法；Reflector 经 water.material 接入能渲染',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {}, cam = new THREE.PerspectiveCamera(60, 1, 0.1, 200); cam.position.set(0, 6, 14); cam.lookAt(0, 0, 0);
-        // glsl in a test style is turned into the look hooks (the one GLSL entry; style.water.glsl throws, one-entry.mjs guards it)
-        const at = (style, opts = {}) => { const { glsl, ...st } = style; const m = make({ water: st }, [water({ sea: false, ...opts })]); if (m.error) return m; m.e.uniforms.uTime.value = 37.5;
-          if (glsl) { try { for (const [k, v] of Object.entries(glsl)) m.e.look.water.patch(k, v); } catch (err) { m.e.dispose(); return { error: err.message }; } } return m; };
-        // the old water material, verbatim: role 'water' + the inline wave sum + fresnel (the oracle)
+        const at = (shader, opts = {}) => { const m = make({}, [water({ sea: false, ...opts })]); if (m.error) return m; m.e.uniforms.uTime.value = 37.5;
+          try { m.e.water.shader(shader); } catch (err) { m.e.dispose(); return { error: err.message }; } return m; };
+        // the old water material, verbatim: the plain Lambert + the inline wave sum + fresnel (the oracle)
         const def = at({}).e, grey = new THREE.Color(0xcccccc);
-        const old = makeMaterial('water', { color: 0x888888, transparent: true, opacity: 0.85, flatShading: true, shininess: 90, specular: 0xaaaaaa, roughness: 0.15, metalness: 0 }, def);
+        const old = new THREE.MeshLambertMaterial({ color: 0x888888, transparent: true, opacity: 0.85, flatShading: true });
         patchMaterial(old, [{ name: 'waves',
           uniforms: { uTime: def.uniforms.uTime, uWave: { value: 1 }, uWaveScale: { value: 1 }, uWaveSpeed: { value: 1 } },
           glsl: { vertex: { pars: 'uniform float uTime; uniform float uWave; uniform float uWaveScale; uniform float uWaveSpeed;', begin_vertex: `
         vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz * uWaveScale; float tw = uTime * uWaveSpeed;
         transformed.y += (sin(wp.x * 0.21 + tw * 1.1) * 0.12 + cos(wp.z * 0.17 + tw * 0.9) * 0.12 + sin((wp.x + wp.z) * 0.37 + tw * 1.7) * 0.05) * uWave;` } } },
-        { name: 'fresnel', uniforms: { uFresnel: { value: 0.5 }, uFresnelColor: { value: grey } },
+        { name: 'oldFresnel', uniforms: { uFresnel: { value: 0.5 }, uFresnelColor: { value: grey } },
           glsl: { fragment: { pars: 'uniform float uFresnel; uniform vec3 uFresnelColor;', opaque_fragment: { before: `
         float threedogFres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 3.0) * uFresnel;
         outgoingLight = mix(outgoingLight, uFresnelColor, clamp(threedogFres, 0.0, 1.0));` } } } }], { strict: false });
         const base = shot(def.water.material, cam), oracle = shot(old, cam);
         out.same = base.px === oracle.px && !base.err; out.err0 = base.err || oracle.err;
         out.noSurface = !/threedogWaterSurface/.test(JSON.stringify(def.water.material.customProgramCacheKey())) && !def.water.material.customProgramCacheKey().includes('waterSurface');
-        const differs = style => { const m = at(style); if (m.error) return m.error; const s = shot(m.e.water.material, cam); m.e.dispose(); return s.err || (s.px !== base.px); };
+        const differs = shader => { const m = at(shader); if (m.error) return m.error; const s = shot(m.e.water.material, cam); m.e.dispose(); return s.err || (s.px !== base.px); };
         out.depthView = differs({ depthColor: { shallow: 0x55ddcc, deep: 0x082040 } });
         out.depthWave = differs({ depthColor: { shallow: 0x55ddcc, deep: 0x082040, by: 'wave' } });
         out.foam = differs({ foam: { color: 0xffffff, start: 0.2, end: 0.6 } });
-        // glsl.wave copied from the default draws the same; a custom surface with its own uniform compiles and differs
-        const copy = at({ glsl: { wave: `float threedogWaterWave(vec3 p, float t) {
-  return sin(p.x * 0.21 + t * 1.1) * 0.12 + cos(p.z * 0.17 + t * 0.9) * 0.12 + sin((p.x + p.z) * 0.37 + t * 1.7) * 0.05; }` } }).e;
+        // wave copied from the default draws the same; a custom surface with its own uniform compiles and differs
+        const copy = at({ wave: `float threedogWaterWave(vec3 p, float t) {
+  return sin(p.x * 0.21 + t * 1.1) * 0.12 + cos(p.z * 0.17 + t * 0.9) * 0.12 + sin((p.x + p.z) * 0.37 + t * 1.7) * 0.05; }` }).e;
         out.copyWave = shot(copy.water.material, cam).px === base.px; copy.dispose();
-        out.surface = differs({ uniforms: { uBands: 4 }, glsl: { surface: `vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) {
-  float b = floor(facing * uBands) / uBands; return vec4(mix(vec3(0.05, 0.2, 0.4), vec3(0.4, 0.8, 0.9), b), base.a); }` } });
-        out.wave = differs({ glsl: { wave: 'float threedogWaterWave(vec3 p, float t) { return sin(p.x * 2.0 + t) * 0.5; }' } });
+        out.surface = differs({ uniforms: { uBands: 4 }, surface: `vec4 threedogWaterSurface(vec4 base, float wave, float facing, vec3 worldPos, float time) {
+  float b = floor(facing * uBands) / uBands; return vec4(mix(vec3(0.05, 0.2, 0.4), vec3(0.4, 0.8, 0.9), b), base.a); }` });
+        out.wave = differs({ wave: 'float threedogWaterWave(vec3 p, float t) { return sin(p.x * 2.0 + t) * 0.5; }' });
         // wrong settings
         out.badBy = at({ depthColor: { by: 'veiw' } }).error;
-        out.badSurface = at({ glsl: { surface: 'vec3 surf() { return vec3(1.0); }' } }).error;
+        out.badSurface = at({ surface: 'vec3 surf() { return vec3(1.0); }' }).error;
         // 键名写错是选项错误：开发时直接抛错（readParams 规矩，2026-11-01），不再只是警告；所以这里收的是错误信息，且确认没装上
         const badFoam = at({ foam: { colour: 0xffffff } }); badFoam.e?.dispose();
         out.badKey = badFoam.error ?? ''; out.badKeyBuilt = !!badFoam.e;
         try { const m = make({}, [water({ sea: false, segmnets: 8 })]); m.e?.dispose(); out.optKey = ''; } catch (err) { out.optKey = err.message; }
-        // reflections through style.water.material (recipe 44): a three.js Reflector feeds its material to the engine water
+        // reflections through engine.water.material (recipe 44): a three.js Reflector feeds its material to the engine water
         const { Reflector } = threedogTest; let lastMirror;
         const mirrorWater = () => {   // the recipe 44 example, verbatim
           const mirror = new Reflector(new THREE.PlaneGeometry(1, 1), { textureWidth: 64, textureHeight: 64, color: 0x88aacc }), m = mirror.material;
@@ -123,7 +122,8 @@ export const specs = [
           };
           return m;
         };
-        const refl = make({ water: { material: mirrorWater } }, [water({ level: 0.2, size: 40, segments: 8 })]).e;
+        const refl = make({}, [water({ level: 0.2, size: 40, segments: 8 })]).e;
+        refl.water.material = mirrorWater();
         refl.water.update(refl.focus, 0);   // builds the sea mesh
         const sea = refl.water.sea;
         const box = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3), new THREE.MeshLambertMaterial({ color: 0xff3333 })); box.position.set(0, 2, -4);
@@ -136,32 +136,32 @@ export const specs = [
         return out;
       }));
       check('默认水面和旧写法逐像素一致、无编译错误', r.same, r.err0);
-      check('不写 depthColor / foam / glsl.surface 时不加表面补丁（不付代价）', r.noSurface);
+      check('不写 depthColor / foam / surface 时不加表面补丁（不付代价）', r.noSurface);
       check('depthColor 按视角 / 按波高、foam 波峰泡沫都改变画面且能编译', r.depthView === true && r.depthWave === true && r.foam === true, JSON.stringify([r.depthView, r.depthWave, r.foam]));
-      check('glsl.wave 照抄默认写法逐像素相同；换波函数画面不同', r.copyWave && r.wave === true, String(r.wave));
-      check('glsl.surface 带自定义 uniform 能编译且画面不同', r.surface === true, String(r.surface));
+      check('wave 照抄默认写法逐像素相同；换波函数画面不同', r.copyWave && r.wave === true, String(r.wave));
+      check('surface 带自定义 uniform 能编译且画面不同', r.surface === true, String(r.surface));
       check('写错：by 拼错报错给可选值；surface 签名不对报错给签名', /did you mean 'view'/.test(r.badBy || '') && /threedogWaterSurface\(vec4 base/.test(r.badSurface || ''), `${r.badBy} | ${r.badSurface}`);
-      check('写错键：style.water.foam / water() 选项拼错开发时报错，给近似名', /colour/.test(r.badKey) && /`color`/.test(r.badKey) && !r.badKeyBuilt && /segmnets/.test(r.optKey) && /`segments`/.test(r.optKey), `${r.badKey} | ${r.optKey}`);
-      check('Reflector 经 style.water.material 接入：编译渲染一帧无错，反射贴图里有红箱子', r.reflector, r.reflErr);
+      check('写错键：shader({ foam }) / water() 选项拼错开发时报错，给近似名', /colour/.test(r.badKey) && /`color`/.test(r.badKey) && !r.badKeyBuilt && /segmnets/.test(r.optKey) && /`segments`/.test(r.optKey), `${r.badKey} | ${r.optKey}`);
+      check('Reflector 经 engine.water.material 接入：编译渲染一帧无错，反射贴图里有红箱子', r.reflector, r.reflErr);
     },
   },
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；look.weather.replace 注册自己的粒子；写错报错给改法',
+    name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；engine.weather.define 注册自己的粒子；写错报错给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {}, cam = new THREE.PerspectiveCamera(70, 1, 0.1, 100); cam.position.set(3, 2, 5); cam.updateMatrixWorld();
         const types = { clear: {}, wet: { rain: 1, snow: 1, wind: 1.5 }, ashfall: { ash: 1 } };
-        const at = (wst, opts = {}) => { const m = make({ weather: wst }, [sky(), weather({ types, start: 'wet', particles: 3000, ...opts })]); if (m.error) return m;
-          m.e.step(0.3, { render: false }); m.e.weatherLook.apply(cam); return m; };
-        const sys = (e, k) => e.weatherLook.systems.get(k);
+        const at = (wst, opts = {}) => { let m; try { m = make({}, [sky(), weather({ types, start: 'wet', particles: 3000, ...wst, ...opts })]); } catch (x) { return { error: x.message }; } if (m.error) return m;
+          m.e.step(0.3, { render: false }); m.e.weatherDraw.apply(cam); return m; };
+        const sys = (e, k) => e.weatherDraw.systems.get(k);
         const def = at({}).e, rain = sys(def, 'rain'), snow = sys(def, 'snow');
         const oldRain = new THREE.LineSegments(rain.object.geometry, new THREE.ShaderMaterial({ vertexShader: OLD.rainVert, fragmentShader: OLD.rainFrag, uniforms: rain.uniforms, transparent: true, depthWrite: false }));
         const oldSnow = new THREE.Points(snow.object.geometry, new THREE.ShaderMaterial({ vertexShader: OLD.snowVert, fragmentShader: OLD.snowFrag, uniforms: snow.uniforms, transparent: true, depthWrite: false }));
         const px = o => { const c = o.clone(); c.visible = true; c.frustumCulled = false; return shot(c, cam, 48); };
         const r0 = px(rain.object), s0 = px(snow.object);
-        const n = def.weatherLook.particles; const busy = q => new Set(q.px.split(',')).size > 4;   // something was drawn, so equal is not two empty pictures
+        const n = def.weatherDraw.particles; const busy = q => new Set(q.px.split(',')).size > 4;   // something was drawn, so equal is not two empty pictures
         out.same = busy(r0) && busy(s0) && r0.px === px(oldRain).px && s0.px === px(oldSnow).px && !r0.err && !s0.err;
         out.err0 = r0.err + s0.err + JSON.stringify([r0.px === px(oldRain).px, s0.px === px(oldSnow).px, rain.object.geometry.drawRange.count, n, r0.px.length, new Set(r0.px.split(',')).size]);
         out.drawn = rain.object.visible && snow.object.visible && rain.object.geometry.drawRange.count === n * 2;
@@ -174,27 +174,27 @@ export const specs = [
         // glsl with a custom uniform
         const tinted = at({ snow: { uniforms: { uTint: [1, 0.2, 0.2] }, glsl: { fragment: OLD.snowFrag.replace('uColor * c.rgb', 'uTint * c.rgb') } } }).e;
         const ts = px(sys(tinted, 'snow').object); out.glsl = !ts.err && ts.px !== s0.px; out.glslErr = ts.err;
-        // lightning look
-        const zap = at({ lightning: f => f * 0.25 }, { start: 'wet' }).e; zap.weatherLook.flash = 1; zap.weatherLook.apply(cam);
-        out.lightning = Math.abs((zap.stacks.get('look.sky.flash').holders().find(h => h.owner === 'weatherLook')?.value ?? NaN) - 0.25) < 1e-6;
+        // lightning picture
+        const zap = at({ lightning: f => f * 0.25 }, { start: 'wet' }).e; zap.weatherDraw.flash = 1; zap.weatherDraw.apply(cam);
+        out.lightning = Math.abs((zap.stacks.get('sky.flash').holders().find(h => h.owner === 'weatherDraw')?.value ?? NaN) - 0.25) < 1e-6;
         // game-defined systems
         const g = at({}).e;
-        g.look.weather.replace({ ash: { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 } }); const ash = g.weatherLook.systems.get('ash');
-        g.weather.set('ashfall', { seconds: 0.01 }); g.step(0.2, { render: false }); g.weatherLook.apply(cam);
+        const ash = g.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
+        g.weather.set('ashfall', { seconds: 0.01 }); g.step(0.2, { render: false }); g.weatherDraw.apply(cam);
         out.ash = ash.object.parent === g.scene && ash.object.name === 'weather-ash' && ash.object.visible && !px(ash.object).err;
         let seen = -1; const own = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
-        g.look.weather.replace({ ash: { create: () => ({ object: own, update(a) { seen = a; } }) } }); g.weatherLook.apply(cam);
+        g.weather.define('ash', { create: () => ({ object: own, update(a) { seen = a; } }) }); g.weatherDraw.apply(cam);
         out.own = !ash.object.parent && own.parent === g.scene && seen > 0.9;
         const drops = new THREE.Points(new THREE.BufferGeometry());
-        g.look.weather.replace({ rain: { create: () => ({ object: drops }) } });
+        g.weather.define('rain', { create: () => ({ object: drops }) });
         out.replaced = !g.scene.getObjectByName('weather-rain') || g.scene.getObjectByName('weather-rain') === drops;
-        out.zero = at({}, { types: { clear: {}, dusk: { grey: 0.4 } }, start: 'clear' }).e.weatherLook.systems.size === 0;
+        out.zero = at({}, { types: { clear: {}, dusk: { grey: 0.4 } }, start: 'clear' }).e.weatherDraw.systems.size === 0;
         // wrong settings
         const err = fn => { try { fn(); return ''; } catch (e) { return e.message; } };
-        out.badField = err(() => g.look.weather.replace({ ahs: {} }));
+        out.badField = err(() => g.weather.define('ahs', {}));
         out.badShape = at({ snow: { shape: 'sqare' } }).error;
         out.badDensity = at({ rain: { density: 0.5 } }).error;
-        // since a1948cc7 (readParams) an unknown style key throws in dev at the first one, so each typo is its own engine
+        // an unknown key throws in dev at the first one, so each typo is its own engine
         out.badKey = [at({ rain: { colour: 0xffffff } }), at({ lightnig: 1 })].map(m => { m.e?.dispose(); return String(m.error ?? ''); }).join(' | ');
         for (const e of [def, look, tinted, zap, g]) e.dispose();
         return out;
@@ -202,10 +202,24 @@ export const specs = [
       check('默认雨（线）和雪（圆点）与旧着色器逐像素一致、无编译错误；雨按旧密度曲线画满', r.same && r.drawn, r.err0);
       check('密度曲线、长度、颜色、大小、飘移、soft 形状生效；square 形状把雨换成点', r.density && r.params && r.points, JSON.stringify([r.density, r.params, r.points]));
       check('glsl.fragment 替换带自定义 uniform 能编译且画面不同', r.glsl, r.glslErr);
-      check('style.weather.lightning 换闪电亮度曲线', r.lightning);
-      check('look.weather.replace：自己的字段画粒子；create 整体替换；同名替换内置雨；不用就不建', r.ash && r.own && r.replaced && r.zero, JSON.stringify([r.ash, r.own, r.replaced, r.zero]));
+      check('weather({ lightning }) 换闪电亮度曲线', r.lightning);
+      check('weather.define：自己的字段画粒子；create 整体替换；同名替换内置雨；不用就不建', r.ash && r.own && r.replaced && r.zero, JSON.stringify([r.ash, r.own, r.replaced, r.zero]));
       check('写错：字段不存在列出可用字段；形状拼错给近似名；density 不是函数给写法', /ashfall: \{ ahs: 1 \}/.test(r.badField) && /did you mean 'square'/.test(r.badShape || '') && /density: a => a \* a/.test(r.badDensity || ''), `${r.badField} | ${r.badShape} | ${r.badDensity}`);
-      check('写错键：style.weather.rain / style.weather 拼错提示近似名', /`color`/.test(r.badKey) && /lightning/.test(r.badKey), r.badKey);
+      check('写错键：weather({ rain }) / weather() 拼错提示近似名', /`color`/.test(r.badKey) && /lightning/.test(r.badKey), r.badKey);
+    },
+  },
+  {
+    name: '[守] 水面没有雾时反射天空地平线色：没写雾的夜里水面不发亮；没有天空才用灰色',
+    url: '/tests/perf/index.html?mode=world',
+    async run({ check, ev }) {
+      const r = await ev(page(() => {
+        const a = make({}, [sky(), water({ sea: false })]).e, b = make({}, [water({ sea: false })]).e;
+        const out = { sky: a.water._reflects() === a.uniforms.uSkyHorizon.value, grey: b.water._reflects().getHex() === 0xcccccc };
+        a.scene.fog = new THREE.Fog(0x123456, 1, 2); out.fog = a.water._reflects() === a.scene.fog.color;
+        a.dispose(); b.dispose();
+        return out;
+      }));
+      check('雾优先，没雾跟天空的地平线色，没天空才是灰色', r.sky && r.grey && r.fog, JSON.stringify(r));
     },
   },
 ];

@@ -51,9 +51,9 @@ export const specs = [
         try {
           set.probe.sh.coefficients[0].set(9, 9, 9); engine.step(0.05);
           out.kept = set.probe.sh.coefficients[0].x === 9; out.writer = engine.describe().render.probes[0].writer;
-          out.warned = warns.some(w => /probes\.sh/.test(w) && /look\.lights\.manual\('probes'\)/.test(w));
+          out.warned = warns.some(w => /probes\.sh/.test(w) && /probes\.own\(\)/.test(w));
         } finally { console.warn = w0; }
-        engine.look.lights.manual('probes', false); engine.step(0.05);
+        set.own(false); engine.step(0.05);
         out.handedBack = Math.abs(set.probe.sh.coefficients[0].x - b[0]) < 1e-5;
         // remove: the scene probe leaves, the data stays readable
         const probe = set.probe; set.remove(); set.remove(); loaded.remove();

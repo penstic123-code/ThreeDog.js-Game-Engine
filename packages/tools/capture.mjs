@@ -20,7 +20,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { cli, rel } from './paths.mjs';
 import { viewSize } from './lib/shot-name.mjs';
-import { waitEngine } from './wait-engine.mjs';
+import { waitEngine, waitLoaded } from './wait-engine.mjs';
 import { summarize, hookScript, fetchSpector, spectorDraws } from './lib/capture-lib.mjs';
 
 // Per-draw state snapshots and stack traces make a frame 10+ MB; the default file keeps the command list (names, arguments, text) only
@@ -40,11 +40,12 @@ const page = await newGamePage(browser, { errors, viewport: { width: W, height: 
 let spectorNote = '', file = null;
 
 try {
-  // desktop tier like shot (core/tier.js): the captured frame is the one the game's look is made of, costly post included
+  // desktop tier like shot (core/tier.js): the captured frame is the one the game's picture is made of, costly post included
   const q = new URLSearchParams({ 'threedog-headless': '', 'threedog-tier': 'high', wait: '1', cutscene: 'skip' });
   for (const k of ['time', 'weather', 'pos']) if (opt[k]) q.set(k, opt[k]);
   await page.goto(base + url + (url.includes('?') ? '&' : '?') + q.toString().replace('threedog-headless=', 'threedog-headless'));
   await waitEngine(page, { timeout: 60000, errors });
+  await waitLoaded(page);   // the same wait as shot: loading done, and the game's code after start() has run
   await page.evaluate(() => engine.ui.settled());
   // paused first: a page with a live loop would render between our calls and mix several frames into the capture. The warm-up step compiles
   // the shaders and does the first uploads, so the captured frame is a steady one

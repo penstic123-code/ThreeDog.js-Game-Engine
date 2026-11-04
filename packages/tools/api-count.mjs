@@ -61,23 +61,14 @@ export function collect() {
     for (const p of propsOf(api)) add('module APIs', `${at}.${p.name}`, p, 'member');
   }
 
-  // engine.*: members, and one level into core sub-objects (not three.js / DOM / built-in objects, module APIs or look)
-  let look;
+  // engine.*: members, and one level into core sub-objects (not three.js / DOM / built-in objects or module APIs)
   for (const p of engineProps) {
     add('engine members', p.name, p, 'member');
     const t = typeOf(p, index);
-    if (p.name === 'look') { look = t; continue; }
     const nt = ch.getNonNullableType(t);
     if (!isObj(t) || fromLib(nt.symbol) || apiSyms.has(nt.symbol) || nt.flags & ts.TypeFlags.Any) continue;
     for (const q of propsOf(t)) if (!fromLib(q)) add('engine sub-objects', `${p.name}.${q.name}`, q, 'member');
   }
-  // look: parts, and the verbs they offer (every part has the same verb names by type, so a verb is counted once by name)
-  const verbs = new Map();
-  for (const part of look ? propsOf(look) : []) {
-    add('look parts', part.name, part, 'look-part');
-    for (const v of propsOf(typeOf(part, index))) if (!verbs.has(v.name)) verbs.set(v.name, v);
-  }
-  for (const [n, v] of verbs) add('look verbs', n, v, 'look-verb');
   return items;
 }
 
@@ -148,8 +139,6 @@ export function usage(items, texts) {
       case 'cli': used = texts.some(t => t.where !== 'engine' && new RegExp(`(threedog|npm run)\\s+${n}\\b|"${n}"\\s*:`).test(t.text)); break;
       case 'flag': used = true; break;   // options are not traced per command (a flag name alone says too little); counted only
       case 'error': used = raised.has(i.name); break;
-      case 'look-part': used = hit(new RegExp(`\\blook\\??\\.${n}\\b|'look\\.${n}'`)); break;
-      case 'look-verb': used = hit(new RegExp(`\\blook\\??\\.\\w+\\??\\.${n}\\b`)); break;
       default: {
         const q = parent ? new RegExp(`\\b${parent}\\??\\.${n}\\b`) : new RegExp(`\\bengine\\??\\.${n}\\b`);
         const bare = new RegExp(`\\.${n}\\b(?!\\s*=[^=>])|\\{[^}]*\\b${n}\\b[^}]*\\}\\s*=\\s*(engine|this)`);
@@ -163,20 +152,20 @@ export function usage(items, texts) {
 
 // Kept (留 in docs/testing/api-count.md): unused items the owner decided to keep, reported apart so they stop being candidates. CLI commands
 // live in the terminal, not in code; error codes are what a game reads when something fails; an option with a default is tuning a game reaches
-// for when it needs it. Except the look parameters below: they still sit on module options and wait for the owner's call on moving them
-// under look.* (the proposal on that page), so they stay candidates.
-const LOOK_MOVE = new Set(['sky.moonSize', 'sky.orbitTilt', 'sky.orbitSway', 'sky.starScale', 'sky.dim', 'sky.gradientCurve', 'sky.skybox',
+// for when it needs it. Except the picture parameters below: they still sit on module options and wait for the owner's call on moving them
+// elsewhere (the proposal on that page), so they stay candidates.
+const PICTURE_MOVE = new Set(['sky.moonSize', 'sky.orbitTilt', 'sky.orbitSway', 'sky.starScale', 'sky.dim', 'sky.gradientCurve', 'sky.skybox',
   'water.waveScale', 'water.waveSpeed', 'water.normalScale', 'water.normalRepeat', 'water.normalSpeed']);
 /** Why an unused item is kept anyway, or null when it is a candidate */
 export function keptWhy(i) {
   if (i.group === 'CLI commands') return 'CLI command (used in the terminal)';
   if (i.group === 'error codes') return 'error code';
-  if ((i.group === 'module options' || i.group === 'createEngine options') && !LOOK_MOVE.has(i.name)) return 'tuning option with a default';
+  if ((i.group === 'module options' || i.group === 'createEngine options') && !PICTURE_MOVE.has(i.name)) return 'tuning option with a default';
   return null;
 }
 
 /** Totals per group in a fixed order */
-export const GROUPS = ['createEngine options', 'engine members', 'engine sub-objects', 'look parts', 'look verbs', 'module options', 'module APIs',
+export const GROUPS = ['createEngine options', 'engine members', 'engine sub-objects', 'module options', 'module APIs',
   'exports threedog', 'exports threedog/tsl', 'exports @threedog/post-effects', 'CLI commands', 'CLI options', 'error codes'];
 export async function apiCount() {
   const items = [...collect(), ...await cliItems(), ...await errorItems()];

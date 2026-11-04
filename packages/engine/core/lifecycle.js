@@ -16,7 +16,6 @@ import { coded, codedError } from './errorHints.js';
 import { dropOwned } from './owned.js';
 import { reportError } from './errors.js';
 import { releaseContext, memory } from '../render/backend.js';
-import { dropPlainTerms } from '../render/terms.js';
 
 /** The per-step / per-frame callback lists (onFixed, onFrame, onRender, module hooks), empty: the constructor's starting state and what dispose leaves */
 export function clearHooks(e) {
@@ -67,17 +66,15 @@ export const lifecycleMethods = {
     this._wraps?.dispose();   // engine.wrap: every wrapped method back on its object (a game object or api may outlive the engine)
     this.debug.dispose();   // before the scene is disposed: undoes every diagnostic override and view (puts swapped materials back)
     for (const part of [this.saves, this.audio, this.time, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
-    this._roomEnv?.dispose(); this._roomEnv = null;
     clearHooks(this); this._afterTick = null;
     this.scene.traverse(disposeObject);
     // scene.environment is never disposed here: the engine's own maps (sky PMREM targets, the baseline room map) were freed above by their
-    // owners, and anything else is the game's texture (look.env.replace(myTexture) or a direct write), which stays the game's to free
+    // owners, and anything else is the game's texture (a direct scene.environment write), which stays the game's to free
     this.scene.environment = null;
     if (this.scene.background?.isTexture) this.scene.background.dispose();
     this.assets.dispose();
     this.post.dispose();
     this._webglOnlyView?.remove(); this._webglOnlyView = null;
-    dropPlainTerms(this);
     this._gpu?.dispose();
     this.renderer.dispose();
     if (this._ownsRenderer && !opts.keepContext) { releaseContext(this.renderer); released.add(this.renderer.domElement); }

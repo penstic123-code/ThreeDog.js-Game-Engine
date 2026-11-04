@@ -1,6 +1,6 @@
 // Vegetation on any ground (no terrain module): a level model, a code-built ground, the flat default. Chunks of the same shape as the terrain's
 // ({ cx, cz, state, plants, colliders, ring, inView, ... }), streamed around every engine.stream source, placed by the same rule code
-// (core/scatter.js) over engine.surface / slope / groundType -- whoever provides the ground. Data only: the vegetation look draws c.plants.
+// (core/scatter.js) over engine.surface / slope / groundType -- whoever provides the ground. Data only: the vegetation drawing draws c.plants.
 //
 // Why the main thread and not a worker: a ground provider is arbitrary main-thread code (a level heightfield, a game's closure), not
 // serializable data like a terrain generator. Placement is cheap (a few height lookups per attempt) and runs under a per-frame budget.

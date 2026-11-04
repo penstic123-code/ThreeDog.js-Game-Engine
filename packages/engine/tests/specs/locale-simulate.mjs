@@ -37,7 +37,8 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { mk } = threedogThreads, T = threedogThreads.all;
-        const E = mk(T.createEngine, 'locale-zh', { locale: 'zh' });
+        // the key is part of the setup: interactions stop the game when an action has no key (interaction-no-key)
+        const E = mk(T.createEngine, 'locale-zh', { locale: 'zh', bindings: { ...T.presets.bindings.interact } });
         E.use(T.world(), T.sky(), T.weather(), T.interactions({ ...T.presets.interactions.nearest }), T.pickups(), T.characters());
         await E.start();
         E.ops.allow(() => {

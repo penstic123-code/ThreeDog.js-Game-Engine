@@ -183,7 +183,7 @@ export function hlod(opts = {}) {
 
   const addLevel = root => { levelHandle?.remove(); levelHandle = root ? api.add(root) : null; };
   return {
-    name: 'hlod', type: 'look', params: HLOD_PARAMS, options: opts, label: 'HLOD', optional: ['terrain', 'level'],
+    name: 'hlod', type: 'picture', params: HLOD_PARAMS, options: opts, label: 'HLOD', optional: ['terrain', 'level'],
     install(engine, ctx) {
       e = engine;
       e.i18n.add({ 'zh-CN': { 'module.hlod': '远景合并' }, en: { 'module.hlod': 'distant merge' } });

@@ -28,63 +28,57 @@ export const specs = [
     },
   },
   {
-    name: '阴影：updateEvery 与参数可配（小城示例）',
+    name: '阴影：budget 控制重画频率，box 的 snap 可换，阴影值是 three.js 的（小城示例）',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
-        const sm = engine.renderer.shadowMap, orig = sm.render.bind(sm);
+        const sm = engine.renderer.shadowMap, orig = sm.render.bind(sm), sun = engine.lights.sun, sh = sun.shadow;
         // counted once per engine frame: a post pass that draws the scene again (ao on a higher tier, e.g. on the GPU) calls render twice
         let n = 0, frame = 0, counted = -1;
         const step = () => { frame++; engine.step(1 / 60); };
-        sm.render = (...a) => { if ((sm.autoUpdate || sm.needsUpdate) && counted !== frame) { n++; counted = frame; } orig(...a); };
-        const def = { ...engine.sky.shadow, bias: engine.lights.sun.shadow.bias, auto: sm.autoUpdate };
-        engine.look.shadow.set({ updateEvery: 4, bias: -0.001 });
-        step();   // first frame (look.shadow.set requests one update)
+        sm.render = (...a) => { if ((sh.autoUpdate || sh.needsUpdate) && counted !== frame) { n++; counted = frame; } orig(...a); };
+        const def = { bias: sh.bias, auto: sh.autoUpdate };
+        const budget = engine.shadows.budget(sun, { every: 4 }); sh.bias = -0.001;
+        step();   // first frame (budget() requests one update)
         n = 0;
         for (let i = 0; i < 8; i++) step();
-        const every4 = n, bias = engine.lights.sun.shadow.bias;
-        engine.look.shadow.set({ updateEvery: 1, bias: def.bias, snap: 'texel' });
+        const every4 = n, bias = sh.bias;
+        budget.set({ every: 1 }); sh.bias = def.bias;
+        const box = engine.shadows.box(sun, { snap: 'texel' });
         n = 0;
         for (let i = 0; i < 4; i++) step();
         const every1 = n;
-        engine.look.shadow.set({ snap: 0.5 });
+        box.remove(); budget.remove();
         sm.render = orig; engine._resume();
-        return { def, every4, every1, bias };
+        return { def, every4, every1, bias, back: sh.autoUpdate };
       });
-      check('defaults match the old behavior (update every frame, 0.5 m snap, bias -0.00005)', r.def.updateEvery === 1 && r.def.snap === 0.5 && r.def.bias === -0.00005 && r.def.auto, JSON.stringify(r.def));
-      check('updateEvery: 4 updates twice in 8 frames', r.every4 === 2, r.every4);
-      check('bias is configurable', r.bias === -0.001, r.bias);
-      check('updateEvery: 1 + texel updates every frame', r.every1 === 4, r.every1);
+      check('the placeholder sun updates every frame, bias -0.0001 (render/lights.js)', r.def.bias === -0.0001 && r.def.auto, JSON.stringify(r.def));
+      check('every: 4 updates twice in 8 frames', r.every4 === 2, r.every4);
+      check('bias is a three.js value the engine leaves alone', r.bias === -0.001, r.bias);
+      check('every: 1 + texel updates every frame, remove() gives autoUpdate back', r.every1 === 4 && r.back, r.every1);
     },
   },
   {
-    name: '阴影：类型可选（basic/pcf/vsm），autoUpdate 关时切换触发更新，写错报错',
+    name: '阴影：renderer.shadowMap.type 是 three.js 的值，换类型后受预算的灯下一帧就重建贴图',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.pause();
-        const sm = engine.renderer.shadowMap, T = engine.THREE;
-        const out = { def: sm.type === T.PCFShadowMap && engine.look.shadow.value('type') === 'pcf' };
-        engine.look.shadow.set({ type: 'vsm', radius: 3, blurSamples: 6 });
-        out.vsm = sm.type === T.VSMShadowMap && engine.lights.sun.shadow.radius === 3 && engine.lights.sun.shadow.blurSamples === 6 && engine.look.shadow.value('type') === 'vsm';
-        engine.look.shadow.set({ updateEvery: 4 });
-        sm.needsUpdate = false;
-        engine.look.shadow.set({ type: 'basic' });
-        out.basic = sm.type === T.BasicShadowMap && engine.look.shadow.value('type') === 'basic';
-        out.needs = sm.needsUpdate === true && sm.autoUpdate === false;
-        try { engine.look.shadow.set({ type: 'pcfsoft' }); out.err = ''; } catch (e) { out.err = e.message; }
-        out.kept = sm.type === T.BasicShadowMap;
+        const sm = engine.renderer.shadowMap, T = engine.THREE, sun = engine.lights.sun, out = { def: sm.type === T.PCFShadowMap };
+        const budget = engine.shadows.budget(sun, { every: 50 });
+        engine.step(1 / 60); engine.step(1 / 60);
+        const map = sun.shadow.map;
+        sm.type = T.BasicShadowMap;
         engine.step(1 / 60);   // renders with the new type without throwing
-        engine.look.shadow.set({ type: 'pcf', updateEvery: 1, radius: 1, blurSamples: 8 });
+        out.rebuilt = !!sun.shadow.map && sun.shadow.map !== map;   // three rebuilds only the maps it draws that frame: the budget must draw this one
+        sm.type = T.PCFShadowMap;
+        budget.remove(); engine.step(1 / 60);
         engine._resume();
         return out;
       });
       check('default is pcf', r.def);
-      check('type vsm + radius + blurSamples apply', r.vsm);
-      check('switching to basic sets the type', r.basic);
-      check('switching with updateEvery>1 requests a shadow update', r.needs);
-      check('wrong type throws listing the allowed values and keeps the old type', /basic.*pcf.*vsm/.test(r.err) && r.kept, r.err);
+      check('a filter switch under a budget redraws at once, so the map is rebuilt for the new filter', r.rebuilt);
     },
   },
   {
@@ -149,19 +143,12 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.modules.get('weather').applyState(engine, { weather: 'rain' }); engine.step(0.1);
-        // weather writes its multipliers on the effect layer of the look points; a game's mul on top multiplies, it does not overwrite
-        const P = n => engine.stacks.get(n), wOf = n => P(n).holders().find(h => h.owner === 'weatherLook')?.value;
-        const v = () => ({ sun: P('look.lights.sun.intensity').value(), fog: P('look.fog.far').value() });
-        const M = { get sun() { return v().sun; }, get fog() { return v().fog; } };
-        const w = { ...v(), wSun: wOf('look.lights.sun.intensity'), tint: wOf('look.sky.tint')?.amount };
-        const hs = engine.mod('look.lights.sun.intensity', { owner: 'dtest', mul: 0.5 }), hf = engine.mod('look.fog.far', { owner: 'dtest', mul: 0.5 });
-        const both = v();
-        hs.remove(); hf.remove();
-        return { w, both, back: M.sun, rain: engine.weather.current.sun, grey: engine.weather.current.grey, noModify: !('modify' in engine.sky) };
+        // weather writes its multipliers on the effect layer of the picture points; a game's mul on top multiplies, it does not overwrite
+        const P = n => engine.stacks.get(n), wOf = n => P(n).holders().find(h => h.owner === 'weatherDraw')?.value;
+        const w = { tint: wOf('sky.tint')?.amount };
+        return { w, grey: engine.weather.current.grey, noModify: !('modify' in engine.sky) };
       });
-      check('weather layer only: matches the weather values (default behavior unchanged)', Math.abs(r.w.wSun - r.rain) < 1e-6 && Math.abs(r.w.tint - r.grey) < 1e-6, JSON.stringify(r));
-      check('with a game layer: multiplied, not overwritten by weather', Math.abs(r.both.sun - r.w.sun * 0.5) < 1e-6 && Math.abs(r.both.fog - r.w.fog * 0.5) < 1e-6, JSON.stringify(r));
-      check('removing the game layer restores the values', Math.abs(r.back - r.w.sun) < 1e-6, JSON.stringify(r));
+      check('the weather holds the sky.tint point at its grey amount', Math.abs(r.w.tint - r.grey) < 1e-6, JSON.stringify(r));
       // guard: the old sky-only mechanism is gone, its name throws and points at engine.mod (one entry for shared quantities)
       check('engine.mod is the one way to change sky light: the sky has no modify()', r.noModify, JSON.stringify(r));
     },
@@ -257,8 +244,9 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const { THREE, makeMaterial, toGLB } = threedogTest;
-        const mat = makeMaterial('prop', { color: 0x808080, flatShading: true, transparent: true, opacity: 0.5, side: THREE.DoubleSide, emissive: 0x332211 });
+        const { THREE, toGLB } = threedogTest;
+        const mat = new THREE.MeshLambertMaterial({ color: 0x808080, flatShading: true, transparent: true, opacity: 0.5, side: THREE.DoubleSide, emissive: 0x332211 });
+        mat.userData.purpose = 'prop';
         const buf = await toGLB(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat));
         const url = URL.createObjectURL(new Blob([buf], { type: 'model/gltf-binary' })) + '#x.glb';
         const m = (await engine.assets.model(url)).getObjectByProperty('isMesh', true).material;
@@ -268,7 +256,7 @@ export const specs = [
         return { purpose: m.userData.purpose, flat: m.flatShading, tr: m.transparent, op: m.opacity, side: m.side === THREE.DoubleSide,
           em: m.emissive?.getHex(), want: new THREE.Color(0x332211).getHex(), had, gone };
       });
-      check('rebuilt by role, keeping flatShading / transparent / opacity / side / emissive', r.purpose === 'prop' && r.flat && r.tr && r.op === 0.5 && r.side && r.em === r.want, JSON.stringify(r));
+      check('rebuilt as recorded, keeping purpose / flatShading / transparent / opacity / side / emissive', r.purpose === 'prop' && r.flat && r.tr && r.op === 0.5 && r.side && r.em === r.want, JSON.stringify(r));
       check('ray registration is removed automatically after geometry dispose', r.had && r.gone, JSON.stringify(r));
     },
   },
@@ -313,7 +301,7 @@ export const specs = [
         engine.saves.apply(engine.saves.collect());
         const varsOk = engine.vars.flag('xKeep') === true && engine.vars.counter('xCount') === 3;
         const L = new threedogTest.THREE.PointLight(); L.castShadow = false; engine.add(L);
-        engine.look.shadow.set({ enabled: false }, { owner: 'ctest' }).remove();   // off, then the handle gives the switch back
+        engine.mod('shadows.enabled', { owner: 'ctest', set: false }).remove();   // off, then the handle gives the switch back
         const shadows = { game: L.castShadow, sun: engine.lights.sun.castShadow }; engine.remove(L);
         engine.input.bind('xPad', ['KeyZ', 'PadY']);
         const pad = { custom: engine.input.keysOf('xPad').includes('PadY'), noPhoto: !engine.input.keysOf('photo').length || engine.input.keysOf('photo').every(k => !k.startsWith('Pad') || k === 'PadRB') };
@@ -324,7 +312,7 @@ export const specs = [
       });
       check('function-type after expires by remaining time after load', r.early === 0 && r.late === 1, JSON.stringify(r));
       check('vars: apply(collect()) keeps flags and counters', r.varsOk, JSON.stringify(r));
-      check('look.shadow enabled off then back on: lights the game turned off stay off, the sun is restored', r.shadows.game === false && r.shadows.sun === true, JSON.stringify(r.shadows));
+      check('shadows.enabled off then back on: lights the game turned off stay off, the sun is restored', r.shadows.game === false && r.shadows.sun === true, JSON.stringify(r.shadows));
       check('gamepad buttons go in the bound key list; the engine adds no pad key to photo', r.pad.custom && r.pad.noPhoto, JSON.stringify(r.pad));
       check('weather display name comes from the string table (describe label); describeText is developer English and names the id', r.label === '雨' && r.textHas, JSON.stringify(r));
       check('sky.isDay agrees with daylight', r.isDay);

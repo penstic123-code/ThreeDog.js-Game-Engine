@@ -1,8 +1,8 @@
 // Weather particle systems (recipes/44). Built-in rain and snow are two specs of one falling-particle system; a game draws a field of its
-// own table (ash, petals, sparks) with engine.look.weather.replace({ field: spec }), and the same call replaces rain or snow. The amount each frame is
+// own table (ash, petals, sparks) with engine.weather.define(field, spec), and the same call replaces rain or snow. The amount each frame is
 // weather.current[field], so the table's smooth blending drives particles too.
 //
-// spec (style.weather.rain / snow, or define): shape 'line' (streaks that slant with the wind) | 'round' | 'soft' | 'square' (point sprites
+// spec (weather({ rain, snow }), or define): shape 'line' (streaks that slant with the wind) | 'round' | 'soft' | 'square' (point sprites
 // that drift), texture (asset name, sprites only), color, opacity, size / maxSize (sprite size and pixel cap), length (line meters),
 // speed (fall m/s), slant (line lean per unit of wind), sway (sprite drift meters), count, density (amount 0..1 -> share of particles drawn),
 // glsl: { vertex, fragment } (whole shader text; copy from shaders.js), uniforms (for your glsl);
@@ -19,7 +19,7 @@ import { isWebGPU, webgpuPart } from '../../render/backend.js';
 
 const SPEC_KEYS = ['shape', 'texture', 'color', 'opacity', 'size', 'maxSize', 'length', 'speed', 'slant', 'sway', 'count', 'density', 'glsl', 'uniforms', 'create'];
 const SHAPE_LIST = ['line', ...Object.keys(SHAPES)];
-// The built-in looks (a style's weather.rain / snow fills in over them); a defined field starts from DRIFT
+// The built-in pictures (weather({ rain, snow }) fills in over them); a defined field starts from DRIFT
 export const RAIN = { shape: 'line', color: 0xc8c8c8, opacity: 0.55, length: 0.7, speed: 22, slant: 1, size: 14, maxSize: 8, sway: 1.5, density: a => Math.min(1, a * 1.2) };
 export const SNOW = { shape: 'round', color: 0xffffff, opacity: 0.9, size: 20, maxSize: 5, speed: 1.6, sway: 1.5, density: () => 1 };
 const DRIFT = { ...SNOW, opacity: 1 };
@@ -76,9 +76,17 @@ function nodeSide(engine, where, glsl) {
 }
 
 function finish(engine, field, sys) {
-  const o = sys.object;
+  const o = sys.object, mine = o.material;
   o.frustumCulled = false; o.visible = false; o.userData.budgetTag = 'weather'; o.name ||= 'weather-' + field;
   engine.scene.add(engineOwned('weather', o));
+  sys.given = null;   // the game's material while one is set
+  sys.engineMaterial = mine;
+  Object.defineProperty(sys, 'material', { enumerable: true, get: () => o.material ?? null, set(m) {
+    if (sys.own) throw codedError('weather-option', `weather particles '${field}': this object came from create(), so its material is yours: write it on the object`);
+    if (m != null && !m.isMaterial) throw codedError('weather-option', `weather particles '${field}': material is a three.js material (or null for the engine's); got ${m}`);
+    sys.given = m || null;
+    o.material = m ?? mine;
+  } });
   return sys;
 }
 
@@ -103,5 +111,5 @@ export function updateSystem(sys, amount, camera, t, wind) {
 /** Remove a system's object and free its GPU data @internal */
 export function dropSystem(engine, sys) {
   engine.scene.remove(sys.object);
-  if (!sys.own) { sys.object.geometry.dispose(); sys.object.material.dispose(); }
+  if (!sys.own) { sys.object.geometry.dispose(); sys.engineMaterial.dispose(); }   // a material the game set stays the game's
 }

@@ -53,14 +53,14 @@ export const SLOTS = {
     scope: 'outgoingLight (vec3, write), diffuseColor.a',
     meaning: 'the final lit color, before fog and tone mapping' },
   // fog as two slots, like lightsPars / lightingModel: functions cannot sit inside main(), and they must come after three's fog uniforms
-  // (declared in fog_pars_fragment), which the top-of-shader pars precedes. The sky's custom fog kinds and look.fog's hook go through these
-  // (modules/sky/fog.js) instead of rewriting THREE.ShaderChunk.fog_* for the whole page
+  // (declared in fog_pars_fragment), which the top-of-shader pars precedes. A game's own fog math goes through these
+  // instead of rewriting THREE.ShaderChunk.fog_*, which is one object for the whole page
   fogPars:        { stage: 'fragment', anchor: 'fog_pars_fragment', at: 'after', node: null,
-    nodeMeaning: 'fog on WebGPU is scene.fogNode (the sky fog kinds and look.fog hooks have a tsl form)',
+    nodeMeaning: 'fog on WebGPU is scene.fogNode, set by the game',
     scope: 'declarations; fogColor and fogNear / fogFar or fogDensity are already declared (inside #ifdef USE_FOG)',
     meaning: 'fog functions that read three\'s fog uniforms (wrap them in #ifdef USE_FOG)' },
   fog:            { stage: 'fragment', anchor: 'fog_fragment', at: 'replace', node: null,
-    nodeMeaning: 'fog on WebGPU is scene.fogNode (the sky fog kinds and look.fog hooks have a tsl form)',
+    nodeMeaning: 'fog on WebGPU is scene.fogNode, set by the game',
     scope: 'gl_FragColor (write, tone mapped already), fogColor, vFogDepth, fogNear / fogFar or fogDensity (inside #ifdef USE_FOG)',
     meaning: 'replace how fog mixes into the final color (one patch per material may take it)' },
 };

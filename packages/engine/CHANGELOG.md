@@ -2,6 +2,69 @@
 
 The engine has not been released yet, so this log is not maintained before release. At release time it is written in one pass from git history and `docs/API.md`: "what changed, how a game upgrades", placed under the version heading.
 
+## 0.6.0 (2026-11-04)
+
+- Fixed: on WebGPU, cascades on a light whose `target` has a parent took the target's local position, so shadows fell another way than the light shone; they use its world position now, as WebGL does.
+- Breaking: `grids.preview({ look })` is `{ draw }` and a layer's `tiles: { look }` is `tiles: { color }`; an unknown `tiles` key now throws.
+- New: picture parts. `PICTURE_SLOTS` and the type `PictureSlot` name the picture values only one writer may hold (sky, fog, tone, environment, background, sun); `describe('picture').picture.slots` shows the holders; `engine.unuse(name)` removes a module. On the dev server a write to a value another part holds warns `picture-held`, and a removed picture part's leftovers warn `picture-leftover` (recipes/62-picture-code.md 3e).
+- Fixed: the sky dome stayed in the scene after `engine.use(mySky(), { replaces: 'sky' })`.
+- Breaking: `look` no longer names picture things. The game folder is `picture/` and `createPicture(engine)`, gameplay calls `picture.lamp(id)`; the module type is `'picture'`; the drawing parts are `terrainDraw`, `vegetationDraw`, `weatherDraw` with slots `terrain-draw`, `vegetation-draw`.
+- Breaking: the look check is the picture check: `--no-picture`, `picture` and `pictureMs` in `shot --json`, the `Picture intent:` line in DESIGN.md, `lib add --kind picture`, `@threedog/tools/picture-check`. Seven recipes and the `plain-picture` example are renamed. Every old and new name is in MIGRATING-0.6.md.
+- New (dev server only): `describe('picture').writers` and `engine.explain({ picture: 'fog.far' })` (`threedog explain picture fog.far`) name the file:line that last changed a light, fog, tone, environment, background or material value; a value not tracked says so. Two places writing one value in one frame with different results give one warning (`picture-conflict`) naming both. The look check adds measured facts: a `ShaderMaterial` that ignores fog or tone, a light layout changed during play, transparent meshes whose pixels depend on draw order. Recipe 62 "Wiring `picture/` parts".
+- Breaking: `makeMaterial`, `engine.makeMaterial`, `look.materials`, `look.surface` and the glow verb are gone, and so are the material and patch plugin slots: materials are plain three.js. New: `applyEffects(mat, { lighting })`, `rampTexture`, the `uNight` signal.
+- Breaking: `createEngine({ style })` is gone and throws with the fix: the look is plain three.js in the game's `picture/` code, UI colors go in `createEngine({ ui })`, season tints are `engine.sky.seasonTints`; `types/style.d.ts` and `core/styleParts.js` are deleted.
+- Docs: recipes 09 (style folder) and 48 (makeMaterial) are merged into `recipes/09-materials-lights-models.md`: materials are plain three.js in `picture/`, module looks are `.material`, the UI look is `createEngine({ ui })`. Recipe 43 teaches shader code through `applyEffects` only; the `lighting` spec key becomes a plain `lighting` slot patch there.
+- Breaking: the dev panel (`?panel=1`) reads and writes three.js objects directly; its style export, "apply and rebuild" and `?ov=` are gone, `engine.styleWorkbench` is `engine.devPanel`, and the `threedog tune` block holds plain three.js writes.
+- Breaking: `threedog style check` is removed; `threedog style palette | compare` are now `threedog picture palette | compare` (bridge `picture-palette`, `picture-compare`; MCP `picture_palette`, `picture_compare`).
+- Breaking: `style.character` is gone: `characters({ animation })`, and `engine.characters.material` is the plain three.js material of every placeholder capsule.
+- Breaking: `style.triggers` is gone: `triggers({ debugColor, debugOpacity })`.
+- Breaking: `style.palette` is gone: `engine.assets.palette`, a plain writable object that generators read as `this.palette`; a write rebuilds what is asked for after it.
+- Breaking: cached and baked models read their materials back as recorded (plain three.js, `neutralMaterial`), no longer rebuilt from a material role. `assets.report()` says `madeByEngine`; `explain().materials` lost `keys`.
+- Breaking: `style.grid` is gone: `grids({ ok, bad, previewOpacity, previewHeight, tiles, tileLift })`; the preview's and tiles' plain three.js materials are `pv.material` and `layer.material`.
+- Breaking: `style.pickup` is gone: `pickups({ color, size, lift })`, and `engine.pickups.material` is the plain three.js material of boxes and geometry-only models.
+- Breaking: `style.ui` is gone; the UI look sits in `createEngine({ ui: { theme, css, fonts, templates } })` beside the part names, and `engine.ui.templates` is writable.
+- Breaking: `look.ground` and `style.terrain` are gone. The ground's look is `terrain({ colors, biomeColors, steep, variation, detail })`, `engine.terrain.material` (get / set), `.uniforms`, `.patches`, `.recolor()` (recipe 36).
+- Breaking: `look.water` and `style.water` are gone. The water's look is `engine.water.material` (get / set), `.uniforms`, `.patches`, `.shader()`, `.normalMap()` (recipe 44).
+- Breaking: `style.particles` is gone: `particles({ effects, default })`; an effect's `.material` is get / set and drawn as given, `.uniforms` its `{ value }` objects (recipe 64).
+- Breaking: weather looks are `weather({ rain, snow, area, lightning, lightningBrightness, overcastColor })` options; `engine.weather.define(field, spec)` and `engine.weather.particles` (plain `.material`, `.uniforms`, `.spec`) replace `look.weather`.
+- Breaking: plants take plain materials. `engine.vegetation.material`, `.patches`, `.sway()` and `.color()` replace `look.wind` and `look.vegetation`; wind strength and speed are `engine.uniforms.uWindAmp` / `uWindFreq`.
+- `threedog art board`: every art resource of a game on one page, with where it is used, what is unused, missing or not traced, and copy lines for the AI; `--json` is the same data, `--live` and the dev panel's "art" folder show what the running game really loaded.
+- `?at=<place>` (`threedog shot --at <place>`, `applyState({ at })`): skips the start screen and stands the player at a named place with the game's camera on it at once. `?pos` no longer opens on a camera glide either (new event `state:placed`).
+- `interactions.add(mesh, { label, onUse, once, counter })`: `once` hides the mesh after a use, `counter` adds to a HUD counter (new `hud.add(name, n)`), both saved in the new `interactions` save part; pick-and-count things no longer need pickups and an inventory. Recipe 03 says which to use when.
+- `createEngine({ ui: { theme } })` is the one place to reskin: every default part (dialogue, prompt, HUD, toast, menus, title) reads its variables, and recipe 26 "Reskin" lists them on one screen. The HUD now follows `bg` / `fg` / `accent` unless `hudBg` / `hudFg` / `hudAccent` are set; new `radiusSmall` and `shadowSmall` replace the corners and shadows that were fixed in the CSS (the default toast is no longer a pill).
+- Breaking: the sky writes no light, fog, exposure or environment; it computes the signals and draws the dome. Your `picture/` code reads `engine.uniforms` and writes three.js (recipe 62).
+- Breaking: `sky({ sun | hemisphere | fog })` throw naming what to write; delete the option. `createEngine({ lights: false })` drops the placeholder lights, which are now still.
+- Breaking: no fog by default. `style.sky.fog` and `look.fog.set` write `scene.fog` once; a fog that changes over the day is yours.
+- Breaking: no default tone curve (`renderer.toneMapping` stays three.js's default unless `style.toneMapping` names one), and no room environment map unless `look.lights` `env.intensity` is above 0. `env.share` is gone.
+- Breaking: `style.exposure` and `look.tone` exposure are numbers, and `look.lights` keys take no function: exposure and light over the day are your `picture/` code.
+- Breaking: weather no longer multiplies `look.lights.*` or `look.fog.far`; it writes the signals `uWeatherLight` and `uWeatherFog`. `uViewDistance` is new (stream radius without terrain, a fog's far; `terrain({ viewFog: true })` writes it).
+- Breaking: plain game materials get the cloud-shadow patch only once the game turns cloud shadow on, in one recompile at that moment.
+- Breaking: `style.sky.groundTint` and `part.author.drive / driven / feed` are gone (nothing left reads them).
+- `describe().render.defaults` lists what the engine itself still puts on the picture, each with how to stop it.
+- The `look.*` verbs are deprecated: no new features, recipe 52 says what to write instead. Removal is a later step.
+- `threedog new-game`: `main.js` wires a start screen, autosave and Esc pause + settings menu (delete a line to drop one), the template's CLAUDE.md opens with an "Already here" table, recipe 63 is a 16-line third-person start. R40 hints at a hand-written localStorage save or pause; `shot` says when the start screen covers the picture.
+- Esc under pointer lock opens the menu on the first press: the browser keeps that key, so a lock the player ended counts as the back key when nothing else is open and the game is running. `page:pointerlock` also says `byEngine`.
+- `threedog lib add --kind look` stores one file from `picture/` (or a `.glsl`) in the library and `lib pull` puts it back under `picture/` (`picture/shaders/` for `.glsl`); a look file that imports siblings is refused at add. `art copy` of a folder takes `.glsl` files along. Recipe 62 section 3c.
+- `engine.shadows.cascades(light, { count: 3 })`: cascaded shadows for a game's own DirectionalLight, with or without a sky, on both renderers; returns a handle (`set`, `remove`). `look.shadow.set({ cascades })` runs on the same code; the look check's usage line for a game's own light points here; recipe 45.
+- The look check points the way: over-budget facts (new budget entries `shadowMaps`, `shadowMapSize`), usage lines for cascaded shadows and `lightPool`, new facts for near-black shadows, shadow stripes and stepped edges, and fog named first when it is most of the picture. They read the game's own lights too. Recipe 60 "When the look check names a feature".
+- `threedog new-game` generates a `picture/` folder instead of `style/`: the gray starting picture as plain three.js the game owns (`index`, `palette`, `lights`,
+  `materials`), with `createEngine({ lights: false })`; recipe 62. Styles keep working. Water with no fog reflects the sky's horizon color, not a fixed gray.
+- Prop and template `collide: 'circle'` now stands on the model's base (the lowest fifth of its height above the ground), not on its widest extent: a lamp's arm or a tree's crown no longer blocks walkers or pulls the follow camera in. Characters can walk closer to such models; a box is unchanged. New form: `collide: { circle: 0.25, occluder: false }`. A mistyped `collide` is refused at load.
+- `lightPool`: a camera cut (`engine.views.show`, a fixed-camera shot) moves the lights at once, without the fade; `shot --view` drew the old spot's lamps. `views.show` emits `camera:shot`.
+- `threedog shot <url>`: a local dev server of another game's folder is refused; one that cannot say is reported. The scene is counted again after the picture, with a warning if it changed.
+- Black-frame hint lists shader programs that failed to compile. Test runner: a second argument to `ev` fails.
+- `threedog shot` and `threedog capture` wait for the game's code after `await engine.start()` (lamps added after a later await): no request in
+  flight and the scene's objects / lights / materials unchanged for 0.3 s, at most 10 s; shot says how long it waited and what was added.
+- `presets.camera.overShoulder` looks up (minPitch -1.05) like `thirdPersonAction`; every camera preset that locks the mouse can look up (tested).
+- The look check names the material whose hiding brings a black frame back (a ShaderMaterial with NaN / Inf, spread by bloom), and reports fog
+  that is most of the color in a large share of the picture, with its near / far and color.
+- Deploying under a sub-path: `threedog build my-game --base /my-game/` (Git Bash's rewrite of `/my-game/` is undone), and root-relative
+  manifest paths (`'/models/x.glb'`) now follow the build's base; recipes/61-deploy.md. The pack test builds and serves under a sub-path.
+- `threedog describe` and the other bridge commands: when a threedog dev server of another folder answers, the message says so instead of
+  "no dev server".
+- Dev error log: a repeated warning (warned again after each reload) is counted, not written again.
+- Recipe 32: bullet time needs `engine.time.channel('enemies')` first, and world records follow it through `world.simulate(kind, { channel })`.
+
 ## 0.5.0 (2026-11-04)
 
 - Install instructions agree everywhere (README, package READMEs, COMMANDS.md): until 0.4.0 is on npm, use the engine from the repository;

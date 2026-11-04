@@ -5,7 +5,7 @@ import { coded } from './errorHints.js';
 import * as THREE from 'three';
 import { restoreBaked, toGLB, fromGLTF } from './Baked.js';
 import { warnOnce, DEV_SERVER, BASE_URL } from './validate.js';
-import { makeMaterial } from '../render/materials.js';
+import { neutralMaterial } from '../render/neutral.js';
 import { maxAnisotropy } from '../render/backend.js';
 
 const BASE = BASE_URL;   // DEV_SERVER: only npm run dev serves the /__threedog/cache endpoint
@@ -76,7 +76,7 @@ export async function loadGltf(assets, url, task) {
   const parsing = assets.gltf.parseAsync(buf, THREE.LoaderUtils.extractUrlBase(url));
   assets.gltf.manager = prev;
   let gltf;
-  try { gltf = restoreBaked(await parsing, assets.engine); }   // baked file: restore materials etc.
+  try { gltf = restoreBaked(await parsing); }   // baked file: restore materials etc.
   catch (err) { throw new LoadError(String(err?.message ?? err) + (missing.length ? ` (missing: ${missing.join(', ')})` : ''), { url: missing[0] ?? url }); }
   task.source.animations = gltf.animations.map(a => a.name);
   const tex = new Set();
@@ -85,18 +85,14 @@ export async function loadGltf(assets, url, task) {
   return gltf;
 }
 
-/** Textures made in code and registered by name: makeMaterial keeps their own wrap / repeat unless the spec writes one (render/surface.js) */
-export const CODE_TEXTURES = new WeakSet();
-
 /** Load a texture (.ktx2 through KTX2Loader, .hdr through HDRLoader), apply the entry's options and upload it */
 export async function loadTexture(assets, e, task) {
   // a texture made in code, registered by name (manifest textures: { brick: () => makeBrick() } or { brick: myTexture }): used as made,
   // its own colorSpace / wrap / repeat untouched (the game chose them); a function runs once per entry, `this` like a model generator
   if (e.opts.build || e.opts.texture) {
     task.phase('build');
-    const t = e.opts.texture ?? await e.opts.build.call({ palette: assets.engine.style.palette, engine: assets.engine });
+    const t = e.opts.texture ?? await e.opts.build.call({ palette: assets.palette, engine: assets.engine });
     if (!t?.isTexture) throw new LoadError(`the texture generator returned ${t === null ? 'null' : typeof t}, not a THREE.Texture`, { url: null });
-    CODE_TEXTURES.add(t);
     return t;
   }
   task.phase('download');
@@ -162,26 +158,28 @@ export async function loadFont(assets, e, task) {
 }
 
 /** Stand-ins for a degradable asset that failed: neutral gray (hard rule 1: the engine has no art of its own) */
-export function placeholder(type, engine) {
+export function placeholder(type) {
   if (type === 'texture') { const t = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); t.needsUpdate = true; return t; }
   if (type === 'model') {
     const g = new THREE.Group();
-    g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), makeMaterial('default', {}, engine)));
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), neutralMaterial('default')));
     g.name = 'placeholder';
     return { scene: g, animations: [] };
   }
-  return null;   // sound: silence; font: the next family in style.ui.font (the system font)
+  return null;   // sound: silence; font: the next family in ui.theme.font (the system font)
 }
 
 /** Code-generated model: baked file -> dev cache -> build now (Assets.cached, internal); returns { scene, animations, geometry? } */
 export async function generated(assets, name, build, params, task) {
   const wrap = v => v.isBufferGeometry
-    ? { geometry: v, scene: new THREE.Mesh(v, makeMaterial('default', { vertexColors: !!v.attributes.color }, assets.engine)), animations: [] }
+    ? { geometry: v, scene: new THREE.Mesh(v, neutralMaterial('default', { vertexColors: !!v.attributes.color })), animations: [] }
     : { scene: v, animations: v.animations ?? [] };
   const same = JSON.stringify(params ?? null);
-  const ctx = { palette: assets.engine.style.palette, engine: assets.engine };   // a function() generator reads this.palette (style.palette)
+  const ctx = { palette: assets.palette, engine: assets.engine };   // a function() generator reads this.palette
+  const colored = Object.keys(assets.palette).length > 0;
   const baked = (await bakedIndex(assets))[name];
-  const bakedOk = baked && JSON.stringify(baked.params ?? null) === same;
+  // npm run bake has no engine, so a baked file carries no palette: with one set, only a hand-made file (source: 'file') stands in for the generator
+  const bakedOk = baked && JSON.stringify(baked.params ?? null) === same && (!colored || baked.source === 'file');
   const file = async url => wrap(fromGLTF(await loadGltf(assets, url, task)));
   if (!DEV_SERVER) return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params));
   // In dev: ask the dev server for the current hash of this generator (with its file and imports)
@@ -191,7 +189,7 @@ export async function generated(assets, name, build, params, task) {
   // template's own vite config, which sent the AI to a config that was already right
   let info = null, why = null;
   try {
-    const r = await fetch(CACHE + 'key', { method: 'POST', body: JSON.stringify({ name, src: String(build), params: ctx.palette ? [params ?? null, ctx.palette] : params ?? null }) });
+    const r = await fetch(CACHE + 'key', { method: 'POST', body: JSON.stringify({ name, src: String(build), params: colored ? [params ?? null, ctx.palette] : params ?? null }) });
     const text = await r.text();
     if (r.ok && !/^\s*</.test(text)) info = JSON.parse(text);
     else if (!r.ok) why = `${r.status}${text ? ': ' + text.slice(0, 160) : ''}`;
@@ -208,7 +206,7 @@ export async function generated(assets, name, build, params, task) {
   const t0 = performance.now(), v = await build.call(ctx, params);   // measure：build time
   // { build, cache: false } in the manifest: never stored (a material the GLB round trip cannot keep, see Baked.js)
   if (performance.now() - t0 >= assets.cacheMinMs && assets.entries.get(name)?.opts.cache !== false)   // measure
-    toGLB(v, assets.engine, name).then(buf => fetch(CACHE + info.key + '.glb', { method: 'PUT', body: buf })).catch(err => warnOnce(coded('asset-cache', '[cache] could not store a built model in .threedog/cache (' + err.message + '); it is built again next time')));
+    toGLB(v, name).then(buf => fetch(CACHE + info.key + '.glb', { method: 'PUT', body: buf })).catch(err => warnOnce(coded('asset-cache', '[cache] could not store a built model in .threedog/cache (' + err.message + '); it is built again next time')));
   return wrap(v);
 }
 /** Bake manifest public/models/baked/index.json (empty if missing) */

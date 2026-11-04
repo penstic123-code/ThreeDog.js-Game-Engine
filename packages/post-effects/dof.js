@@ -50,18 +50,18 @@ class DofPass extends Pass {
 }
 
 /**
- * Depth of field (hdr slot, costly): everything farther from `focus` than `range` blurs, up to `maxBlur` pixels over `falloff` meters.
+ * Depth of field (hdr slot, heavy on weak devices): everything farther from `focus` than `range` blurs, up to `maxBlur` pixels over `falloff` meters.
  * It reads scene depth, so it must run before any pass that swaps buffers; it passes the scene depth on in its output, so a depth reader
  * after it (outline, whose default order is later) works: both can be on, lines drawn over the blurred image. Move the focus per frame with
- * engine.look.post.set({ 'dof.focus': distanceToTarget }).
- * @example engine.look.post.add(dof({ enabled: true, focus: 8, range: 3, maxBlur: 5 }))
+ * engine.post.get('dof').set({ focus: distanceToTarget }).
+ * @example engine.post.add(dof({ enabled: true, focus: 8, range: 3, maxBlur: 5 }))
  * @param {{ focus?: number, range?: number, falloff?: number, maxBlur?: number, enabled?: boolean, order?: number }} [o]
  *   focus, range, falloff in meters; maxBlur in device pixels
  * @returns {PostEffect}
  */
 export function dof({ focus = 10, range = 2, falloff = 20, maxBlur = 6, enabled, order = 5 } = {}) {
   const update = (pass, p) => { const u = pass.material.uniforms; u.uFocus.value = p.focus; u.uRange.value = p.range; u.uFalloff.value = p.falloff; u.uMaxBlur.value = p.maxBlur; };
-  return { name: 'dof', slot: 'hdr', order, enabled, costly: true, needsDepth: true, params: { focus, range, falloff, maxBlur },
+  return { name: 'dof', slot: 'hdr', order, enabled, needsDepth: true, params: { focus, range, falloff, maxBlur },
     create: ({ camera, params }) => { const pass = new DofPass(camera); update(pass, params); return pass; }, update, node: dofNode };
 }
 

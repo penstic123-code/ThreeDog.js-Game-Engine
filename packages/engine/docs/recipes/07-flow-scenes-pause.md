@@ -1,5 +1,7 @@
 # Scene transitions and pause (flow)
 
+**In this recipe**: 1. Pause, title, ending · 1b. Start and continue · 2. Changing scene · 2b. Input contexts · 3. Verify · 4. Sessions · 5. Window and device
+
 Needs the module `flow()` (not in openWorld; add it yourself: `engine.use(openWorld({ camera: 'follow', ...}), flow())`).
 - **Flow states**: title, playing (built-in `playing`), paused (built-in `paused`: freezes gameplay + locks input), ending, ... Only one is active at a time.
 - **Scene transition** `transition(fn)`: lock input -> fade to black -> fade music out -> (with `{ autosave: 'auto' }` save slot 'auto'; off by
@@ -46,6 +48,8 @@ A game's own windows made with `makeWindow` are pushed automatically (`onCancel`
 import { uiFocus } from 'threedog';
 const h = uiFocus(engine).push('myMap', { cancel: () => closeMap() });   // call h.remove() when closing; h.fresh = opened this very frame
 ```
+An entry with a `nav` (every window, the settings menu, dialogue choices) lets go of a locked mouse when it opens. For anything else, `engine.page.releaseLock()` frees the mouse
+(recipe 21); neither counts as the player's Esc, so the pause menu stays shut.
 
 ## 1b. Title -> start -> continue, and opening straight into a moment (screenshots, tests)
 `flow({ start: 'title' })` enters the title during `engine.start()` (on `engine:ready`), so when `await engine.start()` returns the title is
@@ -66,10 +70,14 @@ if (moment) setUpMoment(moment);   // the game's own data only; in code, time / 
 The engine's ready-made title (`createEngine({ ui: { title } })`, recipe 26 §5) opens in `start()` the same way: leave `title` out for a moment
 (`ui: { ...(moment ? {} : { title: { title: 'My Game', items: ['continue', 'start'] } }) }`).
 Shoot it with `npm run shot -- "/?moment=night" --time 22:20 --weather storm`; a game test opens the same URL.
+To start at a named place, write no code: `?at=pier` (dev and tools, like the other URL keys; `npm run shot -- --at pier`, `applyState({ at: 'pier' })`) leaves the
+start screen as `?play` does, stands the player at that place of `content/places.js` (or a level marker) after the game's `session:start` code ran, and puts the
+game's camera there at once. An unknown name stops with the list of places. A camera of your own: listen to `state:placed` ({ x, z }).
+
 To get past the title without a key of your own, use the engine's `?play` URL key (`npm run shot -- --play`, `applyState({ play: true })`): after
 `engine:ready` it does what the title's Start does (`engine.session.newGame()`, then the title part closes), so `flow({ start: 'title' })` moves to
 `'playing'` and the game's `session:start` setup runs; with no title up it does nothing. Two things that make a moment
-look half-done in a picture: a headless page advances only on `engine.step` (the shot steps one frame after the game's code, so a
+drawing half-done in a picture: a headless page advances only on `engine.step` (the shot steps one frame after the game's code, so a
 `weather.set(name, { seconds: 0.1 })` made after `start()` shows a third of the change: use `seconds: 0`), and an `onFrame` copy of a sky
 color is one frame old (share `engine.uniforms.uSkyHorizon` instead, recipe 08).
 
@@ -157,7 +165,7 @@ One place listens to window focus, tab visibility, mouse lock and the WebGL cont
   `engine.page.pauseOnBlur = false` keeps playing. Coming back resumes with no catch-up burst; a long frame turns into at most 0.1 s of fixed steps,
   and fewer when the steps are heavy (at most about 33 ms of catch-up work per frame; the rest is dropped as a brief slow-down). `engine.step()` never drops time.
 - `engine.events.on('page:blur', () => engine.flow?.go('paused'))` also opens the pause menu. Other events: `page:focus`,
-  `page:pointerlock { locked }` (cameras lock again on the next click), `page:contextlost` / `page:contextrestored` (gameplay waits and the player
+  `page:pointerlock { locked, byEngine }` (cameras lock again on the next click; a lock the player ended counts as Esc, because the browser keeps that key), `page:contextlost` / `page:contextrestored` (gameplay waits and the player
   sees a message; three.js restores the context).
 - `engine.step()` still advances while away (tests, dev bridge). Held keys are released by Input.
 - Tests: `npm test -- "Session:" "Window:"`.

@@ -3,6 +3,7 @@
 //   line: the headless fallback page and a real browser page, pending commands failing fast on reload, the security checks of the bridge and of the
 //   error relay, and that the build output contains no bridge. Expected values are read from describe() first, never hard-coded.
 // Waits poll a condition with a deadline; no fixed sleeps.
+import { wrongServer } from '../lib/shot-name.mjs';
 import { createServer, build } from 'vite';
 import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -31,10 +32,12 @@ export async function run({ check, browser }) {
   try {
     const dev = JSON.parse(readFileSync(join(dir, '.threedog/dev.json'), 'utf8'));
     check('after start .threedog/dev.json is written (port + token)', dev.port && dev.token?.length >= 16);
+    const owner = await wrongServer(`http://localhost:${dev.port}/`, dir), foreign = await wrongServer(`http://localhost:${dev.port}/`, join(dir, 'another-game'));
+    check('the server names its folder: shot <url> passes its own game and refuses another', !owner.wrong && !owner.unknown && /serves/.test(foreign.wrong ?? ''), JSON.stringify({ owner, foreign }));
 
     // 2. Headless fallback page (no real browser connected)
     // snap first, before anything stepped: a paused page had drawn nothing yet and snap saved a black picture (r4 G11)
-    const s0 = await threedog('snap', 'tick0'), lum0 = +(/Look: luminance ([\d.]+)/.exec(s0.out)?.[1] ?? 0);
+    const s0 = await threedog('snap', 'tick0'), lum0 = +(/Picture: luminance ([\d.]+)/.exec(s0.out)?.[1] ?? 0);
     check('snap at tick 0 draws the page before reading (not black)', s0.code === 0 && lum0 > 0.02, s0.out.slice(0, 300));
     const d = (await threedog('describe'));
     const startClock = (await threedog('describe', 'time.clock')).out.replace(/"/g, '');
@@ -128,9 +131,9 @@ export async function run({ check, browser }) {
     const png = join(dir, '.threedog/shots/bridge-test.png');
     check('snap: writes a PNG', snap.code === 0 && existsSync(png) && statSync(png).size > 1000 && readFileSync(png).subarray(1,
       4).toString() === 'PNG', snap.out);
-    // [guard] a picture through the bridge runs the same look check as threedog shot (the demos skipped it by screenshotting another way)
-    check('snap: prints the look check of the live page (Look: numbers), --no-look skips it', /\nLook: luminance [\d.]+/.test(snap.out)
-      && !/Look:/.test((await threedog('snap', 'bridge-test', '--no-look')).out), snap.out);
+    // [guard] a picture through the bridge runs the same picture check as threedog shot (the demos skipped it by screenshotting another way)
+    check('snap: prints the picture check of the live page (Picture: numbers), --no-picture skips it', /\nPicture: luminance [\d.]+/.test(snap.out)
+      && !/Picture: luminance/.test((await threedog('snap', 'bridge-test', '--no-picture')).out), snap.out);
     const sh = await threedog('snap', '--help'), sx = await threedog('snap', '--nope');
     check('snap --help prints usage, an unknown flag lists the valid ones, neither saves a file', sh.code === 0 && sh.out.startsWith('Usage: threedog snap')
       && sx.code === 1 && sx.out.includes('--width') && !existsSync(join(dir, '.threedog/shots/--help.png')) && !existsSync(join(dir, '.threedog/shots/--nope.png')),

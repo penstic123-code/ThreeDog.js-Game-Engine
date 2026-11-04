@@ -2,7 +2,7 @@
 // drops, a game's own particles). Time arrives already wrapped on the CPU (uFallOff = fall distance mod area size, uSway = time mod 20π,
 // the common period of the drift), so drops do not jitter from float32 precision in multi-hour sessions. Colors go through tone mapping
 // and the output color space like three's own materials, so rain looks the same with and without post-processing.
-// A style replaces either text with weather.<type>.glsl.vertex / fragment (recipes/44); copy these as the starting point.
+// weather({ rain: { glsl: { vertex, fragment } } }) replaces either text (recipes/44); copy these as the starting point.
 import * as THREE from 'three';
 
 export const lineVert = `uniform vec3 uCam; uniform float uSize; uniform float uFallOff; uniform vec2 uWindDir; uniform float uLen; attribute float aEnd;

@@ -45,6 +45,7 @@ export class Views {
     if (v.fov != null && c.isPerspectiveCamera) { c.fov = v.fov; c.updateProjectionMatrix(); e._oFov?.mark(); }   // asked through the engine: not an outside write
     c.updateMatrixWorld(true);
     this.current = name;
+    e.events.emit('camera:shot', { name });   // a cut: what follows the camera (the light pool) settles at once instead of easing over
     return { remove: () => { if (this.current === name) this.release(); } };
   }
   /** Give the camera back (to the previous holder, e.g. a running cutscene, or to the rig) */

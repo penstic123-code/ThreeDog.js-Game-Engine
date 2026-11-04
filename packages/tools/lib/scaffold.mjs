@@ -1,18 +1,18 @@
 // Shared by new-game and init: read the flags, copy the template layers, fill the placeholders.
-//   templates/game       the base: a blank scene with a camera, empty content files, an empty style/ folder (no gameplay, no genre assumed)
+//   templates/game       the base: a blank scene with a camera, empty content files, a gray picture/ folder (no gameplay, no genre assumed)
 //   templates/openworld  an overlay for --open-world: generated terrain, day/night sky, follow camera, a player (a main.js only)
 //   templates/example    an overlay for --example: the sample (hp, hunger, rest op, apples, stash, HUD) on the open world; implies --open-world
 // Why blank by default: an open world is one genre among many (a puzzle, a card table, a side-scroller start from nothing), and a default that has
 // to be deleted first steers every new game toward the same shape. Overlays are copied FIRST so their files win over the base.
-// Placeholders in text files: __NAME__, __GAMEPLAY_NOTE__. The art always starts in the game's own empty style/ folder (the engine has no published styles).
+// Placeholders in text files: __NAME__, __GAMEPLAY_NOTE__. The art always starts in the game's own gray picture/ folder (the engine ships no art).
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TOOLS } from '../paths.mjs';
 import { parseOptions } from './cli-args.mjs';
 
 const GAMEPLAY = {
-  clean: 'This game starts blank (a scene and a camera) and has no gameplay yet; build what DESIGN.md describes. For patterns, read the engine recipes (`node_modules/threedog/docs/recipes/`, index in AI.md); `threedog new-game name --open-world` starts on generated ground with a player, `--example` adds a small sample on top.',
-  openWorld: 'This game starts from `--open-world`: generated ground, a day/night sky, a follow camera and a player, no gameplay yet; build what DESIGN.md describes and remove what it does not need.',
+  clean: 'This game starts blank (a scene, a camera, a start screen, autosave, an Esc menu) and has no gameplay yet; build what DESIGN.md describes. For patterns, read the engine recipes (`node_modules/threedog/docs/recipes/`, index in AI.md); `threedog new-game name --open-world` starts on generated ground with a player, `--example` adds a small sample on top.',
+  openWorld: 'This game starts from `--open-world`: generated ground, a day/night sky, a follow camera, a player, a start screen, autosave and an Esc menu, no gameplay yet; build what DESIGN.md describes and remove what it does not need.',
   example: 'This game starts from the `--example` sample: hp / hunger, a rest op, apples with ids, a searchable stash and a HUD counter, all in `main.js` and `content/`. Delete what the design does not need.',
 };
 
@@ -35,7 +35,7 @@ export function render(text, { name, example, openWorld }) {
 /** package.json dependencies: --open-world / --example add @threedog/terrain-noise (their main.js imports it; the blank base does not) */
 export function applyDeps(deps, { openWorld }) {
   const out = { ...deps };
-  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.5.0';
+  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.6.0';
   return out;
 }
 

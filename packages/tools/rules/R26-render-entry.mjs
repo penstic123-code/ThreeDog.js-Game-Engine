@@ -4,7 +4,7 @@
 // (which extends three's node-graph key with the patches' own) and render/postWebGL.js (the places that own them).
 // In game code (examples, games/*) plain three.js is fine: onBeforeCompile / customProgramCacheKey are not flagged at all, since a material the
 // engine patched keeps its patches when the game assigns them later (patches.js chains the game's function first, user decision 5, 2026-11-02);
-// a game EffectComposer warns as a choice, naming look.post as one option. Why engine code still may not assign them: engine code goes through
+// a game EffectComposer warns as a choice, naming engine.post as one option. Why engine code still may not assign them: engine code goes through
 // patchMaterial so patches have names, cache keys and composition checks; a second EffectComposer renders a chain the engine does not
 // know about (MSAA, slots, resize, dispose).
 // Also a warning in engine code: `<something>material.clone()` on a line without copyPatches (a clone starts without the
@@ -19,9 +19,9 @@ const CHECKS = [
   { re: /\.onBeforeCompile\s*=(?!=)/, what: 'assigns onBeforeCompile directly', why: "it replaces every engine patch on that material (wind, clouds, season, a pack's own) and their shadow pass",
     fix: "use applyEffects(material, { patches: [{ name, glsl: { vertex|fragment: { anchor: code } } }] }) (render/patches.js); it stacks with the material's own onBeforeCompile and the engine's effects", engineOnly: true },
   { re: /\.customProgramCacheKey\s*=(?!=)/, what: 'assigns customProgramCacheKey directly', why: 'it replaces the program key the engine patches build, so differently patched materials can share one program', fix: 'give the patch a cacheKey instead: applyEffects(material, { patches: [{ name, cacheKey, glsl }] })', engineOnly: true },
-  { re: /\bnew\s+EffectComposer\s*\(/, what: 'builds its own EffectComposer', why: 'the engine renders through the engine.post slots, so a second composer runs a chain it does not know (MSAA, resize, settings toggles, dispose)', fix: "add a named effect instead: engine.look.post.replace([...effects]) with { name, slot: 'scene' | 'hdr' | 'ldr' | 'final', create: ctx => pass } (recipe 09 §2c)",
+  { re: /\bnew\s+EffectComposer\s*\(/, what: 'builds its own EffectComposer', why: 'the engine renders through the engine.post slots, so a second composer runs a chain it does not know (MSAA, resize, settings toggles, dispose)', fix: "add a named effect instead: engine.post.add({ name, slot: 'scene' | 'hdr' | 'ldr' | 'final', create: ctx => pass }) (recipe 52 Post effect chain)",
     gameWhy: 'a second composer is fine for render-to-texture inside engine.onRender; for the main frame the engine already renders through engine.post (MSAA, resize, settings toggles, dispose)',
-    gameFix: "one option: put your pass in the engine chain, engine.look.post.add({ name, slot, create: ctx => pass }) (recipes/54-three-idioms.md); a separate composer for your own render target inside engine.onRender is fine", always: true },
+    gameFix: "one option: put your pass in the engine chain, engine.post.add({ name, slot, create: ctx => pass }) (recipes/54-three-idioms.md); a separate composer for your own render target inside engine.onRender is fine", always: true },
 ];
 
 export default {

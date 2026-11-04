@@ -1,19 +1,21 @@
 // @ts-check
 // Procedural animation demo (page /procanim.html): the player is a code-built four-legged body animated without a skeleton. WASD walks,
 // Shift runs, Space jumps (landing squashes); stand still for 4 s and the game's own 'sit' state (the character `states` hook) takes over.
-// Test page for tests/specs/procedural-animation.mjs: window.procAnimTest = { animator, parts, player }.
-import { createEngine, openWorld, followCamera, presets, makeMaterial, THREE } from '../../../index.js';
+// Test page for tests/specs/procedural-animation.mjs: window.procAnimTest = { animator, parts, player }. Shapes and motion only here; the whole picture is picture/.
+import { createEngine, openWorld, followCamera, presets, THREE } from 'threedog';
 import { buildCreature } from './creature.js';
 import { createProceduralAnimator } from './proceduralAnim.js';
+import { createPicture } from './picture/index.js';
 
-const engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), ui: { loading: false }, saveKey: 'threedog-procanim' });
+const engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: false }, saveKey: 'threedog-procanim' });
 engine.use(openWorld({ camera: followCamera({ ...presets.camera.follow, distance: 4 }), terrain: false, vegetation: false, weather: false, water: false, rigid: false,
   ambience: false, calendar: { ...presets.calendar.fixedTime, time: 0.4 }, characters: { npcs: false } }));
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), makeMaterial('terrain', { color: 0x7d7d7d }));
+const { mat } = createPicture(engine);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), mat.floor);
 floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
 engine.scene.add(floor);
 
-const { root, parts } = buildCreature({ material: makeMaterial('prop', { color: 0xa0a0a0 }) });
+const { root, parts } = buildCreature({ material: mat.creature });
 const RUN_SPEED = 7;
 // The game's own state: 'sit' after 4 s without moving. The hook runs every fixed step after the mover's state; null keeps the mover's.
 let stillSince = 0;
@@ -28,8 +30,8 @@ const player = engine.characters.createPlayer({
 });
 
 const animator = createProceduralAnimator(parts, { runSpeed: RUN_SPEED });
-// Looks run per frame, right after the engine applied its own pose (onPose): read the facts the fixed steps wrote (speed, state, grounded,
-// vy), never write anything gameplay reads. A frame hook is the right clock for looks: it runs once per drawn frame with that frame's dt.
+// Visuals run per frame, right after the engine applied its own pose (onPose): read the facts the fixed steps wrote (speed, state, grounded,
+// vy), never write anything gameplay reads. A frame hook is the right clock for visuals: it runs once per drawn frame with that frame's dt.
 player.onPose((ch, dt) => {
   animator.update(dt, { speed: ch.moveAmount, state: ch.state, grounded: ch.grounded, vy: ch.vy });
   if (ch.state === 'sit') {   // a state the engine does not know: the game decides its pose, on top of the animator's rest pose

@@ -31,3 +31,5 @@ Interaction prompts (interactions() module)
   - `height?: number` How high the prompt floats above the object (meters)
   - `hold?: number` Seconds the key must stay down before onUse runs (0 = a press). The engine counts it and interrupts it on release, leaving reach, enabled() false or locked input (interaction:hold / interaction:interrupt); the prompt gets progress 0-1. The op interaction.use itself is the completed use
   - `approach?: boolean` Walk the player there first (walkTo, stops 1.2 m away), then use it; with radius: Infinity it can be used from anywhere (point-and-click)
+  - `once?: boolean` Hide the object after a use and allow no second one (onUse returning { ok: false } leaves it). Saved under id, else the object's name; development throws when it has neither
+  - `counter?: string` Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved

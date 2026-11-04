@@ -3,7 +3,7 @@
 // join(dir, 'vite.config.js'), so the same game failed to start there. All of them now ask viteOptions() in paths.mjs; the scan below keeps it so.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { ROOT, TOOLS, ENGINE, ownViteConfig, viteOptions } from '../paths.mjs';
+import { ROOT, TOOLS, ENGINE, rel, ownViteConfig, viteOptions } from '../paths.mjs';
 
 export const name = 'vite config: own config of any extension or the threedog preset, one helper for every command (no hard-coded vite.config.js)';
 
@@ -28,6 +28,13 @@ export async function run({ check }) {
     check('a vite.config.mjs is the game\'s own config', ownViteConfig(dir) === join(dir, 'vite.config.mjs'));
     const m = await viteOptions(dir);
     check('own config: passed as configFile', m.configFile === join(dir, 'vite.config.mjs') && m.root === dir, JSON.stringify(m));
+
+    // bake: a game's list is its bake.js files only, and hashing searches the game folder alone
+    writeFileSync(join(dir, 'bake.js'), 'export const bake = { box: () => null };\n');
+    const { keyMaker } = await import('../vite/vite-threedog-cache.js');
+    const kb = keyMaker(dir);
+    check("bake lists of a game are its bake.js files only, and a game's key search needs nothing outside its folder",
+      JSON.stringify(kb.bakeLists()) === JSON.stringify([rel(join(dir, 'bake.js'))]) && kb({ name: 'box', src: '() => null' }).files.length > 0, JSON.stringify(kb.bakeLists()));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 
   // the guard: no tool builds a vite config path by hand (it would skip .mjs / .ts configs and the preset)

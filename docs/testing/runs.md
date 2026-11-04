@@ -2,6 +2,148 @@
 
 全量测试的命令是 `npm test`（在仓库根目录跑，跑全部工作区，也包括工具自己的测试）。下面的表越新越靠上，新的一行加在表的最上面。
 
+**2026-11-04 第一次真 WebGPU（分支 test/real-webgpu，系统 Chrome 156，NVIDIA Blackwell，三的后端是 webgpu）**：用 `packages/tools/real-webgpu.mjs` 跑了 19 个 WebGPU 用例页，加模板新游戏、picture-parts、webgpu-tsl、开放世界、city；画面都对，只有 detailBump 和 WebGL 差 3.5%（高频法线的细差，方向相关 0.98，肉眼看不出，留作已知差异）；修了 L3（目标有父级时级联方向错）和 picture-parts 页不认 renderer=webgpu；`npm run check` 通过，相关用例全过。截图在 `docs/testing/field/2026-11-04-real-webgpu/`。
+
+## 2026-11-04：高级光照和体积效果可行性试验（分支 spike/light-volume）
+
+**做了什么**：在带窗房间加约 200 物体街道的测试场景上，逐项跑 three.js 0.187 的全局光照、烘焙、光照贴图、遮挡剔除、体积效果，三种渲染方式，RTX 5060 独显和 Radeon 780M 核显都量了，也在真引擎上接了一遍。结果和路线见 `docs/plans/2026-11-04-light-and-volume.md`，对照图在 `docs/testing/field/2026-11-04-light-spike/`。没跑测试套件，引擎代码没改。
+## 2026-11-04：架构审查 A 的修复（分支 fix/review-architecture）
+
+**跑了什么（只跑相关项，没有全量）**：`npm run check` 通过；`npm test -- owned / shadow / cascade / sky / interact / vegetation / 植被 / tsl / photo / contact / "look check" / "shared points" / 引擎写入 / "picture value" / example / technique` 全过。第 1、2、4、6 条的新测试先红后绿；新守卫 `the engine writes no picture value` 用临时写 hemi 的改动确认过会红。
+
+## 2026-11-04：示例改造前后画面对照（分支 fix/example-pictures）
+## 2026-11-04：画面值是谁写的、同帧冲突、截图检查新事实（分支 tools/picture-writers）
+
+**做了什么**：开发服务器下记录灯、雾、色调、环境、背景、材质颜色的最后写入行，同帧两处写同一值报一次；`threedog shot` 新增自写着色器不接雾或色调、运行中灯布局变化、透明物体绘制顺序三类事实；菜谱 62 加接线规矩。
+
+**跑了什么（只跑相关项，没有全量）**：`npm run map`，`npm run check` 通过；`npm test -- "picture writers" "look facts" "look hints"` 全过。每条守卫反向验证过一次：临时改坏 13 处（比较关掉、同函数例外去掉、three 帧不跳过、每次写都取栈、帧边界去掉、重复警告、追踪关掉、自己的雾不再"不确定"、判定恒为 follows、覆盖判断只用一张空图、换序不量、按包围盒代替像素、灯变化不记），对应守卫都变红，随后恢复。
+
+**帧时间（world 例子，开发服务器，GPU 无头，3 轮，每轮 240 帧，开 / 关）**：绘制帧中位 3.4–3.6 / 3.4–3.5 ms，均值 4.58–4.60 / 4.64–4.71 ms；不绘制的逻辑帧均值 0.37 / 0.32–0.38 ms，差别在噪声内。480 帧取 152 次调用栈（每帧 0.3 次）。plain-look 例子：绘制帧均值 2.16–2.41 / 1.46–2.19 ms，约多 0.2 ms，480 帧取 92 次。两个例子都没有报冲突。正式包：构建后搜不到追踪代码（用字面量 `import.meta.env?.DEV` 判断，打包时整段去掉，JS 少约 6 KB）。
+
+**这次发现并修掉的**：`docs` 里一行 AI.md 写成 `explain({ picture })` 会让 `threedog how` 的一条长句查询判成"没匹配"（这条测试在分支基线是过的），换了写法。
+
+
+**做了什么**：用 `threedog shot` 在 master（8301190f）和改造后分支上同参数拍 12 个例子，人眼对比，修了变差的 7 个例子的 look/。对照图和逐例结论见 `docs/testing/field/2026-11-04-examples/README.md`。
+
+**跑了什么（只跑相关项，没有全量）**：`npm run map`，`npm run check` 通过；`npm test -- technique "modular building" 风格测试页 "Action example" cascade` 205/205 通过。
+
+## 2026-11-04：阶段 C 最后一段，合入模块、删外观框架（分支 visuals/stage-c4-end）
+
+**做了什么**：合入 visuals/stage-c-modules；`core/look/`、`engine.look`、`describe().look`、`catalog('look.*')`、`debug.override('look.*')`、`engine.style` 删除；R35 两类都是错误。
+
+**跑了什么（只跑相关项，没有全量）**：`npm run check` 通过。look 345/345、describe 308/308、catalog 27/27、debug 92/92、owned 75/75、sky 225/225（修前 224）、post 172/172、webgpu 291/291、world 514/514。
+
+**查出来的**：引擎 WebGPU 测试页开着泛光时"两种渲染差 23% 像素"不是泛光的差别：只发生在 WebGPU 的第一帧，这一帧经后期链画出的只有平的背景色、没有网格；第二帧起差异 0%（超过 24 级）、0.01%（超过 2 级）。泛光两边的链一致（5 级 mip、半浮点目标、同样的阈值和核）。测试页恢复开着泛光，先走一帧再比。第一帧的问题还在，没修。
+
+**门槛**：没有改数值门槛。
+
+## 2026-11-04：阶段 C 收尾，合入示例 look/（分支 visuals/stage-c3-final）
+
+**跑了什么（只跑相关项，没跑全量）**：`npm run check` 通过；`npm test --` technique 87/87、look 321/321、world 514/514、cascade 60/60、contact 19/19、引擎写入 11/11、styletest 9/9、webgpu 291/291、night 80/80、rc2d 11/11、post 185/185、owned 75/75、how 17/17、tune write 13/13。反向验证两次：去掉 uNight 的写入、把太阳改回固定偏移，对应检查都变红，改回全绿。Session 那条在 stage-c-core 上就时好时坏，原因是页面一直在跑真实帧，ambient 时间多走一点就过了四舍五入的线，已和 tick 一样不参与比较。
+
+## 2026-11-04：阶段 C 模块部分（分支 visuals/stage-c-modules）
+
+**做了什么**：模块的外观改成模块上的普通 three.js 材质和统一值；`style` 选项、画风包、`makeMaterial`、材质角色表删除；工具、规则、开发面板跟着改。
+
+**跑了什么（只跑相关项，没有全量）**：合并 signals-in（示例都在 look/）后 `npm run check` 通过。删除相关的一组 198 项 1595 个检查全过（材质、补丁、插件、外观、烘焙、地形、水、天气、植被、粒子、角色、开发面板、Session）；示例页 33 项 368 个全过；`how:` 17/17。
+
+**查出来的**：`how:` 2 个检查不是旧问题（master 17/17），是缩短 AI.md 行时丢了搜索词，已把词放回，两条期望改到新入口。`Session` 的 3 比 3.1 是 ambient 时间在冻结时照走（设计如此），只在和别的页面同跑时出现，单独跑通过，已列入不比较的值。
+
+**没跑**：全量测试，由协调者合并后跑。没有改任何数值门槛。
+
+## 2026-11-04：美术资源面板 threedog art board（分支 tools/art-board）
+
+**做了什么**：一个游戏的所有美术资源放在一页：模型、贴图、声音、字体、材质、着色器、素材库条目，每项有预览、文件、大小、用在哪一行，能复制给 AI。页面外壳和 `lib page` 共用；`?panel=1` 多一个 art 文件夹，列出运行中的游戏实际加载了什么，`--live` 把这份名单并进页面。
+
+**跑了什么（只跑相关项）**：`npm test -- "art board"` 34 个检查全过，`npm test -- "lib:"` 29 个全过，`npm run check` 通过。反向验证一次：去掉"运行时名字算查不到"那一行，5 个检查变红，改回全绿。实测 island 游戏（只读，输出在外面）：31 项，全部在用，截图 `docs/testing/field/2026-11-04-art-board.png`；中文浏览器里点过复制、勾选、写备注、筛选，页面无报错。`--live` 和 art 文件夹在 island 的临时副本上跑过（服务器按进程号停掉，副本已删）。
+
+**实测抓到的两个假结论（已修，已进测试）**：同一行声明又使用的材质被判成"没用到"；游戏自己写的 `sfx()` 被当成引擎的，6 个声音被判成"缺失"。
+
+**没验证到**：island 全是代码生成的美术，真实贴图和声音文件只在小样例上跑过，没在真实游戏上看过缩略图；`--live` 在 island 上只认出 1 张贴图，227 个材质都没有名字，只能计数。island 打开 `?panel=1` 时面板在 `engine.sky.environment` 处报错（游戏没有天空模块，这是面板原有的问题），art 文件夹放在最前面所以还在，后面的文件夹出不来。
+## 2026-11-04：所有示例的画面搬进 look/（分支 visuals/examples-look）
+
+**做了什么**：action、rc2d、sheepisland、styletest、world、webgpu-tsl 和 techniques 下 11 个示例都改成 `look/` 文件夹，写原生 three.js，一个示例一个提交。旧的 world 风格和人形留作测试夹具（`tests/fixtures/world-style`），风格层删掉时一起删。
+
+**跑了什么（只跑相关项）**：`npm run map`、`npm run check` 通过。示例相关的 129 项 965 个检查，961 过 4 失败；其中 3 项修好后单独重跑全过（角色身体是资源、风格边界、procedural-surface）。
+
+**还红的**：`packages/tools/tests/examples-pull.mjs` 第 24 行把相对导入当成相对文件夹根目录算，文件放进 `look/` 就报"留下了导入"。这是工具测试的毛病，这个分支不碰 tools，留给工具那边改。一项（新游戏回到标题再开）只在和别的页面同跑时失败，单独跑通过。
+
+## 2026-11-04：模板里放"现成的几行"（分支 template/visible-entries）
+
+**做了什么**：盲评里 AI 读完模板就认定引擎很重、全部手写。模板 `main.js` 加了一段全是注释的现成代码（第三人称玩家和相机、会说话的 NPC、对着网格按 E、带箭头的任务、计数器、自己几何体和位置的植被），空白模板仍然什么都不跑；写明这些省的是代码、不限制画面，以及存档和菜单那几行为什么在、删了要自己写。模板 CLAUDE.md 的"Already here"加了对话、交互、任务、植被四行（仍在 6.5 KB 内）。菜谱 63 加第 4 节（对话、按 E、任务、计数器）和第 5 节"小游戏不值得用"（水、整块地形、固定时间的天空、刚体载具）。菜谱 05 加 2e 节（自己几何体和位置的植被）；AI.md 植被一行指过去，其他行缩短，仍在字节预算内。
+
+**跑了什么（只跑相关项）**：空白新游戏 `threedog test -w` 6 个检查全过；一个临时游戏把模板里的几行全部取消注释，加一个只跑一次的检查（对话选择后旗标为真、任务进到第二步、植被物种存在），6 个检查全过；另一个临时游戏放进菜谱 63 第 4 节和菜谱 05 2e 节的代码，6 个检查全过；两个临时游戏都已删除；`npm run check` 通过。没跑全量。
+
+**没验证到**：真的按 E 触发交互（只调用了对话开始和选择）；任务检查是每半个游戏秒一次，测试里改为手动 `quests.check()`，用 `engine.step(1)` 有一次没推进（时间累计不够，不是代码错）。
+## 2026-11-04：少手写的三件事（分支 engine/less-handwork）
+
+**做了什么**：《海风小岛》盲测里 AI 自己写了对话框、按 E 提示、拾取、HUD 和 `?spot=` 开局。`style.ui` 现在能给所有默认界面换皮（之前 HUD 不跟主色走）；`interactions.add(mesh, { once, counter })` 让现成的模型直接成为"捡一个、计一个"的东西，结果存进存档；`?at=<地点>` 跳过开始画面，站到内容里的地点，相机当场就位。
+
+**跑了什么（只跑相关项）**：`npm run map`、`npm run check` 通过；"UI skin" 9 个检查、"interactions once" 加 "contract" 共 172 个检查、"URL at" 7 个检查全过；"interaction""界面件""UI title""pickup"共 328 个检查全过；`threedog shot world --at river` 实跑通过，玩家站在河边、相机跟到位。三条守卫都反向验证过：改回旧行为后各自变红。没有跑全量。
+## 2026-11-04：阶段 B，引擎不再在背后写画面（分支 visuals/stage-b）
+
+**做了什么**：天空只算信号、画穹顶；占位灯静止；默认没有色调曲线、环境贴图和雾；云影按需加；天气改写信号；`look.*` 标记弃用。
+
+**跑了什么（只跑相关项，没跑全量）**：`npm run check` 通过。按名字跑，每个词最后一次的结果（名字有重叠，不能相加）：sky 221、fog 172、light 377、weather 158、look 413、environment 37、owned 80、parity 41、adoption 53、tone 64、exposure 15、describe 302、render 256、cold 27、backend 53、cloud 167、terrain 132、stream 48、hint 119、style 314、shot 133，全过；day 61 个 3 个失败，technique 87 个 10 个失败，shadow 287 个 4 个失败。
+
+**失败（都是已知问题，等示例改成 `look/`）**：三个示例测试，失败的检查都在这三项里。day-night-grade（3 个：靠天空写灯和曝光关键帧）、contact-shadows（4 个：比例是按天空的灯和 AgX 调的）、outlines-and-rim（3 个：明暗阈值是按 AgX 调的）。这三个示例的画面确实变了，改示例是下一步，没有改测试的门槛来掩盖。
+
+**守护测试**：`tests/specs/sky-writes-nothing.mjs` 做过反向验证：往 `modules/sky/frame.js` 放回一句每帧写半球光，测试失败；已恢复。像素基准文件没有改动。
+
+## 2026-11-04：新游戏模板先走引擎这条路（分支 visuals/template-engine-first）
+
+**做了什么**：三个限时测试里 AI 把"画面是纯 three.js"读成"引擎只是个空壳"，存档、暂停、菜单全部自己写。现在模板的 `main.js` 接好开始画面、自动存档、Esc 暂停和设置菜单，删一行就能不要；模板 CLAUDE.md 第一节是"Already here"对照表；新菜谱 63 是 16 行的第三人称起步；规则 R40 对手写的 localStorage 存档和手写暂停给提示（不是报错）。空白模板不带玩家、相机架和地面。鼠标锁定时浏览器会吃掉 Esc，现在玩家解除锁定算按了一次 Esc。
+
+**跑了什么（只跑相关项）**：`new-game` 空白和 `--open-world` 各一个，`threedog test -w` 各 6 个检查全过；"template engine first"和"bypass hints"共 61 个检查全过；"pointer lock: Esc" 4 个检查全过；菜谱 63 的代码逐行放进临时游戏，用无头浏览器走了开始、走路、Esc 暂停、再按 Esc 继续、刷新、继续，位置和分数都回来了，没有页面错误；`npm run check` 通过。没跑全量。
+
+**没验证到**：真实浏览器里按 Esc 解除鼠标锁定。无头浏览器的按键会送到页面，所以测试是模拟"锁定结束"这个事件。另外实测页面关闭时才发起的存档活不过刷新，所以刷新最多丢上一次存档之后的进度。
+
+## 2026-11-04 凌晨：画面新方案第 1 阶段 + 第 2 阶段里不改变现有画面的部分
+
+**做了什么**（分支 visuals/signals-in，方案见 `docs/plans/2026-11-04-visuals-signals-in.md`）：新示例 `plain-look`，一条平涂插画风的夜街，整个画面用原生 three.js 写在一个文件里，引擎只给信号。截图检查的探测渲染不再运行游戏的 `onRender`；引擎的灯不在场景里时，主光和补光报的是游戏自己的灯；`lights: false` 连房间环境贴图也关；天气信号 `uRain`、`uSnow` 进了 `engine.uniforms`；`describe()` 关于色调映射的几处说法一致；新菜谱 62。
+
+**全量测试（dc2d4b20）**：673 项 4726 个检查，失败 3 个，用了 14 分钟。其中 2 个是今晚引入的，已修好，单独重跑全过：`Assets.js` 的注释写了 `import.meta.env` 的字样，被 R45 守卫拦下；play 测试没想到本机 5173 端口上有另一个项目的开发服务器，新提示把这种情况说得更准了，测试改成两种原因都认。剩下 1 个是河岸地形测试，单独重跑通过，属于负载敏感。新增的守护测试都做过反向验证：拿掉修复，测试就失败。
+## 2026-11-04：道具碰撞半径（分支 fix/prop-collision，9068e604）
+
+**修了什么**：`collide: 'circle'` 的半径和圆心改为量模型的底部（地面以上最低五分之一高度内的几何），不再取整个模型最宽处；模板和道具可以写 `collide: { circle: 0.25, occluder: false }`；写错的 `collide` 加载时报错。
+
+**跑了什么**：`npm run map`、`npm run check` 通过。相关测试（道具碰撞、模板、内容、道具、相机遮挡、explain）51 项 353 个检查全过，44 秒；没有跑全量。新测试 `Prop collision` 反向验证：把 settle 换回包围盒的量法，14 个检查失败 7 个，恢复后全过。
+## 2026-11-04：地图过期的修复（分支 fix/map-stale）
+
+**修了什么**：试玩时 GAMEMAP.md 一改内容就过期，`npm run check` 要手动 `threedog map` 才过。选了"开发模式里更新"：开发服务器启动时和改了游戏文件（内容、代码、html）后去抖重新生成，生成器和手跑的是同一个。没选"check 里重新生成"，因为 check 是"已提交的地图是最新"的关卡，先重写再比较就永远通过，过期提交抓不到；现在 check 仍只比较，过期的提交仍由它抓住（`gamemap --check`）。
+
+**跑了什么**：`npm run check` 通过。新测试 `dev server refreshes GAMEMAP`（packages/tools/tests/map-dev-refresh.mjs）5 项检查全过；去掉监听后 2 项失败，恢复后全过。没有在真实浏览器里跑开发服务器。
+## 2026-11-04：describe 误报"没有开发服务器"（分支 fix/describe-hint）
+
+**没复现**：照报告的情形试了两次——正常开着的开发服务器上跑 `threedog describe`，和关掉无头浏览器后在 12 个满载进程下冷启动再跑——都正常出结果，没有出现"no dev server"。所以没有认定根因。读代码发现唯一能对着活着的服务器说"没有开发服务器"的路径：桥的探测请求 1.5 秒内没回（服务器正忙着编译，或无头页面占满 CPU），被当成服务器已死。
+
+**改了什么**：这种情况（记录里的进程还活着、端口没在时限内应答）现在如实说"开发服务器在运行（pid、端口），但没及时应答，多半在忙，稍等重试，别再起一个"；`threedog play` 也不再在它上面再起第二个服务器。"服务器在、没有页面"本来就不是错误：桥会自己开无头页面。
+
+**跑了什么**：`npm run check` 通过。新测试 `busy dev server`（packages/tools/tests/diagnose-busy.mjs）1 项检查过；去掉修复后失败（仍报"No dev server is running"），恢复后过。这个新说法是否就是报告里那次的原因，没有证据。
+## 2026-11-04：辉光和色阶顺序的文档（分支 docs/grade-bloom-order）
+
+**写了什么**：packages/engine/docs/recipes/52-look.md 的后期部分加一条：辉光（柔和的渐变）后面再跑"只留几档颜色"的步骤，渐变会被切成一块块平台，中间几档就是灰色圆盘；写了原因、三种顺序、怎么用 `threedog shot` 判断，例子跨像素风、平涂霓虹、赛璐璐，不含具体数值规则。
+
+**验证**：用一维模型（亮光源、模糊、四档量化）算了两种顺序：辉光后量化出现平台，量化后辉光是平滑渐变。**没有在真实渲染里验证**（引擎自带的效果里没有色阶效果，要现写一个 pass），文档里也写明了。
+
+**跑了什么**：`npm run check` 通过；只改了文档，没有新逻辑，没有新测试。
+
+## 2026-11-04：验收工具修复（A0，分支 fix/acceptance-tools）
+
+**修了什么**：`shot --view` 切镜头时灯池立刻到位，不再拍到变暗的画面；`shot <url>` 拒绝别的文件夹的开发服务器，说不清时给提示；`run` 多传参数时报错；拍完后场景还在变时警告；全黑帧提示带上编译失败的着色器；新增 NaN 被泛光扩散成全黑的守护测试。
+
+**跑了什么**：`npm run check` 通过。全量 `npm test`：674 项 4725 个检查，失败 1 个，14.4 分钟。这一个是 `named camera views`：测试手搭的假引擎没有 `events`，而 `views.show` 现在要发 `camera:shot`。给测试换上真的事件总线，并加了一条检查；去掉事件时这条检查失败，恢复后 12 个检查全过。修完只重跑了这一项，没有再跑全量，因为只改了这个测试文件。河岸地形那项在并行时失败、单独跑通过，属于负载敏感。
+
+## 2026-11-04：试玩报告的修复合进 master（0d21f54c）
+
+**合并后验证**：`npm run map` 无变化，`npm run check` 通过，新增代码里没有中文注释。相关测试（工具、相机预设、画面检查、dev bridge、MCP、动作示例、资源清单等）33 项 429 个检查，失败 1 个：dev bridge 的"toast 随 threedog step 过期"，一起跑时失败，单独连跑两遍都通过（56/56），这次合并没有碰 toast、界面和时钟代码，判定为负载敏感。没有在 master 上重跑全量；同样的改动在 visuals/signals-in 上跑过全量。
+
+## 2026-11-04 凌晨：一份试玩报告（夜街射击小游戏）里的引擎问题
+
+**修了什么**（分支 fix/drifter-feedback）：截图会等 `await engine.start()` 之后的游戏代码跑完（没有进行中的请求、场景的物体/灯/材质数量 0.3 秒不变，最多 10 秒），录帧工具也一样；越肩相机预设能抬头；动作游戏教程补上建时间通道和 `world.simulate({ channel })`；画面检查新增"整帧全黑"（找出藏起来就恢复画面的那个材质）和"雾占了多少画面"；`describe` 在别的文件夹的开发服务器开着时说清楚原因；`assets.js` 里以 `/` 开头的路径跟着打包的 `--base` 走，`threedog build --base` 在 Git Bash 下不再被改写，新增部署教程；开发日志里同一条警告刷新后不再重复写；世界记录模型的表现动画写在 `present` 的 `update` 里（提示和教程都说了）。
+
+**跑了什么**：`npm run map`、`npm run check` 通过。相关测试：action、camera、manifest、look、dev bridge、relay 101 项 845 个检查，第一次失败 2 个：本机 5173 端口上有另一个项目的开发服务器，新提示措辞改成两种情况都对之后重跑通过（76/76）。新增守护：shot 工具（等待晚到的灯）25/25、相机预设能抬头 2/2、画面检查全黑和雾 4/4。打包测试改成在子路径下构建和访问：用一个临时新游戏引用 `'/textures/t.png'` 跑，通过 4/4；临时撤掉清单里的修正后 3 个检查失败，证明这条测试会拦住。临时游戏已删。没有跑全量测试。
+
 ## 2026-11-03：数一数 AI 看得见的接口（0.5 第一步）
 
 **接口计数（0.4.0 的代码，3c4daccc 之上）**：新工具 `threedog api-count` 从对外类型声明数出合计 1719 个（各组数字和 243 个没人用的候选在 [api-count.md](api-count.md)）。只计数，没删没改名。新测试 `api count`：3 个检查全过（合计超出记录 30 个以上才失败）；`cli surface` 29 个检查全过；`npm run check` 通过。
@@ -40,6 +182,17 @@
 
 | 日期 | 提交 | 做了什么 | 结果 | 失败项与处理 |
 |---|---|---|---|---|
+| 2026-11-04 | docs/recipes-tidy | 收尾：locale 测试补按键（引擎的无按键报错是对的）；`how` 排名和弱匹配修根因；R13 真错修掉（31 降到 26 条，其余是片段缺类型的噪音）；`grids.preview({ draw })`、`tiles.color`；菜谱 41 并入 40，52 的叠加规则并入 55，09/38 去重，47 改正；新增 `worktree-link.mjs`。用它逐包链接 node_modules，引擎和工具指向本工作树。`npm run check` 通过；相关测试（how、doc、grid、recipe、thing、locale、worktree-link）85 项 589 检查全过，未跑全量。 |
+| 2026-11-04 | fix/after-stage-c db4573fc | **全量 `npm test`**（阶段 B、C 之后的修复轮，上一次全量在 882ddead：690 项 4861 条，18 条失败在 12 项） | 689 项 4859 条全过，0 失败（11.4 分钟） | 无失败。上一轮的 12 项都已查根因：多数是测试还写着已删的入口，已移到现在的入口；真问题修在代码里：`how` 里文档不用、同义词在用的词被当成最稀有的词；WebGPU 第一帧重画预热画面（`render/backend.js`）；`assets report` 把好的法线贴图报成丢失。dev bridge 单跑通过，全量时是服务器 2 秒内没应答，等待改成 5 秒。这次比上次少 1 项：雾的 `exp` / `height` 删了，守卫跟着删 |
+| 2026-11-04 | visuals/signals-in 6c766c1b | **对比实测《海风小岛》**（2 对 2，盲评）：[记录](usability/2026-11-04-island-blind.md) | 用时 25、14 对 14、13 分钟；代码 1136、1002 对 834、1020 行；用户猜哪些是新引擎，8 张对 3 张，分不出 | 引擎没有省代码和时间，阶段 B 暂缓，先查为什么 AI 不用现成模块 |
+| 2026-11-04 | visuals/signals-in c9904f4e | **对比实测《守灯人》第二轮**（A6，每边 3 次，盲评）：[记录](usability/2026-11-04-keeper-blind.md) | 用时打平（平均约 15 对 16 分钟）；代码 610–776 对 541–619 行；用户点名好看的都是纯 three.js | 新引擎版没用上存档、暂停、菜单：模板在修，修完重跑 3 次 |
+| 2026-11-04 | visuals/signals-in 88844e5f | **级联阴影入口合并后**：`npm run check`；cascades、级联阴影、tsl parity、engine content on WebGPU | check 通过；45 + 74 个检查全过 | 无 |
+| 2026-11-04 | visuals/lib-look A5 | **素材库收画面部分**（助手做）：`lib add --kind look` / `lib pull` 放回 `look/`，带兄弟文件的画面文件在存入时报错；菜谱 62 加 3c 一节。只跑 `threedog test lib`（29 项过，把 lib.mjs 还原后 look 的检查转红）和 `npm run check`，没跑全量 | 见左 | 无 | 全量留给合并后 |
+| 2026-11-04 | visuals/cascades-own-light 75b6e37e（B0b） | **游戏自己的灯有级联阴影入口**：`engine.shadows.cascades(light, { count: 3 })`，和 `look.shadow.set({ cascades })` 走同一份代码；`npm run map`、`npm run check`；守护测试 `cascades own light`（WebGL 和 WebGPU 各一项）；`look hints`。按简报没跑全量，也没跑旧的 `cascades` 测试 | check 通过；守护 27 个检查全过；look hints 45 个全过 | 反向验证一次：去掉把 `light.target` 换成替身的两行，3 条守护变红（游戏的目标被移动、方向错、remove 后没还原），已恢复。过程中守护抓到一个真错：`skyModule.js` 误删 `dropOwnedRow` 的 import，已修 |
+| 2026-11-04 | visuals/signals-in A3 预算检查 + A4 | **检查指路**（助手做，分支 visuals/a4-checks）：超预算、级联阴影和灯池的用法行、阴影很黑、阴影条纹和阶梯边、雾的提示排序，都能读游戏自己的灯。合并后重跑 `npm run check` 和相关测试 | check 通过；look check、look hints、budget、inspect.perf、shot 共 27 项 221 个检查全过；13 处修复逐个反向验证，拿掉后对应测试都失败 | 已知误报：world 示例 16:00 肉眼无条纹，报 1.3%，推测是细草的影子，未单独验证；只作为事实显示，不判失败。默认软阴影的用例只证明不误报 |
+| 2026-11-04 | visuals/signals-in A3（模板和菜谱部分） | 模板 `look/` 加具名接口写法、按 `engine.tier` 定阴影贴图；菜谱 62 写明钩子、没有 sky 就没有日夜、三条规则；新生成开放世界游戏，高低档各截一张，`threedog test -w`；`npm run check`；new-game、template scripts 测试 | 6 项和 30 项通过，check 通过 | 守护做了反向验证：写死贴图大小后失败。A3 的预算检查由助手和 A4 一起做，另记 |
+| 2026-11-04 | visuals/signals-in A2 | **plain-look 拆成 `look/` 文件夹**（5 个文件，共 152 行）：改前改后 `shot --compare`，22:00、12:00、22:00 下雨；`npm run check` | 晴天两张逐像素相同（差异 0）；雨夜差异 0.0042，同一份代码连拍两次也是 0.0042，来自雨丝随机；check 通过 | 这个示例没有专门的测试，靠截图对比验证 |
+| 2026-11-04 | visuals/signals-in A1 | **新游戏生成 `look/`**：`new-game` 空白、`--open-world`、`--example` 各生成一个并跑 `threedog test -w`；开放世界中午、午夜截图；`npm run check`；水面、new-game、cli、style tools、pack-external、bundle size、template scripts 相关测试 | 三个游戏各 6 项通过；相关测试 207 + 36 项通过；check 通过 | 第一次截图没进游戏目录，拍到了引擎示例页，数据作废重拍。午夜水面比地面亮：没有雾时反射固定灰色，改成反射天空地平线色并加守护。两条新守护都做了反向验证，拿掉修复后失败 |
 | 2026-11-04 | d7ae2a95 | **推送 0.5.0 到 GitHub 公开仓库**（74d6feb）；公开副本里重新生成锁文件、`npm ci`、`npm run check`、`npm run build`、四个包 `npm pack --dry-run` | 全部通过 | npm 由用户发布 |
 | 2026-11-04 | e1981995 | **全量测试（推送 0.5.0 前）**：验收发现的 5 条修复合并之后 | 669 项 4712 个检查，失败 1 个（12.8 分钟）；check 通过 | 失败的是"河岸"里 texture + 季节混合的读数正好卡在门槛 0.5，单独重跑 3 次都通过，属于负载（以前也出现过，排进 0.6：门槛加余量或改成单独跑） |
 | 2026-11-04 | 4f941421 | **0.5 验收：真实小游戏《提灯人》**（Sonnet，限 60 分钟，从新建到打包运行），详见 [usability/2026-11-04-lantern-acceptance.md](usability/2026-11-04-lantern-acceptance.md) | **通过**：题目每条都做到；首次能玩约 11 分钟，全部约 33 分钟；查文档约 19 次全找到；引擎报错 3 次都一次改对；没碰内部字段；游戏自己的 7 项测试全过 | 没有严重问题。不挡交付的 5 条（碰撞体总挡相机、shot 路径和标题、how 找不到测试写法、api 缺 bounds 形状、shots 被 gitignore）记进 design.md 第 14 节，0.6 处理 |
@@ -145,3 +298,10 @@
 | 2026-11-03 | (本分支) | 外部审查插件组合四处问题：后期效果关了再开不再换位（效果名第一次登记定下槽内位置，插件按列表顺序预留）；画风包里每个插件自己是所有者，两个插件写同一个键开发时报 shared-conflict，`export const replaces` 声明谁替谁；新增 `look.materials.rebuild()`，材质类插件关开时自动重做已做出的材质（保留调用参数、手改颜色、风和云影）；`plugins.off/on` 返回做了什么和影响范围，画风包起始值不随之关掉。新增 tests/specs/plugin-composition.mjs（含 WebGL 像素组合：天空+天气+雾、材质+风+云影、泛光+调色+颗粒，以及两条路线的后期顺序）：`npm test -- plugins style "one post entry" look post material patch cloud wind "on WebGPU"`，`npm run check` | 135 项 1163 个检查全过；check 通过。开放世界页（208 个网格、11 个引擎材质）rebuild 调用约 3 ms，无变化重做后下一帧 11.6 ms（原 10.6 ms）；加一个颜色补丁插件后首帧约 650 ms（重新编译着色器），关掉后约 90 ms | 新用例先在旧代码上跑出 7 处失败（顺序变 pb、同包冲突不报、rebuild 不存在、补丁关掉画面不变）；look api / look no bypass 两条守卫的动词表加上 rebuild；最初 rebuild 立刻释放旧材质，导致下一帧全部重编译（99 ms），改为画完下一帧再释放 |
 | 2026-11-03 | (本分支) | 只改文档：新增菜谱 60「把画面调好看」对照表（每个调节项：画面上管什么、怎么看对不对、引擎一行写法并链到菜谱 52/08/38/44 等原处、纯 three.js 一行；不给数值；写明不是步骤、按画风挑；写实黄昏/扁平卡通/阴雨夜三种画风下同一调节项往哪边动）；菜谱 52 和游戏模板 CLAUDE.md 各加一行链接（AI.md 已到 11264 字节上限，没加）；how 同义词加一组「好看/打磨」，CONVENTIONS 里一处 "for good" 改成 "take it over"（它让 "look good" 先命中开灯那行）；how 测试加四条问法：`npm test -- how "doc rules" "recipe code blocks"`，`npm run check`，`npm run map` | how 17 项 124 个检查全过；doc rules + recipe code blocks 2 项 23 个检查全过；check 0 错误（警告都是原有的） |
 | 2026-11-04 | (本分支) | 修 0.5 验收五条发现（用户批准）：碰撞体 `occluder: false` 不挡跟随相机（新测试：16 棵树围一圈，标了臂长保持 8 m、不标缩到圈内）；`shot --play` + 引擎 `?play` 网址参数越过标题（新测试：界面测试页带 `?play` 打开后标题关、解冻、在玩）；页面参数按 Git Bash 的 `EXEPATH` 还原、被改写时 shot 写明真正打开的页面；`how "game test"` 指到游戏测试写法；`addBlocked` 的 bounds 形状进 api 页；.gitignore 去掉 `shots`；api-count 1681 → 1682：`npm test -- camera "Follow camera" collision shot how "api count" "cli surface" "UI title: the ?play"`，`npm run map`，`npm run check` | 67 项 639 个检查全过；check 通过 |
+| 2026-11-04 | visuals/stage-c2-atmos | 删 look.tone / look.lights / look.fog；WebGPU 半透明雾：WebGPU 与 WebGL 走合成器逐像素相同（超过 2 级的 0%），WebGL 直出在显示值里混合，超过 8 级的 6.36%，属 three.js 渲染器差异；只跑相关项，全过 |
+| 2026-11-04 | fix/review-render | 修渲染审查发现（H1、H3、M1-M6、L4）：WebGPU 程序键含 tsl 函数身份，同名补丁红蓝各画各的、内置效果 6 个材质仍 1 次构建；低档单图跟随相机；级联 intensity 传到每级、材质弱引用（垃圾回收后确认释放）；设备丢失走 contextLost（手动调钩子，没有真丢设备）；只跑相关项全过，`npm run check` 通过。WebGPU 相关都跑在 WebGPURenderer 的 WebGL2 后端，不是真 WebGPU |
+| 2026-11-04 | fix/review-tools | 修工具审查：按 E、鼠标锁定、模板地点、文档死名字、R13/R18。逐包链接 node_modules，引擎和工具指向本工作树。相关测试：按键相关 62 项 568 检查里 1 项失败（contracts 的假引擎缺 isUnbound，补上后重跑通过），鼠标锁定等 37 项 429 检查全过，收尾 18 项 332 检查全过；新守卫在改回旧代码时会失败；check 通过；三种模板各新建一个游戏，真实按 E 通过，去掉按键时 check 和冒烟都报错；没跑全量 |
+| 2026-11-04 | rename/picture | look 改名 picture（游戏文件夹、模块画图部件、模块类型、菜谱、工具和测试）。逐包链接 node_modules，引擎和工具指向本工作树。`npm run check` 通过；相关测试：template 148、picture 456、module types 20、example 114、terrain 155、vegetation 125、sky 248、bridge（含打包安装）134、cli 127、lib 29 全过；weather 165 里 1 项失败（locale zh 缺 interact 按键，相关文件这次没动）；doc 62 里 2 项失败（how 搜索排序，基线上同样的查询答案相同）。三个模板各建一个游戏，先 map 再 check 都通过，已删除。 |
+| 2026-11-04 | picture/parts | 画面件：占位名字表、写入工具认占位（`picture-held`）、卸载残留检查（`picture-leftover`）、`engine.unuse`、菜谱 62 第 3e 节。逐包链接 node_modules，引擎和工具指向本工作树。新测试 picture parts：36 项全过，含三件共处、四种冲突、菜谱例子、WebGPU 渲染器；13 处故意改坏全部被抓（第一轮 2 处漏过，补了测试后抓到）。残留检查抓到引擎真 bug：`replaces` 换天空后穹顶留在场景里，已修。无上下文助手：check 跑 1 次改好且选了保住效果的共享值，但读了菜谱和源码，"不看文档"这条没通过，卡在 `handle.change` 没写；报错和菜谱各改一次，改后没复测，见 `docs/testing/field/2026-11-04-picture-parts.md`。`npm run check` 通过；相关测试：picture 492、module 269、sky 248、shared 49、api count 3，全过；没跑全量。 |
+| 2026-11-04 | c1169d22 | 全量（0.6 改名、审查修复、画面件全部合并后）：707 项 5020 检查，0 失败，10.4 分钟。第一次全量（cfed5f1d，画面件合并前）706 项 2 失败，都是测试落后于有意改动，已修 |
+| 2026-11-04 | df70501e | 0.6.0 发布前全量 | Total: 5022 checks in 707 items, 5022 passed, 0 failed (10.8 min) |

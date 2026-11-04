@@ -1,6 +1,6 @@
 // Extra cases of the outside-the-repo check (pack-external.mjs: step 1 package contents, steps 6 and 7) and the template copy it starts from.
 //   packageContents: what the packed engine / tools / terrain tarballs contain
-//   copyTemplate: the new-game template into a folder, as new-game does (game name 'external'); usePost: its style brings bloom() as a style plugin file
+//   copyTemplate: the new-game template into a folder, as new-game does (game name 'external'); usePost: the game brings bloom() as a file in its plugins/ folder
 //   engineAlone:  the engine folder installed by path with npm install --install-links, only three and vite next to it, a plain vite config builds
 //   vendored:     the engine vendored under vendor/threedog (tests included) as a file: dependency; check and types read only the game's sources
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from 'node:fs';
@@ -13,13 +13,9 @@ export function copyTemplate(_from, to) {
   copyTemplates(to, { name: 'external', example: true }, { skipPackage: true });
 }
 
-/** Turn on the template style's plugins line the way the docs show it, with bloom() from @threedog/post-effects in style/plugins/10-bloom.js, so the outside check imports that package */
+/** Add bloom() from @threedog/post-effects as plugins/10-bloom.js, so the outside check imports that package */
 export function usePost(dir) {
-  const f = join(dir, 'style', 'index.js'), src = readFileSync(f, 'utf8'), line = /^ *\/\/ plugins: import\.meta\.glob\('\.\/plugins\/\*\.js', \{ eager: true \}\),.*$/m;
-  if (!line.test(src)) throw new Error('usePost: the template style/index.js no longer has the "// plugins: import.meta.glob(...)" line; update lib/pack-cases.mjs');
-  writeFileSync(f, src.replace(line, "  plugins: import.meta.glob('./plugins/*.js', { eager: true }),"));
-  mkdirSync(join(dir, 'style', 'plugins'), { recursive: true });
-  writeFileSync(join(dir, 'style', 'plugins', '10-bloom.js'), "// @ts-check\nimport { bloom } from '@threedog/post-effects';\n\nexport default bloom();\n");
+  writeFileSync(join(dir, 'plugins', '10-bloom.js'), "// @ts-check\nimport { bloom } from '@threedog/post-effects';\n\nexport default bloom();\n");
 }
 
 /** Step 6: install the engine folder by path into a project with only threedog, three and vite, then build it with a plain vite config */

@@ -84,11 +84,11 @@ export const specs = [
         out.fogFar = E.terrain.viewFogFar; out.engineWater = E.waterLevel;
         const F = mk(createEngine, 'rg-terrain2');
         F.use(T.terrain({ viewChunks: 2, viewFog: true })); await F.start(); out.viewFog = F.terrain.viewFogFar;
-        // the fog write belongs to the terrain look (ctx.mod): it leaves with that module
+        // viewFog goes out as a signal: a sky writes no fog from it
+        F.step(0.1); out.viewSignal = F.uniforms.uViewDistance.value; out.noSignal = E.uniforms.uViewDistance.value;
         const G = mk(createEngine, 'rg-terrain3');
         G.use(T.sky(), T.terrain({ viewChunks: 2, viewFog: true })); await G.start(); G.step(0.1);
-        const owners = () => { const row = G.stacks.get('look.fog.far').row(); return [row.writer, ...(row.also ?? []).map(h => h.owner)]; };
-        out.fogOwners = owners(); G._unuse('terrainLook'); G.step(0.1); out.fogOwnersAfter = owners();
+        out.fogAfter = G.scene.fog;
         E.dispose(); F.dispose(); G.dispose();
         // light pool: 2 points, both cast; a source without castShadow still gets one, and a dark slot has autoUpdate off
         const warns = [], w0 = console.warn; console.warn = (...a) => warns.push(a.join(' '));
@@ -106,8 +106,8 @@ export const specs = [
         return out;
       });
       check('[guard] terrain without waterLevel has no sea (-Infinity)', r.water === -Infinity && r.engineWater === -Infinity, JSON.stringify(r));
-      check('[guard] terrain leaves the fog alone; viewFog: true puts the view distance on the fog (engine layer)', r.fogFar === null && r.viewFog > 0, JSON.stringify(r));
-      check('[guard] the view fog is written by the terrain look and goes when that module is removed', r.fogOwners.includes('terrainLook') && !r.fogOwnersAfter.includes('terrainLook'), JSON.stringify([r.fogOwners, r.fogOwnersAfter]));
+      check('[guard] terrain leaves the fog alone; viewFog: true puts the view distance on the signal uViewDistance', r.fogFar === null && r.viewFog > 0 && r.viewSignal === r.viewFog && r.noSignal === 600, JSON.stringify(r));
+      check('[guard] viewFog under a sky writes no scene.fog', r.fogAfter === null, JSON.stringify(r.fogAfter));
       check('[guard] idle shadow slots render no shadow map (autoUpdate false), a lit one does, released again after', r.idleAuto.every(a => a === false) && r.autoAfter === 1 && r.autoGone === 0, JSON.stringify(r));
       check('shadows >= point: a non-casting source still lights (and the pool warns once)', r.lit === 1 && r.allShadowWarn, JSON.stringify(r));
     },

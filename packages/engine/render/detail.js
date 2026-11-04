@@ -20,7 +20,7 @@ const MODES = ['multiply', 'add', 'mix'];
 // Callable (#include <threedog_detail> in your own ShaderMaterial; the patch's built-in noises call the same functions). No uniforms:
 //   vec4 threedogDetailNoise(vec2 p, int kind, float octaves)   kind 0 grain, 1 paper, 2 stroke, 3 dabs; returns (gray rgb, height 0-1)
 //   vec3 threedogDetailBump(vec3 surfPos, vec3 surfNorm, float h, float k, float faceDir)   screen-space bump (three's bump-map math)
-// Why: a game's own shader gets the style's grain / paper / brush texture by calling it instead of the engine patching its material.
+// Why: a game's own shader gets the same grain / paper / brush texture by calling it instead of the engine patching its material.
 // The hash / value noise are the shared threedogHash / threedogNoise (#include <threedog_noise>, render/effects.js), not a copy: the detail grain,
 // cloud shadows and sky clouds are one noise, and the TSL side (render/fx/detail.tsl.js) calls the same hash() / noise().
 const CALLABLE = `#ifndef THREEDOG_DETAIL
@@ -98,8 +98,8 @@ const COLOR = `{ vec3 tdc = threedogDS.rgb * uDetailTint;
   else diffuseColor.rgb = mix(diffuseColor.rgb, tdc, uDetailStrength * threedogDFade); }`;
 
 /**
- * The `detail` patch from a detail option object (see MaterialDetail in types/style.d.ts). `engine` loads a texture given by asset name.
- * @internal use materialSpec.detail, style.terrain.detail or applyEffects(mat, { detail })
+ * The `detail` patch from a detail option object (DetailOptions above). `engine` loads a texture given by asset name.
+ * @internal use applyEffects(mat, { detail }) or terrain({ detail })
  * @param {any} o
  * @param {{ assets?: any } | null} engine
  * @param {string} [label] where the options came from, for errors
@@ -128,7 +128,7 @@ export function detailPatch(o, engine, label = 'detail') {
     else {
       tex = placeholderTexture('detail');
       if (typeof o.texture === 'string') {
-        if (!engine?.assets) throw codedError('material-option', `${label}.texture '${o.texture}' is an asset name but no engine is known; pass the engine (makeMaterial(role, params, engine), applyEffects(mat, { detail, engine })) or give a THREE.Texture`);
+        if (!engine?.assets) throw codedError('material-option', `${label}.texture '${o.texture}' is an asset name but no engine is known; pass the engine (applyEffects(mat, { detail, engine })) or give a THREE.Texture`);
         engine.assets.useTexture(o.texture, t => {
           const own = t.clone();   // shares the image (no second upload); own wrapping
           // read as data, like the gray stand-in: 128 is the neutral the blend doubles to 1. Decoded as sRGB it reads 0.22, and the ground
@@ -153,7 +153,7 @@ ${PROJECT[proj]}`;
   if (bump) glsl.normal = 'normal = threedogDetailBump(-vViewPosition, normal, threedogDS.a, uDetailBump * threedogDFade, faceDirection);';
   if (rough) glsl.roughness = 'roughnessFactor = clamp(roughnessFactor + (threedogDS.a - 0.5) * uDetailRough * threedogDFade, 0.04, 1.0);';
   return { name: 'detail', cacheKey: `${src}|${proj}|${colorOn ? 'c' : ''}${bump ? 'n' : ''}${rough ? 'r' : ''}`, needs: { patches: ['world'] }, uniforms: u, pars, glsl,
-    // a game's own GLSL sample has no TSL twin: no tsl field, so a NodeMaterial names the patch instead of drawing it without its look
+    // a game's own GLSL sample has no TSL twin: no tsl field, so a NodeMaterial names the patch instead of drawing it without its picture
     ...(!o.glsl && { tsl: detailTsl(u, proj, o.texture ? -1 : NOISES.indexOf(o.noise ?? 'grain'), colorOn, bump, rough) }) };
 }
 

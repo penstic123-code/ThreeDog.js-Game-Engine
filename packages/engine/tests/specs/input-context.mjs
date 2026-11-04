@@ -119,4 +119,26 @@ export const specs = [
       check('an element over the canvas centre is named in covered (#id); nothing over it gives null', r.covered === '#test-cover' && r.clear === null, J);
     },
   },
+  {
+    name: 'pointer lock: Esc under lock never reaches the page, so a lock the player ended opens the menu; one the engine ended does not',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.timeline.skip(); engine.step(1, { render: false }); await new Promise(r => setTimeout(r, 50)); engine.step(1, { render: false });   // intro cutscene holds
+        const lost = () => document.dispatchEvent(new Event('pointerlockchange')), o = {};
+        // a stand-in lock: this test drives the events by hand (tests/specs/pointer-release.mjs has the real one)
+        Object.defineProperty(document, 'pointerLockElement', { value: engine.renderer.domElement, configurable: true });
+        engine.page.releaseLock(); delete document.pointerLockElement; lost(); o.byEngine = engine.settings.isOpen;
+        lost(); o.byPlayer = engine.settings.isOpen;
+        lost(); o.again = engine.settings.isOpen;   // the menu is on the stack: a second end of a lock changes nothing
+        engine.settings.close();
+        const h = engine.freeze('test'); lost(); o.frozen = engine.settings.isOpen; h.remove();   // a game's own frozen screen keeps the mouse free, no menu over it
+        return o;
+      });
+      const J = JSON.stringify(r);
+      check('the engine releasing the lock opens nothing', r.byEngine === false, J);
+      check('the player ending the lock opens the menu, once', r.byPlayer === true && r.again === true, J);
+      check('with the game frozen nothing opens', r.frozen === false, J);
+    },
+  },
 ];

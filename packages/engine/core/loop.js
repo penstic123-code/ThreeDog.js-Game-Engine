@@ -2,7 +2,7 @@
 // adaptive resolution.
 //
 // Hook errors: onFixed / onFrame callbacks and module fixed / frame / afterRender hooks each run in try/catch and are handled by error tier (errors.js):
-// look / ui modules are disabled, errors elsewhere freeze gameplay in dev / tests and are recorded in engine.error, core steps such as render
+// picture / ui modules are disabled, errors elsewhere freeze gameplay in dev / tests and are recorded in engine.error, core steps such as render
 // report only once; input.endFrame() sits in finally so "just pressed" always clears.
 //
 // What freezing (engine.freeze) stops: the whole fixed step is skipped (onFixed, module fixed, tick and every time view but ambient stop);
@@ -16,13 +16,13 @@ import { reportError } from './errors.js';
 import { DEV, warnOnce } from './validate.js';
 import { codedError } from './errorHints.js';
 import { watchLights } from './lightWatch.js';
-import { followFocus, syncRoomEnvironment } from '../render/lights.js';
+import { followFocus } from '../render/lights.js';
 import { STEP } from './time.js';   // fixed step length: 60 per second
 import { adapt } from './adaptive.js';
 import { advanceUiClock } from './uiClock.js';
 import { resetStats, programCount, freshFrame } from '../render/backend.js';
 import { engineDraws } from '../render/ownFrame.js';
-import { syncPlainTerms } from '../render/terms.js';
+import { writeDaylight } from '../render/daylight.js';
 // Most real time one frame may turn into fixed steps (6 steps). A longer hitch slows the game for that frame
 // instead of replaying it in a burst (no spiral of death, no jump after a stall).
 const MAX_CATCHUP = 0.1;
@@ -80,7 +80,9 @@ export const loopMethods = {
     // one profile frame = one frame-hook cycle (the real loop: one per rendered frame; step(): one per frameEvery fixed steps). Counting rendered frames
     // instead made step(render: false) divide by zero frames and report the whole run's milliseconds as one frame's
     if (this._prof) this._prof.frames++;
+    this._picture?.frameStart();
     advanceUiClock(this, dt);   // headless pages: UI display timers run on the stepped time (core/uiClock.js)
+    writeDaylight(this);   // before the hooks: an onFrame reads this frame's signal, and the sky writes its drawn sun over uDaylight
     for (const f of this._frame) safe(this, STRINGS.onFrame, f, null, undefined, dt);
     this._runHooks('frame', dt);
     safe(this, 'stream.update', this.stream._update, SOFT, this.stream);
@@ -89,32 +91,36 @@ export const loopMethods = {
     safe(this, 'batching.update', this.batching.update, SOFT, this.batching);   // last before rendering: picks up everything built this frame
     safe(this, 'audio.tick', this.audio._tick, SOFT, this.audio);   // positional sounds follow their objects (returns at once when there are none)
   },
-  _render(dt) {
+  /** @param {number} dt @param {boolean} [hooks] false: draw without the game's onRender hooks (the picture check's probe renders: picture code
+   *  run there wrote back the light it had just turned off) */
+  _render(dt, hooks = true) {
     const r = this.renderer;
     resetStats(r);
     this._gameLights?.frame();   // plain PointLight / SpotLight at intensity 0 stop redrawing their shadow map (gameLights.js)
     followFocus(this);   // baseline sun (no sky module): its shadow box follows engine.focus (render/lights.js)
-    syncRoomEnvironment(this);   // the baseline room map once a material reads scene.environment (one number compare on a quiet frame)
-    syncPlainTerms(this);   // plain lit materials added since the last frame take the cloud shadow like the engine's own (render/terms.js)
     const t0 = performance.now();   // measure
     const gpu = this.adaptive.on ? this._gpu : null;   // GPU time feeds adaptive resolution only; no queries while it is off
     gpu?.begin();
     // engine.onRender: camera and batching are final here. 'before' may render into its own targets (counted in renderer.info and the render phase)
-    const ctx = this._onRender.before.length || this._onRender.after.length ? { renderer: r, scene: this.scene, camera: this.camera, dt } : null;
+    const before = hooks ? this._onRender.before : [], after = hooks ? this._onRender.after : [];
+    const ctx = before.length || after.length ? { renderer: r, scene: this.scene, camera: this.camera, dt } : null;
     // the game drew the canvas itself since the last engine frame (own composer / render loop): it holds the frame, the engine yields (render/ownFrame.js)
     const draws = engineDraws(this), own = this._ownFrame;
     if (own) own.inside++;
     try {
-      for (const f of this._onRender.before) { safe(this, STRINGS.onRender, f, null, undefined, ctx); r.setRenderTarget(null); }
+      for (const f of before) { safe(this, STRINGS.onRender, f, null, undefined, ctx); r.setRenderTarget(null); }
+      this.shadows._frame();   // a game light's cascades, after 'before': picture code aims its light there, and the placement must be what is drawn (core/shadows.js)
       this._checkBackendAdds();   // WebGPU route: a WebGL-only material added since the last frame is named, not drawn blank (startup.js)
       freshFrame(r);   // WebGPU: step() several times in one task, or a renderOnce() earlier in this tick, must not reuse that scene pass
+      if (this._picture) this._picture.drawing = true;
       if (draws) this.post.render(dt);
-      for (const f of this._onRender.after) safe(this, STRINGS.onRender, f, null, undefined, ctx);
-    } finally { if (own) own.inside--; }
+      if (this._picture) this._picture.drawing = false;
+      for (const f of after) safe(this, STRINGS.onRender, f, null, undefined, ctx);
+    } finally { if (own) own.inside--; this._picture?.frameEnd(); }
     gpu?.end();
     // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost); a frame that compiled shaders is not judged by adaptive resolution
     this._compiled = this.budget.cost.rendered(performance.now() - t0, programCount(r) ?? -1, t0 / 1000);   // measure
-    if (DEV && this.ready) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
+    if (DEV && this.ready && !this._probing) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
   },
   _runHooks(kind, dt) {
     const p = this._prof;

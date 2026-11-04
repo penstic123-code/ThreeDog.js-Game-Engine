@@ -63,18 +63,19 @@ export { EASINGS, ease } from './core/easing.js';
 export { sampleGrid } from './core/grid.js';   // a grid of numbers (height, moisture, density, walkable) as a function (x, z) -> value; assets.gridFromImage reads one from an image. 'threedog/grid' is the same file without three.js (workers, tests)
 export { checkOptions };   // only for extensible data (game-defined fields); an options bag goes through readParams
 export { contentParts } from './modules/content/parts.js';   // one content kind split over files: content/props/*.js joined in file-name order (recipes/30)
-export { defineLookPart } from './core/look/part.js';   // a module's own look part: engine.look.<id> with set / patch / replace, catalog and describe (recipes/52)
 export { threePatches } from './core/threePatches.js';   // the engine's page-wide changes to three.js classes: list(), off(id) (THREE.md "Global changes")
 export { readParams } from './core/params.js';   // params schema for game-made modules: validated, defaults filled, shown by engine.catalog()   // for game-made modules (recipes/14): the package exposes no core/* deep paths
 export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
 export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself
-export { terrainMaterial, mergeColored, applyEffects, makeMaterial, MATERIAL_PURPOSES } from './render/materials.js';
+export { terrainMaterial, mergeColored, applyEffects } from './render/materials.js';
+export { rampTexture } from './render/lighting.js';   // a toon material's gradientMap from grays or colors (recipes/09)
 export { bakeVertexAO } from './render/modeling.js';   // procedural-modeling gaps three.js lacks (recipe 54 lists what three already has)
 export { materialPatches } from './render/patches.js';
 export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './ui/UI.js';
 export { parseClock, formatClock, inRange } from './core/dayTime.js';
 export { pickTarget, switchTarget } from './core/targeting.js';
+export { PICTURE_SLOTS } from './core/pictureSlots.js';
 
 /** Create an engine (core only). For the options see core/Engine.js */
 export function createEngine(opts) { return new Engine(opts); }
@@ -86,7 +87,7 @@ export function createEngine(opts) { return new Engine(opts); }
  *   engine.use(openWorld({ seed: 7, camera: 'follow' }), interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests());   // keys: createEngine({ bindings: { ...presets.bindings.interact, ...presets.bindings.inventory } })
  * Every part takes false (leave it out) or an object (that module's own options), so the preset never has to be abandoned for one setting:
  *   openWorld({ seed: 7, camera: 'follow', calendar: { seasons: ['wet', 'dry'], daysPerSeason: 28 }, characters: { npcs: false }, rigid: false, ambience: false })
- * The bundle hides the terrain's far edge in fog (terrain viewFog: true; openWorld({ terrain: { viewFog: false } }) keeps the game's look.fog far).
+ * The bundle hides the terrain's far edge in fog (terrain viewFog: true; openWorld({ terrain: { viewFog: false } }) leaves uViewDistance alone).
  * Shorthands still work and go to their module: seed / viewChunks / density / flatten → terrain, time / dayLength → calendar,
  *   weather: 'rain' (starting weather) and autoWeather → weather. An object for the same module wins over the shorthand.
  * debug: installed only in dev builds by default (players of a release build get no F3 panel); true installs it in release builds too.
@@ -123,5 +124,5 @@ export function openWorld(opts = {}) {
   };
   const cam = camera === false ? null : typeof camera === 'string' ? CAMERAS[camera]() : camera;
   return [part('world'), part('terrain'), part('vegetation'), part('calendar'), part('sky'), part('weather'), part('water'), part('collision'), part('rigid'),
-    cam, part('characters'), part('ambience'), part('settings'), part('debug')].filter(Boolean).flat();   // flat: terrain(), vegetation() and weather() are two modules each (data + look)
+    cam, part('characters'), part('ambience'), part('settings'), part('debug')].filter(Boolean).flat();   // flat: terrain(), vegetation() and weather() are two modules each (data + drawing)
 }

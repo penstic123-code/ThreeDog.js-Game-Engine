@@ -108,15 +108,15 @@ export const specs = [
     },
   },
   {
-    // 拾取物的形状和 content 的 props / 模板走同一个 protoOf：生成器只建一次、同几何共享、影子按同一套规则；文件模型也行；游戏自己的 style不再给形状
-    name: '[guard] pickups: the shape is a model name through the content model path (generator built once + shared + shadows, file model works); item mesh and style.pickup.model are gone',
+    // 拾取物的形状和 content 的 props / 模板走同一个 protoOf：生成器只建一次、同几何共享、影子按同一套规则；文件模型也行；模块选项不给形状
+    name: '[guard] pickups: the shape is a model name through the content model path (generator built once + shared + shadows, file model works); item mesh is gone',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev, page }) {
       await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
       const r = await ev(async () => {
         const { THREE, toGLB } = threedogTest, I = engine.inventory, W = fn => engine.ops.allow(fn), p = engine.actorPosition();
         let n = 0;
-        const url = URL.createObjectURL(new Blob([await toGLB(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshStandardMaterial()), engine)], { type: 'model/gltf-binary' })) + '#pk.glb';
+        const url = URL.createObjectURL(new Blob([await toGLB(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshStandardMaterial()))], { type: 'model/gltf-binary' })) + '#pk.glb';
         engine.assets.manifest({ name: 'pk-test', models: { pkGem: () => { n++; return new THREE.OctahedronGeometry(0.3, 0); }, pkFile: url } });
         I.define('pk-a', { name: 'a', model: 'pkGem', color: 0xff0000 }); I.define('pk-b', { name: 'b', model: 'pkGem', color: 0x00ff00 }); I.define('pk-c', { name: 'c', model: 'pkFile' });
         const ids = ['pk-a', 'pk-b', 'pk-c'].map((id, i) => W(() => engine.pickups.spawn({ x: p.x + 1 + i, z: p.z + 1 }, { give: id, id: 'pk-' + i })).id);
@@ -127,19 +127,17 @@ export const specs = [
         const [a, b, c] = ids.map(meshes);
         // vegetation's code API takes the same model name content does: same resolver, same cached geometry, no second build
         const sp = await engine.vegetation.define('pkVeg', { model: 'pkGem', rule: { perChunk: 0 } });
-        // the species record keeps what it was made from in source; the look draws it (the data / look split: vegetationLook.kind)
-        const veg = { same: !!sp && sp.source.geometry === a[0]?.geometry, drawn: engine.vegetationLook.kind('pkVeg')?.geometry === a[0]?.geometry, builds: n };
+        // the species record keeps what it was made from in source; the picture draws it (the data / drawing split: vegetationDraw.kind)
+        const veg = { same: !!sp && sp.source.geometry === a[0]?.geometry, drawn: engine.vegetationDraw.kind('pkVeg')?.geometry === a[0]?.geometry, builds: n };
         return { veg, n, inter, a: a.length, b: b.length, c: c.length, sameGeo: !!a[0] && a[0].geometry === b[0]?.geometry,
           colors: [a[0]?.material.color.getHex(), b[0]?.material.color.getHex()], role: a[0]?.material.userData?.purpose ?? null,
-          shadow: [a[0]?.castShadow, a[0]?.receiveShadow, c[0]?.castShadow], viaCache: !!engine.assets._cachedSrc?.has('pkGem'),
-          styleModel: 'model' in (engine.style.pickup || {}) };
+          shadow: [a[0]?.castShadow, a[0]?.receiveShadow, c[0]?.castShadow], viaCache: !!engine.assets._cachedSrc?.has('pkGem') };
       });
       check('[guard] a generator model name: built once for two items, geometry shared, through the cached path content uses', r.n === 1 && r.sameGeo && r.viaCache, JSON.stringify(r));
       check('a bare-geometry generator gets the item color per item (pickup material), and casts + receives shadows like a template', r.colors[0] === 0xff0000 && r.colors[1] === 0x00ff00 && r.shadow[0] && r.shadow[1], JSON.stringify(r));
       check('vegetation.define(name, { model: "pkGem" }) resolves the name like content: the same cached geometry, no second build', r.veg.same && r.veg.drawn && r.veg.builds === 1, JSON.stringify(r.veg));
       check('a file model name works for pickups (and casts by the same shadow rule)', r.c > 0 && r.shadow[2] === true, JSON.stringify(r));
       check('the pickup interaction exists at once (the model fills in later)', r.inter, JSON.stringify(r));
-      check('[guard] a style carries no pickup shape', !r.styleModel, JSON.stringify(r));
     },
   },
   {

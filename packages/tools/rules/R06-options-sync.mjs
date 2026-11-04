@@ -167,7 +167,7 @@ function partA(out, stats) {
       const fnName = ts.isCallExpression(n) ? n.expression.getText() : '';
       if ((fnName !== 'checkOptions' && fnName !== 'readParams') || n.arguments.length < 3) return;
       const isParams = fnName === 'readParams';   // readParams('sky', SCHEMA, opts): the label is the factory call 'sky()'
-      const raw = n.arguments[0].getText().slice(1, -1);   // a public API entry already names its call (grids.add(name), style.sky.fog); a module factory is only its name
+      const raw = n.arguments[0].getText().slice(1, -1);   // a public API entry already names its call (grids.add(name)); a module factory is only its name
       const label = isParams && !raw.includes('(') && !raw.includes('.') ? raw + '()' : raw;
       const known = isParams ? schemaKeys(sf, n.arguments[1]) : stringArray(sf, n.arguments[2]);
       // D

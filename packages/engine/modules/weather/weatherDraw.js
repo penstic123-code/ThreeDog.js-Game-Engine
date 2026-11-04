@@ -1,0 +1,141 @@
+// The drawing half of weather() (type 'picture', engine.weatherDraw): what the current weather looks and sounds like. It only reads engine.weather
+// (the state half, Weather.js) and never changes it, so a game can replace this half (engine.use(myRain(), { replaces: 'weatherDraw' })) and keep the
+// weather table, its save and its events.
+//   shared points: sky tint, lightning flash, snow cover
+//   rain / snow particles that follow the camera (particles.js), thunder, audio rule conditions
+import { builtInSounds } from '../../core/assetManifest.js';
+import { readParams, keysSchema, isOptions } from '../../core/params.js';
+import { codedError } from '../../core/errorHints.js';
+import { onRendererSwap } from '../../render/backend.js';
+import { makeSystem, updateSystem, dropSystem, RAIN, SNOW } from './particles.js';
+
+const DRAW_PARAMS = keysSchema(['particles', 'area', 'rain', 'snow']);   // the picture options of weather(): the rest are the state's
+const BASE = { rain: RAIN, snow: SNOW };
+
+/** engine.weatherDraw: particles and picture effects of the current weather */
+export class WeatherDraw {
+  /**
+   * @internal
+   * @param {any} engine
+   * @param {{ particles?: number, area?: number, rain?: any, snow?: any }} [opts]
+   */
+  constructor(engine, { particles = 6000, area = 40, rain = {}, snow = {} } = {}) {
+    /** @internal */ this.engine = engine;
+    /** @internal the state half: read only */ this.state = engine.weather;
+    /** Sky flash now, 1 at a strike (the weather:lightning event) fading to 0 @type {number} */
+    this.flash = 0;
+    // the weather's entries on the shared sky points: taken once through ctx.mod (owned by this module, gone with it) and rewritten every frame with
+    // handle.change (core/sharedPoint.js), so a frame adds no entry and no cleanup handle. ctx is set by the module's install
+    /** @internal */ this._ctx = null; /** @internal */ this._h = {};
+    /** @internal */ this._tint = { color: this.state.overcastColor, amount: 0, horizon: 0 };
+    /** Default particle count per system (halved on low-tier devices) @type {number} */
+    this.particles = engine.tier === 'low' ? Math.round(particles / 2) : particles;
+    /** @internal */ this.area = area;
+    /** Particle systems drawn now: field -> { field, object, material, uniforms, spec } (rain / snow when the table has them, plus fields engine.weather.define adds) @type {Map<string, any>} */
+    this.systems = new Map();
+    // zero cost when unused: a table where nothing ever rains or snows builds no particle meshes
+    const { cover, ...snowGiven } = snow;
+    /** @internal what weather({ rain, snow }) gave: define(field, null) goes back to it */ this._given = { rain, snow: snowGiven };
+    for (const k of Object.keys(BASE)) if (this._used(k)) this._build(k, this._given[k], BASE[k]);
+    // snow cover: foliage / ground season tint moves toward the snow colors as current.snow rises (ground.cover)
+    if (cover !== undefined) {
+      if (isOptions(cover)) readParams('weather({ snow: { cover } })', keysSchema(['foliage', 'ground', 'strength']), cover);
+      if (cover.foliage == null && cover.ground == null) throw codedError('weather-option', "weather({ snow: { cover } }) needs a color for foliage and / or ground, e.g. cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }");
+      /** @internal */ this._cover = { strength: cover.strength ?? 0.8 };
+      /** @internal */ this._coverMod = { foliage: cover.foliage ?? null, ground: cover.ground ?? null, amount: 0 };
+    }
+  }
+
+  /** @internal the weather table (state half) */
+  get types() { return this.state.types; }
+  /** @internal does any type have this field above 0 */
+  _used(field) { return Object.values(this.types).some(v => v[field] > 0); }
+
+  /** @internal engine.weather.define */
+  define(field, spec) {
+    const fields = [...new Set(Object.values(this.types).flatMap(t => Object.keys(t)))];
+    if (!fields.includes(field)) throw codedError('weather-option', `weather.define('${field}'): no weather type has this field; add it to a type in weather({ types }) (e.g. ashfall: { ${field}: 1 }), or use one of ${fields.join(', ')}`);
+    if (spec !== null && (typeof spec !== 'object' || Array.isArray(spec))) throw codedError('weather-option', `weather.define('${field}', spec): spec is an object, e.g. { shape: 'soft', color: 0x555555 } or { create }, or null to give the field back; see recipes/44-water-weather-hooks.md`);
+    if (spec) return this._build(field, spec, BASE[field]);
+    if (BASE[field] && this._used(field)) return this._build(field, this._given[field], BASE[field]);
+    const s = this.systems.get(field);
+    if (s) { dropSystem(this.engine, s); this.systems.delete(field); }
+    return null;
+  }
+
+  /** @internal */
+  _build(field, spec, base) {
+    const old = this.systems.get(field);
+    if (old) dropSystem(this.engine, old);
+    const sys = makeSystem(this.engine, field, spec, { area: this.area, count: this.particles, base });
+    sys.base = base;   // the renderer swap builds it again over the same defaults
+    this.systems.set(field, sys);
+    return sys;
+  }
+
+  /**
+   * @internal fallback 'webgl': systems built before start() carry WebGPURenderer node materials; rebuild them for the renderer in use, keeping what
+   * the game wrote since (spec numbers, uniforms, its material). A define() create(engine) object is the game's own and stays (the scene check names it
+   * if WebGL cannot draw it).
+   */
+  _rendererSwapped() {
+    for (const [f, sys] of [...this.systems]) {
+      if (sys.own) continue;
+      const given = sys.given;
+      const next = this._build(f, sys.spec, sys.base);
+      for (const k in sys.uniforms) if (next.uniforms[k]) next.uniforms[k].value = sys.uniforms[k].value;
+      if (given) next.material = given;
+    }
+  }
+
+  /**
+   * Write the current weather into its signals and shared sky points and move rain / snow with the camera (the module calls this every frame)
+   * @param {any} camera
+   * @param {number} [dt] real seconds since the last frame (the flash fades with it)
+   * @returns {void}
+   * @internal
+   */
+  apply(camera, dt = 0) {
+    const c = this.state.current, e = this.engine, T = this._tint;
+    const t = e.time.now('real');
+    this.flash = Math.max(0, this.flash - dt * 3);
+    T.amount = c.grey; T.horizon = c.grey * 0.8; this._put('sky.tint', 'value', T);
+    this._put('sky.flash', 'add', this.flash > 0 ? this.state.lightning(this.flash, e) * this.state.lightningBrightness : 0);
+    if (this._cover) { this._coverMod.amount = (c.snow ?? 0) * this._cover.strength; this._put('ground.cover', 'value', this._coverMod); }   // requires sky: the picture points exist
+    for (const sys of this.systems.values()) updateSystem(sys, c[sys.field] ?? 0, camera, t, c.wind);
+  }
+  /** @internal one contribution to a shared point: taken on first use, then changed in place */
+  _put(point, op, v) {
+    // change() is false when the entry is gone (a point cleared on a new session): take it again, as the old per-frame take did anyway
+    if (this._h[point]?.change(v)) return;
+    const o = op === 'value' ? { value: v } : { [op]: v, layer: 'effect' };   // tint / cover are data points (value), the flash an effect-layer number
+    this._h[point] = this._ctx ? this._ctx.mod(point, o) : this.engine.mod(point, { ...o, owner: 'weatherDraw' });
+  }
+}
+
+/**
+ * @internal the drawing half of weather(opts) (weather() returns both; install them together)
+ * @param {{ particles?: number, area?: number, rain?: any, snow?: any }} opts
+ */
+export function weatherDrawModule(opts) {
+  readParams('weather (drawing half)', DRAW_PARAMS, opts);
+  let L = null;
+  return {
+    name: 'weatherDraw', type: 'picture', provides: ['weatherDraw'], label: 'Weather drawing', params: DRAW_PARAMS, options: opts, requires: ['weather', 'sky'], stage: 'environment', before: ['sky'], after: ['weather'],
+    install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.weatherDraw': '天气外观' }, en: { 'module.weatherDraw': 'weather drawing' } });
+      L = new WeatherDraw(e, opts);
+      L._ctx = ctx;   // the weather's entries on the shared points go with this module (ctx.mod)
+      ctx.track(onRendererSwap(e, () => L._rendererSwapped()));
+      const w = e.weather;
+      ctx.track(e.audio.condition('weather', v => [].concat(v).includes(w.name)));   // audio rule condition { weather: 'rain' | ['rain', 'storm'] }
+      for (const k of ['rain', 'snow', 'wind']) ctx.track(e.audio.measure(k, () => w.current[k]));   // data rules: { rain: { lt: 0.2 } }, volume add: { rain: 0.22 }
+      builtInSounds(e.assets, { thunder: (audio, p, out) => { const dur = p.duration ?? 3.5, delay = 0.4 + Math.random() * 1.5;   // presentation: thunder delay
+        audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur, rate: 0.4 * p.pitch, delay, out }); return delay + dur; } },
+      { bus: 'ambience' });   // sound asset 'thunder', silent until audio.sounds names it
+      ctx.track(e.events.on('weather:lightning', () => { L.flash = 1; e.audio.sfx('thunder'); }));
+      return L;
+    },
+    frame(dt, e) { L.apply(e.camera, dt); },
+    describe: () => ({ rainVisible: !!L.systems.get('rain')?.object.visible, snowVisible: !!L.systems.get('snow')?.object.visible, flash: Math.round(L.flash * 100) / 100 }),
+  };
+}

@@ -1,42 +1,37 @@
 // 0.3 发布前最后一批（第 4 轮真实 demo 复测）引擎运行时修复的守护测试。每条对应一个条目（W5 / W6 / D1 / G2；G11 的守护在 packages/tools/tests/bridge.mjs），
-// 测的是"不许绕开"的那条路：例如 lightPool 的 dusk 必须走 lookGlow 的同一条日光曲线，而不是自己再算一遍。
-
-import { ROOM_RADIANCE } from '../../render/lights.js';
+// 测的是"不许绕开"的那条路：例如 lightPool 的 dusk 必须走 engine.uniforms.uNight 的同一条日光曲线，而不是自己再算一遍。
 
 export const specs = [
   {
-    // W5：lightPool 的光源可选跟随昼夜（dusk），与 look.materials.glow 共用 render/lookGlow.js 的曲线；默认不跟随（白天也亮的灯照样亮）
-    name: 'r4 W5: lightPool source with dusk follows glow\'s daylight curve (off at noon, lit at night); without dusk it stays lit',
+    // W5：lightPool 的光源可选跟随昼夜（dusk），与 uNight 信号共用 render/daylight.js 的曲线；默认不跟随（白天也亮的灯照样亮）
+    name: 'r4 W5: lightPool source with dusk follows the uNight curve (off at noon, lit at night); without dusk it stays lit',
     url: '/night-lights.html?threedog-headless',
     async run({ check, ev }) {
       const r = await ev(() => { try {
         const { THREE } = window.nightLightsTest, P = engine.lightPool, cam = engine.camera.position;
-        // 参照物：一条 glow 规则（night 1 = 写进去的就是夜晚系数本身），灯的强度必须是 50 x 这个系数——同一条曲线，不是另算一条
-        const ref = new THREE.MeshStandardMaterial({ emissive: 0xffffff, name: 'r4-ref' });
-        engine.scene.add(new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01), ref));
-        engine.look.materials.glow('r4-ref', { night: 1, owner: 'r4' });
+        // 参照物：uNight 信号，灯的强度必须是 50 x 这个系数——同一条曲线，不是另算一条
         const halo = new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: 2 });
         const lamp = P.add({ x: cam.x, y: cam.y + 1, z: cam.z }, { name: 'r4-lamp', intensity: 50, priority: 100, dusk: true, glow: halo });
         const torch = P.add({ x: cam.x, y: cam.y + 1, z: cam.z - 1 }, { name: 'r4-torch', intensity: 50, priority: 100 });
-        // dusk 0 = on only while daylight is 0 (no fade); the glow rule accepts the same 0
+        // dusk 0 = on only while daylight is 0 (no fade)
         const darkHalo = new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: 2 });
         const dark = P.add({ x: cam.x, y: cam.y + 1, z: cam.z + 1 }, { name: 'r4-dark', intensity: 50, priority: 200, dusk: 0, glow: darkHalo });
-        let glow0 = null; try { engine.look.materials.glow('r4-ref0', { night: 1, dusk: 0, owner: 'r4-0' }).remove(); } catch (err) { glow0 = String(err.message); }
         const at = t => {
           engine.calendar.timeOfDay = t; engine.step(1);
           const d = engine.calendar.daylight;
           return { d, lamp: lamp.light ? +lamp.light.intensity.toFixed(2) : 0, lampW: lamp.weight, torch: torch.light ? +torch.light.intensity.toFixed(2) : 0,
-            halo: halo.emissiveIntensity, want: +(50 * ref.emissiveIntensity).toFixed(2), dark: dark.weight, darkHalo: darkHalo.emissiveIntensity };   // 灯池权重 1 = 满亮；替身发光跟同一条曲线
+            halo: halo.emissiveIntensity, signal: +(50 * engine.uniforms.uNight.value).toFixed(2), dark: dark.weight, darkHalo: darkHalo.emissiveIntensity };   // 灯池权重 1 = 满亮；替身发光跟同一条曲线
         };
         const night = at(0.95), noon = at(0.5), dusk = at(0.27);
         let bad = null; try { P.add({ x: 0, y: 0, z: 0 }, { dusk: 2 }); } catch (err) { bad = String(err.message); }
-        return { night, noon, dusk, bad, glow0 };
+        return { night, noon, dusk, bad };
       } catch (err) { return { err: String(err.stack) }; } });
       if (r.err) { check('runs without error', false, r.err); return; }
-      check('at night the dusk lamp holds a light at intensity x glow\'s night factor', r.night.lampW === 1 && Math.abs(r.night.lamp - r.night.want) < 0.05 && r.night.want > 0, JSON.stringify(r.night));
+      check('at night the dusk lamp holds a light at intensity x uNight', r.night.lampW === 1 && Math.abs(r.night.lamp - r.night.signal) < 0.05 && r.night.signal > 0, JSON.stringify(r.night));
+      check('at dusk, halfway down the curve, the lamp still equals intensity x uNight: one curve, not a second one that agrees at the ends', r.dusk.signal > 0 && r.dusk.signal < 50 && Math.abs(r.dusk.lamp - r.dusk.signal) < 0.05, JSON.stringify(r.dusk));
       check('at noon the dusk lamp is off (no light, stand-in dimmed with it), the plain torch still lit', r.noon.lamp === 0 && r.noon.lampW === 0 && r.noon.halo === 0 && r.noon.torch > 0, JSON.stringify(r.noon));
-      check('dusk 0: lit when daylight is 0, off while any daylight is left (dusk) and at noon; glow takes dusk 0 too',
-        r.night.d === 0 && (r.night.dark === 1 || r.night.darkHalo === 2) && r.dusk.d > 0 && r.dusk.dark === 0 && r.dusk.darkHalo === 0 && r.noon.dark === 0 && r.glow0 === null, JSON.stringify({ night: r.night, dusk: r.dusk, glow0: r.glow0 }));
+      check('dusk 0: lit when daylight is 0, off while any daylight is left (dusk) and at noon',
+        r.night.d === 0 && (r.night.dark === 1 || r.night.darkHalo === 2) && r.dusk.d > 0 && r.dusk.dark === 0 && r.dusk.darkHalo === 0 && r.noon.dark === 0, JSON.stringify({ night: r.night, dusk: r.dusk }));
       check('a dusk outside 0..1 throws naming the forms', /dusk is true/.test(r.bad ?? ''), String(r.bad));
     },
   },
@@ -76,7 +71,7 @@ export const specs = [
     },
   },
   {
-    // D1：用 look.post.add（或插件文件）加进来的效果就是开着的（引擎规则 enabled ?? true，对所有效果一条），工厂不能再默认 enabled: false 让它静默失效；
+    // D1：用 engine.post.add（或插件文件）加进来的效果就是开着的（引擎规则 enabled ?? true，对所有效果一条），工厂不能再默认 enabled: false 让它静默失效；
     // style check 数"开着几个"用同一条规则
     name: 'r4 D1: a listed post effect is on (every factory, engine and style check agree); enabled: false lists it off',
     url: '/tests/perf/index.html?mode=city',
@@ -87,8 +82,8 @@ export const specs = [
       check('no effect factory lists itself off by default', offByDefault.length === 0, offByDefault.join(', '));
       check('enabled: false still lists one off', names.every(n => P[n]({ enabled: false }).enabled === false));
       // style check 用同一条规则数开着的效果：packages/tools/tests/style-tools.mjs
-      const r = await ev(() => { const h = engine.look.post.add(threedogTest.postEffects.outline()); const on = engine.post.get('outline').enabled; h.remove?.(); return { on }; });
-      check('look.post.add(outline()) is on in the engine', r.on === true, JSON.stringify(r));
+      const r = await ev(() => { const h = engine.post.add(threedogTest.postEffects.outline()); const on = engine.post.get('outline').enabled; h.remove?.(); return { on }; });
+      check('engine.post.add(outline()) is on in the engine', r.on === true, JSON.stringify(r));
     },
   },
   {
@@ -110,31 +105,6 @@ export const specs = [
       check('no value shows the label alone', r.step === 'Step: find the key', JSON.stringify(r));
       check('a number with max still shows "2 / 5"', r.fish === 'Fish 2 / 5', JSON.stringify(r));
       check('an object value throws naming number or text', /number \(a count\) or text/.test(r.bad ?? ''), String(r.bad));
-    },
-  },
-  {
-    // 底光：天空下风格的 ambient 列是全部漫反射补光预算，room 环境图和半球光分摊它（look.lights env.share = 环境图那份），
-    // 不能再在半球光之上额外加一层。守的是"和"：环境图折成半球光单位（x PI x ROOM_RADIANCE）+ 半球光 = ambient 列 x 天空色亮度
-    name: 'r4 fill: under a sky the room map and the hemisphere light share one ambient budget (env.share = the map share)',
-    url: '/night-lights.html?threedog-headless',
-    async run({ check, ev }) {
-      const r = await ev(async (ROOM_RADIANCE) => { try {
-        const s = engine.scene, h = engine.lights.hemi, lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-        const at = (t, share) => {
-          engine.look.lights.set({ env: { share } }); engine.calendar.timeOfDay = t; engine.step(0.2);
-          const room = s.environment && s.environmentIntensity;   // 0 份额时没有环境图
-          return { hemi: h.intensity, env: room ? s.environmentIntensity : 0, envAsHemi: (room ? s.environmentIntensity : 0) * Math.PI * ROOM_RADIANCE, hemiLum: lum(h.color) };
-        };
-        const noon = at(0.5, 0.5), night = at(0.95, 0.5), noonAllHemi = at(0.5, 0), noonAllMap = at(0.5, 1);
-        return { noon, night, noonAllHemi, noonAllMap };
-      } catch (err) { return { err: String(err.stack) }; } }, ROOM_RADIANCE);   // render/lights.js 的同一个数（node 这边导入，传进页面）
-      if (r.err) { check('runs without error', false, r.err); return; }
-      const near = (a, b) => Math.abs(a - b) <= 0.03 * Math.max(a, b, 1e-6);
-      const total = x => x.hemi * x.hemiLum + x.envAsHemi;   // 半球光单位下的漫反射补光总量
-      const budget = r.noonAllHemi.hemi * r.noonAllHemi.hemiLum;   // 份额 0：半球光拿全部 = ambient 列 x 天空色亮度
-      check('share 0.5 at noon: map and hemisphere light split the budget evenly', near(r.noon.envAsHemi, r.noon.hemi * r.noon.hemiLum), JSON.stringify(r.noon));
-      check('the sum is the same budget whatever the share (0, 0.5, 1): the map is never a fill on top', near(total(r.noon), budget) && near(total(r.noonAllMap), budget) && r.noonAllMap.hemi < 1e-6, JSON.stringify(r));
-      check('at night the map follows the budget down with the hemisphere light', near(r.night.envAsHemi, r.night.hemi * r.night.hemiLum) && r.night.envAsHemi < r.noon.envAsHemi * 0.2, JSON.stringify(r.night));
     },
   },
   {

@@ -109,7 +109,7 @@ export class Things {
   }
   /** [entry, root] for obj or its nearest registered ancestor */
   entryOf(obj) { for (let o = obj; o; o = o.parent) { const en = this.byObj.get(o); if (en) return [en, o]; } return null; }
-  /** Save tier, judged in order (recipe 41) */
+  /** Save tier, judged in order (recipe 40) */
   tier(en) { return en.owner === 'world' ? 'record' : en.owner !== 'game' ? 'engine' : en.stable && en.phase === 'setup' ? 'code' : 'session'; }
 
   /**

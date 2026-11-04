@@ -37,7 +37,10 @@ export function shadowDefaults(root, { castShadow, receiveShadow } = {}) {
 
 /** Load an entry as a task in engine.loading; a registered, non-critical file that fails resolves to its fallback */
 export function fetchEntry(a, e) {
+  // shortcut: the stale build stays in memory while its copies live and is not disposed after them; freeing it needs a user count per build, worth it if a game rewrites the palette often
+  if (a._stale(e)) e.promise = e.value = null;
   if (e.promise) return e.promise;
+  e.palette = a._paletteKey;
   const L = a.engine.loading, name = e.variantOf ?? e.name ?? e.url;
   const t = L._begin(name, e.type, { critical: e.opts.critical === true, url: e.opts.build || e.opts.texture ? null : e.url, manifest: e.manifest ?? null });
   if (e.type === 'model') {
@@ -69,7 +72,7 @@ function failedEntry(a, e, t, err) {
   if (!degrade) throw codedError('asset-load', msg);
   warnOnce(coded('asset-load', msg + fmt(STRINGS.fellBack, { fallback: e.opts.fallback ? `"${fb}"` : fb })));
   if (e.opts.fallback) return (e.promise = fetchEntry(a, a._resolve(e.opts.fallback, e.type)));   // e.value stays null: the fallback entry owns the memory
-  e.value = e.type === 'model' ? shareModel(a, placeholder('model', a.engine)) : placeholder(e.type);
+  e.value = e.type === 'model' ? shareModel(a, placeholder('model')) : placeholder(e.type);
   return (e.promise = Promise.resolve(e.value));
 }
 
@@ -92,7 +95,7 @@ export function freeEntry(e) {
 
 /** Load the entries preload() wants and report progress; returns { loaded, failed, ok } (Assets.preload documents it) */
 export async function preloadEntries(a, onProgress, onlyMarked) {
-  // generators and fonts only when marked: a font pack may hold many faces, and only those style.ui.fonts names (or preload: true) are wanted
+  // generators and fonts only when marked: a font pack may hold many faces, and only those ui.fonts names (or preload: true) are wanted
   const list = [...a.entries.entries()].filter(([, e]) => e.opts.build || e.type === 'font' ? e.opts.preload : !onlyMarked || e.opts.preload);
   let done = 0;
   onProgress?.(list.length ? 0 : 1, '');

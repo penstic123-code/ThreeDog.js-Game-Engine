@@ -16,11 +16,11 @@ export const specs = [
         g.removeFromParent(); m.dispose(); color.dispose(); normal.dispose();
         return { issues: out.issues, mat: out.materials.find(x => x.name === 'dh-mat'), text: out.text, count: out.count, bytes: out.textureBytes };
       });
-      check(r.issues.some(i => /dh-color/.test(i) && /SRGBColorSpace/.test(i)) && r.issues.some(i => /dh-normal/.test(i) && /NoColorSpace/.test(i)), 'both wrong color spaces reported with the fix');
-      check(r.mat?.madeBy === 'game' && r.mat.sharedBy === 2 && r.mat.textures.length === 2 && r.mat.textures[0].size === '64x64' && r.mat.textures[0].bytes > 0, 'material: maker game, shared by 2 meshes, texture size and bytes', JSON.stringify(r.mat));
-      check(r.count > 1 && r.bytes > 0 && /^\d+ materials, \d+ textures/.test(r.text) && /✗ /.test(r.text), 'summary line and issues in the text');
+      check('both wrong color spaces reported with the fix', r.issues.some(i => /dh-color/.test(i) && /SRGBColorSpace/.test(i)) && r.issues.some(i => /dh-normal/.test(i) && /NoColorSpace/.test(i)));
+      check('material: maker game, shared by 2 meshes, texture size and bytes', r.mat?.madeBy === 'game' && r.mat.sharedBy === 2 && r.mat.textures.length === 2 && r.mat.textures[0].size === '64x64' && r.mat.textures[0].bytes > 0, JSON.stringify(r.mat));
+      check('summary line and issues in the text', r.count > 1 && r.bytes > 0 && /^\d+ materials, \d+ textures/.test(r.text) && /✗ /.test(r.text));
       const engineMade = await ev(() => engine.inspect.materials({ limit: 500 }).materials.some(m => m.madeBy === 'engine'));
-      check(engineMade, 'engine-made materials (makeMaterial, terrain...) are told apart');
+      check('engine-made materials (terrain, neutral defaults...) are told apart', engineMade);
     },
   },
   {
@@ -44,10 +44,10 @@ export const specs = [
           return { overdraw, sc: sc.mode, colors: colors.size, stand, restored: mesh.every(o => o.material === real.get(o)) && !engine.scene.overrideMaterial, errs };
         } finally { console.error = orig; }
       });
-      check(r.overdraw.mode === 'overdraw' && r.overdraw.additive && /layers/.test(r.overdraw.what), 'overdraw: additive override, explained');
-      check(r.sc === 'shaderCost' && r.stand && r.colors > 1, 'shaderCost: every mesh shows a stand-in, colored by cost (more than one color)', `colors ${r.colors}`);
-      check(r.restored, 'off restores every real material');
-      check(r.errs.length === 0, 'both views compile without shader errors', r.errs.join(' | ').slice(0, 300));
+      check('overdraw: additive override, explained', r.overdraw.mode === 'overdraw' && r.overdraw.additive && /layers/.test(r.overdraw.what), JSON.stringify(r.overdraw));
+      check('shaderCost: every mesh shows a stand-in, colored by cost (more than one color)', r.sc === 'shaderCost' && r.stand && r.colors > 1, `colors ${r.colors}`);
+      check('off restores every real material', r.restored);
+      check('both views compile without shader errors', r.errs.length === 0, r.errs.join(' | ').slice(0, 300));
     },
   },
   {
@@ -67,12 +67,12 @@ export const specs = [
         return { a, b };
       });
       const { a, b } = r;
-      check(a.drawCalls > 0 && a.triangles > 0 && a.programs > 0 && typeof a.textureMB === 'number' && typeof a.cpuMs === 'number', 'fields present', JSON.stringify({ d: a.drawCalls, t: a.triangles, p: a.programs }));
-      check(['drawCalls', 'triangles', 'programs', 'textureMB', 'cpuMs', 'compileMs'].every(k => a.budgets.some(x => x.name === k)), 'one verdict per budget');
-      check(b.compiles.length > a.compiles.length, 'the program compiled during play is counted as a stall frame', `${a.compiles.length} -> ${b.compiles.length}`);
+      check('fields present', a.drawCalls > 0 && a.triangles > 0 && a.programs > 0 && typeof a.textureMB === 'number' && typeof a.cpuMs === 'number', JSON.stringify({ d: a.drawCalls, t: a.triangles, p: a.programs }));
+      check('one verdict per budget', ['drawCalls', 'triangles', 'programs', 'textureMB', 'cpuMs', 'compileMs'].every(k => a.budgets.some(x => x.name === k)));
+      check('the program compiled during play is counted as a stall frame', b.compiles.length > a.compiles.length, `${a.compiles.length} -> ${b.compiles.length}`);
       const d = b.budgets.find(x => x.name === 'drawCalls');
-      check(d.from === 'engine.budget' && !d.ok && /capture/.test(d.next) && /✗ drawCalls/.test(b.text), 'the game\'s budget is used, the over one says what to call next');
-      check(a.programCosts.length > 0 && a.programCosts[0].score > 0, 'costliest programs listed');
+      check('the game\'s budget is used, the over one says what to call next', d.from === 'engine.budget' && !d.ok && /capture/.test(d.next) && /✗ drawCalls/.test(b.text));
+      check('costliest programs listed', a.programCosts.length > 0 && a.programCosts[0].score > 0);
     },
   },
   {
@@ -103,9 +103,9 @@ export const specs = [
         o.removeFromParent(); m.dispose();
         return { res, changed: p1 !== p2 && !!p2, green: m.fragmentShader.includes('0.0, 1.0, 0.0'), errs };
       });
-      check(r.res.materials === 1 && r.res.names.includes('dh-hot'), 'the material holding the text is found', JSON.stringify(r.res));
-      check(r.changed && r.green, 'it recompiled with the new text (a new program)');
-      check(r.errs.some(e => /file shaders\/test\.frag:[23]\b/.test(e)), 'the compile error names the file and line', r.errs.join(' | ').slice(0, 300));
+      check('the material holding the text is found', r.res.materials === 1 && r.res.names.includes('dh-hot'), JSON.stringify(r.res));
+      check('it recompiled with the new text (a new program)', r.changed && r.green);
+      check('the compile error names the file and line', r.errs.some(e => /file shaders\/test\.frag:[23]\b/.test(e)), r.errs.join(' | ').slice(0, 300));
     },
   },
 ];

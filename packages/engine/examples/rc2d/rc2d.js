@@ -5,28 +5,30 @@
 //   import { createRadianceCascades2D } from './rc2d/rc2d.js';
 //   wall.layers.enable(5); lamp.layers.enable(5);          // what light sees: lamps (emissive) and walls (not emissive) on one layer
 //   const rc = createRadianceCascades2D(engine, { ambient: 0.15 });
+//   yourPostChain.add(rc.pass);                            // a plain three.js Pass; before the tone curve, the light is linear
 //   rc.describe(); rc.texture; rc.resize(); rc.dispose();
 //
 // Each frame (engine.onRender, before the frame): the meshes on `layer` are drawn from the game camera into a scene target (rgb = their emissive,
 // a = solid) -> jump flood -> distance field -> cascades traced and merged from the coarsest down -> gather into `texture` (linear light per
-// screen pixel). With `apply` (default) one post pass in the engine's 'hdr' slot (engine.look.post.add) adds that light to the frame; without it,
-// sample `texture` in your own materials (screen uv). Colours and strengths are the game's: a lamp shines with its material's emissive * emissiveIntensity.
+// screen pixel). `pass` is a three.js ShaderPass that adds that light to the frame; the caller puts it in the post chain, or leaves it out and
+// samples `texture` in its own materials (screen uv). Colours and strengths are the game's: a lamp shines with its material's emissive * emissiveIntensity.
 import * as THREE from 'three';
-import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { VERT, SEED, JFA, DIST, CASCADE, GATHER, APPLY } from './shaders.js';
 
 /**
  * The parameters, in one place. quality: RC resolution as a share of the screen (CSS pixels) and the march step cap per ray.
  * interval: cascade 0's ray length in RC pixels (each cascade's is 4x the one below). cascades: 'auto' = enough to cross the screen diagonal.
- * ambient: the light level the frame is already lit with (albedo = color / ambient); apply: add the pass to engine.post.
+ * ambient: the light level the frame is already lit with (albedo = color / ambient).
  */
-export const RC2D_DEFAULTS = Object.freeze({ layer: 5, quality: 'medium', cascades: 'auto', interval: 4, ambient: 1, apply: true });
-/** @typedef {{ layer?: number, quality?: 'low' | 'medium' | 'high', cascades?: number | 'auto', interval?: number, ambient?: number, apply?: boolean }} Rc2dOptions */
+export const RC2D_DEFAULTS = Object.freeze({ layer: 5, quality: 'medium', cascades: 'auto', interval: 4, ambient: 1 });
+/** @typedef {{ layer?: number, quality?: 'low' | 'medium' | 'high', cascades?: number | 'auto', interval?: number, ambient?: number }} Rc2dOptions */
 export const RC2D_QUALITY = Object.freeze({ low: { scale: 0.25, steps: 16 }, medium: { scale: 0.5, steps: 24 }, high: { scale: 1, steps: 32 } });
 const SPACING0 = 2;   // cascade 0 probe spacing (RC pixels); with 4 directions it keeps every cascade target about the scene target's size
 
 /**
- * @param {any} engine a threedog engine (renderer, scene, camera, onRender, look.post)
+ * @param {any} engine a threedog engine (renderer, scene, onRender)
  * @param {Rc2dOptions} [options]
  */
 export function createRadianceCascades2D(engine, options = {}) {
@@ -53,6 +55,8 @@ export function createRadianceCascades2D(engine, options = {}) {
     { STEPS: q.steps }),
     gather: mat(GATHER, { tC0: u(null), uTile0: u(new THREE.Vector2()), uTex0: u(new THREE.Vector2()), uSpacing0: u(SPACING0) }),
   };
+  // frame * (1 + gi / ambient), in linear colour before tone mapping. tGI is written after each gather: a resize makes a new texture
+  const pass = new ShaderPass(mat(APPLY, { tDiffuse: u(null), tGI: u(null), uAmbient: u(o.ambient) }));
   /** @type {{ scene: THREE.WebGLRenderTarget, seed: THREE.WebGLRenderTarget[], dist: THREE.WebGLRenderTarget, gi: THREE.WebGLRenderTarget, cascades: { rt: THREE.WebGLRenderTarget, tile: THREE.Vector2, s: number, spacing: number, start: number, len: number }[] } | null} */
   let t = null;
   const size = new THREE.Vector2(), css = new THREE.Vector2();
@@ -149,47 +153,33 @@ export function createRadianceCascades2D(engine, options = {}) {
     const c0 = t.cascades[0], gu = mats.gather.uniforms;
     gu.tC0.value = c0.rt.texture; gu.uTile0.value.copy(c0.tile); gu.uTex0.value.set(c0.rt.width, c0.rt.height);
     draw(mats.gather, t.gi);
+    pass.uniforms.tGI.value = t.gi.texture;
     renderer.setRenderTarget(null);
     frameMs = performance.now() - t0;
   }
   const hook = engine.onRender(update);
 
-  /** The apply pass: frame * (1 + gi / ambient), in linear colour before tone mapping */
-  class ApplyPass extends Pass {
-    constructor() {
-      super();
-      this.material = mat(APPLY, { tDiffuse: u(null), tGI: u(null), uAmbient: u(o.ambient) });
-      this.fsQuad = new FullScreenQuad(this.material);
-    }
-    /** @param {THREE.WebGLRenderer} r @param {THREE.WebGLRenderTarget} write @param {THREE.WebGLRenderTarget} read */
-    render(r, write, read) {
-      this.material.uniforms.tDiffuse.value = read.texture;
-      this.material.uniforms.tGI.value = t ? t.gi.texture : null;
-      r.setRenderTarget(this.renderToScreen ? null : write);
-      this.fsQuad.render(r);
-    }
-    dispose() { this.material.dispose(); this.fsQuad.dispose(); }
-  }
-  const post = o.apply ? engine.look.post.add({ name: 'rc2d', slot: 'hdr', create: () => new ApplyPass() }, { owner: 'rc2d' }) : null;
-
   return {
+    /** The ShaderPass that adds the light to the frame. Yours to put in the post chain; take it out of the chain before dispose() */
+    pass,
     /** The gathered light, linear rgb per screen uv (null before the first frame); a new texture after a resize */
     get texture() { return t ? t.gi.texture : null; },
     /** The render target holding `texture` (HalfFloat RGBA, linear filtering), for size or readRenderTargetPixels (Uint16Array, half floats) */
     get target() { return t ? t.gi : null; },
     /** Re-read the render size now (it is also checked every frame); rebuilds the targets when it changed */
     resize() { if (!disposed) build(); },
-    /** Remove the hooks and the post pass, free every render target and material */
+    /** Remove the hook, free every render target and material, the pass's too */
     dispose() {
       if (disposed) return;
       disposed = true;
-      hook.remove(); post?.remove();
+      hook.remove();
       freeTargets();
       for (const m of Object.values(mats)) m.dispose();
       quad.dispose();
+      pass.dispose();
     },
     describe() {
-      return { size: [size.x, size.y], quality: o.quality, layer: o.layer, interval: o.interval, ambient: o.ambient, apply: o.apply,
+      return { size: [size.x, size.y], quality: o.quality, layer: o.layer, interval: o.interval, ambient: o.ambient,
         cascades: t ? t.cascades.map(c => ({ probes: [c.tile.x, c.tile.y], directions: c.s * c.s, spacing: c.spacing, interval: [c.start, c.start + c.len] })) : [],
         targets: t ? 5 + t.cascades.length : 0, cpuMs: +frameMs.toFixed(2), disposed };
     },

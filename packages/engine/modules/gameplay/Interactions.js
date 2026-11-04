@@ -9,10 +9,13 @@
 // How the one in front of you is chosen is the pick option: 'nearest' | 'facing' | 'aim' | a function (see interactions()). Each action is picked on its own,
 // so one object can carry "Open" and "Lock" as two interactions with different action names (each bound to the game's own key).
 // The prompt is the UI part 'prompt' (default interactionPrompt.js, CSS class .threedog-prompt): replace it or turn it off with engine.ui.set('prompt', ...);
-// prompt height style.ui.promptHeight (meters)
+// prompt height interactions({ promptHeight }) (meters)
 // hold: seconds turns the press into "keep it down": the engine counts progress on fixed steps and interrupts it on release, leaving reach, disabled or
 // locked input, in one place, so no game re-writes a hold timer per verb; the prompt part gets progress 0-1 to draw.
 // approach: true walks the actor's character there first (walkTo), then uses it: point-and-click, "talk to the shopkeeper across the room".
+// once: true hides the object after a use that went through and it stays gone; counter: 'shells' adds 1 to that HUD counter (optional: engine.hud?.). So a
+// mesh the game already built is a pick-and-count thing with no world record or bag; what was used is this module's save part, because a thing that comes
+// back after a load while the count does not would be silently lost progress. Things that go in a bag, respawn or are decided by a net host: pickups.js.
 // Finding candidates goes through one shared xz index (core/cells.js) keyed by each item's actual world position, instead of measuring every interaction
 // each frame. Before a pick pass reads it, items that follow an object are re-filed if they moved: for an object straight under the scene (models, pickups,
 // hand-placed meshes) the check is its local position against the last one seen, so a still crowd costs a few compares; a nested one (a part of a vehicle)
@@ -25,6 +28,7 @@ import { promptPart } from './interactionPrompt.js';
 
 import { readParams, keysSchema } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
+import { DEV } from '../../core/validate.js';
 import { vec3 } from '../../core/math.js';
 import { Cells } from '../../core/cells.js';
 
@@ -38,6 +42,10 @@ const V = new THREE.Vector3(), W = new THREE.Vector3(), O = new THREE.Vector3(),
 // when the circle covers more cells than exist)
 const CELL = 8;
 
+// The line that makes an action usable; the preset only for the action it covers. The message carries it because this fault looks like a working game to
+// every other tool, so whoever hits it needs the fix on the spot.
+const bindLine = action => action === 'interact' ? 'createEngine({ bindings: { ...presets.bindings.interact } }), or engine.input.bind(presets.bindings.interact) (E / gamepad X)'
+  : `engine.input.bind('${action}', ['KeyX'])`;
 const SETUP_FIX = "e.g. engine.use(interactions({ ...presets.interactions.nearest })) (import { presets } from 'threedog'), or interactions({ pick: 'nearest' | 'facing' | 'aim' | fn })";
 
 export class Interactions {
@@ -50,7 +58,7 @@ export class Interactions {
     this.engine = engine;
     this.action = action;
     this.radius = radius;
-    this.promptHeight = promptHeight ?? engine.style.ui?.promptHeight ?? 2.4;
+    this.promptHeight = promptHeight ?? 2.4;
     /**
      * How the interaction in front of the actor is chosen; can be swapped at runtime (first person: 'aim', top-down: 'nearest') @type {'nearest' | 'facing' |
      * 'aim' | Function}
@@ -81,6 +89,10 @@ export class Interactions {
     this._shown = false;
     /** The hold in progress { id, action, seconds, progress (0-1) }, null when none. Read-only: releasing the key stops it @type {any} */
     this.holding = null;
+    /** @internal dev: an add since the last key check */ this._keysDue = false;
+    /** @internal ids of the once items already used; _counted: counter name -> what uses added. The saved state, so both follow a load and a new game */
+    this._spent = new Set(); this._counted = new Map();
+    engine.saves.register('interactions', { version: 1, save: () => ({ spent: [...this._spent], counted: Object.fromEntries(this._counted) }), load: d => this._load(d) });
   }
 
   /**
@@ -90,38 +102,73 @@ export class Interactions {
    * radius defaults to interactions({ radius }) (2.5 m; Infinity = from anywhere, usually with approach). Add two with different actions to give one object
    * two verbs. hold: seconds the key must stay down (progress goes to the prompt; release, leaving reach or disabled interrupts it: interaction:interrupt).
    * approach: true walks the player there first (walkTo, stops 1.2 m away), then uses it. Returns a handle { remove() }.
+   * once: true hides the object after a use and it cannot be used again (onUse returning { ok: false } leaves it); saved, and back on a new game. The save
+   * knows it by id, else the object's name; development throws when it has neither. counter: name of a HUD counter that each use
+   * adds 1 to (hud.add; nothing without hud()); declare it once at setup with hud.counter(name, { label, value: 0, max }), not on session:start.
    * label, enabled and onUse are called with (object, { actor }): actor is the world record id of who asks / uses it (engine.actor for the local user,
    * a net peer's or an NPC's id when they run interaction.use), so per-actor rules never read engine.player.
    * @example engine.interactions.add(door, { label: (o, { actor }) => owns(actor) ? 'Open' : 'Knock', onUse: (o, { actor }) => engine.ops.run('door.open', { id: o.name }, { actor }) });
    * @example engine.interactions.add(door, { label: 'Open', onUse: open });
    * engine.interactions.add(door, { label: 'Lock', action: 'lock', enabled: () => hasKey, onUse: lock }); // a second verb: define the 'lock' action's key
    * first
+   * @example engine.interactions.add(shell, { id: 'shell-1', label: 'Pick up', once: true, counter: 'shells' });   // a mesh you built: gone after E, counted
    * @example engine.interactions.add(well, { label: 'Pump', hold: 1.5, onUse: fill });                  // keep E down 1.5 s
    * engine.interactions.add(clerk, { label: 'Talk', radius: Infinity, approach: true, onUse: talk });   // from anywhere: walk over, then talk
    * @example // onUse may return a result; interaction.use hands it back as value. Returning { ok: false, code } (failure(code)) fails the op with that code:
    * const r = engine.ops.run('interaction.use'); if (!r.ok) say(r.code) // 'full' for a pickup in a full bag
    */
   add(target, opts = {}) {
-    readParams('interactions.add()', keysSchema(['id', 'label', 'radius', 'action', 'onUse', 'enabled', 'height', 'hold', 'approach']), opts);
-    const { label = '', radius = this.radius, action = this.action, onUse, enabled = () => true, height, hold = 0, approach = false } = opts;
+    readParams('interactions.add()', keysSchema(['id', 'label', 'radius', 'action', 'onUse', 'enabled', 'height', 'hold', 'approach', 'once', 'counter']), opts);
+    const { label = '', radius = this.radius, action = this.action, onUse, enabled: allowed = () => true, height, hold = 0, approach = false, once = false, counter } = opts;
     if (!(typeof hold === 'number' && hold >= 0)) throw codedError('interaction-option', `interactions.add(): hold is the seconds the key stays down (hold: 1.5), got ${JSON.stringify(hold)}`, TypeError);
     if (!(radius > 0)) throw codedError('interaction-option', `interactions.add(): radius is meters > 0 (Infinity = from anywhere), got ${radius}`, TypeError);
-    // stable id for the interaction.use op: given, else the world record being built (pickup, NPC, entity), else a running number
-    let id = opts.id ?? this.engine.world?.buildingId ?? 'interaction' + (++this._seq);
+    if (counter !== undefined && !(typeof counter === 'string' && counter)) throw codedError('interaction-option', `interactions.add(): counter is the name of a HUD counter (counter: 'shells'), got ${JSON.stringify(counter)}`, TypeError);
+    // stable id for the interaction.use op: given, else the world record being built (pickup, NPC, entity), else (once: the save knows it by id) the mesh's
+    // name, else a running number. The number counts adds over the page's life, so it means another thing after a rebuild: a once item kept under one
+    // comes back after a load while its count stays, or hides the wrong thing. So once refuses it in development, where the fix is one word
+    let id = opts.id ?? this.engine.world?.buildingId ?? (once && target?.name || null);
+    if (once && DEV && (id == null || this.get(id))) throw codedError('interaction-option', `interactions.add(): a once item is saved by its id, and this one has ${id == null ? 'none' : `the same id as another ('${id}')`}. Give each a stable one: { id: 'shell-3', once: true }, or set mesh.name`, TypeError);
+    id ??= 'interaction' + (++this._seq);
     if (this.get(id)) id += '#' + (++this._seq);
     let object = target;
     if (!target?.isObject3D) { object = new THREE.Object3D(); vec3(target, object.position); }
     // a fixed position never moves: its world position is known now; an object is measured once per pass (_at)
-    const it = { id, object, label, radius, action, onUse, enabled, height, hold, approach: !!approach, _p: new THREE.Vector3(), _at: target?.isObject3D ? -1 : Infinity,
+    // a used once item is simply not enabled: pick, the hold, describe and the op's can all ask enabled, so none of them needs a rule of its own
+    const enabled = once ? (o, c) => !this._spent.has(id) && allowed(o, c) : allowed;
+    const it = { id, object, label, radius, action, onUse, enabled, height, hold, approach: !!approach, once: !!once, counter, _p: new THREE.Vector3(), _at: target?.isObject3D ? -1 : Infinity,
       _n: this._order++, _en: null, _ix: null, _lx: NaN, _lz: NaN, _par: undefined };
     if (!target?.isObject3D) it._p.copy(object.position);
+    if (once && this._spent.has(id)) object.visible = false;   // added again after a load (a level rebuilt): still gone
     this._byId.set(id, it);
     this._index(it);
     return { remove: () => { if (it._gone) return; it._gone = true; this._byId.delete(it.id); this._unindex(it); if (this.current === it) this.current = null; } };
   }
+  /** @internal Every use ends here (key, click, hold, approach, op): once and counter count only a use that went through */
+  _run(it, actor) {
+    const r = it.onUse?.(it.object, { actor });
+    if (r?.ok === false) return r;
+    if (it.counter && this.engine.hud) { this.engine.hud.add(it.counter); this._counted.set(it.counter, (this._counted.get(it.counter) ?? 0) + 1); }
+    // shortcut: once lives on the local peer (interaction.use is net: 'local'); a thing all peers share in a net game is a pickup (the host decides)
+    if (it.once) { this._spent.add(it.id); it.object.visible = false; }
+    return r;
+  }
+  /**
+   * @internal Load or new game. A counter gets the difference, not a value: its base is the game's (hud.counter(name, { value })), this module only knows
+   * what uses added. Only things whose state changed are shown or hidden: a once item the game hid itself stays hidden
+   */
+  _load({ spent, counted }) {
+    const was = this._spent; this._spent = new Set(spent);
+    for (const it of this._byId.values()) if (it.once && was.has(it.id) !== this._spent.has(it.id)) it.object.visible = !this._spent.has(it.id);
+    for (const name of new Set([...this._counted.keys(), ...Object.keys(counted)])) {
+      const d = (counted[name] ?? 0) - (this._counted.get(name) ?? 0);
+      if (d) this.engine.hud?.add(name, d);
+    }
+    this._counted = new Map(Object.entries(counted));
+  }
   /** @internal File a new item: unbounded reach in the plain list, else in the cells (a followed one is placed for real on the next refresh) */
   _index(it) {
     this._actions.set(it.action, (this._actions.get(it.action) ?? 0) + 1);
+    this._keysDue = true;
     if (it.radius === Infinity) { this._wide.add(it); return; }
     // a fixed one is filed at its position; a followed one at its own xz (_ix), apart from _p, the exact per-pass measurement
     it._en = { id: '#' + it._n, position: it._at === Infinity ? it._p : (it._ix = { x: NaN, z: NaN }), it };
@@ -274,20 +321,33 @@ export class Interactions {
     this._pass = ++this._passes;
     try { this._update(); } finally { this._pass = 0; }
   }
+  /**
+   * @internal Dev: an interaction whose action has no key cannot be reached by any player, yet everything else about it works, so nothing else would say so.
+   * Thrown from the frame hook, it freezes gameplay and shows in engine.error, describe() and the test tools. Only once running: code right after
+   * `await engine.start()` may still bind. Release builds skip it; there the op and the prompt still say so.
+   */
+  _checkKeys() {
+    this._keysDue = false;
+    for (const a of this._actions.keys()) {
+      if (this.engine.input.isUnbound(a)) throw codedError('interaction-no-key', `interactions: action '${a}' has no key, so the player can never use what was added to it. Add: ${bindLine(a)}`);
+    }
+  }
   /** @internal */
   _update() {
+    if (DEV && this._keysDue && this.engine.phase === 'running') this._checkKeys();
     this.options.length = 0;
     const best = this.current = this._actions.size > 1 ? this._perAction() : this.pick();
     if (best && this._actions.size === 1) this.options.push({ action: best.action, id: best.id, label: labelOf(best, this.engine.actor) });
     const input = this.engine.input;
     const part = this.engine.ui.get('prompt');
     if (!best || !input.enabled || !part) { if (this._shown) part?.hide(); this._shown = false; return; }
-    const label = labelOf(best, this.engine.actor), key = input.label(best.action);
+    // never an empty name: an action that needs a key says it has none; one with no key on purpose (a touch button, click only) shows just its label
+    const label = labelOf(best, this.engine.actor), key = input.label(best.action) || (input.isUnbound(best.action) ? this.engine.t('input.noKey') : '');
     best.object.getWorldPosition(V); V.y += best.height ?? this.promptHeight;
     const s = worldToScreen(this.engine, V);
     // progress: the running hold on this one (0-1), 0 for a hold not started, null for a plain press
     const progress = this.holding?.id === best.id ? this.holding.progress : best.hold > 0 ? 0 : null;
-    part.update({ id: best.id, action: best.action, key, label, text: `${key} · ${label}`, x: s.x, y: s.y, onScreen: s.onScreen, use: this._use, options: this.options, progress });
+    part.update({ id: best.id, action: best.action, key, label, text: key ? `${key} · ${label}` : label, x: s.x, y: s.y, onScreen: s.onScreen, use: this._use, options: this.options, progress });
     this._shown = true;
   }
   /** @internal Several actions: fill options, return the default action's pick (else the first found) for the prompt */
@@ -332,13 +392,17 @@ const INTERACTION_PARAMS = {
 export function interactions(opts) {
   const o = readParams('interactions', INTERACTION_PARAMS, opts ?? {});
   let i = null;
-  return { name: 'interactions', type: 'rules', provides: ['interactions'], label: 'Interactions', params: INTERACTION_PARAMS, options: o, noSkip: 'input and prompt state only', stage: 'gameplay',
+  return { name: 'interactions', type: 'rules', provides: ['interactions'], optional: ['hud'], label: 'Interactions', params: INTERACTION_PARAMS, options: o, noSkip: 'input and prompt state only', stage: 'gameplay',
     // o: the schema defaults are filled in, the class repeats none
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.interactions': '交互' }, en: { 'module.interactions': 'interactions' } }); i = new Interactions(e, o, ctx.track); defineUse(e, i); return i; },
     fixed(dt) { i.fixed(dt); }, frame() { i.update(); },
     // interactions are "weak" info: when an NPC, pickup or entity already reported the same object, only add "interactable: xxx"
     describe(e, ctx) {
-      for (const it of i._byId.values()) if (it.enabled(it.object, { actor: e.actor })) { const use = labelOf(it, e.actor); ctx.near(it.object, { name: use, kind: 'interactable', use }, true); }
+      // no key: not "interactable", and no plain "interact: X" on an NPC's line, because no player input reaches it
+      for (const it of i._byId.values()) if (it.enabled(it.object, { actor: e.actor })) {
+        const name = labelOf(it, e.actor), noKey = e.input.isUnbound(it.action);
+        ctx.near(it.object, { name, kind: noKey ? 'noKey' : 'interactable', use: noKey ? `${name} (no key bound for '${it.action}')` : name }, true);
+      }
       if (i.current) return { current: labelOf(i.current, e.actor) };
     } };
 }
@@ -354,6 +418,8 @@ function defineUse(e, i) {
       const it = find(id, action, ctx);
       if (!it) return id === undefined ? 'nothingNear' : 'unknown';
       if (!it.enabled(it.object, { actor: ctx.actor })) return 'disabled';
+      // the local player only: a net peer or an NPC does not go through this page's keys. The bridge and tests are refused too, so `ops` never shows a ✓ no player can do
+      if (ctx.actor === e.actor && e.input.isUnbound(it.action)) return { code: 'noKey', facts: { action: it.action, fix: bindLine(it.action) } };
       if (ctx.actor === e.actor && !e.input.enabled) return 'inputLocked';
       if (it.approach && !walkerOf(e, ctx.actor)) return 'cannotWalk';
       const p = e.actorPosition(ctx.actor);
@@ -367,13 +433,13 @@ function defineUse(e, i) {
     // approach from afar: the value is { approaching } (a Promise of onUse's result after arrival, or the walk's { status } when it did not arrive)
     run(e, { id, action }, ctx) {
       const it = find(id, action, ctx);
-      if (!it.approach) return it.onUse?.(it.object, { actor: ctx.actor });
+      if (!it.approach) return i._run(it, ctx.actor);
       const ch = walkerOf(e, ctx.actor), q = it.object.getWorldPosition(new THREE.Vector3());
-      if (Math.hypot(q.x - ch.position.x, q.z - ch.position.z) <= APPROACH_ARRIVE + 0.3) return it.onUse?.(it.object, { actor: ctx.actor });
+      if (Math.hypot(q.x - ch.position.x, q.z - ch.position.z) <= APPROACH_ARRIVE + 0.3) return i._run(it, ctx.actor);
       // used after arrival, so checked again then: removed or disabled while walking = not used
-      return { approaching: ch.walkTo(q, { arrive: APPROACH_ARRIVE }).then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? it.onUse?.(it.object, { actor: ctx.actor }) : r) };
+      return { approaching: ch.walkTo(q, { arrive: APPROACH_ARRIVE }).then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? i._run(it, ctx.actor) : r) };
     },
     offers(e, ctx) { const it = find(undefined, undefined, ctx); return it ? [{ id: it.id }] : []; },
-    reasons: { unknown: 'No interaction with this id', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A window or dialogue locks input' },
+    reasons: { unknown: 'No interaction with this id', noKey: 'Its action has no key bound, so the player cannot reach it', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A window or dialogue locks input' },
   });
 }

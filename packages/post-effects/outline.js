@@ -103,10 +103,10 @@ function apply(pass, p) {
 /**
  * Dark lines (cartoon look), hdr slot, before bloom so the glow does not blur the lines.
  * mode 'depth' (default): silhouettes where depth jumps; 'normal': creases where surface normals turn (the scene is drawn once more with
- * normals; costly, off by default on low-tier devices); 'both': either. Objects can opt out of the lines with offLayer.
+ * normals; heavy on weak devices); 'both': either. Objects can opt out of the lines with offLayer.
  * @example
- * engine.look.post.add(outline({ enabled: true, color: 0x222222, thickness: 1.5 }))
- * engine.look.post.add(outline({ enabled: true, mode: 'both', wobble: 1.5, offLayer: OUTLINE_OFF_LAYER }))   // hand-drawn; then: sky.layers.enable(OUTLINE_OFF_LAYER)
+ * engine.post.add(outline({ enabled: true, color: 0x222222, thickness: 1.5 }))
+ * engine.post.add(outline({ enabled: true, mode: 'both', wobble: 1.5, offLayer: OUTLINE_OFF_LAYER }))   // hand-drawn; then: sky.layers.enable(OUTLINE_OFF_LAYER)
  * @param {{ color?: any, thickness?: number, strength?: number, mode?: 'depth' | 'normal' | 'both', fadeWithDistance?: boolean, wobble?: number,
  *   offLayer?: number | null, enabled?: boolean, order?: number }} [o]
  *   fadeWithDistance: lines fade out in the far 40..90% of the camera range (default true); wobble: line jitter in pixels (0 = straight);
@@ -114,7 +114,7 @@ function apply(pass, p) {
  * @returns {PostEffect}
  */
 export function outline({ color = 0x222222, thickness = 1, strength = 0.8, mode = 'depth', fadeWithDistance = true, wobble = 0, offLayer = null, enabled, order = 10 } = {}) {
-  return { name: 'outline', slot: 'hdr', order, enabled, needsDepth: true, costly: mode !== 'depth', params: { color, thickness, strength, mode, fadeWithDistance, wobble, offLayer },
+  return { name: 'outline', slot: 'hdr', order, enabled, needsDepth: true, params: { color, thickness, strength, mode, fadeWithDistance, wobble, offLayer },
     create: ({ scene, camera, params }) => { const pass = new OutlinePass(scene, camera, params); apply(pass, params); return pass; },
     update: apply, node: outlineNode };
 }

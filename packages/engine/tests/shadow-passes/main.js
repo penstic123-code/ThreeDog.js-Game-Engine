@@ -68,7 +68,7 @@ async function run(opts) {
   e.pause();
   const out = { backend: e.describe().renderer.backend };
   out.off = measure(e);
-  e.look.post.replace([ao({ enabled: true })]);
+  e.post.add(ao({ enabled: true }));
   out.ao = measure(e);
   // every third frame on request: the scene pass must still use up the request although the passes after it hold redraws
   setShadowUpdate(e.renderer, e.scene, { auto: false });

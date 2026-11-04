@@ -214,11 +214,18 @@ export class Input {
   _known(action) {
     const a = this.actions.get(action);
     if (!a) { warnMissing('action', action, [...this.actions.keys()]); return; }
-    if (DEV && !a.optional && !this.keysOf(action).length && !this._keys.size(action)) {
+    if (DEV && this.isUnbound(action)) {
       warnOnce(coded('input-unbound', `input: '${action}' (context '${a.context}'${a.by ? `, declared by '${a.by}'` : ''}) is read but no key is bound, so it never fires. `
         + `Fix: engine.input.bind('${action}', ['KeyX']) or createEngine({ bindings: { ${action}: ['KeyX'] } }); a presets.bindings.* map may cover it`), `input-unbound:${action}`);
     }
   }
+  /**
+   * True when an action needs a key and has none, so no player input can fire it. Not for an optional action, and not for one bound to [] on purpose
+   * (a mouse-only game): "no key at all" is the fault, whichever key the game or the player chose is not.
+   * @param {string} action @returns {boolean}
+   * @example if (engine.input.isUnbound('interact')) engine.input.bind(presets.bindings.interact);
+   */
+  isUnbound(action) { return !this.actions.get(action)?.optional && !this.keysOf(action).length && !this._keys.size(action); }
   /** Key name shown in the UI, e.g. "E" @param {string} action @returns {string} */
   label(action) { return keyLabel(this, action); }
   /** Which copy to read: the snapshot inside fixed steps, this frame's latest state elsewhere @internal */
@@ -258,12 +265,11 @@ export class Input {
    */
   push(name, opts) { return pushContext(this, name, opts); }
   /**
-   * describe().input: the context stack, declared actions nobody bound (unbound; optional ones left out) and the player's rebindings
+   * describe().input: the context stack, declared actions nobody bound (unbound: isUnbound) and the player's rebindings
    * @returns {{ stack: string[], unbound: string[], rebound: Record<string, string[]> }}
    */
   describe() {
-    const unbound = [];
-    for (const [n, a] of this.actions) if (!a.optional && !this.keysOf(n).length) unbound.push(n);
+    const unbound = [...this.actions.keys()].filter(n => this.isUnbound(n));
     return { stack: this._stack.map(c => (c.owner && c.owner !== c.name ? `${c.name}(owner: ${c.owner})` : c.name)), unbound, rebound: this.rebound() };
   }
   /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
@@ -289,7 +295,7 @@ export class Input {
   /** @internal true while someone holds this action's gate */
   _gated(action) { const g = this._gateStack ??= this.engine.stacks?.has('input.gate') ? this.engine.stacks.get('input.gate') : null; return !!g && g.size(action) > 0; }
   /**
-   * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore look/zoom @returns {boolean}
+   * False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore picture/zoom @returns {boolean}
    */
   get enabled() { return this._stack.every(c => c.pass); }
 

@@ -1,12 +1,12 @@
 # Engine API index (generated, do not edit by hand; produced by npm run map)
 
-> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-style · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-style-from-reference · 36-sky-ground-plant-looks · 37-terrain-look-hooks · 38-environment-look-hooks · 40-scene · 41-thing-registry · 42-terrain-shape · 43-shader-patches-surface-looks · 44-water-weather-look-hooks · 45-cascaded-shadows · 46-blender-art-route · 47-island-snow-backdrop · 48-make-material · 49-game-module-contract · 50-own-renderer · 51-capability-catalog · 52-look · 53-ground-up-close · 54-three-idioms · 55-mods-time-wrap · 56-webgpu-tsl · 57-control · 58-input · 59-depth-post-effects · 60-judge-the-picture
+> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): 01-new-game · 02-npc · 03-items-pickups · 04-quests · 05-props-bake · 06-clock-events · 07-flow-scenes-pause · 08-weather-sky · 09-materials-lights-models · 10-blender-level · 11-vehicles · 12-navmesh · 13-animation · 14-custom-module · 15-perf · 16-dev-bridge · 18-world · 19-shooting-picking · 20-content-actions-save · 21-camera · 22-shop-gold · 23-ops · 26-ui-parts · 27-net · 28-terrain · 29-grid · 30-templates · 31-audio · 32-action-game · 33-stream-sources · 34-environment-lighting · 35-picture-from-reference · 36-sky-ground-plants · 37-terrain-hooks · 38-environment-hooks · 40-scene · 42-terrain-shape · 43-shader-patches-surfaces · 44-water-weather-hooks · 45-cascaded-shadows · 46-blender-art-route · 47-island-snow-backdrop · 49-game-module-contract · 50-own-renderer · 51-capability-catalog · 52-around-the-picture · 53-ground-up-close · 54-three-idioms · 55-mods-time-wrap · 56-webgpu-tsl · 57-control · 58-input · 59-depth-post-effects · 60-judge-the-picture · 61-deploy · 62-picture-code · 63-third-person-start · 64-particles
 > The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types are in `types/*.d.ts`.
 > With no matching recipe: read this page first: the core everyday API + one line per core object / module (listing method names). For the one you need, **read only that page** `api/<name>.md` (methods, parameters, properties and data structures are all in it).
 > Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from 'threedog'` (the engine package's own examples use relative paths); a module that is not installed is undefined, so use `engine.xxx?.method()`.
 
 ## Core everyday API (all methods, properties, createEngine options and how to write a module are in [api/engine.md](api/engine.md))
-- `createEngine(opts: EngineOptions) → Engine` — creates the engine (core only); options: canvas style loading saveKey headless budget …
+- `createEngine(opts: EngineOptions) → Engine` — creates the engine (core only); options: canvas ui loading saveKey headless budget …
 - `openWorld(opts: OpenWorldOptions) → ModuleDef[]` — open-world preset (world and environment + basic modules; add gameplay modules yourself; `xxx: false` turns one off), options in [api/openWorld.md](api/openWorld.md)
 - `engine.use(...mods: (ModuleInput | { replaces })[])` — Install one or more modules
 - `engine.start() → Promise<this>` — Start: initialize modules, preload assets, wait for the world to be ready
@@ -31,7 +31,7 @@
 
 ## Core objects (engine.xxx, no install needed)
 - [`engine.events`](api/events.md) the event bus: traceFocus note trace recent on once emit; event table
-- [`engine.input`](api/input.md) Input: read by "action": action bind touchButton simulate rebind rebound keysOf label down pressed released pressedRaw push describe …
+- [`engine.input`](api/input.md) Input: read by "action": action bind touchButton simulate rebind rebound keysOf isUnbound label down pressed released pressedRaw push …
 - [`engine.clock`](api/clock.md) calendar seconds and "after how long / every how long": after every
 - [`engine.vars`](api/vars.md) story flags and counters (autosaved): flag setFlag counter bump
 - [`engine.saves`](api/saves.md) engine.saves handles saving: register queue flush collect check apply save load list remove export import exportFile importFile …
@@ -42,19 +42,19 @@
 - [`engine.jobs`](api/jobs.md) engine.jobs queues build work in a binary heap: add run
 - [`engine.stream`](api/stream.md) engine.stream builds on demand by space: only entries n…: add setRadius source teleport readyCheck sources
 - [`engine.budget`](api/budget.md) performance budget (turned on by createEngine: enable disable metric limitOf report checkStartup values byTag
-- [`engine.post`](api/post.md) PostFX: object targets get setAntialias list render
+- [`engine.post`](api/post.md) PostFX: object targets add get own setAntialias list render
 - [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type has voidY forEachCollider viewRange chunkCollision staticTrimeshes staticVersion navGeometry
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
-- [`engine.terrain`](api/terrain.md) terrain() Procedural terrain, data part: setViewChunks setDensity view retry rebuild edit isReadyAround
-- [`engine.terrainLook`](api/terrainLook.md)  Draws the terrain chunks: setMaterial
-- [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: view rebuild setShadowRing define get list isRemoved removeInstance restoreInstance instanceAt
-- [`engine.vegetationLook`](api/vegetationLook.md)  Draws the plants: mesh kind
-- [`engine.sky`](api/sky.md) sky() Sky dome, sun / moon light and fog drawn from the calendar's time: setShadowMapSize
+- [`engine.terrain`](api/terrain.md) terrain() Procedural terrain, data part: recolor setViewChunks setDensity view retry rebuild edit isReadyAround
+- [`engine.terrainDraw`](api/terrainDraw.md)  Draws the terrain chunks: recolor
+- [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: sway color view rebuild setShadowRing define get list isRemoved removeInstance restoreInstance instanceAt
+- [`engine.vegetationDraw`](api/vegetationDraw.md)  Draws the plants: mesh kind
+- [`engine.sky`](api/sky.md) sky() Sky dome, sun / moon light and fog drawn from the calendar's time: keyframes clouds layer replace environment
 - [`engine.calendar`](api/calendar.md) calendar() Time of day, day, seasons and clock-time timers: at between daily onSeason untilMark
-- [`engine.weather`](api/weather.md)  Weather state: setAuto set label
-- [`engine.weatherLook`](api/weatherLook.md)  Weather look
-- [`engine.water`](api/water.md) water() Water surface
+- [`engine.weather`](api/weather.md)  Weather state: define setAuto set label
+- [`engine.weatherDraw`](api/weatherDraw.md)  Weather drawing
+- [`engine.water`](api/water.md) water() Water surface: shader normalMap
 - [`engine.world`](api/world.md)  World data: add origin idOf get set move remove query forEachNear present view refresh …
 - [`engine.net`](api/net.md)  net: reconnect
 - [`engine.grids`](api/grids.md)  grids: add get list define preview
@@ -80,8 +80,7 @@
 - [`engine.lightPool`](api/lightPool.md) lightPool() Light pool: add usage
 - [`engine.content`](api/content.md) content() Content loading: load condition test run place where template fields spawn
 - [`engine.flow`](api/flow.md) flow() Game flow and scene transitions: define go transition
-- [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter bar remove
+- [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter add bar remove
 
 ## Other
-- [Style](api/style.md): all look options (sky, weather, water, terrain, UI, materials, particles, sound, models)
-- [Utility functions](api/tools.md): weather presets world net fakeNetwork webSocket grids screenToGround EASINGS sampleGrid ease checkOptions contentParts readParams threePatches defineLookPart createTerrain terrainMaterial mergeColored applyEffects MATERIAL_PURPOSES makeMaterial bakeVertexAO materialPatches …
+- [Utility functions](api/tools.md): PICTURE_SLOTS weather presets world net fakeNetwork webSocket grids screenToGround EASINGS sampleGrid ease checkOptions contentParts readParams threePatches createTerrain terrainMaterial mergeColored applyEffects rampTexture bakeVertexAO materialPatches toast …

@@ -55,7 +55,7 @@ engine.cameraRig.shoulder = -0.7;       // switch shoulders at any time (plain p
 engine.cameraRig.frame(enemy.object);   // lock-on: turn to "behind the player, looking at the enemy"; frame(null) lets go
 ```
 - **`shoulder`**: meters the aim point (and so the camera) moves to the right along `right()`; negative = left, 0 = centered (default).
-- **`pointerLock`** (default false): a click on the canvas locks the mouse, so moving it turns the view with no dragging; Esc releases. Not on phones. If the browser refuses the lock the camera falls back to dragging; `describe().camera.pointerLock` is a state machine: `state` is `off` / `unsupported` / `waiting-click` / `requesting` / `locked` / `refused`, plus `covered` (what sits on the canvas centre and eats the click), `cameraOverride` (a takeover blocks locking) and `lastFailure { reason, agoSec }`; the text line shows the same.
+- **`pointerLock`** (default false): a click on the canvas locks the mouse, so moving it turns the view with no dragging; Esc releases, and `engine.page.releaseLock()` releases from code without opening the pause menu. Not on phones. If the browser refuses the lock the camera falls back to dragging; `describe().camera.pointerLock` is a state machine: `state` is `off` / `unsupported` / `waiting-click` / `requesting` / `locked` / `refused`, plus `covered` (what sits on the canvas centre and eats the click), `cameraOverride` (a takeover blocks locking) and `lastFailure { reason, agoSec }`; the text line shows the same.
   The press that locks is swallowed (no `Mouse0`, no click) so it cannot attack or fire; `swallowLockClick: false` delivers it.
   Leave it off when the mouse buttons are for UI or clicking the ground.
 - **`yaw` means which side of the player the camera is on**: `camera = focus + (sin yaw, cos yaw) * distance`, so the camera looks along
@@ -78,7 +78,7 @@ engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the sam
   Default: `'shorten'` when `minPitch < 0`, otherwise `'raise'` (the older behaviour, fine for a camera that never looks up).
 - **Walls** (with `collision()` installed) pull the arm in at once and let it out slowly; the shortest arm is `collision({ cameraMin })` (default 1.5 m).
   Every `addCircle` / `addBox` / `addSegment` collider counts as a wall. Give the ones the camera may pass through `occluder: false`
-  (`engine.collision.addCircle(tree, { radius: 0.4, occluder: false })`): walkers are still stopped, the arm ignores them. A dense forest of
+  (`engine.collision.addCircle(tree, { radius: 0.4, occluder: false })`, or `collide: { circle: 0.4, occluder: false }` on a content prop or template): walkers are still stopped, the arm ignores them. A dense forest of
   blocking trunks collapses the camera onto the player; `collision({ canopyHeight })` covers only the terrain's own trees.
 - **Close-up**: when the camera ends up nearer than `hideTargetNear` (default 0.9 m) to the look point, the followed object is hidden from the
   camera (shadow stays, layer `hideLayer`); `hideTargetNear: 0` turns it off.

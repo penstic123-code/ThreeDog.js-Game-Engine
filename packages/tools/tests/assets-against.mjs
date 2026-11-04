@@ -9,7 +9,7 @@ export async function run({ check }) {
     report: { colliders: ['col_wall', 'col_box'], clips: [{ name: 'Idle' }], materials: [{ name: 'wood' }], bounds: [[0, 0, 0], [10, 3, 10]], ...o.report },
   });
   const same = compareModels(model(), model());
-  check(same.length === 0, 'identical files have no differences: ' + JSON.stringify(same));
+  check('identical files have no differences: ' + JSON.stringify(same), same.length === 0);
   const codes = compareModels(model({ level: { spawns: [], triggers: [{ name: 'trigger_gate', position: [9, 0, 0] }], records: [] }, report: { colliders: ['col_wall'], clips: [], bounds: [[0, 0, 0], [20, 3, 10]] } }), model()).map(i => i.code);
-  for (const c of ['missing-col--collider', 'missing-template-id-node', 'missing-spawn-point', 'missing-animation-clip', 'moved-point', 'size-changed']) check(codes.includes(c), 'flags ' + c + ' (got ' + codes.join(',') + ')');
+  for (const c of ['missing-col--collider', 'missing-template-id-node', 'missing-spawn-point', 'missing-animation-clip', 'moved-point', 'size-changed']) check('flags ' + c + ' (got ' + codes.join(',') + ')', codes.includes(c));
 }

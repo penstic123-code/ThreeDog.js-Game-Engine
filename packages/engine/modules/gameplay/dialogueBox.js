@@ -1,7 +1,7 @@
 // Default 'dialogue' UI part: a box at the bottom with the speaker, the typed text, numbered choice buttons (the one under the choice cursor has
 // .is-cursor) and a "continue" hint.
 // It only draws what Dialogue hands it; a click calls d.advance() / d.choose(i), which run the ops dialogue.advance / dialogue.choose.
-// Look: CSS classes .threedog-dlg* (style.ui.css). A whole different box: engine.ui.set('dialogue', yourPart) (recipes/26-ui-parts.md).
+// Picture: CSS classes .threedog-dlg* (ui.css). A whole different box: engine.ui.set('dialogue', yourPart) (recipes/26-ui-parts.md).
 import { injectUICSS } from '../../ui/UI.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 /** @import { DialogueView } from '../../types/gameplay' */

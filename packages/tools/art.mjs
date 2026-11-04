@@ -1,6 +1,7 @@
 // threedog art: reuse art code from another place by COPYING it into this game (no dependency, no link back).
 //   threedog art list <source>                                   what the source offers: exported functions + the first JSDoc line
 //   threedog art copy <source> [names...] [--to art/] [--force] [--dry]
+//   threedog art board [-w game] [--out file.html] [--json] [--live] [--lib dir]   every art resource of this game on one page (art-board.mjs)
 // <source>: another game folder (its art/ subfolder is used when it has one), any local folder or one file (./x, ../x, C:/x, /x), or an installed
 //   package name (looked up in node_modules from here upward). names: a file ("tree", "tree.js", "props/well.js", "models/well.glb") or an exported
 //   function name ("pine"); none = every module of the source.
@@ -109,7 +110,8 @@ export function listArt(source, cwd) {
 /** Pick the files named on the command line (file path with or without extension, or an exported function name) */
 function pick(src, names) {
   const all = src.files ?? walk(src.root), code = all.filter(f => CODE.includes(extname(f)));
-  if (!names.length) return src.files ?? code;
+  // a .glsl shader file is code a folder copy takes along too (a picture entry can be one)
+  if (!names.length) return src.files ?? [...code, ...all.filter(f => extname(f) === '.glsl')];
   return names.map(n => {
     const want = posix(n).replace(/^\.\//, '');
     const byPath = all.find(f => { const r = posix(relative(src.root, f)); return r === want || r.replace(/\.(m?js)$/, '') === want || basename(f) === want || basename(f).replace(/\.(m?js)$/, '') === want; });
@@ -200,11 +202,12 @@ export function copyArt(source, names = [], { to = 'art', force = false, dry = f
   return result;
 }
 
-function cli(argv) {
+async function cli(argv) {
   const [sub, ...rest] = argv;
-  const usage = 'Usage: threedog art list <source> · threedog art copy <source> [names...] [--to art/] [--force] [--dry]';
+  const usage = 'Usage: threedog art list <source> · threedog art copy <source> [names...] [--to art/] [--force] [--dry] · threedog art board [-w game] [--out file.html] [--json] [--live] [--lib dir]';
   const cwd = process.cwd(), show = p => posix(relative(cwd, p)) || '.';
   try {
+    if (sub === 'board') return await (await import('./art-board.mjs')).boardCli(rest, cwd);   // imported here: it imports lib.mjs, which imports this file
     // one strict parse (lib/cli-args.mjs): `art list` takes no options, `art copy` --to / --force / --dry
     const { opt, rest: pos } = parseOptions(rest, sub === 'copy' ? { positional: true, flags: ['force', 'dry'], values: ['to'] } : { positional: true });
     const flags = new Set(Object.keys(opt).map(k => '--' + k)), to = opt.to;
@@ -240,4 +243,5 @@ function cli(argv) {
   } catch (e) { console.error('✗ ' + e.message); return 1; }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) process.exit(cli(process.argv.slice(2)));
+// exitCode, not exit(): a long --json on a Windows pipe would be cut off. No top-level await: lib.mjs imports this file while it waits for art-board.mjs
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) cli(process.argv.slice(2)).then(code => { process.exitCode = code; });

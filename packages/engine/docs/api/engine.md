@@ -1,16 +1,15 @@
 # engine — createEngine and the Engine class (core)
 
-- `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required; style is the game's style (see recipes/09-style.md)
+- `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required; style is the game's style (see recipes/09-materials-lights-models.md)
 - Options `EngineOptions`:
   - `canvas?: HTMLCanvasElement | HTMLElement` Canvas element (required unless renderer is given), e.g. document.getElementById('view')
   - `renderer?: 'webgl' | 'webgpu' | EngineRenderer` 'webgl' (default): the engine builds a WebGLRenderer. 'webgpu': it builds three's WebGPURenderer (needs import 'threedog/tsl' first) and start() awaits its init(). Or a ready three.js renderer (WebGLRenderer or WebGPURenderer) used as is; canvas then defaults to renderer.domElement.
   - `fallback?: 'webgl2' | 'webgl' | 'error'` WebGPU route only: what start() does when the browser gives no WebGPU. 'webgl2' (default): the same WebGPURenderer on its WebGL2 backend, TSL keeps working; 'webgl': a WebGLRenderer instead (faster, but NodeMaterials cannot draw: start() fails if the scene has one); 'error': start() rejects.
-  - `style?: StyleInput` Style (looks only: materials, sky, lighting, post, UI look), the game's own style (import style from './style/index.js'), or a list of parts deep-merged left to right: [basePack, { sky: { sunSize: 600 } }]. Without one: neutral gray placeholders
-  - `antialias?: boolean` MSAA anti-aliasing (kept with post effects on), default style.antialias, else on for desktop and off for low-tier devices; with a renderer of your own, its own antialias. The start value is the canvas's own MSAA (no post chain while no effect is on)
+  - `antialias?: boolean` MSAA anti-aliasing (kept with post effects on), default on for desktop and off for low-tier devices; with a renderer of your own, its own antialias. The start value is the canvas's own MSAA (no post chain while no effect is on)
   - `pixelRatio?: number` Render resolution, default min(device pixel ratio, 1.5); the low tier uses at least 0.75 x device pixel ratio (never below 1). describe().render.scale reports it
   - `adaptiveResolution?: boolean` Automatically lower resolution when the frame rate is too low, default true. Never silent: a dev warning once, and describe().render.scale.autoLowered
   - `targetFps?: number` Target frame rate for automatic resolution lowering, default 55
-  - `ui?: Record<string, UIPartValue>` UI parts: replace or turn off any piece of screen UI (loading, toast, title, hud.marker, hud.counter, hud.bar). Default title screen is off. Example: `createEngine({ canvas, ui: { loading: { title: 'My Game' }, title: { title: 'My Game' }, toast: false } })`
+  - `ui?: UIOptions` All screen UI: replace or turn off any part (loading, toast, title, hud.marker, hud.counter, hud.bar; the default title screen is off), and the look of the default parts (theme, css, fonts, templates). Example: `createEngine({ canvas, ui: { loading: { title: 'My Game' }, title: { title: 'My Game' }, toast: false } })`
   - `audio?: AudioConfig` Volume of each channel, 0–1
   - `fov?: number` Camera field of view (degrees), default 55
   - `near?: number` Camera near clipping plane (meters), default 0.3
@@ -28,19 +27,19 @@
   - `movement?: Partial<MovementProfile>` Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default { radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 }
   - `threads?: 'auto' | number | false` (experimental) Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created)
   - `pauseOnBlur?: boolean` Gameplay waits while the window is in the background or the tab is hidden; default true (engine.page)
-  - `lights?: boolean` false: no default lights in the scene at all (engine.lights.sun / hemi still exist, detached, so sky and describe never see undefined); the game adds its own. Default true
+  - `lights?: boolean` false: no default lights in the scene at all (engine.lights.sun / hemi still exist, detached, so sky and describe never see undefined); the game adds its own. No light of the engine's reaches the picture. Default true
   - `batching?: false | BatchingOptions` Automatic instancing of repeated static models the engine places (engine.batching; your own meshes opt in with userData.batch = true): false turns it off; default { minCount: 8, cell: engine.stream.cellSize }
 
 ## engine methods
 - `engine.actorPosition(id?: string) → { x, y, z } | null` — Where an actor is now (default engine.actor): the player's position for 'player' (engine.focus without a player), else its model or world record position; null when unknown. Example: `engine.actor = 'boat_1'; engine.actorPosition()`
 - `engine.catalog(id?: string | { find?: string }) → any` — What this game can do, read from the existing registrations (modules, ops, save parts, describe, params schemas). No argument: the short list, an ARRAY of { id, kind, label, ops, saves, ... } (read .id, not Object.keys); a module id / op name: that entry expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md. Example: `engine.catalog().map(s => s.id);   engine.catalog('shop').ops[0].failures   // ['soldOut', 'noMoney']`
 - `engine.takeCamera(owner: string | ({ owner: string } & Partial<CameraOverride>), opts?: Partial<CameraOverride>) → OwnerHandle` — Take the camera over (camera modules leave it alone) until remove(); the latest holder is in charge, releasing hands it back to the previous one
-- `engine.mod(name: string, opts: import('./gameplay').ModOptions) → import('./gameplay').ModHandle` — The one way several systems change a shared quantity: an entry per owner, combined by layer, ended by its handle; nothing remembers an old value. Example: `engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 })   // bullet time on the enemies channel`
+- `engine.mod(name: string, opts: import('./gameplay').ModOptions) → import('./gameplay').ModHandle` — The one way several systems change a shared quantity: an entry per owner, combined by layer, ended by its handle; nothing remembers an old value. Example: `engine.time.channel('enemies'); engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 })   // bullet time on a channel the game made`
 - `engine.wrap(target: T, method: string, fn: (next, args) => any, opts?: { owner?: string }) → Handle` — The one way to change what a module's public method does without copying the module: fn(next, ...args) runs instead of it; call next(...args) for the method (do work before, after, or skip it). Several wrappers compose (the last wrapped runs first); remove() takes one out; listed in describe().wraps. Private (_) methods throw. The methods a module promises are its contract.js api. Example: `engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) => carried() + weightOf(id) * n > 30 ? false : next(id, n, o), { owner: 'weight' })`
 - `engine.setCamera(kind: CameraKind, opts?: object) → CameraRig` — Switch the camera at runtime between kinds, once a camera module is installed (openWorld installs followCamera; with none it throws camera-none naming the module to install, e.g. engine.use(fixedCamera({ position, lookAt }))): the target and horizontal heading carry over; the first-person camera hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for switching back. Passing opts rebuilds this kind of camera with the new parameters. A wrong kind throws and lists the available options. Example: `engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' : 'follow'); });`
 - `engine.use(...mods: (ModuleInput | { replaces })[])` — Install one or more modules (in order; dependencies must be installed first). A last argument { replaces: 'slot' } swaps the module that holds that exclusive slot: it is unloaded first (its handles, changes and dispose) and put back if the new install fails. Example: `engine.use(myInventory(), { replaces: 'inventory' })`
+- `engine.unuse(name: string)` — Unload one installed module: its tracked handles, its slots and ctx.mod entries, its dispose. What it added some other way stays (dev reports a picture module's leftovers). Throws while another module still requires it. To swap a holder use engine.use(mine(), { replaces: 'slot' }). Example: `engine.unuse('rain');`
 - `engine.has(name: string) → boolean` — Whether a module is installed
-- `engine.makeMaterial(purpose?: string, params?: MaterialSpec) → Material` — Material by role from this engine's style: engine.makeMaterial('prop', { color: 0x8a5a36 })
 - `engine.setGround(g: Partial<Ground>)` — Set the ground (called by the terrain and level modules); missing parts fall back to flat ground
 - `engine.surface(x: number, z: number, refY?: number) → number` / `surface(at: PositionLike, refY?: number) → number` — Ground height (meters) at (x, z); a position or object also works: engine.surface(mesh.position). For multi-layer ground (bridges, caves, interiors) pass a reference height refY: returns the highest layer not above refY + one step (0.45 m), so standing under a bridge gives the ground and standing on it gives the deck; without it the highest layer is used (as before). Procedural terrain and flat ground have one layer and ignore refY. Off the outline of terrain({ shape }) it is -Infinity (no ground there; engine.ground.has(x, z) says so as a boolean)
 - `engine.slope(x: number, z: number) → number` / `slope(at: PositionLike) → number` — Slope at (x, z); a position or object also works
@@ -72,7 +71,7 @@
 - `engine.skip(opts: SkipOptions) → Promise<{ seconds: number; clock:…` — Skip game time forward (sleep until morning, wait an hour) without stepping every fixed step. clock.after / every, sky.at / daily / between, day:start and season:change fire in time order as if stepped (each crossing once); world records with far catch up the span in one far(rec, dt). onFixed, module fixed hooks, physics and near simulation do not run; every time view (tick, real, ambient, channels, calendar) moves as if stepped. Input is locked and gameplay frozen during the skip; emits time:skip. fade 0 (default): the time has moved when skip returns. fade > 0: fade out, jump, save, fade in; the Promise resolves after the fade in (it needs frames). session.newGame / load / quit cancel a running skip: it resolves null. Example: `await engine.skip({ to: '06:00' })`
 - `engine.checkSkip(seconds: number, opts?: { ignore?: string[] }) → Promise<{ ok: boolean; code?: 'fr…` — Consistency check: engine.skip({ seconds }) vs stepping the same span in fixed steps; compares the saved state. Leaves the world at the stepped state (use a scratch playthrough or a test). Example: `const r = await engine.checkSkip(600); if (!r.ok) console.log(r.diffs);`
 - `engine.checkSave(opts?: { ignore?: string[] }) → Promise<{ ok: boolean; diffs: { p…` — Consistency check: save -> load gives the same saved state back (nothing is written to the browser). Example: `const r = await engine.checkSave(); if (!r.ok) console.log(r.diffs);`
-- `engine.describeText(opts?: { radius?, full?, path? }) → string` — The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, the game's describe.add sections, one line per module with its key counts, the engine tables such as shared / slots / look as one count line), ending with how to expand. { path: 'world.byKind' } returns one part of describe() as JSON; { full: true } returns everything (all nearby things, every module's full data). Example: `engine.describeText()   engine.describeText({ path: 'quests' })   engine.describeText({ full: true })`
+- `engine.describeText(opts?: { radius?, full?, path? }) → string` — The same information as English text, summary first: at most 30 lines (standard lines, the 5 nearest things, the game's describe.add sections, one line per module with its key counts, the engine tables such as shared / slots / owned as one count line), ending with how to expand. { path: 'world.byKind' } returns one part of describe() as JSON; { full: true } returns everything (all nearby things, every module's full data). Example: `engine.describeText()   engine.describeText({ path: 'quests' })   engine.describeText({ full: true })`
 - `engine.explain(q: { op, args?, actor? } | Record<string, any>) → { ok, code?, text, detail?, recent?, events?, … }` — Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it (reason first); detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one. Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }. Example: `engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'`
 - `engine.profile(on: boolean)` / `profile() → Record<string, number> | null` — Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per rendered frame } and resets, or null when not on
 - `engine.dispose(opts?: { keepContext?: boolean })` — Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then reclaim listeners, timers, audio, UI and GPU memory (scene, assets cache, post-processing, renderer). After that no callbacks fire and step() returns null. Safe to call repeatedly. Don't use it for level changes; use level.track(handle). The engine's own renderer gives its WebGL context back (browsers keep about 16 live ones), so that canvas cannot host a new engine; keepContext: true keeps it. A renderer passed to createEngine({ renderer }) is never released.
@@ -80,11 +79,10 @@
 
 ## engine properties (module properties are on each module page)
 - `THREE: typeof import('three')` three.js (a game can also import { THREE } from 'threedog' directly)
-- `style: Style` Style
 - `renderer: EngineRenderer` three.js renderer: WebGLRenderer, or WebGPURenderer on the WebGPU route (EngineRenderer)
 - `tier: 'low' | 'high'` Device tier: 'low' (phones, integrated graphics) / 'high'. A headless page takes it from ?threedog-tier=low/high (threedog shot / gallery / capture pass high, shot --tier low checks the low tier)
 - `scene: import('three').Scene` three.js scene
-- `lights: { sun, hemi }` Default lights (neutral without sky; the sky module drives these same two). Hide or retune them for your own lighting: `engine.lights.sun.visible = false`
+- `lights: { sun, hemi }` Placeholder lights: neutral and still, nothing moves them (the sky only gives signals). createEngine({ lights: false }) leaves them out of the scene
 - `camera: import('three').PerspectiveCamera` three.js PerspectiveCamera (class EngineCamera, core/engineCamera.js): a camera rig with projection: 'orthographic' switches it to an orthographic matrix in place (orthoSize; describe().camera.projection says which)
 - `focus: Vector3` Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the player by default), which does not follow the camera
 - `ground: Ground` Current ground
@@ -97,7 +95,7 @@
 - `moduleOrder: string[]` Execution order of module hooks (module names, first -> last), for debugging "who runs before whom"
 - `moduleStates: Record<string, 'registered' | 'initializing' | 'running' | …` Where each module is: 'registered' (init not started), 'initializing', 'running', 'failed' (init threw: its hooks never run) or 'disposed'. A module installed after start() runs no fixed / frame hook until it is 'running'; `await engine.loading.settled()` waits for that
 - `error: EngineError | null` Gameplay error in development / testing (module hooks, onFixed / onFrame / clock callbacks, event listeners): { where (location of the error), message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console
-- `disabledModules: Set<string>` Names of look / ui modules disabled after an error (a module's type decides: look and ui fail soft)
+- `disabledModules: Set<string>` Names of picture / ui modules disabled after an error (a module's type decides: picture and ui fail soft)
 - `signal: AbortSignal` The engine's cancel signal (AbortSignal): for DOM listeners write addEventListener(type, fn, { signal: engine.signal }), removed automatically on dispose()
 - `uiRoot: HTMLDivElement` UI root node: UI elements of the engine and modules hang under it (don't attach to document.body directly), the whole tree is removed on dispose()
 - `modules: Map<string, ModuleDef>` Installed modules: name -> module definition
@@ -112,7 +110,6 @@
 - `assets: Assets` Assets
 - `loading: Loading` Observable loading: every asset load, module init / isReady and track() step as a task (phase, error, source manifest)
 - `post: PostFX` Post-processing: named effects in slots (add / get / enable / list)
-- `look: Look` Every look in one place: engine.look.<part>.set / patch / replace (recipes/52-look.md)
 - `ui: UIParts` UI parts: every piece of screen UI is replaceable or off (see recipes/26-ui-parts.md)
 - `adaptive: AdaptiveState` Automatic resolution state
 - `cpuMs: number` Main-thread CPU milliseconds of the last real-time frame: input, fixed steps, frame hooks, render submission and afterRender hooks (not GPU time, not the wait for the next frame). Only the real-time loop updates it; step() does not.
@@ -141,7 +138,9 @@
 - `uniforms: EngineUniforms` This engine's shader uniforms, read by the built-in effects (wind, clouds, season, water, sky, rain). Share these objects in your own ShaderMaterial or patch instead of making your own uTime. Weather and sky write them; uTime is engine.time.now('ambient'). Example: `new THREE.ShaderMaterial({ uniforms: { uTime: engine.uniforms.uTime }, vertexShader, fragmentShader });`
 - `waterLevel: number` Global water level (meters); -Infinity when there is no water
 - `debug: DebugOverrides & { panel: DebugPanel | null }` Diagnostic overrides and view modes with an owner (override / clear / view: core, always there); panel is the F3 panel, null without the debug() module
-- `exposureDriver: ((sky: any) => number) | null` Exposure per frame from style.exposure / look.tone keyframes or function, null for a plain number; the sky module calls it with engine.sky
+- `shadows: Shadows` Shadow engineering on lights you hand in: enabled, cascades, box, budget, include (recipes/45): core, always there
+- `view: View` The camera and drawing-buffer values the engine changes on its own: manual() takes one (recipes/52): core, always there
+- `terms: Terms` Your own cloud shadow or season tint in place of the engine's (recipes/52): core, always there
 - `stateApplied: boolean` Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it: page.waitForFunction(() => window.engine?.stateApplied)
 - `headless: boolean` Whether in headless mode (createEngine({ headless: true }))
 - `paused: boolean` Whether paused (headless mode is paused by default, only step() advances)
@@ -154,15 +153,15 @@
 ## Module definition (engine.use(myModule()))
 - **ModuleDef** A module (the argument of engine.use). The name is the property name on the engine once installed. Per-frame hook order follows stage, then before / after within a stage, then install order.
   - `name: string` Module name; after install, access the object returned by install through engine[name]
-  - `type: ModuleType` What the module may own (required; core/moduleTypes.js): 'world' state, records, ops (draws nothing) / 'look' what is seen and heard (changes no game state: no ops, no world record writes) / 'actor' characters / 'rules' game logic / 'ui' panels and menus (binds no keys, no game save part) / 'net' multiplayer / 'tool' a one-shot job.
+  - `type: ModuleType` What the module may own (required; core/moduleTypes.js): 'world' state, records, ops (draws nothing) / 'picture' what is seen and heard (changes no game state: no ops, no world record writes) / 'actor' characters / 'rules' game logic / 'ui' panels and menus (binds no keys, no game save part) / 'net' multiplayer / 'tool' a one-shot job.
   - `label?: string` Display name (used by the loading screen)
   - `requires?: string[]` Capabilities this depends on: slot names another module provides ('inventory', 'world', 'sky'), never a particular module. Missing throws with both fixes: install the engine's part of that name first, or your own module with provides: ['inventory']
-  - `provides?: string[]` Capabilities this module holds while installed ("only one may hold this": 'sky', 'inventory'); engine.<slot> is its API too, so dependents keep working when a game swaps it: engine.use(mine(), { replaces: 'inventory' }). A second provider throws shared-taken. describe().shared shows the holder.
+  - `provides?: (PictureSlot | (string & {}))[]` Capabilities this module holds while installed ("only one may hold this": 'sky', 'inventory'); engine.<slot> is its API too, so dependents keep working when a game swaps it: engine.use(mine(), { replaces: 'inventory' }). A second provider throws shared-taken. describe().shared shows the holder.
   - `optional?: string[] | Record<string, string>` Optional dependencies (modules the code uses as e.xxx?. or guards with if (e.xxx); rule R16 requires listing them all). An array only registers them; written as { moduleName: 'what is lost when missing' }, start() prints a one-time development hint when one is missing; use this form when it changes gameplay results
   - `stage?: 'control' | 'ground' | 'environment' | 'gameplay' | 'effects' | 'late' | 'audio'` Hook stages, only the run order (first -> last): 'control' timeline, camera -> 'ground' terrain, level -> 'environment' weather, sky, water -> 'gameplay' interactions, dialogue, triggers -> 'effects' particles, settings, objective markers -> 'late' (default) -> 'audio' music. Within a stage use before / after, then install order.
   - `before?: string[]` Hooks run before these modules, inside one stage (ignored if not installed; use() throws on a cycle, or when the other module's stage already runs earlier)
   - `after?: string[]` Hooks run after these modules, inside one stage (ignored if not installed; use() throws on a cycle, or when the other module's stage already runs later)
-  - `critical?: boolean` The game cannot run without this module (default false): when its init() fails, engine.start() rejects with the module name and reason instead of starting a broken game. Without it a failed init is reported by severity (type look / ui: disabled and the game carries on; other types: error tiers) and start() goes on. Example: `engine.use({ name: 'saveSlots', type: 'rules', critical: true, async init(e) { await loadSlots(); } })`
+  - `critical?: boolean` The game cannot run without this module (default false): when its init() fails, engine.start() rejects with the module name and reason instead of starting a broken game. Without it a failed init is reported by severity (type picture / ui: disabled and the game carries on; other types: error tiers) and start() goes on. Example: `engine.use({ name: 'saveSlots', type: 'rules', critical: true, async init(e) { await loadSlots(); } })`
   - `explain?: Record<string, (e: Engine, value: any, query: Record<string…` Optional: answer engine.explain({ key: value }) for your own keys, e.g. explain: { quest: (e, id) => ({ ok: false, text: 'waits on step 2: ...' }) }
   - `install(e: Engine, ctx: ModuleCtx) → Api` — Install: create and return the object the game uses (engine.name). Register listeners / timers through ctx.track so they leave with the module (a use() batch that rolls back, a failed init, engine.dispose). Example: `install(e, ctx) { ctx.track(e.events.on('item:add', onAdd)); return api; }`
   - `init(e: Engine, ctx: ModuleCtx) → void | Promise<void>` — Called at startup (download things, wait for assets); may be async. ctx is the same as install's
@@ -174,8 +173,32 @@
   - `skip(dt: number, e: Engine, done: boolean)` — engine.skip moved time without stepping: advance your own time by dt fixed seconds (calendar seconds = dt x clock.speed), no per-step work. Called once per skip segment (segments end at timers and calendar clock marks); done is true on the last one: do expensive catch-up only then. Only for modules that keep time themselves (calendar, world); modules that compare against clock.now need nothing
   - `describe(e: Engine, ctx: DescribeContext) → any` — Optional: add state to engine.describe(). The (JSON-able) return value goes into the result keyed by the module name; nothing is added if it returns nothing. It may also fill in the standard fields of ctx.out, or use ctx.near() to report "nearby things"
   - `counts(e: Engine) → number | Record<string, number>` — Optional: leak-hunting counts for engine.counts(), put there under the module name (a number or an object of numbers that should not keep growing)
-  - `applyState(e: Engine, params: StateParams) → void | Promise<void>` — Optional: handle the keys of engine.applyState that this module owns (e.g. calendar handles time and season)
+  - `applyState(e: Engine, params: StateParams) → void | PositionLike | Promise<void>` — Optional: handle the keys of engine.applyState that this module owns (e.g. calendar handles time and season); for at, return the place's position
   - `dispose(e: Engine)` — Optional: called on engine.dispose() (in reverse install order). Only clean up what the core cannot: Workers, the physics world, real-time timers, Audio nodes you connected yourself. Events, onFixed / onFrame, clock timers, jobs, stream, ray registrations and GPU memory in the scene are reclaimed by the core; DOM listeners attached to engine.signal and UI attached to engine.uiRoot are cleaned up automatically too
+
+## createEngine({ ui })
+- **UIOptions** createEngine({ ui }): the look of the default parts (theme, css, fonts, templates); every other key is a part name
+  - `theme?: UITheme` CSS values of every default part
+  - `css?: string` Extra CSS, placed after every default (overrides .threedog-* classes)
+  - `fonts?: string[]` Font asset names the UI uses (engine.assets.manifest({ fonts })); loaded at start(), then written in theme.font: '"pixel", system-ui'
+  - `templates?: Record<string, UITemplate>` Replace the content of a window wholesale: inventory, quests, settings, loading, hudMarker, hudCounter, hudBar…
+- **UITheme** The CSS values of every default UI part: each key becomes the variable --threedog-<key> on engine.uiRoot
+  - `bg?: string` Background color
+  - `fg?: string` Text color
+  - `muted?: string` Secondary text color
+  - `accent?: string` Accent color
+  - `good?: string` Color for good news such as "done"
+  - `line?: string` Divider color
+  - `font?: string` Font (CSS font-family)
+  - `radius?: string` Corner radius of windows and the dialogue box (CSS, e.g. '12px')
+  - `radiusSmall?: string` Corner radius of small things: buttons, prompts, toasts, bubbles, HUD counters (CSS, default '8px')
+  - `loadingBg?: string` Loading screen background
+  - `shadow?: string` Window shadow (CSS)
+  - `shadowSmall?: string` Shadow of small things: speech bubbles, objective marker labels (CSS)
+  - `fadeBg?: string` Fade color for scene transitions (CSS), default '#000'
+  - `hudBg?: string` Background / text / accent of objective markers, counters and progress bars (CSS); default: follow bg, fg and accent
+  - `hudFg?: string`
+  - `hudAccent?: string`
 
 ## Data structures
 - **Handle** Handle: returned by every "add / register / listen / attach" API (events.on, onFrame, clock.after, collision.addBox, interactions.add, rays.addStatic…), call remove() to undo that registration (removes the listener, collider, timer…; safe to call repeatedly). Some handles carry extra fields (such as setTarget on hud.marker)
@@ -186,6 +209,7 @@
   - `season?: string` Season name from calendar({ seasons }): jumps calendar.day to that season's first day (time of day kept)
   - `weather?: string` Weather name
   - `pos?: string | PositionLike` Player position: 'x,z' or a position (sets the focus when there is no player)
+  - `at?: string` Start at a named place (content places, level markers): past the title like play, then the player stands there with the game's camera on it
   - `save?: string` Which save slot to load
   - `wait?: number` How many seconds to advance (real seconds: fixed-step seconds, no scale)
   - `cutscene?: 'skip' | 'keep'` Opening cutscene: 'skip' skips it / 'keep' plays it as usual

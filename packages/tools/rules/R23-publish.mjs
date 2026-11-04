@@ -61,7 +61,7 @@ export default {
       if (re) for (const f of walk(P.ENGINE_REL, ['.js', '.mjs', '.ts']).filter(f => !P.under(f, P.ENGINE_TESTS_REL))) read(f).split('\n').forEach((line, i) => {
         if (/^\s*(\/\/|\*)/.test(line) || !re.test(line)) return;
         out.push({ level: 'error', file: f, line: i + 1, msg: `published engine file imports the private package ${line.match(re)[1]}`,
-          fix: "give the file its own copy (an example keeps its look in its own style/ folder) or move it under tests/" });
+          fix: "give the file its own copy (an example keeps its picture in its own style/ folder) or move it under tests/" });
       });
     }
     out.note = `${files.length} publishable files scanned`;

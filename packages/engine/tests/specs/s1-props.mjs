@@ -124,9 +124,9 @@ export const specs = [
         out.restored = !gone();
         engine.saves.apply(saved);
         out.afterLoad = gone();
-        // drawn: the felled slot is a zero matrix in the look's mesh
+        // drawn: the felled slot is a zero matrix in the picture's mesh
         const c = engine.terrain.chunks.get(t.cx + ',' + t.cz);
-        const drawnGone = () => { const im = engine.vegetationLook.mesh(c, t.species), i = im.userData.plants.ids.indexOf(t.id); return im.instanceMatrix.array[i * 16 + 15] === 0; };
+        const drawnGone = () => { const im = engine.vegetationDraw.mesh(c, t.species), i = im.userData.plants.ids.indexOf(t.id); return im.instanceMatrix.array[i * 16 + 15] === 0; };
         out.hiddenInView = c.hidden?.[t.species]?.size > 0 && drawnGone();
         engine.step(40, { render: false });   // regrows after 30 game seconds
         out.regrown = !gone() && !c.hidden?.[t.species] && !drawnGone();

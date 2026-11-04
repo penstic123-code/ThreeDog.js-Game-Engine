@@ -91,7 +91,7 @@ export const specs = [
         && ['state', 'items', 'add', 'item'].every(k => /read only|not extensible/.test(mid.errs[k] ?? '')), JSON.stringify({ defs: mid.defs, errs: mid.errs }));
       check('wrong placements say how to fix: definition field per instance, unknown template (did you mean), interact without op',
         /belongs to the definition/.test(mid.errs.override ?? '') && /tchest/.test(mid.errs.unknown ?? '') && /needs op/.test(mid.errs.noOp ?? ''), JSON.stringify(mid.errs));
-      check('after reload + load: each chest restores its own opened state and goods; the look follows', r.a === true && r.b === false && r.lidA === 1 && r.lidB === 0 && r.aBerry === 1 && r.bBerry === 0 && r.bFeather === 1, JSON.stringify(r));
+      check('after reload + load: each chest restores its own opened state and goods; the picture follows', r.a === true && r.b === false && r.lidA === 1 && r.lidB === 0 && r.aBerry === 1 && r.bBerry === 0 && r.bFeather === 1, JSON.stringify(r));
       check('after load: the runtime instance is back with its state, goods and template container capacity', r.sId === a.sId && r.sOpen === true && r.sWood === 3 && r.sCap === 4, JSON.stringify(r));
       check('writing a definition inside an op halts with the frozen-definition hint (keep state on the world record)', r.def === false && r.bad === 'error' && r.hint === true, JSON.stringify(r));
     },

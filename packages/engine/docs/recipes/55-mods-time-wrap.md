@@ -26,7 +26,7 @@ What to remember:
 - Every handle ends with `h.remove()` (`engine.mod`, `ctx.mod`, `input.gate`, `wrap`, `freeze`, `takeCamera`); it drops only your own entry.
 
 Only things several parties commonly write are shared values: time speeds and the calendar rate, pause / freeze / camera holders, move stats,
-input gates; the look values (sun and ambient light, fog, exposure, shadow on / quality, post parameters) move onto them next. Your own objects,
+input gates; shadow on / quality and post parameters are on them too. Your own objects,
 materials and textures are plain three.js: never registered, never a conflict. Which tool to reach for: `../CONVENTIONS.md` "Customization ladder".
 
 ```js
@@ -42,7 +42,6 @@ engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) =>                    
 | Layer (low to high) | Who writes it |
 |---|---|
 | `engine` | the engine's own defaults and drivers |
-| `style` | style packs |
 | `game` (default) | game code, game modules |
 | `effect` | temporary effects: weather, sunset fade, bullet time, haste |
 | `settings` | the player's settings menu: only `clamp` / `mul` (a value point: `set: false`), so it can turn things down or off, never on |
@@ -57,12 +56,25 @@ engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) =>                    
 - `describe().shared` has one row per point with entries: `value`, `writer` (whose value the rest acts on; `'default'` when nobody set it),
   `layer`, `at` (the code line, development builds), `how` (`'cave 180 × storm 0.6'`), `also` (everyone else; `hidden: true` when a set above hides
   theirs). `engine.stacks.of('storm')` lists everything one owner changes. Per-record points read `'move.speed[player]'`.
-- A direct three.js write of a property a point drives is never an error: whoever applies the point calls `point.yieldToThree()` and stops; the row
-  says `writer: 'three (engine yielded)'`; `point.reclaim()` hands it back.
+- A point holds a value and writes no three.js by itself: whoever reads it writes three.js. A value the engine writes on its own shows in
+  `describe().owned`, and a direct three.js write takes it (the row says `writer: 'three (engine yielded)'`).
 - Base values are yours: `player.speed = 6` is always fine; modifiers go through `engine.mod('move.speed', { owner, id: 'player', mul })`.
 - Your own point: `engine.stacks.define('damageTaken', { per: true, min: 0 })`, then `engine.stacks.get('damageTaken').value(enemyId)`;
   `kind: 'value'` holds a color, a string or a flag (set only), `kind: 'one'` is an exclusive slot (what `provides` makes).
 - Saved: `engine` to `effect` entries. Not saved: `settings` (the settings module re-applies the player's choices), `system`, `debug`.
+
+## Picture points follow the same rule
+`shadows.enabled`, `post.<name>.enabled`, `sky.tint`, `sky.flash` and `ground.cover` are shared points like the rest: the game sets a base value, effects multiply on top, the player's settings cap it.
+`sky.tint`, `ground.cover` (blend by amount) and `sky.flash` (adds) are written with `engine.mod`.
+```js
+const hold = engine.mod('shadows.enabled', { owner: 'cutscene', layer: 'system', set: false });   // decides over the game and the menu
+engine.describe().shared['shadows.enabled'];                                                      // who decided and who is hidden
+hold.remove();                                                                                    // the handle ends yours
+```
+- The exact number whatever else is stacked: set on `{ layer: 'system' }`, or write the three.js value.
+- The settings menu only restricts (`shadows` off is `shadows.enabled` set false on the settings layer); a game's `enabled: true` does not
+  switch them back on, and a cutscene's `false` is not undone by the menu.
+- A direct three.js write (`engine.lights.hemi.intensity = 0.2`) still works, and describe tags it `three`.
 
 ## Time channels
 
@@ -96,7 +108,7 @@ checks that need this step's player position). The order never depends on which 
 
 Two modules that each want to be "the" one (a sky, a tone-mapping stage, an inventory) declare an exclusive slot: `provides: ['inventory']`.
 Other modules `requires: ['inventory']` and work with whichever holds it. `engine.use(myInventory(), { replaces: 'inventory' })` unloads the
-holder (its tracked handles, its `ctx.mod` entries, its look parts, its `dispose`) before the new install, and puts it back if that fails.
+holder (its tracked handles, its `ctx.mod` entries, its `dispose`) before the new install, and puts it back if that fails.
 
 Each replaceable module has a contract (`modules/gameplay/inventory.contract.js`, `interactions.contract.js`, `dialogue.contract.js`, `quests.contract.js`, `modules/flow/contract.js`,
 `modules/characters/contract.js`, `modules/calendar/contract.js`, `modules/camera/contract.js`; object contract `modules/characters/vehicle.contract.js`): the api, fields, ops, events

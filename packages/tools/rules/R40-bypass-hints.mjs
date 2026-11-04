@@ -4,26 +4,24 @@
 //   random     Math.random() in gameplay code                           -> engine.random (seeded: replay and saves reproduce it)
 //   inventory  a hand-made items / backpack array or object             -> the inventory module (add / remove / has, containers, saves, events)
 //   grid       bilinear blending over a height / field array            -> sampleGrid (nearest / linear / cubic, edges, image input)
-//   material   new THREE.Mesh*Material with color set by hand in a file -> makeMaterial(role) / look.materials (styles and looks reach it)
-//              that also takes materials from the style (makeMaterial / look.materials): the one hand-colored mesh will not follow a style swap.
-//              Hand-made materials alone are the plain three.js route (AI.md "Looks are plain three.js") and never hinted, nor in art code
-//              (paths.mjs isArtFile: style/, art/, assets.js, art.js), where building materials is the job.
+//   save       localStorage.setItem of a save (a save-like key, or JSON of state) -> engine.saves (versions, a corrupt save, slots, Continue on the start screen)
+//              A remembered preference (a volume, a language) is not a save and stays quiet; so is a file that uses engine.saves.
+//   pause      an Esc handler or a paused flag of its own, in a file with no settings / flow / freeze -> settings({ freezeWorld: true })
 // Patterns are line based, with context (the inventory hint needs a declaration and no use of the module in that file; the grid hint needs a floor, a
-// height-like array read and a blend within a few lines; the material hint needs a color and style materials in the same file), so a plain use of
-// the same word does not fire.
+// height-like array read and a blend within a few lines), so a plain use of the same word does not fire.
 // Not flagged: tests, docs and scripts folders, tagged presentation code (the same tags as R4: // presentation, // measure, // debug, // wall-clock,
 // // main-loop), setTimeout(resolve, ...) delays, setTimeout(fn, 0).
 //
 // Switching off. Per line (this line or the whole-line comment above): `// hint-off` for every hint, or `// hint-off(random, timers)` for named ones.
-//   Whole file (one of the first 30 lines): `// hint-off-file` or `// hint-off-file(material)`.
+//   Whole file (one of the first 30 lines): `// hint-off-file` or `// hint-off-file(random)`.
 //   Whole game: the game's package.json (games/<name>/package.json; the repo root's applies to every game)  "threedog": { "hints": false }  (all), or
-//   { "hints": { "random": false, "timers": false } } (named kinds); one run: THREEDOG_HINTS=off npm run check. Kinds: timers random inventory grid material.
+//   { "hints": { "random": false, "timers": false } } (named kinds); one run: THREEDOG_HINTS=off npm run check. Kinds: timers random inventory grid save pause.
 //   A switch that cannot work (an unknown kind, hint-off-file below line 30, a wrong hints value) is reported as its own warning, never silently ignored.
 // If you have a reason, write it in DESIGN.md under Systems (what you built by hand and why), so the next reader and the next AI see it.
 import { readFileSync, existsSync } from 'node:fs';
 import { walk, lines, codeOnly, ROOT, P } from './_lib.mjs';
 
-export const KINDS = ['timers', 'random', 'inventory', 'grid', 'material'];
+export const KINDS = ['timers', 'random', 'inventory', 'grid', 'save', 'pause'];
 const R4_TAGS = ['presentation', 'measure', 'debug', 'wall-clock', 'main-loop'];
 const HOW = 'a reason? write it in DESIGN.md (Systems), or switch the hint off: // hint-off(KIND) on the line, // hint-off-file(KIND) at the top, or package.json "threedog": { "hints": { "KIND": false } }';
 
@@ -34,8 +32,8 @@ const SAY = {
   inventory: ['a hand-made inventory (items kept in your own array / object)',
     'the inventory module: engine.use(inventory()), engine.inventory.add / remove / has (counts, containers, events, saved with the game)'],
   grid: ['blending over a height / field array by hand', 'sampleGrid(data, { width, height, size, interp }) -> (x, z) => value; engine.assets.gridFromImage reads one from a PNG'],
-  material: ['a hand-colored three.js material next to style materials (makeMaterial / look.materials) in this file: it will not follow a style swap',
-    "makeMaterial('role') / look.materials if this mesh should follow the style like the others; keep your own material if the colors are the mesh's own, or move it to the art code (style/, art/, assets.js)"],
+  save: ['a save of its own in localStorage', "engine.saves: autosave(minutes), register('game', { version: 1, save, load }), and Continue on the start screen (recipe 63); versions, slots and a corrupt save are handled"],
+  pause: ['a pause or Esc handler of its own', 'settings({ freezeWorld: true }): Esc stops every system and opens the menu (recipe 63); engine.freeze(why) for a pause with no menu'],
 };
 
 /** Hints that stay on for the project: package.json "threedog.hints" (false / 'off' / { kind: false }) and THREEDOG_HINTS=off. Returns a Set of kinds */
@@ -61,10 +59,10 @@ const commentOf = s => s?.match(/\/\/(.*)$/)?.[1] ?? s?.match(/\/\*(.*?)\*\//)?.
 const wholeLineComment = s => /^\s*(\/\/|\/\*)/.test(s || '');
 
 /**
- * Hints in a text: [{ level: 'warn', line, kind, msg, fix }]. active: the kinds that stay on (default all); art: the file is art code (no material hint).
- * @param {string} text @param {Set<string>} [active] @param {{ art?: boolean }} [where]
+ * Hints in a text: [{ level: 'warn', line, kind, msg, fix }]. active: the kinds that stay on (default all).
+ * @param {string} text @param {Set<string>} [active]
  */
-export function scanText(text, active = new Set(KINDS), { art = false } = {}) {
+export function scanText(text, active = new Set(KINDS)) {
   const L = text.split(/\r?\n/), out = [];
   const fileOff = new Set(L.slice(0, 30).flatMap(l => offKinds(commentOf(l), 'hint-off-file') ?? []));
   // a switch naming no known kind, or a file switch too far down, would silently do nothing: say so where it is written
@@ -85,14 +83,16 @@ export function scanText(text, active = new Set(KINDS), { art = false } = {}) {
   const whole = code.join('\n');
   const usesInventory = /\b(engine|e|eng)\.inventory\b|\binventory\(\s*[{)]/.test(whole);
   const usesGrid = /\bsampleGrid\b/.test(whole);
-  const styleMaterials = !art && /\bmakeMaterial\s*\(|\blook\.materials\b/.test(whole);
-  const colorEdits = /\.color\.(set|setHex|setRGB|copy|lerp|multiplyScalar)\(|\.color\s*=[^=]/.test(whole);
+  const usesSaves = /\bengine\.saves\b/.test(whole);
+  const usesPause = /\bsettings\(|\bengine\.(freeze|flow|settings)\b|\buiFocus\(/.test(whole);
   code.forEach((c, i) => {
     if (!c.trim()) return;
     if (/\b(setInterval|setTimeout)\s*\(/.test(c) && !tagged(i) && !/setTimeout\s*\(\s*(r|res|resolve|done)\b/.test(c) && !/setTimeout\s*\([^,]*,\s*0\s*\)/.test(c)) add(i, 'timers');
     if (/\bMath\.random\s*\(/.test(c) && !tagged(i)) add(i, 'random');
     if (!usesInventory && /(?:\b(?:const|let|var)\s+|\bthis\.)(inventory|backpack|bag|pockets|inv)(?:Items|Slots|List|Contents|Data|Map|Counts?|s)?\s*=\s*(\[\s*\]|\{\s*\}|new Map\b|new Set\b)/i.test(c)) add(i, 'inventory');
-    if (styleMaterials && /\bnew\s+(?:THREE\.)?Mesh(?:Basic|Standard|Lambert|Phong|Toon|Physical|Matcap)?Material\s*\(/.test(c) && (colorEdits || /\bcolor\s*:/.test(c))) add(i, 'material');
+    // on the raw line: codeOnly blanks strings, and the key and the Esc name are strings
+    if (!usesSaves && /\blocalStorage\.setItem\s*\(/.test(c) && /save|progress|JSON\.stringify/i.test(L[i])) add(i, 'save');
+    if (!usesPause && (/\b(?:let|var)\s+(?:is|game)?paused\s*=/i.test(c) || /(?:\.key|\.code)\s*===?\s*['"]Escape['"]/.test(L[i]))) add(i, 'pause');
     // grid: a floor, a height-like array read and a blend ((1 - t), lerp, mix) within 6 lines
     if (!usesGrid && /\b(heights?|heightmap|hm|elevation|terrainData|heightData|field)\w*\s*\[/i.test(c)) {
       const win = code.slice(Math.max(0, i - 6), i + 7).join('\n');
@@ -125,7 +125,7 @@ export default {
       const active = game ? new Set([...activeKinds(settingOf(game + 'package.json'))].filter(k => rootSet.has(k))) : rootSet;
       if (!active.size) continue;
       let text; try { text = lines(f).join('\n'); } catch { continue; }
-      for (const r of scanText(text, active, { art: P.isArtFile(f) })) out.push({ ...r, file: f });
+      for (const r of scanText(text, active)) out.push({ ...r, file: f });
     }
     return out;
   },

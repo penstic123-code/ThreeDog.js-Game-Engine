@@ -17,13 +17,13 @@ transient effects. Everything placed in a level comes from content, so a new gam
 Many copies of one interactive object (chests, beds, campfires) with the same model, interaction and container: define it once as a content template
 and place instances (recipe 30-templates.md); the template is the shared read-only definition, the record holds only the instance state.
 
-## 1. Three steps: data, look, change
+## 1. Three steps: data, picture, change
 ```js
 const W = engine.world;
 W.add({ id: 'zombie_1', kind: 'zombie', position: [10, 0, -4], hp: 10 });   // fields must be plain values; without an id one is numbered automatically (saved)
 W.present('zombie', {
   build: rec => new THREE.Mesh(zombieGeo, zombieMat),   // required: built when the camera is near (may be async); world adds it to the scene at rec.position
-  update: (rec, obj, dt) => { obj.visible = rec.hp > 0; },   // optional: called every frame for records that have a model; change the look from the data
+  update: (rec, obj, dt) => { obj.visible = rec.hp > 0; },   // optional: called every frame for records that have a model; change the picture from the data
   dispose: (rec, obj) => engine.remove(obj),   // optional: first argument is the data, second the model; this is the default
   show: rec => rec.hp > 0,   // optional: false = this record has no model right now (picked up, waiting to respawn)
   radius: 40,   // optional: how near to build the model (meters or a function); default world.radius (60)
@@ -37,14 +37,16 @@ W.simulate('zombie', {
   (`world.ready`); it retries when you walk away and come back.
 - `show` is re-evaluated when `world.set` changes data of that kind. Calling `present` again for the same kind tears down old models with the old
   dispose and rebuilds them with the new one.
-- Animation, particles and other things that only matter per frame go in `present.update`, not in simulate.
+- Animation, particles and other things that only matter per frame go in `present.update`, not in simulate. It runs after world placed the model
+  on its record, so picture-only motion written there stays: `update: (rec, obj, dt) => { obj.getObjectByName('legL').rotation.x = Math.sin(rec.walk * 9) * 0.5;
+  obj.position.x += rec.stagger * 0.1; }` (a leg swing, a stagger offset). Moving the model from anywhere else is put back next frame, with a warning.
 
 ## 2. How to change data
 - Discrete changes (open a chest, switch growth stage, get picked up, change direction) use `W.set(id, { opened: true })`: it emits `world:change` and
   re-evaluates `show`. Don't `set` every step. id / kind cannot be changed (to change the kind, remove then add).
 - Things that change every step (position, timers, pathfinding state) are changed directly on the rec's fields inside simulate, and position with
   `W.move`: no event, cheap.
-- Both ways are saved (a save compares contents, it does not rely on events). `move` emits no event: if the look needs to follow position, compare in
+- Both ways are saved (a save compares contents, it does not rely on events). `move` emits no event: if the picture needs to follow position, compare in
   `update` (see `content/props.js`).
 - Don't hold a rec object for long: loading a save replaces it with a new object. Keep the id and call `W.get(id)` when you need it.
 - Position forms: Vector3 / object / `[x, y, z]` / `{ x, z }` (a missing y keeps the old one). In development NaN or an array with only two numbers
@@ -54,7 +56,7 @@ W.simulate('zombie', {
 The key idea: **don't accumulate every step; record the time it was planted, `plantedAt = clock.now`, and growth = now - planted time**. Whether the
 player walked away, loaded a save, or fast-forwarded with `engine.step(60)`, the result is right, and no simulate is needed.
 ```js
-import { presets, THREE, makeMaterial } from 'threedog';
+import { presets, THREE } from 'threedog';
 
 const GROW = 120;   // ripe after 120 game seconds (the unit of clock.now)
 const growth = rec => Math.min(1, (engine.clock.now - rec.plantedAt) / GROW);   // 0..1
@@ -62,7 +64,7 @@ const geo = new THREE.ConeGeometry(0.25, 0.8, 6);
 
 engine.world.present('crop', {
   build(rec) {
-    const m = new THREE.Mesh(geo, makeMaterial('prop', { color: 0x6aa84f }));
+    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x6aa84f }));
     m.castShadow = true;
     m.userData.use = engine.interactions.add(m, { label: 'Harvest', radius: 2, enabled: () => growth(rec) >= 1, onUse: () => harvest(rec) });   // can be harvested only when ripe
     return m;
@@ -114,9 +116,9 @@ generated at runtime (planted by the player, spawned) are saved whole; `add(def,
 described at the top of `modules/world/persist.js`.
 World models are in the thing registry too (`engine.thing(id)` answers with the record, saved `'record'`): do not move them from code. Change the
 record (`ops.run('thing.set', { id, position })`, `world.set` / `world.move`); dev reports code that moves a `positionFrom: 'record'` model, and
-`engine.add` of a model throws (recipe 41).
+`engine.add` of a model throws (recipe 40).
 
-A world record's model belongs to the scene too (`40-scene.md`; `engine.thing(id)` shows it, recipe 41). Do not move that model from code: the record owns its <!-- r18-ignore-line -->
+A world record's model belongs to the scene too (`40-scene.md`; `engine.thing(id)` shows it, recipe 40). Do not move that model from code: the record owns its <!-- r18-ignore-line -->
 position, so change the record (`world.set`, `world.move`) and the model follows.
 
 ## 5. Example: something that wanders

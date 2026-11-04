@@ -1,6 +1,6 @@
 // Doc rule tests (no browser): R18 finds stale names in fixture docs and lets placeholders through; R22 checks the AI.md entry table;
 // the GAMEMAP template section renders templates, placements, spawns and a missing op.
-import { checkDoc, context } from '../rules/R18-doc-refs.mjs';
+import { checkDoc, checkAnchors, context } from '../rules/R18-doc-refs.mjs';
 import { entryTable, sentences, passages } from '../rules/R22-doc-shape.mjs';
 import { templateLines, declaredEvents, eventLines } from '../gamemap/extra.mjs';
 import { RECIPES_REL } from '../paths.mjs';
@@ -8,6 +8,10 @@ import { RECIPES_REL } from '../paths.mjs';
 export const name = 'doc rules: R18 references, R22 entry table and copied passages, GAMEMAP templates';
 
 export async function run({ check }) {
+  const anchors = (text, other = '## Real heading, with `code`\n<a id="named"></a>\n') => checkAnchors('docs/x.md', text, () => other).map(r => r.msg);
+  check('R18: a link to a heading or an <a id> passes', !anchors('[a](y.md#real-heading-with-code) [b](y.md#named) [c](#here)\n## Here\n').length);
+  check('R18: a link to a section that is gone is an error', anchors('[a](y.md#gone)').length === 1 && anchors('[a](#gone)').length === 1);
+  check('R18: look.<part> is an error outside the migration pages', anchors('`look.<part>.set`').length === 1 && !checkAnchors('docs/MIGRATING-0.6.md', '`look.<part>.set`').length);
   const ctx = await context(), doc = `${RECIPES_REL}/99-fixture.md`;
   const errs = text => checkDoc(doc, text, ctx);
   const has = (r, re) => r.some(x => re.test(x.msg));
@@ -20,8 +24,7 @@ export async function run({ check }) {
   check('R18: unknown CLI command / npm script', has(errs('`npx threedog descibe`'), /did you mean `threedog describe`/) && has(errs('`npm run chek`'), /npm run check/));
   check('R18: engine member typo warns with a suggestion', has(errs('Call `engine.clok.after(2, fn)`.'), /engine\.clock/) && has(errs('`engine.clock.aftr`'), /engine\.clock\.after/));
   // [守] 引擎文档里的 API 名必须真实存在：AI 把文档里的名字当事实抄，改名必须连文档一起改，所以在 docs/ 下是 error 不是 warn
-  check('R18: an unknown engine member in an engine recipe is an error, `look.x` is read as engine.look.x',
-    errs('Call `engine.clok.after(2, fn)`.').some(x => x.level === 'error') && has(errs('`look.materals.glow`'), /engine\.look\.materials/) && !errs('`look.materials.glow`').length);
+  check('R18: an unknown engine member in an engine recipe is an error', errs('Call `engine.clok.after(2, fn)`.').some(x => x.level === 'error'));
   check('R18: an ignore marker skips the line', !errs('`npm test -- zzz` <!-- r18-ignore-line -->').length);
   // R22
   const table = rows => `## One thing, one entry point\n| To do | Use | Recipe |\n|---|---|---|\n${rows}\n## Next\n`;

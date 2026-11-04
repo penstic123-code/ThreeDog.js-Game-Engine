@@ -4,9 +4,9 @@
 //   threedog tune write <file> --apply    write it
 // The change is one marked block of plain calls, replaced on the next write and appended at the end of the file the first time:
 //   // threedog:tune begin ... // threedog:tune end
-// It holds look values as engine.look.<part>.set({...}), material values as material.setValues({...}) by material name, engine.uniforms values, and
-// style fields (values read at startup) as a `tunedStyle` literal to pass as an extra style part. Review it, then keep it or move each value where
-// it belongs (the style, the material's definition); the block is a starting point, not a second source of truth.
+// It holds three.js writes (engine.renderer.toneMappingExposure = 1.2; engine.water.material.color.set(0x3388aa);), UI colors as CSS variables on
+// engine.uiRoot, and material values as material.setValues({...}) by material name. Review it, then keep it or move each value where it belongs (the
+// game's picture code, the material's definition); the block is a starting point, not a second source of truth.
 // Model generator params (the panel's models folder) are not put in the block: each becomes the `default` in that model's params schema where it
 // is registered (assets.js or an art module, found under the game folder), so the generator keeps one source (planModelParams).
 // Plain equivalent: copy the numbers from the panel by hand.
@@ -24,18 +24,18 @@ const some = o => o && Object.keys(o).length > 0;
 
 /**
  * The block text for saved tune values
- * @param {{ look?: Record<string, Record<string, any>>, materials?: Record<string, Record<string, any>>, uniforms?: Record<string, number>, style?: Record<string, any> }} t
+ * @param {{ values?: Record<string, number | string>, css?: Record<string, string>, materials?: Record<string, Record<string, any>> }} t values: code path -> number or
+ *   '#rrggbb' (a THREE.Color, written with .set); css: name after --threedog- -> color
  * @returns {string}
  */
 export function tuneBlock(t) {
   const out = [`${BEGIN} (dev panel values written by \`threedog tune write\`; review, keep or move each value where it belongs)`];
-  for (const [part, v] of Object.entries(t.look || {})) if (some(v)) out.push(`engine.look.${part}.set(${obj(v)});`);
+  for (const [path, v] of Object.entries(t.values || {})) out.push(typeof v === 'string' ? `${path}.set(${lit(v)});` : `${path} = ${+v.toPrecision(6)};`);   // a slider step leaves 0.36999999999999994
+  for (const [k, v] of Object.entries(t.css || {})) out.push(`engine.uiRoot.style.setProperty('--threedog-${k}', ${JSON.stringify(v)});`);
   if (some(t.materials)) {
     out.push(`{ const tuned = ${obj(t.materials)};   // material name -> values (three.js Material.setValues)`,
       '  engine.scene.traverse(o => { for (const m of [].concat(o.material ?? [])) if (tuned[m.name]) m.setValues(tuned[m.name]); }); }');
   }
-  for (const [k, v] of Object.entries(t.uniforms || {})) out.push(`engine.uniforms.${k}.value = ${lit(v)};`);
-  if (some(t.style)) out.push(`// style fields read at startup: pass as an extra style part, createEngine({ style: [pack, tunedStyle] })`, `export const tunedStyle = ${obj(t.style)};`);
   out.push(END);
   return out.join('\n');
 }
@@ -141,12 +141,12 @@ export async function main([sub, ...args]) {
     const root = dirname(dirname(src)), left = writeModels(root, t.models, apply);
     if (left.length) console.log(`Model params not written (no \`params: { ... }\` registration found under ${relative(process.cwd(), root) || '.'}): ${left.join(', ')}`);
     const { models: _m, ...restT } = t;
-    if (!file && !some(restT.look) && !some(restT.materials) && !some(restT.uniforms) && !some(restT.style)) {
+    if (!file && !some(restT.values) && !some(restT.css) && !some(restT.materials)) {
       console.log(apply ? '\nWritten.' : '\nDry run: nothing written. Write it: threedog tune write --apply');
       return 0;
     }
   }
-  if (sub !== 'write' || !file) { console.error('Usage: threedog tune show · threedog tune write [file] [--apply] (dry run without --apply; file: where look / material / uniform values go, model params go to their registration)'); return 1; }
+  if (sub !== 'write' || !file) { console.error('Usage: threedog tune show · threedog tune write [file] [--apply] (dry run without --apply; file: where three.js, UI color and material values go, model params go to their registration)'); return 1; }
   const path = resolve(file);
   if (!existsSync(path)) { console.error(`${file} does not exist`); return 1; }
   const { after, diff } = planTune(readFileSync(path, 'utf8'), t);

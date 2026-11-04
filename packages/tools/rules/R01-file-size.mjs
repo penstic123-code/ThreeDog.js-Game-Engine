@@ -3,7 +3,7 @@
 // (R10's own note), so a long-line limit only produced warnings nobody could clear; the byte limit already catches code crammed into long lines.
 // Game code (games/*, the new-game templates; in a game installed from npm, the game folders), .js .mjs .html: over 1000 lines or 48KB is an error
 //       (split the file by system); 400-1000 lines or 16-48KB stays a warning (a big game is many files, not one big file), except in the game's art code
-//       (paths.mjs isArtFile: style/, art/, assets.js, art.js), which only has the error limit. Engine thresholds are unchanged.
+//       (paths.mjs isArtFile: picture/, style/, art/, assets.js, art.js), which only has the error limit. Engine thresholds are unchanged.
 // Scope: .js .mjs .d.ts .html under packages/engine/ (source, types, examples, tests, the root index.js index.d.ts and pages), packages/tools/, games/,
 //       plus the hand-written .md under packages/engine/docs/ (directory list in paths.mjs).
 import { walk, read, rel, GENERATED, reE, P } from './_lib.mjs';

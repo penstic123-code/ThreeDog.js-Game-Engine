@@ -4,8 +4,8 @@
 // A model asset carries the same thing as plain data by object NAME in root.userData.rig: names, not references, because userData survives
 // clone and GLB export and object references do not; so a procedural builder and a baked / hand-made GLB with those names animate the same way.
 import * as THREE from 'three';
-import { makeMaterial } from '../../render/materials.js';
-import { copyPatches } from '../../render/patches.js';
+import { neutralMaterial } from '../../render/neutral.js';
+import { copyPatches, isEngineMade, markEngineMade } from '../../render/patches.js';
 import { warnOnce } from '../../core/validate.js';
 
 /** Warned once when no model gives the character a body */
@@ -45,13 +45,27 @@ export function tintParts(root, colors) {
   });
 }
 
+/** The gray every capsule is until the game sets engine.characters.material (colors.body gives one capsule a copy in its own color) @internal */
+export const capsuleDefault = () => neutralMaterial('character', { color: 0x8a8a8a });
+
+/** A capsule's material: the shared one, or a copy of it in the character's own color (a material without .color has nothing to tint) @internal */
+export function capsuleMaterial(base, color) {
+  if (color == null) return base;
+  const m = copyPatches(base, base.clone());
+  m.color?.set(color);
+  if (isEngineMade(base)) markEngineMade(m);
+  return m;
+}
+
 /** Neutral placeholder when no model gives a body: one gray capsule, no limbs (body shapes belong to asset packs) */
 export function capsule(color, engine) {
   const body = new THREE.Group(); body.position.y = 0.85;
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), makeMaterial('character', { color }, engine));
+  // new Character() also works without the characters module: then this capsule has no shared material to take
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), capsuleMaterial(engine.characters?.material ?? capsuleDefault(), color));
+  engine.characters?._capsules.set(m, color);   // not the scene: a character is drawn only after addTo, and a swap must reach it before that too
   m.castShadow = true; body.add(m);
   const root = new THREE.Group(); root.add(body);
-  return { root, body };
+  return { root, body, capsule: m };
 }
 
 /** Put a rig under the character root and remember its parts */

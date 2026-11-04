@@ -1,5 +1,5 @@
 // engine.assets.manifest(pack) (helper of Assets.js): registers the named models, textures, sounds and fonts of an asset pack. `a` is the Assets instance.
-import { fmt, warnOnce } from './validate.js';
+import { fmt, warnOnce, BASE_URL } from './validate.js';
 import { codedError } from './errorHints.js';
 import { parseSchema, readParams, keysSchema } from './params.js';
 
@@ -25,12 +25,15 @@ export function registerManifest(a, pack, hot = null) {
   readParams('assets.manifest()', keysSchema(MANIFEST_KEYS), pack);
   const { models = {}, textures = {}, sounds = {}, fonts = {}, base = null } = pack, list = pack.name ?? 'manifest#' + (a._lists = (a._lists || 0) + 1);
   const at = base == null ? null : new URL(String(base).replace(/\/?$/, '/'), location.href);
-  const resolve = u => at && typeof u === 'string' && !u.startsWith('/') && !/^[a-z][a-z\d+.-]*:/i.test(u) ? new URL(u, at).href : u;
+  // '/models/x.glb' means the game's public/ folder, which a build with --base /my-game/ serves under that path (recipes/61-deploy.md): vite
+  // rewrites bundled URLs only, never these strings, so a game deployed under a sub-path asked the site root for every asset
+  const resolve = u => typeof u !== 'string' || /^[a-z][a-z\d+.-]*:/i.test(u) || u.startsWith('//') ? u
+    : u.startsWith('/') ? BASE_URL + u.slice(1) : at ? new URL(u, at).href : u;
   const add = (type, map) => {
     for (const [name, v] of Object.entries(map)) {
       const o0 = typeof v === 'string' ? { url: v } : typeof v === 'function' ? { build: v } : v?.isTexture && type === 'texture' ? { texture: v } : v;
       if (type === 'font') readParams(`assets.manifest() fonts.${name}`, keysSchema(FONT_KEYS), o0);
-      const o = o0.url && at ? { ...o0, url: resolve(o0.url) } : o0;
+      const o = o0.url ? { ...o0, url: resolve(o0.url) } : o0;
       const old = a.entries.get(name);
       // a model's params is a schema (core/params.js format, parsed here so a bad spec fails at registration, naming the field)
       const schema = type === 'model' && o.params ? parseSchema(`assets.manifest() models.${name}.params`, o.params) : null;

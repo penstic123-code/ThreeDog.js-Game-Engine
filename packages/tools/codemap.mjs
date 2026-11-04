@@ -14,19 +14,19 @@ const { rel } = P, OUT = P.abs(P.CODEMAP_REL);
 const BUDGET = 28 * 1024;   // raised from 22 KB (user, 2026-11-03): the WebGPU route adds files; trim by structure, not by cutting summaries
 const isEngine = r => r === P.INDEX_JS_REL || P.ENGINE_CODE_DIRS_REL.some(d => P.under(r, d));
 const walk = d => walkAll(d, { skip: ['tests', 'vite.config.js'] });
-const files = [P.abs(P.INDEX_JS_REL), ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(P.abs(d)))];   // engine package only: a look is a game's own style/ folder
+const files = [P.abs(P.INDEX_JS_REL), ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(P.abs(d)))];   // engine package only: a picture is a game's own style/ folder
 const sp = p => p.slice(P.ENGINE_REL.length + 1);   // package-relative path (core/Input.js)
 /** Who: a module folder name (dialogue), else the package-relative path (core/Events.js) */
 const who = r => { const s = sp(r); return s.startsWith('modules/') ? s.split('/')[1] : s; };
 
-const mods = [], fileRows = [], events = {}, actions = [], i18n = {}, styleKeys = {};
+const mods = [], fileRows = [], events = {}, actions = [], i18n = {};
 const addEv = (name, kind, f) => { (events[name] ||= { emit: [], on: [] })[kind].push(f); };
 
 for (const f of files) {
   const text = read(f), r = rel(f);
   fileRows.push({ r, sum: summary(text), size: text.length });
   const code = text.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');   // drop comment lines (examples in comments do not count)
-  if (!isEngine(r)) { for (const m of text.matchAll(/\b(?:engine|e|this\.engine)\.style\.(\w+)|\bSTYLE\.(\w+)/g)) (styleKeys[m[1] || m[2]] ||= new Set()).add(r); continue; }
+  if (!isEngine(r)) continue;
 
   // Module definition: take a stretch from name: 'x', label, and look for each field separately (field order is not fixed)
   for (const m of code.matchAll(/name: '(\w+)',\s*(?:type: '\w+',\s*)?(?:provides: \[[^\]]*\],\s*)?label\b/g)) {   // type / provides may stand before label
@@ -59,7 +59,6 @@ for (const f of files) {
   const zh = [...text.matchAll(/'zh-CN':\s*\{([\s\S]*?)\n?\s*\},?\s*(?:en|\n)/g)].map(m => m[1]).join(' ');
   const keys = uniq([...zh.matchAll(/'([\w]+\.[\w.]+)':/g)].map(m => m[1]));
   if (keys.length) i18n[r] = keys;
-  for (const m of text.matchAll(/\b(?:engine|e|this\.engine)\.style\.(\w+)|\bSTYLE\.(\w+)/g)) (styleKeys[m[1] || m[2]] ||= new Set()).add(r);
 }
 
 const md = [];
@@ -72,7 +71,7 @@ for (const m of mods) if (m.alias) Object.assign(m, { requires: rig.requires, op
 const modRows = mods.filter(m => m !== rig).sort((a, b) => STAGES[a.stage] - STAGES[b.stage]);
 md.push('## Modules (installed with engine.use)', '',
   'Each module\'s requires, order, params, ops, saves: `threedog catalog <module>`.', '',
-  'Type = what the module may own (core/moduleTypes.js): world, look, actor, rules, ui, net, tool.', '',
+  'Type = what the module may own (core/moduleTypes.js): world, picture, actor, rules, ui, net, tool.', '',
   '| Module (engine.xxx) | Type | File |', '|---|---|---|');
 for (const m of modRows) md.push(`| ${m.alias ? `${m.name} (${m.alias}())` : m.name} | ${m.type} | ${sp(m.file)} |`);
 
@@ -93,7 +92,7 @@ for (const [dir, rows] of groups) {
     md.push(`- ${dir.slice(top.length + 1)} ${oneSentence(head.sum, 64)} — ${rows.filter(r => r.name !== 'index.js' && r.name !== 'contract.js').map(r => r.name).join(', ')}`);
   } else {
     md.push('', `**${dir}**`);
-    // a subfolder (core/look/, render/fx/) gets one line like a module folder: its index.js (or largest file) says what it is, then its files.
+    // a subfolder (render/fx/) gets one line like a module folder: its index.js (or largest file) says what it is, then its files.
     // why: the map has a size budget (BUDGET); listing every file of a subfolder crowds out the rest, and the folder's file names are enough to find the one to read
     const sub = new Map();
     for (const r of rows) {
@@ -121,8 +120,6 @@ for (const [f, keys] of Object.entries(i18n)) {
   const by = keys.reduce((a, k) => { const p = k.split('.')[0]; a[p] = (a[p] || 0) + 1; return a; }, {});
   md.push(`- ${sp(f)}: ${Object.entries(by).map(([p, n]) => `${p}.* (${n})`).join(', ')}`);
 }
-md.push('', '## Style keys (who reads engine.style.xxx)', '', '| Key | Read in |', '|---|---|');
-for (const [k, s] of Object.entries(styleKeys).sort()) md.push(`| ${k} | ${uniq([...s].map(who)).join(', ')} |`);
 md.push('');
 const content = md.join('\n');
 

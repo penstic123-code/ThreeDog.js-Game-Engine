@@ -20,6 +20,8 @@ const FILES = {
     crop: { model: 'm', state: { stage: 0, sort: 'wheat' }, fields: { stage: { type: 'int', min: 0, max: 4 }, sort: { values: ['wheat', 'corn'] } } },
     lamp: { model: 'm', state: { lit: false }, fields: { lit: { type: 'bool', default: true }, lite: 'bool' } },
     tag: { model: 'm', state: { kind: 'red' } },
+    post: { model: 'm', collide: { circle: 0.25, occluder: false } },
+    pole: { model: 'm', collide: { radius: 0.25 } },
   };\n`,
   'content/props.js': `export default [
     { model: 'm', x: 0, z: 0, rot: 1.5 },
@@ -29,6 +31,8 @@ const FILES = {
     { template: 'crop', id: 'c2', x: 1, z: 1, stage: 9 },
     { template: 'crop', id: 'c3', x: 1, z: 1, sort: 'rice', stagee: 1 },
     { id: 'g1', grid: 'yard', item: 'bed', cell: [0, 0], rotation: 5 },
+    { model: 'm', x: 0, z: 0, collide: { circle: 0.25 } },
+    { model: 'm', x: 0, z: 0, collide: { circle: -1 } },
   ];\n`,
   'content/pickups.js': "export default [{ item: 'x', x: 0, z: 0, cuont: 2 }];\n",
 };
@@ -46,6 +50,8 @@ export async function run({ check }) {
     check('[guard] out of range and not in values are errors (template fields, placement fields)',
       has(/prop #5 \(template crop\): stage must be <= 4, got 9/) && has(/prop #6 \(template crop\): sort must be one of "wheat", "corn"/)
       && has(/prop #3: collide must be one of false, "box", "circle"/) && has(/prop #7 \(grid item\): rotation must be one of 0, 1, 2, 3/), all);
+    check('[guard] collide: the object form passes, a mistyped one is an error (template and plain prop)',
+      has(/template pole: collide must be one of/) && has(/prop #9: collide must be one of/) && none(/template post: collide/) && none(/prop #8: collide/), all);
     check('[guard] default inside fields is an error (template and kind): defaults live only in state / the data',
       has(/template lamp: fields\.lit has a default; defaults live only in state/) && has(/kind waves: fields\.count has a default/), all);
     check('a template fields key that is no state key is an error with the closest state name; a state field named like a record field is an error',

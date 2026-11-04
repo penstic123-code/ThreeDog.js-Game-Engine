@@ -22,7 +22,7 @@ export class ChunkStream {
     this._byDist = (a, b) => this._d2(a) - this._d2(b);
   }
 
-  /** Ring of a chunk from the nearest source; a 'simple' source counts as the outer ring (far look, no near detail) */
+  /** Ring of a chunk from the nearest source; a 'simple' source counts as the outer ring (far picture, no near detail) */
   ring(c) {
     let r = Infinity;
     for (const s of this.centers) r = Math.min(r, Math.max(Math.abs(c.cx - s.cx), Math.abs(c.cz - s.cz), s.simple ? this.table.viewChunks : 0));

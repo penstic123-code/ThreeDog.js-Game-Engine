@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "types": []
   },
-  "include": ["main.js", "src/**/*", "content/**/*", "style/**/*", "*.d.ts"],
+  "include": ["main.js", "src/**/*", "content/**/*", "picture/**/*", "*.d.ts"],
   "exclude": ["node_modules", "dist", "vendor", ".threedog"]
 }

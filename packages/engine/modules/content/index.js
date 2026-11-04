@@ -216,6 +216,14 @@ export function content() {
       return api;
     },
     isReady() { return api.ready; },
+    // ?at=<place> / applyState({ at }): this module owns the names, core does the placing with what it gets back. An unknown name stops here: a picture of the
+    // spawn point taken for "the pier" would look fine and be wrong
+    applyState(e, { at }) {
+      if (at == null) return;
+      const p = api.place(at);
+      if (!p) throw codedError('content-place', `applyState({ at: '${at}' }): no such place. Places: ${Object.keys(places).join(', ') || '(none loaded)'}; a level marker works too`);
+      return p;
+    },
     describe() {
       return { props: e.world ? e.world.query({ kind: 'prop' }).length : 0, templates: [...st.templates.keys()], markers: api.markers.size };
     },

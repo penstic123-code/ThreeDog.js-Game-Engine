@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { walk, lines, read, codeOnly, abs, P } from './_lib.mjs';
 
 const ALLOW = [`${P.ENGINE_REL}/render/slots.js`, `${P.ENGINE_REL}/render/patches.js`];
-const RECIPE = `${P.ENGINE_REL}/docs/recipes/43-shader-patches-surface-looks.md`;
+const RECIPE = `${P.ENGINE_REL}/docs/recipes/43-shader-patches-surfaces.md`;
 
 export default {
   id: 'R42', title: 'Engine shader patches name slots (render/slots.js), recipe 43 lists the same table',
