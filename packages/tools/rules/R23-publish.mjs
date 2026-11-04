@@ -14,7 +14,8 @@ import { walk, read, abs, P } from './_lib.mjs';
 const TEXT = ['.js', '.mjs', '.ts', '.json', '.md', '.html', '.txt', '.css', '.svg', '.yml', '.yaml'];
 const ROOT_FILES = ['package.json', 'tsconfig.json', '.gitignore', 'README.md', 'README.zh-CN.md', 'CLAUDE.md', 'ASSETS.md'];
 const PKG_FIELDS = /^\s*"(repository|author|homepage|bugs|url)"\s*:/;
-let user = ''; try { user = userInfo().username; } catch { /* no user info */ }
+// On CI the user is the machine's own account (GitHub's is 'runner', a word the docs use), so the name protects nothing there
+let user = ''; try { if (!process.env.CI) user = userInfo().username; } catch { /* no user info */ }
 const PATTERNS = [
   [/\b[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s'"`]+/, 'absolute local path'],
   [/(?<![\w.])\/(Users|home)\/[A-Za-z][\w.-]+/, 'absolute local path'],
