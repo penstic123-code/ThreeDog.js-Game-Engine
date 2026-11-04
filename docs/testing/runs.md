@@ -328,3 +328,4 @@
 | 2026-11-05 | 950f10f3 | 全量（assets optimize、海岛修复、第 2 次审查、接口清理合并后）：736 项 5262 检查，1 项失败，13.4 分钟。失败是 time channels 的假引擎缺 `movement`，补上后这一项重跑通过；第 3 次审查的文档修复合并后要再跑相关项 | 见左 |
 | 2026-11-05 | docs/review3（基于 950f10f3） | 文档审查第三批：FAQ/README/design 的“还没进引擎”和“每个效果两种写法”改成现状；四个只有 TSL 的效果在四种情况下的表格；CHANGELOG、MIGRATING-0.7、AI.md、README 入口表补全；配方 52/56 加“从哪里导入”；lightVolumes 的 `resolution` 改名 `scale`；occlusion 用词与三种遮挡区分；层表注明 OUTLINE_OFF_LAYER。map、check（0 错）；how 132/132、doc rules 23/23、recipe code blocks 4/4、api count 3/3、light volumes 8/8 |
 | 2026-11-05 | d3958d58 | 0.7 候选版全量：736 项 5263 检查，0 失败，12.2 分钟。普通测试到 WebGL2 后端，真 WebGPU 另由 `real-webgpu.mjs` 分批跑过 | 全过 |
+| 2026-11-05 | release/0.7.0（ccc0b1ef、4449309c） | 0.7.0 发版准备：全量 736 项 5263 检查 0 失败（13.8 分钟）；`pack-external` 34 检查 0 失败，打包后的游戏在无头环境没有显卡，退到 WebGL2 跑；公开副本 `npm ci`、check、build、`npm pack --dry-run` 通过 | 全过 |
