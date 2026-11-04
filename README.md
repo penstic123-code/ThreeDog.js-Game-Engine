@@ -184,6 +184,7 @@ Version 0.6 is being finished. It moves the picture out of the engine and into p
 | File | Content |
 |---|---|
 | [docs/philosophy.md](docs/philosophy.md) | The design: why the engine works this way, who does what, how separate code cooperates |
+| [docs/evolution.md](docs/evolution.md) | How the design changed from 0.1 to 0.6, wrong turns included |
 | [docs/faq.md](docs/faq.md) | Common questions, including what the engine cannot do |
 | [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | Where an agent starts: one line per task, pointing to the detail |
 | [packages/engine/llms.txt](packages/engine/llms.txt) | The standard entry file AI tools look for |

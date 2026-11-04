@@ -1,6 +1,6 @@
 # ThreeDog 的设计思路
 
-[English](philosophy.md) · 中文 · [常见问题](faq.zh-CN.md)
+[English](philosophy.md) · 中文 · [常见问题](faq.zh-CN.md) · [一路走来](evolution.zh-CN.md)
 
 让 AI 编程助手做一个 three.js 游戏，它面对的是一个空场景。在碰到玩法之前，它要先写存档、时钟、碰撞和相机，到下一个游戏又写一遍，写法还略有不同。这些系统之间也得对得上：读档要恢复天气，过场要停住玩家，新加载的地块要进物理世界。ThreeDog 就是为这种配合而做的。three.js 是画笔，引擎让很多支画笔在同一张画上画而不互相涂掉，出了问题还能查出是哪一支画的。
 

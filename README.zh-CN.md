@@ -186,6 +186,7 @@ npm test
 | 文件 | 内容 |
 |---|---|
 | [docs/philosophy.zh-CN.md](docs/philosophy.zh-CN.md) | 设计思路：引擎为什么这样做、谁做什么、不同代码怎么配合 |
+| [docs/evolution.zh-CN.md](docs/evolution.zh-CN.md) | 从 0.1 到 0.6 设计怎么变过来，走过的弯路也写了 |
 | [docs/faq.zh-CN.md](docs/faq.zh-CN.md) | 常见问题，也写了引擎做不到什么 |
 | [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | AI 从这里开始读：每个任务一行，指向详细说明 |
 | [packages/engine/llms.txt](packages/engine/llms.txt) | AI 工具会自动找的标准入口文件 |

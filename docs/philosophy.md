@@ -1,6 +1,6 @@
 # How ThreeDog thinks
 
-English · [中文](philosophy.zh-CN.md) · [Questions and answers](faq.md)
+English · [中文](philosophy.zh-CN.md) · [Questions and answers](faq.md) · [How it got here](evolution.md)
 
 An AI coding agent asked for a three.js game starts from an empty scene. Before it reaches the gameplay it writes saving, a clock, collision and a camera, and in the next game it writes them again, slightly differently. Those systems also have to agree with each other: a save has to restore the weather, a cutscene has to stop the player, a loaded chunk has to appear in the physics world. ThreeDog exists for that agreement. Three.js is the brush, and the engine lets many brushes work on one canvas without painting over each other, then shows which brush made a mark when something goes wrong.
 
