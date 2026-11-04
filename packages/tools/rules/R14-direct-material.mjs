@@ -10,6 +10,7 @@ const DIRECT = /new THREE\.Mesh(Lambert|Phong|Standard|Physical|Toon|Basic)Mater
 // [path regex, reason]
 const ALLOW = [
   [reE('render\\/neutral\\.js$'), 'neutralMaterial is the one allowed place: every other engine file calls it'],
+  [reE('render\\/occlusion\\.js$'), 'its boxes write neither color nor depth: no picture to keep neutral, and a lit material would cost for nothing'],
   [reE('modules\\/debug\\/'), 'the debug panel is a dev tool, never part of a game\'s picture'],
 ];
 

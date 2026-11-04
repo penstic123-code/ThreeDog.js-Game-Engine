@@ -1,7 +1,7 @@
 // The headless page opened by npm run bake (packages/tools/bake.mjs opens it with Playwright through the workspace's vite dev server, so generated code is identical to npm run dev).
 // Collects what to bake (the lists come from the dev server's /__threedog/bake-lists): the bake list, i.e. the
 //   bake = { name: () => object | { build, params, source: 'file' } } exported by files named bake.js in this workspace (except tests/).
-//   Models from a game's style/ folder are baked by naming them in that bake.js (pictures are not packages, so nothing exports `assets` to scan).
+//   Models from a game's picture/ folder are baked by naming them in that bake.js (pictures are not packages, so nothing exports `assets` to scan).
 // For each entry it asks the dev server for the hash (same scheme as the automatic cache); if equal to the last bake it is skipped, otherwise it is generated and exported as GLB for bake.mjs to write.
 const info = await fetch('/__threedog/bake-lists').then(r => r.json());
 const { toGLB } = await import(/* @vite-ignore */ info.baked);

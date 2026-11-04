@@ -193,7 +193,7 @@ export function renderStruct(lines, typeName) {
   const node = get(typeName);
   const d = docOf(node).text;
   if (!d) missingDocs.push(`${typeName} (the type itself)`);
-  if (ts.isTypeAliasDeclaration(node) && !ts.isTypeLiteralNode(node.type)) { lines.push(`- **${typeName}** = \`${typeText(node.type, 90)}\`${d ? ' — ' + full(d) : ''}`); return; }
+  if (ts.isTypeAliasDeclaration(node) && !ts.isTypeLiteralNode(node.type)) { lines.push(`- **${typeName}** = \`${typeText(node.type, 160)}\`${d ? ' — ' + full(d) : ''}`); return; }
   const { methods, props } = split(node, typeName);
   const x = ext(node);
   lines.push(`- **${typeName}**${x ? ` (extends ${x})` : ''}${d ? ' ' + full(d) : ''}`, ...fieldLines(props));
@@ -235,7 +235,7 @@ export const STRUCTS = {
   inventory: ['ItemDef', 'PickupOptions', 'PickupHandle'], quests: ['QuestDef', 'QuestStep'], triggers: ['TriggerOptions', 'Trigger'],
   particles: ['ParticleOptions', 'ParticleEmitter'],
   interactions: ['InteractionOptions'], rigid: ['RigidBodyOptions', 'RigidEntry', 'VehicleOptions', 'VehicleWheel', 'Vehicle'],
-  flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker'],
+  flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker', 'HudAnchor'],
   hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource', 'LightPoolUsage'], water: ['WaterBodyOptions', 'WaterBody'],
     vegetation: ['VegetationOptions', 'VegetationRule'], terrain: ['FlattenZone'],
   cameraRig: ['CameraShot'], music: ['MusicRule'], settings: ['SettingsSection'], level: ['LevelMarker'],

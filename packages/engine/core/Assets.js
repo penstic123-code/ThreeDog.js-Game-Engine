@@ -4,7 +4,7 @@
 //   3. Cache and reuse: one file downloads once; models return independent copies (geometry and materials shared), so you can place many.
 // 4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs
 // below).
-//   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets produces compressed files).
+//   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets produces compressed files in public/optimized/).
 //   6. Made in code: a model / texture / sound may be a function in the manifest instead of a file, used by name exactly like a file (content, model(),
 //      pickups, vegetation, audio.sounds). Models are built on demand and cached automatically (baked file -> dev cache -> build, the internal cached()).
 //   7. Observable: every load is a task in engine.loading. A registered file that fails falls back (gray placeholder / silence / the entry's fallback)

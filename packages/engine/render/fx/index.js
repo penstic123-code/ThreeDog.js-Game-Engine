@@ -8,6 +8,7 @@ export { season } from './season.tsl.js';
 export { objectOrigin } from './objectOrigin.tsl.js';
 export { detailNoise, detailBump } from './detail.tsl.js';
 export { wrapDiffuse, shadowTint, rim } from './lighting.tsl.js';
+export { celLighting } from './cel.tsl.js';
 export { waterWave, waterSurface, waterFresnel } from './water.tsl.js';
 export { uniforms } from './uniforms.tsl.js';
 // Registers what a patch's `tsl` field does on a NodeMaterial (render/patches.js looks it up; nothing to call)
@@ -21,6 +22,7 @@ import './sky.tsl.js';
 // Registers cascaded shadows as three's CSMShadowNode on the light (render/cascades.js looks it up on WebGPURenderer; nothing to call)
 import '../cascades.tsl.js';
 import { WebGPURenderer, PMREMGenerator, CubeRenderTarget, MeshBasicNodeMaterial } from 'three/webgpu';
+import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
 import { registerWebGPUPart } from '../backend.js';
 // createEngine({ renderer: 'webgpu' }) builds from these, so the engine core never imports three/webgpu itself (WebGL bundles stay as they are)
-registerWebGPUPart('classes', Object.freeze({ WebGPURenderer, PMREMGenerator, CubeRenderTarget, MeshBasicNodeMaterial }));
+registerWebGPUPart('classes', Object.freeze({ WebGPURenderer, PMREMGenerator, CubeRenderTarget, MeshBasicNodeMaterial, LightProbeGrid }));

@@ -61,7 +61,7 @@ for (const n of ['stateApplied', 'ready', 'player', 'scene',
 // ---------- Core objects ----------
 const CORE_OBJS = [['events', 'Events'], ['input', 'Input'], ['clock', 'Clock'], ['vars',
   'Vars'], ['saves', 'Saves'], ['assets', 'Assets'], ['audio', 'Audio'], ['i18n', 'I18n'],
-  ['rays', 'Rays'], ['jobs', 'Jobs'], ['stream', 'Stream'], ['budget', 'Budget'], ['post', 'PostFX'], ['ground', 'Ground']];
+  ['rays', 'Rays'], ['jobs', 'Jobs'], ['stream', 'Stream'], ['budget', 'Budget'], ['post', 'PostFX'], ['occlusion', 'Occlusion'], ['ground', 'Ground']];
 idx.push('', '## Core objects (engine.xxx, no install needed)');
 for (const [p, t] of CORE_OBJS) {
   const d = docOf(get(t)).text;

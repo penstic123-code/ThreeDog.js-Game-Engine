@@ -31,6 +31,14 @@ export async function run({ check }) {
   // [守] 一件事一个入口：常见任务用平常话问，第一条必须是那一个推荐入口（CONVENTIONS.md "One task, which entry"），技巧示例只能排在后面。
   // 不过时改文档关键词（AI.md 行、THREE.md、菜谱标题），不改这里的期望
   const TASKS = [
+    ['ride a boat', /57-control/],
+    ['choice cursor', /26-ui-parts/],
+    ['applyEffects', /54-three-idioms/],
+    ['move the player by script', /57-control/],
+    ['elevator', /57-control/],
+    ['climb', /57-control/],
+    ['moving platform', /32-action-game|57-control/],
+    ['playthrough script clean start', /16-dev-bridge/],
     ['make windows glow at night', /uNight/],
     ['close a dialogue', /close a dialogue/],
     ['pick a dialogue choice', /Pick a dialogue choice/],

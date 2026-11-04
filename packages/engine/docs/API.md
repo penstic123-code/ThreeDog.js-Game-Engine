@@ -43,6 +43,7 @@
 - [`engine.stream`](api/stream.md) engine.stream builds on demand by space: only entries n…: add setRadius source teleport readyCheck sources
 - [`engine.budget`](api/budget.md) performance budget (turned on by createEngine: enable disable metric limitOf report checkStartup values byTag
 - [`engine.post`](api/post.md) PostFX: object targets add get own setAntialias list render
+- [`engine.occlusion`](api/occlusion.md) Occlusion
 - [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type has voidY forEachCollider viewRange chunkCollision staticTrimeshes staticVersion navGeometry
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
@@ -80,7 +81,7 @@
 - [`engine.lightPool`](api/lightPool.md) lightPool() Light pool: add usage
 - [`engine.content`](api/content.md) content() Content loading: load condition test run place where template fields spawn
 - [`engine.flow`](api/flow.md) flow() Game flow and scene transitions: define go transition
-- [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter add bar remove
+- [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter add value bar remove
 
 ## Other
 - [Utility functions](api/tools.md): PICTURE_SLOTS weather presets world net fakeNetwork webSocket grids screenToGround EASINGS sampleGrid ease checkOptions contentParts readParams threePatches createTerrain terrainMaterial mergeColored applyEffects rampTexture bakeVertexAO materialPatches toast …

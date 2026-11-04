@@ -55,7 +55,7 @@ window.backendCases = async () => {
   // fallback 'webgl2' (default), navigator.gpu missing: same WebGPURenderer, WebGL2 backend
   out.webgl2 = await withGpu(undefined, async () => {
     const e = make({ renderer: 'webgpu' }); await e.start();
-    const r = { renderer: e.describe().renderer, isGPU: !!e.renderer.isWebGPURenderer, drawCalls: typeof stats(e.renderer).drawCalls };
+    const r = { renderer: e.describe().renderer, text: e.describeText(), isGPU: !!e.renderer.isWebGPURenderer, drawCalls: typeof stats(e.renderer).drawCalls };
     e.dispose(); return r;
   });
   // fallback 'webgl', requestDevice failing: a WebGLRenderer on the same canvas

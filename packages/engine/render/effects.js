@@ -30,9 +30,9 @@ const UNIFORM_DEFAULTS = {
   // replaced sky still follows the time of day. Share the object itself: mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir
   uSunDir: () => new THREE.Vector3(0, 1, 0),   // unit vector toward the sun
   uSunColor: () => new THREE.Color(1, 1, 1),   // the keyframes' sun color now: what a game's own sun takes, so no second table of the day's light
-  uDaylight: 1,                              // 0 at night .. 1 at noon (the 'daylight' measure, then sky.daylight; render/daylight.js)
+  uDaylight: 1,                              // 0 at night .. 1 at noon (the 'daylight' measure: calendar, else the drawn sun; render/daylight.js)
   uNight: 0,                                 // 0 by day .. 1 at night: the curve lightPool `dusk` sources fade on (render/daylight.js)
-  uTimeOfDay: 0.5,                           // 0-1 time of day (0 midnight, 0.5 noon)
+  uTimeOfDay: 0.5,                           // 0-1 time of day (0 midnight, 0.5 noon): the 'timeOfDay' measure, calendar else sky's fixed time; render/daylight.js
   // the sky colors as drawn this frame (keyframes, engine.sky.top / horizon, weather tint, lightning; a backdrop's color for the horizon): the one
   // read for a game shader that should meet the sky (sea, distant cards). Fog in its default 'horizon' color is this same color (fog.js)
   uSkyTop: () => new THREE.Color(0, 0, 0),

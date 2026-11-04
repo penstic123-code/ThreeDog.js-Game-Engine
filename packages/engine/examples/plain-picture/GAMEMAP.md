@@ -39,7 +39,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
-| main.js | 48 | @ts-check Plain-picture demo (page /plain-picture.html): a night street in a flat-illustration look… |
+| main.js | 49 | @ts-check This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). On … |
 | picture/index.js | 22 | @ts-check The game's picture code: wiring only. Each part is one file here and writes plain three.j… |
 | picture/lights.js | 55 | @ts-check Plain-picture lights: sun and ambient from the signals, and the street lamps. Lamp pools … |
 | picture/materials.js | 25 | @ts-check Plain-picture materials by name. Flat-illustration technique: MeshLambertMaterial with a … |

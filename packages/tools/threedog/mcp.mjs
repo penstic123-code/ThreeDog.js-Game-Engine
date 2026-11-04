@@ -125,8 +125,9 @@ const TOOLS = {
   },
   snap: {
     description: 'Screenshot as a small image (480 px wide; full file in .threedog/shots/) plus the picture check of threedog shot on the live page (glare and its source, shadows, noon / midnight). Read those lines before the image.',
-    schema: obj({ name: str('File name without extension (default "snap")'), size: num('Image width in pixels (default 480); raise it only to read fine detail') }),
-    args: a => [...(a.name ? [a.name] : []), '--width', String(a.size > 0 ? a.size : SNAP_WIDTH)],
+    schema: obj({ name: str('File name without extension (default "snap")'), size: num('Image width in pixels (default 480); raise it only to read fine detail'),
+      play: { type: 'boolean', description: 'First leave the title screen the way its Start does, as threedog shot --play' } }),
+    args: a => [...(a.name ? [a.name] : []), ...(a.play ? ['--play'] : []), '--width', String(a.size > 0 ? a.size : SNAP_WIDTH)],
   },
   picture_palette: {
     cmd: 'picture-palette',

@@ -4,11 +4,13 @@
 //   engine.post.add(vignette());                       // game code
 //   plugins/20-grain.js: export default grain();            // the game's plugins folder, or a style's style/plugins/ folder
 // Styles bring bloom / ao / outline as their own plugin files; they all import from here, never from each other.
-// hdr slot (linear, before tone mapping): bloom, ao, outline, dof. ldr slot (sRGB, after it): lut, grain, vignette, chromatic.
+// Effects that exist only as TSL nodes (voxelGI, temporalAA, sunShafts, lightVolumes) live in the subpath @threedog/post-effects/tsl: they import three/webgpu, this entry does not.
+// hdr slot (linear, before tone mapping): bloom, ao, outline, dof. ldr slot (display sRGB, after it): lut, paletteLut through lut, grain, vignette, chromatic.
 // lut / grain / vignette / chromatic carry a `fuse` GLSL snippet, so when several are on they run as one fullscreen pass.
 // Added = on: an effect given to engine.post.add (or exported by a plugin file) is on unless it says enabled: false (added off for the game to switch on later with
-// handle.enabled = true); the engine's rule for every effect, so adding one never silently does nothing. The heavy ones (bloom, ao, dof, outline mode normal/both)
-// are the game's call on weak devices: read engine.tier and leave them out.
+// handle.enabled = true); the engine's rule for every effect, so adding one never silently does nothing. Tier rule, the same as at skipOnLowTier in the engine's render/PostFX.js:
+// an effect declares skipOnLowTier itself, the engine only follows that declaration, and says so in describe() and with one console note when it holds one. None here declare it, so the heavy
+// ones (bloom, ao, dof, outline mode normal/both) stay the game's call on weak devices: read engine.tier and leave them out.
 import * as THREE from 'three';
 export { dof } from './dof.js';
 export { bloom, ao } from './hdr.js';
@@ -21,7 +23,9 @@ const identity = new THREE.Data3DTexture(new Uint8Array([0, 0, 0, 255, 255, 0, 0
 identity.format = THREE.RGBAFormat; identity.minFilter = identity.magFilter = THREE.LinearFilter; identity.unpackAlignment = 1; identity.needsUpdate = true;
 
 /**
- * Color grading in sRGB space (ldr slot): contrast, saturation, warm/cool shift and an optional 3D LUT, in one fused snippet.
+ * Color grading (ldr slot): contrast, saturation, warm/cool shift and an optional 3D LUT, in one fused snippet.
+ * It reads the picture after tone mapping and the output encoding (display sRGB, 0..1), so a LUT is one made on a finished display image, and
+ * nothing here tone-maps again; for a grade on linear light before the tone curve, write an hdr effect of your own.
  * @example
  * import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
  * const { texture3D } = await new LUTCubeLoader().loadAsync('/luts/warm.cube');
@@ -49,6 +53,29 @@ export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temp
         if (params.lut) { const n = params.lut.image.width; c = T.mix(c, T.texture3D(params.lut, T.clamp(c, 0, 1).mul((n - 1) / n).add(0.5 / n)).rgb, p.amount); }
         return T.vec4(c, color.a);
       } } };
+}
+
+/**
+ * A 3D LUT that snaps every color to the nearest of `colors` (nearest in display sRGB), for lut({ lut }): the picture then holds only those colors.
+ * Nearest filtering on purpose: a linear lookup would blend neighbors into colors outside the palette. Whatever runs after lut (grain, vignette) moves off it again.
+ * @example engine.post.add(lut({ lut: paletteLut([0x101014, 0x8a8a90, 0xf4f1e8]), saturation: 0 }))
+ * @param {import('three').ColorRepresentation[]} colors at least 2
+ * @param {number} [size] cells per side; a higher size places the borders between colors more finely
+ * @returns {import('three').Data3DTexture}
+ */
+export function paletteLut(colors, size = 32) {
+  if (!Array.isArray(colors) || colors.length < 2) throw new Error('paletteLut(colors): colors must be an array of at least 2 colors, e.g. [0x101014, 0xf4f1e8]');
+  const pal = colors.map(c => new THREE.Color(c).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace));
+  const data = new Uint8Array(size ** 3 * 4);
+  for (let i = 0, b = 0; b < size; b++) for (let g = 0; g < size; g++) for (let r = 0; r < size; r++, i += 4) {
+    const x = r / (size - 1), y = g / (size - 1), z = b / (size - 1);
+    let best = pal[0], bestD = Infinity;
+    for (const c of pal) { const d = (c.r - x) ** 2 + (c.g - y) ** 2 + (c.b - z) ** 2; if (d < bestD) { bestD = d; best = c; } }
+    data.set([best.r * 255 + 0.5, best.g * 255 + 0.5, best.b * 255 + 0.5, 255], i);
+  }
+  const t = new THREE.Data3DTexture(data, size, size, size);
+  t.format = THREE.RGBAFormat; t.minFilter = t.magFilter = THREE.NearestFilter; t.unpackAlignment = 1; t.needsUpdate = true;
+  return t;
 }
 
 /**

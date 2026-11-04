@@ -33,7 +33,7 @@ export function lightSetup(scene) {
  * each with userData.fixedCount = true; core reads the mark, not a module's naming scheme, so any pool, built-in or the game's, counts the same */
 function countLoose(scene) {
   let c = 0;
-  scene.traverseVisible(o => { if (o.isLight && !o.isAmbientLight && !o.isLightProbe && !o.userData.fixedCount) c++; });
+  scene.traverseVisible(o => { if (o.isLight && !o.isAmbientLight && !o.isLightProbe && !o.isLightProbeGrid && !o.userData.fixedCount) c++; });
   return c;
 }
 

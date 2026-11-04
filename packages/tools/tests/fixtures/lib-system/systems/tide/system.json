@@ -1,0 +1,10 @@
+{
+  "summary": "Tide that rises and falls on a timer; a fixture for kind system",
+  "module": "tide.js",
+  "plug": "tide({ period: 30 })",
+  "requires": [
+    "world"
+  ],
+  "content": "content.js",
+  "text": "text.js"
+}

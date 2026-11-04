@@ -57,14 +57,16 @@ export function settle(e, rec, o, solid, mul = 1) {
   o.position.y = rec.position.y; o.rotation.y = rot; o.scale.setScalar(scale);
   ud.unstatic?.remove(); ud.unstatic = null;
   for (const h of ud.colliders.splice(0)) h.remove();
-  if (solid.static !== false && e.rays) { o.updateMatrixWorld(true); ud.unstatic = e.rays.addStatic(o); }
+  // a solid prop blocks the camera with its whole mesh, not only its footprint collider: crowns and eaves stand outside the footprint, and no game code should have to say so
+  const blocks = !!solid.collide && solid.collide.occluder !== false && solid.occluder !== false;
+  if (solid.static !== false && e.rays) { o.updateMatrixWorld(true); ud.unstatic = e.rays.addStatic(o, { occluder: blocks }); }
   if (!solid.collide || !e.collision) return;
   const { collide } = solid, set = typeof collide === 'object' ? collide : null, base = set || collide === 'circle' ? baseOf(ud.proto) : null;
   const size = ud.proto.size.clone().multiplyScalar(scale), c = base ?? ud.proto.center, ox = c.x * scale, oz = c.z * scale;
   const cx = x + ox * Math.cos(rot) + oz * Math.sin(rot), cz = z - ox * Math.sin(rot) + oz * Math.cos(rot);
   ud.colliders.push(base
-    ? e.collision.addCircle({ x: cx, z: cz }, { radius: (set?.circle ?? base.width / 2) * scale, height: size.y, occluder: set?.occluder })
-    : e.collision.addBox({ x: cx, z: cz }, { halfWidth: size.x / 2, halfDepth: size.z / 2, rotation: rot, height: size.y }));
+    ? e.collision.addCircle({ x: cx, z: cz }, { radius: (set?.circle ?? base.width / 2) * scale, height: size.y, occluder: blocks })
+    : e.collision.addBox({ x: cx, z: cz }, { halfWidth: size.x / 2, halfDepth: size.z / 2, rotation: rot, height: size.y, occluder: blocks }));
 }
 /** What settle last aligned to; update compares it because world.move sends no event @internal */
 export const fitKey = (rec, mul = 1) => `${rec.position.x},${rec.position.z},${rec.rot ?? 0},${(rec.scale ?? 1) * mul}`;

@@ -16,7 +16,7 @@ const relp = p => relative(ROOT, p).split(sep).join('/');
 /** All public items: { group, name, decl, kind } (decl: repo-relative file of the declaration) */
 export function collect() {
   const ts = require('typescript');
-  const entries = [join(ENGINE, 'index.d.ts'), join(ENGINE, 'types/tsl.d.ts'), join(addonDir('post-effects'), 'index.d.ts')].filter(existsSync);
+  const entries = [join(ENGINE, 'index.d.ts'), join(ENGINE, 'types/tsl.d.ts'), join(addonDir('post-effects'), 'index.d.ts'), join(addonDir('post-effects'), 'tsl.d.ts')].filter(existsSync);
   const program = ts.createProgram(entries, { noEmit: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext });
   const ch = program.getTypeChecker(), items = [];
   const declOf = s => { const d = s?.declarations?.[0]; return d ? relp(d.getSourceFile().fileName) : '?'; };
@@ -36,7 +36,7 @@ export function collect() {
   const exp = exportsOf(entries[0]).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable | ts.SymbolFlags.Class) && s.name !== 'THREE');
   for (const s of exp) add('exports threedog', s.name, s, 'export');
   for (const s of exportsOf(entries[1]).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) add('exports threedog/tsl', s.name, s, 'export');
-  if (entries[2]) for (const s of exportsOf(entries[2]).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) add('exports @threedog/post-effects', s.name, s, 'export');
+  for (const entry of entries.slice(2)) for (const s of exportsOf(entry).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) add('exports @threedog/post-effects', s.name, s, 'export');
 
   // createEngine options
   const ce = exp.find(s => s.name === 'createEngine');
@@ -156,12 +156,30 @@ export function usage(items, texts) {
 // elsewhere (the proposal on that page), so they stay candidates.
 const PICTURE_MOVE = new Set(['sky.moonSize', 'sky.orbitTilt', 'sky.orbitSway', 'sky.starScale', 'sky.dim', 'sky.gradientCurve', 'sky.skybox',
   'water.waveScale', 'water.waveSpeed', 'water.normalScale', 'water.normalRepeat', 'water.normalSpeed']);
+
+// Kept on purpose after the 0.7 audit (docs/testing/api-count.md): name -> why. Read-only facts and the other half of a pair stay because plain
+// three.js does not give them and a game or a test reaches for them when debugging; "taught" ones belong in a recipe and are not dead.
+const KEPT_API = new Map();
+const keep = (why, ...names) => { for (const n of names) KEPT_API.set(n, why); };
+keep('read-only fact for debugging, UI or tests', 'slope', 'stateApplied', 'player.radius', 'player.water', 'player.gravity', 'player.channel', 'player.support', 'player.groundType',
+  'player.ready', 'player.whenReady', 'saves.ready', 'input.contexts', 'audio.value', 'post.list', 'plugins.list', 'threads.shared', 'runState.owners', 'random.state',
+  'startup.startMs', 'startup.preloadMs', 'startup.streamMs', 'startup.modules', 'cpuPhases.render', 'cpuPhases.afterRender', 'cameraOverride.focus', 'lightPool.lights', 'lightPool.focus',
+  'vegetation.get', 'vegetation.list', 'vegetation.isRemoved', 'rigid.stats', 'dialogue.speaking', 'inventory.list', 'inventory.get', 'quests.state', 'interactions.current', 'interactions.get',
+  'triggers.list', 'grids.list', 'water.bodies', 'net.actor', 'net.pending', 'net.stats', 'ambience.position', 'particles.has', 'music.current', 'music.ready', 'music.pick',
+  'timeline.playing', 'hud.markers', 'content.ready', 'content.markers', 'nav.agent', 'settings.values', 'settings.isOpen', 'views.current', 'views.has', 'batching.root');
+keep('the other half of a pair (do / undo, set / get)', 'terrain.rebuild', 'vegetation.rebuild', 'player.addJumps', 'player.resetJumps', 'player.dispose', 'assets.release', 'views.release',
+  'plugins.on', 'settings.close', 'settings.save', 'settings.rebind', 'triggers.clear', 'particles.clear', 'batching.refresh', 'ambience.rules', 'content.run');
+keep('runtime tuning knob', 'interactions.radius', 'pickups.radius', 'pickups.size', 'photo.scale', 'stream.radius', 'events.historySize', 'ops.historySize', 'budget.enabled', 'rigid.gravity',
+  'calendar.daysPerSeason', 'uniforms.uSkyCloudSpeed');
+keep('taught in a recipe (prose), not dead', 'quests.isDone', 'quests.isActive', 'quests.isFailed', 'quests.check', 'level.markersWith', 'triggers.byTag');
+keep('contract of a replaceable draw module (engine.use(mine, { replaces }))', 'terrainDraw.material', 'terrainDraw.patches', 'terrainDraw.uniforms', 'terrainDraw.recolor', 'terrainDraw.meshes',
+  'vegetationDraw.meshes', 'weatherDraw.particles');
 /** Why an unused item is kept anyway, or null when it is a candidate */
 export function keptWhy(i) {
   if (i.group === 'CLI commands') return 'CLI command (used in the terminal)';
   if (i.group === 'error codes') return 'error code';
   if ((i.group === 'module options' || i.group === 'createEngine options') && !PICTURE_MOVE.has(i.name)) return 'tuning option with a default';
-  return null;
+  return KEPT_API.get(i.name) ?? null;
 }
 
 /** Totals per group in a fixed order */

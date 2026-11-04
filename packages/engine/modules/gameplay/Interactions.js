@@ -407,6 +407,15 @@ export function interactions(opts) {
     } };
 }
 
+/**
+ * What keeps input locked, for the inputLocked result: a bare code sent a script through describe to learn that the title was still up.
+ * by: the top opaque input context without its ui- / win- prefix ('title', 'settings', 'dialogue', 'cutscene', a game's own context).
+ */
+function lockFacts(e) {
+  const top = (e.input.holders ?? []).filter(h => !h.pass).at(-1)?.context ?? 'unknown', by = top.replace(/^(ui|win)-/, '');
+  return by === 'title' ? { by, fix: "start a run: engine.applyState({ play: true }) or threedog state play=1 (session.newGame() alone leaves the title open)" } : { by };
+}
+
 /** The engine op interaction.use { id?, action? }: what the interact key, the prompt click, the dev bridge and tests all run */
 function defineUse(e, i) {
   const find = (id, action, ctx) => id !== undefined ? i.get(id) : i.pick(ctx.actor, action);
@@ -420,7 +429,7 @@ function defineUse(e, i) {
       if (!it.enabled(it.object, { actor: ctx.actor })) return 'disabled';
       // the local player only: a net peer or an NPC does not go through this page's keys. The bridge and tests are refused too, so `ops` never shows a ✓ no player can do
       if (ctx.actor === e.actor && e.input.isUnbound(it.action)) return { code: 'noKey', facts: { action: it.action, fix: bindLine(it.action) } };
-      if (ctx.actor === e.actor && !e.input.enabled) return 'inputLocked';
+      if (ctx.actor === e.actor && !e.input.enabled) return { code: 'inputLocked', facts: lockFacts(e) };
       if (it.approach && !walkerOf(e, ctx.actor)) return 'cannotWalk';
       const p = e.actorPosition(ctx.actor);
       if (it.approach || !p) return true;
@@ -440,6 +449,6 @@ function defineUse(e, i) {
       return { approaching: ch.walkTo(q, { arrive: APPROACH_ARRIVE }).then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? i._run(it, ctx.actor) : r) };
     },
     offers(e, ctx) { const it = find(undefined, undefined, ctx); return it ? [{ id: it.id }] : []; },
-    reasons: { unknown: 'No interaction with this id', noKey: 'Its action has no key bound, so the player cannot reach it', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A window or dialogue locks input' },
+    reasons: { unknown: 'No interaction with this id', noKey: 'Its action has no key bound, so the player cannot reach it', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A title, window, dialogue or cutscene locks input; facts.by names it' },
   });
 }

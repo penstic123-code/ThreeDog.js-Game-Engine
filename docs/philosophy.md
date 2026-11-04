@@ -6,7 +6,7 @@ An AI coding agent asked for a three.js game starts from an empty scene. Before 
 
 The main user of the engine is an agent, not a person at a keyboard. That one fact explains most of the decisions below: an agent already knows three.js well, it reads little documentation, and it trusts whatever a tool tells it. So the engine stays close to three.js, keeps its index short, and has to report problems honestly.
 
-> **Where this stands.** This page describes version 0.6, the first version in which the engine no longer draws the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
+> **Where this stands.** This page describes version 0.7. Version 0.6 was the first in which the engine no longer drew the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
 
 ## Why the engine stopped drawing the picture
 
@@ -79,7 +79,7 @@ Anything undeclared falls to a development tool that records which line wrote a 
 
 ## WebGL or WebGPU
 
-A game picks its renderer when it starts, because picture code is written differently for each one. WebGL uses GLSL shaders, which agents know best, and it stays the default. WebGPU uses three.js's node language, TSL, and is the only way to some real-time effects. Changing later means rewriting the picture code. The engine's own effects exist in both forms, and a rule in the repository refuses a patch that has only one.
+A game picks its renderer when it starts, because picture code is written differently for each one. A new game starts on WebGPU, which uses three.js's node language, TSL, and is the only way to some real-time effects. `--webgl` starts it on GLSL shaders instead, the form agents have seen most. Without WebGPU in the browser the game keeps running on three's WebGL2 backend. Changing later means rewriting the picture code. The engine's own effects exist in both forms, and a rule in the repository refuses a patch that has only one.
 
 ## What the evidence says so far
 
@@ -87,7 +87,6 @@ The evidence is small. In ten timed runs of two small games, half with the engin
 
 ## What comes next
 
-- Lighting. A trial on three.js 0.187 found that baked probe grids and lightmaps give the best picture for almost no cost per frame and also run on WebGL. Real-time global illumination runs only on WebGPU. These are trial results and are not in the engine yet.
 - An asset library that records where each pulled item came from, describes what it needs and writes, and checks that items fit together.
 - Composed templates, so one placed object can be made of several parts.
 - A browser editor, and a harder art test that combines assets from different sources.

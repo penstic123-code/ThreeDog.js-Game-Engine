@@ -19,7 +19,7 @@ function load() {
 export const hasReader = () => !!load();
 export const NO_READER = 'reading glb needs @gltf-transform/core: run npm i -D @gltf-transform/cli';
 
-/** @returns {Promise<{ doc: any, core: any }>} Document of the file; Meshopt-compressed files (public/models) decode through meshoptimizer when installed */
+/** @returns {Promise<{ doc: any, core: any }>} Document of the file; Meshopt-compressed files (public/optimized) decode through meshoptimizer when installed */
 export async function readModel(path) {
   const l = load();
   if (!l) throw new Error(NO_READER);

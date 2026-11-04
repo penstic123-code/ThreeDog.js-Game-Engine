@@ -54,6 +54,12 @@ const CLIENT = `(() => {
 })();
 //# sourceURL=threedog-error-relay.js`;
 
+// Headless Chromium has no WebGPU, so every page load repeats this in words that vary (three's own line and the engine's, with a reason). It stays one line in the
+// log, kept apart from real errors; an error (fallback: 'error' refusing to start) is not a warning and is not merged. shot / snap say which backend drew the picture
+const WEBGPU_FALLBACK = /WebGPU (unavailable|is not available)|No available adapters/i;
+/** What makes two items the same line of the log (numbers differing still count as the same) */
+export const mergeKey = (it, src) => it.type === 'warn' && WEBGPU_FALLBACK.test(it.msg) ? 'warn:webgpu-fallback' : it.type + it.msg.replace(/\d+(\.\d+)?/g, '#') + src;
+
 const LABEL = { error: 'error', rejection: 'Promise rejection', resource: 'resource load failure', warn: 'warning' };
 const RED = s => `\x1b[31m${s}\x1b[0m`, YELLOW = s => `\x1b[33m${s}\x1b[0m`, DIM = s => `\x1b[2m${s}\x1b[0m`;
 
@@ -110,7 +116,7 @@ export default function errorRelay({ warn = true, logFile = '.threedog/errors.lo
           if (!valid(raw)) continue;
           const it = { stack: '', src: '', page: '', count: 1, t: Date.now(), ...raw };
           it.count = Math.max(1, Math.min(1e6, Math.floor(it.count))); it.msg = it.msg.slice(0, 2000); it.stack = it.stack.slice(0, 4000);
-          const src = sourceOf(it), key = it.type + it.msg.replace(/\d+(\.\d+)?/g, '#') + src;
+          const src = sourceOf(it), key = mergeKey(it, src);
           const s = seen.get(key);
           // a warning says the same thing every time (most are warned once per page, so once per reload): only its first line is kept, repeats
           // are counted silently; an error's repeats are still summarized, since how often it happens is news

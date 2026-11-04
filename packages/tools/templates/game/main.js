@@ -6,12 +6,13 @@
 // Why they are here: nearly every game needs a start screen, a save and a pause menu, and writing them by hand costs far more code and leaves them out of
 // saves and tests. Delete a line only if the design truly has no such thing; then you write that part yourself. CLAUDE.md "Already here" lists the rest.
 // Want a ready open world instead (generated ground, day/night sky, follow camera, a player)? threedog new-game name --open-world
+__TSL_IMPORT__
 import { createEngine, presets, world, content, settings /*, THREE, characters, collision, followCamera, hud, interactions, dialogue, quests, vegetation */ } from 'threedog';
 import { createPicture } from './picture/index.js';   // the game's own picture in plain three.js: gray for now; make it yours, recipe 62
 import data from './content/index.js';
 import packs from './assets.js';
 
-const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: { title: '__NAME__' }, title: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
+const engine = createEngine({ __RENDERER__bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: { title: '__NAME__' }, title: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
 // world() stores what content/ places (props, pickups) and saves their changes; content() loads content/. Modules you can add (interactions, inventory, pickups for items on the ground, dialogue, quests, hud...): node_modules/threedog/docs/api/<module>.md
 engine.use(world(), content(), settings({ freezeWorld: true }));   // settings: Esc pauses and opens the menu (graphics quality, audio, keys, language, saves)
 engine.saves.autosave(0.5);   // minutes of play; Continue on the start screen loads it. The game's own state joins with engine.saves.register('game', { version: 1, save, load }), recipe 20

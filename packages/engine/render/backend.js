@@ -209,6 +209,18 @@ export function gpuName(r) {
   }
   return glName(isWebGPU(r) ? r.backend?.gl : r.getContext());
 }
+/**
+ * What the renderer in use can run, for describe().renderer: an AI reads here what a game may rely on, instead of learning it from a shader that fails.
+ * compute: 'compute-shaders' on WebGPU; 'transform-feedback' on WebGPURenderer's WebGL2 backend, which runs renderer.compute() through vertex shaders, so no
+ * storage textures, atomics or workgroup memory; null on WebGLRenderer.
+ * @param {any} r @returns {{ gpu: string | null, tsl: boolean, glsl: boolean, compute: 'compute-shaders' | 'transform-feedback' | null }}
+ */
+export function backendFacts(r) {
+  const name = backendName(r);
+  return { gpu: gpuName(r) || null, tsl: name !== 'webgl', glsl: name === 'webgl',
+    compute: name === 'webgpu' ? 'compute-shaders' : name === 'webgl2' ? 'transform-feedback' : null };
+}
+
 /** @param {any} gl @returns {string} */
 function glName(gl) {
   if (!gl) return '';
@@ -319,6 +331,28 @@ export function compileThrough(r, draw) {
 export function cubeTarget(r, THREE, size, opts) {
   if (!isWebGPU(r)) return new THREE.WebGLCubeRenderTarget(size, opts);
   return new (webgpuPart('classes', 'a cube render').CubeRenderTarget)(size, opts);
+}
+
+/**
+ * The pixels of one layer of a 3D render target, RGBA, row 0 first as the target's writer meant it. Float32Array on WebGLRenderer; on WebGPURenderer
+ * whatever its readback gives for the target's type, with rows padded to its copy alignment (use length / h as the row stride).
+ * Why the flip: WebGPURenderer's node shaders count rows from the top, and on its WebGL2 backend readPixels counts from the bottom, so without
+ * it a probe bake on that backend came back upside down.
+ * @param {any} r @param {any} rt @param {number} w @param {number} h @param {number} layer @returns {Promise<any>}
+ */
+export async function readLayer(r, rt, w, h, layer) {
+  if (isWebGPU(r)) {
+    const px = await r.readRenderTargetPixelsAsync(rt, 0, 0, w, h, 0, layer);
+    if (backendName(r) === 'webgpu') return px;
+    const out = new /** @type {any} */ (px.constructor)(px.length), row = px.length / h;
+    for (let y = 0; y < h; y++) out.set(px.subarray(y * row, (y + 1) * row), (h - 1 - y) * row);
+    return out;
+  }
+  const keep = r.getRenderTarget(), face = r.getActiveCubeFace(), mip = r.getActiveMipmapLevel(), px = new Float32Array(w * h * 4);
+  r.setRenderTarget(rt, layer);   // on WebGL the layer is chosen by what is attached, readRenderTargetPixels has no layer argument
+  r.readRenderTargetPixels(rt, 0, 0, w, h, px);
+  r.setRenderTarget(keep, face, mip);
+  return px;
 }
 
 /** A CubeCamera's six faces (three's CubeCamera.update, which handles both renderers) as one fresh frame, like renderOnce @param {any} r @param {any} scene @param {any} cubeCamera */

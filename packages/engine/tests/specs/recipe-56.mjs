@@ -27,7 +27,7 @@ export function rewriteImports(code) {
 
 export const specs = [
   {
-    name: '[guard] recipe 56: every js code block runs on the WebGPU route (WebGL2 backend) without an error, and the examples are TSL only',
+    name: '[guard] recipe 56: every js code block runs on the WebGPU route without an error, and the examples are TSL only',
     url: '/tests/recipe-56/index.html',
     software: false,   // nothing reads pixels: a block only has to build, start and draw three frames without an error
     expectErrors: /broken node|node build failed/,   // three (and the engine's line after it) logs the deliberately broken block of the self-check below
@@ -52,7 +52,7 @@ export const specs = [
       const failed = [];
       for (const b of blocks) {
         const r = await ev(code => window.runBlock(code), rewriteImports(b.code));
-        if (!r.ok || r.backends?.some(x => x !== 'webgl2')) failed.push(`block ${b.n} (line ${b.line}): ${r.error || 'backend ' + r.backends}`);
+        if (!r.ok || r.backends?.some(x => !/^webgl/.test(x))) failed.push(`block ${b.n} (line ${b.line}): ${r.error || 'backend ' + r.backends}`);
       }
       check(`all ${blocks.length} blocks run: start, three frames, no error logged`, !failed.length, failed.join('\n'));
     },

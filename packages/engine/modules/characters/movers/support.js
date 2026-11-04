@@ -9,6 +9,7 @@
 // platform carry, placeAt and a load all move the position outside the mover, so the mover compares with where it left the character (exact).
 import * as THREE from 'three';
 import { codedError } from '../../../core/errorHints.js';
+import { placeY } from '../../../core/ground.js';
 
 const REG = new WeakMap();     // engine -> { list: Map<id, entry>, riders: Set<character> }
 const STATE = new WeakMap();   // character -> per-character support state (private: games read character.support / safeGround)
@@ -66,18 +67,31 @@ function topAt(entry, x, z) {
 }
 
 /**
- * @internal Ground height under (x, z) for a character at height y: engine.surface plus every registered support whose top is within step height
- * above y (higher ones are passed under). Sets the state's `hit` to the support that won (or null).
+ * @internal What stands at (x, z): { y, on } with on the support that won, or null. With a height y: engine.surface plus every registered support whose
+ * top is within `step` above y, higher ones are passed under. Without y (undefined): the highest support top, so a placement on a boat at sea stands on
+ * the deck and not on the sea floor. y may be -Infinity beyond terrain({ shape }). The one rule for walking, placing and data-only NPCs: one place, one answer.
  */
-export function groundAt(c, x, z, y) {
-  const e = c.engine, s = stateOf(c);
-  let h = e.surface(x, z, y); s.hit = null;
+export function standAt(e, x, z, y, step) {
+  let h = e.surface(x, z, y), on = null;
   const R = REG.get(e);
   if (R?.list.size) for (const en of R.list.values()) {
     const t = topAt(en, x, z);
-    if (t != null && t <= y + c.stepHeight + 1e-3 && t > h) { h = t; s.hit = en; }
+    if (t != null && t > h && (y === undefined || t <= y + step + 1e-3)) { h = t; on = en; }
   }
-  return h;
+  return { y: h, on };
+}
+
+/** @internal Ground height under (x, z) for a character at height y (standAt). Sets the state's `hit` to the support that won (or null) */
+export function groundAt(c, x, z, y) {
+  const r = standAt(c.engine, x, z, y, c.stepHeight);
+  stateOf(c).hit = r.on;
+  return r.y;
+}
+
+/** @internal standAt for a place-it-here entry: off the ground it fails the way placeY does (dev throws with the fix, release keeps fallback) */
+export function placeAtHeight(e, who, x, z, y, step, fallback) {
+  const r = standAt(e, x, z, y, step);
+  return r.y !== -Infinity ? r : { y: placeY(e, who, x, z, y, fallback), on: null };
 }
 
 /**
@@ -124,7 +138,7 @@ export function beginMove(c) {
 export function endMove(c, dt, hit, ground = 'ground') {
   const s = stateOf(c), p = c.root.position, R = registry(c.engine);
   s.vel.copy(s.acc).divideScalar(dt > 0 ? dt : 1); s.acc.set(0, 0, 0);
-  const now = c.grounded && !c.swimming ? hit : null;
+  const now = c.grounded && !c.swimming ? hit : null, landed = !!now && now !== s.on;
   if (now !== s.on) {
     if (s.on) leave(c);
     if (now) { s.on = now; now.object.updateWorldMatrix(true, false); s.m.copy(now.object.matrixWorld); R.riders.add(c); s.inherit.set(0, 0); }
@@ -134,8 +148,8 @@ export function endMove(c, dt, hit, ground = 'ground') {
   v.kind = c.swimming ? 'water' : s.on ? 'platform' : c.grounded ? ground : null;
   v.object = s.on?.object ?? null; v.id = s.on?.id ?? null; v.safe = s.on ? s.on.safe : v.kind !== 'water';
   v.velocity.x = s.vel.x; v.velocity.y = s.vel.y; v.velocity.z = s.vel.z;
-  // safe spot: standing still on something that is not moving and not marked unsafe
-  if (c.grounded && !c.swimming && v.safe && s.vel.lengthSq() < 1e-8) (c.safeGround ??= new THREE.Vector3()).copy(p);
+  // safe spot: standing still on something that is not moving and not marked unsafe. Not on the landing step: nothing has carried the rider yet, so a moving platform still reads as speed 0
+  if (c.grounded && !c.swimming && v.safe && !landed && s.vel.lengthSq() < 1e-8) (c.safeGround ??= new THREE.Vector3()).copy(p);
   fallCheck(c, s);
   (s.last ??= new THREE.Vector3()).copy(p);
 }
@@ -151,7 +165,7 @@ function fallCheck(c, s) {
   const ev = { character: c, safe: c.safeGround ? c.safeGround.clone() : null, prevented: false, preventDefault() { this.prevented = true; } };
   c.engine.events.emit('character:fall', ev);
   if (ev.prevented) return;
-  // the exact spot, not placeAt: placeAt snaps to the terrain and would drop a spot on a (still) platform to the ground below it
+  // the exact spot, not placeAt: a platform that was under this spot may have moved away, and placeAt would land on the ground below it
   if (c.safeGround) c.root.position.copy(c.safeGround);
   detach(c); c.velocity.set(0, 0); c.vy = 0; c._push = 0; c.grounded = true;
   s.fell = false;

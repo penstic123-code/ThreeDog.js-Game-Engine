@@ -73,6 +73,7 @@ export const lifecycleMethods = {
     this.scene.environment = null;
     if (this.scene.background?.isTexture) this.scene.background.dispose();
     this.assets.dispose();
+    this.occlusion.dispose();
     this.post.dispose();
     this._webglOnlyView?.remove(); this._webglOnlyView = null;
     this._gpu?.dispose();

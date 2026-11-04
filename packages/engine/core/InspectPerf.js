@@ -13,7 +13,7 @@ import { stats, memory } from '../render/backend.js';
 const REFERENCE = { drawCalls: 300, triangles: 1_000_000, programs: 60, textureMB: 256, cpuMs: 8, compileMs: 50 };
 const NEXT = {
   drawCalls: '`threedog capture` (which objects draw most), merge repeats (engine.batching: your own static repeats with userData.batch = true; InstancedMesh, BatchedMesh)',
-  triangles: 'LOD / hlod for far objects (THREE.LOD), lower-poly models; `threedog capture` lists the largest draws',
+  triangles: 'LOD / hlod for far objects (THREE.LOD), lower-poly models; hlod cells or big batches behind walls: engine.occlusion.enabled = true; `threedog capture` lists the largest draws',
   programs: 'engine.inspect.materials(): share materials instead of cloning per mesh; each distinct material setup and light setup is one program',
   textureMB: 'engine.inspect.materials() lists the largest textures: smaller sizes, KTX2 compressed textures (KTX2Loader)',
   cpuMs: 'engine.profile(true) then engine.profile() (ms per module), engine.cpuPhases (fixed / frame / render)',

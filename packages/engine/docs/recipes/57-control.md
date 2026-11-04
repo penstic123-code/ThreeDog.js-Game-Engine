@@ -54,6 +54,45 @@ collision, gravity. They never mix: a cutscene can take a character whose mover 
 player's input. `mover: 'manual'` is for a game that writes the position itself; it still needs someone in control to call `move()` each
 step (a `control` function returning `null` does).
 
+## Moved by script: ride a boat, a lift, an elevator, a ladder
+
+Move the player by script in one of three ways. Pick by what the player may still do.
+
+| Case | Use | The player |
+|---|---|---|
+| A floor that moves: lift, elevator, raft, moving platform | `characters.support(deck)` (recipe 32, Platforms) | keeps walking and jumping, is carried |
+| A ride on a route: boat, cable car, being carried up stairs | `engine.control.take` with `step: () => false` | steers nothing, gravity is off, your code places it |
+| Climbing: ladder, rope, wall | `mover: 'manual'` plus the `states` option | moves on the axis you write, the climb clip plays |
+
+```js
+// a ride: keys and gravity stop while the hold lasts; the seat is a point in the boat's own space
+const seat = new THREE.Vector3(0, 0.6, 0);
+const ride = engine.control.take(engine.player, { owner: 'boat', layer: 'script', step: (dt, ch) => {
+  boat.updateWorldMatrix(true, false);
+  boat.localToWorld(ch.root.position.copy(seat));
+  ch.syncRecord();
+  return false;                                // placed by hand this step
+} });
+```
+To lock the player's input during a scripted ride, one line: `const lock = engine.input.push('ride');` and `lock.remove()` at the end. `engine.characters.support(deckMesh)` works for a boat on water: pass the deck mesh, and the player stands on it and rides it wherever it moves, with no ground needed under it.
+Gravity comes back the moment the hold ends, so end a ride where the character can stand: `player.placeAt(pier)` then `ride.remove()`, both in a
+fixed step or an op. The camera and saves follow the position as usual.
+
+```js
+// a ladder (the landing point must be ground or a registered platform, engine.characters.support; anywhere else it drops to what is below): createPlayer({ clips: { climb: 'Climb' }, states: () => climbing ? 'climb' : null }), then call this when the player uses the ladder
+let climbing = false;
+function climb(player, top) {                  // top: { x, y, z }, where it steps off, on ground or a registered platform
+  climbing = true; player.mover = 'manual';    // no gravity, the position is yours
+  const h = engine.control.take(player, { owner: 'ladder', layer: 'script', step: (dt, ch) => {
+    const up = (engine.input.down('moveForward') ? 1 : 0) - (engine.input.down('moveBackward') ? 1 : 0);
+    ch.root.position.y += up * 2 * dt;
+    if (ch.root.position.y < top.y) return null;   // null: the mover runs, so states picks climb
+    climbing = false; ch.mover = 'simple'; h.remove(); ch.placeAt(top);
+    return false;
+  } });
+}
+```
+
 ## Vehicles
 
 Getting into a vehicle does not change who controls the character: the player's input (`'player-input'`) drives the car while seated. A

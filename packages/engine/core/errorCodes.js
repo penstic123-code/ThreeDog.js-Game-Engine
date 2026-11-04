@@ -292,11 +292,22 @@ export const ERROR_CODES = {
   'probes-option': {
     docs: ['recipes/34-environment-lighting.md', 'api/engine.md'],
     fix: 'engine.bakeProbes / loadProbes got a wrong option: bounds must be a Box3 or { min, max }, spacing a positive number of meters ' +
-      '(raise it when the grid has too many probes), follow focus, camera, an Object3D, a function or false.' },
+      '(raise it when the grid has too many probes). On a device that cannot render to float textures, bake elsewhere and ship the file.' },
+  'probes-check': {
+    docs: ['recipes/34-environment-lighting.md'],
+    fix: 'A probe grid is live and something around it will look wrong: lit objects reach outside it (widen bounds or light them another way) ' +
+      'or other light adds to what the bake saw (lower it where the probes take over). The details are in describe().render.probes.' },
   'probes-data': {
     docs: ['recipes/34-environment-lighting.md', 'api/engine.md'],
     fix: 'engine.loadProbes(json) was given data that is not a probe file (or a damaged one), so nothing was added. Pass what ' +
       'handle.toJSON() returned, or bake again with engine.bakeProbes.' },
+  'lightmap-data': {
+    docs: ['recipes/34-environment-lighting.md', 'api/engine.md'],
+    fix: 'engine.loadLightmap(file) was given something that is not a file from `threedog bake light`, or a damaged one, so nothing was changed. Bake it again.' },
+  'lightmap-check': {
+    docs: ['recipes/34-environment-lighting.md'],
+    fix: 'A lightmap is on and something around it will look wrong: a baked mesh moved or is missing, a baked material is shared with an unbaked mesh, ' +
+      'or ambient light adds to what the bake saw. The details are in describe().render.lightmap.' },
   'grid-data': {
     docs: ['recipes/29-grid.md', 'api/grids.md'],
     fix: 'sampleGrid / gridFromImage / decodePng got data it cannot read: wrong width * height, an unknown interp or channel, or a PNG ' +

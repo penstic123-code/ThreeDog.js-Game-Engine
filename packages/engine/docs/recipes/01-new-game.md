@@ -9,27 +9,26 @@ template (`threedog new-game my-game`, section 0); the engine's own example is `
 ```
 npm run new-game -- my-game                     # blank start: an empty scene and a camera; no gameplay, no genre assumed
 npm run new-game -- my-game --open-world        # generated ground, a day/night sky, a follow camera and a player
-npm run new-game -- my-game --example           # the open world plus a sample: hp / hunger, a rest op, apples, a searchable stash, a HUD counter
+npm run new-game -- my-game --webgl             # either one on WebGL, shaders in GLSL, instead of WebGPU and TSL
 ```
-(The `--` matters: without it npm swallows the flags. The CLI form takes them directly: `threedog new-game my-game --example`. `--example` uses engine placeholders (gray box, capsule), so it works with any style.)
+(The `--` matters: without it npm swallows the flags. The CLI form takes them directly: `threedog new-game my-game --open-world`.)
+A new game runs on WebGPU, shaders in TSL (recipe 56); `--webgl` is for GLSL. Without WebGPU the same game runs on three's WebGL2 backend, slower; `engine.describe().renderer` says which and why.
 The name may only contain lowercase letters, digits and dashes; an existing directory under `games/` with the same name is refused. What it does:
-1. Copies `packages/tools/templates/game/` to `games/my-game/` (`__NAME__` in the files is replaced by the name); `--open-world` copies `templates/openworld/` over it first, `--example` also `templates/example/`.
+1. Copies `packages/tools/templates/game/` to `games/my-game/` (`__NAME__` in the files is replaced by the name); `--open-world` copies `templates/openworld/` over it first.
 2. Creates the `node_modules/my-game` link (the path npm gives a workspace named `my-game`). It builds nothing and leaves `package-lock.json` alone; it runs `npm install` only when a dependency of the template is not installed yet, and says so.
 3. Runs `map` (generates GAMEMAP.md) and `check`. Any failing step stops and says why. The smoke test (`threedog test -w games/my-game`) builds, so it is left to you.
 
 The default game has no genre: `world()` + `content()`, what nearly every game needs (a start screen with Continue / Start, autosave, Esc = pause + settings menu; delete a line if the game does not want it), the engine's camera placed by hand (a plain `THREE.PerspectiveCamera`) and the gray
-starting picture in `picture/` (a sun, an ambient light, the tone curve, written by the game); no ground, sky, player or camera rig, because which of those a game needs depends on its genre (a character walking around a place you built: recipe 63, sixteen lines)
+starting picture in `picture/` (a sun, an ambient light, the tone curve, written by the game); no ground, sky, player or camera rig, because which of those a game needs depends on its genre (a character walking around a place you built: recipe 63, about twenty lines)
 (a card table, a puzzle room, a side-scroller and an open world start differently). Content files are empty arrays / objects (each
 has one comment line saying what goes there and which recipe teaches it), and `picture/`: `index.js` (wiring), `palette.js` (colors and key values), `lights.js`, `materials.js`, plain three.js
 that is yours to change or replace (recipe 62). `CLAUDE.md` says "This game has no gameplay yet; build what DESIGN.md describes".
 `--open-world` swaps `main.js` for `openWorld` (generated terrain from `@threedog/terrain-noise`, vegetation, a day/night sky, weather, water, collision, a
-follow camera) and a player at a flat spot, with `sky()` giving the signals and `picture/` writing the lights; it adds `@threedog/terrain-noise` to `package.json`. `--example` builds on it and adds the patterns: `interactions / inventory / hud`, 3 apples on the ground and one stash (a template in `content/templates.js` placed by
-`content/props.js`, searched through the op `stash.search`); its `main.js` shows the game's own state registered with `describe.add` and `saves.register`, an op
-with `can` / `run`, and the `onFixed` / `onFrame` split. `spawn` and `places` take any `{ x, z }` (or `{ x, y, z }`); `findSpawn` is only for generated terrain.
+follow camera) and a player at a flat spot, with `sky()` giving the signals and `picture/` writing the lights; it adds `@threedog/terrain-noise` to `package.json`. `spawn` and `places` take any `{ x, z }` (or `{ x, y, z }`); `findSpawn` is only for generated terrain.
 In an open-world start, to change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` / `firstPerson` / `rts` / `fixed`, or pass a camera module directly; there is
 no default).
 - The comments in `main.js` list further gameplay modules you can add; usage is in `../api/<module>.md`.
-- To change the starting point of new games, edit the real files in `packages/tools/templates/game/` (`templates/openworld/` for `--open-world`, `templates/example/` for the sample).
+- To change the starting point of new games, edit the real files in `packages/tools/templates/game/` (`templates/openworld/` for `--open-world`).
 - `DESIGN.md` is an empty template: write your gameplay ideas there. `CLAUDE.md` only points the way (read `node_modules/threedog/docs/AI.md` first,
   then GAMEMAP, DESIGN) and does not copy engine rules.
 - There is no `tests/`: when `tests/specs/` does not exist, `npm test -w games/my-game` runs a smoke test automatically.
@@ -45,7 +44,7 @@ no default).
 | `games/my-game/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation props templates audio grids renames rules, plus the game's own kinds (rules.js) |
 | `games/my-game/DESIGN.md` | Hand-written design decisions (a few lines of `- **decision**: reason`), copied into GAMEMAP.md |
 | `games/my-game/CLAUDE.md` | A few lines: read `node_modules/threedog/docs/AI.md`, then this directory's GAMEMAP.md and DESIGN.md (copy the template's) |
-| `games/my-game/public/` | This game's art assets (URL `/models/...`); keep Blender source files in `games/my-game/art/models/`, `npm run assets -- -w my-game` compresses them over |
+| `games/my-game/public/` | This game's art assets (URL `/models/...`); keep Blender source files in `games/my-game/art/models/`, `npm run assets -- -w my-game` compresses them into `public/optimized/` |
 
 After creating them, run `npm install` once at the repository root (this links the new game into the workspaces so `threedog` can find it).
 

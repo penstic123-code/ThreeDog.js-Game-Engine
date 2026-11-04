@@ -3,6 +3,7 @@
 ```js
 engine.scene.add(new THREE.PointLight(0xffaa55, 2, 8));            // anything the engine does not write: just do it
 engine.lights.sun.intensity = 3;                                   // the placeholder lights too: nothing else writes them
+const mySky = new THREE.Mesh(skyGeometry, skyMaterial);
 engine.sky.replace(mySky);                                         // your sky: skybox name, Texture or Object3D; null gives the dome back
 engine.onRender(({ renderer, scene, camera }) => { /* render into your own target */ });
 ```

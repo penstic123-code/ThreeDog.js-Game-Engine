@@ -99,7 +99,6 @@ export function level(opts = {}) {
 
   const api = {
     root: null, markers: {}, spawn: new THREE.Vector3(), heightfield: null,
-    get object() { return api.root; },   // same as root (consistent with player.object, ent.object)
     get ready() { return done; },
     /** Register things belonging to the current level ({ remove() } handles); auto-removed on level switch / unload; returns the same handle */
     track(h) { if (h) removers.push(h); return h; },
@@ -204,8 +203,10 @@ export function level(opts = {}) {
     const sp = markers.spawn || Object.values(markers).find(m => /^spawn_/i.test(m.name));
     api.spawn = sp ? sp.position.clone() : new THREE.Vector3(0, hf.height(0, 0), 0);
     pendingColliders = colliders === false ? cols.filter(m => COL_RE.test(m.name) || chainValue(m, root, 'collider')) : cols;
-    // rays: all meshes; collision meshes and non-walkable meshes also occlude the camera
-    removers.push(e.rays.addStatic(root), e.rays.addStatic([...cols, ...meshes.filter(m => !walkSet.has(m))], { occluder: true }));
+    // rays: all meshes; collision meshes and shown non-walkable meshes also occlude the camera, unless a node says userData.occluder = false (a glass roof, a thin railing).
+    // col_ meshes are hidden by design and still block; any other hidden mesh is not on screen, so the arm has nothing to avoid
+    const blocks = m => chainValue(m, root, 'occluder') !== false, shownHere = m => !chainHas(m, root, p => !p.visible);
+    removers.push(e.rays.addStatic(root), e.rays.addStatic([...cols.filter(blocks), ...meshes.filter(m => !walkSet.has(m) && shownHere(m) && blocks(m))], { occluder: true }));
     trimeshCache = null; version++;
     addColliders();
   }

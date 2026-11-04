@@ -43,7 +43,7 @@ export function sky(opts = {}) {
   for (const k in REMOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) was removed: ${REMOVED[k]}`);
   if (DEV) for (const k in MOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) moved: ${MOVED[k]} after engine.use(sky()) (one entry per picture value)`);
   readParams('sky', SKY_PARAMS, opts);
-  let s = null;
+  let s = null, own = () => {};
   return {
     name: 'sky', type: 'picture', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
     // the one sky: a game's own sky module takes over with engine.use(mySky(), { replaces: 'sky' }) (this one unloads with its picture changes)
@@ -55,10 +55,12 @@ export function sky(opts = {}) {
       if (opts.time != null && e.calendar) throw codedError('sky-option', STRINGS.timeTwice);
       s = new Sky(e, opts);
       // without a calendar the drawn sun tells day from night (night glow reads the measure); a calendar installed later registers its own over it
-      if (!e.audio.measures.has('daylight')) ctx.track(e.audio.measure('daylight', () => s.daylight));
+      own = () => { for (const [n, f] of [['daylight', () => s.daylight], ['timeOfDay', () => s.drawnTime]]) if (!e.audio.measures.has(n)) ctx.track(e.audio.measure(n, f)); };
+      own();
       return s;
     },
-    frame(dt) { s.update(); s._envFrame(dt); },
+    // a calendar removed mid-game takes its measures with it: the sky takes the signals back at once, or uDaylight / uTimeOfDay would freeze
+    frame(dt) { own(); s.update(); s._envFrame(dt); },
     // the dome goes too: a sky swapped with replaces must not leave the old dome drawn behind the new one
     dispose() { s._shadowOff(); s._swap.remove(); s._envOff(); dropOwned(s.engine, s._owned); s.dome.removeFromParent(); s.dome.geometry.dispose(); s.dome.material.dispose(); },
     // scenario params time / season go to the calendar when there is one (its own applyState); without it time sets the fixed time drawn

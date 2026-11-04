@@ -33,6 +33,19 @@ export async function run({ check }) {
   const po = parseOptions(['styletest', '--play'], { page: '/', flags: ['play'] }), pd = parseOptions([], { page: '/' });
   check('parseOptions keeps the argument as typed next to the page (shot names an undone rewrite), null when none was given', po.pageArg === 'styletest' && po.opt.play === true && pd.pageArg === null, JSON.stringify([po, pd]));
 
+  // the WebGPU fallback is one line in errors.log whatever its words; a real error keeps its own line
+  const { mergeKey } = await import('../vite/vite-error-relay.js');
+  const warn = msg => ({ type: 'warn', msg }), k1 = mergeKey(warn('[threedog] WebGPU unavailable (no adapter), running webgl2'), 'a.js:1'), k2 = mergeKey(warn('THREE.WebGPURenderer: WebGPU is not available, running under WebGL2 backend.'), 'b.js:9');
+  check('errors.log: every wording of the WebGPU fallback warning merges into one line', k1 === k2);
+  check('errors.log: an error about WebGPU and any other warning stay apart', mergeKey({ type: 'error', msg: 'WebGPU unavailable' }, '') !== k1 && mergeKey(warn('other'), '') !== k1);
+
+  // a snap that times out says what the page was doing; here the page answers nothing, so it says the main thread is busy
+  const { run: runCommand } = await import('../threedog/commands.mjs');
+  let calls = 0; const alive = setInterval(() => {}, 500);   // readRuntime's timer is unref'd: a real bridge call keeps the process up, this fake does not
+  const stuck = { evaluate: () => ++calls === 1 ? Promise.resolve(true) : new Promise(() => {}), screenshot: () => Promise.reject(new Error('page.screenshot: Timeout 30000ms exceeded.\nCall log:')) };
+  const snapMsg = await runCommand(stuck, 'snap', ['x'], { dir: '.' }).then(() => '', e => e.message); clearInterval(alive);
+  check('snap timeout: keeps the browser line and says the page main thread is busy', /Timeout 30000ms/.test(snapMsg) && /main thread is busy/.test(snapMsg) && !/Call log/.test(snapMsg), snapMsg);
+
   // ── the one-line brief of a bridge command: engine.error is an object (printed "engine error [object Object]" once) ──
   const brief = BRIEF({ describe: () => ({ error: { where: 'onFixed', message: 'x is not iterable', code: 'some-code', at: 'at tick (main.js:91:12)' } }) }).join(' ');
   check('brief: an engine error shows code, where, message and the line that threw', brief.includes('engine error [some-code] onFixed: x is not iterable (at tick (main.js:91:12))') && !brief.includes('[object Object]'), brief);

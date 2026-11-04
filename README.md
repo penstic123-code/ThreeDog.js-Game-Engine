@@ -60,7 +60,7 @@ Each feature below starts from a problem agents actually run into.
 - **Your game** holds its rules, content, picture code and plugins, all in plain JavaScript and three.js.
 - **Core** owns what every game shares and what must never disagree: the lifecycle (nothing runs before it is ready), one time source (slow motion and pause are views of it), values with owners, input grouped by context (menus and dialogue push a context instead of locking keys), one controller per character, saves that roll back cleanly when a load fails, and player actions that can be checked, logged and replayed.
 - **Modules** add features on top of the core. A game installs only the ones it uses.
-- **Rendering** runs the same engine content on WebGL and on WebGPU. Every visual effect the engine ships exists in both forms, and a check refuses an effect written for only one.
+- **Rendering** runs the same engine content on WebGL and on WebGPU. The engine's shader patches exist in both forms (GLSL and TSL), and a check refuses a patch written for only one. A few effects exist only as TSL nodes in `@threedog/post-effects/tsl` (`voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`) and need WebGPU.
 - **Agent tools** (`threedog how`, `describe`, `test`, `shot` and an MCP server) let an AI drive the running game and read its state.
 
 ### What is a module
@@ -185,7 +185,7 @@ A minimal game in code, and what the engine changes in three.js on import, are i
 
 ## Status
 
-Version 0.6 is an early release. It runs on WebGL (the default) and WebGPU (`createEngine({ renderer: 'webgpu' })`), chosen at the start of a game, and APIs may still change. This version moves the picture out of the engine and into plain three.js in the game. What changed is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps are in [MIGRATING-0.6.md](packages/engine/docs/MIGRATING-0.6.md).
+Version 0.7 is an early release. It runs on WebGPU with TSL (the default for a new game) and on WebGL with GLSL (`threedog new-game --webgl`), chosen at the start of a game, and APIs may still change. New games now start on WebGPU, and global illumination, occlusion culling and volumetric lights are optional parts. Since 0.6 the picture lives in the game as plain three.js, not in the engine. What changed is in the [changelog](packages/engine/CHANGELOG.md), and the upgrade steps are in [MIGRATING-0.7.md](packages/engine/docs/MIGRATING-0.7.md).
 The [design notes](docs/philosophy.md) explain why, and the [questions and answers](docs/faq.md) cover the common doubts, including what the engine cannot do yet.
 
 ## Documentation
@@ -193,7 +193,7 @@ The [design notes](docs/philosophy.md) explain why, and the [questions and answe
 | File | Content |
 |---|---|
 | [docs/philosophy.md](docs/philosophy.md) | The design: why the engine works this way, who does what, how separate code cooperates |
-| [docs/evolution.md](docs/evolution.md) | How the design changed from 0.1 to 0.6, wrong turns included |
+| [docs/evolution.md](docs/evolution.md) | How the design changed from 0.1 to 0.7, wrong turns included |
 | [docs/faq.md](docs/faq.md) | Common questions, including what the engine cannot do |
 | [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | Where an agent starts: one line per task, pointing to the detail |
 | [packages/engine/llms.txt](packages/engine/llms.txt) | The standard entry file AI tools look for |

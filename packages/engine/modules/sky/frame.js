@@ -1,4 +1,4 @@
-// Sky per-frame work (helper of Sky.js): signals (uSunDir, uSunColor, uDaylight, uTimeOfDay, uSkyTop, uSkyHorizon, season, cover) and the dome. Lights, fog,
+// Sky per-frame work (helper of Sky.js): signals (uSunDir, uSunColor, uSkyTop, uSkyHorizon, season, cover) and the dome. Lights, fog,
 // exposure and the environment are the game's (its picture/ folder reads the signals): nothing here writes them, because a value with two writers
 // is what made a game's picture depend on code it never saw (plan 2026-11-04 rule 1). The shadow box around the focus is engine.shadows.box (core/shadows.js).
 import { defineOwned } from '../../core/owned.js';
@@ -73,10 +73,7 @@ export function updateSky(sky) {
   const ang = (t - 0.25) * Math.PI * 2, elev = Math.sin(ang);
   sky.sunDir.set(Math.cos(ang) * sky.orbit.sway, elev, sky.orbit.tilt).normalize();
   u.uSunDir.value.copy(sky.sunDir);
-  // the contract's shared outputs: engine.uniforms is what a game's own sky / water / shader reads (a replaced dome keeps getting
-  // these); uSunDir is the dome's own object (shader.js), so the copy above already wrote it
-  const EU = sky.engine.uniforms;
-  EU.uDaylight.value = Math.max(0, elev); EU.uTimeOfDay.value = t;
+  // uDaylight / uTimeOfDay are not written here: render/daylight.js writes them from the 'daylight' / 'timeOfDay' measures (one writer each)
   u.uNight.value = Math.min(1, Math.max(0, -elev * 4));
   // a skybox is the dome's stand-in, so it dims with the keyframes' ambient column like the dome dims with its colors
   if (sky.skybox && sky._oBg.on) sky.engine.scene.backgroundIntensity = Math.max(0.05, hemiI / 1.2);

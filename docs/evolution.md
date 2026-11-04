@@ -4,7 +4,7 @@ English · [中文](evolution.zh-CN.md) · [How ThreeDog thinks](philosophy.md) 
 
 ThreeDog is a web 3D engine on three.js, made for AI coding agents, and today it declines to draw the picture. A game writes its own lights, fog and materials as plain three.js, and the engine hands it signals such as the time of day. [The philosophy page](philosophy.md) explains that design. It does not explain how an engine that began in a folder called `lowpoly-engine` arrived there, by way of a picture API that took three versions to build and one day to take apart.
 
-The whole history fits into six days, from 30 October to 4 November 2026, and about 1,300 commits on the main branch. Dates here are commit dates, which can sit a day away from the changelog's. At this speed few decisions could be tried on a real game before the next one was made, so this account says where the evidence runs out.
+The whole history fits into seven days, from 30 October to 5 November 2026, and about 2,000 commits on the main branch. Dates here are commit dates, which can sit a day away from the changelog's. At this speed few decisions could be tried on a real game before the next one was made, so this account says where the evidence runs out.
 
 ## 0.1 keeps world data apart from the picture
 
@@ -47,6 +47,14 @@ Test reports had been pointing that way. In a small night-street game the sky re
 The first blind round did not help the case. In three runs per side, the engine versions used only `createEngine`, wrote their own saves and pause menus, and came out longer than plain three.js, and the screenshots the reviewer singled out as good-looking were all plain three.js. The note written that day held the next step back. After the template was repaired, a second round of two runs per side showed the reviewer could not tell the sides apart, on numbers too small to prove much. The plan also required a medium-sized game finished the new way before the old layer was deleted. No such game existed, and the maintainer dropped that condition. The strongest argument left was a count: 12 games made by AI used `look.*` at most three times each, and only four entries ever appeared. The layer was gone on 4 November, so the reversal rests on a few small tests and that count, and its promise of easier upkeep on larger games is unproven. It also has a price: new games start gray, and two of a game's own files can still [fight over one value](philosophy.md#the-gap-this-design-accepts).
 
 The last review before release built a game using only the template and its guides, then pressed real keys in a browser. Pressing E did nothing, because the guides never bound the key. `check` found nothing, the smoke test passed, `describe` listed the item as interactable, and `ops` reported a successful use, since it runs the action without going through the keyboard. Only `threedog press interact`, which said the action had no key, and a console warning that the smoke test did not count told the truth. An earlier test note had recorded that a real press of E was never tried. The review called this its most important finding, and the engine's users are agents who [trust whatever a tool tells them](philosophy.md). The key was fixed before release, and a missing key is now a loud failure.
+
+## 0.7 moves new games to WebGPU
+
+A new game now starts on WebGPU with TSL, and `--webgl` keeps the GLSL way. The open risk was whether an AI agent could write TSL without getting stuck, so the same island game was built twice. Both runs played from opening to ending on real WebGPU. That is one run per side, enough to show the path works and too few to say how often it does.
+
+The same test disappointed in one place. The new shading helpers, `celLighting` and `paletteLut`, made no visible difference, and the run allowed to use them did not. A later small task named the banded light and outlines it wanted, and the agent found the helpers by itself. So a brief that asks for the effect leads to them, and nothing yet shows an agent reaching for them unprompted.
+
+Global illumination, occlusion culling and volumetric lights arrived as optional parts that run on real WebGPU. An audit of unused public names removed only six of 1,765, because most of the others had a reason to stay.
 
 ## What lasted
 

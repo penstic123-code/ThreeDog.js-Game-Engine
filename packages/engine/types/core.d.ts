@@ -28,6 +28,7 @@ import type { DebugOverrides } from './generated/core/DebugOverrides';
 import type { Jobs } from './generated/core/Jobs';
 import type { Random } from './generated/core/Random';
 import type { PostFX } from './generated/render/PostFX';
+import type { Occlusion } from './generated/render/occlusion';
 import type {
   Timeline, Level, LevelLoadedEvent, Triggers, TriggerEvent, TemplateStageEvent,
   Particles, Settings, Music, MusicChangeEvent, CharactersApi, NPCManager, Character,
@@ -1393,6 +1394,8 @@ export interface StateParams {
   view?: string;
   /** Present (?play, any value): leave the title screen the way its Start does (engine.session.newGame(), the title part closes; flow leaves its start state) before wait; nothing when no title is up */
   play?: string | boolean;
+  /** Delete every save of this page first (no Continue on the title); on a running page also end the run and go back to the title. ?fresh in the URL */
+  fresh?: string | boolean;
 }
 
 /** A claim on something only its owner releases (pause, freeze, takeCamera, views) */
@@ -1635,6 +1638,8 @@ export declare class Engine {
   readonly loading: Loading;
   /** Post-processing: named effects in slots (add / get / enable / list) */
   post: PostFX;
+  /** Occlusion culling of the engine's big things (hlod cells, batched groups) on both renderers. Off by default; it pays only when heavy things hide behind others (recipe 34) */
+  occlusion: Occlusion;
   /** UI parts: every piece of screen UI is replaceable or off (see recipes/26-ui-parts.md) */
   ui: UIParts;
   /** Automatic resolution state */
@@ -1678,7 +1683,7 @@ export declare class Engine {
    * @example engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) => carried() + weightOf(id) * n > 30 ? false : next(id, n, o), { owner: 'weight' })
    */
   wrap<T extends object>(target: T, method: string, fn: (next: (...args: any[]) => any, ...args: any[]) => any, opts?: { owner?: string }): Handle;
-  /** Time channels: real seconds, channel seconds (world, player, your own), read speeds with scale(ch, id?) */
+  /** Time channels: read seconds with time.now('real' | 'ambient' | 'calendar' | a channel such as 'world'), speeds with scale(ch, id?) */
   time: import('./gameplay').Time;
   /** Story flags and counters (autosaved) */
   vars: Vars;
@@ -1940,22 +1945,31 @@ export declare class Engine {
 
   // ---------- Light probes (render/probes.js) ----------
   /**
-   * Bake a grid of light probes from the scene as it is now: a cube render at every grid point, turned into spherical harmonics (three's
-   * LightProbeGenerator), then one scene `LightProbe` that follows a point (`follow`, default the camera focus) and takes the light
-   * interpolated there every frame. The probe light adds to whatever ambient light the scene has (hemi, environment): lower those yourself
-   * where the probes take over. A load-time cost, not per frame: 6 renders + a GPU read back per probe, awaited one probe at a time so the page
-   * keeps drawing; ship the result with `toJSON()` + `engine.loadProbes(json)` instead of baking at every start.
-   * Render targets and cube cameras are disposed before it resolves. Adding the probe changes the light setup: bake at start-up, not mid-play.
+   * Bake a grid of light probes from the scene as it is now: three's probe grid renders a cube at every grid point and keeps spherical harmonics, and
+   * every lit pixel inside the grid then takes its own interpolated light, on WebGL and WebGPU alike. The grid adds to whatever ambient light the
+   * scene has (hemi, environment), which the bake also saw: lower those where the probes take over (a warning and describe().render.probes say so).
+   * Outside the grid there is no probe light. A load-time cost, not per frame: 6 renders per probe, a few probes per task so the page keeps drawing;
+   * ship the result with `toJSON()` + `engine.loadProbes(json)` instead of baking at every start. Adding a grid recompiles the lit materials once:
+   * bake at start-up, not mid-play.
    * @example const probes = await engine.bakeProbes({ bounds: { min: [-20, 0, -20], max: [20, 6, 20] }, spacing: 4, include: o => !o.userData.moving });
-   * probes.sample(npc.position, npcProbe);   // your own probe for one object
+   * saveFile('probes.json', JSON.stringify(probes.toJSON()));
    */
   bakeProbes(opts: { bounds: import('three').Box3 | { min: PositionLike; max: PositionLike }; spacing: number; resolution?: number;
-    include?: (o: Object3D) => boolean; height?: number; follow?: ProbeFollow; owner?: string }): Promise<ProbeSet>;
+    include?: (o: Object3D) => boolean; owner?: string }): Promise<ProbeSet>;
   /**
-   * A probe set from a file made by `handle.toJSON()` (no baking). A wrong shape is refused with code `probes-data` and nothing is added.
+   * A probe set from a file made by `handle.toJSON()` (no baking), on either renderer whichever one baked it. A wrong shape is refused with code `probes-data` and nothing is added.
    * @example const probes = engine.loadProbes(await (await fetch('probes.json')).json());
    */
-  loadProbes(json: ProbeData, opts?: { follow?: ProbeFollow; owner?: string }): ProbeSet;
+  loadProbes(json: ProbeData, opts?: { owner?: string }): ProbeSet;
+  /**
+   * Put a baked lightmap on the scene: `threedog bake light` wrote the file from the meshes the game marked `userData.static = true`; this rebuilds each with
+   * its second UV set and sets plain `material.lightMap`, on WebGL and WebGPU alike. Call it once the level is built, with its lights as they will be
+   * played. Nothing runs per frame. Keep the sun real-time; the ambient light the bake saw (hemisphere, environment) has to go, or it counts twice.
+   * A wrong file is refused with code `lightmap-data` and nothing is changed. `material.lightMapIntensity` is yours. describe().render.lightmap says what
+   * was skipped, moved or doubled.
+   * @example const light = await engine.loadLightmap('light/level.lightmap');
+   */
+  loadLightmap(file: string | ArrayBuffer, opts?: { owner?: string }): Promise<Lightmap>;
 
   // ---------- Settings ----------
   /** Render resolution */
@@ -2265,8 +2279,9 @@ export interface GameState {
    * conflicts (two systems managing one object), orphans (saved ids no object has); atCapped when dev stopped taking stacks
    */
   scene: { game: number; code: number; session: number; world: number; engine: number; unsaved: string[]; conflicts: string[]; orphans: string[]; atCapped?: boolean; overrides?: { owner: string; target: string; [field: string]: any }[] };
-  /** Renderer asked for ('webgl' default, 'webgpu') and the backend drawing ('webgl' | 'webgpu' | 'webgl2'; null before start()); reason: why not WebGPU, or null */
-  renderer: { requested: 'webgl' | 'webgpu'; backend: 'webgl' | 'webgpu' | 'webgl2' | null; reason: string | null };
+  /** Which renderer was asked for, which backend draws and why not WebGPU; then what that backend can run: the GPU's name, whether TSL node materials and GLSL
+   * (ShaderMaterial, onBeforeCompile) draw, and how renderer.compute() runs ('transform-feedback': no storage textures, atomics or workgroup memory). Null before start() */
+  renderer: { requested: 'webgl' | 'webgpu'; backend: 'webgl' | 'webgpu' | 'webgl2' | null; reason: string | null; gpu: string | null; tsl: boolean | null; glsl: boolean | null; compute: 'compute-shaders' | 'transform-feedback' | null };
   /** Performance (fps/cpuMs are null while paused) */
   perf: {
     fps: number | null; cpuMs: number | null; drawCalls: number; triangles: number; pixelRatio: number;
@@ -2319,22 +2334,35 @@ export interface SkipOptions {
   save?: string | boolean;
 }
 
-/** Where a probe set's scene LightProbe samples the grid each frame; false: no scene probe (read the grid with sample()) */
-export type ProbeFollow = 'focus' | 'camera' | Object3D | (() => PositionLike) | false;
-/** A probe file: what ProbeSet.toJSON() returns and engine.loadProbes reads (sh: count x 27 numbers, x fastest, then y, then z) */
-export interface ProbeData { format: 'threedog-probes'; version: 1; origin: [number, number, number]; step: [number, number, number]; counts: [number, number, number]; height: number | null; sh: number[] }
+/** A loaded lightmap (engine.loadLightmap); describe().render.lightmap is its report */
+export interface Lightmap extends Handle {
+  /** the map: a plain half-float DataTexture on uv1, set as material.lightMap */
+  texture: import('three').DataTexture;
+  /** file side length in pixels */
+  size: number;
+  /** meshes the bake left out, with why (instanced, skinned) */
+  skipped: { name: string; why: string }[];
+  /** baked meshes not found in the scene, or changed since the bake */
+  missing: string[];
+  /** takes the map off the meshes and frees it; the unwrapped geometry stays */
+  remove(): void;
+}
+/** A probe file: what ProbeSet.toJSON() returns and engine.loadProbes reads (half: count x 27 half floats, base64; x fastest, then y, then z) */
+export interface ProbeData { format: 'threedog-probes'; version: 2; origin: [number, number, number]; step: [number, number, number]; counts: [number, number, number]; half: string }
 /** A baked or loaded grid of SH light probes (engine.bakeProbes / loadProbes); describe().render.probes lists the live ones */
 export interface ProbeSet extends Handle {
   /** number of probes */
   count: number;
-  /** probes per axis [x, y, z] (y is 1 in height mode) */
+  /** probes per axis [x, y, z] (at least 2 each) */
   counts: [number, number, number];
-  /** the actual distance between neighbours per axis (<= spacing, so the grid ends on the bounds) */
+  /** the actual distance between neighbours per axis (<= spacing, so the probes end on the bounds) */
   step: [number, number, number];
-  /** the scene LightProbe the engine writes the sh of every frame (null with follow: false); its intensity is yours. Writing its sh yourself takes it over (own() says so first) */
-  probe: import('three').LightProbe | null;
-  /** take probe.sh over, or with false hand it back to the engine */
-  own(on?: boolean): void;
+  /** three's probe grid, a plain light in the scene: priority, visible and (WebGPU only: three's WebGL shader ignores it) intensity are yours */
+  grid: import('three').Light & { isLightProbeGrid: true; priority: number; texture: import('three').Data3DTexture | null };
+  /** the world box the grid lights: the probes plus half a step on every side */
+  box: import('three').Box3;
+  /** the probes' SH, 27 numbers each (half precision values) */
+  sh: Float32Array;
   /** bake time in ms (null for a loaded set) */
   bakeMs: number | null;
   /** 'bake' | 'file' */
@@ -2345,6 +2373,6 @@ export interface ProbeSet extends Handle {
   point(i: number, out?: Vector3): Vector3;
   /** plain data for a file: engine.loadProbes(json) makes the same set */
   toJSON(): ProbeData;
-  /** takes the scene probe out and stops updating it; sample / toJSON still work */
+  /** takes the grid out of the scene and frees its texture; sample / toJSON still work */
   remove(): void;
 }

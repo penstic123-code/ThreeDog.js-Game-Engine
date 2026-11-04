@@ -8,6 +8,7 @@ import { TOOLS, ENGINE } from '../paths.mjs';
 import { walk } from '../lib/text.mjs';
 import { scanArt, noComments, BUILT_IN_SOUNDS } from '../art-board-scan.mjs';
 import { loadedArt } from '../panel/art.js';
+import { recordPull } from '../lib/lib-records.mjs';
 
 export const name = 'art board: used, unused, missing and not traced each come from a real case; a name built at run time is never called unused; --json is the page\'s data; --live merges what the game loaded; the tools read no style or look layer';
 
@@ -39,10 +40,11 @@ mesh.material = m.grass; other.material = materials.grass;
     put('picture/shaders/wave.glsl', 'void main() {}\n');
     put('game/fx.js', `import { THREE } from 'threedog';\nexport const audio = { sfx(n) { return n; } };\naudio.sfx('beep');\nconst m1 = new THREE.MeshBasicMaterial(), w1 = new THREE.Mesh(g, m1);\n`);
     put('picture/shaders/old.glsl', 'void main() {}\n');
-    // a library entry whose file sits in the game unchanged
+    // a library entry this game pulled, noted in its pull records
     mkdirSync(join(lib, 'barkpack'), { recursive: true });
     writeFileSync(join(lib, 'barkpack', 'entry.json'), JSON.stringify({ name: 'barkpack', kind: 'texture', summary: 'bark', use: 'x', from: 'y' }));
     writeFileSync(join(lib, 'barkpack', 'bark.png'), PNG);
+    recordPull(g, { name: 'barkpack', kind: 'texture', summary: 'bark', from: 'y', dir: join(lib, 'barkpack') }, [join(g, 'public', 'tex', 'bark.png')]);
 
     const data = await scanArt(g, { lib }), it = ref => data.items.find(x => x.ref === ref), st = ref => it(ref)?.status;
     check('a name in a model slot is used, with file:line', st('model crate') === 'used' && it('model crate').uses[0].at === 'content/props.js:3', JSON.stringify(it('model crate')));
@@ -60,7 +62,7 @@ mesh.material = m.grass; other.material = materials.grass;
     check('a variable used on the line that declares it is used', st('material m1') === 'used', JSON.stringify(it('material m1')));
     check('the game\'s own sfx() says nothing about the asset list', !it('sound beep') && st('sound door') === 'used', JSON.stringify(it('sound beep')));
     check('a ShaderMaterial is listed with the shaders', st('shader mat') === 'used', st('shader mat'));
-    check('a library file in the game is matched by its bytes', st('library barkpack') === 'used' && it('texture bark').library === 'barkpack', JSON.stringify(it('library barkpack')));
+    check('a pulled file is marked from the pull records', st('library barkpack') === 'used' && it('texture bark').library === 'barkpack' && it('library barkpack').pulled === 'unchanged', JSON.stringify(it('library barkpack')));
     check('summary counts and lists', data.summary.counts.model === 6 && data.summary.missing.length === 2 && data.summary.unused.includes('model spare') && data.summary.notTraced.includes('model tree_1')
       && data.summary.biggest[0].size > 10, JSON.stringify(data.summary));
     check('the run-time list names the line', data.dynamic.some(d => d.at === 'main.js:6'), JSON.stringify(data.dynamic));

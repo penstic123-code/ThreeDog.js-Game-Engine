@@ -39,23 +39,23 @@ Gameplay and level code use material names and signals only, so a picture change
 
 ## 1. Setup: the engine's placeholder lights off
 ```js
-const engine = createEngine({ canvas, lights: false });            // no placeholder sun / hemisphere
+const engine = createEngine({ canvas, lights: false });            // no placeholder sun / hemisphere; this is the WebGL form: a new game also has `import 'threedog/tsl'` and `renderer: 'webgpu'`
 engine.use(calendar({ time: '22:00' }),
   sky(),                                                             // computes the signals and draws the dome; writes no light or fog
   weather({ types: { clear: {}, rain: { rain: 1, cloud: 0.8 } } }));
 engine.renderer.toneMapping = THREE.AgXToneMapping;                  // three.js's default (none) stands until you pick one
 if (engine.sky) engine.sky.dome.visible = false;                     // when you draw your own sky (a gradient sphere, a skybox)
 ```
-Without `sky()` there is no day and night: `uDaylight` stays 1 and `uSunDir` straight up. Keep `calendar` + `sky` for a day cycle even when you draw everything yourself.
+Without `calendar` and `sky()` there is no day and night: `uDaylight` stays 1 and `uSunDir` straight up. With only `calendar` the daylight and time signals still move, but the sun stays straight up; keep `calendar` + `sky` for a full day cycle even when you draw everything yourself.
 
 ## 2. The signals (`engine.uniforms`, each `{ value }`)
 | Signal | Range | From |
 |---|---|---|
-| `uDaylight` | 0 night .. 1 noon (the sun's height) | sky, else the calendar |
+| `uDaylight` | 0 night .. 1 noon (the sun's height) | calendar, else the sky |
 | `uNight` | 0 by day .. 1 at night: the curve `lightPool` `dusk` lamps fade on, for lit windows and signs | calendar or sky |
 | `uSunDir` | unit `Vector3` toward the sun | sky |
 | `uSunColor` | `Color` of the sun now, from the keyframes (white with no sky): `sun.color.copy(...)` | sky |
-| `uTimeOfDay` | 0-1 (0 midnight, 0.5 noon) | sky |
+| `uTimeOfDay` | 0-1 (0 midnight, 0.5 noon) | calendar, else the sky's fixed time |
 | `uRain`, `uSnow`, `uCloud` | 0-1 | weather state |
 | `uWind` | wind multiplier (1 = calm) | weather state |
 | `uWeatherLight`, `uWeatherFog` | multipliers (1 = clear): apply them to your own light and fog distance | weather state |
@@ -70,6 +70,7 @@ own, read by the picture code, so the picture still has one writer.
 
 ## 3. The hook: `engine.onRender`, not `onFrame`
 ```js
+const sun = new THREE.DirectionalLight(0xffffff, 2), hemi = new THREE.HemisphereLight();   // made once in picture/lights.js
 engine.onRender(() => {
   const day = engine.uniforms.uDaylight.value, rain = engine.uniforms.uRain.value;
   sun.position.copy(engine.uniforms.uSunDir.value).multiplyScalar(100);
@@ -86,13 +87,13 @@ the modules' frame hooks: it would read last frame's values (and noon on the ver
   a name of your own and never touches the light or the material:
   ```js
   // picture/index.js
-  return { lights, materials, lamp: id => ({ off() { lamps.get(id).intensity = 0; } }) };
+  export const picture = { lights, materials, lamp: id => ({ off() { lamps.get(id).intensity = 0; } }) };
   // gameplay
   picture.lamp(hit.id).off();
   ```
   The engine has no such layer: the names are the game's.
-- **`picture/` is WebGL by default.** `ShaderMaterial` and `onBeforeCompile` do not run on the WebGPU renderer. A game that wants WebGPU writes TSL (recipe 56);
-  a GLSL material on WebGPU stops at start and names itself.
+- **`picture/` shaders follow the renderer.** A new game is on WebGPU and writes TSL (recipe 56); `ShaderMaterial` and `onBeforeCompile` do not run there, and a GLSL material
+  on WebGPU stops at start and names itself. A `--webgl` game writes GLSL (recipe 43).
 - **The picture reads the quality tier.** The engine cannot hold your code to it, so read `engine.tier` (`'low'` | `'high'`) for what costs: shadow map size,
   real light count, post effects. The generated `lights.js` sizes its shadow map this way.
 - **A large world:** `engine.shadows.cascades(sun, { count: 3 })` on your own light gives sharp near shadows and wide far ones (recipe 45); low tier falls back to one map.
@@ -150,6 +151,7 @@ A sunset and a cutscene both dim the sun. If each writes the light, the second o
 ```js
 // picture/lights.js: the one writer
 const level = engine.stacks.define('sun.level', { base: 1, min: 0, save: false });
+const sun = new THREE.DirectionalLight(0xffffff, 2);
 engine.onRender(() => { sun.intensity = 2.2 * engine.uniforms.uDaylight.value * level.value(); });
 
 // anywhere else: nobody touches the light

@@ -1,98 +1,114 @@
 // Light probes (render/probes.js). Page: tests/probes (gray floor, unlit red wall at +x, headless).
-// The non-bypassable check: the probe next to the red wall must come out redder than the one far from it, so a bake that renders nothing,
-// reads the wrong face or mixes up the grid order fails here; plus interpolation, the file round trip, refusal of a bad file, no leaked
-// render targets, describe / ownership / debug view.
+// The non-bypassable checks: one picture must show red light on the floor beside the wall and none far from it (per-pixel: the old single SH for the
+// whole scene could not), and the engine's rebuilt half-float atlas must draw what three's own float grid draws (three's layout is copied by hand; a
+// three.js update that changes it fails here). Plus interpolation, the file round trip, refusal of a bad file, the two checks, describe, debug view.
 
 export const specs = [
   {
-    name: 'light probes: bake sees the red wall, sample interpolates, toJSON -> loadProbes round-trips, no render target left, describe / owned / view',
+    name: 'light probes: per-pixel grid sees the red wall, half atlas draws like three\'s own grid, sample, file round trip, checks, describe, view',
     software: true,   // reads the baked colors
     url: '/tests/probes/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const { THREE } = threedogTest, info = engine.renderer.info, out = {};
+        const { THREE, LightProbeGridWebGL } = threedogTest, info = engine.renderer.info, R = engine.renderer, out = {};
         engine.step(0.1);
+        const opt = { bounds: { min: [-3, 0.5, -1], max: [3, 1.5, 1] }, spacing: 3, resolution: 8, owner: 'probe-test' };
+        // an overhead view of the floor, as float pixels: the grid's own part is the picture with it minus the picture without it
+        const top = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 50); top.position.set(0, 20, 0); top.lookAt(0, 0, 0); top.updateMatrixWorld();
+        const S = 40, rt = new THREE.WebGLRenderTarget(S, S, { type: THREE.FloatType });
+        const shot = () => { const px = new Float32Array(S * S * 4), keep = R.toneMapping; R.toneMapping = THREE.NoToneMapping; R.setRenderTarget(rt); R.render(engine.scene, top); R.readRenderTargetPixels(rt, 0, 0, S, S, px); R.setRenderTarget(null); R.toneMapping = keep; return px; };
+        const at = (px, wx, wz) => { const i = (Math.round((wz + 5) / 10 * (S - 1)) * S + Math.round((wx + 5) / 10 * (S - 1))) * 4; return [px[i], px[i + 1], px[i + 2]]; };
+        const base = shot();
         const tex0 = info.memory.textures;
-        const set = await engine.bakeProbes({ bounds: { min: [-3, 1, -1], max: [3, 1, 1] }, spacing: 3, resolution: 8, follow: () => [3, 1, 0], owner: 'probe-test' });
-        out.texLeak = info.memory.textures - tex0;
-        Object.assign(out, { count: set.count, counts: set.counts, bakeMs: set.bakeMs });
-        // red share of the average light (DC term) at the probe beside the wall (x = 3) and the one far from it (x = -3)
+        const set = await engine.bakeProbes(opt);
+        Object.assign(out, { count: set.count, counts: set.counts, bakeMs: set.bakeMs, inScene: set.grid.parent === engine.scene, isGrid: set.grid.isLightProbeGrid === true });
+        out.half = set.grid.texture.isData3DTexture && set.grid.texture.type === THREE.HalfFloatType;
+        const lit = shot();
+        const gain = (wx, wz) => { const a = at(lit, wx, wz), b = at(base, wx, wz); return a.map((v, i) => v - b[i]); };
+        out.near = gain(3, 0); out.far = gain(-3, 0); out.outsideGain = gain(4.5, 4.5);
+        // three's own grid, baked at the same points in its float target, against the engine's half atlas: same picture
+        const raw = new LightProbeGridWebGL(set.grid.width, set.grid.height, set.grid.depth, ...set.counts);
+        raw.position.copy(set.grid.position); raw.updateBoundingBox();
+        set.grid.visible = false;
+        raw.bake(R, engine.scene, { cubemapSize: 8, near: 0.05, far: engine.camera.far });
+        engine.scene.add(raw);
+        const own = shot();
+        raw.removeFromParent(); raw.dispose(); set.grid.visible = true;
+        out.atlasErr = 0; for (let i = 0; i < lit.length; i++) out.atlasErr = Math.max(out.atlasErr, Math.abs(lit[i] - own[i]));
+        // the texture left behind is the half atlas alone: the float target went with the bake (three keeps one small cube and batch target for reuse)
+        const tex1 = info.memory.textures, again = await engine.bakeProbes(opt);
+        out.texLeak = info.memory.textures - tex1 - 1; again.remove();
+        // red share of the average light (DC term) at the probe side beside the wall and far from it
         const red = sh => { const c = sh.coefficients[0]; return c.x / Math.max(1e-6, (c.x + c.y + c.z) / 3); };
         out.redNear = red(set.sample([3, 1, 0])); out.redFar = red(set.sample([-3, 1, 0]));
         // halfway between grid points x = 0 and x = 3 is their average
         const a = set.sample([0, 1, 0]).toArray(), b = set.sample([3, 1, 0]).toArray(), m = set.sample([1.5, 1, 0]).toArray();
         out.lerpErr = Math.max(...m.map((v, i) => Math.abs(v - (a[i] + b[i]) / 2)));
         out.clampErr = Math.max(...set.sample([99, 1, 0]).toArray().map((v, i) => Math.abs(v - b[i])));
-        // the scene probe follows [3, 1, 0] and carries that sample after a frame
-        engine.step(0.05);
-        out.sceneProbe = Math.max(...set.probe.sh.toArray().map((v, i) => Math.abs(v - b[i])));
-        // file round trip: JSON text -> loadProbes gives the same samples
+        // file round trip: JSON text -> loadProbes gives the same samples and the same picture
         const json = JSON.parse(JSON.stringify(set.toJSON()));
-        const loaded = engine.loadProbes(json, { follow: false });
+        out.fileBytes = JSON.stringify(json).length;
+        const loaded = engine.loadProbes(json, { owner: 'probe-file' });
         out.jsonErr = Math.max(...loaded.sample([1, 1, 0.3]).toArray().map((v, i) => Math.abs(v - set.sample([1, 1, 0.3]).toArray()[i])));
         out.loadedSource = loaded.source;
         // a damaged file is refused with a code and adds nothing
         const before = engine.describe().render.probes.length;
-        try { engine.loadProbes({ ...json, sh: json.sh.slice(1) }); out.badData = 'no throw'; } catch (e) { out.badData = e.code; }
+        try { engine.loadProbes({ ...json, half: json.half.slice(8) }); out.badData = 'no throw'; } catch (e) { out.badData = e.code; }
         try { engine.loadProbes({ ...json, format: 'x' }); out.badFormat = 'no throw'; } catch (e) { out.badFormat = e.code; }
+        try { engine.loadProbes({ ...json, version: 1 }); out.oldFile = 'no throw'; } catch (e) { out.oldFile = e.code; }
         out.countAfterBad = engine.describe().render.probes.length - before;
         try { await engine.bakeProbes({ bounds: { min: [0, 0, 0], max: [1, 1, 1] }, spacing: 1, spacng: 2 }); out.typo = 'no throw'; } catch (e) { out.typo = e.code; }
         try { await engine.bakeProbes({ bounds: { min: [0, 0, 0], max: [100, 100, 100] }, spacing: 1 }); out.tooMany = 'no throw'; } catch (e) { out.tooMany = e.code; }
-        // describe
+        try { await engine.bakeProbes({ ...opt, follow: 'focus' }); out.follow = 'no throw'; } catch (e) { out.follow = e.code; }
+        // the two checks: a lit object past the grid is named; a hemisphere light and an environment are reported as counted twice
+        const stray = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()); stray.name = 'strayBox'; stray.position.set(40, 1, 0); engine.scene.add(stray);
+        const hemi = new THREE.HemisphereLight(0xffffff, 0x000000, 1); hemi.name = 'fill'; engine.scene.add(hemi); engine.scene.updateMatrixWorld(true);
         const d = engine.describe().render;
-        out.describe = d.probes[0]; out.text = /probes: 6 \(3x1x2/.test(d.text);
+        out.describe = d.probes[0]; out.text = /probes: 12 \(3x2x2/.test(d.text) && /strayBox/.test(d.text) && /counted twice/.test(d.text);
+        out.lightsRow = d.lights.some(l => /Grid/.test(String(l.type)));
+        stray.removeFromParent(); hemi.removeFromParent();
         // the debug view draws one dot per probe and takes them away again
         engine.debug.view('probes', { owner: 'probe-test' });
         out.viewDots = engine.scene.getObjectByName('debug:probes')?.count ?? 0;
         engine.debug.clear('probe-test');
         out.viewGone = !engine.scene.getObjectByName('debug:probes');
-        // ownership: a game that writes the probe's SH itself keeps it, the engine stops writing it (warns once)
-        const warns = [], w0 = console.warn; console.warn = (...x) => warns.push(String(x[0]));
-        try {
-          set.probe.sh.coefficients[0].set(9, 9, 9); engine.step(0.05);
-          out.kept = set.probe.sh.coefficients[0].x === 9; out.writer = engine.describe().render.probes[0].writer;
-          out.warned = warns.some(w => /probes\.sh/.test(w) && /probes\.own\(\)/.test(w));
-        } finally { console.warn = w0; }
-        set.own(false); engine.step(0.05);
-        out.handedBack = Math.abs(set.probe.sh.coefficients[0].x - b[0]) < 1e-5;
-        // remove: the scene probe leaves, the data stays readable
-        const probe = set.probe; set.remove(); set.remove(); loaded.remove();
-        out.removed = !probe.parent && !engine.describe().render.probes.length && set.sample([0, 1, 0]).toArray()[0] === a[0];
+        // remove: the grid leaves, the data stays readable; off means nothing left in the scene
+        const grid = set.grid; set.remove(); set.remove(); loaded.remove();
+        out.removed = !grid.parent && !engine.describe().render.probes.length && set.sample([0, 1, 0]).toArray()[0] === a[0];
+        rt.dispose();
         return out;
       });
-      check('bake: 3 x 1 x 2 = 6 probes, time measured', r.count === 6 && r.counts.join() === '3,1,2' && r.bakeMs > 0, JSON.stringify(r));
+      const J = JSON.stringify(r);
+      check('bake: 3 x 2 x 2 = 12 probes, time measured, three\'s grid is in the scene', r.count === 12 && r.counts.join() === '3,2,2' && r.bakeMs > 0 && r.inScene && r.isGrid, J);
+      check('[guard] per pixel: in one picture the floor beside the wall gets clearly redder light than the far floor', r.near[0] > 0.02 && r.near[0] / r.near[2] > 2 * (r.far[0] / r.far[2]), JSON.stringify([r.near, r.far]));
+      check('[guard] stored half precision: a half-float Data3DTexture, not three\'s float target', r.half === true, J);
+      check('[guard] the half atlas draws what three\'s own float grid draws (same layout)', r.atlasErr < 0.01, String(r.atlasErr));
+      check('outside the grid the floor gets no probe light', r.outsideGain.every(v => Math.abs(v) < 1e-3), JSON.stringify(r.outsideGain));
       check('the probe beside the red wall is redder than the far one', r.redNear > r.redFar * 1.2, `near ${r.redNear} far ${r.redFar}`);
-      check('sample halfway is the average of the two grid probes; outside the grid it clamps to the edge', r.lerpErr < 1e-5 && r.clampErr < 1e-5, `${r.lerpErr} ${r.clampErr}`);
-      check('the scene LightProbe takes the sample at its follow point every frame', r.sceneProbe < 1e-5, String(r.sceneProbe));
-      check('toJSON -> loadProbes gives the same samples', r.jsonErr < 1e-4 && r.loadedSource === 'file', String(r.jsonErr));
-      check('a damaged / foreign file is refused (probes-data) and adds nothing', r.badData === 'probes-data' && r.badFormat === 'probes-data' && r.countAfterBad === 0, JSON.stringify(r));
-      check('an option typo throws (module-params); too many probes throws (probes-option)', r.typo === 'module-params' && r.tooMany === 'probes-option', `${r.typo} ${r.tooMany}`);
-      check('no render target / texture left after the bake', r.texLeak === 0, String(r.texLeak));
-      check('describe().render.probes: count, owner, source, follow; text line', r.describe?.count === 6 && r.describe.owner === 'probe-test' && r.describe.source === 'bake' && r.text, JSON.stringify(r.describe));
-      check("debug.view('probes'): one dot per live probe (6 + 6 loaded), gone after clear", r.viewDots === 12 && r.viewGone, String(r.viewDots));
-      check('a direct sh write is kept (engine yields, warns once with the takeover call); manual(false) hands it back', r.kept && /yielded/.test(r.writer) && r.warned && r.handedBack, JSON.stringify({ kept: r.kept, writer: r.writer, warned: r.warned, back: r.handedBack }));
-      check('remove(): probe leaves the scene and describe, data still readable; twice is harmless', r.removed);
+      check('sample halfway is the average of the two grid probes; outside the grid it clamps to the edge', r.lerpErr < 1e-3 && r.clampErr < 1e-5, `${r.lerpErr} ${r.clampErr}`);
+      check('toJSON -> loadProbes gives the same samples, exactly (both are half precision)', r.jsonErr === 0 && r.loadedSource === 'file', String(r.jsonErr));
+      check('a damaged / foreign / version 1 file is refused (probes-data) and adds nothing', r.badData === 'probes-data' && r.badFormat === 'probes-data' && r.oldFile === 'probes-data' && r.countAfterBad === 0, J);
+      check('an option typo throws (module-params); too many probes throws (probes-option); follow is gone (module-params)', r.typo === 'module-params' && r.tooMany === 'probes-option' && r.follow === 'module-params', J);
+      check('a second bake leaves one texture, the half atlas', r.texLeak === -1 || r.texLeak === 0, String(r.texLeak));
+      check('[guard] describe names a lit object outside the grid and light counted twice (hemisphere), text line too', r.describe?.outside.names.includes('strayBox') && r.describe.doubled.some(x => /HemisphereLight/.test(x)) && r.text, JSON.stringify(r.describe));
+      check('describe: count, owner, source; the grid is not listed as a light', r.describe?.count === 12 && r.describe.owner === 'probe-test' && r.describe.source === 'bake' && !r.lightsRow, JSON.stringify(r.describe));
+      check("debug.view('probes'): one dot per live probe (12 + 12 loaded), gone after clear", r.viewDots === 24 && r.viewGone, String(r.viewDots));
+      check('remove(): grid leaves the scene and describe, data still readable; twice is harmless', r.removed);
     },
   },
   {
-    // 为什么：步长 0 而一条轴上有 2 个以上探针的文件，sample() 里除以 0 得到 NaN，场景 LightProbe 全是 NaN，画面直接变黑也不报错；
-    // follow 写错以前要等整个烘焙跑完（每个探针 6 次渲染）才在最后报出来。两者都应在动手之前拒绝。
-    name: 'light probes: a file with step 0 on a multi-probe axis is refused; a bad follow is refused before any bake render',
+    // 为什么：步长 0 的文件在 sample() 里除以 0 得到 NaN，画面直接变黑也不报错，要在动手之前拒绝。
+    name: 'light probes: a file with step 0 is refused',
     url: '/tests/probes/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.step(0.1);
-        const counts = [2, 1, 1], json = { format: 'threedog-probes', version: 1, origin: [0, 0, 0], step: [0, 0, 0], counts, height: null, sh: new Array(2 * 27).fill(0.1) };
-        const out = {};
-        try { engine.loadProbes(json, { follow: false }); out.step0 = 'no throw'; } catch (e) { out.step0 = e.code; }
-        const frames = engine.renderer.info.render.frame;
-        try { await engine.bakeProbes({ bounds: { min: [-3, 1, -1], max: [3, 1, 1] }, spacing: 3, resolution: 8, follow: 'player' }); out.follow = 'no throw'; } catch (e) { out.follow = e.code; }
-        out.renders = engine.renderer.info.render.frame - frames;
+        const json = { format: 'threedog-probes', version: 2, origin: [0, 0, 0], step: [0, 1, 1], counts: [2, 2, 2], half: btoa('\0'.repeat(8 * 27 * 2)) }, out = {};
+        try { engine.loadProbes(json); out.step0 = 'no throw'; } catch (e) { out.step0 = e.code; }
         out.left = engine.describe().render.probes.length;
         return out;
       });
-      check('[guard] step 0 on an axis with 2+ probes is refused (probes-data), not sampled as NaN', r.step0 === 'probes-data', JSON.stringify(r));
-      check('[guard] bakeProbes with a bad follow throws probes-option without rendering a cube', r.follow === 'probes-option' && r.renders === 0 && r.left === 0, JSON.stringify(r));
+      check('[guard] step 0 is refused (probes-data), not sampled as NaN', r.step0 === 'probes-data' && r.left === 0, JSON.stringify(r));
     },
   },
 ];

@@ -65,3 +65,5 @@ Rules (correctness):
 
 Sources: triplanar mapping as commonly described (Ben Golus, "Normal Mapping for a Triplanar Shader", 2017); vertex AO and edge wear as
 standard game-art practice. Code written for this engine; nothing copied.
+
+This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). A game on the default WebGPU route writes the same ideas in TSL (recipe 56).

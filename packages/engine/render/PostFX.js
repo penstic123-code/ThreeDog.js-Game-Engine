@@ -13,7 +13,7 @@ import { webglPost } from './postWebGL.js';
 import { codedError } from '../core/errorHints.js';
 import { warnOnce } from '../core/validate.js';
 import { readParams, keysSchema } from '../core/params.js';
-import { isWebGPU, webgpuPart, ownMsaa } from './backend.js';
+import { isWebGPU, backendName, webgpuPart, ownMsaa } from './backend.js';
 import { defineOwned } from '../core/owned.js';
 import { watchOwnFrame } from './ownFrame.js';
 /** @import { Engine } from '../types/core' */
@@ -37,13 +37,15 @@ import { watchOwnFrame } from './ownFrame.js';
  *   t.input.sample(uv)), time (s), resolution (device px). Neighbors are chained into one node, so three draws them in one pass.
  * @typedef {{ engine: Engine, scene: import('three').Scene, camera: import('three').Camera, width: number, height: number, params: Record<string, any>,
  *   scenePass: any, tsl: any, display: Record<string, Function>, p: Record<string, any> }} PostNodeContext
- *   WebGPU only. scenePass: the scene's pass() node (.getTextureNode('depth'), getViewZNode() ...); tsl: three/tsl; display: three's display nodes
- *   (bloom, ao from three/addons/tsl/display) plus pass (an extra scene render) and texture (the color so far as a texture to sample at other uvs),
- *   handed in so effect packages never import three/webgpu themselves and so the nodes they make are disposed with the chain;
+ *   WebGPU only. scenePass: the scene's pass() node (.getTextureNode('depth'), getViewZNode() ...; .getTextureNode('normal' | 'diffuse' | 'velocity')
+ *   when an effect that is on says so in needsBuffers); tsl: three/tsl; display: three's display nodes (bloom, ao from three/addons/tsl/display) plus
+ *   pass (an extra scene render), texture (the color so far as a texture to sample at other uvs) and own (a node the effect made itself, disposed with the chain),
+ *   handed in so the main entry of an effect package never imports three/webgpu (its /tsl subpath may, a WebGL game never loads that) and so the nodes they make are disposed with the chain;
  *   p: live uniform nodes of the number / color params (as in PostFuse tsl), so set() of those never rebuilds the pipeline; a param read from
  *   ctx.params while node() runs is a constant in the graph, so set() of it rebuilds the chain (as WebGL rebuilds an effect without update()).
  * @typedef {{ name: string, create?: (ctx: PostContext) => object, node?: (input: any, ctx: PostNodeContext) => any, fuse?: PostFuse, slot?: PostSlot | (string & {}), order?: number, enabled?: boolean,
- *   needsDepth?: boolean, params?: Record<string, any>, update?: (impl: any, params: Record<string, any>) => void }} PostEffect
+ *   needsDepth?: boolean, needsBuffers?: ('normal' | 'diffuse' | 'velocity')[], backend?: 'webgpu', skipOnLowTier?: boolean, facts?: () => Record<string, any> | null,
+ *   params?: Record<string, any>, update?: (impl: any, params: Record<string, any>) => void }} PostEffect
  *   node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
  *   that is not a number / color changes (those are live in ctx.p). An effect with only create cannot run on WebGPURenderer (it throws by name).
  *   create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
@@ -57,6 +59,12 @@ import { watchOwnFrame } from './ownFrame.js';
  *   scene depth, so a depth reader must run before any pass that swaps buffers (needsSwap, e.g. a ShaderPass, a scene-slot
  *   RenderPixelatedPass, or the tone-mapping output); the chain throws when it would not. A pass that writes the scene depth into its own output (gl_FragDepth, then set pass.keepsDepth = true; dof does) does not count as a swap. update: apply new params in place;
  *   without it set() rebuilds the implementation.
+ *   needsBuffers (WebGPU): extra outputs of the one scene render, merged across every effect that is on, so two effects never overwrite each other's setMRT:
+ *   'normal' (view space, raw), 'diffuse' (surface color), 'velocity' (a temporal resolve follows, so the scene pass runs without MSAA).
+ *   backend: 'webgpu' = needs three's WebGPU backend itself (storage textures; WebGPURenderer on its WebGL2 backend cannot run it, so it is held there).
+ *   skipOnLowTier: the effect's own statement that engine.tier 'low' is too weak for it. The rule: an effect declares this itself and the engine only follows the declaration; no list of
+ *   expensive effects lives in the engine, and an effect that does not declare it runs on every tier. A held effect costs nothing, describe().render.post says why in `held`, the console says it once; the game's enabled stays as written.
+ *   facts: read by describe().render.post (a voxel size, what the effect still misses).
  * @typedef {{ readonly name: string, readonly slot: PostSlot, readonly order: number, enabled: boolean, readonly params: Record<string, any>,
  *   set(params: Record<string, any>): void, remove(): void }} PostHandle
  *   What add() and get() return. enabled reads what runs now; writing it is the game's choice on the shared point post.<name>.enabled, so a settings
@@ -85,6 +93,7 @@ export class PostFX {
     /** @internal names engine.plugins reserved: their place outlives a remove (plugins.off); a game handle's remove() frees any other name's place */
     this._kept = new Set();
     /** @internal */ this._seqN = 0;
+    /** @internal start() replaced a WebGPURenderer with WebGLRenderer on a device without WebGPU */ this._fellBack = false;
     /** @internal the game's plain passes and OutputPass markers in add order: which side of a marker a pass is on decides hdr or ldr */
     this._plain = /** @type {any[]} */ ([]);
     /** @internal */ this._autoN = 0;
@@ -134,7 +143,8 @@ export class PostFX {
 
   /**
    * The one way to add a post effect. x is a three.js Pass (WebGL), a TSL node function (input, ctx) => node (WebGPU), or an effect
-   * { name, create | node | fuse, slot, order, params } (both renderers when it gives create and node, or a fuse). A wrong shape throws with nothing added.
+   * { name, create | node | fuse, slot, order, params, needsDepth, needsBuffers, backend, skipOnLowTier, facts } (both renderers when it gives create and node, or a fuse). A wrong shape throws with nothing added.
+   * needsDepth, needsBuffers ('normal' | 'diffuse' | 'velocity', WebGPU), backend ('webgpu': not on the WebGL2 backend), skipOnLowTier (held when engine.tier is 'low') and facts (shown by describe().render.post) are explained on PostEffect.
    * A Pass that draws engine.scene takes the 'scene' slot, FXAA / SMAA / TAA 'final', any other 'hdr' after the effects already there, or 'ldr' once an
    * OutputPass was added. A RenderPass of engine.scene and an OutputPass are the engine's own stages: skipped and said once (an OutputPass still marks where display color starts).
    * @example const glow = engine.post.add(new UnrealBloomPass(size, 0.6, 0.4, 0.85), { name: 'glow' }); glow.enabled = false;
@@ -168,8 +178,8 @@ export class PostFX {
     let on = !!point.value();
     const h = {
       name: effect.name, slot: s, order: effect.order ?? 0, seq: this._place(effect.name),
-      params: { ...effect.params }, _def: effect, _impl: /** @type {any} */ (null), _removed: false, _entry: /** @type {any} */ (null),
-      get enabled() { return on; },
+      params: { ...effect.params }, _def: effect, _impl: /** @type {any} */ (null), _removed: false, _entry: /** @type {any} */ (null), _on: () => on,
+      get enabled() { return on && !post._held(h); },
       set enabled(v) {
         if (typeof v !== 'boolean') throw codedError('post-effect', `post effect '${h.name}': enabled is true or false, got ${JSON.stringify(v)}`);
         if (h._removed) return;   // a stale handle: a later effect of this name has its own switch
@@ -214,6 +224,33 @@ export class PostFX {
     catch (err) { point.onChange = null; if (!this._kept.has(h.name)) this._seq.delete(h.name); throw err; }
     this.engine._picture?.added('post effect', h, h.name);   // dev: a picture part removed with this still on is reported (core/pictureWriters.js)
     return h;
+  }
+  /**
+   * Why an effect the game has on does not run now, or null (an effect the game has off is simply off). Held, not switched off: the game's value stays, so a device or tier change gives it back.
+   * The words separate what the device did from what the game chose: on a WebGLRenderer the game picked, a node-only effect is a mistake, so it is not held and postWebGL's sync throws it by name.
+   * @param {any} h @returns {string | null} @internal
+   */
+  _held(h) {
+    if (!h._on()) return null;
+    const d = h._def, r = this.engine.renderer;
+    let why = null;
+    if (!isWebGPU(r) && !d.create && !d.fuse?.glsl) {
+      if (!this._fellBack) return null;   // before the tier: the mistake must show on every machine, not only on good ones
+      why = 'this device has no WebGPU (start() fell back to WebGLRenderer)';
+    } else if (d.backend === 'webgpu' && isWebGPU(r) && backendName(r) !== 'webgpu') why = r.backend?.parameters?.forceWebGL
+      ? "needs three's WebGPU backend; the game chose WebGL2 (forceWebGL: true)"
+      : "needs three's WebGPU backend; this device has none, so WebGPURenderer runs on its WebGL2 fallback";
+    else if (d.skipOnLowTier && this.engine.tier === 'low') why = "engine.tier is 'low' and the effect declares skipOnLowTier";
+    if (why) warnOnce(`post effect '${h.name}' held off: ${why}`);
+    return why;
+  }
+  /**
+   * What antialiases the picture now: the samples really in effect, and the effect standing in for MSAA (asking for 'velocity' means a temporal resolve, so the scene pass runs without samples).
+   * @returns {{ samples: number, replacedBy: string | null }} @internal
+   */
+  _antialiasNow() {
+    const samples = this._be.samples(this);
+    return { samples, replacedBy: this._aa && !samples ? this._list.find(e => e.enabled && e._def.needsBuffers?.includes('velocity'))?.name ?? null : null };
   }
   /** The shared point of an effect's switch, starting at what the effect says. Kept across a remove (the registry has no delete); a new effect of that name starts it clean @internal */
   _point(effect) {
@@ -312,6 +349,7 @@ export class PostFX {
    * was used as a Pass and start() crashed.
    */
   _setBackend() {
+    this._fellBack = !isWebGPU(this.engine.renderer);
     this._be.dispose(this);
     for (const e of this._list) { e._impl?.dispose?.(); e._impl = null; }
     this._be = backendFor(this.engine.renderer);

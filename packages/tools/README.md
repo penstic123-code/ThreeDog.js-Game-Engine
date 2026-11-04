@@ -2,11 +2,11 @@
 
 The command line and build tooling for [threedog](https://www.npmjs.com/package/threedog) games: the `threedog` CLI, a vite preset, the test runner, rule checks, doc generators, headless screenshots and an MCP server for AI assistants.
 
-This README describes 0.6.0 (older 0.2 releases on npm do not match it). Inside the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine): `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
+This README describes 0.7.0 (older 0.2 releases on npm do not match it). Inside the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine): `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
 
 ```sh
-npm install threedog@0.6 three@~0.187.0
-npm install -D @threedog/tools@0.6
+npm install threedog@0.7 three@~0.187.0
+npm install -D @threedog/tools@0.7
 npx threedog init                      # sets up the current folder, never overwrites a file
 ```
 

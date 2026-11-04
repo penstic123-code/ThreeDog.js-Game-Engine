@@ -9,11 +9,10 @@
 //   --all-webgpu  examples and tests that ask for no renderer get renderer: 'webgpu' too (a build-time rewrite of createEngine)
 // Each page prints its adapter, three's backend and its contexts; a page that is not on real WebGPU fails loudly, it never passes on the fallback.
 // Why build-time rewrites: test pages say forceWebGL: true so that headless runs agree, and that one word would hide the whole point of this run.
-import { chromium } from 'playwright';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { build } from 'vite';
-import { buildAndPreview, newGamePage, IGNORED_CONSOLE } from './browser.mjs';
+import { buildAndPreview, launchRealGPU, newGamePage, IGNORED_CONSOLE } from './browser.mjs';
 import { viteOptions, ENGINE } from './paths.mjs';
 import { workspaceSpecs } from './lib/specs.mjs';
 import { waitEngine, waitLoaded } from './wait-engine.mjs';
@@ -183,7 +182,7 @@ async function runUrl(browser, server, url) {
 if (!flag('no-build')) await build(await viteOptions(dir, { plugins: flag('webgl') ? [] : [rewrites], logLevel: 'error' }));
 if (!existsSync(join(dir, 'dist'))) throw new Error(`${dir} has no dist: drop --no-build`);
 const server = await buildAndPreview(dir, { build: false });
-const browser = await chromium.launch({ channel: 'chrome', headless: !flag('headed'), args: ['--enable-unsafe-webgpu', '--force_high_performance_gpu', '--ignore-gpu-blocklist'] });
+const browser = await launchRealGPU({ headless: !flag('headed') });
 try {
   const cdp = await browser.newBrowserCDPSession();
   const { processInfo } = await cdp.send('SystemInfo.getProcessInfo');

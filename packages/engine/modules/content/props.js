@@ -1,6 +1,6 @@
 // Props (each item of content/props.js): data is a plain record in engine.world with kind 'prop'; model and collision are "presentation that exists only when
 // near".
-//   record: { id, kind: 'prop', position: {x,y,z}, model, rot?, scale?, collide?, offsetY?, static?, batch?, zone? } (plain values only)
+//   record: { id, kind: 'prop', position: {x,y,z}, model, rot?, scale?, collide?, occluder?, offsetY?, static?, batch?, zone? } (plain values only)
 // Initial world data (initial: true on add): the save records only moves / removals, independent of content.load running before or after loading a save;
 // positions using level markers carry a zone (data is kept across level changes).
 //   id: the written id if content gives one; otherwise `prop:<model name>:<index in this props array>` (same on every load of the same content, no collisions).
@@ -41,7 +41,7 @@ export function addProps(e, api, props, st, zoneOf, ids) {
     if (p.id != null) ids.claim(p.id, `props[${i}] (model ${JSON.stringify(p.model)})`);
     // compute y from the ground now (same as when the model is built): unmoved props equal the content and stay out of the save
     const def = { id, kind: 'prop', position: { x, y: y ?? placeY(e, `props[${i}] (model ${JSON.stringify(p.model)})`, x, z), z }, model: p.model };
-    for (const k of ['rot', 'scale', 'collide', 'static', 'batch']) if (p[k] !== undefined) def[k] = p[k];
+    for (const k of ['rot', 'scale', 'collide', 'occluder', 'static', 'batch']) if (p[k] !== undefined) def[k] = p[k];
     if (p.y) def.offsetY = p.y;
     if (floor !== undefined) def.floor = floor;   // kept so a moved prop lands on the same storey
     if (zone != null) def.zone = zone;

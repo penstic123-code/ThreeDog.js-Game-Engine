@@ -1,17 +1,18 @@
 # Third-person start: walking, camera, save, pause, menu
 
-**In this recipe**: 1. The sixteen lines · 2. What each line gives · 3. Where it stops · 4. Talk, press E, a quest, a counter · 5. Not worth it for a small game
+**In this recipe**: 1. About twenty lines · 2. What each line gives · 3. Where it stops · 4. Talk, press E, a quest, a counter · 5. Not worth it for a small game
 
 The shortest working path for a game where a character walks around a place you built yourself. It is the blank template's `main.js` plus a few lines, on any
 ground (`--open-world` adds generated terrain and a sky on top of the same parts). The picture stays plain three.js in `picture/`; nothing here touches it.
 
-## 1. The sixteen lines
+## 1. About twenty lines
 ```js
+import 'threedog/tsl';   // WebGPU with TSL, as a new game starts; a game started with --webgl drops this line and `renderer: 'webgpu'`
 import { createEngine, presets, world, content, settings, characters, collision, followCamera, hud } from 'threedog';
 import { createPicture } from './picture/index.js';
 import data from './content/index.js';
 
-const engine = createEngine({ canvas: document.getElementById('view'), lights: false,
+const engine = createEngine({ canvas: document.getElementById('view'), renderer: 'webgpu', lights: false,
   bindings: { ...presets.bindings.walk, ...presets.bindings.interact },                                                   // Shift runs, Space jumps, E uses; WASD, arrows and the pad stick are built in
   ui: { loading: { title: 'Pier' }, title: { title: 'Pier' } }, saveKey: 'pier' });                                       // start screen: Continue (once a save exists), Start, Settings
 engine.use(world(), content(), collision(), characters(), followCamera({ pointerLock: true }), hud(), settings({ freezeWorld: true }));
@@ -64,10 +65,12 @@ engine.quests.define('pier', { title: 'The pier', steps: [
 engine.quests.start('pier');
 engine.hud.counter('coins', { label: 'Coins', value: 0 });   // call again with a new value to update it
 ```
-Dialogue flags, quest progress and what `once` and `counter` did are saved by the modules: no `register` for them.
+Dialogue flags, quest progress and what `once` and `counter` did are saved by the modules: no `register` for them. An interaction's `counter` adds 1 to the HUD counter of that name (`hud.add`); read the total with `engine.hud.value('coins')`, the one place it lives. A short popup message: `toast(engine, 'Picked up a shell')` (import `toast` from `threedog`; recipe 26 §3).
+
+A content prop with `collide` blocks the follow camera with its whole mesh; a hand-written mesh blocks it only after `engine.rays.addStatic(mesh, { occluder: true })` (recipe 21).
 
 ## 5. Not worth it for a small game
-For these, plain three.js and `engine.setGround` are the shorter road; the modules pay off only when a game leans on them:
+Plain three.js and `engine.setGround` are the shorter road for the things below; the modules pay off only when a game leans on them. Ready-made looks are optional too: `threedog how "cel shading"` finds them.
 - Water: a `PlaneGeometry` with your own material is enough for a pond or a sea seen from a pier. `water()` earns its place with waves that float things, or swimming.
 - Full terrain: a flat or gently rolling island is `engine.setGround({ height: (x, z) => ... })` plus meshes. `terrain()` is for large streamed worlds.
 - The sky module for a fixed time of day: a background color or a gradient mesh and your own lights. `sky()` is for a day that changes.

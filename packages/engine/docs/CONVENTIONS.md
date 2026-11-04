@@ -32,6 +32,17 @@ Lights, fog, exposure and the environment have one writer, the game's `picture/`
 engine writes the `camera` pose every frame, and a sky keeps the shadow box around the focus. Setting one of those directly is plain three.js and works: the engine yields that value (stops
 writing it, warns once). The camera: `engine.takeCamera(owner)` or a timeline camera step.
 
+## Layers the engine keeps
+The three.js layers below belong to the engine (one table: `RESERVED_LAYERS` in `threedog/layers`, file `render/layers.js`). A game's own layers are 1 to 25; 30 is the default camera `hideLayer`.
+
+| Layer | Name | What sits there |
+| --- | --- | --- |
+| 26 | `lightVolumes` | the box of air and the lights `lightVolumes` reads |
+| 27 | `occlusionBox` | occlusion culling's query boxes, seen by the scene render of the view camera alone |
+| 28 | `occlusionHidden` | what culling is not drawing now, still seen by shadows, `engine.rays` and `voxelGI` |
+| 29 | `outlineOff` | objects `outline({ offLayer })` leaves without lines; `OUTLINE_OFF_LAYER` from `@threedog/post-effects` is this same layer |
+| 31 | `batched` | originals drawn through `engine.batching`, still hit by `engine.rays` |
+
 ## Customization ladder
 Pick the row for what you want; each row is the one entry for it (take the first that fully works). Plain JS fields and your own `onFixed`
 logic need none of this.

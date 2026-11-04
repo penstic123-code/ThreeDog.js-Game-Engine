@@ -2,7 +2,7 @@
 
 **In this recipe**: Your own material · Patch a slot · Engine GLSL functions · Ready-made effects
 
-Lead with three.js: **write your own material or `ShaderMaterial`**, or **patch a slot** of any material with your own GLSL. The picture is the
+A new game draws on WebGPU, where shaders are TSL: start with [recipe 56](56-webgpu-tsl.md), whose node materials and `tsl:` patch fields do these same jobs. This page is the GLSL route, for a game made with `threedog new-game --webgl`: **write your own material or `ShaderMaterial`**, or **patch a slot** of any material with your own GLSL. The picture is the
 game's own; this page gives building blocks, not finished pictures. There is one entry for shader code: `applyEffects`.
 
 ```js

@@ -127,7 +127,8 @@ function lightingTsl(u, wrap, st, rim) {
 const rampCache = new Map();
 /**
  * The gradientMap of a toon material from `ramp` (grays or colors, dark to light) and `soften` (0 = hard bands, 1 = bands melt into each other).
- * Color entries tint the light of that band (a cool band in the shade); a gray number n is the light's strength there.
+ * A gray number n is the light's strength in that band. three's toon reads only the red channel of this texture on both renderers; color entries
+ * tint the band under `celLighting` of threedog/tsl (WebGPU route).
  * @example new THREE.MeshToonMaterial({ color: 0x8aa0b0, gradientMap: rampTexture([0.35, 0.7, 1], 0.2) });
  * @param {(number | import('../types/common').ColorLike)[]} ramp
  * @param {number} [soften]

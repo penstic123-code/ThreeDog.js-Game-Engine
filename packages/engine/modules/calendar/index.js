@@ -34,6 +34,7 @@ export function calendar(opts = {}) {
       // from the clock, so an indoor game without a sky still switches its night music
       ctx.track(e.audio.condition('time', timeCondition(c)));
       ctx.track(e.audio.measure('daylight', () => c.daylight));
+      ctx.track(e.audio.measure('timeOfDay', () => c.timeOfDay));   // render/daylight.js writes uTimeOfDay from it
       // between() ranges re-check whether they are inside after anything that moves the clock without stepping
       for (const name of ['engine:ready', 'save:loaded', 'state:applied']) ctx.track(e.events.on(name, () => c._sched.syncRanges()));
       // the day and time of day are views of the 'calendar' channel: its events and clock timers run right after the channel moves (a step or a skip segment)

@@ -176,6 +176,44 @@ export async function run({ check }) {
     }
     check(`platform moves ${where} the player: rider within 1 cm of its spot over 600 steps`, worst < 0.01 && c.support.kind === 'platform', `worst ${worst.toFixed(4)} m, kind ${c.support.kind}`);
   }
+  // ---- what a support needs. The boat over a sea floor at -3: placeAt stands on the deck, a dock walks onto it, and it carries the rider.
+  // Registering the whole group puts the top at the mast head, so the character passes under it: the shape the docs tell games to avoid
+  {
+    const boatAt = () => {
+      const boat = new THREE.Group(), deck = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 2)), mast = new THREE.Mesh(new THREE.BoxGeometry(0.2, 5, 0.2));
+      deck.position.y = 0.5; mast.position.y = 3; boat.add(deck, mast); boat.position.x = 3.5;
+      return { boat, deck };
+    };
+    const sea = x => x < 2 ? 0.5 : -3;
+    {
+      const e = fake({ ground: sea }), { boat, deck } = boatAt(); addSupport(e, deck, { id: 'deck' });
+      const c = make(e);
+      c.placeAt({ x: 3.5, z: 0 });
+      check('placeAt over a support stands on it, not on the sea floor below', Math.abs(c.position.y - 0.6) < 1e-6, `y ${c.position.y}`);
+      step(e, c, 0, 0, 3);
+      check('placed on a support: it rides from the next step', c.support.kind === 'platform' && c.support.id === 'deck', c.support.kind);
+      boat.position.x += 2; step(e, c, 0, 0, 2);
+      check('moving the parent group carries the rider of its deck mesh', Math.abs(c.position.x - 5.5) < 1e-6, `x ${c.position.x}`);
+    }
+    {
+      const walkOn = what => {
+        const e = fake({ ground: sea }), b = boatAt(); addSupport(e, b[what], { id: what });
+        const c = make(e); c.placeAt({ x: 1, z: 0 });
+        for (let i = 0; i < 120 && c.position.x < 3; i++) step(e, c, 1, 0);
+        step(e, c, 0, 0, 120);
+        return c;
+      };
+      const onDeck = walkOn('deck'), onGroup = walkOn('boat');
+      check('from a dock: the deck mesh is walked onto', onDeck.support.kind === 'platform' && Math.abs(onDeck.position.y - 0.6) < 1e-6, `${onDeck.support.kind} y ${onDeck.position.y}`);
+      check('from a dock: the whole group is passed under (its top is the mast head), down to the sea floor', onGroup.support.kind !== 'platform' && onGroup.position.y < -2.9, `${onGroup.support.kind} y ${onGroup.position.y}`);
+    }
+  }
+  // ---- a ladder: the manual mover has no gravity and still runs the states hook, so the climb clip plays
+  {
+    const e = fake(), c = make(e, { states: () => 'climb' });
+    c.mover = 'manual'; c.root.position.y = 2; step(e, c, 0, 0, 30);
+    check('mover manual: the position stays where the game put it and states picks the state', c.position.y === 2 && c.state === 'climb', `y ${c.position.y} state ${c.state}`);
+  }
   // ---- fall: below belowY back to safe ground, character:fall once
   {
     const e = fake({ ground: x => x < 2 ? 0 : -1000 }), c = make(e, { fall: { belowY: -20 } });

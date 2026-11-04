@@ -21,6 +21,11 @@ export const specs = [
       const w2 = r.webgl2;
       check("fallback 'webgl2' (default), navigator.gpu missing: same WebGPURenderer on its WebGL2 backend, reason in describe().renderer",
         w2.isGPU && w2.renderer.requested === 'webgpu' && w2.renderer.backend === 'webgl2' && w2.renderer.reason === 'navigator.gpu is missing', JSON.stringify(w2));
+      check("describe().renderer says what each backend can run: WebGL2 backend TSL yes, GLSL no, compute by transform feedback; WebGLRenderer the reverse, no compute",
+        w2.renderer.tsl === true && w2.renderer.glsl === false && w2.renderer.compute === 'transform-feedback'
+          && d.renderer.tsl === false && d.renderer.glsl === true && d.renderer.compute === null, JSON.stringify([w2.renderer, d.renderer]));
+      check('describeText() names the fallback and its reason, so a plain read of the game shows it',
+        w2.text.includes('renderer webgl2 (asked webgpu: navigator.gpu is missing)'), w2.text.split('\n').find(l => /renderer/.test(l)));
       check("fallback 'webgl2': one loud line naming the reason and the backend", w2.warns.some(l => l.startsWith(`${LOUD}navigator.gpu is missing), running webgl2; createEngine({ renderer: 'webgpu', fallback:`)), JSON.stringify(w2.warns));
       const gl = r.webgl;
       check("fallback 'webgl', requestDevice failing: a WebGLRenderer on the same canvas, reason requestDevice() failed",

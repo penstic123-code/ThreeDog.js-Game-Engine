@@ -3,7 +3,7 @@
 The scene, camera, lights, characters and models in the engine are **plain three.js objects** (three 0.187). Write the three.js you already
 know: what the engine can see, it plugs in with no extra call. Only where it cannot know your intent do you write one line.
 Picture work (materials, shaders, textures, lights, post passes) always take this route first; engine picture features are optional conveniences on top.
-This is the one place that order is stated: a material is `new THREE.*Material` / `ShaderMaterial` before a slot patch or a style role, a post
+This is the one place that order is stated: a material is `new THREE.*Material` / `ShaderMaterial` before a slot patch, a post
 pass is a three.js Pass (`engine.post.add(pass)`) before a ready-made effect.
 
 | You write (plain three.js) | The engine does | The one line, only when you mean it |
@@ -25,7 +25,7 @@ yourself: `engine.plugins.add(import.meta.glob('./plugins/*.js', { eager: true }
 ## What the engine changes in three.js (Global changes)
 Everything else in three is untouched. Every change below is listed in `describe().threePatches` (`{ id, what, scope, on, offable, lost }`);
 an offable one is undone page-wide with `threePatches.off(id)` (`import { threePatches } from 'threedog'`), call it before creating the objects
-that should not see it. `lost` says what stops working; a change that cannot be undone says why and `off` throws.
+that should not see it. It is page-wide: every engine on the page loses the change, and `engine.dispose()` does not undo it (disposing one engine never touches a change another engine or library relies on). A wrapper another library put on `Object3D.prototype.add` stays when `scene-add-hook` is turned off. `lost` says what stops working; a change that cannot be undone says why and `off` throws.
 
 | id | Change | Effect on your code | Off |
 |---|---|---|---|

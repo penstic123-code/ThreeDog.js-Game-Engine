@@ -21,7 +21,10 @@ import { ERROR_CODES } from './errorCodes.js';
 export const ERROR_HINTS = [
   // Only messages the engine does not write itself: JavaScript, the browser and three.js. An engine error carries its own code, fix and
   // pages (codedError / coded with an ERROR_CODES entry), so a pattern for it here would be a second copy that drifts from the message.
-  { id: 'frozen-definition', match: /Cannot (assign to read only property|add property .*not extensible|delete property)/,
+  // Frozen definitions are plain objects and arrays (freezeDef skips class instances), so the object named in the message must be one of those: a three.js
+  // object's read-only `position` / `rotation` (#<Mesh>, or a minified class name) is another cause and gets no hint.
+  { id: 'frozen-definition',
+    match: /Cannot (assign to read only property '[^']*' of object '(#<Object>|\[object Array\])'|add property [^,]*, object is not extensible|delete property '[^']*' of (#<Object>|\[object Array\]))/,
     cause: 'Definitions (content templates, items, entity types) are shared by every instance and frozen. Keep per-instance ' +
       'state on the world record (engine.world.set(id, { opened: true })) or in its container; define another template for a different kind of thing.',
     docs: ['recipes/30-templates.md', 'recipes/18-world.md'] },

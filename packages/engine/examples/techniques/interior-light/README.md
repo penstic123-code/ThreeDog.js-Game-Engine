@@ -79,7 +79,7 @@ Zones vs measured exposure: a zone is cheap and predictable, and the designer de
 luminance, ease toward a target) adapts to anything but needs a downsample and readback every few frames, can pump when bright objects enter
 the view, and still needs limits. A zone also carries the ambient change, which measured exposure cannot. Limit of zones: they follow the
 camera, so looking into the room from outside it still gets outdoor ambient (`?cam=doorway`). When that view matters, give indoor surfaces
-their own fill (probes sampled per object with `probes.sample(pos)`, or lightmaps).
+their own fill (a probe grid over each part, or lightmaps).
 
 Night (`?night=1`): a very low moon (`MOON`), the indoor zone's exposure at 1, two warm PointLights (physical falloff,
 decay 2, intensity in candela) inside shades with an emissive of 0.35; one casts a 512 px shadow (a point light shadow is six renders: give it
@@ -92,13 +92,15 @@ Rules (correctness):
 - The sun through a window needs every wall, the ceiling and the window frame to `castShadow`, and a shadow box that covers the room. `picture/lights.js`
   aims its own `DirectionalLight` and writes `shadow.camera` to fit the room. Thin walls want a small `normalBias` (here 1 cm) or light leaks along
   their inner edge.
-- `engine.bakeProbes({ bounds, spacing, follow })` bakes the scene as it is at that moment: set the indoor ambient and the lights first, and
+- `engine.bakeProbes({ bounds, spacing })` bakes the scene as it is at that moment: set the indoor ambient and the lights first, and
   bake again (or ship one bake per state) if the lighting changes a lot (day / night). Probes add to the hemisphere and environment, which
-  the bake also saw (recipe 34). It is one spherical harmonic for the whole scene at a time, interpolated at the `follow` point: right for
-  the room you are in, wrong for a building seen from far away.
+  the bake also saw (recipe 34). Every pixel in the room takes its own light; outside `bounds` there is none,
+  so a building seen from outside needs its own light.
 - The bake renders after start; this page tracks it in `engine.loading` so screenshots and tests wait for it.
 - Do not name page URL parameters `time` or `view` (or the other engine scenario keys: `weather`, `pos`, `season`, `state`, `save`, `wait`,
   `cutscene`): `?time=night` reaches the sky as a clock time, turns into NaN and blacks out the frame.
 
 Sources: written for this repository, no code copied. Background: three.js `RectAreaLight` and `LightProbe` docs and examples (0.187), general
 architectural-visualization and game-lighting writing on window light, bounce and eye adaptation.
+
+This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). A game on the default WebGPU route writes the same ideas in TSL (recipe 56).

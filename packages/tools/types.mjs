@@ -193,11 +193,16 @@ function isDom(d) {
   return false;
 }
 
+function fnCallOnLine(d) {
+  srcLine(d.file, 1);   // fills srcCache for the file
+  const names = [...(srcCache.get(d.file) ?? []).join('\n').matchAll(/\b(?:const|let|var)\s+([\w$]+)\s*=\s*Fn\(/g)].map(m => m[1].replace(/\$/g, '\\$'));
+  return names.some(n => new RegExp('(?<![\\w$.])' + n + '\\(').test(srcLine(d.file, d.line)));
+}
 /**
  * Plain JS that TypeScript cannot follow, in a game's own code: a field added to the game's own object after it was made (fx.density = …),
  * a property read on a union the game's own ternary built (gpu ? nodeMaterial : shaderMaterial), a default `{}` parameter, a call that leaves
  * out a name the game's own untyped function destructures, a TSL node whose
- * type TypeScript narrowed by inference (let s = float(0); s = s.add(…)). It runs fine, so it is a hint, not an error. Why not stricter: an AI
+ * type TypeScript narrowed by inference (let s = float(0); s = s.add(…)), a call of a function made with Fn(...), two geometry classes in one variable. It runs fine, so it is a hint, not an error. Why not stricter: an AI
  * that gets errors for ordinary JS turns the check off for the whole file (// @ts-nocheck) and loses the engine checks with it. Anything that
  * names an engine type stays an error, and so does the engine's own code (packages/, examples included).
  */
@@ -205,11 +210,17 @@ function isPlainJs(d) {
   if (d.file.startsWith('packages/')) return false;
   const all = d.msg + ' ' + d.more.join(' ');
   for (const w of all.matchAll(/\b[A-Z]\w+/g)) if (engineTypes.has(w[0])) return false;
-  const tsl = /\b(?:\w*Node)<"/.test(all);
+  // TSL node types (three/tsl): Node<"float">, ConstNode<"vec3", Vector3>, Number<"float">, NodeBuilder (what a Fn callback's destructuring sees)
+  const tsl = /\b(?:\w*Node<"|Number<"|NodeBuilder\b)/.test(all);
+  // two sibling three.js classes where inference fixed the first one's type (let g = new IcosahedronGeometry(); g = new BoxGeometry()): only `parameters` differs
+  const siblingGeometry = (d.code === 2322 || d.code === 2345) && /\b\w+Geometry\b/.test(d.msg) && d.more.some(l => /^Types of property 'parameters' are incompatible/.test(l));
+  // a function made with Fn(...) is typed as taking no arguments although it takes the ones its callback destructures
+  if (d.code === 2554) return fnCallOnLine(d);
   if (d.code === 2339) { const t = d.msg.match(/^Property '.+?' does not exist on type '(.+?)'\./)?.[1] ?? ''; return t.startsWith('{') || t.includes(' | ') || tsl; }
   // the game's own function that destructures its parameter with no JSDoc: TypeScript makes every name required ({ w: any; rough: any })
   const ownParam = d.code === 2345 && /parameter of type '\{ (?:[\w$]+(?:: any|\?: [^;{}]+); )*[\w$]+: any; /.test(d.msg);
-  return ownParam || ((d.code === 2322 || d.code === 2345) && tsl);
+  // 2488 (not iterable) only for a Fn callback's destructuring: on any other TSL node it is a real mistake, a node is not an array
+  return ownParam || siblingGeometry || ((d.code === 2322 || d.code === 2345 || d.code === 2769) && tsl) || (d.code === 2488 && /\bNodeBuilder\b/.test(all));
 }
 
 const errors = [], hints = [];
@@ -268,7 +279,7 @@ else {
 // ---------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------
-// Grouped by source: examples, each game games/<name> (a game's style/ folder counts as that game)
+// Grouped by source: examples, each game games/<name> (a game's picture/ folder counts as that game)
 const group = f => P.under(f, P.EXAMPLES_REL) ? 'examples' : P.MODE === 'game' ? (f.startsWith('games/') ? f.split('/').slice(0, 2).join('/') : 'game') : f.split('/').slice(0, 2).join('/');
 if (ENG) { SCOPE.engine(coverage.length); coverage.length = 0; }   // the engine's
 const shown = SCOPE ? checked.filter(SCOPE.mine) : checked;

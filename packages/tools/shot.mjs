@@ -53,7 +53,7 @@ import { cli, rel } from './paths.mjs';
 import { waitEngine, waitLoaded, sceneCounts } from './wait-engine.mjs';
 import { shotName, shotFile, viewSize, wrongServer } from './lib/shot-name.mjs';
 import { formatPicture, pagePicture, imagePicture, NO_PAGE } from './picture/check.mjs';
-import { PICTURE } from './threedog/pageFns.mjs';
+import { PICTURE, BACKEND, TITLE_COVERS } from './threedog/pageFns.mjs';
 
 const t0 = Date.now();
 
@@ -132,10 +132,11 @@ try {
     mkdirSync(dirname(file), { recursive: true });
     const pictured = await sceneCounts(page);
     await page.screenshot({ path: file });
-    Object.assign(result, { file, size: [W, H], renderer: browser.render.kind, tier });
-    say(`Screenshot: ${rel(file)} (${W}×${H}, ${browser.render.kind} rendering, ${tier} tier)`);
+    const backend = await page.evaluate(`(${BACKEND})(engine)`);
+    Object.assign(result, { file, size: [W, H], renderer: browser.render.kind, backend, tier });
+    say(`Screenshot: ${rel(file)} (${W}×${H}, ${browser.render.kind} rendering, ${tier} tier, drawn by ${backend})`);
     // the picture numbers below would measure the start screen, not the game's picture
-    if (!opt.play && await ev(() => engine.ui.isOpen('title'))) say('  The start screen covers this picture: add --play to shoot the game behind it');
+    if (!opt.play && await ev(() => engine.ui.isOpen('title'))) say('  ' + TITLE_COVERS);
     if (opt.compare && opt.compare !== true) {   // before / after: the earlier picture against this one
       const { compareImages, formatCompare, pixelDiff } = await import('./picture/compare.mjs');
       const diff = await pixelDiff(opt.compare, file), cmp = await compareImages(opt.compare, file);

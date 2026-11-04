@@ -4,7 +4,7 @@
 //   never be swapped with plain three.js. Which colors those defaults use is R39's job.
 // Criteria: engine code (index.js, core, modules, render, ui), two kinds of finding, each with its own level in LEVEL:
 //   table  reads engine.style (also e.style, eng.style, with ?.) or calls makeMaterial(...) / defineLookPart(...)
-//   layer  reads engine.look (same spellings)
+//   layer  reads engine.look (the removed table; same spellings)
 //   A one-line `const { style } = engine` counts as a read. Detection: per line, comments and strings skipped, so an error text may still name the
 //   old entry. Known limit: a destructuring spread over several lines is not seen.
 // Level: an error; the old layer is gone, so a hit is a new one.

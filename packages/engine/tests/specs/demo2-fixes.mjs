@@ -14,7 +14,7 @@ export const specs = [
         await E.start();
         const win = new THREE.MeshStandardMaterial({ emissive: '#ffcc66' });
         E.onFrame(() => { win.emissiveIntensity = 2 * E.uniforms.uNight.value; });
-        const at = t => { E.calendar.timeOfDay = t; E.step(0.1, { render: false }); return { night: E.uniforms.uNight.value, day: E.uniforms.uDaylight.value, cal: E.calendar.daylight, win: win.emissiveIntensity }; };
+        const at = t => { E.calendar.timeOfDay = t; E.step(0.1, { render: false }); return { night: E.uniforms.uNight.value, day: E.uniforms.uDaylight.value, cal: E.calendar.daylight, tod: E.uniforms.uTimeOfDay.value, win: win.emissiveIntensity }; };
         const noon = at(0.5), midnight = at(0), dusk = at(0.27);
         E.dispose();
         const N = mk(T.createEngine, 'night-signal-none');
@@ -27,6 +27,7 @@ export const specs = [
       const t = r.dusk.cal / 0.3, want = 1 - t * t * (3 - 2 * t);
       check('the fade is the smoothstep below daylight 0.3', r.dusk.cal > 0 && r.dusk.cal < 0.3 && Math.abs(r.dusk.night - want) < 1e-9, JSON.stringify(r.dusk));
       check('uDaylight tells the calendar time with no sky', Math.abs(r.dusk.day - r.dusk.cal) < 1e-9 && r.noon.day === 1, JSON.stringify(r.dusk));
+      check('uTimeOfDay follows the calendar with no sky (it used to freeze at 0.5)', r.noon.tod === 0.5 && r.midnight.tod === 0 && Math.abs(r.dusk.tod - 0.27) < 1e-9, JSON.stringify([r.noon.tod, r.midnight.tod, r.dusk.tod]));
       check('nothing tells day from night: uNight stays 0', r.none === 0, String(r.none));
     },
   },

@@ -85,7 +85,7 @@ also takes a key.
 ```js
 const I = engine.inventory;
 I.define('sword', { name: 'Sword', stack: 1 });
-const key = I.add('sword', 1, { data: { durability: 80, level: 3 } });   // 'sword#7'
+const key = /** @type {string} */ (I.add('sword', 1, { data: { durability: 80, level: 3 } }));   // 'sword#7' (add returns false when it does not fit)
 I.count('sword');                               // every sword, with or without data
 I.get(key);                                     // { key, id: 'sword', count: 1, data: { durability: 80, level: 3 }, def }
 I.list();                                       // every entry: [{ key, id, count, data, def }] for your own UI

@@ -69,6 +69,14 @@ export function shadowTint(ambient: Node, tint: Node, strength: Node | number, s
  */
 export function rim(normal: Node, viewDir: Node, color: Node, strength: Node | number, power: Node | number, shadowSide: Node | number, nl: Node): Node;
 /**
+ * The lighting model for cel bands with colored ramps: assign it to a MeshToonNodeMaterial, whose gradientMap holds the ramp (rampTexture). A shadowed pixel reads the
+ * dark end of the ramp, so a cast shadow takes the same flat band and color as the side turned away. Without a gradientMap: two levels, as three's toon.
+ * @example
+ * const mat = new MeshToonNodeMaterial({ color: 0xe08050, gradientMap: rampTexture([0x4a5a9a, 0xc0c8e0, 0xffffff]) });
+ * mat.setupLightingModel = celLighting;
+ */
+export function celLighting(): import('three/webgpu').LightingModel;
+/**
  * GLSL float threedogWaterWave(vec3 p, float t): the built-in wave sum (height before waveHeight). p = world position * waveScale, t = time * waveSpeed.
  * @example
  * const h = waterWave(modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz, uniforms(engine).uTime).toVarying();

@@ -53,3 +53,5 @@ The demo's own picture (ambient light, emitter colours, tone curve, the flicker)
 Written from the public descriptions, no code copied: Alexander Sannikov, "Radiance Cascades: A Novel Approach to Calculating Global
 Illumination" (2023); jason.today, "Building Real-Time Global Illumination" (parts 1 and 2: jump flood, distance field, cascades);
 GM Shaders, "Radiance Cascades".
+
+This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). A game on the default WebGPU route writes the same ideas in TSL (recipe 56).

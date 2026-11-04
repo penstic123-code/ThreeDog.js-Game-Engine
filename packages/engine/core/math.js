@@ -30,6 +30,13 @@ export function vec3(v, out = new THREE.Vector3()) {
   return out.set(v.x ?? 0, v.y ?? 0, v.z ?? 0);
 }
 
+/** The height a position names, or undefined when it names none ({ x, z }) */
+export function yOf(v) {
+  if (v?.isObject3D) v = v.position;
+  const y = Array.isArray(v) ? v[1] : v?.y;
+  return Number.isFinite(y) ? y : undefined;
+}
+
 /** Get the horizontal coordinates [x, z] from a Vector3 / Object3D / [x, y, z] / { x, z } */
 export function xzOf(v) {
   if (!v || typeof v !== 'object') throw codedError('options-object', POS_ERR + JSON.stringify(v), TypeError);

@@ -5,10 +5,9 @@
 //
 //   import { createEngine, terrain, vegetation, sky, weather, water, collision, rigid,
 //            followCamera, characters, interactions, dialogue, inventory, quests, photo, ambience, debug } from 'threedog';
-//   import baseStyle from './style/index.js';                // optional: the engine itself ships no art (the game's own style/ folder)
-//   import { terrainPreset } from '@threedog/terrain-noise';   // optional: nor a terrain generator
+//   import { terrainPreset } from '@threedog/terrain-noise';   // optional: the engine ships no terrain generator either
 //
-//   const engine = createEngine({ canvas, style: baseStyle });   // without a style: neutral gray placeholders
+//   const engine = createEngine({ canvas });   // lights, fog and materials are plain three.js the game writes (its picture/ folder); the engine gives signals
 //   engine.use(terrain({ seed: 7, ...terrainPreset() }), vegetation(), sky(), weather(), water(), collision(), followCamera(), characters());
 //   engine.start();
 //

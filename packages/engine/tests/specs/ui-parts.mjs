@@ -15,6 +15,26 @@ export const specs = [
     },
   },
   {
+    // a rerun by keys used to play the last autosave (Enter picks Continue), and a bare inputLocked sent a script through describe to learn why
+    name: 'UI title: inputLocked names the title in its facts; applyState({ fresh }) deletes the saves, so the title has no Continue',
+    url: '/tests/ui/index.html?mode=default',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        await __t.until(() => engine.stateApplied, 10000);
+        engine.interactions.add(engine.player.root, { id: 'lock-test', label: 'x', radius: Infinity, onUse() {} });
+        const locked = engine.ops.run('interaction.use', { id: 'lock-test' });
+        await engine.saves.save('auto');
+        engine.ui.close('title'); engine.ui.open('title');   // drawn again now that a save exists: Continue appears
+        const before = engine.saves.list().length, labels = () => [...document.querySelectorAll('.threedog-title .threedog-btn')].length;
+        const had = labels();
+        await engine.applyState({ fresh: true });
+        return { code: locked.code, by: locked.facts?.by, fix: locked.facts?.fix, before, after: engine.saves.list().length, had, now: labels(), open: engine.ui.isOpen('title') };
+      });
+      check('interaction.use on the title: inputLocked with facts.by title and a fix', r.code === 'inputLocked' && r.by === 'title' && /applyState/.test(r.fix), JSON.stringify(r));
+      check('fresh removes the saves and leaves the title up, one button fewer', r.before > 0 && r.after === 0 && r.open && r.now === r.had - 1, JSON.stringify(r));
+    },
+  },
+  {
     name: '界面件：默认件照常工作，标题画面开着时冻结并吞掉 Esc，开始后关闭；设置可选分页 game / camera 生效',
     url: '/tests/ui/index.html?mode=default',
     async run({ page, check, ev, frames }) {

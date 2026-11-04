@@ -37,10 +37,10 @@ Picture intent (optional): (none)
 | Ground shading | (not chosen) | smooth · texture (color map, clean color borders) · flat (one color per triangle, faceted) — `engine.terrain.material` · own three.js material / shader on the terrain mesh |
 | Character body | (not chosen) | gray capsule (prototype only, not a finished picture) · procedural asset · own GLB from Blender — `{ model }` |
 | Asset sources | (not chosen) | per kind (ground and terrain textures, vegetation, characters, props and buildings, effects, sounds): you make or specify · you provide (anything you choose, from anywhere) · generated (procedural code or tools, you confirm) · mix. The AI recommends with reasons; it does not pick an asset library or someone else's style on its own |
-| Materials and palette | (not chosen) | colors per material, lambert (matte) · toon (banded) · standard (PBR) · unlit · own three.js material / shader (`new THREE.*Material`, `ShaderMaterial`, `onBeforeCompile`) — `picture/materials.js` |
+| Materials and palette | (not chosen) | colors per material, lambert (matte) · toon (banded) · standard (PBR) · unlit · own three.js material / shader (__OWN_SHADER__) — `picture/materials.js` |
 | Sky and time of day | (not chosen) | fixed time or day/night cycle, sky colors, fog — `picture/` reading the signals (recipe 62), `scene.fog`, sky presets · own three.js sky (`engine.sky.replace(mySky)`) |
 | Lighting and shadows | (not chosen) | sun strength and color, shadow type and softness — `picture/lights.js` (recipe 62), `engine.shadows`, `engine.sky.environment` · plain three.js lights |
-| Post effects | (not chosen) | none · bloom · outline · ao · color grading — `engine.post.add` · own three.js passes / shader (`engine.post.add({ name, slot, create })`) |
+| Post effects | (not chosen) | none · bloom · outline · ao · color grading — `engine.post.add` · __OWN_POST__ |
 | Camera and controls | (not chosen) | follow (pointer lock or drag) · first person · top-down / rts · fixed · own camera and controls (recipe 21, sections 6-7) |
 
 ## Systems

@@ -60,7 +60,7 @@ ThreeDog 把这些系统接过来，写一次，并且让它们彼此配合。AI
 - **你的游戏**放规则、内容、画面代码和插件，都是普通的 JavaScript 和 three.js。
 - **核心**管每个游戏都有、而且绝不能互相打架的东西：生命周期（没准备好的东西不会运行）、统一的时间来源（慢动作和暂停都只是它的不同读法）、带主人的数值、按场合分组的按键（菜单和对话是压上一层场合，而不是锁住按键）、每个角色只有一个控制者、读档失败能干净回滚的存档，以及能先检查、再记录、可以重放的玩家操作。
 - **模块**在核心之上加功能，游戏只装自己用到的。
-- **渲染**让引擎自带的内容在 WebGL 和 WebGPU 上都能跑。引擎自带的每个画面效果都有两种写法，只写了一种的会被检查拦下。
+- **渲染**让引擎自带的内容在 WebGL 和 WebGPU 上都能跑。引擎自带的着色器补丁都有两种写法（GLSL 和 TSL），只写了一种的会被检查拦下。少数效果只有 TSL 版，放在 `@threedog/post-effects/tsl`（`voxelGI`、`temporalAA`、`sunShafts`、`lightVolumes`），需要 WebGPU。
 - **给 AI 的工具**（`threedog how`、`describe`、`test`、`shot` 和 MCP 服务）让 AI 能操作正在运行的游戏、读取它的状态。
 
 ### 什么是模块
@@ -185,7 +185,7 @@ npm test
 
 ## 现状
 
-0.6 是早期版本，可以跑在 WebGL（默认）和 WebGPU（`createEngine({ renderer: 'webgpu' })`）上，开局选定，接口还可能变。这一版把画面从引擎里移出来，由游戏用普通 three.js 写。改了什么见[更新日志](packages/engine/CHANGELOG.md)，升级步骤见 [MIGRATING-0.6.md](packages/engine/docs/MIGRATING-0.6.md)。
+0.7 是早期版本，可以跑在 WebGPU 加 TSL（新游戏默认）和 WebGL 加 GLSL（`threedog new-game --webgl`）上，开局选定，接口还可能变。新游戏现在从 WebGPU 开始，全局光照、遮挡剔除和体积光是可选部分。从 0.6 起，画面由游戏用普通 three.js 写，不在引擎里。改了什么见[更新日志](packages/engine/CHANGELOG.md)，升级步骤见 [MIGRATING-0.7.md](packages/engine/docs/MIGRATING-0.7.md)。
 [设计思路](docs/philosophy.zh-CN.md)讲为什么，[问答](docs/faq.zh-CN.md)回答常见的疑问，也写了引擎现在做不到什么。
 
 ## 文档
@@ -195,7 +195,7 @@ npm test
 | 文件 | 内容 |
 |---|---|
 | [docs/philosophy.zh-CN.md](docs/philosophy.zh-CN.md) | 设计思路：引擎为什么这样做、谁做什么、不同代码怎么配合 |
-| [docs/evolution.zh-CN.md](docs/evolution.zh-CN.md) | 从 0.1 到 0.6 设计怎么变过来，走过的弯路也写了 |
+| [docs/evolution.zh-CN.md](docs/evolution.zh-CN.md) | 从 0.1 到 0.7 设计怎么变过来，走过的弯路也写了 |
 | [docs/faq.zh-CN.md](docs/faq.zh-CN.md) | 常见问题，也写了引擎做不到什么 |
 | [packages/engine/docs/AI.md](packages/engine/docs/AI.md) | AI 从这里开始读：每个任务一行，指向详细说明 |
 | [packages/engine/llms.txt](packages/engine/llms.txt) | AI 工具会自动找的标准入口文件 |

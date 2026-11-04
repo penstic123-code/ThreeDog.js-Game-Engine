@@ -22,7 +22,8 @@
     "doctor": "threedog doctor"
   },
   "dependencies": {
-    "threedog": "^0.6.0",
-    "@threedog/tools": "^0.6.0"
+    "three": "~0.187.0",
+    "threedog": "^0.7.0",
+    "@threedog/tools": "^0.7.0"
   }
 }

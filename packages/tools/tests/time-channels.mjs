@@ -24,7 +24,7 @@ export const name = 'time channels: engine.mod on time / clock.rate, 24 end orde
  *  ops.defs.has before defining, e.g. NPCManager.setup's npc.talk), and only 'time.skip' is the skip op */
 function fake() {
   const parts = {}, events = [];
-  const e = Object.defineProperties({ get tick() { return this.time._tick; }, ready: false, _hookErrors: new Set(), _fixed: [], _fixedLate: [], _hooks: { fixed: [], skip: [] }, disposed: false, _loop() {},
+  const e = Object.defineProperties({ movement: { stepHeight: 0.45 }, get tick() { return this.time._tick; }, ready: false, _hookErrors: new Set(), _fixed: [], _fixedLate: [], _hooks: { fixed: [], skip: [] }, disposed: false, _loop() {},
     uniforms: { uTime: { value: 0 } }, input: { beginFixed() {}, endFixed() {}, endFrame() {} },
     saves: { register: (k, p) => { parts[k] = p; } },
     events: { emit: (n, d) => events.push([n, d]), on: () => ({ remove() {} }) },

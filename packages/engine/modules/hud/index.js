@@ -164,6 +164,8 @@ export function hud(opts = {}) {
       item('counter', id, it ? { value: v + n } : { label: id, value: n });
       return v + n;
     },
+    /** Current value of a counter or bar (a number or text); undefined when there is none. This is also where an interaction's `counter` total is read */
+    value(id) { return items.get(id)?.o.value; },
     /** Progress bar (calling again with the same id = update): { value, max = 1, label, anchor } (anchor as for counter) */
     bar(id, o) { item('bar', id, o); },
     /** Remove a counter or bar */

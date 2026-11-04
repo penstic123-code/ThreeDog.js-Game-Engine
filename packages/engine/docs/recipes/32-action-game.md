@@ -61,6 +61,17 @@ engine.player.mover = 'manual'; /* a cutscene, your own physics */ engine.player
   compares the platform's matrix with the one it recorded, so it does not matter whether the platform moves in your `onFixed` before or after the
   player, in a timeline or in physics. `player.support` says what it stands on (`kind: 'ground' | 'platform' | 'collider' | 'water' | null`, the
   platform's `velocity`); jumping off keeps the platform's speed until landing. With `mover: 'rapier'` give the platform a collider as well.
+  **What it needs**: the standing height is the top of the bounding box of every mesh under the object you pass, over that box's footprint. Pass the
+  floor mesh, not the whole model: a group with a mast or a railing has its top up there, and the character passes under it to whatever is below (a
+  boat at sea leaves it on the sea floor). A character gets on when its feet are at most `stepHeight` below the top, or it falls or is placed onto
+  it (`placeAt` over a support stands on it). Moving the parent moves the floor mesh, so move the whole model as you like.
+  ```js
+  const raft = new THREE.Group(), deck = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 2), wood);
+  raft.add(deck, mast); engine.scene.add(raft);
+  engine.characters.support(deck, { id: 'raft' });                       // the deck, not the raft with its mast
+  engine.onFixed(dt => { raft.position.x += 1.5 * dt; });                 // the player on it is carried
+  ```
+  A ride the player does not steer is `engine.control` instead (recipe 57, Moved by script).
 - **Falling out**: `createPlayer({ ..., fall: { belowY: -20 } })` fires `character:fall { character, safe, preventDefault() }` once and puts the player
   back on `player.safeGround` (the last spot it stood still on safe, unmoving ground; saved). Take hp in the listener; `preventDefault()` to handle it yourself.
 - **Your own controller**: `mover: 'manual'` = you write the position; `move()` then only updates `grounded`, `support` (platforms still carry),

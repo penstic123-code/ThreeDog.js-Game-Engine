@@ -47,7 +47,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 20 |  |
 | content/templates.js | 6 |  |
 | content/vegetation.js | 11 |  |
-| main.js | 82 | @ts-check Sheep island: a small floating island built only from the engine's public entry points (t… |
+| main.js | 83 | @ts-check This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). On … |
 | models.js | 49 | sheepisland procedural models: a round tree, a sheep, a wheat tuft. Built in code, no files; regist… |
 | params.js | 26 | URL parameters of the sheep island page. Import this file first in main.js: it rewrites word values… |
 | picture/index.js | 21 | @ts-check The picture of sheep island: wiring only. Each part writes plain three.js from the signal… |

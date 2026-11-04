@@ -1,4 +1,5 @@
 // @ts-check
+// This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). On the default WebGPU route the same ideas are written in TSL (recipe 56).
 // Plain-picture demo (page /plain-picture.html): a night street in a flat-illustration look where the whole picture is plain three.js in picture/.
 // The engine only gives time (calendar), signals (engine.uniforms, engine.weather) and a camera; its own lights, sky light / fog drivers are off.
 // This file is the "world": shapes and where things stand. Colors and lights come from picture/, so the picture lives in one folder.

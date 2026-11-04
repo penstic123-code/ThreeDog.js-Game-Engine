@@ -151,7 +151,7 @@ export function describeText(d, { full = false, path, maxLines = 30, game = [] }
   for (const k of rest.filter(k => TABLES.has(k))) {
     const v = d[k];
     if (k === 'scene' && v && ['conflicts', 'orphans', 'unsaved'].some(x => v[x]?.length)) L.push(fmt(STRINGS.extra, { name: k, json: summary(v) }));
-    else if (v != null) tables.push(k === 'renderer' ? `renderer ${v.backend ?? v.requested}` : `${k} ${typeof v === 'object' ? Object.keys(v).length : v}`);
+    else if (v != null) tables.push(k === 'renderer' ? `renderer ${v.backend ?? v.requested}${v.reason ? ` (asked ${v.requested}: ${v.reason})` : ''}` : `${k} ${typeof v === 'object' ? Object.keys(v).length : v}`);
   }
   // the cut falls on the module lines only: the standard lines, the game's sections and the tables line always stay; the cut ones are named
   const tail = tables.length ? [fmt(STRINGS.tables, { list: tables.join(', ') })] : [], room = Math.max(0, maxLines - 1 - L.length - tail.length);

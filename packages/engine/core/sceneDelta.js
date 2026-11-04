@@ -35,6 +35,7 @@ if (!P[KEY]) {
   Object.defineProperty(P, KEY, { value: true, configurable: true });
   Object.defineProperty(P, ORIG, { value: { add, remove }, configurable: true });
   P.add = function (...a) {
+    if (!patchOn('scene-add-hook')) return add.apply(this, a);   // switched off while another library's wrapper sits on top of ours: pass through
     const out = add.apply(this, a);   // three detaches each child from its old parent first (through remove below), then attaches
     const t = trackerOf(this);
     if (t) for (const c of a) if (c?.parent === this) t.pending.add(c);
@@ -44,7 +45,7 @@ if (!P[KEY]) {
     return out;
   };
   P.remove = function (...a) {
-    const t = trackerOf(this);
+    const t = patchOn('scene-add-hook') ? trackerOf(this) : null;
     if (!t) return remove.apply(this, a);
     let gone = null, roots = null;
     for (const c of a) if (c?.parent === this && t.seen.has(c)) (gone ??= []).push(c);
@@ -54,9 +55,16 @@ if (!P[KEY]) {
     if (roots) for (const c of roots) if (c.parent !== this) for (const f of t.rootLeaves) f(c);
     return out;
   };
+  P[ORIG].ours = { add: P.add, remove: P.remove };   // to tell at off() whether they are still the outermost
 }
 notePatch('scene-add-hook', 'Object3D.prototype.add / remove: wrapped once per page to see what enters and leaves a watched scene at any depth (three\'s childadded fires on the direct parent only)',
-  () => { const o = P[ORIG]; if (!o || !P[KEY]) return; P.add = o.add; P.remove = o.remove; delete P[KEY]; delete P[ORIG]; },
+  () => {
+    // a wrapper another library put on top of ours stays: taking it off would undo that library too. Ours then only passes calls through (patchOn above).
+    const o = P[ORIG]; if (!o?.ours) return;
+    if (P.add === o.ours.add) P.add = o.add;
+    if (P.remove === o.ours.remove) P.remove = o.remove;
+    if (P.add === o.add && P.remove === o.remove) { delete P[KEY]; delete P[ORIG]; }
+  },
   { lost: 'plain scene.add is no longer adopted like engine.add, and fog, cascades, night glow and light counts miss objects added later' });
 notePatch('mesh-material-accessor', 'mesh.material on each object with a material that enters a watched scene: an own get / set on that object (the class accessor still runs) so a material swap is seen',
   () => {},   // off: objects entering from now on keep a plain material (_walk asks patchOn)

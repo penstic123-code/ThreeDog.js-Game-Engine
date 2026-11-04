@@ -24,7 +24,6 @@ Hand-built level (level() module)
 - `level.track(handle: T) → T` — Register things that belong to the current level and need not be kept (the { remove() } handles of triggers...); they are deleted automatically on level change / unload; returns the same handle. world data that keeps state (NPCs, pickups, props) needs no registration: with a zone, a level change only tears down the model
 - Properties:
   - `root: Object3D | null` Scene root node
-  - `object: Object3D | null` Same as root (the name consistent with player.object and ent.object)
   - `markers: Record<string, LevelMarker>` All markers: name -> marker
   - `spawn: Vector3` Spawn point position
   - `heightfield: any` Heightfield (for debugging)

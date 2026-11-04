@@ -1,115 +1,165 @@
-// Baked light probes. A grid of SH probes from the scene (bake / load / JSON), fed into one scene LightProbe each frame.
-// Why only plain three.js (CubeCamera, LightProbeGenerator, LightProbe, no GLSL): it runs on both renderers, and the game can
-// read or replace every piece (handle.probe is an ordinary LightProbe; handle.sample feeds the game's own).
-// How the light reaches materials: one scene LightProbe whose SH is interpolated (trilinear) at a followed point every frame. Every lit material
-// already reads scene light probes, so nothing is patched and no program changes when the point moves.
-// shortcut: one SH for the whole scene (at the followed point): an object far from that point gets the light of where the point is, not its own.
-//   Upgrade when a scene needs per-object light (a dark cave next to a bright square, both on screen): give each mesh its own SH (a material
-//   uniform fed from sample()), or a 3D texture the shader reads; both need a material patch, which this scaffold avoids.
+// Baked light probes. A grid of SH probes from the scene (bake / load / JSON) that every lit pixel samples for itself.
+// How the light reaches materials: three's probe grid (LightProbeGridWebGL on WebGLRenderer, LightProbeGrid on WebGPURenderer) is a light in the
+// scene whose 3D texture both renderers' lighting already reads, so nothing is patched and nothing runs per frame. handle.grid is that plain object.
+// Why the engine keeps its own copy of the grid (handle.sh, half precision): three bakes the WebGL grid into a 32-bit float target. Measured on a
+// fast GPU that costs +0.6 ms a frame against +0.03 ms in half precision, and float linear filtering is missing on many phones (the light goes
+// black there). So the bake target is read back and thrown away, and what draws is a half-float Data3DTexture built from handle.sh, for a bake and a
+// file alike. One path also means a shipped file looks like the bake it came from, on either renderer. It is three's atlas layout rebuilt by hand:
+// tests/specs/probes.mjs compares the two pictures, so a three.js update that changes the layout fails there.
+// Probes sit ON the bounds and the grid's box reaches half a step past them: three puts probes at cell centers, and it tests a pixel half a cell along
+// its normal, so a roof exactly at bounds.max would fall outside a box that stops there (the black band on the roofs in the trial).
 import { engineOwned } from '../core/things.js';
 import * as THREE from 'three';
-import { LightProbeGenerator } from 'three/addons/lights/LightProbeGenerator.js';
+import { LightProbeGridWebGL } from 'three/addons/lighting/LightProbeGridWebGL.js';
 import { readParams } from '../core/params.js';
-import { codedError } from '../core/errorHints.js';
-import { defineOwned, dropOwned } from '../core/owned.js';
+import { codedError, coded } from '../core/errorHints.js';
+import { warnOnce } from '../core/validate.js';
 import { vec3 } from '../core/math.js';
-import { cubeRender, cubeTarget } from './backend.js';
+import { isWebGPU, webgpuPart, freshFrame, readLayer, onRendererSwap } from './backend.js';
 
-const FORMAT = 'threedog-probes', VERSION = 1, MAX_PROBES = 4096, SH = 27;
+const FORMAT = 'threedog-probes', VERSION = 2, MAX_PROBES = 4096, SH = 27;
+const CHUNK = 8;        // probes baked per turn of the event loop, so the page keeps drawing during a long bake
+const ATLAS = 7;        // three's atlas: 7 RGBA sub-volumes along z, each with one padding slice at both ends
 const BAKE = {
-  bounds: { type: 'object', desc: 'THREE.Box3 or { min, max } (positions) the grid spans' },
+  bounds: { type: 'object', desc: 'THREE.Box3 or { min, max } (positions) the grid spans; light reaches half a step past it, outside there is none' },
   spacing: { type: 'number', min: 0.01, desc: 'largest distance between neighbour probes, meters' },
-  resolution: { type: 'int', default: 16, min: 4, max: 256, desc: 'cube face size in px per probe (SH keeps only low frequencies: 16 is plenty)' },
+  resolution: { type: 'int', default: 8, min: 4, max: 32, desc: "cube face size in px per probe (SH keeps only low frequencies; three's projection shader unrolls over every pixel, so big faces compile slowly)" },
   include: { type: 'function', optional: true, desc: '(object) => bool: meshes that return false are hidden while baking (the player, moving props)' },
-  height: { type: 'number', optional: true, desc: 'one layer at this height above engine.surface(x, z) instead of a 3D grid' },
-  follow: { type: 'any', default: 'focus', desc: "where the scene probe samples: 'focus' | 'camera' | Object3D | () => position | false (no scene probe)" },
   owner: { type: 'string', default: 'game', desc: 'who made the set (describe().render.probes)' },
 };
-const LOAD = { follow: BAKE.follow, owner: BAKE.owner };
+const LOAD = { owner: BAKE.owner };
 const STRINGS = {
   bounds: 'engine.bakeProbes({ bounds }): bounds must be a THREE.Box3 or { min: [x, y, z], max: [x, y, z] } with max >= min on every axis; got {got}',
-  tooMany: 'engine.bakeProbes(): {n} probes ({dims}) is more than {max}; raise spacing (each probe costs 6 renders and a GPU read back)',
-  follow: "{where}: follow must be 'focus', 'camera', an Object3D, a function returning a position, or false; got {got}",
-  data: 'engine.loadProbes(json): {why}. Pass what handle.toJSON() returned (format \'' + FORMAT + '\', version ' + VERSION + ')',
+  tooMany: 'engine.bakeProbes(): {n} probes ({dims}) is more than {max}; raise spacing (each probe costs 6 renders)',
+  noFloat: 'engine.bakeProbes(): this device cannot render to float textures (EXT_color_buffer_float), which three\'s WebGL bake needs. Bake on a desktop and ship the file: engine.loadProbes(json) works here',
+  data: 'engine.loadProbes(json): {why}. Pass what handle.toJSON() returned (format \'' + FORMAT + '\', version ' + VERSION + '), or bake again',
+  outside: '{n} lit object(s) reach outside the probe grid ({names}): the part outside gets no probe light and can go black. Widen bounds, or add light there. describe().render.probes lists them',
+  doubled: 'probe light is added on top of {what}, which the bake already saw, so that light counts twice. Lower it where the probes take over, or bake without it',
 };
 const sets = e => (e._probeSets ??= new Set());
 
-/** Grid layout from bounds + spacing: counts per axis and the actual step (<= spacing, so the grid ends exactly on the bounds) */
-function layout(bounds, spacing, height) {
+/** Grid layout from bounds + spacing: probes on the bounds, at least 2 per axis. Why 2: three tests a pixel half a cell along its normal, so with one
+ * cell on an axis every upward surface above the middle of the box falls outside it. A flat axis gets its 2 layers a spacing apart around the bounds. */
+function layout(bounds, spacing) {
   const min = vec3(bounds.min), max = vec3(bounds.max);
   if (![min.x, min.y, min.z, max.x, max.y, max.z].every(Number.isFinite) || max.x < min.x || max.y < min.y || max.z < min.z) {
     throw codedError('probes-option', STRINGS.bounds.replace('{got}', JSON.stringify({ min, max })));
   }
-  const size = new THREE.Vector3().subVectors(max, min);
-  const n = s => Math.max(1, Math.ceil(s / spacing - 1e-6) + 1);
-  const counts = [n(size.x), height == null ? n(size.y) : 1, n(size.z)];
-  const step = [size.x, size.y, size.z].map((s, i) => (counts[i] > 1 ? s / (counts[i] - 1) : 0));
-  return { origin: [min.x, min.y, min.z], step, counts };
-}
-
-/** World position of grid point i of data { origin, step, counts, height } */
-function gridPoint(e, d, i, out) {
-  const [nx, ny] = d.counts, ix = i % nx, iy = Math.floor(i / nx) % ny, iz = Math.floor(i / (nx * ny));
-  out.set(d.origin[0] + ix * d.step[0], d.origin[1] + iy * d.step[1], d.origin[2] + iz * d.step[2]);
-  if (d.height != null) { const g = e.surface(out.x, out.z); out.y = (Number.isFinite(g) ? g : 0) + d.height; }
-  return out;
-}
-
-/** Refuse a follow value before any work: bakeProbes checks it first, so a typo does not cost a whole bake (6 renders per probe) and then throw */
-function checkFollow(follow, where) {
-  if (!(follow === false || follow === 'focus' || follow === 'camera' || follow?.isObject3D || typeof follow === 'function')) {
-    throw codedError('probes-option', STRINGS.follow.replace('{where}', where).replace('{got}', String(follow)));
+  const origin = [], step = [], counts = [];
+  for (const k of ['x', 'y', 'z']) {
+    const size = max[k] - min[k], n = size < 1e-6 ? 2 : Math.ceil(size / spacing - 1e-6) + 1;
+    counts.push(n); step.push(size < 1e-6 ? spacing : size / (n - 1)); origin.push(size < 1e-6 ? min[k] - spacing / 2 : min[k]);
   }
+  return { origin, step, counts };
 }
 
-/** A probe set: grid data + the scene probe that follows a point. Made by bakeProbes / loadProbes only (they checked follow) */
+/** The world box of a grid: the probes plus half a step on every side (what three calls the volume) */
+function boxOf({ origin, step, counts }) {
+  const lo = i => origin[i] - step[i] / 2, hi = i => origin[i] + (counts[i] - 0.5) * step[i];
+  return new THREE.Box3(new THREE.Vector3(lo(0), lo(1), lo(2)), new THREE.Vector3(hi(0), hi(1), hi(2)));
+}
+
+/** three's grid for this renderer (it has one class per renderer), placed on the data; not in the scene yet */
+function makeGrid(r, d) {
+  const Grid = isWebGPU(r) ? webgpuPart('classes', 'a light probe grid').LightProbeGrid : LightProbeGridWebGL;
+  const box = boxOf(d), size = box.getSize(new THREE.Vector3());
+  const grid = new Grid(size.x, size.y, size.z, ...d.counts);
+  box.getCenter(grid.position); grid.updateBoundingBox();
+  return grid;
+}
+
+/** The half-float atlas three's lighting reads, from sh (probe at (z * ny + y) * nx + x, 27 numbers each, in three's packed order) */
+function atlasTexture(sh, [nx, ny, nz]) {
+  const padded = nz + 2, row = nx * ny, data = new Uint16Array(row * ATLAS * padded * 4);
+  for (let t = 0; t < ATLAS; t++) for (let slice = 0; slice < padded; slice++) {
+    const iz = Math.min(nz - 1, Math.max(0, slice - 1));   // the padding slices copy their neighbour, so filtering never reads the next sub-volume
+    for (let p = 0; p < row; p++) for (let c = 0; c < 4; c++) {
+      const k = t * 4 + c;
+      if (k < SH) data[((t * padded + slice) * row + p) * 4 + c] = THREE.DataUtils.toHalfFloat(sh[(iz * row + p) * SH + k]);
+    }
+  }
+  const tex = new THREE.Data3DTexture(data, nx, ny, ATLAS * padded);
+  tex.format = THREE.RGBAFormat; tex.type = THREE.HalfFloatType;
+  tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.needsUpdate = true;
+  return tex;
+}
+
+/** The bake target back as sh numbers, rounded to half so the bake and its file are the same light.
+ * shortcut: reads grid._renderTarget, three gives no public way to the target; a three.js update that renames it fails tests/specs/probes.mjs */
+async function readGrid(r, grid, [nx, ny, nz]) {
+  const sh = new Float32Array(nx * ny * nz * SH), row = nx * ny, { fromHalfFloat, toHalfFloat } = THREE.DataUtils;
+  for (let t = 0; t < ATLAS; t++) for (let iz = 0; iz < nz; iz++) {
+    const px = await readLayer(r, grid._renderTarget, nx, ny, t * (nz + 2) + 1 + iz), stride = px.length / ny;   // WebGPU pads its rows
+    const half = px instanceof Uint16Array;
+    for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) for (let c = 0; c < 4; c++) {
+      const k = t * 4 + c, v = px[iy * stride + ix * 4 + c];
+      if (k < SH) sh[(iz * row + iy * nx + ix) * SH + k] = fromHalfFloat(half ? v : toHalfFloat(v));
+    }
+  }
+  return sh;
+}
+
+/** Bytes as base64: btoa takes a string, and one spread call over a big array overflows the stack */
+function toBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return btoa(s);
+}
+
+const LIT = m => !!(m?.isMeshStandardMaterial || m?.isMeshLambertMaterial || m?.isMeshPhongMaterial || m?.isMeshToonMaterial || (m?.isNodeMaterial && m.lights));
+const mats = o => Array.isArray(o.material) ? o.material : [o.material];
+
+/** Visible lit meshes no set fully holds, and everything else in the scene that adds light the bake already saw. Runs on describe() and when a set is added, never per frame */
+function probeChecks(e) {
+  const boxes = [...sets(e)].map(s => s.box), b = new THREE.Box3(), outside = [], doubled = [];
+  let mapped = 0;
+  e.scene.traverseVisible(o => {
+    if (o.isAmbientLight || o.isHemisphereLight || o.isLightProbe) { if (o.intensity > 0) doubled.push(`${o.type} ${o.name || o.id}`); return; }
+    if (!o.isMesh || !mats(o).some(LIT)) return;
+    if (mats(o).some(m => m.lightMap)) mapped++;
+    const src = o.isInstancedMesh ? o : o.geometry;
+    if (!src.boundingBox) src.computeBoundingBox();
+    b.copy(src.boundingBox).applyMatrix4(o.matrixWorld);
+    if (!boxes.some(x => x.containsBox(b))) outside.push(o.name || `${o.type} ${o.id}`);
+  });
+  if (e.scene.environment && e.scene.environmentIntensity > 0) doubled.push('scene.environment');
+  if (mapped) doubled.push(`material.lightMap on ${mapped} mesh(es)`);
+  return { outside, doubled };
+}
+
+/** A probe set: grid data + the three.js grid in the scene that draws it. Made by bakeProbes / loadProbes only */
 class ProbeSet {
-  constructor(e, data, { follow, owner, source }) {
-    Object.assign(this, { _e: e, origin: data.origin, step: data.step, counts: data.counts, height: data.height ?? null, sh: data.sh, owner, source, follow });
+  constructor(e, data, { owner, source }) {
+    Object.assign(this, { _e: e, origin: data.origin, step: data.step, counts: data.counts, sh: data.sh, owner, source });
     this.count = this.counts[0] * this.counts[1] * this.counts[2];
     /** bake time in ms (null for a loaded set) */ this.bakeMs = data.bakeMs ?? null;
-    /** the scene LightProbe fed from the grid (null with follow: false); its intensity is the game's (three's default 1) */
-    this.probe = null;
-    if (follow !== false) {
-      this.probe = new THREE.LightProbe(); this.probe.name = 'probes:' + owner;
-      e.scene.add(engineOwned('probes', this.probe));
-      // the engine writes probe.sh every frame: a game that writes it itself (its own SH) takes it over, the engine yields (core/owned.js)
-      const n = e._probeN = (e._probeN ?? 0) + 1;   // unique per engine: a reused id would replace another live set's record
-      this._owned = defineOwned(e, { id: `probes.sh#${n}`, part: 'probes', key: 'sh', read: () => this.probe.sh.toArray(), objects: [this.probe],
-        levels: { manual: 'probes.own()' } });
-      this._tmp = new THREE.Vector3();
-      this._frame = e.onFrame(() => this._update());
-      this._update();
-    }
+    /** the world box the grid lights */ this.box = boxOf(this);
+    this._tex = atlasTexture(this.sh, this.counts);
+    /** three's probe grid, a plain light in the scene: priority, visible and (on WebGPU) intensity are the game's; three's WebGL shader ignores intensity */
+    this.grid = null;
+    this._build();
+    // createEngine({ renderer: 'webgpu', fallback: 'webgl' }) changes renderer inside start(): each renderer needs its own grid class
+    this._swap = onRendererSwap(e, () => { this.grid.removeFromParent(); this._build(); });
     sets(e).add(this);
   }
-  /**
-   * Take probe.sh over (the engine stops writing it) or, with false, hand it back. Writing probe.sh yourself takes it over the same way, with a warning.
-   * @example probes.own(); probes.probe.sh.copy(mySH);
-   * @param {boolean} [on] default true
-   * @returns {void}
-   */
-  own(on = true) { this._owned?.manual(on); }
-  _update() {
-    const o = this._owned, f = this.follow, e = this._e, p = this._tmp;
-    o.check();
-    if (o.on) {
-      if (f === 'camera') p.copy(e.camera.position); else if (f?.isObject3D) f.getWorldPosition(p); else if (typeof f === 'function') vec3(f(), p); else vec3(e.focus, p);
-      this.sample(p, this.probe.sh);
-    }
-    o.mark();
+  _build() {
+    const grid = makeGrid(this._e.renderer, this);
+    grid.name = 'probes:' + this.owner; grid.texture = this._tex;
+    this._e.scene.add(engineOwned('probes', grid));
+    this.grid = grid;
   }
   /**
-   * The interpolated SH at a position (trilinear between the 8 grid probes around it; outside the grid the nearest edge). With height mode y is ignored.
+   * The interpolated SH at a position (trilinear between the 8 grid probes around it; outside the grid the nearest edge). For what the grid does not
+   * light by itself: a gameplay "how dark is it here", or a LightProbe of your own.
    * @param {any} pos any position form (Vector3, Object3D, [x, y, z], { x, y, z })
    * @param {THREE.SphericalHarmonics3 | THREE.LightProbe} [target] written in place (a LightProbe's sh); a new SphericalHarmonics3 when omitted
    * @returns {THREE.SphericalHarmonics3}
    */
   sample(pos, target) {
     const sh = target?.isLightProbe ? target.sh : target ?? new THREE.SphericalHarmonics3();
-    const v = vec3(pos, this._s ??= new THREE.Vector3()), [nx, ny, nz] = this.counts, c = sh.coefficients;
-    const axis = (x, i) => { const n = this.counts[i]; if (n < 2) return [0, 0, 0]; const t = Math.min(n - 1, Math.max(0, (x - this.origin[i]) / this.step[i])), a = Math.min(n - 2, Math.floor(t)); return [a, a + 1, t - a]; };
-    const [x0, x1, fx] = axis(v.x, 0), [y0, y1, fy] = this.height == null ? axis(v.y, 1) : [0, 0, 0], [z0, z1, fz] = axis(v.z, 2);
+    const v = vec3(pos, this._s ??= new THREE.Vector3()), [nx, ny] = this.counts, c = sh.coefficients;
+    const axis = (x, i) => { const n = this.counts[i], t = Math.min(n - 1, Math.max(0, (x - this.origin[i]) / this.step[i])), a = Math.min(n - 2, Math.floor(t)); return [a, a + 1, t - a]; };
+    const [x0, x1, fx] = axis(v.x, 0), [y0, y1, fy] = axis(v.y, 1), [z0, z1, fz] = axis(v.z, 2);
     for (const k of c) k.set(0, 0, 0);
     const add = (ix, iy, iz, w) => {
       if (w === 0) return;
@@ -119,33 +169,27 @@ class ProbeSet {
     for (const [iz, wz] of [[z0, 1 - fz], [z1, fz]]) for (const [iy, wy] of [[y0, 1 - fy], [y1, fy]]) for (const [ix, wx] of [[x0, 1 - fx], [x1, fx]]) add(ix, iy, iz, wx * wy * wz);
     return sh;
   }
-  /** World position of probe i (height mode: on the ground + height) @param {number} i @param {THREE.Vector3} [out] */
-  point(i, out = new THREE.Vector3()) { return gridPoint(this._e, this, i, out); }
-  /** Plain data to ship as a file and give to engine.loadProbes (SH rounded to 5 decimals) */
+  /** World position of probe i @param {number} i @param {THREE.Vector3} [out] */
+  point(i, out = new THREE.Vector3()) {
+    const [nx, ny] = this.counts, ix = i % nx, iy = Math.floor(i / nx) % ny, iz = Math.floor(i / (nx * ny));
+    return out.set(this.origin[0] + ix * this.step[0], this.origin[1] + iy * this.step[1], this.origin[2] + iz * this.step[2]);
+  }
+  /** Plain data to ship as a file and give to engine.loadProbes (half precision, base64) */
   toJSON() {
-    return { format: FORMAT, version: VERSION, origin: this.origin, step: this.step, counts: this.counts, height: this.height,
-      sh: Array.from(this.sh, v => Math.round(v * 1e5) / 1e5) };
+    const half = Uint16Array.from(this.sh, v => THREE.DataUtils.toHalfFloat(v));
+    return { format: FORMAT, version: VERSION, origin: this.origin, step: this.step, counts: this.counts, half: toBase64(new Uint8Array(half.buffer)) };
   }
   /** describe().render.probes row */
   info() {
+    const { outside, doubled } = probeChecks(this._e);
     return { count: this.count, counts: this.counts, step: this.step.map(s => Math.round(s * 100) / 100), source: this.source, owner: this.owner,
-      follow: this.follow === false ? false : typeof this.follow === 'string' ? this.follow : this.follow?.isObject3D ? `object ${this.follow.name || this.follow.id}` : 'function',
-      writer: this._owned ? this._owned.info().writer : null, ...(this.bakeMs != null ? { bakeMs: Math.round(this.bakeMs) } : {}) };
+      outside: { count: outside.length, names: outside.slice(0, 3) }, doubled, ...(this.bakeMs != null ? { bakeMs: Math.round(this.bakeMs) } : {}) };
   }
-  /** Take the scene probe out and stop updating it; the data stays readable (sample, toJSON). Safe to call twice */
+  /** Take the grid out of the scene and free its texture; the data stays readable (sample, toJSON). Safe to call twice */
   remove() {
     if (!sets(this._e).delete(this)) return;
-    this._frame?.remove(); this.probe?.removeFromParent();
-    if (this._owned) dropOwned(this._e, [this._owned]);
+    this.grid.removeFromParent(); this._tex.dispose(); this._swap.remove();
   }
-}
-
-/** Render one cube at p and turn it into SH. Hidden objects are restored before the async read back, so normal frames never see them hidden */
-async function bakeOne(e, cam, rt, p, hide) {
-  cam.position.copy(p); cam.updateMatrixWorld();
-  for (const o of hide) o.visible = false;
-  try { cubeRender(e.renderer, e.scene, cam); } finally { for (const o of hide) o.visible = true; }
-  return (await LightProbeGenerator.fromCubeRenderTarget(e.renderer, rt)).sh.toArray();
 }
 
 /** The debug view: one dot per probe, colored by its average (DC) light, over the real picture */
@@ -165,7 +209,10 @@ function drawProbes(e, scene) {
 }
 function addSet(e, data, o) {
   e._probeView ??= e.debug?.defineView('probes', { what: 'each light probe as a dot colored by its average light', apply: scene => drawProbes(e, scene) });
-  return new ProbeSet(e, data, o);
+  const set = new ProbeSet(e, data, o), { outside, doubled } = probeChecks(e);
+  if (outside.length) warnOnce(coded('probes-check', STRINGS.outside.replace('{n}', String(outside.length)).replace('{names}', outside.slice(0, 3).join(', '))));
+  if (doubled.length) warnOnce(coded('probes-check', STRINGS.doubled.replace('{what}', doubled.join(', '))));
+  return set;
 }
 
 /** Check a loaded file's shape; every problem is a coded refusal, never a half-applied grid */
@@ -175,64 +222,67 @@ function readData(json) {
   if (json.format !== FORMAT) throw bad(`format is ${JSON.stringify(json.format)}`);
   if (json.version !== VERSION) throw bad(`version ${JSON.stringify(json.version)} is not supported`);
   const tri = (k, ok) => { const v = json[k]; if (!Array.isArray(v) || v.length !== 3 || !v.every(ok)) throw bad(`${k} must be 3 numbers, got ${JSON.stringify(v)}`); return v; };
-  const counts = tri('counts', x => Number.isInteger(x) && x >= 1), origin = tri('origin', Number.isFinite), step = tri('step', x => Number.isFinite(x) && x >= 0);
-  // sample() divides by the step on every axis with 2+ probes: a 0 there gave NaN light (a black picture, no error)
-  const flat = [0, 1, 2].find(i => counts[i] > 1 && !(step[i] > 0));
-  if (flat !== undefined) throw bad(`step[${flat}] is ${step[flat]} while counts[${flat}] is ${counts[flat]}: an axis with 2 or more probes needs a step above 0`);
+  // 2 per axis and a step above 0: sample() divides by the step, a 0 gave NaN light (a black picture, no error)
+  const counts = tri('counts', x => Number.isInteger(x) && x >= 2), origin = tri('origin', Number.isFinite), step = tri('step', x => Number.isFinite(x) && x > 0);
   const n = counts[0] * counts[1] * counts[2];
   if (n > MAX_PROBES) throw bad(`${n} probes is more than ${MAX_PROBES}`);
-  if (json.height != null && !Number.isFinite(json.height)) throw bad('height must be a number or null');
-  if (!Array.isArray(json.sh) || json.sh.length !== n * SH) throw bad(`sh must hold ${n} x ${SH} numbers, got ${Array.isArray(json.sh) ? json.sh.length : typeof json.sh}`);
-  const sh = Float32Array.from(json.sh);
-  if (!sh.every(Number.isFinite)) throw bad('sh holds a value that is not a finite number');
-  return { origin, step, counts, height: json.height ?? null, sh };
+  if (typeof json.half !== 'string') throw bad(`half must be a base64 string, got ${typeof json.half}`);
+  let text;
+  try { text = atob(json.half); } catch { throw bad('half is not base64'); }
+  if (text.length !== n * SH * 2) throw bad(`half must hold ${n} x ${SH} half floats, got ${text.length} bytes`);
+  const bytes = Uint8Array.from(text, c => c.charCodeAt(0));
+  const sh = Float32Array.from(new Uint16Array(bytes.buffer), THREE.DataUtils.fromHalfFloat);
+  if (!sh.every(Number.isFinite)) throw bad('half holds a value that is not a finite number');
+  return { origin, step, counts, sh };
 }
 
 /** Mixed into Engine.prototype (core/Engine.js) */
 export const probeMethods = {
   /**
-   * Bake a grid of light probes from the scene as it is now: a cube render at every grid point, turned into spherical harmonics (three's
-   * LightProbeGenerator), then one scene `LightProbe` that follows a point (`follow`, default the camera focus) and takes the light
-   * interpolated there every frame. The probe light adds to whatever ambient light the scene has (hemi, environment): lower those yourself
-   * where the probes take over. A load-time cost, not per frame: 6 renders + a GPU read back per probe, awaited one probe at a time so the page
-   * keeps drawing; ship the result with `toJSON()` + `engine.loadProbes(json)` instead of baking at every start.
-   * Render targets and cube cameras are disposed before it resolves. Adding the probe changes the light setup: bake at start-up, not mid-play.
+   * Bake a grid of light probes from the scene as it is now: three's probe grid renders a cube at every grid point and keeps spherical harmonics, and
+   * every lit pixel inside the grid then takes its own interpolated light, on WebGL and WebGPU alike. The grid adds to whatever ambient light the
+   * scene has (hemi, environment), which the bake also saw: lower those where the probes take over (a warning and describe().render.probes say so).
+   * Outside the grid there is no probe light. A load-time cost, not per frame: 6 renders per probe, a few probes per task so the page keeps drawing;
+   * ship the result with `toJSON()` + `engine.loadProbes(json)` instead of baking at every start. Adding a grid recompiles the lit materials once:
+   * bake at start-up, not mid-play.
    * @example const probes = await engine.bakeProbes({ bounds: { min: [-20, 0, -20], max: [20, 6, 20] }, spacing: 4, include: o => !o.userData.moving });
-   * probes.sample(npc.position, npcProbe);   // your own probe for one object
    * saveFile('probes.json', JSON.stringify(probes.toJSON()));
-   * @param {{ bounds: THREE.Box3 | { min: any, max: any }, spacing: number, resolution?: number, include?: (o: THREE.Object3D) => boolean,
-   *   height?: number, follow?: 'focus' | 'camera' | THREE.Object3D | (() => any) | false, owner?: string }} opts
+   * @param {{ bounds: THREE.Box3 | { min: any, max: any }, spacing: number, resolution?: number, include?: (o: THREE.Object3D) => boolean, owner?: string }} opts
    * @returns {Promise<import('../types/core').ProbeSet>}
    */
   async bakeProbes(opts) {
-    const o = readParams('engine.bakeProbes()', BAKE, opts);
-    checkFollow(o.follow, 'engine.bakeProbes()');
-    const { origin, step, counts } = layout(o.bounds, o.spacing, o.height), n = counts[0] * counts[1] * counts[2];
-    if (n > MAX_PROBES) throw codedError('probes-option', STRINGS.tooMany.replace('{n}', n).replace('{dims}', counts.join(' x ')).replace('{max}', MAX_PROBES));
+    const o = readParams('engine.bakeProbes()', BAKE, opts), r = this.renderer;
+    const d = layout(o.bounds, o.spacing), n = d.counts[0] * d.counts[1] * d.counts[2];
+    if (n > MAX_PROBES) throw codedError('probes-option', STRINGS.tooMany.replace('{n}', n).replace('{dims}', d.counts.join(' x ')).replace('{max}', MAX_PROBES));
+    if (!isWebGPU(r) && !r.extensions.has('EXT_color_buffer_float')) throw codedError('probes-option', STRINGS.noFloat);
     const t0 = performance.now();   // measure
-    const rt = cubeTarget(this.renderer, THREE, o.resolution, { type: THREE.HalfFloatType, generateMipmaps: false });
-    const cam = new THREE.CubeCamera(0.05, this.camera.far, rt);
-    // hidden while each cube renders: meshes the filter rejects, and every scene probe (an earlier set lighting the capture would count twice)
+    const grid = makeGrid(r, d);
+    // hidden while the cubes render: meshes the filter rejects, and every other probe light (an earlier set lighting the capture would count twice)
     const hide = [];
-    this.scene.traverse(x => { if (x.visible && (x.isLightProbe || (o.include && (x.isMesh || x.isPoints || x.isLine || x.isSprite) && !o.include(x)))) hide.push(x); });
-    const data = { origin, step, counts, height: o.height ?? null, sh: new Float32Array(n * SH) };
-    const p = new THREE.Vector3();
+    this.scene.traverse(x => { if (x.visible && (x.isLightProbe || x.isLightProbeGrid || (o.include && (x.isMesh || x.isPoints || x.isLine || x.isSprite) && !o.include(x)))) hide.push(x); });
     try {
-      for (let i = 0; i < n; i++) data.sh.set(await bakeOne(this, cam, rt, gridPoint(this, data, i, p), hide), i * SH);
-    } finally { rt.dispose(); }
-    data.bakeMs = performance.now() - t0;   // measure
-    return addSet(this, data, { follow: o.follow, owner: o.owner, source: 'bake' });
+      for (let start = 0; start < n; start += CHUNK) {
+        for (const x of hide) x.visible = false;
+        try {
+          freshFrame(r);
+          grid.bake(r, this.scene, { cubemapSize: o.resolution, near: 0.05, far: this.camera.far, start, count: Math.min(CHUNK, n - start) });
+        } finally { for (const x of hide) x.visible = true; }   // restored before the await, so normal frames never see them hidden
+        await new Promise(go => setTimeout(go));
+      }
+      d.sh = await readGrid(r, grid, d.counts);
+    } finally { grid.dispose(); }
+    d.bakeMs = performance.now() - t0;   // measure
+    return addSet(this, d, { owner: o.owner, source: 'bake' });
   },
   /**
-   * A probe set from a file made by `handle.toJSON()` (no baking). A wrong shape is refused with code `probes-data` and nothing is added.
+   * A probe set from a file made by `handle.toJSON()` (no baking), on either renderer whichever one baked it. A wrong shape is refused with code `probes-data` and nothing is added.
    * @example const probes = engine.loadProbes(await (await fetch('probes.json')).json());
    * @param {object} json
-   * @param {{ follow?: 'focus' | 'camera' | THREE.Object3D | (() => any) | false, owner?: string }} [opts]
+   * @param {{ owner?: string }} [opts]
    * @returns {import('../types/core').ProbeSet}
    */
   loadProbes(json, opts) {
     const o = readParams('engine.loadProbes()', LOAD, opts);
-    checkFollow(o.follow, 'engine.loadProbes()');
-    return addSet(this, readData(json), { follow: o.follow, owner: o.owner, source: 'file' });
+    return addSet(this, readData(json), { owner: o.owner, source: 'file' });
   },
 };

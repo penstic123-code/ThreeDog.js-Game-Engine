@@ -10,9 +10,13 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { codedError } from '../../core/errorHints.js';
 import { registerWebGPUPart } from '../backend.js';
+import { RESERVED_LAYERS } from '../layers.js';
 import { nameNodeBuild, lostStatements } from './nodeErrors.tsl.js';
 
-const { pass, renderOutput, uniform, screenUV, screenSize, time, convertToTexture } = TSL;
+const { pass, renderOutput, uniform, screenUV, screenSize, time, convertToTexture, mrt, output, normalView, diffuseColor, velocity } = TSL;
+
+// What PostEffect.needsBuffers can ask of the scene render. Raw, not packed: display nodes read them as they are
+const BUFFERS = { normal: normalView, diffuse: diffuseColor, velocity };
 
 /** Live uniform for a param value (numbers, booleans as 0 / 1, colors, vectors), or null: anything else rebuilds the chain when it changes */
 function liveUniform(v) {
@@ -44,14 +48,25 @@ function paramsOf(h) {
 
 /**
  * Display nodes handed to effects as ctx.display, each call recorded so the effect's nodes are disposed when the chain is rebuilt.
- * Why handed in and not imported by the effect: @threedog/post-effects is also loaded by WebGL games; importing three/webgpu there would grow their bundles.
+ * Why handed in and not imported by the effect: the main entry of @threedog/post-effects is also loaded by WebGL games; importing three/webgpu there would grow their bundles.
  */
 function displayFor(made) {
   const rec = f => (...a) => { const n = f(...a); made.push(n); return n; };
   // pass: an extra scene render (outline's normal / mask views); texture: the color so far as a texture, for effects that sample it at other
   // uvs (dof). Both own render targets, so they go through the recorder too; a node that already is a texture comes back as is and is not ours to dispose.
   const texture = n => { const t = convertToTexture(n); if (t !== n) made.push(t); return t; };
-  return { bloom: rec(bloom), ao: rec(ao), pass: rec(pass), texture };
+  return { bloom: rec(bloom), ao: rec(ao), pass: rec(extraPass), texture, own: n => { made.push(n); return n; } };
+}
+
+/** An extra scene render: occlusion's boxes belong to the scene pass alone, drawn here they would show through an override material (outline's normal view) */
+function extraPass(scene, camera, opts) {
+  const n = pass(scene, camera, opts), run = n.updateBefore.bind(n);
+  n.updateBefore = frame => {
+    const mask = camera.layers.mask;
+    camera.layers.disable(RESERVED_LAYERS.occlusionBox);
+    try { return run(frame); } finally { camera.layers.mask = mask; }
+  };
+  return n;
 }
 
 const onlyCreate = e => codedError('post-effect', `[threedog] post effect '${e.name}' has only create() (a three.js Pass, WebGLRenderer only); on WebGPURenderer give it ` +
@@ -76,17 +91,25 @@ const webgpuPost = {
     return true;
   },
   refresh() {},
+  samples: post => (post.active ? post._pipe?.samples ?? (post._aa ? 4 : 0) : post.engine.renderer.samples),
   setAntialias(post) { if (post._pipe) post._pipe.key = null; },
   sync(post) {
-    const { renderer, scene, camera } = post.engine, samples = post._aa ? 4 : 0;
+    const { renderer, scene, camera } = post.engine;
     const on = post._sorted().filter(e => e.enabled);
+    // the union over the effects that are on, in one fixed order: one setMRT for all of them, and none at all (no extra targets) when nobody asks
+    const buffers = Object.keys(BUFFERS).filter(b => on.some(e => e._def.needsBuffers?.includes(b)));
+    // velocity means a temporal resolve follows: it is the antialiasing, and MSAA under it would only cost
+    const samples = post._aa && !buffers.includes('velocity') ? 4 : 0;
     for (const e of on) if (e._def.fuse ? typeof e._def.fuse.tsl !== 'function' : typeof e._def.node !== 'function') throw e._def.fuse ? glslOnly(e) : onlyCreate(e);
     // Same effects, same build, same samples: the graph is current (a set() of a number param never gets here)
-    const key = `${samples}|${on.map(e => e.name).join(',')}`;
+    const key = `${samples}|${buffers}|${on.map(e => e.name).join(',')}`;
     if (post._pipe?.key === key) return;
     let P = post._pipe;
-    if (!P) P = post._pipe = { pipeline: new RenderPipeline(renderer), scenePass: null, samples: -1, key: null, order: [] };
-    if (P.samples !== samples) { P.scenePass?.dispose(); P.scenePass = pass(scene, camera, { samples }); P.samples = samples; }
+    if (!P) P = post._pipe = { pipeline: new RenderPipeline(renderer), scenePass: null, samples: -1, buffers: '', key: null, order: [] };
+    if (P.samples !== samples || P.buffers !== `${buffers}`) {
+      P.scenePass?.dispose(); P.scenePass = pass(scene, camera, { samples }); P.samples = samples; P.buffers = `${buffers}`;
+      if (buffers.length) P.scenePass.setMRT(mrt({ output, ...Object.fromEntries(buffers.map(b => [b, BUFFERS[b]])) }));
+    }
     // Every structural change rebuilds every effect's nodes: an effect's input is the node before it, which changed too
     for (const e of post._list) { e._impl?.dispose?.(); e._impl = null; }
     const size = post._size(), order = [];

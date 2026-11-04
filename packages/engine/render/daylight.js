@@ -20,14 +20,20 @@ export function nightOf(d, dusk) {
   return 1 - t * t * (3 - 2 * t);   // smoothstep: no visible kink when the fade starts or ends
 }
 
+/** Time of day 0..1 from the 'timeOfDay' measure: the calendar registers it (the game clock), the sky only when no calendar did (its fixed time).
+ * null when nothing owns a time of day (the uniform keeps its default) */
+export const timeOfDayOf = e => { const t = e.audio?.measures.get('timeOfDay')?.(e); return typeof t === 'number' ? t : null; };
+
 /**
- * Once per frame, before the modules' frame hooks. uDaylight is written from the measure so a calendar with no sky still tells a shader the time of
- * day; the sky's own frame then writes its drawn sun over it, as it always has.
+ * Twice per frame, before the modules' frame hooks (an onFrame reads this frame's signal) and again just before drawing (a time jump in a hook reaches the picture
+ * in the same frame as uSunDir): the one writer of uDaylight and uTimeOfDay. They come from the measures, so whoever owns game
+ * time (the calendar, else the sky's fixed time) decides them, and a game with no sky() still has them moving. The sky writes neither.
  * @internal core/loop.js
  * @param {any} e
  */
 export function writeDaylight(e) {
-  const d = daylightOf(e);
+  const d = daylightOf(e), t = timeOfDayOf(e);
   e.uniforms.uNight.value = nightOf(d, DUSK);
   if (d !== null) e.uniforms.uDaylight.value = d;
+  if (t !== null) e.uniforms.uTimeOfDay.value = t;
 }

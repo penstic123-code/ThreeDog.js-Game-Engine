@@ -1,4 +1,5 @@
 // @ts-check
+// This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). On the default WebGPU route the same ideas are written in TSL (recipe 56).
 // Sheep island: a small floating island built only from the engine's public entry points (the acceptance scene of docs/plans/done/acceptance-sheepisland.md).
 // A meadow with a river, round trees, a wheat field and a flock of sheep on an island with a ragged rim, over a pale backdrop with no horizon.
 // Parameters (params.js): time day | dusk | night, weather clear | snow, view overview | flock | field | river | rim.

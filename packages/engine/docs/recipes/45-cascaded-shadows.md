@@ -110,6 +110,7 @@ box.remove();              // position, target and the shadow camera come back
 A shadow map of a still scene need not redraw every frame:
 
 ```js
+const sun = new THREE.DirectionalLight(0xffffff, 2);   // your main light
 const budget = engine.shadows.budget(sun, { every: 3 });   // a third of the shadow fill cost
 budget.redraw();                                           // something big moved: draw on the next frame
 budget.set({ every: 1 });                                  // every frame again
@@ -123,6 +124,7 @@ A box or cascades on the same light redraw early when they jump (teleport, fast 
 Before the first frame `light.shadow.mapSize.set(2048, 2048)` is all it takes. Once a map exists, three.js keeps it, so a settings menu or a one-shot change goes through the engine:
 
 ```js
+const sun = new THREE.DirectionalLight(0xffffff, 2);
 engine.shadows.mapSize(sun, 1024);   // the map is rebuilt and redrawn; with cascades, every cascade's map
 ```
 
@@ -141,6 +143,7 @@ point (`'shadows.enabled'`, layer `settings`, restrict only), so a player who tu
 ## Filter, bias, softness, map size: three.js
 ```js
 engine.renderer.shadowMap.type = THREE.VSMShadowMap;   // BasicShadowMap | PCFShadowMap (default) | VSMShadowMap
+const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.shadow.radius = 3; sun.shadow.blurSamples = 8;     // softness (pcf, vsm); blur quality (vsm)
 sun.shadow.bias = -0.0001; sun.shadow.normalBias = 0.03;
 sun.shadow.mapSize.setScalar(2048);                    // before the first frame; later also sun.shadow.map?.dispose(); sun.shadow.map = null;

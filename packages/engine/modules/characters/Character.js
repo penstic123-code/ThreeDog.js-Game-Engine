@@ -10,15 +10,14 @@
 // The procedural body (capsule, rig read from a model asset, limb swing) is in proceduralRig.js; loading a body by asset name in assetModel.js.
 import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
-import { xzOf } from '../../core/math.js';
-import { placeY } from '../../core/ground.js';
+import { xzOf, yOf } from '../../core/math.js';
 import { warnOnce, warnMissing, DEV } from '../../core/validate.js';
 import { reportError } from '../../core/errors.js';
 import { simpleMover } from './movers/simple.js';
 import { rapierMover } from './movers/rapier.js';
 import { manualMover } from './movers/manual.js';
 import { moveStacks, stat, jumpOf, WATER_MODES } from './movers/common.js';
-import { stateOf, detach, registry } from './movers/support.js';
+import { stateOf, detach, registry, placeAtHeight } from './movers/support.js';
 import { loadAssetModel, buildNow } from './assetModel.js';
 import { NO_CHARACTER, capsule, useRig, animateRig, rigFromObject, tintParts } from './proceduralRig.js';
 import { walkTo } from './walkTo.js';
@@ -197,11 +196,16 @@ export class Character {
   /** The character's three.js root object (= root): add children, set visible, scale on it */
   get object() { return this.root; }
   addTo(scene = this.engine.scene) { scene.add(engineOwned('characters', this.root)); return this; }
-  /** Place on the ground at a position (Vector3 / Object3D / [x, y, z] / { x, z }) */
+  /**
+   * Place at a position (Vector3 / Object3D / [x, y, z] / { x, z }). With a y it stands on what a character at that height stands on: the floor there, or a
+   * registered support within step height above it, so a place under a deck stays under it. With { x, z } it stands on the highest support there, else the ground.
+   */
   placeAt(position) {
-    const [x, z] = xzOf(position);
-    this.root.position.set(x, placeY(this.engine, 'character.placeAt()', x, z, undefined, this.root.position.y), z);
-    detach(this); (this.safeGround ??= new THREE.Vector3()).copy(this.root.position);   // a deliberate placement on the ground is a safe spot
+    const [x, z] = xzOf(position), at = placeAtHeight(this.engine, 'character.placeAt()', x, z, yOf(position), this.stepHeight, this.root.position.y);
+    this.root.position.set(x, at.y, z);
+    detach(this);
+    // ground is a safe spot. A support may be unsafe or moving, which only a step can tell: the next mover step applies the rule in endMove
+    if (!at.on) (this.safeGround ??= new THREE.Vector3()).copy(this.root.position);
     this._store(); return this;
   }
   /** Write position and motion state back to the world record (only if recordId is set; saveMotion writes into the record without allocating) @internal */

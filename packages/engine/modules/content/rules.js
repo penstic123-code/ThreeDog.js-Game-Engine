@@ -95,6 +95,7 @@ const RULE_STRINGS = {
         id: { type: 'string', optional: true, desc: 'stable id (needed when entries are later inserted in the middle)' },
         model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...pose,
         collide: { type: 'any', optional: true, desc: "collision: 'box', 'circle', { circle: radius, occluder?: false }, or false = none" },
+        occluder: { type: 'bool', optional: true, desc: 'false = a solid prop the follow camera may pass through (walkers are still stopped)' },
         static: { type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
         batch: { type: 'bool', optional: true, desc: 'false = never batch this copy' },
       },

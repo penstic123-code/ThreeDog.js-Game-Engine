@@ -11,13 +11,13 @@ const read = (...p) => readFileSync(join(TOOLS, 'templates', ...p), 'utf8');
 const code = text => text.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n');
 
 export async function run({ check }) {
-  for (const t of ['game', 'openworld', 'example']) {
+  for (const t of ['game', 'openworld']) {
     const main = code(read(t, 'main.js'));
     check(`${t}: autosave wired`, /engine\.saves\.autosave\(/.test(main));
     check(`${t}: the start screen is on (Continue is what loads the autosave)`, /title: \{ title: '__NAME__' \}/.test(main));
     check(`${t}: Esc pauses, not only opens the menu`, /settings(\(|: )\{ freezeWorld: true \}/.test(main));
   }
-  check('the template names no style folder or style key: its picture is picture/', !/style\/|style\.\w/.test(read('game', 'DESIGN.md') + read('game', 'tsconfig.json') + read('example', 'assets.js'))
+  check('the template names no style folder or style key: its picture is picture/', !/style\/|style\.\w/.test(read('game', 'DESIGN.md') + read('game', 'tsconfig.json') + read('game', 'assets.js'))
     && read('game', 'tsconfig.json').includes('"picture/**/*"'));
   const blank = code(read('game', 'main.js'));
   check('blank assumes no player, camera rig or ground', !/createPlayer|followCamera|characters\(|openWorld|terrain|setGround/.test(blank));

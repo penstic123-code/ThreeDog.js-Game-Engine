@@ -2,10 +2,11 @@
 // optional hand-drawn wobble and per-object exemption through a three.js layer.
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { RESERVED_LAYERS } from 'threedog/layers';
 /** @import { PostEffect } from 'threedog' */
 
 /** Layer number to put on objects that should get no outline: mesh.layers.enable(OUTLINE_OFF_LAYER), with outline({ offLayer: OUTLINE_OFF_LAYER }) */
-export const OUTLINE_OFF_LAYER = 29;
+export const OUTLINE_OFF_LAYER = RESERVED_LAYERS.outlineOff;
 const MODES = { depth: 0, normal: 1, both: 2 };
 
 class OutlinePass extends Pass {
@@ -160,12 +161,12 @@ function outlineNode(input, { tsl: T, display, scenePass, scene, camera, params,
     const L = layer && new THREE.Layers(), run = v.updateBefore.bind(v), free = v.dispose.bind(v), clear = new THREE.Color(), was = new THREE.Color();
     if (L) v.setLayers(L);
     v.updateBefore = frame => {
-      const r = frame.renderer, bg = scene.background, fog = scene.fog, a = r.getClearAlpha();
+      const r = frame.renderer, bg = scene.background, bgNode = scene.backgroundNode, fog = scene.fog, a = r.getClearAlpha();
       if (L) L.set(params.offLayer);
       r.getClearColor(was);
       r.setClearColor(clear.setRGB(0.5, 0.5, 1, THREE.SRGBColorSpace), 1);
-      scene.background = null; scene.fog = null;
-      try { run(frame); } finally { scene.background = bg; scene.fog = fog; r.setClearColor(was, a); }
+      scene.background = scene.backgroundNode = null; scene.fog = null;   // three prefers backgroundNode over background, so both go
+      try { run(frame); } finally { scene.background = bg; scene.backgroundNode = bgNode; scene.fog = fog; r.setClearColor(was, a); }
     };
     v.dispose = () => { free(); mat.dispose(); };
     return v;

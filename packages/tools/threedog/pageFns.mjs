@@ -32,6 +32,14 @@ export const BRIEF = e => {
   return [l1, near && 'Nearby: ' + near, q && `Quest: ${q.title}: ${q.step}`].filter(Boolean);
 };
 
+// Which backend drew the picture, in words: the headless browser has no WebGPU, and a WebGL2 picture taken for a WebGPU one misleads (both shot and snap print it)
+export const BACKEND = e => {
+  const r = e.renderer, b = e.describe().renderer, name = { webgpu: 'WebGPU', webgl2: 'WebGL2', webgl: 'WebGL' };
+  if (!b?.backend) return r?.isWebGLRenderer ? 'WebGL' : 'unknown backend';
+  return b.requested === 'webgpu' && b.backend !== 'webgpu' ? `${name[b.backend] ?? b.backend} (fallback: WebGPU was asked for, this is not a WebGPU picture)` : name[b.backend] ?? b.backend;
+};
+/** Printed by shot and snap when the title is up (one sentence, so the two commands cannot drift apart) */
+export const TITLE_COVERS = 'The start screen covers this picture: add --play to shoot the game behind it';
 /**
  * What bears on a picture, printed under every `threedog shot` and `threedog snap` (one formatter for both): time and day / night, weather,
  * the camera with its focus, and a page error or failed load if any. Why not describeText: a ~15-line state block after every picture buried
@@ -140,7 +148,23 @@ const PAGE = {
     });
     const step = (s = 1 / 60) => { e.pause('threedog', { kind: 'test' }); e.step(s, { render: false }); e.step(1 / 60); };
     const log = (...x) => logs.push(x.map(y => typeof y === 'string' ? y : show(y)).join(' '));
-    const run = body => new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', body)(e, assert, expect, step, log);
+    // a script awaiting game time on a page whose clock nobody advances (await walkTo on a headless page) would wait until the command timed out with no
+    // reason given. The count of a.wait seconds runs only while the page looks stopped: driven by manual step, nothing loading, no clock tick, no queue moving.
+    // A queue counts by change, not by being non-empty: jobs drain in frames, so on such a page a waiting queue never empties. Even then a script may be
+    // waiting on something else (a fetch, a long timer), which a page cannot see: the message says "may", and --wait gives it longer.
+    // Promise.resolve().then(fn): building the function throws a SyntaxError for statements, and the expression try must not leave this timer behind
+    const stall = fn => new Promise((ok, no) => {
+      const mark = () => `${e.tick} ${e.jobs?.pending} ${e.commits?.pending}`, manual = () => e.headless || e.runState.state === 'test-paused';
+      let seen = mark(), last = Date.now();
+      const t = setInterval(() => {
+        const now = mark(), stopped = now === seen && manual() && e.stateApplied;
+        seen = now;
+        if (!stopped) { last = Date.now(); return; }
+        if (Date.now() - last > a.wait * 1000) no(new Error(`script still waiting after ${a.wait} s. This page advances only on step and nothing is loading, so it may be waiting on the game clock: await walkTo, clock.after and timelines need step(1) in the script, or engine.step. If it waits on something else, give it longer with js --wait <seconds>. The command stops here; the script may still be running in the page.`));
+      }, 500);
+      Promise.resolve().then(fn).then(ok, no).finally(() => clearInterval(t));
+    });
+    const run = body => stall(() => new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', body)(e, assert, expect, step, log));
     if (a.plain) {
       let v;
       try { v = await run('return (' + a.src + ')'); }   // try it as an expression first
@@ -161,6 +185,10 @@ const PAGE = {
   // without advancing game time: at tick 0 nothing had been drawn yet and snap read a black canvas (shot steps one frame before reading; the
   // same rule here, minus the game time, because snap must not change the running game)
   settled: async (a, e) => { await e.ui.settled?.(); if (e.paused) e._render(1 / 60); return true; },
+  // snap --play: what shot --play does (?play), on the open page. One step with a render, as shot takes, so the picture is not the frame under the title
+  play: async (a, e) => { await e.applyState({ play: true }); if (e.paused || e.headless) e.step(1 / 30, { render: true }); return true; },
+  title: (a, e) => !!e.ui.isOpen?.('title'),
+  backend: `(a, e) => (${BACKEND})(e)`,
   raw: (a, e) => e.describe(),   // the whole describe() object, compared in node (describe-snapshot.mjs)
   // op: raw key=value strings are converted by the op's args shape (n=2 -> 2, position=3,0,-2 -> [3, 0, -2]);
   // runs as source 'bridge' between steps, so no game time passes

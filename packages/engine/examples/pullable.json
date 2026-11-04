@@ -96,6 +96,18 @@
       ],
       "use": "import { applyKeyFill, aimSun, fitSunShadow } from './keyLight.js';  applyKeyFill({ sun, hemi, scene }, route);  aimSun(sun, { elevation, azimuth, camera });  fitSunShadow(sun, { extent });  // your own three.js lights"
     },
+    "three-looks": {
+      "dir": "techniques/three-looks",
+      "files": [
+        "README.md",
+        "picture/index.js",
+        "picture/sun.js",
+        "picture/cartoon.js",
+        "picture/comic.js",
+        "picture/cinematic.js"
+      ],
+      "use": "import { createPicture } from './picture/index.js';  const { materials } = createPicture(engine, 'comic');  // materials by part name; lights, fog and post are set up"
+    },
     "webgpu-tsl": {
       "dir": "webgpu-tsl",
       "files": [

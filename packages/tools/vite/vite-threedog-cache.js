@@ -21,7 +21,7 @@ import { isLocalRequest } from './local.js';
 import { ROOT as REPO, abs, rel, ENGINE_PKG, INDEX_JS_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry } from '../paths.mjs';
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.threedog', 'public', 'shots', '.git']);
-// When looking for generator source the engine source is not searched (generators live in the game, its style/ folder included)
+// When looking for generator source the engine source is not searched (generators live in the game, its picture/ folder included)
 const ENGINE_CODE = new Set(ENGINE_CODE_DIRS_REL.map(abs));
 const BARREL = abs(INDEX_JS_REL);
 const NAMED_RE = /(?:import|export)\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;

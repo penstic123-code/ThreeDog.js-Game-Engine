@@ -22,7 +22,7 @@ export const NEEDS_NODE = [...VITE, 'test', 'shot', 'perf', 'stress', 'capture',
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */
 const MAP = MODE === 'monorepo' ? ['gentypes.mjs', 'codemap.mjs', 'apidoc.mjs', 'gamemap.mjs'] : ['gamemap.mjs'];
 export const USAGE = `Usage: threedog ${VITE.join('|')} [game | -w game] · threedog test [-w game] [test name…] · threedog check|types|map · ` +
-  `threedog shot|perf|bake|assets [-w game] … [--gpu|--software] · threedog stress [--only axis,…] · threedog new-game name · threedog init [folder] · threedog picture palette|compare … · threedog content ids [-w game] [--write] · threedog content set|add|remove … · threedog tune show|write [file] [--apply] · threedog gallery [-w game] [--shots] · threedog how "task" · threedog art list <source> · threedog art copy <source> [names…] [--to art/] [--force] [--dry] · threedog art board [-w game] [--out file.html] [--json] [--live] · threedog lib add|list|pull|page … (your own art library, ~/.threedog/library) · threedog examples list|pull <name> [--out dir] [--force] · threedog doctor · threedog api-count [--unused] [--json] (engine repo) · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
+  `threedog shot|perf|bake|assets [-w game] … [--gpu|--software] · threedog bake light [-w game] [--out f] [--size n] [--spacing m] [--samples n] [--page url] · threedog stress [--only axis,…] · threedog new-game name · threedog init [folder] · threedog picture palette|compare … · threedog content ids [-w game] [--write] · threedog content set|add|remove … · threedog tune show|write [file] [--apply] · threedog gallery [-w game] [--shots] · threedog how "task" · threedog art list <source> · threedog art copy <source> [names…] [--to art/] [--force] [--dry] · threedog art board [-w game] [--out file.html] [--json] [--live] · threedog lib add|list|status|check|pull|page … (your own art and systems library, ~/.threedog/library) · threedog examples list|pull <name> [--out dir] [--force] · threedog doctor · threedog api-count [--unused] [--json] (engine repo) · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
 
 const node = (script, args, cwd = process.cwd()) => spawnSync(process.execPath, [join(TOOLS, script), ...args], { stdio: 'inherit', cwd }).status ?? 1;
 /** --help / -h: print the script's header comment instead of running it (`threedog test --help` used to start the whole suite) */
@@ -82,6 +82,7 @@ export function main([cmd, ...rest]) {
     return 0;
   }
   if (BRIDGE.includes(cmd)) return node('threedog/cli.mjs', [cmd, ...rest]);
+  if (cmd === 'bake' && rest[0] === 'light') return node('bake-light.mjs', rest.slice(1));   // a sub-command, so a baked model can never be named after it
   if (SCRIPTS[cmd]) return node(SCRIPTS[cmd], rest);
   console.log(USAGE);
   return cmd ? 1 : 0;

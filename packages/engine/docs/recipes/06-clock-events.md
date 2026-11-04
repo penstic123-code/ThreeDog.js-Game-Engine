@@ -72,7 +72,7 @@ the sun, moon, colors and season tint. So each kind of game installs what it nee
 - an outdoor day-night game: `calendar(presets.calendar.cycle), sky()` (`openWorld()` installs both; its `calendar` / `time` / `dayLength` go to the calendar);
 - an indoor shop, office or dungeon with opening hours and NPC shifts: `calendar({ dayLength: 600, hoursPerDay: 24 })` and no sky at all;
 - a management sim on a painted backdrop or a game with its own sky dome: `calendar()` and the game's own drawing reading `engine.calendar.timeOfDay`
-  (or `engine.uniforms.uTimeOfDay` from a sky that follows the calendar);
+  (or `engine.uniforms.uTimeOfDay`, which the calendar writes even with no sky);
 - a survival game with a short brutal day and long seasons: `calendar({ dayLength: 240, seasons: [{ name: 'thaw', days: 3 }, { name: 'frost', days: 9 }] })`;
 - an arena or a level at one frozen hour: `sky({ time: '18:30' })` alone (no calendar: the sky draws that fixed time; nothing has a schedule).
 A game's own calendar (turns, a lunar calendar) replaces the module by meeting `modules/calendar/contract.js` (recipe 55 "Replacing a module").

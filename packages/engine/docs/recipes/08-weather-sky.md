@@ -14,6 +14,7 @@ engine.sky.backdrop = 0x335577;             // one flat color in place of the do
 engine.sky.keyframes(NIGHT_ROWS);           // the day's rows, live
 engine.sky.clouds({ glsl, tsl });           // your cloud function; null = the built-in kind
 engine.sky.layer('aurora', { glsl, tsl, blend: 'add' });   // a named dome layer; null removes it
+const mySky = new THREE.Mesh(skyGeometry, skyMaterial);   // or a skybox name, a Texture
 engine.sky.replace(mySky);                  // skybox name | Texture | CubeTexture | Object3D, never written; null gives the dome back
 mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir;   // the same Vector3, refreshed every frame
 ```

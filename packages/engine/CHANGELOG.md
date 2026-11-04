@@ -1,6 +1,23 @@
 # Changelog (threedog)
 
-The engine has not been released yet, so this log is not maintained before release. At release time it is written in one pass from git history and `docs/API.md`: "what changed, how a game upgrades", placed under the version heading.
+What changed in each version and how a game upgrades.
+
+## 0.7.0 (2026-11-05)
+
+- Public surface audit (`threedog api-count --unused`): removed `engine.level.object` (same as `level.root`); dropped from the public types (code stays, engine-internal) `engine.triggers.action`, `engine.settings.action`, `engine.interactions.action` (copies of the module option), `engine.inventory.defs`, `engine.quests.defs` (use `inventory.item(id)` and `quests.list()`). 98 more unused names are kept on purpose, each with a reason in `packages/tools/api-count.mjs`
+- Follow camera: `collision({ cameraOcclusion })` now defaults to `'both'`: meshes registered with `engine.rays.addStatic(mesh, { occluder: true })` stop the arm without a gameplay collider (a crown, an eave). Level buildings count too; `'colliders'` keeps the old test.
+- `character.placeAt` over a registered support stands on it; `mover: 'manual'` runs the `states` hook. Recipe 57 "Moved by script" (ride, lift, ladder), recipe 32 says what a support needs.
+- Script runs: `?fresh` / `applyState({ fresh })` / `threedog state fresh=1` delete the saves for a clean start; `inputLocked` carries `facts.by`; `snap --play`; `shot` and `snap` name the backend that drew the picture; `snap` timeouts say what the page was doing; a `js` script waiting on a stopped clock ends with the reason; the WebGPU fallback is one line in errors.log.
+- `threedog assets optimize [--dry]`: Meshopt + KTX2 copies of art/models/ in public/optimized/, textures encoded by slot (a normal map is never compressed as color), `assets.js` pointed at the results, reruns skip unchanged files, per-file size / GPU memory / problems. `npm run assets` crashed on start (a name used twice); fixed.
+- Light probes: `engine.bakeProbes` now builds three's per-pixel probe grid on both renderers, stored in half precision; `follow`, `height`, `probes.probe` and `own()` are gone, probe files are version 2 (MIGRATING-0.7.md). `describe().render.probes` reports lit objects outside the grid and light counted twice.
+- Real-time light on WebGPU: `@threedog/post-effects/tsl` adds `voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`. Post effects gain `needsBuffers` (normal, diffuse, velocity merged into one scene render), `backend`, `skipOnLowTier` and `facts`; `describe().render.post` says `held` and why.
+- Occlusion culling: `engine.occlusion.enabled` skips hlod cells and batched groups while hidden, on both renderers; `describe().render.occlusion`.
+- Lightmaps: `threedog bake light` (system Chrome, real WebGPU) and `engine.loadLightmap(file)`; `describe().render.lightmap`.
+- `celLighting` in `threedog/tsl`: colored cel bands on `MeshToonNodeMaterial`, cast shadows in the same bands. `paletteLut` in `@threedog/post-effects`: a fixed palette for `lut()`. Docs no longer say `rampTexture` colors work on three's toon: it reads only the red channel.
+- New games start on WebGPU with TSL: `threedog new-game` and `init` write `import 'threedog/tsl'` and `createEngine({ renderer: 'webgpu' })`; `--webgl` starts the GLSL form instead. `--example` and `templates/example` are removed. `createEngine` called with no `renderer` still builds the WebGL renderer. With no WebGPU in the browser the game runs on three's WebGL2 backend, slower.
+- `engine.hud.value(id)` reads the current value of a counter or bar. `describe().renderer` gives `requested`, `backend`, `reason`, and `gpu`, `tsl`, `glsl`, `compute` (what that backend can run).
+- `threedog/layers` exports `RESERVED_LAYERS`, the one table of the three.js layers the engine keeps (26 to 29 and 31); a game's own layers are 1 to 25.
+- `threedog js --wait <seconds>`: a script waiting on the game clock on a page nobody steps ends with the reason instead of a silent timeout.
 
 ## 0.6.0 (2026-11-04)
 

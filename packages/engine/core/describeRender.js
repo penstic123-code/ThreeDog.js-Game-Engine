@@ -7,6 +7,7 @@ import { SHADOW_TYPES } from './shadowTypes.js';
 import { rv } from './math.js';
 import { defineOwned } from './owned.js';
 import { slotHolders } from './pictureSlots.js';
+import { backendFacts } from '../render/backend.js';
 
 const shadowName = v => Object.keys(SHADOW_TYPES).find(k => SHADOW_TYPES[k].three === v) ?? String(v);
 const TONE_NAMES = { [NoToneMapping]: 'none', [LinearToneMapping]: 'linear', [ReinhardToneMapping]: 'reinhard', [CineonToneMapping]: 'cineon',
@@ -39,7 +40,7 @@ const lightOf = (l, cam) => ({ type: l.type, name: l.name, color: hex(l.color), 
  */
 export function describePicture(e) {
   const r = e.renderer, s = e.scene, lights = /** @type {any[]} */ ([]);
-  s.traverse(o => { if (/** @type {any} */ (o).isLight) lights.push(lightOf(o, e.camera)); });
+  s.traverse(o => { if (/** @type {any} */ (o).isLight && !(/** @type {any} */ (o).isLightProbeGrid)) lights.push(lightOf(o, e.camera)); });   // a probe grid has its own rows (probes)
   return { toneMapping: toneName(r.toneMapping), exposure: r.toneMappingExposure, fog: fogOf(s.fog), environment: { present: !!s.environment, intensity: s.environmentIntensity },
     background: backgroundOf(s), lights, shadows: { enabled: r.shadowMap.enabled, type: shadowName(r.shadowMap.type) }, slots: slotHolders(e), writers: e._picture?.list() ?? { tracked: false, note: NO_WRITERS } };
 }
@@ -89,7 +90,8 @@ export function describeRender(e) {
     : { value: toneName(r.toneMapping), writer: e._oTone.on ? 'three default' : 'game' };
   const exposure = { value: rv(r.toneMappingExposure) };
 const shadows = { enabled: r.shadowMap.enabled, type: shadowName(r.shadowMap.type) };
-  const post = (e.post?._list || []).map(h => ({ name: h.name, on: h.enabled, params: { ...h.params }, ...postWho(h.name) }));
+  const post = (e.post?._list || []).map(h => { const held = e.post._held(h), facts = h._def.facts?.();
+    return { name: h.name, on: h.enabled, params: { ...h.params }, ...postWho(h.name), ...(held ? { held } : {}), ...(facts ? { facts } : {}) }; });
   const lights = Object.entries(e.lights || {}).filter(([, l]) => l.parent)
     .map(([name, l]) => ({ name, type: l.type, intensity: rv(l.intensity), source: 'engine-default' }));
   // the game's own point / spot lights (core/gameLights.js): adopted like a lightPool light, listed with the line that added them
@@ -97,18 +99,24 @@ const shadows = { enabled: r.shadowMap.enabled, type: shadowName(r.shadowMap.typ
     source: 'game', writer: 'game', at: e._things?.entryOf(l)?.[0]?.at ?? null, ...(e._gameLights.idled(l) ? { shadowIdled: true } : {}) });
   const defaults = engineDefaults(e);
   const by = x => (x.writer ? ` (${x.writer})` : '');
+  const antialias = e.post?._antialiasNow() ?? { samples: 0, replacedBy: null };
   const kv = x => Object.entries(x).map(([k, v]) => `${k}=${typeof v === 'number' ? rv(v) : v}`).join(' ');
   const srgb = r.outputColorSpace === 'srgb' ? '' : ' (WRONG: colors are encoded for srgb; color textures must be srgb, data maps linear, see assets.report)';
   let text = [
     `renderer: ${tone.value}${by(tone)} exposure ${exposure.value}${by(exposure)} shadows ${shadows.enabled ? shadows.type : 'off'}${by(shadows)}${b.owned ? '' : ' [game-supplied renderer]'} output ${r.outputColorSpace}${srgb}`,
-    `post: ${post.map(x => `${x.name}${x.on ? '' : ' off'}${Object.keys(x.params).length ? `{${kv(x.params)}}` : ''} (${x.writer})`).join(', ') || 'none'}${e.post?.antialias ? ' + MSAA' : ''}`,
+    `post: ${post.map(x => `${x.name}${x.held ? ` held off: ${x.held}` : x.on ? '' : ' off'}${Object.keys(x.params).length ? `{${kv(x.params)}}` : ''} (${x.writer})`).join(', ') || 'none'}${antialias.samples ? ` + MSAA x${antialias.samples}` : antialias.replacedBy ? ` + ${antialias.replacedBy} in place of MSAA` : ''}`,
     `lights: ${lights.map(l => `${l.name} ${l.type} ${l.intensity}${l.writer ? ` (${l.writer}${l.at ? ' ' + l.at : ''})` : ''}`).join(', ')}`,
     `scene: background ${sceneWord(backgroundOf(e.scene))} fog ${sceneWord(fogOf(e.scene.fog))} environment ${e.scene.environment ? rv(e.scene.environmentIntensity) : 'none'}`,
     `engine defaults on the picture: ${defaults.map(d => d.what).join(', ') || 'none'}`,
   ].join('\n');
-  // probe sets (render/probes.js): how many, how dense, who made them and who writes the scene probe now
+  // probe sets (render/probes.js): how many, how dense, who made them, what they miss and what doubles them
   const probes = [...(e._probeSets ?? [])].map(s => s.info());
-  if (probes.length) text += `\nprobes: ${probes.map(p => `${p.count} (${p.counts.join('x')}, step ${p.step.join('/')}) from ${p.source} by ${p.owner}, follow ${p.follow}${p.writer ? ` (${p.writer})` : ''}`).join('; ')}`;
+  if (probes.length) text += `
+probes: ${probes.map(p => `${p.count} (${p.counts.join('x')}, step ${p.step.join('/')}) from ${p.source} by ${p.owner}`).join('; ')}`
+    + (probes[0].outside.count ? `
+  outside the probe grid (no probe light): ${probes[0].outside.count} lit object(s), ${probes[0].outside.names.join(', ')}` : '')
+    + (probes[0].doubled.length ? `
+  counted twice with the probes: ${probes[0].doubled.join(', ')}` : '');
   const dv0 = e.debug?.viewState?.(), dv = dv0 && dv0.mode !== 'off' ? dv0 : null;
   if (dv) text = `DEBUG VIEW "${dv.mode}" (by ${dv.owner}) is ON: ${dv.what}. This is NOT the real picture; the debug view 'off' restores it.
 ` + text;
@@ -118,5 +126,22 @@ const shadows = { enabled: r.shadowMap.enabled, type: shadowName(r.shadowMap.typ
     adaptive: !!ad?.on, floor: ad?.min ?? null, max: ad?.max ?? null };
   text += `
 render scale: ${scale.current} of device pixel ratio ${dpr}${scale.upscaled ? ' (picture is upscaled, softer than the screen)' : ''}${scale.autoLowered ? ` (auto-lowered by adaptive resolution, floor ${scale.floor}; adaptiveResolution: false turns it off)` : ''}`;
-  return { debugView: dv, scale, toneMapping: tone, exposure, shadows, post, lights, defaults, probes, text };
+  // the lightmap (render/lightmap.js): what is baked, and what no longer matches the bake
+  const lightmap = e._lightmap?.info() ?? null;
+  if (lightmap) text += `\nlightmap: ${lightmap.meshes} mesh(es), ${lightmap.size} map from ${lightmap.file}`
+    + ['skipped', 'missing', 'moved', 'doubled', 'shared'].map(k => (lightmap[k].length ? `, ${k}: ${lightmap[k].slice(0, 3).map(x => x.name ?? x).join(', ')}` : '')).join('');
+  // occlusion culling (render/occlusion.js): what it skipped this frame, so a game can see whether it pays
+  const occlusion = e.occlusion?.enabled ? e.occlusion.stats : null;
+  if (occlusion) text += `\nocclusion: ${occlusion.hidden} of ${occlusion.watched} big things hidden, ${occlusion.trianglesSkipped} triangles skipped`;
+  return { debugView: dv, scale, toneMapping: tone, exposure, shadows, post, antialias, lights, defaults, probes, lightmap, occlusion, text };
+}
+
+/**
+ * Which renderer was asked for and which backend draws; reason = why not WebGPU (core/startup.js _startRenderer); the rest is what that backend can run.
+ * All null before start(): the facts need the started backend.
+ * @param {any} e
+ */
+export function describeBackend(e) {
+  if (e._backend) return { ...e._backend, ...backendFacts(e.renderer) };
+  return { requested: e._backendWant.requested, backend: null, reason: null, gpu: null, tsl: null, glsl: null, compute: null };
 }

@@ -55,7 +55,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 | content/props.js | 17 |  |
 | content/templates.js | 10 |  |
 | content/vegetation.js | 32 |  |
-| main.js | 86 | @ts-check Style test: one fixed scene to judge a picture by (and the check an AI runs after turning… |
+| main.js | 87 | @ts-check This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). On … |
 | models.js | 88 | The exhibits that are not in the world example's art (../world/art), built in code and registered b… |
 | params.js | 30 | URL parameters of the style test page. Import this file first in main.js: it rewrites word values i… |
 | picture/env.js | 39 | @ts-check ?env=1: soft light from the sky. A gradient of the sky's two colors over the ground color… |

@@ -3,12 +3,13 @@
 // main.js holds rules only (modules, ops, state, presentation). Everything placed in the level is content: content/templates.js + content/props.js (rule R33).
 // Wired already, because nearly every game needs them and they cost one line each: start screen (ui.title: Continue / Start), autosave, Esc = pause + settings menu,
 // third-person walking and camera. Don't want one? Delete or swap its line. Rewriting one by hand is the slow way; CLAUDE.md "Already here" lists the rest.
+__TSL_IMPORT__
 import { createEngine, presets, openWorld, followCamera, content } from 'threedog';
 import { createPicture } from './picture/index.js';   // the game's own picture in plain three.js: gray for now; make it yours, recipe 62
 import { terrainPreset } from '@threedog/terrain-noise';   // optional: a terrain generator (the engine ships none)
 import data from './content/index.js';
 
-const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: { title: '__NAME__' }, title: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
+const engine = createEngine({ __RENDERER__bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: { title: '__NAME__' }, title: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
 // openWorld installs the world and environment (terrain, vegetation, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
 // More you can add: interactions() inventory() pickups() (items lying on the ground) hud() dialogue() quests() triggers() timeline() particles() music() photo() grids(), usage in node_modules/threedog/docs/api/<module>.md
 engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, calendar: presets.calendar.cycle,

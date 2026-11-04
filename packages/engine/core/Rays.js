@@ -17,6 +17,8 @@ import * as THREE from 'three';
 import { vec3 } from './math.js';
 import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
 import { thingOf } from './Inspect.js';
+import { RESERVED_LAYERS } from '../render/layers.js';
+import { DEV, warnOnce } from './validate.js';
 
 // No three.js prototype is changed: a registered static mesh gets its own BVH and its own raycast (an own property on that mesh), so the engine's
 // rays are fast and the game's own Raycaster stays plain three.js. A game that wants BVH page-wide writes three-mesh-bvh's three documented lines.
@@ -48,7 +50,8 @@ export class Rays {
     /** The three.js Raycaster (firstHitOnly is on) @type {any} */
     this.ray = new THREE.Raycaster();
     this.ray.firstHitOnly = true;       // only the nearest hit per mesh (faster with a BVH)
-    this.ray.layers.enable(31);         // originals drawn through engine.batching sit on layer 31 (core/batchGroups.js BATCH_LAYER) and must still be hit
+    this.ray.layers.enable(RESERVED_LAYERS.batched);   // originals drawn through engine.batching sit here and must still be hit
+    this.ray.layers.enable(RESERVED_LAYERS.occlusionHidden);   // so must what occlusion culling is not drawing this frame
   }
   /**
    * Register a static object and every mesh under it (an array also works; meshes over 256 triangles get a BVH); occluder: true also blocks the camera. Returns a handle { remove() }.
@@ -63,6 +66,7 @@ export class Rays {
     const { occluder = false } = opts;
     const added = [];
     for (const o of [].concat(obj)) o.traverse(m => {
+      if (DEV && (m.isInstancedMesh || m.isSkinnedMesh)) warnOnce(`engine.rays.addStatic: skipped ${m.isInstancedMesh ? 'an InstancedMesh' : 'a SkinnedMesh'} ("${m.name}"): rays do not hit these and they do not block the camera. Use a collider, or register a plain stand-in mesh.`, 'rays-skip-' + m.type);
       if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || !m.geometry?.attributes.position) return;
       if (!m.geometry.boundsTree && triangles(m.geometry) >= BVH_MIN) computeBoundsTree.call(m.geometry);
       if (m.geometry.boundsTree && m.raycast === THREE.Mesh.prototype.raycast) m.raycast = acceleratedRaycast;   // a game's own raycast override wins
@@ -136,8 +140,9 @@ export class Rays {
     } else {
       const ray = this.ray.ray;
       for (const [m, s] of this.statics) {
+        if (occluders && !s.occ) continue;   // first: a camera ray then pays one flag check for every mesh that is no blocker
         if (!mayHit(ray, m, far)) continue;   // most statics are nowhere near the ray: skip them before walking parents
-        if (occluders ? !s.occ || !inScene(m, scene) : !shown(m, scene)) continue;
+        if (occluders ? !inScene(m, scene) : !shown(m, scene)) continue;
         hits.length = 0; m.raycast(this.ray, hits);
         for (const h of hits) take(toHit(h));
       }

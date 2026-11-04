@@ -1,4 +1,5 @@
 // @ts-check
+// This example is written in GLSL: it is the WebGL route (`threedog new-game --webgl`). On the default WebGPU route the same ideas are written in TSL (recipe 56).
 // Style test: one fixed scene to judge a picture by (and the check an AI runs after turning a reference picture into a picture).
 // Exhibits (content/): character, trees, rock, grass, flowers, water, terrain, glass, a shadow receiver, wood / stone / metal, a lit room (outside and inside),
 // and the UI parts (HUD, dialogue, bag) on the `ui` view. Parameters (params.js): time, weather, env, view, panel. Camera views: views.js.

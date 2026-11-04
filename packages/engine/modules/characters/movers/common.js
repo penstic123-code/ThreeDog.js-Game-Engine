@@ -136,5 +136,10 @@ export function finish(c, dt) {
   if (c.state !== c._stateMark) warnOnce(STATE_WRITTEN);
   const base = c.swimming ? 'swim' : !c.grounded ? (c.vy > 0 ? 'jump' : 'fall') : sp > stat(c, 'speed') * 1.3 ? 'run' : sp > 0.4 ? 'walk' : 'idle';
   // the game's states hook adds its own (crouch, climb, glide, dash...) on top of the built-in ones without taking the mover over; null keeps base
-  c.state = c._stateMark = (c.states && c.states(c, { base, speed: sp, grounded: c.grounded, swimming: c.swimming, vy: c.vy, water: WATER_KEY.get(c) ?? null })) || base;
+  ownState(c, base, sp);
+}
+
+/** @internal the state after a mover's step: the game's states hook, or base when it returns null */
+export function ownState(c, base, speed) {
+  c.state = c._stateMark = (c.states && c.states(c, { base, speed, grounded: c.grounded, swimming: c.swimming, vy: c.vy, water: WATER_KEY.get(c) ?? null })) || base;
 }

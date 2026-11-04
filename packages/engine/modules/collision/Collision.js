@@ -24,9 +24,11 @@ export class Collision {
   /**
    * maxClimb: max walkable slope (height diff / horizontal distance; default slopeRatio derived from engine.movement.maxSlope); canopyHeight: a camera above this height is not blocked by trees
    * cameraPad: camera margin from obstacles; cameraMin: closest camera distance; walkableWaterMargin: how far above the water surface counts as walkable
-   * cameraOcclusion: what camera occlusion tests: 'colliders' circles and boxes (default) | 'meshes' meshes registered as camera blockers (level buildings, col_ meshes, via engine.rays) | 'both'
+   * cameraOcclusion: what camera occlusion tests: 'both' (default) | 'colliders' circles and boxes only | 'meshes' only meshes registered as camera blockers (level buildings, col_ meshes,
+   * engine.rays.addStatic(mesh, { occluder: true })). Why both: a collider is a footprint for walkers, so a crown or an eave above it never stopped the arm, and a registered mesh was ignored
+   * unless the game also found this option. The ray skips every mesh that is no blocker on one flag check, so 'both' costs only for the blockers
    */
-  constructor(engine, { maxClimb = engine.movement.slopeRatio, canopyHeight = 5, cameraPad = 0.5, cameraMin = 1.5, walkableWaterMargin = 0.2, cameraOcclusion = 'colliders' } = {}) {
+  constructor(engine, { maxClimb = engine.movement.slopeRatio, canopyHeight = 5, cameraPad = 0.5, cameraMin = 1.5, walkableWaterMargin = 0.2, cameraOcclusion = 'both' } = {}) {
     this.engine = engine;
     Object.assign(this, { maxClimb, canopyHeight, cameraPad, cameraMin, walkableWaterMargin, cameraOcclusion });
     // Sets, not arrays: they keep insertion order (forEachStatic and every consumer see colliders in the order added) and delete in O(1),

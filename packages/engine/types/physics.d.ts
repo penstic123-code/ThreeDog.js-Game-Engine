@@ -19,7 +19,7 @@ export interface CollisionOptions {
   cameraMin?: number;
   /** Height above the water surface (meters) at which it counts as walkable, default 0.2 */
   walkableWaterMargin?: number;
-  /** What camera occlusion checks: 'colliders' (default) | 'meshes' registered static meshes (engine.rays) | 'both' */
+  /** What camera occlusion checks: 'both' (default) | 'colliders' | 'meshes' = static meshes registered with engine.rays.addStatic(mesh, { occluder: true }) */
   cameraOcclusion?: 'colliders' | 'meshes' | 'both';
 }
 /** Circle collider: center x/z, radius r, height h (meters), occ false when added with occluder: false */
@@ -73,7 +73,7 @@ export interface Collision {
   addBox(position: PositionLike, opts?: BoxColliderOptions): Handle;
   /** Add a thin wall along a -> b (fence). Options: thickness (default 0.3), height, y, occluder (as in addBox). A gap between segments is a gate. Returns a handle { remove() } */
   addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?: number; height?: number; y?: number; occluder?: boolean }): Handle;
-  /** Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure. bounds { minX, maxX, minZ, maxZ } (world metres, the field's x / z extent) skips fn outside it; give it to keep findPathAsync's ground sampling cheap. Returns a handle { remove() } */
+  /** Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure (no side effects, same answer for the same (x, z)); reading engine.ground in it is fine. findPathAsync caches the answers, so after the ground or your own state changes, remove() and add the field again. bounds { minX, maxX, minZ, maxZ } (world metres, the field's x / z extent) skips fn outside it; give it to keep findPathAsync's ground sampling cheap. Returns a handle { remove() } */
   addBlocked(fn: (x: number, z: number) => boolean, opts?: { bounds?: { minX: number; maxX: number; minZ: number; maxZ: number } }): Handle;
   /** Is a character of this radius touching addBlocked ground at (x, z) */
   blockedAt(x: number, z: number, radius?: number): boolean;

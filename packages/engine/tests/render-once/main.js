@@ -91,10 +91,18 @@ async function cases(opts) {
   out.photoPicture = { before: records0, after: gameRecords(e), bloomAfter: e.post.get('bloom').enabled };
 
   // 5. a probe bake on this backend: the red wall on +x reaches the probes (DC red above DC blue)
-  const set = await e.bakeProbes({ bounds: { min: [-1, 1, -1], max: [1, 1, 1] }, spacing: 2, resolution: 8, follow: false });
-  const sh = set.toJSON().sh;
-  out.probes = { count: set.count, finite: sh.every(Number.isFinite), red: sh[0], blue: sh[2] };
+  const set = await e.bakeProbes({ bounds: { min: [-1, 0.5, -1], max: [1, 1.5, 1] }, spacing: 2, resolution: 8 });
+  // the grid has to reach a lit pixel on this renderer, baked and from its file: a lit slab in the grid, grid off then on
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(2, 0.2, 2), new (r.isWebGPURenderer ? TG.MeshLambertNodeMaterial : THREE.MeshLambertMaterial)({ color: 0xffffff }));
+  slab.position.set(0, 1, 0); e.scene.add(slab); aim(e, 0);
+  const shot = async () => { const rt = new (r.isWebGPURenderer ? TG.RenderTarget : THREE.WebGLRenderTarget)(W, H); e.renderOnce(rt); const m = mean(await readTarget(r, rt)); rt.dispose(); return m; };
+  set.grid.visible = false; const off = await shot();
+  set.grid.visible = true; const on = await shot();
+  const json = JSON.parse(JSON.stringify(set.toJSON()));
   set.remove();
+  const file = e.loadProbes(json), fromFile = await shot();
+  out.probes = { count: set.count, finite: set.sh.every(Number.isFinite), red: set.sh[0], blue: set.sh[2], half: file.grid.texture.type === THREE.HalfFloatType, off, on, fromFile, dc: Array.from({ length: 8 }, (_, i) => [set.sh[i * 27], set.sh[i * 27 + 2], set.sh[i * 27 + 3]].map(v => +v.toFixed(3))) };
+  file.remove(); slab.removeFromParent();
   e.dispose();
   return out;
 }

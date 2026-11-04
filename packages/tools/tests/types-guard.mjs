@@ -34,6 +34,15 @@ let s = float(0); s = s.add(1);
 const eng = createEngine({ canvas: document.createElement('canvas') }); const fog = () => ({ name: 'fog', slot: 'hdr', create: () => ({}) }); eng.post.add(fog());
 eng.post.ad(fog());
 console.log(eng.random());
+import { Fn } from 'three/tsl';
+const tn = Fn(([a, b]) => a.mul(b)); tn(float(1), float(2));
+let geo = new THREE.IcosahedronGeometry(1); geo = new THREE.BoxGeometry();
+new THREE.Mesh().material = new THREE.BoxGeometry();
+const own = a => a; own(1, 2);
+Fn(b => { const [q] = b; return q; });
+const [notList] = float(1);
+import { vec3, mix } from 'three/tsl'; vec3(new Map());
+mix(float(1), 'x', 2);
 `;
 
 export async function run({ check }) {
@@ -62,6 +71,11 @@ export async function run({ check }) {
     check('an effect returned from a function (slot widened to string) is a valid PostEffect', !errs.some(l => /probe\.js:23 /.test(l)) && !hints.some(l => /probe\.js:23 /.test(l)), errs.join(' | '));
     check('an engine API typo still fails (post.ad)', errs.some(l => /probe\.js:24 .*ad/.test(l)), errs.join(' | '));
     check('calling an object names the expression and its type (engine.random() where engine.random is a Random)', errs.some(l => /probe\.js:25 .*`eng\.random` is not a function.*Random.*`eng\.random\.<method>\(\)`/.test(l)), errs.join(' | '));
-    check('no other errors (declarations themselves are clean)', errs.length === 7, errs.join(' | '));
+    check('2488 on NodeBuilder (a Fn callback destructured) is a hint (31); 2488 on any other node is a real mistake and stays an error (32)',
+      hints.some(l => /probe\.js:31 .*NodeBuilder/.test(l)) && errs.some(l => /probe\.js:32 /.test(l)), errs.concat(hints).join(' | '));
+    check('2769 with a TSL node in the message is a hint (33); without one it stays an error (34)', hints.some(l => /probe\.js:33 /.test(l)) && errs.some(l => /probe\.js:34 /.test(l)), errs.concat(hints).join(' | '));
+    check('a Fn(...) call and two sibling geometries in one variable: hints (27, 28); a geometry given as a material and a plain function with too many arguments stay errors (29, 30)',
+      [27, 28].every(n => hints.some(l => l.includes(`probe.js:${n} `)) && !errs.some(l => l.includes(`probe.js:${n} `))) && [29, 30].every(n => errs.some(l => l.includes(`probe.js:${n} `))), errs.join(' | '));
+    check('no other errors (declarations themselves are clean)', errs.length === 11, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

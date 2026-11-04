@@ -38,7 +38,8 @@ const banner = new THREE.MeshLambertMaterial({ color: 0xd04a3a, transparent: tru
 // Glowing lamp
 const lamp = new THREE.MeshStandardMaterial({ color: 0x6b5a40, emissive: 0xffc070, emissiveIntensity: 1.2 });
 
-// Toon with an explicit light ramp: three.js's gradientMap; rampTexture takes grays or colors, dark to light, and how far the bands melt (0-1)
+// Toon with an explicit light ramp: three.js's gradientMap; rampTexture takes grays, dark to light, and how far the bands melt (0-1). three's toon reads only
+// the red channel, so a colored ramp needs celLighting on the WebGPU route (recipe 56); on WebGL a colored shade is a lighting patch (recipe 43)
 import { rampTexture } from 'threedog';
 const skin = new THREE.MeshToonMaterial({ color: 0xe8a0a0, gradientMap: rampTexture([0.25, 0.6, 1], 0.2) });
 ```

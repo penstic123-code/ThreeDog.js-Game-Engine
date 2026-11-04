@@ -48,7 +48,7 @@ export const TYPES_GEN_REL = `${TYPES_REL}/generated`;
  */
 export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/ui/UI.js`, `${ENGINE_REL}/ui/Focus.js`, `${ENGINE_REL}/ui/LoadingScreen.js`,
-  `${ENGINE_REL}/render/lighting.js`, `${ENGINE_REL}/render/materials.js`, `${ENGINE_REL}/render/modeling.js`, `${ENGINE_REL}/render/patches.js`, `${ENGINE_REL}/render/PostFX.js`,
+  `${ENGINE_REL}/render/lighting.js`, `${ENGINE_REL}/render/materials.js`, `${ENGINE_REL}/render/modeling.js`, `${ENGINE_REL}/render/occlusion.js`, `${ENGINE_REL}/render/patches.js`, `${ENGINE_REL}/render/PostFX.js`,
   `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/calendar/Calendar.js`, `${ENGINE_REL}/modules/calendar/index.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/weather/weatherDraw.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,

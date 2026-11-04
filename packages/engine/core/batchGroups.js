@@ -3,10 +3,11 @@
 // e an entry (one mesh of one placed object). Hidden instances are swap-removed, not zero-scaled (vegetation's way), so batch bounds stay tight.
 import * as THREE from 'three';
 import { copyPatches } from '../render/patches.js';
+import { RESERVED_LAYERS } from '../render/layers.js';
 
 const noRaycast = () => {};
 /** Layer a batched original is moved to: the camera does not draw it (nor its shadow), engine.rays still tests it */
-export const BATCH_LAYER = 31;
+export const BATCH_LAYER = RESERVED_LAYERS.batched;
 const WHITE = new THREE.Color(1, 1, 1);
 const _m = new THREE.Matrix4(), _c = new THREE.Color();
 const hold = (B, x, d) => { const n = (B.held.get(x) ?? 0) + d; if (n > 0) B.held.set(x, n); else B.held.delete(x); };
@@ -18,6 +19,12 @@ function makeMesh(B, g, capacity) {
   im.matrixAutoUpdate = false; im.raycast = noRaycast;   // rays hit the originals (on BATCH_LAYER), never the batch
   im.userData = { budgetTag: 'batch', cell: g.cell };
   g.mesh = im; B.byMesh.set(im, g); B.root.add(im);
+  g.watch?.remove();
+  let version = -1;   // the box follows the instances: a stale one would hide what stands elsewhere now
+  g.watch = B.engine.occlusion.watch([im], () => {
+    if (version !== im.instanceMatrix.version) { version = im.instanceMatrix.version; im.computeBoundingBox(); }
+    return im.boundingBox;
+  });
   return im;
 }
 
@@ -60,6 +67,7 @@ export function leave(B, g, e) {
 /** Back to plain meshes (the group dropped under half of minCount, or batching was switched off) */
 export function dissolve(B, g) {
   for (const e of [...g.items].reverse()) leave(B, g, e);
+  g.watch?.remove(); g.watch = null;
   g.mesh.removeFromParent(); g.mesh.dispose(); g.mesh = null; g.colored = false;
   hold(B, g.geometry, -1); hold(B, g.material, -1);
 }

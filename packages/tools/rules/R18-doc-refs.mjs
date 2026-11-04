@@ -6,11 +6,11 @@
 //      Placeholders (<…>, *, …, xxx, my-*, games/<missing game>/) are skipped.
 //   2. `npm test -- name` (error): each name must be a substring of a real test name, any case (engine and game specs, tool tests, scenarios, pack items).
 //   3. `threedog cmd` / `npm run script` (error): a command of bin/threedog.mjs, or a script of the root / engine / template / game package.json.
-//   4. events `noun:action` (warn): in EventMap, a game's GameEvents, or emitted by game code.
-//   5. `engine.x.y` (error in the engine's docs/ and recipes, warn elsewhere): a property of the Engine type, then of its type
+//   4. events `noun:action` (error): in EventMap, a game's GameEvents, or emitted by game code.
+//   5. `engine.x.y` (error): a property of the Engine type, then of its type
 //      (TypeScript checker on the d.ts program shared with R6 / R7 / R22). Why an error there: an AI copies a name from those docs as a fact, and a
 //      renamed API must take its docs along in the same change.
-//   6. free functions `name(` at the start of a span (warn): exported by the engine, named in any d.ts, declared in the doc set or game code,
+//   6. free functions `name(` at the start of a span (error): exported by the engine, named in any d.ts, declared in the doc set or game code,
 //      or a JS / DOM global. ```js blocks are type-checked by R13, so classes 4–6 skip them.
 //   7. links to `file.md#anchor` and `#anchor` (error): the target has that heading or an <a id>. Why: a recipe's section gets renamed and the link keeps sending readers nowhere.
 //   8. `look.<part>` (error, the MIGRATING pages aside): the placeholder form of an API that no longer exists, which class 5 reads as a placeholder and lets through.
@@ -34,10 +34,17 @@ const ALLOW = [
   [`${P.RECIPES_REL}/23-ops.md`, 'npc:state', 'an example of an event name a game may declare'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'toBeCloseTo', 'a matcher of `threedog js --file` scripts'],
-  ['COMMANDS.md', 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
+  [`${P.DOCS_REL}/COMMANDS.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
   [`${P.RECIPES_REL}/49-game-module-contract.md`, 'engine.machines', 'the copyable module of this recipe (named so it does not clash with engine.jobs)'],
   [`${P.RECIPES_REL}/51-capability-catalog.md`, 'engine.shop', 'the example module of this recipe'],
   [`${P.RECIPES_REL}/15-perf.md`, 'serve', 'the worker-side helper of core/threadServe.js, imported inside the worker file'],
+  ['*', 'codedError', "engine-internal helper (core/errorHints.js) named for the people who write engine code; a game never imports it"],
+  ['*', 'warnOnce', 'engine-internal helper named for the people who write engine code; a game never imports it'],
+  [`${P.RECIPES_REL}/09-materials-lights-models.md`, 'neutralMaterial', 'engine-internal (render/neutral.js), named in the section for engine developers'],
+  [`${P.RECIPES_REL}/62-picture-code.md`, 'dayNightLights', 'a helper the example game writes in its own picture/ folder, named as a shape to copy'],
+  ['*', 'updateProjectionMatrix', "three.js's own method (Camera), named in an example README"],
+  ['*', 'CameraHelper', "three.js's own class, named in an example README"],
+  ['*', 'uniform', "the TSL function (three/tsl), named in an example README"],
 ];
 const GLOBALS = new Set(('setTimeout setInterval clearTimeout clearInterval requestAnimationFrame cancelAnimationFrame fetch structuredClone queueMicrotask ' +
   'addEventListener removeEventListener alert confirm prompt import require eval parseInt parseFloat isNaN isFinite Number String Boolean Array Object ' +
@@ -125,6 +132,9 @@ export async function context() {
 }
 
 const shipped = f => P.under(f, P.DOCS_REL) || P.under(f, `${P.TOOLS_REL}/templates`);
+// A name in an engine doc is a fact the AI copies, so a wrong one is an error. A game's own DESIGN / STATUS / README names the game's own modules
+// (engine.farm.plant), which the engine d.ts cannot know, so there it is a warning.
+const levelOf = doc => P.MODE === 'game' || /^games\//.test(doc) || P.gameDirs().some(d => doc.startsWith(`${rel(d)}/`)) ? 'warn' : 'error';
 const allowed = (doc, token) => ALLOW.some(([d, t]) => (d === '*' || d === doc) && t === token);
 
 function checkPath(doc, tok, ctx) {
@@ -178,7 +188,7 @@ function checkEvents(doc, item, ctx) {
   for (const m of item.text.matchAll(/\b(?:on|once|emit|off)\(\s*'([a-z][A-Za-z]*:[a-z][A-Za-z]*)'/g)) names.push(m[1]);
   return [...new Set(names)].filter(n => !ctx.events.has(n) && !allowed(doc, n) && !/^(https?|wss?|data|blob|file|node|npm)$/.test(n.split(':')[0])).map(n => {
     const near = closest(n, [...ctx.events]);
-    return { level: 'warn', msg: `event \`${n}\` is not in EventMap, a game's GameEvents or game code${near ? `; did you mean \`${near}\`?` : ''}`,
+    return { level: levelOf(doc), msg: `event \`${n}\` is not in EventMap, a game's GameEvents or game code${near ? `; did you mean \`${near}\`?` : ''}`,
       fix: 'fix the name, or declare the game event in its GameEvents' };
   });
 }
@@ -186,7 +196,7 @@ function checkEvents(doc, item, ctx) {
 function checkMembers(doc, item, ctx) {
   const out = [], { checker, engine, typeOf } = ctx.api;
   if (!engine) return out;
-  const level = P.under(doc, P.DOCS_REL) ? 'error' : 'warn';
+  const level = levelOf(doc);
   for (const m of item.text.matchAll(/(?<![\w.$])engine\.([A-Za-z_$][\w$]*)(?:\??\.([A-Za-z_$][\w$]*))?/g)) {
     const [, a, b] = m;
     if (PLACEHOLDER.test(a) || (b && PLACEHOLDER.test(b)) || allowed(doc, `engine.${a}`)) continue;   // ALLOW: 'engine.crops' = an example module's member
@@ -208,11 +218,11 @@ function checkMembers(doc, item, ctx) {
   return out;
 }
 
-function checkFn(item, ctx) {
+function checkFn(doc, item, ctx) {
   const m = item.span && item.text.match(/^([A-Za-z_$][\w$]*)\((?!s\))/);   // stair(s) is a plural, not a call
-  if (!m || ctx.fns.has(m[1]) || PLACEHOLDER.test(m[1]) || ALLOW.some(([, t]) => t === m[1])) return [];
+  if (!m || ctx.fns.has(m[1]) || PLACEHOLDER.test(m[1]) || allowed(doc, m[1])) return [];
   const near = closest(m[1], [...ctx.api.exports]);
-  return [{ level: 'warn', msg: `\`${m[1]}()\` is not an engine export or a name the d.ts knows${near ? `; did you mean \`${near}()\`?` : ''}`,
+  return [{ level: levelOf(doc), msg: `\`${m[1]}()\` is not an engine export or a name the d.ts knows${near ? `; did you mean \`${near}()\`?` : ''}`,
     fix: 'fix the name, or import it from where it lives' }];
 }
 
@@ -224,7 +234,7 @@ export function checkDoc(doc, text, ctx) {
     if (it.span) { const p = checkPath(doc, it.text.trim(), ctx); if (p) out.push(at(p)); }
     if (it.lang === 'js') continue;   // R13 type-checks js blocks; commands in their comments are examples
     for (const r of [...checkTests(it.text, ctx), ...checkCli(it.text, ctx)]) out.push(at(r));
-    for (const r of [...checkEvents(doc, it, ctx), ...checkMembers(doc, it, ctx), ...checkFn(it, ctx)]) out.push(at(r));
+    for (const r of [...checkEvents(doc, it, ctx), ...checkMembers(doc, it, ctx), ...checkFn(doc, it, ctx)]) out.push(at(r));
   }
   return out;
 }

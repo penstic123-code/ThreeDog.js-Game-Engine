@@ -112,8 +112,6 @@ export interface LevelLoadedEvent { root: Object3D; markers: Record<string, Leve
 export interface Level {
   /** Scene root node */
   root: Object3D | null;
-  /** Same as root (the name consistent with player.object and ent.object) */
-  readonly object: Object3D | null;
   /** All markers: name -> marker */
   markers: Record<string, LevelMarker>;
   /** Spawn point position */
@@ -223,7 +221,6 @@ export interface TriggersOptions {
 export interface Triggers {
   /** All trigger zones (a new array) */
   list(): Trigger[];
-  action: string;
   /** Add a trigger zone */
   add(opts?: TriggerOptions): Trigger;
   /** Delete all (delete a single one with trigger.remove()) */
@@ -372,7 +369,6 @@ export interface SettingsOptions {
 
 /** engine.settings */
 export interface Settings {
-  action: string;
   /** All current setting values */
   values: Record<string, any>;
   /** Graphics presets */
@@ -945,7 +941,7 @@ export interface InteractionOptions {
   id?: string;
   /** Prompt text, or a function (object, { actor }) returning text; actor = world record id of who looks at it */
   label?: string | ((object: Object3D, ctx: { actor: string }) => string);
-  /** How close the actor must be (meters), default interactions({ radius }) = 2.5 */
+  /** How close the actor must be (meters), measured from the object's origin in 3D, not its edge, so a large object (a boat, a house) needs a larger radius or a small marker object at the spot to use. Default interactions({ radius }) = 2.5 */
   radius?: number;
   /** Key action name, default 'interact' (E key). Give one object a second verb by adding another interaction with another action */
   action?: string;
@@ -970,12 +966,11 @@ export interface InteractionOptions {
   approach?: boolean;
   /** Hide the object after a use and allow no second one (onUse returning { ok: false } leaves it). Saved under id, else the object's name; development throws when it has neither */
   once?: boolean;
-  /** Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved */
+  /** Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved; read the total with hud.value(name) */
   counter?: string;
 }
 /** engine.interactions */
 export interface Interactions {
-  action: string;
   /** How high the prompt floats (meters) */
   promptHeight: number;
   /** All interactions in the order added (a fresh array each read; get(id) finds one without it) */
@@ -1365,8 +1360,6 @@ export interface Container {
 export interface Inventory {
   /** true: gameplay freezes while the inventory window is open (set from inventory({ pauseGame }) or at runtime) */
   pauseGame: boolean;
-  /** Item definitions */
-  defs: Map<string, ItemDef>;
   /** Slot limit of the player inventory */
   capacity: number;
   /** Player inventory: the bag of engine.actor (= of()) */
@@ -1472,7 +1465,6 @@ export interface QuestDef {
 }
 /** engine.quests */
 export interface Quests {
-  defs: Map<string, QuestDef>;
   /** The quest log (UI part 'questLog'): open, toggle(on?), refresh() */
   win: { readonly open: boolean; toggle(on?: boolean): void; refresh(): void };
   /** Define a quest (chainable) */
@@ -2030,6 +2022,8 @@ export interface Hud {
   counter(id: string, opts: { label?: string; icon?: string; value?: number | string; max?: number; anchor?: HudAnchor }): void;
   /** Add n (default 1) to a number counter, return the new value; one not declared yet starts at 0 with its id as the label */
   add(id: string, n?: number): number;
+  /** Current value of a counter or bar (number or text), undefined when there is none; reads what interactions.add({ counter }) has added up */
+  value(id: string): number | string | undefined;
   /** Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged),
    *  value/max 0–max */
   bar(id: string, opts: { value: number; max?: number; label?: string; anchor?: HudAnchor }): void;

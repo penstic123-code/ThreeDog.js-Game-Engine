@@ -5,6 +5,8 @@ import type { Data3DTexture } from 'three';
 
 /** Color grading (ldr, fused): contrast / saturation 1 = unchanged, temperature -1 cool .. 1 warm, optional 3D LUT (e.g. LUTCubeLoader's texture3D). On when listed (enabled: false lists it off) */
 export function lut(o?: { lut?: Data3DTexture | null; amount?: number; contrast?: number; saturation?: number; temperature?: number; enabled?: boolean; order?: number }): PostEffect;
+/** A 3D LUT that snaps every color to the nearest of `colors` (display sRGB, nearest filter), for lut({ lut }). colors: at least 2; size: cells per side (default 32). */
+export function paletteLut(colors: ColorLike[], size?: number): Data3DTexture;
 /** Film grain (ldr, fused); size in device pixels, animated = new noise 24 times a second. On when listed (enabled: false lists it off) */
 export function grain(o?: { amount?: number; size?: number; animated?: boolean; enabled?: boolean; order?: number }): PostEffect;
 /** Darker corners (ldr, fused); start: 0 center .. 1 corner. On when listed (enabled: false lists it off) */

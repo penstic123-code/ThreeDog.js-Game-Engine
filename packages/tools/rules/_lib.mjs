@@ -53,7 +53,7 @@ export function visit(node, fn) { (function go(n) { fn(n); ts.forEachChild(n, go
 export const engineFiles = () => [P.INDEX_JS_REL, ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(d, ['.js']))];
 /** API declarations (packages/engine/index.d.ts + packages/engine/types/*.d.ts) */
 export const dtsFiles = () => [P.INDEX_DTS_REL, ...walk(P.TYPES_REL, ['.d.ts'])].filter(f => existsSync(abs(f)));
-/** All project source: engine, add-ons, examples, engine tests, tools, games/* (style/ folders included) (scope: SOURCE_DIRS_REL in paths.mjs) */
+/** All project source: engine, add-ons, examples, engine tests, tools, games/* (picture/ folders included) (scope: SOURCE_DIRS_REL in paths.mjs) */
 export const projectFiles = (exts = ['.js', '.mjs']) => [...(exts.some(e => P.INDEX_JS_REL.endsWith(e)) ? [P.INDEX_JS_REL] : []), ...P.SOURCE_DIRS_REL.flatMap(d => walk(d, exts))];
 
 /**

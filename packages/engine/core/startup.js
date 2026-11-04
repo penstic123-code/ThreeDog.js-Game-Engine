@@ -173,6 +173,7 @@ export const startupMethods = {
       if (t !== this.tier && aaDefault) this.post.setAntialias(t !== 'low');
       this.tier = t;
     }
+    this.post?._sync();   // effects held by tier or backend (PostFX _held) are only known now
   },
 
   /**

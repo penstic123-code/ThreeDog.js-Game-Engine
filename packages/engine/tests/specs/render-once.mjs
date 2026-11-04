@@ -20,8 +20,12 @@ export const specs = [
         check(`${k}: photo.take() gives a real picture (canvas size, not one color)`, x.photo.w === 160 * 1.6 && x.photo.spread > 60, JSON.stringify(x.photo));
         check(`${k}: photo.take({ bloom: true }) leaves the game layer as it was and bloom back off`,
           JSON.stringify(x.photoPicture.after) === JSON.stringify(x.photoPicture.before) && x.photoPicture.bloomAfter === false, JSON.stringify(x.photoPicture));
-        check(`${k}: bakeProbes() runs: 4 probes, finite SH, the red wall shows (DC red > DC blue)`, x.probes.count === 4 && x.probes.finite && x.probes.red > x.probes.blue, JSON.stringify(x.probes));
+        check(`${k}: bakeProbes() runs: 8 probes, finite SH, the red wall shows (DC red > DC blue), stored half precision`, x.probes.count === 8 && x.probes.finite && x.probes.red > x.probes.blue && x.probes.half, JSON.stringify(x.probes));
+        check(`${k}: the grid reaches a lit pixel, and the file draws the same picture as the bake`, x.probes.on > x.probes.off + 0.1 && Math.abs(x.probes.on - x.probes.fromFile) < 0.05, JSON.stringify(x.probes));
       }
+      // the same probe on both renderers: an upside-down read back (the WebGL2 backend's rows) or a swapped axis shows as a big gap, the small rest is 8 px cube faces
+      const gap = Math.max(...r.webgl.probes.dc.flat().map((v, i) => Math.abs(v - r.webgpu.probes.dc.flat()[i])));
+      check('[guard] both renderers bake the same light into the same probes', gap < 0.05, String(gap));
       check('control: with the node frame frozen the WebGPU route repeats the first picture (the bug renderOnce prevents)', r.control.changed < 1, JSON.stringify(r.control));
     },
   },

@@ -1,6 +1,8 @@
-// Bundle size budget: the blank new-game template (templates/game), built for production, must stay under a loose gzip ceiling for its JS.
+// Bundle size budget: the blank new-game template (templates/game), built for production on each route, must stay under a loose gzip ceiling for its JS.
 // Why: every game starts from this build, so an engine import that drags a big dependency into core (or a module that stops tree-shaking) shows here
 // first, long before a game notices a slow first load. The ceiling is the size measured when it was set plus ~25%; raise it only for a growth you meant.
+// Each route has its own ceiling: a WebGPU game also carries three/webgpu and the engine's node parts, and that must not loosen the check on the engine core
+// that WebGL games pay for (the core never imports threedog/tsl, so a WebGL game stays small).
 // On failure the detail lists the largest source modules of the build (rendered bytes, before gzip), so what grew is visible without another tool.
 import { mkdirSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,18 +10,25 @@ import { gzipSync } from 'node:zlib';
 import { ROOT, rel, viteOptions } from '../paths.mjs';
 import { copyTemplates } from '../lib/scaffold.mjs';
 
-/** gzip KB of all JS in dist/assets, lazy chunks included (navmesh wasm, draco decoder): 899 KB measured 2026-11-02, + 25% */
-const CEILING_KB = 1125;
+/** gzip KB of all JS in dist/assets, lazy chunks included (navmesh wasm, draco decoder). WebGL: 899 KB measured 2026-11-02, + 25%. WebGPU: 1164 KB measured 2026-11-04, + 25% */
+const CEILING_KB = { webgl: 1125, webgpu: 1455 };
+/** gzip KB of the first load (the entry chunk and what it imports statically: what every player downloads before the first frame). Measured 2026-11-05: WebGL 475, WebGPU 689, + ~10% */
+const FIRST_KB = { webgl: 525, webgpu: 760 };
 
-export const name = 'bundle size: the blank game template builds and its JS stays under the gzip ceiling';
+export const name = 'bundle size: the blank game template builds on each route and its JS stays under that route\'s gzip ceiling';
 
 export async function run({ check }) {
+  for (const route of /** @type {const} */ (['webgpu', 'webgl'])) await measure(check, route);
+}
+
+/** @param {any} check @param {'webgpu' | 'webgl'} route */
+async function measure(check, route) {
   // inside the repo's .threedog so `threedog` and `@threedog/tools/vite` resolve through the root node_modules, as in a real game workspace
   const dir = join(ROOT, '.threedog', 'bundle-size');
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   try {
-    copyTemplates(dir, { name: 'sizecheck' });
+    copyTemplates(dir, { name: 'sizecheck', webgl: route === 'webgl' });
     const { build } = await import('vite');
     const res = await build(await viteOptions(dir, { logLevel: 'error' }));
     const outputs = [res].flat().flatMap(r => r.output ?? []);
@@ -38,8 +47,8 @@ export async function run({ check }) {
       by.set(k, (by.get(k) ?? 0) + m.renderedLength);
     }
     const top = [...by].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, b]) => `${k} ${Math.round(b / 1024)} KB`).join(', ');
-    check(`template JS: ${total} KB gzip in ${js.length} file(s), first load ${firstKb} KB (ceiling ${CEILING_KB} KB on the total)`, total <= CEILING_KB,
+    check(`${route} template JS: ${total} KB gzip in ${js.length} file(s), first load ${firstKb} KB (ceilings ${CEILING_KB[route]} KB total, ${FIRST_KB[route]} KB first load)`, total <= CEILING_KB[route] && firstKb <= FIRST_KB[route],
       `largest chunks: ${sizes.slice(0, 4).map(x => `${x.f} ${Math.round(x.kb)} KB`).join(', ')}; largest sources (rendered, before gzip): ${top}. ` +
-      `Look at what an import added (git diff of index.js / core imports); raise CEILING_KB in ${rel(join(import.meta.dirname, 'bundle-size.mjs'))} only for a growth you meant`);
+      `Look at what an import added (git diff of index.js / core imports); raise CEILING_KB / FIRST_KB in ${rel(join(import.meta.dirname, 'bundle-size.mjs'))} only for a growth you meant`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

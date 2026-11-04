@@ -55,7 +55,9 @@ export default function threedogBridge() {
         .sort((a, b) => b[1].at - a[1].at)[0]?.[0];
       const ask = (client, event, payload = {}) => new Promise((res, rej) => {
         const id = ++seq;
-        const t = setTimeout(() => { pending.delete(id); rej(new Error('the page did not respond for 2 minutes (stuck? try threedog reload)')); }, TIMEOUT);
+        // js --wait can ask for longer than TIMEOUT: the page's own message must get here first, it says more than this one
+        const ms = Math.max(TIMEOUT, ((payload.arg?.wait ?? 0) + 15) * 1000);
+        const t = setTimeout(() => { pending.delete(id); rej(new Error(`the page did not respond for ${Math.round(ms / 60000)} minutes (stuck? try threedog reload)`)); }, ms);
         // also notice a socket that went away without a disconnect event
         const alive = setInterval(() => { if (!server.ws.clients.has(client)) dropClient(client); }, 500);
         const done = () => { clearTimeout(t); clearInterval(alive); };

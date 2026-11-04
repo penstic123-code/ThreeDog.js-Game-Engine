@@ -4,7 +4,7 @@ There is a single entry point: `engine.assets.animate(model, config)` -> Animato
 For characters (player, NPCs), passing `model` builds the Animator automatically and switches clips by character state (idle walk run swim jump fall drive).
 
 ## 1. The model
-Export a glTF with animations from Blender, put it in `art/models/` -> `npm run assets` -> `public/models/hero.glb`. Register it and fetch a copy (the
+Export a glTF with animations from Blender, put it in `art/models/` -> `npm run assets` -> `public/optimized/hero.glb`. Register it and fetch a copy (the
 skeleton is cloned correctly; clips are in `userData.animations`):
 ```js
 engine.assets.manifest({ models: { hero: '/models/hero.glb', dog: '/models/dog.glb' } });
@@ -50,7 +50,8 @@ engine.player.anim.state;                                           // current s
 ```
 **The game's own states** (crouch, climb, glide, dash, roll) go on top of the built-in ones through the `states` option, without taking the mover
 over: it runs after the mover's state each step and returns a state name or null (keep the built-in `facts.base`); the clip comes from `clips`
-like any other state, a speed change stays `engine.mod('move.speed')`.
+like any other state, a speed change stays `engine.mod('move.speed')`. A state only names the pose: climbing also needs someone to move the body
+(recipe 57, Moved by script, has a ladder).
 ```js
 createPlayer({ ...presets.player.thirdPerson, model: hero, clips: { crouch: 'Crouch', glide: 'Glide' },
   states: (c, f) => f.grounded && engine.input.down('crouch') ? 'crouch' : !f.grounded && f.vy < 0 && gliding ? 'glide' : null });

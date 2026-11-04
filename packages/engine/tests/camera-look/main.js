@@ -16,6 +16,7 @@ const onRoof = (x, z) => x >= ROOF.x0 && x <= ROOF.x1 && z >= ROOF.z0 && z <= RO
 const BUMP = { x0: -63, x1: -57, z0: 4.05, z1: 4.3, h: 4 };
 const onBump = (x, z) => x >= BUMP.x0 && x <= BUMP.x1 && z >= BUMP.z0 && z <= BUMP.z1;
 engine.setGround({ height: (x, z) => onRoof(x, z) ? ROOF.h : onBump(x, z) ? BUMP.h : 0 });
+window.THREE = THREE;
 const mat = new THREE.MeshLambertMaterial({ color: 0xc8c4bc });
 const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a9a96 }));
 groundMesh.name = 'ground'; engine.add(groundMesh);

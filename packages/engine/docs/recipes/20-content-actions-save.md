@@ -97,6 +97,9 @@ engine.saves.autosave(3);     // autosave to 'auto' every 3 minutes of play (wai
 
 ## 3. Interact keys: which object, and who acts
 `interactions({ pick })` decides what the interact key uses (no default, `[interaction-setup]` names the fix). It takes no key: bind one in `createEngine({ bindings: presets.bindings.interact })`, or with `engine.input.bind`.
+`radius` is measured from the object's origin, not its edge. For a large object (a boat, a house) raise it, or add the interaction to a small marker
+object at the spot where it is used.
+
 Pick the rule that fits the camera, not the genre default:
 ```js
 engine.use(interactions({ ...presets.interactions.nearest }));                   // E, nearest within 2.5 m (top-down, third person)

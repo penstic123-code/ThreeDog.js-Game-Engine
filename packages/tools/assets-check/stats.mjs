@@ -29,15 +29,6 @@ export function modelStats(doc, core) {
   };
 }
 
-/** Build report line about the final texture format; s0 = source stats (may be null), fellBack = KTX2 was requested but WebP was made */
-export function textureLine(s0, s1, fellBack) {
-  const t = s1.textures, fmt = t.formats.join('+');
-  let line = `    final texture format: ${fmt}${fellBack ? ' (fallback from KTX2)' : ''}`;
-  if (s0?.textures.count) line += `; source ${s0.textures.formats.join('+')}, transfer ${KB(s0.textures.transferBytes)} → ${KB(t.transferBytes)}, GPU ≈ ${MB(s0.textures.gpuBytes)} → ${MB(t.gpuBytes)}`;
-  if (!t.formats.every(x => x === 'KTX2')) line += '\n    GPU memory is not reduced by WebP/PNG/JPEG (decoded to RGBA8 on load); only KTX2 does that';
-  return line;
-}
-
 /** Lines for the console */
 export function statsLines(s, indent = '    ') {
   const t = s.textures, fmt = t.formats.join('+') || 'none';

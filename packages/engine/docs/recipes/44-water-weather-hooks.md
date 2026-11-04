@@ -68,7 +68,7 @@ engine.water.shader({
   at grazing angles, `worldPos` the moved surface point. The result is lit, fogged and gets the grazing-angle fresnel like the default water.
   With `surface` written, `depthColor` / `foam` are not added (your function is the whole surface).
 - A wrong signature throws with the right one; misspelled keys throw with the near name.
-- Your GLSL has no WebGPU form: on `renderer: 'webgpu'` start() names the patch. The built-in wave, depth color and foam run on both renderers.
+- Your GLSL has no WebGPU form (the GLSL route is for `--webgl` games): on `renderer: 'webgpu'` start() names the patch. The built-in wave, depth color and foam run on both renderers.
 
 ## Water: normal map
 `engine.water.normalMap(name, { scale, repeat, speed })` loads the texture by asset name onto the engine's material: `scale` is its strength, `repeat` tiles
@@ -187,3 +187,5 @@ only when a type rains or snows, so a desert pays nothing.
 The weather's effect on the picture stays on signals: `engine.uniforms.uWeatherLight`, `uWeatherFog`, `uRain`, `uSnow`, `uWind`, `uCloud`. The game's own light,
 fog and wet-road code reads them; the weather writes no light and no fog.
 
+
+A look that changes with depth (tint, opacity, foam) reads depth as the water level minus `engine.ground.height(x, z)`: once per vertex of a subdivided plane, or baked into an attribute a material reads.

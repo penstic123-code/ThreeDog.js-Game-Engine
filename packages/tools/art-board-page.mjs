@@ -86,7 +86,7 @@ function client(D) {
   const grid = () => {
     const shown = D.items.filter(it => (kind === 'all' || it.kind === kind) && (status === 'all' || it.status === status) && (!word || it.line.toLowerCase().includes(word)));
     $('grid').innerHTML = shown.map(it => `<article data-ref="${esc(it.ref)}" class="${picked.has(it.ref) ? 'sel' : ''}"><label><input type="checkbox"${picked.has(it.ref) ? ' checked' : ''}></label><div class="pv">${preview(it)}</div>
-<h2>${esc(it.name)}<span class="st ${it.status}">${W[it.status]}</span></h2><p class="b">${W[it.kind]}${it.size ? ' · ' + size(it.size) : ''}${it.loaded ? ' · ' + W.live : ''}${it.library ? ' · ' + W.library + ': ' + esc(it.library) : ''}</p>
+<h2>${esc(it.name)}<span class="st ${it.status}">${W[it.status]}</span></h2><p class="b">${W[it.kind]}${it.size ? ' · ' + size(it.size) : ''}${it.loaded ? ' · ' + W.live : ''}${it.library ? ' · ' + W.library + ': ' + esc(it.library) : ''}${it.pulled ? ' · ' + esc(it.pulled) + (it.libraryState === 'newer' ? ' · newer in the library' : '') : ''}</p>
 <p class="at">${esc(it.file)}${it.problem ? ' · ' + esc(it.problem) : ''}</p>${where(W.usedAt, it.uses)}${where(W.maybeAt, it.maybe)}<button>${W.copy}</button></article>`).join('');
   };
   $('grid').addEventListener('click', e => {

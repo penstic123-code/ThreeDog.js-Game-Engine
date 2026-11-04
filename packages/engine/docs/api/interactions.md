@@ -24,7 +24,7 @@ Interaction prompts (interactions() module)
 - **InteractionOptions**
   - `id?: string` Stable id for the op interaction.use { id } (default: the world record id it was built for, else a running number)
   - `label?: string | ((object, ctx) => string)` Prompt text, or a function (object, { actor }) returning text; actor = world record id of who looks at it
-  - `radius?: number` How close the actor must be (meters), default interactions({ radius }) = 2.5
+  - `radius?: number` How close the actor must be (meters), measured from the object's origin in 3D, not its edge, so a large object (a boat, a house) needs a larger radius or a small marker object at the spot to use. Default interactions({ radius }) = 2.5
   - `action?: string` Key action name, default 'interact' (E key). Give one object a second verb by adding another interaction with another action
   - `onUse?: (object: Object3D, ctx: { actor: string }) => any` Called when used, with who uses it (ctx.actor of interaction.use: the local user, a net peer, an NPC). Its return value is the op's value; { ok: false, code } fails the op with that code
   - `enabled?: (object: Object3D, ctx: { actor: string }) => boolean` When this returns false the whole prompt disappears (to show a state such as "growing", don't use enabled: have the label function return different text by state and decide in onUse whether it can be used)
@@ -32,4 +32,4 @@ Interaction prompts (interactions() module)
   - `hold?: number` Seconds the key must stay down before onUse runs (0 = a press). The engine counts it and interrupts it on release, leaving reach, enabled() false or locked input (interaction:hold / interaction:interrupt); the prompt gets progress 0-1. The op interaction.use itself is the completed use
   - `approach?: boolean` Walk the player there first (walkTo, stops 1.2 m away), then use it; with radius: Infinity it can be used from anywhere (point-and-click)
   - `once?: boolean` Hide the object after a use and allow no second one (onUse returning { ok: false } leaves it). Saved under id, else the object's name; development throws when it has neither
-  - `counter?: string` Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved
+  - `counter?: string` Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved; read the total with hud.value(name)

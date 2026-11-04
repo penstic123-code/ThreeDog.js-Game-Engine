@@ -54,6 +54,8 @@ export async function run({ check }) {
   const ids = ERROR_HINTS.map(h => h.id);
   check('hint table: 3-8 classes (only messages the engine does not write) with unique ids', ids.length >= 3 && ids.length <= 8 && new Set(ids).size === ids.length, String(ids.length));
   const wrong = Object.entries(SAMPLES).filter(([id, msg]) => hintFor(msg)?.id !== id).map(([id, msg]) => `${id} -> ${hintFor(msg)?.id}`);
+  check('a read-only property of a three.js object (position, rotation) gets no frozen-definition hint',
+    hintFor("Cannot assign to read only property 'position' of object '#<Ca>'") === null && hintFor("Cannot assign to read only property 'position' of object '#<Mesh>'") === null);
   check('every sample message lands on its own class', wrong.length === 0, wrong.join('; '));
   check('every pattern class has a sample in this test', ids.every(id => id in SAMPLES), ids.filter(id => !(id in SAMPLES)).join(', '));
   const docs = ERROR_HINTS.flatMap(h => h.docs.map(d => [h.id, d])).filter(([, d]) => !existsSync(join(ROOT, DOCS_REL, d)));

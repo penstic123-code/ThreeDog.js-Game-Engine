@@ -1,7 +1,7 @@
 # WebGPU and your own TSL materials
 
 **In this recipe**: WebGPU or WebGL · Turning it on, fallbacks · A minimal TSL material · The engine's values as nodes · The engine's shader
-functions · Patches with a `tsl` field (lighting hooks) · Sky and fog hooks · Post effects as nodes · Mistakes, each with the fix · GLSL to TSL
+functions · Patches with a `tsl` field (lighting hooks) · Sky and fog hooks · Post effects as nodes · A consistent style · Mistakes, each with the fix · GLSL to TSL
 
 On the WebGPU route a game draws with three.js node materials (`MeshStandardNodeMaterial` ...) and writes shaders in TSL, three's shading
 language in JavaScript. Learn TSL from three itself: the [TSL guide](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language) and
@@ -13,15 +13,10 @@ Rules (correctness, not taste): `import 'threedog/tsl'` comes first in `main.js`
 `onBeforeCompile`, three.js `Pass` objects, GLSL-only patches and hooks), and each one fails by name instead of drawing nothing.
 
 ## WebGPU or WebGL
-WebGL stays the default and the faster choice on most machines today. Measured in 2026-11 on one scene (terrain, 3000 trees, shadows, bloom):
-on an integrated GPU WebGL drew a frame fastest, WebGPU took about 1.5 times as long and WebGPURenderer's WebGL2 backend (what a browser
-without WebGPU gets) about 1.7 times; on a discrete laptop GPU WebGL was still fastest. The first frame on WebGPU came 0.6 to 1.3 s later
-(shader compilation). How to decide:
-- Choose WebGPU when the game's picture is built from TSL (you want to write shaders in JavaScript, compose them as functions, or start from a
-  three.js WebGPU example), or when you need something only node materials have.
-- Stay on WebGL when the game must run well on modest hardware, when it already has GLSL (ShaderMaterials, `onBeforeCompile`, a three.js
-  `Pass`), or when start-up time matters more than the shading style. Recipe 43 is the GLSL route for the same tasks.
-- Check on the hardware you care about: `threedog inspect perf` on both routes, same scene.
+`threedog new-game` and `threedog init` start a game on WebGPU with TSL (`main.js` imports `threedog/tsl` first and calls `createEngine({ renderer: 'webgpu' })`). `--webgl` starts it on GLSL instead. `createEngine` called without `renderer` still builds a WebGL renderer. When the browser has no WebGPU the game keeps running on three's WebGL2 backend, and `engine.describe().renderer` says why. How to decide:
+- WebGPU + TSL (the default for a new game): the picture is built from TSL, you write shaders in JavaScript and compose them as functions, or start from a three.js WebGPU example, and effects that exist only as node materials are open to you.
+- `--webgl` + GLSL: the game already has GLSL (ShaderMaterials, `onBeforeCompile`, a three.js `Pass`), or must run best on modest hardware where plain WebGL draws a frame fastest, or start-up time matters more than the shading style. Recipe 43 is the GLSL route for the same tasks.
+- Check on the hardware you care about: `threedog inspect perf` on both routes, same scene. Measured in 2026-11 on one scene (terrain, 3000 trees, shadows, bloom): on an integrated GPU WebGPU took about 1.5 times as long as WebGL and WebGPURenderer's WebGL2 backend about 1.7 times; the first WebGPU frame came 0.6 to 1.3 s later (shader compilation).
 
 ## Turning it on
 ```js
@@ -55,6 +50,14 @@ engine.add(new THREE.Mesh(new THREE.TorusKnotGeometry(0.6, 0.2, 128, 16), mat));
 A node material is lit, shadowed and fogged by three like its plain twin; you replace only the inputs you set (`colorNode`, `positionNode`,
 `normalNode`, `emissiveNode`, `roughnessNode`, `opacityNode` ...).
 
+## Node names games use
+Everything is imported from `three/tsl`; a name you do not find here is almost always there too (`Object.keys(await import('three/tsl'))` lists them, `node_modules/three/src/nodes/` has the source).
+- Values: `float`, `vec2`, `vec3`, `vec4`, `color`, `uniform`, `texture`, `attribute`, `varying`.
+- Where am I: `positionLocal`, `positionWorld`, `positionGeometry`, `normalLocal`, `normalWorld`, `normalView`, `uv`, `screenUV`, `cameraPosition`, `instanceIndex`, `vertexColor`, `time`.
+- Math: `sin`, `cos`, `abs`, `fract`, `floor`, `pow`, `length`, `dot`, `normalize`, `min`, `max`, `clamp`, `mix`, `step`, `smoothstep`, `oneMinus`, `select`; chain the operators as methods (`.add`, `.mul`, `.sub`, `.div`).
+- Noise: `mx_noise_float`, `mx_fractal_noise_float` (MaterialX, also `_vec3`).
+- Your own function and branches: `Fn`, `If`, `Loop`.
+
 ## The engine's values as nodes: `uniforms(engine)`
 `uniforms(engine)` returns `engine.uniforms` as TSL nodes with the same names: `uTime`, `uWind`, `uCloud`, `uSunDir`, `uSunColor`, `uDaylight`
 (0 at night, 1 at noon), `uTimeOfDay`, `uFoliageTint`, `uGroundTint` ... (the list: `uniforms` in [the engine API](../api/engine.md)). The node reads the
@@ -85,6 +88,7 @@ in the package's `types/tsl.d.ts`. Call them on nodes, put the result where it b
 | `season(color, 0 \| 1)` | the color moved by the calendar's tint (0 foliage, 1 ground) | `colorNode` |
 | `detailNoise(p, kind, octaves)` / `detailBump(...)` | gray noise + height / a bumped normal | breaking up flat color; `normalNode` |
 | `wrapDiffuse`, `shadowTint`, `rim` | light to add | inside a lighting hook (next section) |
+| `celLighting` | a lighting model | `mat.setupLightingModel = celLighting` on a `MeshToonNodeMaterial` ("A consistent style" below) |
 | `waterWave`, `waterSurface(spec)`, `waterFresnel` | wave height / surface color / fresnel blend | a water material of your own |
 
 ```js
@@ -163,6 +167,42 @@ engine.post.get('warmGrade').set({ amount: 0.5 });   // a uniform write, no rebu
 ```
 `ldr` runs after tone mapping (display colors 0-1); something that should glow or bleed belongs in `hdr`. An effect with only `create`
 (a three.js `Pass`) stops with its name.
+
+## A consistent style
+A style reads as one when every surface answers the same few questions the same way. Decide these once, in one place of `picture/`, and let materials share the answers; a
+look built material by material drifts. Working example: `examples/techniques/three-looks/` (page `/technique-looks.html`), the same models three ways.
+
+| Question | Where it lives | With |
+|---|---|---|
+| Where does light turn into shade, how hard, what color is the shade | the lighting model; `colorNode` runs before lighting and sees no light | three's PBR with `wrapDiffuse` / `shadowTint` in a hook; `MeshToonNodeMaterial` + `gradientMap` (`rampTexture`); `celLighting` for colored bands |
+| Do shapes have lines | `hdr`, before the tone curve | `outline()`, or three's `toonOutlinePass` |
+| What moves | `positionNode`; the shadow follows, `castShadowPositionNode` only when it should differ | `wind()`, any node |
+| What fills the air | the scene | `scene.fog`, or `scene.fogNode = fog(color, factor)` |
+| What does the tone curve do | the renderer, once | `renderer.toneMapping`; `NoToneMapping` when the colors you wrote are the colors you want |
+| What is the finished picture's color | `ldr`: display colors after the tone curve, never tone-mapped again | `lut()`, `paletteLut()`, your own node; `grayscale`, `posterize`, `saturation`, `hue` from three/tsl |
+
+```js
+import { MeshToonNodeMaterial } from 'three/webgpu';
+import { rampTexture } from 'threedog';
+import { celLighting } from 'threedog/tsl';
+const ramp = rampTexture([0x7a84c8, 0xd0d4f0, 0xffffff]);   // example colors: the light in each band, dark to light, from the game's palette; one ramp for the whole game
+const mat = new MeshToonNodeMaterial({ color: 0xe08050, gradientMap: ramp });
+mat.setupLightingModel = celLighting;   // colored bands; a cast shadow reads the dark end of the ramp, so it is the same flat color as the side turned away
+```
+three's toon alone is enough for gray bands: it reads only the red channel of `gradientMap`, and a cast shadow drops to the ambient light. Choose it when that is the picture you
+want; `celLighting` when shade has a color or cast shadows belong to the bands. The ramp's width sets where bands fall, the left half being the side turned away.
+
+**Same tools, different pictures**: a paper cut-out is two bands and no line; ink wash is a gray palette through `paletteLut` with soft fog; a neon night is a dark ramp with `bloom` and
+emissive lines; a storybook is soft ramp edges (`rampTexture(ramp, soften)`) with a warm grade; a retro handheld is a four-color `paletteLut` with `posterize` before it.
+
+**How to judge it**, at the game's real camera (`threedog shot /your-page --gpu`):
+- Look at the picture in gray. Do the shapes still separate? Color cannot rescue forms that have the same value.
+- Cover the object you just changed. If the rest of the frame tells you the same story about light, the style is holding; if one material looks lit by another sun, its answers differ.
+- Is every shade in the frame leaning the same way? A cast shadow and a turned-away side that disagree read as two renderers.
+- A flat look with soft or stair-stepped shadow edges: the shadow map is showing. Raise its resolution for the area in view, or soften the ramp a little.
+- Count what the picture really holds, not what you meant: most common colors, saturation, light-dark spread (`window.techTest.measure` in the example is one way). A palette look with
+  many stray colors has something running after the `lut`; grain and vignette belong before it there.
+- Put an effect in the stage that matches what it reads. A grade written for finished colors looks wrong before the tone curve, and a glow after it stops glowing.
 
 ## Mistakes, each with the fix
 Each block shows the mistake as a comment and the working line under it.

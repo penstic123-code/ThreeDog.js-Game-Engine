@@ -28,7 +28,6 @@ Inventory (inventory() module)
 - `inventory.setContents(data: Record<string, any[] | null>, opts?: { only?: boolean })` — Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too
 - Properties:
   - `pauseGame: boolean` true: gameplay freezes while the inventory window is open (set from inventory({ pauseGame }) or at runtime)
-  - `defs: Map<string, ItemDef>` Item definitions
   - `capacity: number` Slot limit of the player inventory
   - `bag: Container` Player inventory: the bag of engine.actor (= of())
   - `slotsUsed: number` Slots used

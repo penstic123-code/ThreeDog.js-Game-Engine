@@ -73,6 +73,16 @@ export async function launchBrowser({ prefer = 'software', ...opts } = {}) {
 }
 
 /**
+ * System Chrome on the real GPU, for what needs true WebGPU (`threedog bake light`). Playwright's Chromium compiles WebGPU shaders through FXC and some of
+ * three's fail there; Chrome ships dxil.dll and uses DXC. Throws with what to do when Chrome is not installed.
+ */
+export async function launchRealGPU({ headless = true } = {}) {
+  try {
+    return await chromium.launch({ channel: 'chrome', headless, args: ['--enable-unsafe-webgpu', '--force_high_performance_gpu', '--ignore-gpu-blocklist'] });
+  } catch (e) { throw new Error(`system Chrome could not start (${String(e?.message ?? e).split('\n')[0]}): install Google Chrome, this step needs real WebGPU`); }
+}
+
+/**
  * A new page whose page errors and console errors go into `errors` (array). Options are passed to browser.newPage
  * (default viewport 1280×720). Returns the page.
  */

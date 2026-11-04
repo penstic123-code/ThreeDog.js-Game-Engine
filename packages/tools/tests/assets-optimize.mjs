@@ -1,0 +1,84 @@
+// assets optimize: a small real glTF (color + normal texture, real PNG pixels) goes through the real command in a temp game folder.
+// Guards: originals unchanged byte for byte, output is KTX2 + Meshopt, the normal map is UASTC / linear and the color map ETC1S / sRGB, a rerun skips,
+// --dry writes nothing, assets.js points at the result. Needs `ktx` (KTX-Software) on PATH or in THREEDOG_KTX_DIR; without it the KTX2 steps are
+// reported as skipped, and the message for the missing tool is checked instead.
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from 'node:fs';
+import { join, resolve, delimiter } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
+import { ROOT } from '../paths.mjs';
+import { runOptimize } from '../assets-optimize.mjs';
+
+export const name = 'assets optimize: KTX2 by slot, originals untouched, rerun skips, --dry, assets.js pointed (real glb)';
+
+const sha = p => createHash('sha256').update(readFileSync(p)).digest('hex');
+const quiet = async fn => { const log = console.log, lines = []; console.log = (...a) => lines.push(a.join(' ')); try { return { code: await fn(), text: lines.join('\n') }; } finally { console.log = log; } };
+
+/** The test model: a quad with a color map and a normal map (128 x 128 gradients, so they encode quickly) */
+export async function makeModel(file) {
+  const req = createRequire(resolve(ROOT, 'package.json')), core = req('@gltf-transform/core'), sharp = req('sharp');
+  const raw = f => { const b = Buffer.alloc(128 * 128 * 3); for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) b.set(f(x, y), (y * 128 + x) * 3); return b; };
+  const png = b => sharp(b, { raw: { width: 128, height: 128, channels: 3 } }).png().toBuffer();
+  const color = await png(raw((x, y) => [x * 2, y * 2, 120])), normal = await png(raw((x, y) => [128 + (x % 16) - 8, 128 + (y % 16) - 8, 255]));
+  const doc = new core.Document(), buf = doc.createBuffer();
+  const acc = (t, a) => doc.createAccessor().setType(t).setArray(a).setBuffer(buf);
+  const tex = (n, img) => doc.createTexture(n).setImage(new Uint8Array(img)).setMimeType('image/png');
+  const mat = doc.createMaterial('plane_mat').setBaseColorTexture(tex('crate_albedo', color)).setNormalTexture(tex('crate_normal', normal));
+  const prim = doc.createPrimitive().setAttribute('POSITION', acc('VEC3', new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0])))
+    .setAttribute('TEXCOORD_0', acc('VEC2', new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]))).setIndices(acc('SCALAR', new Uint16Array([0, 1, 2, 0, 2, 3]))).setMaterial(mat);
+  doc.createScene().addChild(doc.createNode('crate').setMesh(doc.createMesh('crate').addPrimitive(prim)));
+  await new core.NodeIO().write(file, doc);
+}
+
+export async function run({ check }) {
+  const dir = mkdtempSync(join(tmpdir(), 'threedog-optimize-')), oldPath = process.env.PATH;
+  if (process.env.THREEDOG_KTX_DIR) process.env.PATH = process.env.THREEDOG_KTX_DIR + delimiter + oldPath;
+  try {
+    mkdirSync(join(dir, 'art/models'), { recursive: true });
+    const src = join(dir, 'art/models/crate.glb');
+    await makeModel(src);
+    writeFileSync(join(dir, 'assets.js'), '// a game\nexport default [];\n');
+    const before = sha(src), ktxOk = !spawnSync('ktx', ['--version']).error;
+
+    // [guard] a failed model must leave the game as it was: assets.js once pointed at a file this run never made
+    const bad = mkdtempSync(join(tmpdir(), 'threedog-optimize-bad-'));
+    try {
+      mkdirSync(join(bad, 'art/models'), { recursive: true });
+      writeFileSync(join(bad, 'art/models/broken.glb'), 'not a model');
+      writeFileSync(join(bad, 'assets.js'), '// a game\nexport default [];\n');
+      const rb = await quiet(() => runOptimize(bad, {}));
+      check('a failed model: exit 1, assets.js unchanged, no pack written, and it says so', rb.code === 1 && readFileSync(join(bad, 'assets.js'), 'utf8') === '// a game\nexport default [];\n'
+        && !existsSync(join(bad, 'assets.optimized.js')) && /were not changed/.test(rb.text), rb.text);
+    } finally { rmSync(bad, { recursive: true, force: true }); }
+
+    const dry = await quiet(() => runOptimize(dir, { dry: true }));
+    check('--dry reports the file and writes nothing', dry.code === 0 && /crate\.glb/.test(dry.text) && !existsSync(join(dir, 'public')) && !existsSync(join(dir, '.threedog')) && !existsSync(join(dir, 'assets.optimized.js')), dry.text);
+    check('--dry gives the GPU memory before and after', /GPU ≈ [\d.]+ (KB|MB) → [\d.]+ (KB|MB)/.test(dry.text), dry.text);
+
+    if (!ktxOk) {
+      const r = await quiet(() => runOptimize(dir, {}));
+      check('without ktx only this command fails, says what to install, and leaves the source alone', r.code === 1 && /KTX-Software/.test(r.text) && sha(src) === before, r.text);
+      check('ktx is not installed here: the KTX2 steps are skipped (set THREEDOG_KTX_DIR to run them)', true);
+      return;
+    }
+    const r1 = await quiet(() => runOptimize(dir, {}));
+    const out = join(dir, 'public/optimized/crate.glb');
+    check('first run optimizes the model', r1.code === 0 && existsSync(out), r1.text);
+    check('the original file is unchanged byte for byte', sha(src) === before);
+    const { readModel } = await import('../assets-check/read.mjs'), { doc } = await readModel(out);
+    const tx = doc.getRoot().listTextures();
+    check('both textures are KTX2', tx.length === 2 && tx.every(t => t.getMimeType() === 'image/ktx2'), tx.map(t => t.getMimeType()).join());
+    const ktxParse = createRequire(resolve(ROOT, 'package.json'))('ktx-parse');
+    const hdr = n => { const k = ktxParse.read(new Uint8Array(tx.find(t => t.getName() === n).getImage())), d = k.dataFormatDescriptor[0]; return { model: d.colorModel, tf: d.transferFunction }; };
+    check('the normal map is UASTC and linear, not compressed as color', hdr('crate_normal').model === 166 && hdr('crate_normal').tf === 1, JSON.stringify(hdr('crate_normal')));
+    check('the color map is ETC1S and sRGB', hdr('crate_albedo').model === 163 && hdr('crate_albedo').tf === 2, JSON.stringify(hdr('crate_albedo')));
+    check('the model is Meshopt compressed', JSON.stringify(doc.getRoot().listExtensionsUsed().map(e => e.extensionName)).includes('EXT_meshopt_compression'));
+    check('assets.js imports the result pack', /import optimized from '\.\/assets\.optimized\.js'/.test(readFileSync(join(dir, 'assets.js'), 'utf8')) && /\/optimized\/crate\.glb/.test(readFileSync(join(dir, 'assets.optimized.js'), 'utf8')));
+    const mtime = statSync(out).mtimeMs, r2 = await quiet(() => runOptimize(dir, {}));
+    check('a rerun skips the unchanged file', r2.code === 0 && /unchanged\s+crate\.glb/.test(r2.text) && statSync(out).mtimeMs === mtime, r2.text);
+    const r3 = await quiet(() => runOptimize(dir, { force: true }));
+    check('--force redoes it', /✓ crate\.glb/.test(r3.text), r3.text);
+  } finally { process.env.PATH = oldPath; rmSync(dir, { recursive: true, force: true }); }
+}

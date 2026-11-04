@@ -46,6 +46,8 @@ export function watchGameLights(e) {
   e._gameLights = {
     /** The game's own point / spot lights (not a module's, not a pool's) */
     list() { view.sync(); return [...game]; },
+    /** Every point / spot light in the scene, modules' and pools' too; a live set, for reading */
+    all() { view.sync(); return all; },
     /** Before each render (loop.js): the idle-shadow rule */
     frame() {
       view.sync();

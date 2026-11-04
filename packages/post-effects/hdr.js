@@ -30,7 +30,7 @@ export function bloom({ strength = 0.35, radius = 0.5, threshold = 0.85, enabled
 /**
  * Ambient occlusion (soft contact shadows in corners; heavy on weak devices), hdr slot, on when listed (enabled: false lists it off). radius: how far a surface looks for
  * occluders, in world units; intensity: 0 = none, 1 = full. Defaults are three's GTAOPass defaults (no look chosen here).
- * Order 20 puts it before bloom (30) and outline, so they see the darkened corners. Other GTAOPass settings: post.object().
+ * Order 20 puts it before bloom (30), so bloom sees the darkened corners. Other GTAOPass settings: post.object().
  * @example engine.post.add(ao({ enabled: true, radius: 0.5 }))
  * @param {{ radius?: number, intensity?: number, enabled?: boolean, order?: number }} [o]
  * @returns {PostEffect}

@@ -149,6 +149,7 @@ export function hlod(opts = {}) {
               group.add(p); c.proxy.push(p);
             }
             delete c.sources;
+            c.watch = e.occlusion.watch([...c.proxy, ...c.originals]);
             api.cells.push(c);
             yield;
           }
@@ -158,7 +159,7 @@ export function hlod(opts = {}) {
         /** Unregister: restore originals, release proxies */
         remove() {
           h.removed = true; handles.delete(h);
-          for (const c of list) { setFar(c, false); for (const p of c.proxy) p.geometry.dispose(); for (const m of c.originals) { delete m.userData.hlod; shade.get(m)?.release(); } }
+          for (const c of list) { c.watch?.remove(); setFar(c, false); for (const p of c.proxy) p.geometry.dispose(); for (const m of c.originals) { delete m.userData.hlod; shade.get(m)?.release(); } }
           api.cells = api.cells.filter(c => !list.includes(c));
           for (const l of lods.values()) shade.get(l.node)?.release();
           e.detach(group);   // proxies share the originals' materials and are never ray-registered: geometries were disposed above

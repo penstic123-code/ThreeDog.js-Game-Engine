@@ -9,7 +9,8 @@
 // Functions executed in the page must be self-contained (sent via toString()); the 3rd argument brief is injected by page().
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname, extname, isAbsolute, resolve } from 'node:path';
-import { ev, evAttached, KEY } from './pageFns.mjs';
+import { ev, evAttached, KEY, TITLE_COVERS } from './pageFns.mjs';
+import { readRuntime, trailer } from './runtime.mjs';
 import { saveSnapshot, compareSnapshot } from '../describe-snapshot.mjs';
 import { hintFor } from 'threedog/error-hints';
 import { errorsCommand } from './errorlog.mjs';
@@ -58,10 +59,13 @@ function options(args) {
     else if (args[i] === '--tolerance') opt.tolerance = +args[++i];
     else if (args[i] === '--file') opt.file = args[++i]; else if (args[i] === '--verbose') opt.verbose = true;
     else if (args[i] === '--since') opt.since = args[++i];
+    else if (args[i] === '--wait') opt.wait = +val(i++);
     else if (args[i] === '--for') opt.for = args[++i]; else rest.push(args[i]);
   }
   return { rest, opt };
 }
+
+const WAIT_S = 120;   // js: seconds a script may wait on a page that looks stopped before the command gives up (--wait)
 
 export const COMMANDS = {
   describe: 'compact scenario description (--full for the describeText summary, --all for everything, describe player.x for one item, --max characters)',
@@ -71,10 +75,10 @@ export const COMMANDS = {
   hold: 'hold for N seconds: hold moveForward 1.5',
   state: 'change the scenario: state time=18:30 weather=rain pos=40,-20',
   eval: 'evaluate an expression in the page (engine is available, await works; multi-line statements need their own return): eval ' +
-    '"engine.calendar.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes)',
+    '"engine.calendar.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes; --wait <seconds>, default 120: how long a script may wait on a page that looks stopped)',
   js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.calendar.timeOfDay" / js --file path',
   'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
-  snap: 'save a screenshot to .threedog/shots/name.png and run the picture check on the page, as threedog shot does (snap name, or snap path/to/file.png used as given; --width N scales the returned image down, the saved file stays full size; --no-picture skips the check)',
+  snap: 'save a screenshot to .threedog/shots/name.png and run the picture check on the page, as threedog shot does (snap name, or snap path/to/file.png used as given; --play first leaves the title as shot --play; --width N scales the returned image down, the saved file stays full size; --no-picture skips the check)',
   errors: 'page errors with id, time, tick, source and count: errors = new since the last read; errors latest [N] = the last N, repeatable; errors --since E5 = after id 5 (known classes come with the cause and the doc page)',
   reload: 'reload the page',
   resume: 'resume real-time running (the page is paused after step / press)',
@@ -91,6 +95,12 @@ export const COMMANDS = {
     '= one op; catalog --find throw; --json for the raw data',
   loading: 'what loading waits for / what failed / does it block the start (answers while start() is stuck); loading hero: one task with its manifest and path',
 };
+
+/** Why a screenshot failed: the browser's "Timeout 30000ms" says nothing, so ask the page what it is doing. No answer in time means its main thread is stuck */
+async function snapFailed(driver, err) {
+  const { raw, runtime } = await readRuntime(driver, 3000), first = String(err?.message ?? err).split('\n')[0];
+  return `snap failed: ${first}\nThe page: ${raw ? trailer(runtime) : 'did not answer within 3 s, so its main thread is busy: a long loop in game code, or shaders compiling on the software renderer. threedog loading and threedog errors may still say what it was doing; threedog reload starts it again.'}`;
+}
 
 /** loading command text: line 1 status, line 2 the failures, line 3 the hint for the first failure */
 function loadingText({ view: v, ready }) {
@@ -140,7 +150,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const params = Object.fromEntries(opPairs(rest, 'state arguments', 'time=18:30'));
       if (params.pos !== undefined && !/^-?[\d.]+,-?[\d.]+$/.test(params.pos)) throw new Error(`pos must be two numbers x,z (got "${params.pos}"). `
         + 'In PowerShell quote the comma: threedog state "pos=1,-8"');
-      if (!Object.keys(params).length) throw new Error('Usage: threedog state time=18:30 weather=rain pos=40,-20 (also wait= cutscene=skip state=name)');
+      if (!Object.keys(params).length) throw new Error('Usage: threedog state time=18:30 weather=rain pos=40,-20 (also wait= cutscene=skip state=name fresh=1)');
       return { ok: true, text: '✓ Set · ' + lines(await ev(driver, 'state', { params }), 3) };
     }
     case 'eval': case 'js': {
@@ -149,23 +159,28 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const expr = opt.file ? readFileSync(opt.file, 'utf8') : rest.join(' ');
       if (!expr.trim()) throw new Error('Usage: threedog js "engine.calendar.timeOfDay" or threedog js --file script.js (same as eval)');
       // a script with assert( / expect( is a checks script: one call, short report, ok false (exit 1) on any failure (steps.mjs)
-      if (isStepsScript(expr)) return stepsReport(await ev(driver, 'steps', { src: expr }), opt.verbose);
+      const wait = opt.wait ?? WAIT_S;
+      if (!(wait > 0)) throw new Error('--wait takes seconds above 0, e.g. js --wait 300 "await longJob()"');
+      if (isStepsScript(expr)) return stepsReport(await ev(driver, 'steps', { src: expr, wait }), opt.verbose);
       // no checks: prints the return value as before (same globals; log lines come first)
-      const r = await ev(driver, 'steps', { src: expr, plain: true, max });
+      const r = await ev(driver, 'steps', { src: expr, plain: true, max, wait });
       return { ok: true, text: [...r.logs.map(l => '· ' + l), '✓ ' + r.text].join('\n') };
     }
     case 'snap': {
-      const usage = 'Usage: threedog snap [name | path] [--width N] [--no-picture]. A bare name saves .threedog/shots/<name>.png; a path (absolute, or with a folder) '
+      const usage = 'Usage: threedog snap [name | path] [--play] [--width N] [--no-picture]. A bare name saves .threedog/shots/<name>.png; a path (absolute, or with a folder) '
         + 'is used as given; .png is added only when it has no extension. --width N scales the returned image, the file stays full size. '
-        + 'The picture check (as in threedog shot) runs on the page after the picture; --no-picture skips it';
+        + 'The picture check (as in threedog shot) runs on the page after the picture; --no-picture skips it. '
+        + '--play first leaves the title screen the way its Start does, as in threedog shot --play';
       if (args.includes('--help') || args.includes('-h')) return { ok: true, text: usage };
       const noPicture = rest.includes('--no-picture'); if (noPicture) rest.splice(rest.indexOf('--no-picture'), 1);
+      const play = rest.includes('--play'); if (play) rest.splice(rest.indexOf('--play'), 1);
       const flag = rest.find(x => x.startsWith('-'));
-      if (flag) throw new Error(`Unknown snap option "${flag}". Valid: --width N, --no-picture (and --help). ` + usage);
+      if (flag) throw new Error(`Unknown snap option "${flag}". Valid: --play, --width N, --no-picture (and --help). ` + usage);
       if (rest.length > 1) throw new Error(`snap takes one name or path (got ${rest.length}: ${rest.join(' ')}). ` + usage);
       const out = snapPath(dir, rest[0]);
+      if (play) await ev(driver, 'play', {});
       await ev(driver, 'settled', {});   // like threedog shot: never capture the loading screen mid-fade
-      const png = await driver.screenshot();
+      const png = await driver.screenshot().catch(async e => { throw new Error(await snapFailed(driver, e)); });
       mkdirSync(dirname(out.file), { recursive: true });
       writeFileSync(out.file, png);
       // the same lines as under a threedog shot (pageFns PICTURE): what bears on the picture, the rest via threedog describe
@@ -187,7 +202,8 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
         const lk = await pagePicture((src, arg) => driver.evaluate(src, arg), { dir }).catch(e => ({ error: String(e?.message ?? e) }));
         picture = '\n' + (lk.error ? `Picture: skipped (${lk.error})` : formatPicture(lk.numbers, lk.probe, lk.hints).join('\n'));
       }
-      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB)${image !== png ? `, image shown ${opt.width} px wide` : ''}\n` + brief + picture };
+      const covered = !play && await ev(driver, 'title', {}) ? '\n  ' + TITLE_COVERS : '';
+      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB, drawn by ${await ev(driver, 'backend', {})})${image !== png ? `, image shown ${opt.width} px wide` : ''}${covered}\n` + brief + picture };
     }
     case 'snap-describe': {
       const [mode, name] = rest, snapDir = join(dir, 'tests', 'snapshots');

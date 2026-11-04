@@ -69,8 +69,8 @@ Post-processing is an ordered list of named effects, and **`engine.post.add(x, {
 in**: game code and the game's `plugins/` folder (a file that exports the Pass or effect) go through it, so every
 effect has a name, a handle and a row in `describe().slots` and `describe().render.post`. It returns `{ name, enabled, set(params), remove() }`, and
 `engine.post.get(name)` returns the same handle. A wrong shape throws with nothing added. `x` is a plain three.js Pass (WebGL),
-a TSL node function `(input, ctx) => node` (WebGPU), or an effect `{ name, create, node, fuse, slot, order, params }` (both renderers: give
-`create` and `node`, or a `fuse`). Each runs in a slot, then by `order` (low first):
+a TSL node function `(input, ctx) => node` (WebGPU), or an effect `{ name, create, node, fuse, slot, order, params, needsDepth, needsBuffers, backend, skipOnLowTier, facts }` (both renderers: give
+`create` and `node`, or a `fuse`; the last five are optional: `needsBuffers` lists extra scene outputs on WebGPU, `backend: 'webgpu'` marks an effect the WebGL2 backend cannot run, `skipOnLowTier` holds it when `engine.tier` is 'low', `facts` adds a line to `describe().render.post`; all explained on `PostEffect` in `api/post.md`). Each runs in a slot, then by `order` (low first):
 `scene` (replaces the scene render, one at a time, e.g. pixelation) -> `hdr` (linear color: outline, AO, bloom) -> tone mapping -> `ldr` (sRGB: LUT,
 palette, grain, vignette) -> `final` (FXAA / SMAA). An effect is `{ name, slot, order, params, create(ctx) => pass, update?(pass, params) }`; under
 WebGL the pass is any three.js postprocessing Pass, built the first time it is on (on WebGPU an effect gives `node` instead: recipe 56). To read the chain: `engine.post.object()` (the
@@ -92,10 +92,19 @@ engine.post.add({ name: 'myLut', slot: 'ldr', params: { lut: myLut }, create: ({
 export default bloom({ strength: 0.2 });
 ```
 - The engine ships no effects. `@threedog/post-effects` (import only what you use) has `bloom`, `ao`, `outline`, `dof` (all `hdr`; outline and dof
-  read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT), `grain`, `vignette`, `chromatic` (`ldr`). An added effect is on
+  read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT, or `paletteLut(colors)` for a fixed palette; it reads display colors after the tone curve), `grain`, `vignette`, `chromatic` (`ldr`). An added effect is on
   (`enabled: false` adds it off, for `handle.enabled = true` later). The heavy ones (`bloom`, `ao`, `dof`, outline `normal`/`both`) are the game's
   call on weak devices: read `engine.tier` before adding them (`threedog shot` renders the desktop tier, `--tier low` checks the low one). To take one
   of a pack's effects out: `engine.plugins.off('<pack>/<file>')` or `engine.post.get('ao').enabled = false`; to add one on top: a game plugin file or `engine.post.add`.
+- Where to import from:
+
+| You want | Import |
+|---|---|
+| Materials and lighting written as TSL | `threedog/tsl` |
+| Post effects that run on both routes (bloom, ao, outline, dof, lut, grain) | `@threedog/post-effects` |
+| Post effects that exist only on WebGPU (`voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`) | `@threedog/post-effects/tsl` |
+| The three.js layers the engine keeps (`RESERVED_LAYERS`) | `threedog/layers` |
+
 - Depth: an effect that reads scene depth (`needsDepth: true`, e.g. `outline`) must run before any pass that swaps buffers (a `ShaderPass`, a
   scene-slot pixelation pass, the tone-mapping output). A chain that breaks this throws when the effect is added or enabled, naming both effects;
   give the depth reader a lower `order`. `dof` keeps the scene depth (`pass.keepsDepth = true`), so `dof` and `outline` can both be on while `dof`

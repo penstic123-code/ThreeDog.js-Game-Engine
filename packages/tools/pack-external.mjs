@@ -5,7 +5,7 @@
 //      three tsc errors; the correct main.js gives none (skipLibCheck off, so the engine's own declarations are checked too)
 //   3. vite build + vite preview of a minimal game: page opens, engine.ready, no 4xx/5xx (Workers, wasm, decoders, assets), no console errors
 //   4. the threedog CLI works in that project: map (GAMEMAP with package-relative paths), check, test (smoke), examples pull, dev + one bridge command;
-//      the project is the new-game template (packages/tools/templates/game + templates/example), so the template installs, checks, runs and builds outside the repo
+//      the project is the new-game template (packages/tools/templates/game + templates/openworld), so the template installs, checks, runs and builds outside the repo
 //   6. the engine alone, installed from a local folder with npm install --install-links (a plain link would skip its dependencies):
 //      nothing unpublished is pulled in (no @threedog/* or file:/workspace: dependency), one copy of three, and a plain vite config builds
 //   7. a game that vendors the whole engine (tests included) in vendor/threedog as a file: dependency: threedog check and types look only at the
@@ -103,7 +103,7 @@ export async function packExternal({ check, browser, keep = false }) {
 
     // 2. a fresh project that installs the tarballs like a user would
     mkdirSync(app);
-    // The dependencies are the template's own (as new-game --example writes them), each threedog / @threedog/* range swapped for its tarball.
+    // The dependencies are the template's own (as new-game --open-world writes them), each threedog / @threedog/* range swapped for its tarball.
     // Why not a hand-written list: a package the template's code or docs use but its package.json forgot (post-effects once) would then
     // install here by accident and only fail for a real standalone game. The template has no post-effects dependency (optional package): the
     // style plugin bloom() below is the game choosing it, so it adds the package as a game would (npm install @threedog/post-effects).
@@ -112,7 +112,7 @@ export async function packExternal({ check, browser, keep = false }) {
     const deps = Object.fromEntries(Object.entries(tplDeps).map(([n, r]) => [n, tarballs[n] ? `file:../${tarballs[n].filename}` : r]));
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'threedog-external-check', private: true, type: 'module',
       scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' },
-      dependencies: { ...deps, '@threedog/post-effects': `file:../${postPkg.filename}`, three: '~0.187.0' } }, null, 2));
+      dependencies: { ...deps, '@threedog/post-effects': `file:../${postPkg.filename}` } }, null, 2));
     copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
     usePost(app);   // plugins/10-bloom.js: export default bloom(), as the docs show it, so types, build and the preview page need the post-effects package added above
     writeFileSync(join(app, 'bad.js'), BAD);
@@ -160,8 +160,8 @@ export async function packExternal({ check, browser, keep = false }) {
       let devLog = ''; dev.stdout.on('data', d => devLog += d); dev.stderr.on('data', d => devLog += d);
       try {
         for (let i = 0; i < 120 && !existsSync(join(app, '.threedog/dev.json')); i++) await new Promise(r => setTimeout(r, 250));
-        const d = await cli(app, 'describe'), g = await cli(app, 'describe', 'game.hp');
-        check('cli: threedog dev starts and threedog describe reads the page, including the template state (describe game.hp)', d.code === 0 && /Player/.test(d.out) && g.code === 0 && /10/.test(g.out), (d.out + ' | ' + g.out).slice(-300) || devLog.slice(-300));
+        const d = await cli(app, 'describe');
+        check('cli: threedog dev starts and threedog describe reads the page', d.code === 0 && /Player/.test(d.out), d.out.slice(-300) || devLog.slice(-300));
       } finally { if (dev.exitCode === null) await new Promise(r => { dev.once('exit', r); dev.kill(); }); }
     }
 
@@ -186,8 +186,13 @@ export async function packExternal({ check, browser, keep = false }) {
       // a few more frames: Worker / physics / navmesh errors often only show up after startup
       await page.evaluate(() => new Promise(r => { let k = 0; const h = window['engine'].onFrame(() => { if (++k >= 5) { h.remove(); r(); } }); }));
       check('preview: page opens, engine.ready is true', true);
-      const tpl = await page.evaluate(() => { const e = window['engine'], r = e.ops.run('stash.search', { id: 'stash-home' }); return { game: e.describe().game, ok: r.ok, apples: e.inventory.count('apple'), again: e.ops.run('stash.search', { id: 'stash-home' }).code }; });
-      check('template: describe().game is registered; the stash (template + placement in content) gives its goods through its op once', tpl.game?.hp === 10 && tpl.ok && tpl.apples >= 2 && tpl.again === 'empty', JSON.stringify(tpl));
+      const tpl = await page.evaluate(() => { const e = window['engine']; e.ops.define('probe.ping', { desc: 'Outside check', run: () => {} }); return e.ops.run('probe.ping'); });
+      check('template: an op defined in the page runs from the installed packages', tpl.ok, JSON.stringify(tpl));
+      // this browser usually has no WebGPU adapter, so either backend is right; what must hold is the ask, and a reason whenever it fell back
+      const drawn = await page.evaluate(() => window['engine'].describe().renderer);
+      console.log(`  packaged game: asked ${drawn.requested}, drawn on ${drawn.backend}${drawn.reason ? ` (${drawn.reason})` : ''}`);
+      check('template: the new game asks for WebGPU and describe() says which backend draws, with the reason on a fallback',
+        drawn.requested === 'webgpu' && (drawn.backend === 'webgpu' || (drawn.backend === 'webgl2' && !!drawn.reason)), JSON.stringify(drawn));
     } catch (e) { check('preview: page opens, engine.ready is true', false, String(e).split('\n')[0]); }
     check('preview: no failed resource loads (Workers, wasm, decoders, assets)', badRes.length === 0, badRes.slice(0, 3).join(' | '));
     check('preview: no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));

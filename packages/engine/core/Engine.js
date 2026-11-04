@@ -7,6 +7,7 @@ import { Page } from './page.js';
 import { createServices } from './services.js';
 import { Stacks } from './stacks.js';
 import { PostFX } from '../render/PostFX.js';
+import { Occlusion } from '../render/occlusion.js';
 import { createDefaultLights } from '../render/lights.js';
 import { registerEngine } from '../render/materials.js';
 import { createUniforms } from '../render/effects.js';
@@ -42,6 +43,7 @@ import { defineTerms } from '../render/terms.js';
 import { defineView } from './view.js';
 import { nameShaderErrors } from '../render/shaderErrors.js';
 import { probeMethods } from '../render/probes.js';
+import { lightmapMethods } from '../render/lightmap.js';
 import { headlessSettled } from './headlessLoad.js';
 import { codedError } from './errorHints.js';
 const FALLBACKS = ['webgl2', 'webgl', 'error'];
@@ -212,6 +214,7 @@ export class Engine {
     this._afterTick = null;                    // at startup, checked once at the end of each frame for readiness
     // a game's own renderer keeps its own MSAA choice by default (used as is, like its pixel ratio)
     this.post = new PostFX(this, { antialias: aa ?? ownMsaa(r) });
+    this.occlusion = new Occlusion(this);      // off until the game turns it on (render/occlusion.js)
     this._uiStyle = applyUITheme(this, ui);    // theme variables and the game's CSS; removed on dispose
     this.ui = new UIParts(this, ui);           // UI parts: every piece of screen UI is replaceable or off (ui/Parts.js)
     defineCoreParts(this);
@@ -309,7 +312,7 @@ export class Engine {
 }
 
 // Mix in by property descriptor (Object.assign would evaluate getters on the spot and lose them)
-for (const part of [loopMethods, holdMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods, checkMethods, resizeMethods, sceneMethods, probeMethods])
+for (const part of [loopMethods, holdMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods, checkMethods, resizeMethods, sceneMethods, probeMethods, lightmapMethods])
   Object.defineProperties(Engine.prototype, Object.getOwnPropertyDescriptors(part));
 // engine.elapsed was a second counter beside engine.time (review 0.4, B): removed. In dev a read throws with the new form instead of giving
 // undefined (NaN in every Math.sin(engine.elapsed) animation, silently)

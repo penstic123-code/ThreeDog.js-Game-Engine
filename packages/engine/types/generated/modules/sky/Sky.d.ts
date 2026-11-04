@@ -77,7 +77,7 @@ export class Sky {
     /**
      * Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back.
      * The engine never writes your object: it hides the dome, adds your object to the scene only when it has no parent, puts a plain texture's panorama
-     * mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind ...).
+     * mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uWind ...).
      * @example engine.sky.replace(new SkyMesh());
      * @example engine.sky.replace(null);
      * @param {string | import('three').Texture | Object3D | null} sky

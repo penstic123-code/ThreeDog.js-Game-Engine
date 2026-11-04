@@ -77,8 +77,13 @@ engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the sam
   `'none'` leaves it; a function `facts => position | null` gets `{ position, lookPoint, dir, arm, distance, groundY, clearance, surface, rig }`.
   Default: `'shorten'` when `minPitch < 0`, otherwise `'raise'` (the older behaviour, fine for a camera that never looks up).
 - **Walls** (with `collision()` installed) pull the arm in at once and let it out slowly; the shortest arm is `collision({ cameraMin })` (default 1.5 m).
-  Every `addCircle` / `addBox` / `addSegment` collider counts as a wall. Give the ones the camera may pass through `occluder: false`
-  (`engine.collision.addCircle(tree, { radius: 0.4, occluder: false })`, or `collide: { circle: 0.4, occluder: false }` on a content prop or template): walkers are still stopped, the arm ignores them. A dense forest of
+  **What blocks by default**: every `addCircle` / `addBox` / `addSegment` collider, over its footprint and up to its height, and every mesh registered
+  with `engine.rays.addStatic(mesh, { occluder: true })` (`level()` registers its buildings and `col_` meshes). A mesh alone blocks nothing, so a tree
+  crown or an eave that reaches past its collider lets the camera inside. Register that mesh: it stops the arm and adds no gameplay collider (it does
+  join `engine.raycast`). `collision({ cameraOcclusion: 'colliders' })` tests colliders only.
+  A content prop or template with `collide` blocks with its whole mesh, crown and eaves included, with no game code. A hand-written mesh stays opt-in: `addStatic(mesh, { occluder: true })`. In a level, `userData.occluder = false` on a node (or a parent) keeps it from blocking, and a hidden mesh does not block (`col_` meshes do). `addStatic` skips `InstancedMesh` and `SkinnedMesh` (dev warns once): rays do not hit them, so give them a collider or register a plain stand-in mesh.
+  Give the colliders the camera may pass through `occluder: false`
+  (`engine.collision.addCircle(tree, { radius: 0.4, occluder: false })`, or `collide: { circle: 0.4, occluder: false }` / `occluder: false` on a content prop or template): walkers are still stopped, the arm ignores them. A dense forest of
   blocking trunks collapses the camera onto the player; `collision({ canopyHeight })` covers only the terrain's own trees.
 - **Close-up**: when the camera ends up nearer than `hideTargetNear` (default 0.9 m) to the look point, the followed object is hidden from the
   camera (shadow stays, layer `hideLayer`); `hideTargetNear: 0` turns it off.

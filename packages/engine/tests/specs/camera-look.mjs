@@ -113,6 +113,32 @@ export const specs = [
     },
   },
   {
+    // a crown or an eave has no collider of its own up there: both island games showed the camera inside one at normal play
+    name: 'Follow camera: a mesh with no collider blocks the arm only when registered with rays.addStatic({ occluder: true }), and by default without any option',
+    url: URL,
+    async run({ check, ev, frames }) {
+      const armWith = async ({ register, mode }) => {
+        await ev(({ register, mode }) => {
+          window.scene('forest');
+          engine.collision.cameraOcclusion = mode ?? 'both';
+          engine.cameraRig.setView({ yaw: 0.3, pitch: 0.2, distance: 8 }); engine.cameraRig._d = undefined;
+        }, { register, mode });
+        await frames(8);
+        await ev(({ register }) => {
+          const c = engine.camera.position, p = engine.player.position, m = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3), new THREE.MeshBasicMaterial());
+          m.position.set((c.x + p.x) / 2, (c.y + p.y + 1.5) / 2, (c.z + p.z) / 2); engine.scene.add(m); m.updateMatrixWorld(true);
+          window._crown = { m, h: register ? engine.rays.addStatic(m, { occluder: true }) : null };
+        }, { register });
+        await frames(8);
+        return ev(() => { const v = window.view(), { m, h } = window._crown; h?.remove(); m.removeFromParent(); engine.collision.cameraOcclusion = 'both'; return v; });
+      };
+      const plain = await armWith({ register: false }), marked = await armWith({ register: true }), colliders = await armWith({ register: true, mode: 'colliders' });
+      check('an unregistered mesh does not block: the arm keeps its 8 m', plain.arm > 7.9, JSON.stringify(plain));
+      check('a registered mesh pulls the arm in with no gameplay collider and no option', marked.arm < 5, JSON.stringify(marked));
+      check("cameraOcclusion: 'colliders' still ignores registered meshes", colliders.arm > 7.9, JSON.stringify(colliders));
+    },
+  },
+  {
     name: 'Follow camera external view control:setView clamps, getView reports, mouseLook: false ignores the mouse',
     url: URL,
     async run({ page, check, ev, frames }) {

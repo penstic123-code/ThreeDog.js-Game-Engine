@@ -37,9 +37,9 @@ game only advances on step); once you open the page in a browser, commands go to
 | `pick 480,270` | What is at that screen pixel: record id, kind, template, the content file and line that defines it, its fields (recipes/30-templates.md section 5) | `✓ chest-home (kind chest, template chest) …` / `defined in content/props.js:14: edit it there …` |
 | `explain op shop.buy shop=trader item=ammo` / `explain quest my-quest` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and events around it), or where a quest is stuck (`engine.explain`) | `✗ shop.buy {...} cannot run now: noMoney (Not enough gold)` |
 | `scenario barter` | Run `tests/scenarios/barter.json` (recipes/23-ops.md section 7); prints failed checks, leaves it paused | `✓ barter: 6 checks passed` |
-| `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state) | `✓ Set · 18:30 day 1 · rain` |
+| `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state play fresh) | `✓ Set · 18:30 day 1 · rain` |
 | `js "engine.calendar.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js` | `✓ 0.77` |
-| `snap name` | Screenshot to `.threedog/shots/name.png` | `✓ Screenshot .threedog/shots/t1.png (163 KB)` |
+| `snap name` | Screenshot to `.threedog/shots/name.png`, saying which backend drew it; `--play` first leaves the title, as `shot --play` | `✓ Screenshot .threedog/shots/t1.png (163 KB, drawn by WebGL2 (fallback: WebGPU was asked for, this is not a WebGPU picture))` |
 | `snap-describe save` / `snap-describe diff` + name | Describe snapshot instead of a screenshot: save the gameplay part of `describe()` as a baseline, or print how the running page differs from it (section 7) | `✗ describe "market" differs from the baseline in 1 place:` |
 | `errors` | Page errors added since last time (full log: `.threedog/errors.log`). Known classes get a cause + recipe line (section 8) | `✗ 1 new error` / `✗ 3 new errors` / `✓ No new errors` |
 | `loading` / `loading hero` | What loading waits for, what failed (file, HTTP status, fallback) and whether it blocks the start; works while `start()` is stuck. With a name: that task with its manifest and path (`recipes/05-props-bake.md` section 3) | `… waiting: decoding model "hero" (…)` / `✗ Loading finished, 4/5 ok, 1 failed` |
@@ -75,7 +75,8 @@ game only advances on step); once you open the page in a browser, commands go to
 
 ## 2b. A scripted playthrough, and three kinds of check
 ```
-threedog state pos=0,0 time=12:00     # known start
+threedog state fresh=1 play=1         # clean start: no saves, past the title
+threedog state pos=0,0 time=12:00     # known place
 threedog hold moveForward 1.5         # walk (real key path, advances 1.5 s)
 threedog press interact               # one key press (~0.117 s)
 threedog step 2                       # let things happen
@@ -86,6 +87,15 @@ The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`,
 - **State checks** (`op`, `expect`, `describe`, `js`): fast and exact, but they skip input. They prove rules, not that the player can reach them.
 - **Simulated-input checks** (`press`, `hold`, `engine.input.simulate`): bridge key events through the game's input path, never a physical keyboard/mouse. `verify` prints `Layers: direct N, simulated-input N, real-browser-input 0 (not verified), visual 0`, then an **Evidence** block (each check's layer and what it asserted), a fixed **NOT proven** line (pointer lock and mouse look, real GPU/visuals, real FPS) and **Coverage** (ops run vs defined, refused ops counted as run and marked; modules in three groups: tested = an op ran, indirect = no op but describe section compared / save part changed / events fired, untested; lists capped at 10 with "+N more"; uses `engine.catalog()`). `threedog scenario` prints the same Coverage block; the full lists are in `--json` (`data.evidence.coverage`, `data.coverage`). Not yet covered: content ids (defined vs touched).
 - **Visual checks** (`snap`, `shot`): the only ones that see the picture (exposure, color, UI overlap). Slowest; take them last.
+
+Playing a game through from a script, the four things that cost the most time:
+- **Start clean.** Enter on a title picks Continue when a save exists, so a rerun by keys plays the last autosave. `state fresh=1` deletes the saves and
+  goes back to the title, `play=1` starts the run; `?fresh&play` does the same in a URL. `session.newGame()` alone leaves the title open.
+- **Advance time yourself.** On a headless page the clock moves only on `step`, `press` and `hold`, so `await player.walkTo(spot)` never returns. Start it,
+  step, then await: `const w = engine.player.walkTo(spot); step(5); return await w`. A `js` script whose page clock stands still for 20 s ends with that reason.
+- **Read why it was refused.** `interaction.use` fails with `inputLocked` and `facts: { by }` (`title`, `dialogue`, `settings`...), `tooFar` with the distance.
+- **Press real keys when input is the question**: the title menu, whether a key reaches the action, a hold. For rules use `op` and `state`: faster and exact.
+  Neither tells you how the game feels or sounds, and a headless picture is usually WebGL2 (the `shot` / `snap` line says): report those as not verified.
 
 ## 3. Windows / PowerShell notes
 - **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `threedog state "pos=1,-8"` (the bridge

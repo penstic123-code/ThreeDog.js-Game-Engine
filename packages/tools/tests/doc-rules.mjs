@@ -25,6 +25,9 @@ export async function run({ check }) {
   check('R18: engine member typo warns with a suggestion', has(errs('Call `engine.clok.after(2, fn)`.'), /engine\.clock/) && has(errs('`engine.clock.aftr`'), /engine\.clock\.after/));
   // [守] 引擎文档里的 API 名必须真实存在：AI 把文档里的名字当事实抄，改名必须连文档一起改，所以在 docs/ 下是 error 不是 warn
   check('R18: an unknown engine member in an engine recipe is an error', errs('Call `engine.clok.after(2, fn)`.').some(x => x.level === 'error'));
+  // 游戏自己的 DESIGN/STATUS/README 会写自己的模块名，只警告
+  const gameErrs = checkDoc('games/x/DESIGN.md', 'Call `engine.farm.plant(1)` and `plantNow()`.', ctx);
+  check('R18: a game doc naming its own module only warns', gameErrs.length > 0 && gameErrs.every(x => x.level === 'warn'));
   check('R18: an ignore marker skips the line', !errs('`npm test -- zzz` <!-- r18-ignore-line -->').length);
   // R22
   const table = rows => `## One thing, one entry point\n| To do | Use | Recipe |\n|---|---|---|\n${rows}\n## Next\n`;

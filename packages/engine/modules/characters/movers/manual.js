@@ -5,6 +5,7 @@
 // position. 'manual' is the takeover level for the position itself, so a hand-written controller (a platformer's own physics) keeps the
 // platform, safe-ground and fall behaviour without fighting the built-in integration.
 import { groundAt, beginMove, endMove, stateOf } from './support.js';
+import { ownState } from './common.js';
 
 /** Create the 'manual' mover (c is the character) */
 export function manualMover(c) {
@@ -15,6 +16,8 @@ export function manualMover(c) {
       const p = c.root.position, g = groundAt(c, p.x, p.z, p.y);
       c.grounded = p.y <= g + 1e-3; c.swimming = false;
       endMove(c, dt, c.grounded ? stateOf(c).hit : null, 'ground');
+      // only with a hook: without one the game owns the state too. A ladder is manual plus states, so the climb clip plays with no gravity to fight
+      if (c.states) ownState(c, c.grounded ? 'idle' : 'fall', 0);
     },
   };
 }

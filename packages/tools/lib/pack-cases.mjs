@@ -8,9 +8,9 @@ import { join, relative, sep } from 'node:path';
 import { ENGINE, TOOLS, addonDir } from '../paths.mjs';
 import { copyTemplates } from './scaffold.mjs';
 
-/** Copy the game template into dir as new-game --example does (game name 'external'; the checks below read its hp and stash), without its package.json (the test writes its own) */
+/** Copy the game template into dir as new-game --open-world does (game name 'external'), without its package.json (the test writes its own) */
 export function copyTemplate(_from, to) {
-  copyTemplates(to, { name: 'external', example: true }, { skipPackage: true });
+  copyTemplates(to, { name: 'external', openWorld: true }, { skipPackage: true });
 }
 
 /** Add bloom() from @threedog/post-effects as plugins/10-bloom.js, so the outside check imports that package */

@@ -22,7 +22,7 @@ import { inspectMaterials } from './InspectMaterials.js';
 import { inspectPerf } from './InspectPerf.js';
 import { codedError, coded } from './errorHints.js';
 import { r1 } from './math.js';
-import { describeRender, describePicture } from './describeRender.js';
+import { describeRender, describePicture, describeBackend } from './describeRender.js';
 import { describeOwned, checkWrittenOnce } from './owned.js';
 import { describeScene } from './thingOps.js';
 import { describeHolds } from './holds.js';
@@ -144,8 +144,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
     owned: () => describeOwned(e),                           // every property the engine writes on its own and who writes it now (owned.js)
     render: () => describeRender(e),                         // renderer / post / lights and who set each (describeRender.js)
     picture: () => describePicture(e),                       // tone, fog, environment, background, lights, shadows as three.js holds them now (describeRender.js)
-    // which renderer was asked for and which backend draws; reason = why not WebGPU (core/startup.js _startRenderer). backend null before start()
-    renderer: () => e._backend ?? { requested: e._backendWant.requested, backend: null, reason: null },
+    renderer: () => describeBackend(e),                      // asked for, drawing, why not WebGPU and what that backend can run (describeRender.js)
     perf: () => ({
       fps: e.paused ? null : Math.round(e.fps), cpuMs: e.paused ? null : r1(e.cpuMs),
       cpu: e.paused ? null : Object.fromEntries(Object.entries(e.cpuPhases).map(([k, v]) => [k, r1(v)])),

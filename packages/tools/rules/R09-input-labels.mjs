@@ -4,7 +4,7 @@
 //   - written as a key name (a.b form) → both the zh-CN and the en table must have it; missing one is an error (after switching language it would show as "inventory.action")
 //   - plain text (no dot) in packages/engine/ → error (the engine hard-codes no UI text); plain text in game content is fine (the game picks its own language)
 //   - input.action in packages/engine/ without a label → warning (the action name is shown as is)
-// Where the text tables are collected from: every object literal in the whole project (engine, add-ons, examples and games, their style/ folders included) that has both 'zh-CN' and en keys (CORE in I18n.js, each module's STRINGS,
+// Where the text tables are collected from: every object literal in the whole project (engine, add-ons, examples and games, their picture/ folders included) that has both 'zh-CN' and en keys (CORE in I18n.js, each module's STRINGS,
 //   e.i18n.add({...}), createEngine({ strings })), whose values are object literals or same-file constants.
 // Limitation: text keys held in variables (such as the passthrough of a.label in content) are only checked for literals in content/actions.js; dynamically built keys are not found.
 import { ts, parse, visit, lineOf, strValue, objectKeys, constInit, walk, isEngineCode, P } from './_lib.mjs';

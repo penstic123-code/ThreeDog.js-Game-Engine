@@ -2,7 +2,7 @@
 
 English · [中文](faq.zh-CN.md) · [How ThreeDog thinks](philosophy.md)
 
-These answers describe version 0.6. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
+These answers describe version 0.7. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
 
 ## The idea
 
@@ -56,20 +56,27 @@ The library holds models, textures, materials, shaders, effects and modules toda
 
 ### WebGL or WebGPU?
 
-Pick before you start, because shaders are written differently for each and changing later means rewriting the picture code. WebGL is the default and the form agents know best. Pick WebGPU if the game needs real-time global illumination or other effects that exist only as TSL nodes.
+Pick before you start, because shaders are written differently for each and changing later means rewriting the picture code. A new game starts on WebGPU with TSL; `--webgl` starts it on GLSL, the form agents have seen most. Real-time global illumination and other effects that exist only as TSL nodes need WebGPU. Without WebGPU in the browser the game runs on three's WebGL2 backend. What the four TSL-only effects do in each case (`voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`; held means switched off with the reason in `describe().render.post`):
+
+| Case | voxelGI | the other three |
+|---|---|---|
+| Real WebGPU | runs (held on low tier) | run |
+| WebGL2 backend (no WebGPU, or `forceWebGL`) | held | run |
+| Fell back to `WebGLRenderer` | held | held |
+| Game chose WebGL | throws | throw |
 
 ### Does it have real-time GI, baked lighting, lightmaps, occlusion culling and volumetrics?
 
-Three.js 0.187 has the parts, and a trial measured them. None of these is in the engine yet, and the numbers below come from a light test scene at 1280×720 on an AMD Radeon 780M integrated GPU.
+Three.js 0.187 has the parts, a trial measured them, and most are now in the engine (entry points in the last column; screen-space GI is the one left out). The numbers below come from a light test scene at 1280×720 on an AMD Radeon 780M integrated GPU.
 
-| Feature | WebGL | WebGPU | Extra time per frame | Result |
-|---|---|---|---|---|
-| Baked probe grid | Yes | Yes | 0.24 ms | Good |
-| Lightmap | Use only, baked on WebGPU | Yes | 0 ms | Best |
-| Real-time GI with voxels | No | Yes | 3 to 6 ms | Best real-time option, fine for a moving sun, not for objects moving every frame |
-| Screen-space GI | No | Yes | 5.5 to 9.3 ms | Weak indoors |
-| Volumetric lights | Hand-written post effect | Yes | 0.6 ms | Good with spotlights, no effect with the sun |
-| Occlusion culling | About 20 lines by hand | Yes | Saves time only behind heavy objects | Worth it for large engine parts, a loss for an ordinary 200-object scene |
+| Feature | WebGL | WebGPU | Extra time per frame | Result | In the engine |
+|---|---|---|---|---|---|
+| Baked probe grid | Yes | Yes | 0.24 ms | Good | `engine.bakeProbes` |
+| Lightmap | Use only, baked on WebGPU | Yes | 0 ms | Best | `engine.loadLightmap` |
+| Real-time GI with voxels | No | Yes | 3 to 6 ms | Best real-time option, fine for a moving sun, not for objects moving every frame | `voxelGI` in `@threedog/post-effects/tsl` |
+| Screen-space GI | No | Yes | 5.5 to 9.3 ms | Weak indoors | No |
+| Volumetric lights | Hand-written post effect | Yes | 0.6 ms | Good with spotlights, no effect with the sun | `sunShafts`, `lightVolumes` in `@threedog/post-effects/tsl` |
+| Occlusion culling | About 20 lines by hand | Yes | Saves time only behind heavy objects | Worth it for large engine parts, a loss for an ordinary 200-object scene | `engine.occlusion` |
 
 ## Compared with other engines
 

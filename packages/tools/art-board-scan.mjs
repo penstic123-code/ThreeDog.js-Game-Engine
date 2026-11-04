@@ -12,6 +12,7 @@ import { read, walk, balanced, splitTop } from './lib/text.mjs';
 import { gameAssets } from './content-check/load.mjs';
 import { fileStems } from './gallery/index.js';
 import { readLibrary } from './lib.mjs';
+import { changeWords, pullStatus } from './lib/lib-records.mjs';
 
 const KIND_OF = [[/\.(glb|gltf)$/i, 'model'], [/\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|svg)$/i, 'texture'], [/\.(wav|mp3|ogg|m4a)$/i, 'sound'],
   [/\.(woff2?|ttf|otf)$/i, 'font'], [/\.(glsl|vert|frag|wgsl)$/i, 'shader']];
@@ -90,8 +91,8 @@ function scanFiles(b) {
   const files = [...walk(join(b.dir, 'public'), { exts: ART_FILE }), ...walk(b.dir, { exts: ART_FILE, skip: NOT_ART })];
   for (const f of files) {
     const rel = slash(relative(b.dir, f));
-    // art/models/x.glb is the source of public/models/x.glb (threedog assets): one resource with two files, not two with one "unused"
-    const built = rel.startsWith('art/models/') ? 'public/' + rel.slice(4) : null;
+    // art/models/x.glb is the source of public/optimized/x.glb (threedog assets): one resource with two files, not two with one "unused"
+    const built = rel.startsWith('art/models/') ? 'public/optimized/' + rel.slice('art/models/'.length) : null;
     if (built && b.byFile.has(built)) { b.byFile.get(built).source = rel; continue; }
     const it = b.add({ kind: kindOf(rel), name: basename(rel, extname(rel)), file: rel, size: statSync(f).size });
     b.byFile.set(rel, it);
@@ -250,20 +251,18 @@ function scanRefs(b, sources) {
   }
 }
 
-/** Library entries in this game. `lib pull` keeps no record (on purpose), so a pull shows as plugins/<name>, or as a file with the entry's exact bytes */
+/** What this game pulled from a library, from its pull records (lib/lib-records.mjs): each file is marked, and a changed file says so. The library only adds the preview */
 function scanLibrary(b, lib) {
-  if (!lib || !existsSync(lib)) return;
-  for (const e of readLibrary(lib).entries) {
-    const wired = [`plugins/${e.name}.js`, `plugins/${e.name}`].filter(p => existsSync(join(b.dir, p))), same = [];
-    for (const f of readdirSync(e.dir, { recursive: true }).map(String).filter(x => ART_FILE.test(x))) {
-      const theirs = join(e.dir, f), size = statSync(theirs).size;
-      for (const it of b.byFile.values()) if (it.size === size && basename(it.file) === basename(f) && readFileSync(join(b.dir, it.file)).equals(readFileSync(theirs))) { same.push(it); it.library = e.name; }
+  const library = lib ? readLibrary(lib).entries : [];
+  for (const r of pullStatus(b.dir, library)) {
+    const paths = Object.keys(r.files);
+    const it = b.add({ kind: 'library', name: r.entry, file: paths[0] ?? null, extra: { summary: r.summary, entryKind: r.kind, pulled: changeWords(r), changed: [...r.changed, ...r.missing], libraryState: r.library, from: r.from } });
+    const e = library.find(x => x.name === r.entry);
+    if (e && existsSync(join(e.dir, 'preview.png'))) it.preview = { type: 'image', abs: join(e.dir, 'preview.png') };
+    for (const f of paths) {
+      it.uses.push({ at: f, how: r.missing.includes(f) ? 'pulled, deleted here' : r.changed.includes(f) ? 'pulled, changed here' : 'pulled, unchanged' });
+      if (b.byFile.has(f)) b.byFile.get(f).library = r.entry;
     }
-    if (!wired.length && !same.length) continue;
-    const it = b.add({ kind: 'library', name: e.name, file: wired[0] ?? same[0].file, extra: { summary: e.summary, entryKind: e.kind } });
-    if (existsSync(join(e.dir, 'preview.png'))) it.preview = { type: 'image', abs: join(e.dir, 'preview.png') };
-    if (wired.length) it.uses.push({ at: wired[0], how: 'plugged at engine.start()' });
-    for (const x of same) it.uses.push({ at: x.file, how: 'same file' });
   }
 }
 
@@ -305,6 +304,7 @@ const some = (l, n = 3) => l.slice(0, n).join(', ') + (l.length > n ? ` and ${l.
 function lineOf(it) {
   const head = `${it.kind} ${it.name} (${it.file ?? 'no file'}${it.source ? `, source ${it.source}` : ''})`;
   if (it.status === 'missing') return `${head}, MISSING (${it.problem}), named in ${some(atList(it.uses)) || it.defAt}`;
+  if (it.kind === 'library') return `${head}, pulled from the library, ${it.pulled}${it.libraryState === 'newer' ? ', newer in the library' : ''}`;
   if (it.status === 'used') return `${head}, used in ${some(atList(it.uses))}`;
   if (it.status === 'not-traced') return `${head}, not traced: maybe reached from ${some(atList(it.maybe))}`;
   return `${head}, unused`;

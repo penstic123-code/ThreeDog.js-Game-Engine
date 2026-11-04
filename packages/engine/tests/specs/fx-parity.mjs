@@ -8,11 +8,12 @@ import { fileURLToPath } from 'node:url';
 
 const ENGINE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // engine files threedog/tsl may import: plain data / plain functions with no three.js WebGL parts
-const SAFE = new Set(['core/errorHints.js', 'core/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/threePatches.js', 'core/validate.js']);
+const SAFE = new Set(['core/errorHints.js', 'core/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/threePatches.js', 'core/validate.js', 'render/layers.js']);
 const THREE_OK = new Set(['three/tsl', 'three/webgpu']);
 // three's TSL display nodes (bloom, ao for the WebGPU post chain): they import only three/tsl and three/webgpu themselves
 // plus CSMShadowNode (render/cascades.tsl.js): three/webgpu, three/tsl and CSMFrustum, which takes only Vector3 / Matrix4 from 'three'
-const THREE_TSL_ADDON = /^three\/addons\/(tsl\/display\/[\w]+|csm\/CSMShadowNode)\.js$/;
+// and LightProbeGrid (render/fx/index.js): three/webgpu, three/tsl and LightProbeGridUtils, which takes only Box3, DirectionalLight, Sphere, Vector3 from 'three'
+const THREE_TSL_ADDON = /^three\/addons\/(tsl\/display\/[\w]+|csm\/CSMShadowNode|lighting\/LightProbeGrid)\.js$/;
 
 /** Every import reachable from render/fx/index.js, and the ones it must not have */
 function tslImports() {

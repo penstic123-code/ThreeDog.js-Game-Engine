@@ -74,7 +74,7 @@ export async function run({ check }) {
     render(JSON.stringify(tpl), { name: 'my-farm' }).includes('"name":"my-farm"') && /join\(ROOT, 'node_modules', name\)/.test(ng));
   // every template layer starts from the same picture/ folder: a main.js still importing the removed style/ would only fail at build time, in a slower test
   const made = {};
-  for (const [k, o] of Object.entries({ blank: {}, world: { openWorld: true }, sample: { openWorld: true, example: true } })) {
+  for (const [k, o] of Object.entries({ blank: {}, world: { openWorld: true } })) {
     const dir = mkdtempSync(join(tmpdir(), 'td-tpl-'));
     copyTemplates(dir, { name: 'g', ...o });
     made[k] = { picture: ['index', 'palette', 'lights', 'materials'].every(f => existsSync(join(dir, 'picture', f + '.js'))), noStyle: !existsSync(join(dir, 'style')), main: readFileSync(join(dir, 'main.js'), 'utf8'), lights: readFileSync(join(dir, 'picture', 'lights.js'), 'utf8') };
@@ -83,9 +83,9 @@ export async function run({ check }) {
   check('new-game: every layer has picture/, no style/, and main.js wires createPicture with the engine lights off',
     Object.values(made).every(m => m.picture && m.noStyle && /createPicture\(engine\)/.test(m.main) && /lights: false/.test(m.main) && !m.main.includes('style/index')), JSON.stringify(Object.values(made).map(m => [m.picture, m.noStyle])));
   check('new-game: picture/lights.js sizes the shadow map by engine.tier', /engine\.tier/.test(made.blank.lights));
-  check('new-game: the worlds with a sky leave lights and fog to picture/', [made.world, made.sample].every(m => /lights: false/.test(m.main) && !/sky: \{/.test(m.main)));
+  check('new-game: the worlds with a sky leave lights and fog to picture/', /lights: false/.test(made.world.main) && !/sky: \{/.test(made.world.main));
   check('new-game / init reject unknown flags (no --style: the art starts in the game picture/ folder)',
-    !!parseArgs(['g', '--style', 'x']).error && parseArgs(['g', '--example']).openWorld === true);
+    !!parseArgs(['g', '--style', 'x']).error && !!parseArgs(['g', '--example']).error && parseArgs(['g', '--open-world']).openWorld === true);
 
   // ── F7: R40 switches ──
   const mat = "const spin = Math.random();\n";

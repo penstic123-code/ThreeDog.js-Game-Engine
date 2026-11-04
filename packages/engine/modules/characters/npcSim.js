@@ -6,6 +6,8 @@
 // as if it had kept running.
 // See the top of NPC.js for record fields.
 
+import { standAt } from './movers/support.js';
+
 /** Fixed steps an NPC waits for a findPathAsync answer before asking again (answers normally land 4 steps later; a long queue adds perStep batches) */
 const PATH_WAIT = 300;
 
@@ -78,7 +80,9 @@ export function settle(e, W, rec, x, z, moving) {
   noteState(e, rec, moving ? 'walk' : 'idle');
   // NPC of another level: this level's ground height is meaningless for it, keep its y
   const here = rec.zone == null || W.zone == null || rec.zone === W.zone;
-  W.move(rec.id, { x, y: here ? e.surface(x, z) : p.y, z });
+  // the same rule the model uses (support.js standAt), from the height it is at: without it an NPC on a deck or an upper floor dropped to the ground in the data
+  const y = here ? standAt(e, x, z, p.y, rec.look?.stepHeight ?? e.movement.stepHeight).y : p.y;
+  W.move(rec.id, { x, y: y === -Infinity ? p.y : y, z });
 }
 
 /**

@@ -26,7 +26,7 @@ export const EXTRA = {
 export const ALL = { ...COMMANDS, ...EXTRA };
 
 /** Failures of the bridge itself (not of the command): these get the four-cause diagnosis */
-const BRIDGE_ERR = /no dev server is running|cannot reach the dev server|timed out waiting for the engine|no ready engine|no engine in the page|did not respond for 2 minutes/;
+const BRIDGE_ERR = /no dev server is running|cannot reach the dev server|timed out waiting for the engine|no ready engine|no engine in the page|did not respond for \d+ minutes/;
 
 /** Output that a caller parses (JSON, a bare value): no state line appended */
 const plain = (cmd, args) => cmd === 'eval' || cmd === 'js' || (cmd === 'describe' && args.some((a, i) => a === '--full' || a === '--all'

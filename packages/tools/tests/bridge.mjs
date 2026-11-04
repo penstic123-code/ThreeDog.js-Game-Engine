@@ -134,6 +134,25 @@ export async function run({ check, browser }) {
     // [guard] a picture through the bridge runs the same picture check as threedog shot (the demos skipped it by screenshotting another way)
     check('snap: prints the picture check of the live page (Picture: numbers), --no-picture skips it', /\nPicture: luminance [\d.]+/.test(snap.out)
       && !/Picture: luminance/.test((await threedog('snap', 'bridge-test', '--no-picture')).out), snap.out);
+    // [guard] a WebGL2 fallback picture must not pass for WebGPU, and --play is the same word as on shot
+    check('snap: says which backend drew the picture', /drawn by (WebGPU|WebGL2|WebGL)/.test(snap.out), snap.out);
+    const sp = await threedog('snap', 'bridge-test', '--play', '--no-picture');
+    check('snap --play: takes the same word as shot, with no start-screen note', sp.code === 0 && !/start screen covers/.test(sp.out), sp.out);
+    // [guard] a script waiting on game time on a page nobody steps (await walkTo) ends with the reason, not a silent command timeout
+    const waits = await threedog('js', '--wait', '1', 'await new Promise(() => {})');
+    check('js --wait: a script on a stopped page ends, says it may be waiting on the game clock and may still run', waits.code !== 0 && /may be waiting on the game clock/.test(waits.out) && /may still be running/.test(waits.out), waits.out);
+    // [guard] a real wait that is not the clock: the old rule failed any script after 20 s with no tick, though nothing was wrong
+    const longWait = await threedog('js', 'await new Promise(r => setTimeout(r, 21000)); return "waited"');
+    check('js: a real 21 s wait (a timer, not the game clock) finishes by default', longWait.code === 0 && /waited/.test(longWait.out), longWait.out);
+    // [guard] a running load is not a stopped page: the count starts only once it is done
+    const loading = await threedog('js', '--wait', '1', 'const m = { name: "hold", isReady: () => false }; engine.modules.set("hold", m); await new Promise(r => setTimeout(r, 2500)); engine.modules.delete("hold"); return "loaded"');
+    check('js --wait: a load running in the page does not count as stopped', loading.code === 0 && /loaded/.test(loading.out), loading.out);
+    // [guard] statements fail the expression try first: that path once left the 500 ms timer running after every multi-statement script
+    await threedog('js', 'const live = window.__live = new Set(), si = window.setInterval, ci = window.clearInterval; window.setInterval = (...a) => { const t = si(...a); live.add(t); return t; }; window.clearInterval = t => { live.delete(t); ci(t); }; return 1');
+    const liveBefore = (await threedog('js', 'window.__live.size')).out;
+    await threedog('js', 'const a = 1; return a');
+    const liveAfter = (await threedog('js', 'window.__live.size')).out;
+    check('js: a multi-statement script leaves no timer behind', liveBefore === liveAfter, liveBefore + ' / ' + liveAfter);
     const sh = await threedog('snap', '--help'), sx = await threedog('snap', '--nope');
     check('snap --help prints usage, an unknown flag lists the valid ones, neither saves a file', sh.code === 0 && sh.out.startsWith('Usage: threedog snap')
       && sx.code === 1 && sx.out.includes('--width') && !existsSync(join(dir, '.threedog/shots/--help.png')) && !existsSync(join(dir, '.threedog/shots/--nope.png')),

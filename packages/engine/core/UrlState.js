@@ -1,7 +1,11 @@
 // engine.applyState: one-call scenarios.
-// Reproduce a scenario in one call: engine.applyState({ time, season, weather, pos, save, wait, cutscene, view, play, state }), engine.defineState(name, params).
+// Reproduce a scenario in one call: engine.applyState({ time, season, weather, pos, at, save, wait, cutscene, view, play, fresh, state }), engine.defineState(name, params).
 // In dev (or with createEngine({ urlState: true })) URL parameters are read automatically: /?time=18:30&weather=rain&pos=40,-20&cutscene=skip&wait=3&state=name
 // ?play (any value) leaves the title screen the way its Start does (engine.session.newGame(), then the title part closes; flow's start state too): `shot --play`, tests
+// ?fresh (bare, or ?fresh=1; false and 0 do nothing) deletes every save of this page first, so the title offers no Continue and a key press on it starts a new run; on a running page it also ends
+// the run and goes back to the title (session.quit). For repeatable script runs: Enter on a title picks Continue when a save exists, so a rerun played the last
+// autosave. ?fresh&play is a clean start in play, with or without a title screen. Read from the URL in dev mode only: outside it early() drops fresh with one warning,
+// even with createEngine({ urlState: true }), because a link must never delete a player's saves in a shipped game. The game's own engine.applyState({ fresh: true }) still acts
 // ?at=<place> is ?play plus standing at a named place, with the game's own camera on the player: `shot --at <place>`. Every game wrote this by hand (15-20 lines), and
 // a placement made before session:start is undone by it, so it happens here, after the run started. Names are a module's: its applyState hook answers { at } with
 // a position, and core does the placing, so core names no module
@@ -13,18 +17,22 @@
 //   early(): before modules are ready, applies save, pos, time, weather (terrain is generated directly at the new position)
 //   late(): after engine:ready, play (start a run when the title is up), at, view (engine.views), cutscene ('skip' skips the opening cutscene), sets weather once more, advances wait seconds, aligns time again, then emits state:applied
 // In a game, await engine.applyState({...}) at any time runs both phases back to back.
-import { warnMissing } from './validate.js';
+import { warnMissing, warnOnce, DEV } from './validate.js';
 import { readParams, keysSchema } from './params.js';
-import { xzOf } from './math.js';
+import { xzOf, yOf } from './math.js';
 import { unsettled } from './headlessLoad.js';
 import { codedError } from './errorHints.js';
 
-const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'at', 'save', 'wait', 'cutscene', 'view', 'play'];
+// fresh deletes saves, so it acts only on a clear yes: a bare ?fresh reads as ''
+const freshOn = v => v === true || v === '1' || v === '';
+const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'at', 'save', 'wait', 'cutscene', 'view', 'play', 'fresh'];
 
 export class UrlState {
-  constructor(engine, { fromUrl = false } = {}) {
+  constructor(engine, { fromUrl = false, dev = DEV } = {}) {
     this.engine = engine;
     this.fromUrl = fromUrl;
+    this.dev = dev;
+    this._ended = false;       // fresh ended a running playthrough, so play must start one even when no title is up
     this.states = new Map();   // name -> params
     this.pending = null;       // URL parameters (used by start())
     this.applied = false;      // URL parameters are fully applied (npm run shot waits for it)
@@ -66,14 +74,22 @@ export class UrlState {
       await new Promise(r => setTimeout(r, 16));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
     }
   }
-  // shortcut: stands on the top surface at x, z (placeAt), so a place with a y under a roof lands on the roof; upgrade when placeAt takes a floor
   _place(pos) {
     const e = this.engine, [x, z] = xzOf(pos);
-    if (e.player) e.player.placeAt({ x, z }); else e.focus.set(x, e.surface(x, z), z);
+    if (e.player) e.player.placeAt(pos); else e.focus.set(x, e.surface(x, z, yOf(pos)), z);
     e.events.emit('state:placed', { x, z });
+  }
+  async _fresh() {
+    const e = this.engine;
+    await Promise.all(e.saves.list().map(s => e.saves.remove(s.slot)));
+    if (!e.ready) return;   // during start(): the title has not been drawn yet, and nothing runs to end
+    if (e.ui.isOpen('title')) e.ui.close('title');   // closed first so quit draws it again, without Continue
+    await e.session.quit();
+    this._ended = true;
   }
   async _early(p) {
     const e = this.engine;
+    if (freshOn(p.fresh)) await this._fresh();
     if (p.save != null) await e.saves.load(String(p.save));
     if (p.pos) this._place(p.pos);
     await Promise.all(this._hooks(p, ['time', 'season', 'weather']));
@@ -82,8 +98,10 @@ export class UrlState {
     const e = this.engine;
     // play: what the title's Start does (ui/defaults.js), so the game's session:start setup runs; a module with a title of its own (flow's
     // start state) leaves it in its applyState hook. Before wait, so the advanced seconds are played seconds
+    const ended = this._ended; this._ended = false;
     if (p.play != null) {
-      if (e.ui.isOpen('title')) { await e.session.newGame(); e.ui.close('title'); }
+      // ended: without a title part quit leaves nothing open to press Start on, and a run that ended must still start again (session:start)
+      if (ended || e.ui.isOpen('title')) { await e.session.newGame(); e.ui.close('title'); }
       await Promise.all(this._hooks(p, ['play']));
     }
     if (p.at != null) {
@@ -117,6 +135,10 @@ export class UrlState {
     for (const k of KEYS) if (q.has(k)) raw[k] = q.get(k);
     if (!Object.keys(raw).length) return;
     this.pending = this._expand(raw);
+    if (!this.dev && this.pending.fresh != null) {   // after _expand: a named ?state= can carry fresh too
+      delete this.pending.fresh;
+      warnOnce('?fresh is ignored outside dev mode: a link must not delete saves in a shipped game. Game code can call engine.applyState({ fresh: true }).');
+    }
     return this._early(this.pending);
   }
   /** In start(), after engine:ready: cutscene, wait, align time again, then emit state:applied */

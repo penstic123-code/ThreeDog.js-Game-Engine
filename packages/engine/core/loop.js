@@ -82,7 +82,7 @@ export const loopMethods = {
     if (this._prof) this._prof.frames++;
     this._picture?.frameStart();
     advanceUiClock(this, dt);   // headless pages: UI display timers run on the stepped time (core/uiClock.js)
-    writeDaylight(this);   // before the hooks: an onFrame reads this frame's signal, and the sky writes its drawn sun over uDaylight
+    writeDaylight(this);   // before the hooks: an onFrame reads this frame's signal
     for (const f of this._frame) safe(this, STRINGS.onFrame, f, null, undefined, dt);
     this._runHooks('frame', dt);
     safe(this, 'stream.update', this.stream._update, SOFT, this.stream);
@@ -97,6 +97,7 @@ export const loopMethods = {
     const r = this.renderer;
     resetStats(r);
     this._gameLights?.frame();   // plain PointLight / SpotLight at intensity 0 stop redrawing their shadow map (gameLights.js)
+    writeDaylight(this);   // again: a time jump in onFrame / a module's frame hook after the first write must reach uDaylight / uTimeOfDay in the frame that draws it, with uSunDir
     followFocus(this);   // baseline sun (no sky module): its shadow box follows engine.focus (render/lights.js)
     const t0 = performance.now();   // measure
     const gpu = this.adaptive.on ? this._gpu : null;   // GPU time feeds adaptive resolution only; no queries while it is off

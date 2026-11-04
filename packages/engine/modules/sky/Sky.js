@@ -1,4 +1,4 @@
-// Sky module: signals (engine.uniforms: uSunDir, uSunColor, uDaylight, uTimeOfDay, uSkyTop, uSkyHorizon, season, cover) and the dome (gradient + sun + moon + stars).
+// Sky module: signals (engine.uniforms: uSunDir, uSunColor, uSkyTop, uSkyHorizon, season, cover; uDaylight / uTimeOfDay come from render/daylight.js) and the dome (gradient + sun + moon + stars).
 // It writes no light, fog, exposure or environment: the game's picture/ folder reads the signals and writes three.js (recipes/62).
 // Per-time colors are sky({ keyframes }) / engine.sky.keyframes(rows); sun, moon, star and cloud numbers are engine.uniforms values (write .value, both renderers);
 // the engine only holds neutral fallbacks.
@@ -140,7 +140,7 @@ export class Sky {
   /**
    * Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back.
    * The engine never writes your object: it hides the dome, adds your object to the scene only when it has no parent, puts a plain texture's panorama
-   * mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind ...).
+   * mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uWind ...).
    * @example engine.sky.replace(new SkyMesh());
    * @example engine.sky.replace(null);
    * @param {string | import('three').Texture | Object3D | null} sky

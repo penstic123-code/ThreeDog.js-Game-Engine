@@ -38,12 +38,17 @@ if (opt.rule) {
   }
   onlyRules = wanted;
 }
-const ruleErrors = await runRules({ only: onlyRules, all: !!opt.all, verbose: !!opt.verbose, game: !MONO, scope });
+// a line per stage as it happens: a check that prints nothing for two minutes reads as hung, and the part results below are only printed once all are done
+const t0 = Date.now(), stage = s => console.log(`… ${s} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+// scoped: only the rules that apply to a game. The others read the engine and its docs (R18 alone takes 14 s) and their results were dropped anyway
+const ruleErrors = await runRules({ only: onlyRules, all: !!opt.all, verbose: !!opt.verbose, game: !MONO || !!scope, scope });
 
 // Generated docs and game maps up to date; game content validation; types. Run in parallel, printed in a fixed order.
 // Scoped: that game's GAMEMAP, content and types (types.mjs filters to the game and hands back its other counts); the engine generators only add to
 // the engine count (types.mjs covers the generated declarations). They run at the root: a repo-wide check stays repo-wide wherever it was started
 const w = scope ? ['-w', scope.rel] : [];
+const NAMES = { 'gentypes.mjs': 'generated declarations', 'codemap.mjs': 'code map', 'gamemap.mjs': 'GAMEMAP', 'content-check.mjs': 'content',
+  'types.mjs': 'type check', 'apidoc.mjs': 'API docs' };
 const SUB = onlyRules ? [] : MONO && !scope ? [['gentypes.mjs', '--check'], ['codemap.mjs', '--check'], ['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs'], ['apidoc.mjs', '--check']]
   : [['gamemap.mjs', '--check', ...w], ['content-check.mjs', ...w], ['types.mjs', ...w, ...(scope ? ['--tally-json'] : [])]];
 const ENGINE_SUB = scope && MONO && !onlyRules ? [['codemap.mjs', '--check'], ['apidoc.mjs', '--check']] : [];
@@ -51,14 +56,14 @@ const runSub = ([file, ...args]) => new Promise(res => {
   const c = spawn(process.execPath, [join(P.TOOLS, file), ...args], { cwd: P.ROOT });
   let out = '';
   c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
-  c.on('close', code => res({ out, code }));
+  c.on('close', code => { stage(`${NAMES[file]} finished`); res({ out, code }); });
 });
 let bad = ruleErrors;
+stage('rules finished');
+if (SUB.length) stage(`running in parallel: ${[...SUB, ...ENGINE_SUB].map(([f]) => NAMES[f]).join(', ')}`);
 const [mine, eng] = await Promise.all([Promise.all(SUB.map(runSub)), Promise.all(ENGINE_SUB.map(runSub))]);
 // The last line names every part that failed: "Rule checks: 0 errors" above is only the rules, and a failed type check printed far up the
 // output read as a pass
-const NAMES = { 'gentypes.mjs': 'generated declarations', 'codemap.mjs': 'code map', 'gamemap.mjs': 'GAMEMAP', 'content-check.mjs': 'content',
-  'types.mjs': 'type check', 'apidoc.mjs': 'API docs' };
 const failed = ruleErrors ? [`rules ${ruleErrors} error${ruleErrors > 1 ? 's' : ''}`] : [];
 mine.forEach((r, i) => {
   process.stdout.write(scope ? scope.absorb(r.out) : r.out);

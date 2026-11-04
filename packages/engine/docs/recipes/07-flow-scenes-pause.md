@@ -76,7 +76,8 @@ game's camera there at once. An unknown name stops with the list of places. A ca
 
 To get past the title without a key of your own, use the engine's `?play` URL key (`npm run shot -- --play`, `applyState({ play: true })`): after
 `engine:ready` it does what the title's Start does (`engine.session.newGame()`, then the title part closes), so `flow({ start: 'title' })` moves to
-`'playing'` and the game's `session:start` setup runs; with no title up it does nothing. Two things that make a moment
+`'playing'` and the game's `session:start` setup runs; with no title up it does nothing. `?fresh` (`applyState({ fresh: true })`) first deletes this
+page's saves, so the title offers no Continue; on a running page it also ends the run. Two things that make a moment
 drawing half-done in a picture: a headless page advances only on `engine.step` (the shot steps one frame after the game's code, so a
 `weather.set(name, { seconds: 0.1 })` made after `start()` shows a third of the change: use `seconds: 0`), and an `onFrame` copy of a sky
 color is one frame old (share `engine.uniforms.uSkyHorizon` instead, recipe 08).

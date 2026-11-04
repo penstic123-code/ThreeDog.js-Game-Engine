@@ -115,6 +115,7 @@ export const webglPost = {
   },
   /** a fuse effect's params changed: its fused pass re-reads the values (uniforms, no recompile) */
   refresh(post) { for (const p of post._fused.values()) p.refresh(); },
+  samples: post => (post.active ? post.composer?.renderTarget1.samples ?? (post._aa ? 4 : 0) : post._ownAA ? 4 : 0),
   setAntialias(post, on) {
     if (post.composer) for (const rt of [post.composer.renderTarget1, post.composer.renderTarget2]) { rt.samples = on ? 4 : 0; rt.dispose(); }
   },
@@ -129,11 +130,13 @@ export const webglPost = {
       const css = renderer.getSize(new THREE.Vector2());
       post.composer.setSize(css.x, css.y);
       post._scenePass = new RenderPass(scene, camera);
+      const drawScene = post._scenePass.render.bind(post._scenePass);
+      post._scenePass.render = (...a) => { drawScene(...a); post.engine.occlusion?._sceneDrawn(); };
       post._output = new OutputPass();
     }
     const c = post.composer, on = post._sorted().filter(e => e.enabled);
     for (const e of on) if (!e._impl && !e._def.fuse) {
-      if (typeof e._def.create !== 'function') throw codedError('post-effect', `post effect '${e.name}' has only node() (a TSL node, WebGPURenderer only); on WebGLRenderer give it create: (ctx) => pass (a three.js postprocessing Pass)`);
+      if (typeof e._def.create !== 'function') throw codedError('post-effect', `post effect '${e.name}' has only node() (a TSL node, WebGPURenderer only) and this game chose WebGLRenderer: use createEngine({ renderer: 'webgpu' }), or give it create: (ctx) => pass (a three.js postprocessing Pass)`);
       e._impl = e._def.create({ engine: post.engine, scene, camera, width: size.x, height: size.y, params: e.params });
       if (!e._impl || typeof e._impl.render !== 'function') { e._impl = null; throw codedError('post-effect', `post effect '${e.name}': create() must return a pass with render() (a three.js postprocessing Pass)`); }
     }

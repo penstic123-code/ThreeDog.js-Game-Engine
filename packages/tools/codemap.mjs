@@ -1,7 +1,7 @@
 // Generates the code map packages/engine/docs/CODEMAP.md: npm run map
 // Engine-level reference, read when needed (reading order is in docs/AI.md): which modules exist and their per-frame order, what each engine
 //   file or module folder does, who emits / listens to which events, key actions, i18n key groups and style keys. Scanned from the engine
-//   package only (games and their style/ folders have their own GAMEMAP), so it never goes stale and never names a game.
+//   package only (games and their picture/ folders have their own GAMEMAP), so it never goes stale and never names a game.
 // Size budget: --check fails above BUDGET; shorten summaries or move detail to api/ instead of raising it.
 // npm run check verifies the map is up to date (and also generates core/events.generated.js from EventMap).
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -14,7 +14,7 @@ const { rel } = P, OUT = P.abs(P.CODEMAP_REL);
 const BUDGET = 28 * 1024;   // raised from 22 KB (user, 2026-11-03): the WebGPU route adds files; trim by structure, not by cutting summaries
 const isEngine = r => r === P.INDEX_JS_REL || P.ENGINE_CODE_DIRS_REL.some(d => P.under(r, d));
 const walk = d => walkAll(d, { skip: ['tests', 'vite.config.js'] });
-const files = [P.abs(P.INDEX_JS_REL), ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(P.abs(d)))];   // engine package only: a picture is a game's own style/ folder
+const files = [P.abs(P.INDEX_JS_REL), ...P.ENGINE_CODE_DIRS_REL.flatMap(d => walk(P.abs(d)))];   // engine package only: a picture is a game's own picture/ folder
 const sp = p => p.slice(P.ENGINE_REL.length + 1);   // package-relative path (core/Input.js)
 /** Who: a module folder name (dialogue), else the package-relative path (core/Events.js) */
 const who = r => { const s = sp(r); return s.startsWith('modules/') ? s.split('/')[1] : s; };

@@ -77,9 +77,8 @@ if (night) {
 async function setupFill() {
   picture.snapZone();   // bake with indoor ambient, as the room is meant to be seen
   if (fill !== 'probes') return;
-  // bounds = the room's air; the probe light follows a fixed point in the room (one SH for the whole scene at a time)
-  const center = new THREE.Vector3(0, 1.2, 0);
-  await engine.bakeProbes({ bounds: { min: [x0 + 0.5, 0.4, z0 + 0.5], max: [x1 - 0.5, h - 0.4, z1 - 0.5] }, spacing: 2.5, follow: () => center });
+  // bounds = the room's air
+  await engine.bakeProbes({ bounds: { min: [x0 + 0.5, 0.4, z0 + 0.5], max: [x1 - 0.5, h - 0.4, z1 - 0.5] }, spacing: 2.5 });
 }
 // spots the spec reads: the floor along the north wall and the north wall's lower part, both out of the sun patch
 const points = { corner: [-0.5, 0.03, -2.5], northWall: [1.5, 0.6, -2.98] };
